@@ -5,7 +5,6 @@ import type { AnswerCallParams, PersonCall, ProjectInfo } from '@shared/wire.gen
 import type { Snapshot } from '@/core/protocol';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
-import { keepsWordsPrivate } from '@shared/calls/words';
 import { liveOf } from '@/devices/hub';
 
 /** What the person has done on a call's card while it waits: the options chosen, the note or their words, What runs. */
@@ -161,7 +160,7 @@ export async function answer(
   change(core, (now) => ({ ...now, failed: withoutKey(now.failed, call.id) }));
   try {
     await callHost(connection, 'answerCall', params);
-    if (keepsWordsPrivate(call)) {
+    if (call.secret) {
       edit(draft, { typed: '' });
       drafts.delete(call.id);
     }

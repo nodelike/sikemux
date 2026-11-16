@@ -1080,7 +1080,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(_) => Err(format!("{key} must be a boolean")),
     };
     let kind = (params.get("kind")).and_then(|kind| CallKind::deserialize(kind).ok());
-    let secret = flag("secret")?.unwrap_or(false) || kind == Some(CallKind::Access);
+    let secret = flag("secret")?.unwrap_or(false);
     let blocked = secret || flag("blocked")?.unwrap_or(true);
     if let Some(pick) = params.get("pick").and_then(Value::as_str) {
         mark_pick(pick, &mut choices);
@@ -2355,33 +2355,56 @@ mod tests {
         assert_eq!(for_person, ["question-lead"]);
     }
 
-    /// The person's password to an access call showed in the asker's chat, and again in the
-    /// chat of the agent it was passed on to.
+    /// An access call asking the person to press a button in a page only they reach kept its
+    /// "Merged both" answer out of the chat, as if it were a password. Only a secret ask's is.
     #[tokio::test(flavor = "multi_thread")]
-    async fn an_answer_to_an_access_call_stays_out_of_every_chat() {
+    async fn only_a_secret_asks_answer_stays_out_of_every_chat() {
         use crate::server::parts::Parts;
         use crate::server::{Core, ServerCore};
+        use sikemux_view::calls::CallKind;
 
         let data = tempfile::tempdir().unwrap();
         let core = Core::new(Default::default(), Some(data.path())).unwrap();
-        let request = crate::cli::protocol::HarnessRequest {
-            id: "1".to_owned(),
+        let ask = |id: &str, params: serde_json::Value| crate::cli::protocol::HarnessRequest {
+            id: id.to_owned(),
             project: data.path().to_string_lossy().into_owned(),
             agent_id: Some("chief".to_owned()),
             method: "agent.ask".to_owned(),
-            params: serde_json::json!({ "question": "The staging password?", "kind": "access" }),
+            params,
         };
-        super::ask(&core, &request).await.expect("the ask");
         let questions = &core.harness().questions;
+
+        let press = ask(
+            "1",
+            serde_json::json!({
+                "question": "Press Squash merge on both PRs?",
+                "kind": "access",
+                "choices": ["Merged both", "Wait"],
+            }),
+        );
+        super::ask(&core, &press).await.expect("the access ask");
         let asked = questions.state.locked().open[0].clone();
         let call = asked.call();
-        assert!(asked.secret && call.secret && call.keeps_words_private());
+        assert!(
+            !asked.secret && !call.secret,
+            "an access ask is not a secret"
+        );
+        assert_eq!(call.kind, CallKind::Access);
+        assert_eq!(asked.view().secret_note, None);
 
-        let password = "hunter2-staging";
-        questions.keep_secret(&asked, password).expect("kept");
-        let passed_on = format!("Use {password} to sign in.");
-        let sent = questions.hide_secrets(&passed_on);
-        assert!(!sent.contains(password), "{sent}");
+        let password = ask(
+            "2",
+            serde_json::json!({ "question": "The staging password?", "secret": true }),
+        );
+        super::ask(&core, &password).await.expect("the secret ask");
+        let asked = questions.state.locked().open[1].clone();
+        let call = asked.call();
+        assert!(asked.secret && call.secret);
+        assert!(asked.view().secret_note.is_some());
+
+        let typed = "hunter2-staging";
+        questions.keep_secret(&asked, typed).expect("kept");
+        let sent = questions.hide_secrets(&format!("Use {typed} to sign in."));
         assert_eq!(sent, format!("Use {} to sign in.", super::HIDDEN));
     }
 

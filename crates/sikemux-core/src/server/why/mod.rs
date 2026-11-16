@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use sikemux_fold::{ChatEvent, ChatEventKind, UpdateKind};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_view::calls::{CallClient, CallKind, CallState, PersonCall};
+use sikemux_view::calls::{CallClient, CallState, PersonCall};
 use sikemux_view::chat::{WhyChip, WhyKind, WhyOpen, WHY_URI};
 
 use crate::cli::protocol::HarnessRequest;
@@ -469,10 +469,9 @@ fn decision_fact(card: Option<u64>, decision: &sikemux_view::slice::Decision) ->
     })
 }
 
-/// The person's answer to `call`, in words, when they gave one. A secret call, or an access
-/// call, is never a fact.
+/// The person's answer to `call`, in words, when they gave one. A secret call's is never a fact.
 fn call_fact(call: &PersonCall) -> Option<Fact> {
-    if call.secret || call.kind == CallKind::Access {
+    if call.secret {
         return None;
     }
     let answer = call.answer.as_ref()?;
@@ -496,7 +495,7 @@ fn call_fact(call: &PersonCall) -> Option<Fact> {
 }
 
 fn call_facts(core: &Core, asked: &Asked, call: &PersonCall, facts: &mut Facts) {
-    if call.secret || call.kind == CallKind::Access {
+    if call.secret {
         return;
     }
     match call_fact(call) {
@@ -1019,8 +1018,7 @@ impl Checking<'_> {
                 let Some(calls) = calls else {
                     return Checked::Unknown;
                 };
-                let found = (calls.iter())
-                    .find(|call| call.id == id && !call.secret && call.kind != CallKind::Access);
+                let found = (calls.iter()).find(|call| call.id == id && !call.secret);
                 let Some(call) = found else {
                     return Checked::Absent;
                 };

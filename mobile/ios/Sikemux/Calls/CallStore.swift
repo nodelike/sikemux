@@ -30,12 +30,6 @@ final class CallDraft {
     }
 }
 
-extension PersonCall {
-    /// What the person types for it goes to a private file the asker reads, never into the chat: a secret, or an
-    /// access call.
-    var keepsWordsPrivate: Bool { secret == true || kind == .access }
-}
-
 /// The calls one host puts to the person, as its view lists them, with what the person has done on each card, and
 /// the calls that reach that host.
 @MainActor @Observable
@@ -157,7 +151,7 @@ final class HostCalls {
             do {
                 _ = try await connection.call(PhoneCall.AnswerCall.self, params)
                 Haptics.success()
-                if call.keepsWordsPrivate {
+                if call.secret == true {
                     draft.typed = ""
                     drafts[call.id] = nil
                 }

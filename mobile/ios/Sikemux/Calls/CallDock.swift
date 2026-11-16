@@ -26,7 +26,7 @@ struct CallDock: View {
     private var calls: HostCalls { HostCalls.of(core) }
     private var chosen: [String] { draft.chosen(in: call) }
     private var typed: Bool { !draft.typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var pictured: Bool { !call.keepsWordsPrivate && call.options.contains { $0.picture != nil } }
+    private var pictured: Bool { call.secret != true && call.options.contains { $0.picture != nil } }
 
     var body: some View {
         ScrollView {
@@ -219,7 +219,7 @@ struct CallDock: View {
             IconView(icon: Icons.pencil, size: 13).foregroundStyle(
                 fieldFocused || secretFocused || typed ? palette.tertiary : palette.inkFaint)
             Group {
-                if call.keepsWordsPrivate {
+                if call.secret == true {
                     SecretField(
                         text: $draft.typed, focused: $secretFocused, accent: UIColor(palette.accent),
                         dark: !palette.isLight, onSubmit: goWithThis
@@ -250,7 +250,7 @@ struct CallDock: View {
     @ViewBuilder
     private var extras: some View {
         let runs = call.kind == .production ? call.action : nil
-        if runs != nil || call.keepsWordsPrivate {
+        if runs != nil || call.secret == true {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     if runs != nil {
@@ -274,7 +274,7 @@ struct CallDock: View {
                 if let runs, draft.runsOpen {
                     Text(runs).font(Theme.mono(12.5)).foregroundStyle(palette.secondary).textSelection(.enabled)
                 }
-                if call.keepsWordsPrivate {
+                if call.secret == true {
                     if typed {
                         Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
                     }

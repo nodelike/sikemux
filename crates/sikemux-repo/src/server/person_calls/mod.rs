@@ -1040,8 +1040,8 @@ fn answer_of(
     let answer = CallAnswer {
         option,
         options: Vec::new(),
-        note: note.filter(|_| !call.keeps_words_private()),
-        words: words.filter(|_| !call.keeps_words_private()),
+        note: note.filter(|_| !call.secret),
+        words: words.filter(|_| !call.secret),
         none: false,
         by: client,
         at: epoch_ms(),
@@ -1319,8 +1319,8 @@ async fn answer_questions_by(
             &Source::Question(params.id.clone()),
             |call, by| {
                 let option = |index: usize| call.options.get(index).map(|option| option.id.clone());
-                let typed = (params.answer.clone())
-                    .filter(|text| !text.trim().is_empty() && !call.keeps_words_private());
+                let typed =
+                    (params.answer.clone()).filter(|text| !text.trim().is_empty() && !call.secret);
                 let picked = params.choice.is_some();
                 CallAnswer {
                     option: params.choice.and_then(option),

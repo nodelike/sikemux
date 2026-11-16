@@ -12,7 +12,6 @@ import {
   GO_WITH_THIS,
   hidden,
   kept,
-  keepsWordsPrivate,
   OWN_WORDS,
   PICK,
   pictureLabel,
@@ -79,8 +78,8 @@ export const CallDock = memo(function CallDock({
   const typed = draft.typed.trim().length > 0;
   const [focused, setFocused] = useState(false);
   const lit = focused || typed;
-  const secret = keepsWordsPrivate(call);
-  const pictured = !call.secret && call.options.some((option) => option.picture);
+  const secret = !!call.secret;
+  const pictured = !secret && call.options.some((option) => option.picture);
   const runs = call.kind === 'production' ? call.action : undefined;
   const at = queue.findIndex((each) => each.id === call.id);
   const context = contextOf(call);

@@ -144,7 +144,7 @@ impl Cards {
         if let Some(held) = self.held.get(&call.id) {
             return held.field.clone();
         }
-        let field = cx.new(|cx| InputState::new(window, cx).masked(call.keeps_words_private()));
+        let field = cx.new(|cx| InputState::new(window, cx).masked(call.secret));
         let id = call.id.clone();
         // Only the button, or the card's own key, passes a step to production; Enter in its
         // note sends nothing.
@@ -305,7 +305,7 @@ impl Workbench {
             return away::open_of(&away.calls, opened.as_deref(), |id| {
                 (self.view_at(place)?.calls.iter()).find(|call| call.id == id)
             })
-            .filter(|call| call.keeps_words_private() || waits(call, agent));
+            .filter(|call| call.secret || waits(call, agent));
         }
         let opened = self.calls.read(cx).opened.clone();
         let open = (self.view_at(place)?.calls.iter())
@@ -786,7 +786,7 @@ fn answers(
 
 /// Says the person's words on a call for a secret reach only its asker.
 fn kept_line(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
-    call.keeps_words_private().then(|| {
+    call.secret.then(|| {
         div()
             .mt(SPACE_2)
             .flex()
@@ -816,7 +816,7 @@ fn pick_mark(t: &Tokens) -> gpui_kit::Div {
 }
 
 fn note_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
-    match (chosen.is_empty(), call.keeps_words_private()) {
+    match (chosen.is_empty(), call.secret) {
         (_, true) => t!("Type or paste it…"),
         (false, false) => t!("Add a note…"),
         (true, false) => t!("Or answer in your own words…"),
@@ -1176,7 +1176,7 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
             .map(|option| format!("“{}”", option.label))
     };
     let picked: Vec<String> = answer.option.iter().filter_map(label).collect();
-    let private = call.keeps_words_private() && picked.is_empty();
+    let private = call.secret && picked.is_empty();
     match (&answer.by, picked.is_empty(), private) {
         (_, _, true) => t!("You answered, kept private").to_owned(),
         (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),

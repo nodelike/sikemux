@@ -402,12 +402,6 @@ export const CALLS = "Calls";
 export const ANSWERED = "Answered";
 export const NO_CALLS = "Nothing waits on you.";
 
-/**
- * What the person types for `call` is kept private, since it may be a password or a token: a secret's, or an access
- * call's. Its asker reads it from a private file, and no client shows or keeps it.
- */
-export const keepsWordsPrivate = (call: PersonCall) => !!call.secret || call.kind === "access";
-
 /** What came of an answered or closed call, as its row in the calls tab says it. */
 export function cameOf(call: PersonCall, say: Say = english): string {
     switch (call.outcome?.result) {
@@ -425,7 +419,7 @@ export function cameOf(call: PersonCall, say: Say = english): string {
     const answer = call.answer;
     if (!answer) return say("closed");
     const picked = answer.option != null ? [answer.option] : (answer.options ?? []);
-    if (keepsWordsPrivate(call) && !picked.length) return say("answered, kept private");
+    if (call.secret && !picked.length) return say("answered, kept private");
     if (answer.words != null) return say("in your words");
     if (picked.length === 1 && picked[0] === call.pick) return say("as picked");
     const labels = picked.map((id) => call.options.find((option) => option.id === id)?.label).filter((label) => label != null);
