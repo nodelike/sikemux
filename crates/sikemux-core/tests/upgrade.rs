@@ -127,27 +127,30 @@ impl CoreProcess {
     /// Waits for `files` of the core's own files to hold `text`, since a crash loses what
     /// it has not written down yet.
     async fn until_written(&self, files: usize, text: &str) {
-        fn holding(dir: &Path, text: &str) -> usize {
-            let Ok(entries) = std::fs::read_dir(dir) else {
-                return 0;
-            };
-            entries
-                .flatten()
-                .map(|entry| {
-                    let path = entry.path();
-                    // The folder also holds links to the core's binary, which takes seconds to read.
-                    match entry.file_type() {
-                        Ok(kind) if kind.is_dir() => holding(&path, text),
-                        Ok(kind) if kind.is_file() => {
-                            let bytes = std::fs::read(&path).unwrap_or_default();
-                            usize::from(String::from_utf8_lossy(&bytes).contains(text))
-                        }
-                        _ => 0,
-                    }
-                })
-                .sum()
+        self.until_written_in("", files, text).await;
+    }
+
+    /// As [`Self::until_written`], counting only `place` in the data folder, a file or a folder.
+    async fn until_written_in(&self, place: &str, files: usize, text: &str) {
+        fn holding(path: &Path, text: &str) -> usize {
+            // The folder also holds links to the core's binary, which takes seconds to read.
+            match std::fs::symlink_metadata(path) {
+                Ok(kind) if kind.is_dir() => std::fs::read_dir(path)
+                    .map(|entries| {
+                        entries
+                            .flatten()
+                            .map(|entry| holding(&entry.path(), text))
+                            .sum()
+                    })
+                    .unwrap_or(0),
+                Ok(kind) if kind.is_file() => {
+                    let bytes = std::fs::read(path).unwrap_or_default();
+                    usize::from(String::from_utf8_lossy(&bytes).contains(text))
+                }
+                _ => 0,
+            }
         }
-        let data = self.dir.path().join("data");
+        let data = self.dir.path().join("data").join(place);
         let deadline = Instant::now() + WAIT;
         while holding(&data, text) < files {
             assert!(
@@ -1279,7 +1282,9 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         "showing it started nothing"
     );
     drop(client);
-    core.until_written(1, &agent_id).await;
+    core.until_written_in("chats", 1, &agent_id).await;
+    core.until_written_in("workspace.json", 1, "\"asleep\":false")
+        .await;
 
     core.crash_and_start_again();
 
