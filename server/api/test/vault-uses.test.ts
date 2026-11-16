@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 
 import type { Database } from "../src/db.ts";
+import { addUses } from "../src/vault/change.ts";
 import { vaultUses } from "../src/vault/state.ts";
 import { emptyTables, migratedDatabase } from "./accounts.ts";
 
@@ -60,4 +61,42 @@ it("lists a sign-in a host reports every minute once, with its uses added up", a
     ["Sikemux", 4, minutesAgo(3), minutesAgo(1)],
     ["Otter", 1, minutesAgo(10), minutesAgo(10)],
   ]);
+});
+
+it("keeps one row for a sign-in a host reports every minute", async () => {
+  const noon = new Date(NOW).setUTCHours(12, 0, 0, 0);
+  const at = (minute: number) => new Date(noon + minute * 60_000).toISOString();
+  const send = (minute: number) =>
+    addUses(
+      database.db,
+      { userId: USER, hostKey: HOST },
+      {
+        uses: [
+          {
+            entryId: ENTRY,
+            plugin: "sikemux.vercel",
+            actor: "Sikemux",
+            count: 1,
+            firstAt: at(minute),
+            lastAt: at(minute),
+          },
+        ],
+      },
+    );
+  await send(1);
+  await send(2);
+  await send(3);
+
+  const rows = await database.db
+    .selectFrom("vault_uses")
+    .select(["count", "first_at", "last_at"])
+    .execute();
+
+  expect(
+    rows.map((row) => [
+      row.count,
+      row.first_at.toISOString(),
+      row.last_at.toISOString(),
+    ]),
+  ).toEqual([[3, at(1), at(3)]]);
 });

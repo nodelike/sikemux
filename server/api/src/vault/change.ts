@@ -349,19 +349,39 @@ export async function addUses(
 ): Promise<void> {
   if (uses.some((use) => Date.parse(use.lastAt) < Date.parse(use.firstAt)))
     throw badRequest("A use's lastAt is not before its firstAt.");
-  await db
-    .insertInto("vault_uses")
-    .values(
-      uses.map((use) => ({
-        user_id: userId,
-        entry_id: use.entryId,
-        plugin: use.plugin,
-        host_key: hostKey,
-        actor: use.actor,
-        count: use.count,
-        first_at: use.firstAt,
-        last_at: use.lastAt,
-      })),
-    )
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    for (const use of uses) {
+      const added = await trx
+        .updateTable("vault_uses")
+        .set({
+          count: sql`least(count + ${use.count}, 1000000)`,
+          first_at: sql`least(first_at, ${use.firstAt}::timestamptz)`,
+          last_at: sql`greatest(last_at, ${use.lastAt}::timestamptz)`,
+        })
+        .where("user_id", "=", userId)
+        .where("entry_id", "=", use.entryId)
+        .where("host_key", "=", hostKey)
+        .where("actor", "=", use.actor)
+        .where(
+          sql`(first_at at time zone 'UTC')::date`,
+          "=",
+          sql`(${use.firstAt}::timestamptz at time zone 'UTC')::date`,
+        )
+        .executeTakeFirst();
+      if (added.numUpdatedRows > 0n) continue;
+      await trx
+        .insertInto("vault_uses")
+        .values({
+          user_id: userId,
+          entry_id: use.entryId,
+          plugin: use.plugin,
+          host_key: hostKey,
+          actor: use.actor,
+          count: use.count,
+          first_at: use.firstAt,
+          last_at: use.lastAt,
+        })
+        .execute();
+    }
+  });
 }

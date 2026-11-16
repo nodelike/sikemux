@@ -252,8 +252,8 @@ export interface Tables {
     host_key: string;
     actor: string;
     count: number;
-    first_at: ColumnType<Date, string, never>;
-    last_at: ColumnType<Date, string, never>;
+    first_at: ColumnType<Date, string, string>;
+    last_at: ColumnType<Date, string, string>;
   };
   mod_counters: {
     user_id: string;

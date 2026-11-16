@@ -307,6 +307,7 @@ Table vault_uses {
 
   indexes {
     last_at [name: 'vault_uses_by_age']
+    (user_id, entry_id, host_key, actor) [name: 'vault_uses_by_day']
     (user_id, last_at) [name: 'vault_uses_by_user', note: 'last_at desc']
   }
 
