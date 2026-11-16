@@ -54,19 +54,40 @@ public static class Grab {
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
-  // How many colours a picture of the window holds in an area given in the app's own points.
-  public static int Colours(IntPtr h, string path, float x, float y, float w, float h2) {
+  // The share of light pixels in a picture of the window, in an area given in the app's own points.
+  public static double Light(IntPtr h, string path, float x, float y, float w, float h2) {
     RECT r; GetWindowRect(h, out r);
     var client = new POINT(); ClientToScreen(h, ref client);
     float scale = GetDpiForWindow(h) / 96f;
-    var seen = new System.Collections.Generic.HashSet<int>();
+    int light = 0, all = 0;
     using (var bmp = new Bitmap(path)) {
       int left = client.X - r.L + (int)(x * scale), top = client.Y - r.T + (int)(y * scale);
       int right = Math.Min(bmp.Width, left + (int)(w * scale)), bottom = Math.Min(bmp.Height, top + (int)(h2 * scale));
       for (int py = Math.Max(0, top); py < bottom; py += 2)
-        for (int px = Math.Max(0, left); px < right; px += 2) seen.Add(bmp.GetPixel(px, py).ToArgb());
+        for (int px = Math.Max(0, left); px < right; px += 2) { all++; if (bmp.GetPixel(px, py).GetBrightness() > 0.8f) light++; }
     }
-    return seen.Count;
+    return all == 0 ? 0 : (double)light / all;
+  }
+  delegate bool Each(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr h, Each f, IntPtr l);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
+  public static string Children(IntPtr top, string folder) {
+    var lines = new System.Text.StringBuilder(); int n = 0;
+    EnumChildWindows(top, (h, l) => {
+      var name = new System.Text.StringBuilder(256); GetClassName(h, name, 256);
+      RECT r; GetWindowRect(h, out r);
+      lines.AppendLine(String.Format("{0} {1} parent {2} visible {3} at {4},{5} size {6}x{7}", h, name, GetParent(h), IsWindowVisible(h), r.L, r.T, r.R - r.L, r.B - r.T));
+      if (r.R > r.L && r.B > r.T) {
+        using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
+          using (var g = Graphics.FromImage(bmp)) { var dc = g.GetHdc(); PrintWindow(h, dc, 2); g.ReleaseHdc(dc); }
+          bmp.Save(System.IO.Path.Combine(folder, "child-" + (n++) + "-" + name + ".png"));
+        }
+      }
+      return true;
+    }, IntPtr.Zero);
+    return lines.ToString();
   }
   public static void Screen(IntPtr h, string path) {
     RECT r; GetWindowRect(h, out r);
@@ -163,13 +184,14 @@ Start-Sleep -Seconds 28
 $state = Drive 'what the window holds' 'state'
 if (-not $state.Contains('example.com')) { $failed += "the stand-in's browser tab" }
 Picture 'window'
-# example.com is grey with dark text, so a page drawn in its pane is more than a few colours.
+[Grab]::Children($proc.MainWindowHandle, $Out) | Out-File (Join-Path $Out 'children.txt')
+# example.com is a light page and the app's ground is dark, so a drawn page is mostly light.
 $bounds = ([regex]::Match($state, '"pageBounds":\[([^\]]+)\]').Groups[1].Value -split ',') | ForEach-Object { [float] $_ }
 if ($bounds.Count -ne 4) { $failed += 'the desk places its page' }
 else {
-    $colours = [Grab]::Colours($proc.MainWindowHandle, (Join-Path $Out 'window.png'), $bounds[0], $bounds[1], $bounds[2], $bounds[3])
-    "page area: $colours colours" | Out-File -Append (Join-Path $Out 'steps.txt')
-    if ($colours -lt 8) { $failed += "the page drawn in its pane ($colours colours)" }
+    $light = [Grab]::Light($proc.MainWindowHandle, (Join-Path $Out 'window.png'), $bounds[0], $bounds[1], $bounds[2], $bounds[3])
+    "page area: $([int]($light * 100))% light" | Out-File -Append (Join-Path $Out 'steps.txt')
+    if ($light -lt 0.5) { $failed += "the page drawn in its pane" }
 }
 # PrintWindow can miss a page the window composes from another process; the screen shows it.
 [Grab]::Screen($proc.MainWindowHandle, (Join-Path $Out 'window-screen.png'))
