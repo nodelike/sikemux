@@ -16,6 +16,7 @@ $data = New-Item -ItemType Directory -Force -Path (Join-Path $env:XDG_DATA_HOME 
 Set-Content -Path (Join-Path $data 'preferences.json') -Value '{"onboardingComplete":true}'
 $cli = Join-Path (Split-Path $App) 'sikemux-host.exe'
 if (-not (Test-Path $cli)) { throw "$cli is not built beside the app" }
+$cli = (Resolve-Path $cli).Path
 
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
 using System; using System.Drawing; using System.Runtime.InteropServices;
