@@ -139,8 +139,11 @@ export function loadPaddleSetupConfig(env: NodeJS.ProcessEnv) {
   const apiOrigin = text("API_ORIGIN");
   if (apiOrigin && URL.parse(apiOrigin)?.origin !== apiOrigin)
     problems.push("API_ORIGIN is not an origin like https://api.sikemux.com");
+  const appOrigin = text("APP_ORIGIN", "https://app.sikemux.com");
+  if (appOrigin && URL.parse(appOrigin)?.origin !== appOrigin)
+    problems.push("APP_ORIGIN is not an origin like https://app.sikemux.com");
   const paddleKey = readPaddleKey(env, problems) ?? "";
-  return finish({ apiOrigin, paddleKey, logLevel: readLogLevel() });
+  return finish({ apiOrigin, appOrigin, paddleKey, logLevel: readLogLevel() });
 }
 
 /**

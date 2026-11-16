@@ -200,11 +200,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
     const config = loadPaddleSetupConfig(process.env);
     const log = startLogging(config.logLevel);
     try {
-      await setUpPaddle(
-        new PaddleApi(config.paddleKey, log),
-        config.apiOrigin,
-        log,
-      );
+      await setUpPaddle(new PaddleApi(config.paddleKey, log), config, log);
     } catch (error) {
       log.fatal({ err: error }, "setting up Paddle failed");
       process.exitCode = 1;

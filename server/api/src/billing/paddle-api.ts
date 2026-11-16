@@ -6,6 +6,9 @@ import { PRODUCTS } from "./catalog.ts";
 /** Where Paddle sends its events: the API's webhook route. */
 export const WEBHOOK_PATH = "/v1/billing/provider";
 
+/** The web app's page Paddle opens every checkout on, with `?_ptxn=` and the transaction. */
+export const PAY_PATH = "/pay";
+
 /** The client token the checkout page opens Paddle's checkout with, found by this name. */
 export const CLIENT_TOKEN_NAME = "app.sikemux.com checkout";
 

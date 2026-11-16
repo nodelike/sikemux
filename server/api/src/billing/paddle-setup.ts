@@ -3,6 +3,7 @@ import { PRODUCTS } from "./catalog.ts";
 import {
   CLIENT_TOKEN_NAME,
   PADDLE_EVENTS,
+  PAY_PATH,
   priceTag,
   WEBHOOK_PATH,
   type PaddleApi,
@@ -27,13 +28,14 @@ const INTERVAL_NAMES = { month: "Monthly", year: "Yearly" } as const;
 
 /**
  * Makes Paddle hold what the catalog sells, and safe to run again: a product per catalog product,
- * a price per interval at the catalog's amount, the webhook destination and the checkout's client
- * token. A price whose amount or limits changed is archived for a new one, so subscriptions
+ * a price per interval at the catalog's amount, the webhook destination, the checkout's client
+ * token and the default payment link, the app's /pay page. A live account's link must be on a
+ * domain Paddle has approved, which is asked for in its dashboard. A price whose amount or limits changed is archived for a new one, so subscriptions
  * already on it keep it.
  */
 export async function setUpPaddle(
   api: PaddleApi,
-  apiOrigin: string,
+  { apiOrigin, appOrigin }: { apiOrigin: string; appOrigin: string },
   log: Logger,
 ) {
   const products = await api.list<PaddleProduct>(
@@ -150,8 +152,20 @@ export async function setUpPaddle(
     log.info("made Paddle's client token for the checkout page");
   }
 
+  const payPage = appOrigin + PAY_PATH;
+  const checkoutUrl = await api.request<{ default_url: string | null }>(
+    "GET",
+    "/settings/checkout-url",
+  );
+  if (checkoutUrl.default_url !== payPage) {
+    await api.request("PATCH", "/settings/checkout-url", {
+      default_url: payPage,
+    });
+    log.info({ payPage }, "set Paddle's default payment link");
+  }
+
   log.info(
-    { sandbox: api.sandbox, destination },
-    "Paddle holds the catalog, the webhook destination and the client token",
+    { sandbox: api.sandbox, destination, payPage },
+    "Paddle holds the catalog, the webhook destination, the client token and the payment link",
   );
 }
