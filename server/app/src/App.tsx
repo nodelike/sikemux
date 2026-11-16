@@ -30,6 +30,7 @@ import { HostApproval } from "./HostApproval.tsx";
 import { useLive } from "./live.ts";
 import { PricingPage } from "./Pricing.tsx";
 import { ShedNotHost, ShedPage } from "./Shed.tsx";
+import { Pay } from "./Pay.tsx";
 import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
@@ -41,6 +42,7 @@ import {
   HOSTS,
   isSharePath,
   JOIN,
+  PAY,
   PRICING,
   SHED,
   takeReturn,
@@ -84,7 +86,7 @@ export function App() {
   const shellShown =
     signedIn &&
     !showDeleted &&
-    ![SIGNED_IN, CONSENT, HOST, "/sso-callback"].includes(path);
+    ![SIGNED_IN, CONSENT, HOST, PAY, "/sso-callback"].includes(path);
 
   useEffect(() => {
     if (shellShown) return;
@@ -94,11 +96,13 @@ export function App() {
         ? "Signing in · Sikemux"
         : path === DELETE_ACCOUNT
           ? "Delete your account · Sikemux"
-          : path === CONSENT || path === SIGNED_IN
-            ? "Sign in on your computer · Sikemux"
-            : path === HOST
-              ? "Add a host · Sikemux"
-              : "Sign in · Sikemux";
+          : path === PAY
+            ? "Checkout · Sikemux"
+            : path === CONSENT || path === SIGNED_IN
+              ? "Sign in on your computer · Sikemux"
+              : path === HOST
+                ? "Add a host · Sikemux"
+                : "Sign in · Sikemux";
   }, [path, showDeleted, shellShown]);
 
   const returnTo = (to: string) => {
@@ -157,6 +161,10 @@ export function App() {
                 navigateToSignUp={afterSignIn}
               />
             </Panel>
+          </main>
+        ) : path === PAY ? (
+          <main className="center">
+            <Pay />
           </main>
         ) : path === SIGNED_IN ? (
           <main className="center">
