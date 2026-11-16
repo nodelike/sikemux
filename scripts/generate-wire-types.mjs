@@ -8,7 +8,9 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-const root = resolve(import.meta.dirname, "..");
+/** With `--shapes <checkout>`, prints the JSON shapes the phone reads and sends in that checkout instead. */
+const shapesOf = process.argv[2] === "--shapes" ? process.argv[3] : undefined;
+const root = resolve(shapesOf ?? resolve(import.meta.dirname, ".."));
 
 const WIRE = "crates/sikemux-wire/src";
 const VIEW = "crates/sikemux-view/src";
@@ -396,7 +398,17 @@ for (const source of sources)
     declared.set(name, [...(declared.get(name) ?? []), item]);
   }
 
+/** A type's name, with its file when a client could not tell it from another of that name. */
+function shapeName(item) {
+  try {
+    if (byClientName(item.name) === item) return item.name;
+  } catch {}
+  return `${item.file}:${item.name}`;
+}
+
 function byClientName(name) {
+  const [file, own] = name.split(":");
+  if (own) return declared.get(own).find((item) => item.file === file);
   const all = declared.get(name) ?? [];
   // The contract's own crates hold the type a client means by a name.
   const contract = all.filter(
@@ -504,7 +516,7 @@ function parseType(text, file) {
     const alias = /^=\s*(.*);$/s.exec(item.body);
     return parseType(alias[1], item.file);
   }
-  return { kind: "named", name: item.name };
+  return { kind: "named", name: shapesOf ? shapeName(item) : item.name };
 }
 
 const words = (name) =>
@@ -539,6 +551,17 @@ function flattened(type, where) {
   if (type.kind !== "named") fail(`${where} flattens what is not a struct`);
   const inner = parse(byClientName(type.name));
   if (inner.kind !== "struct") fail(`${where} flattens what is not a struct`);
+  return inner.fields;
+}
+
+/** The fields of the struct a tagged enum's variant holds, which serde puts beside the tag. */
+function heldFields(text, file, where) {
+  const path = text.trim().split("::");
+  const held = lookup(file, path.at(-1), path.slice(0, -1));
+  if (!held)
+    fail(`${where} holds ${text}, which is not declared in any source`);
+  const inner = parse(held);
+  if (inner.kind !== "struct") fail(`${where} holds what is not a struct`);
   return inner.fields;
 }
 
@@ -577,6 +600,7 @@ function typeJson(name, fields) {
       ? { kind: "list", of: { kind: "named", name: json.slice(0, -2) } }
       : { kind: "named", name: json };
     field.type = optional ? { kind: "option", of: named } : named;
+    field.json = true;
   }
 }
 
@@ -586,7 +610,7 @@ function parse(item, wanted) {
   if (item.generics) fail(`${where} is generic`);
   const settings = serde(item.attrs, where);
   only(settings, KNOWN.container, where);
-  const name = item.name;
+  const name = shapesOf ? shapeName(item) : item.name;
   if (item.kind === "struct") {
     if (!item.body.startsWith("{"))
       fail(`${where} is not a struct with named fields`);
@@ -597,7 +621,14 @@ function parse(item, wanted) {
       where,
     );
     typeJson(name, fields);
-    return { name, docs: item.docs, kind: "struct", fields };
+    return {
+      name,
+      docs: item.docs,
+      kind: "struct",
+      fields,
+      defaulted: settings.default !== undefined,
+      denyUnknown: settings.deny_unknown_fields === true,
+    };
   }
   if (item.kind !== "enum") fail(`${where} is a ${item.kind}`);
   if (settings.tag) {
@@ -607,10 +638,11 @@ function parse(item, wanted) {
     );
     const variants = members.map((member) => {
       const { docs, attrs, rest } = readMember(member);
-      const match = /^(\w+)\s*(\{[\s\S]*\})?$/.exec(rest);
+      const match = /^(\w+)\s*(?:(\{[\s\S]*\})|\(([\s\S]*)\))?$/.exec(rest);
       if (!match) fail(`${where}::${rest} is not a unit or struct variant`);
       const variant = serde(attrs, `${where}::${match[1]}`);
       only(variant, KNOWN.variant, `${where}::${match[1]}`);
+      // A variant holding one struct puts that struct's fields beside the tag.
       const fields = match[2]
         ? parseFields(
             match[2],
@@ -618,12 +650,15 @@ function parse(item, wanted) {
             settings.rename_all_fields,
             `${where}::${match[1]}`,
           )
-        : [];
+        : match[3]
+          ? heldFields(match[3], item.file, `${where}::${match[1]}`)
+          : [];
       typeJson(name, fields);
       return {
         name: variant.rename ?? renameAll(match[1], settings.rename_all, where),
         docs,
         fields,
+        other: variant.other === true,
       };
     });
     return {
@@ -709,13 +744,18 @@ function named(type) {
 }
 
 /** The declarations `roots` need, each before the first that uses it, but those in `declared`. */
-function closure(roots, fieldsOf = () => undefined, declared = []) {
+function closure(
+  roots,
+  fieldsOf = () => undefined,
+  declared = [],
+  read = parse,
+) {
   const order = [];
   const seen = new Set(declared);
   const visit = (name) => {
     if (seen.has(name)) return;
     seen.add(name);
-    const declaration = parse(byClientName(name));
+    const declaration = read(byClientName(name));
     const wanted = fieldsOf(name);
     if (declaration.kind === "struct" && wanted) {
       const missing = wanted.filter(
@@ -741,6 +781,7 @@ function closure(roots, fieldsOf = () => undefined, declared = []) {
     ]
       .flatMap((field) => named(field.type))
       .forEach(visit);
+    declaration.uses?.forEach(visit);
   };
   roots.forEach(visit);
   return order;
@@ -1895,12 +1936,98 @@ async function emit(path, contents) {
   await writeFile(full, contents);
 }
 
-await emit(
-  OUTPUTS.ts,
-  `${typescript(TS_ROOTS, `${limits}\n${waits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
+const STD_TYPES = new Set(
+  "Self Option Vec Box Arc Rc Cow String PathBuf Value Send Sync Fn FnMut FnOnce Mutex RwLock BTreeMap BTreeSet HashMap HashSet Instant Duration AtomicBool AtomicU64 Notify".split(
+    " ",
+  ),
 );
-await emit(OUTPUTS.phone, await phoneSwift());
-await emit(OUTPUTS.notch, swift());
-await emit(OUTPUTS.cardSwift, cardSwift());
-await emit(OUTPUTS.glanceSwift, glanceSwift);
-await emit(OUTPUTS.cardKotlin, cardKotlin());
+
+/** A declaration's Rust without comments, member by member, with the types it names. */
+function rustOf(item) {
+  const plain = (text) =>
+    text
+      .replace(/\/\/.*$/gm, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const braced = item.body.startsWith("{");
+  const rust = plain(
+    [
+      ...item.attrs,
+      item.kind,
+      item.generics ?? "",
+      braced ? "" : item.body,
+    ].join(" "),
+  );
+  const members = Object.fromEntries(
+    (braced ? splitTop(item.body.slice(1, -1)) : []).flatMap((member) => {
+      const { attrs, rest } = readMember(member);
+      if (!rest) return [];
+      const name = /^(?:pub(?:\([^)]*\))?\s+)?([\w#]+)/.exec(rest)[1];
+      return [[name, plain([...attrs, rest].join(" "))]];
+    }),
+  );
+  const resolves = (name) => {
+    if (STD_TYPES.has(name) || name === item.name) return false;
+    try {
+      return lookup(item.file, name) === byClientName(name);
+    } catch {
+      return false;
+    }
+  };
+  const types = item.body
+    .replace(/\/\/.*$/gm, "")
+    .replace(/#\[[^\]]*\]/g, "")
+    .replace(/([{,]\s*)[A-Z]\w*(?=\s*[{(,}])/g, "$1");
+  const uses = [...new Set(types.match(/\b[A-Z]\w*/g))].filter(resolves);
+  return { rust, members, uses };
+}
+
+/** A declaration with its Rust beside it, or only its Rust and the types it names when the parser cannot read it. */
+function parseOrRust(item) {
+  const source = rustOf(item);
+  try {
+    return { ...parse(item), source };
+  } catch {
+    return { name: shapeName(item), kind: "rust", source, uses: source.uses };
+  }
+}
+
+/** What the phone reads of the core and sends it, for scripts/check-phone-compat.mjs. */
+function phoneShapes() {
+  const calls = coreCalls();
+  const read = [...TS_ROOTS, ...PHONE_ROOTS, ...GLANCE_ROOTS, "ServerMessage"];
+  const sent = ["ClientMessage"];
+  const roots = [
+    ...read,
+    ...sent,
+    ...calls.flatMap((call) => [...named(call.takes), ...named(call.gives)]),
+  ];
+  return {
+    protocol: {
+      version: Number(constant(`${WIRE}/protocol.rs`, "PROTOCOL_VERSION")),
+      oldest: Number(
+        constant(`${WIRE}/protocol.rs`, "OLDEST_PROTOCOL_VERSION"),
+      ),
+    },
+    calls,
+    read,
+    sent,
+    declarations: Object.fromEntries(
+      closure(roots, undefined, [], parseOrRust).map((d) => [d.name, d]),
+    ),
+  };
+}
+
+if (shapesOf) {
+  process.stdout.write(JSON.stringify(phoneShapes()));
+} else {
+  await emit(
+    OUTPUTS.ts,
+    `${typescript(TS_ROOTS, `${limits}\n${waits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
+  );
+  await emit(OUTPUTS.phone, await phoneSwift());
+  await emit(OUTPUTS.notch, swift());
+  await emit(OUTPUTS.cardSwift, cardSwift());
+  await emit(OUTPUTS.glanceSwift, glanceSwift);
+  await emit(OUTPUTS.cardKotlin, cardKotlin());
+}

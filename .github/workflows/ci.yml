@@ -207,6 +207,20 @@ jobs:
       - name: Check formatting, lint, types and release tooling
         run: pnpm check:code
 
+  phone-compat:
+    name: Phones in the stores
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check the core still serves the phone builds in the stores
+        run: node scripts/check-phone-compat.mjs
+
   # None needs the app built or a Mac: hakari.toml names the platforms workspace-hack is made for.
   rust-format:
     name: Rust formatting and workspace-hack

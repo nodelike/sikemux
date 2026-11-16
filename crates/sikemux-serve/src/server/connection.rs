@@ -17,6 +17,7 @@ use sikemux_wire::protocol::{
 };
 
 use super::access::{self, Peer};
+use super::older_phones;
 use super::session;
 use super::{local_peer, Core, CoreError, CoreResult};
 
@@ -229,19 +230,19 @@ async fn handshake(
     peer: &Peer,
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
-) -> bool {
+) -> Option<u32> {
     let frame = match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(reader)).await {
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Control => frame,
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Frozen && peer.is_local() => {
             (core.above().frozen_request)(core, peer, &frame.payload, writer).await;
-            return false;
+            return None;
         }
-        _ => return false,
+        _ => return None,
     };
     // A client that connected while the core hands itself over talks to the
     // replacement instead.
     if core.updating().is_frozen() {
-        return false;
+        return None;
     }
     let pid = std::process::id();
     match serde_json::from_slice::<ClientMessage>(&frame.payload) {
@@ -271,7 +272,7 @@ async fn handshake(
                 },
             };
             write_direct(writer, &reply).await;
-            agreed.is_some()
+            agreed
         }
         _ => {
             write_direct(
@@ -284,7 +285,7 @@ async fn handshake(
                 },
             )
             .await;
-            false
+            None
         }
     }
 }
@@ -305,9 +306,9 @@ pub async fn serve_client(
 ) {
     let mut reader = BufReader::new(read_half);
     let mut writer = BufWriter::with_capacity(64 * 1024, write_half);
-    if !handshake(&core, &peer, &mut reader, &mut writer).await {
+    let Some(version) = handshake(&core, &peer, &mut reader, &mut writer).await else {
         return;
-    }
+    };
     let (frames, queue) = mpsc::unbounded_channel();
     let client = ClientConn::new(&core, peer, pid, frames);
     core.register_client(client.clone());
@@ -317,7 +318,7 @@ pub async fn serve_client(
     let (work, work_queue) = mpsc::unbounded_channel();
     tokio::select! {
         _ = read_requests(&core, &client, &mut reader, work) => {}
-        _ = write_frames(&mut writer, queue, &client) => {}
+        _ = write_frames(&mut writer, queue, &client, version) => {}
         _ = (core.above().run_requests)(&core, &client, work_queue) => {}
         _ = client.kick.notified() => {}
     }
@@ -328,13 +329,15 @@ async fn write_frames(
     writer: &mut FrameWriter,
     mut queue: mpsc::UnboundedReceiver<Arc<[u8]>>,
     client: &ClientConn,
+    version: u32,
 ) -> std::io::Result<()> {
+    let older = older_phones::needs(version);
     while let Some(frame) = queue.recv().await {
         let mut written = frame.len();
-        writer.write_all(&frame).await?;
+        writer.write_all(&older_phones::fit(older, &frame)).await?;
         while let Ok(frame) = queue.try_recv() {
             written += frame.len();
-            writer.write_all(&frame).await?;
+            writer.write_all(&older_phones::fit(older, &frame)).await?;
         }
         writer.flush().await?;
         client.queued.fetch_sub(written, Ordering::AcqRel);

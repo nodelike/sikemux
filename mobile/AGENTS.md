@@ -31,3 +31,8 @@ The root `AGENTS.md` applies here too.
 - sikemux.com's screenshots come from here. `pnpm shots` in the site runs the phone showcase
   (`mobile/showcase/`) and cuts the feature cards from the Mac pictures already in the
   site, which stay as they are until the GPUI app has a showcase of its own.
+- Phone stables wait days in store review, so the core keeps serving the store builds that
+  `mobile/store-versions.json` lists, live and in review; CI's `node scripts/check-phone-compat.mjs`
+  fails when main breaks one. Code kept only for one carries `phone-compat:` and that version (plus
+  the JSON fields it puts right); edit the file when a build is approved or retired, and the check
+  then points at the code to delete.

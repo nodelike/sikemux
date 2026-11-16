@@ -9,6 +9,7 @@ pub mod host_key;
 pub mod kept;
 pub mod local_peer;
 pub mod log_times;
+pub mod older_phones;
 pub mod part;
 pub mod prepare;
 pub mod prompt_draft;
