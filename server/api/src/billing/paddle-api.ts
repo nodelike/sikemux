@@ -47,6 +47,7 @@ export interface PaddlePrice {
   billing_cycle: { interval: string; frequency: number } | null;
   unit_price: { amount: string; currency_code: string };
   quantity: { minimum: number; maximum: number };
+  tax_mode: string;
   custom_data: Record<string, unknown> | null;
 }
 

@@ -26,12 +26,15 @@ interface NotificationSetting {
 
 const INTERVAL_NAMES = { month: "Monthly", year: "Yearly" } as const;
 
+/** Tax is inside the listed price where buyers expect that, and added at checkout where they expect that. */
+const TAX_MODE = "location";
+
 /**
  * Makes Paddle hold what the catalog sells, and safe to run again: a product per catalog product,
  * a price per interval at the catalog's amount, the webhook destination, the checkout's client
  * token and the default payment link, the app's /pay page. A live account's link must be on a
- * domain Paddle has approved, which is asked for in its dashboard. A price whose amount or limits changed is archived for a new one, so subscriptions
- * already on it keep it.
+ * domain Paddle has approved, which is asked for in its dashboard. A price whose amount, limits
+ * or tax handling changed is archived for a new one, so subscriptions already on it keep it.
  */
 export async function setUpPaddle(
   api: PaddleApi,
@@ -90,7 +93,8 @@ export async function setUpPaddle(
           price.billing_cycle?.interval === interval &&
           price.billing_cycle.frequency === 1 &&
           price.quantity.minimum === 1 &&
-          price.quantity.maximum === item.maxQuantity,
+          price.quantity.maximum === item.maxQuantity &&
+          price.tax_mode === TAX_MODE,
       );
       if (!current) {
         const made = await api.request<PaddlePrice>("POST", "/prices", {
@@ -103,6 +107,7 @@ export async function setUpPaddle(
             currency_code: unit.currency.toUpperCase(),
           },
           quantity: { minimum: 1, maximum: item.maxQuantity },
+          tax_mode: TAX_MODE,
           custom_data: { product: item.id, interval },
         });
         log.info(

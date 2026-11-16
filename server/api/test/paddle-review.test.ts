@@ -93,6 +93,7 @@ class FakePaddle {
         currency_code: unit.currency.toUpperCase(),
       },
       quantity: { minimum: 1, maximum: item.maxQuantity },
+      tax_mode: "location",
       custom_data: { product: item.id, interval },
     })),
   );
