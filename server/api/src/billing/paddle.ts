@@ -190,6 +190,15 @@ function reasonOf(origin: string): InvoiceReason | null {
   }
 }
 
+function periodEndOf(sub: PaddleSubscription): string {
+  const ends =
+    sub.current_billing_period?.ends_at ??
+    sub.next_billed_at ??
+    sub.scheduled_change?.effective_at;
+  if (!ends) throw new Error(`Paddle's subscription ${sub.id} has no period.`);
+  return ends;
+}
+
 function subscriptionOf(
   sub: PaddleSubscription,
   at: Date,
@@ -200,16 +209,11 @@ function subscriptionOf(
     quantity: item.quantity,
   }));
   const interval = intervalOf(sub.billing_cycle);
-  const ends =
-    sub.current_billing_period?.ends_at ??
-    sub.next_billed_at ??
-    sub.scheduled_change?.effective_at;
-  if (!ends) throw new Error(`Paddle's subscription ${sub.id} has no period.`);
   const reported: ProviderSubscription = {
     providerSubscriptionId: sub.id,
     items,
     interval,
-    currentPeriodEnd: new Date(ends),
+    currentPeriodEnd: new Date(periodEndOf(sub)),
     cancelAtPeriodEnd: sub.scheduled_change?.action === "cancel",
   };
   const held = sub.custom_data?.held;
@@ -421,7 +425,7 @@ export class PaddleProvider implements BillingProvider {
     const customerRef = sub.custom_data?.customer_ref;
     const custom = customerRef ? { customer_ref: customerRef } : {};
     if (when === "renewal") {
-      const until = held.currentPeriodEnd.toISOString();
+      const until = periodEndOf(sub);
       return {
         sub,
         body: {
@@ -451,6 +455,17 @@ export class PaddleProvider implements BillingProvider {
         custom_data: custom,
       },
     };
+  }
+
+  async takeBack(held: HeldSubscription, paid: SubscriptionUpdate) {
+    const price = await this.priceFor(paid.product, paid.interval, paid.unit);
+    const sub = await this.subscription(held.providerSubscriptionId);
+    const { held: _, ...custom } = sub.custom_data ?? {};
+    await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
+      items: [{ price_id: price.id, quantity: paid.quantity }],
+      proration_billing_mode: "do_not_bill",
+      custom_data: custom,
+    });
   }
 
   async change(

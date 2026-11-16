@@ -515,6 +515,13 @@ export function billingRoutes({
     return c.json(checkout);
   });
 
+  const heldForRenewal = () =>
+    new ApiFailure(
+      409,
+      "conflict",
+      "A change is waiting for renewal. Take it back before changing anything now.",
+    );
+
   /** The change a request asks of its subscription, refused here for whatever the change would refuse. */
   const askedChange = async (c: Context<AuthEnv>) => {
     const row = await subscriptionFor(c);
@@ -541,8 +548,21 @@ export function billingRoutes({
       next.product === row.product &&
       next.interval === row.interval &&
       next.quantity === row.quantity;
+    const when = change.when ?? "now";
+    const held = row.next_product !== null;
+    if (when === "now" && held && !same) throw heldForRenewal();
+    const costsLess =
+      next.quantity < row.quantity ||
+      (row.interval === "year" && next.interval === "month") ||
+      unit.amount < (unitPrice(from.id, next.interval)?.amount ?? 0);
+    if (when === "now" && costsLess)
+      throw new ApiFailure(
+        409,
+        "conflict",
+        "A change that costs less is taken at renewal. Ask for it then.",
+      );
     const orgId = to.id === "team" ? row.org_id : null;
-    return { row, next, unit, same, orgId, when: change.when ?? "now" };
+    return { row, next, unit, same, held, orgId, when };
   };
 
   const refuseFewerSeats = (held: number, quantity: number) => {
@@ -562,7 +582,8 @@ export function billingRoutes({
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const { row, next, unit, orgId, when } = await askedChange(c);
+      const { row, next, unit, held, orgId, when } = await askedChange(c);
+      if (held && when === "now") throw heldForRenewal();
       if (orgId) refuseFewerSeats(await seatsHeld(db, orgId), next.quantity);
       const preview = await ready.previewChange(
         heldSubscription(row, row.provider_customer_id),
@@ -591,12 +612,23 @@ export function billingRoutes({
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const { row, next, unit, same, orgId, when } = await askedChange(c);
-      if (same) return c.json(await reread(row.id));
+      const { row, next, unit, same, held, orgId, when } = await askedChange(c);
+      if (same && !held) return c.json(await reread(row.id));
+      const subscription = heldSubscription(row, row.provider_customer_id);
       const take = async (trx: Kysely<Tables>) => {
+        if (same) {
+          await ready.takeBack(subscription, { ...next, unit });
+          if (orgId)
+            await trx
+              .updateTable("subscriptions")
+              .set({ seats_cut_to: null })
+              .where("id", "=", row.id)
+              .execute();
+          return;
+        }
         if (orgId) refuseFewerSeats(await lockSeats(trx, orgId), next.quantity);
         const outcome = await ready.change(
-          heldSubscription(row, row.provider_customer_id),
+          subscription,
           { ...next, unit },
           when,
         );
@@ -622,9 +654,11 @@ export function billingRoutes({
       await audit(db, {
         userId,
         actor: `user:${userId}`,
-        action: "billing.subscription_changed",
+        action: same
+          ? "billing.change_taken_back"
+          : "billing.subscription_changed",
         subject: row.id,
-        detail: { ...next, when },
+        detail: same ? {} : { ...next, when },
       });
       return c.json(await reread(row.id));
     },

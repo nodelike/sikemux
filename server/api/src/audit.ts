@@ -35,6 +35,7 @@ type AuditAction =
   | "mods.purged"
   | "billing.checkout_opened"
   | "billing.subscription_changed"
+  | "billing.change_taken_back"
   | "billing.subscription_canceled"
   | "billing.subscription_resumed"
   | "billing.refund_requested"

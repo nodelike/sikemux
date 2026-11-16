@@ -182,6 +182,11 @@ export interface BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangePreview>;
+  /** Drops a change waiting for renewal, so the subscription renews with what is paid for now. */
+  takeBack(
+    subscription: HeldSubscription,
+    paid: SubscriptionUpdate,
+  ): Promise<void>;
   /** Ends this product of the subscription at the end of its period, or with `now`, at once with no credit. */
   cancel(
     subscription: HeldSubscription,
