@@ -146,13 +146,13 @@ impl Workbench {
         if sheet.read_at == Some(more) {
             return;
         }
-        let id = sheet.id;
+        let (id, project) = (sheet.id, sheet.project.clone());
         if let Some(sheet) = self.ask_sheet.as_mut() {
             sheet.read_at = Some(more);
         }
         let said = self
             .target()
-            .request_typed::<call::AskSaid>(AskParams { id });
+            .request_typed::<call::AskSaid>(AskParams { project, id });
         cx.spawn(async move |bench, cx| {
             let Ok(said) = said.await else {
                 return;

@@ -26,6 +26,8 @@ pub struct GoFirstParams {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AskParams {
+    /// The workspace project, by id.
+    pub project: String,
     pub id: u64,
 }
 

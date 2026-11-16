@@ -94,7 +94,13 @@ pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
     let chiefs = super::chief::seated(core);
     let mut lines: HashMap<String, Vec<String>> = HashMap::new();
     let mut next: Option<u64> = None;
-    for (id, project, title, since) in nobody {
+    for super::now::asks::Untold {
+        id,
+        project,
+        title,
+        since,
+    } in nobody
+    {
         let Some(chief) = chiefs.get(&project) else {
             continue;
         };
@@ -103,7 +109,7 @@ pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
             next = Some(next.map_or(due, |next| next.min(due)));
             continue;
         }
-        told.push(id);
+        told.push((project, id));
         (lines.entry(chief.clone()).or_default()).push(format!(
             "- #{id} {title} ({} min)",
             now.saturating_sub(since) / 60_000

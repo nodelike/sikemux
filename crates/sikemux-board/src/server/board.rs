@@ -41,6 +41,7 @@ use sikemux_view::slice::SliceState;
 
 mod archive;
 mod arrival;
+pub mod asked;
 pub mod audit;
 pub mod briefing;
 pub mod chat_goal;
@@ -142,6 +143,9 @@ pub struct Card {
     commits: Vec<CardCommit>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pulls: Vec<CardPull>,
+    /// What the person asked, when it is their ask.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    asked: Option<asked::Asked>,
 }
 
 /// Bumped by a change to what a board file holds that an earlier file needs
@@ -665,7 +669,7 @@ impl Boards {
         boards
     }
 
-    fn save(&self, state: &mut State, project: &str) {
+    pub fn save(&self, state: &mut State, project: &str) {
         let key = state.key(project);
         self.save_key(state, &key);
     }
@@ -1226,6 +1230,7 @@ fn board_view(core: &Core, board: &Board) -> ProjectBoard {
         cards: board
             .cards
             .iter()
+            .filter(|card| card.listed())
             .map(|card| card_view(core, board, card))
             .collect(),
         settings: board.settings.clone(),
@@ -1353,6 +1358,7 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         checked: None,
         commits: Vec::new(),
         pulls: Vec::new(),
+        asked: None,
     }
 }
 
@@ -1942,6 +1948,7 @@ pub async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         let mut cards: Vec<&Card> = board
             .cards
             .iter()
+            .filter(|card| card.listed())
             .filter(|card| card.status != CardStatus::Done || shown_done.contains(&card.id))
             .collect();
         cards.sort_by_key(|card| rank(card));

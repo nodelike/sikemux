@@ -46,10 +46,8 @@ pub(crate) struct Now {
 struct Saved {
     /// By project id, newest first.
     closed: HashMap<String, Vec<NowClosed>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    asks: Vec<asks::Ask>,
-    #[serde(default)]
-    next_ask: u64,
+    #[serde(default, skip_serializing)]
+    asks: Vec<asks::Carried>,
 }
 
 impl Now {
@@ -77,6 +75,7 @@ impl super::part::Part for Now {
     }
 
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        asks::carry_over(core);
         for project in core.workspaces().projects() {
             refs_moved(core, &project.path.to_string_lossy());
         }
@@ -150,10 +149,7 @@ pub(crate) fn projects<'a>(
                 since,
             });
     }
-    let (closed, asks) = {
-        let state = core.now().state.locked();
-        (state.closed.clone(), state.asks.clone())
-    };
+    let closed = core.now().state.locked().closed.clone();
     let at = epoch_ms();
     {
         let fixes = core.now().fixes.locked();
@@ -176,7 +172,7 @@ pub(crate) fn projects<'a>(
             let closed = closed.get(&project.id).cloned().unwrap_or_default();
             let release =
                 (reads.get(&*project.path.to_string_lossy())).and_then(|read| read.release.clone());
-            let asks = asks::of_project(&asks, &project.id, at);
+            let asks = asks::of_project(core, &project.path.to_string_lossy(), at);
             let shows =
                 !rows.is_empty() || !closed.is_empty() || !asks.is_empty() || release.is_some();
             shows.then_some(ProjectNow {
@@ -700,7 +696,7 @@ fn refix_project(core: &Core, path: &str) {
     for (agent, _) in agents.iter().filter(|(_, of)| **of == project.id) {
         work_moved(core, agent);
     }
-    asks::build_moved(core, &project.id, &project.path);
+    asks::build_moved(core, &project.path);
 }
 
 /// How far `agent`'s landed work has gone, as last read.
