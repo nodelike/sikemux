@@ -96,8 +96,9 @@ Picture 'connected'
 Ask-Core -Step 'open the project' -Words 'open', $project | Out-Null
 Start-Sleep -Seconds 10
 Drive 'open a terminal' "activate`nkey ctrl+t`nwait 3"
-# The terminal keeps the keys once open, so the browser comes from the rail's New browser row.
-Drive 'open a browser' "click 809 198`nwait 5"
+# A browser opens on an agent's desk, so @Chief's chat opens first; the terminal keeps the keys,
+# so both come from the rail's rows.
+Drive 'open a browser' "click 800 276`nwait 5`nstate`nclick 809 198`nwait 5"
 Drive 'what the window holds' 'state'
 Start-Sleep -Seconds 15
 Picture 'window'
