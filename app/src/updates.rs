@@ -106,8 +106,9 @@ pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
     if WAITING_FOR_IDLE.swap(true, Ordering::SeqCst) {
         return;
     }
+    let waiting = WaitingForIdle;
     cx.spawn(async move |bench, cx| {
-        let _waiting = WaitingForIdle;
+        let _waiting = waiting;
         loop {
             let Ok((rested, asks)) = bench.update(cx, |bench, cx| {
                 let ready = (bench.reads.update.as_ref())
