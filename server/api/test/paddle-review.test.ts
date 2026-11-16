@@ -63,6 +63,9 @@ class FakePaddle {
   setUp = true;
   calls: Call[] = [];
   patches: Patch[] = [];
+  /** How far Paddle's clock moves on between an items change and the next call. */
+  gapAfterItems = 0;
+  private later = 0;
   subscriptions = new Map<string, PaddleSub>();
   customers = new Set<string>();
   lastCheckout: string | undefined;
@@ -162,6 +165,20 @@ class FakePaddle {
         { price_id: string; quantity: number }[] | undefined;
       const [first] = items ?? [];
       const billsOn = body.next_billed_at as string | undefined;
+      const now = Date.now() + this.later;
+      const renewsIn = new Date(sub.next_billed_at).getTime() - now;
+      if (renewsIn > 0 && renewsIn < 30 * MINUTE_MS)
+        return Promise.reject(
+          new PaddleError(409, "subscription_locked_renewal", "locked"),
+        );
+      if (billsOn && new Date(billsOn).getTime() - now < 30 * MINUTE_MS)
+        return Promise.reject(
+          new PaddleError(
+            409,
+            "subscription_next_billed_at_too_soon",
+            "New `next_billed_at` must be at least 30 minutes from now.",
+          ),
+        );
       if (first && billsOn && billsOn !== sub.next_billed_at)
         return Promise.reject(
           new PaddleError(
@@ -199,6 +216,7 @@ class FakePaddle {
           sub.next_billed_at = ends;
         }
         sub.billing_cycle = { interval, frequency: 1 };
+        this.later += this.gapAfterItems;
       }
       if ("custom_data" in body)
         sub.custom_data = body.custom_data as Record<string, unknown>;
@@ -786,6 +804,35 @@ describe("a change of interval at renewal", () => {
       shown: paidEnd,
       monthlyBillsOn: paidEnd,
       after: paidEnd,
+    });
+  });
+});
+
+describe("a change of interval asked just before renewal", () => {
+  it("S7: month to year 30 minutes before the paid end is refused, and Paddle still bills on it", async () => {
+    const { sub } = await pay(OWNER, "pro", {
+      ends: new Date(Date.now() + 30.05 * MINUTE_MS).toISOString(),
+    });
+    const paidEnd = sub.next_billed_at;
+    const [held] = (await overview(OWNER)).subscriptions;
+    paddle.gapAfterItems = 6_000;
+
+    const answer = await change(OWNER, held?.id, {
+      interval: "year",
+      when: "renewal",
+    });
+    expect({
+      answer: answer.status,
+      words: ((await answer.json()) as { error?: { message?: string } }).error
+        ?.message,
+      billsOn: sub.next_billed_at,
+      interval: sub.billing_cycle.interval,
+    }).toEqual({
+      answer: 409,
+      words:
+        "This subscription renews in the next few minutes. Change it after it renews.",
+      billsOn: paidEnd,
+      interval: "month",
     });
   });
 });

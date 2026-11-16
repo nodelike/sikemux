@@ -134,6 +134,10 @@ const ALREADY_CANCELLED = new Set([
   "subscription_is_canceled_action_invalid",
   "subscription_update_when_canceled",
 ]);
+const LOCKED_FOR_RENEWAL = new Set([
+  "subscription_locked_renewal",
+  "subscription_next_billed_at_too_soon",
+]);
 const ALREADY_REFUNDED = new Set([
   "adjustment_pending_refund_request",
   "adjustment_transaction_item_has_already_been_fully_adjusted",
@@ -275,6 +279,20 @@ export interface PaddleOptions {
 interface Read {
   value: string | null;
   at: number;
+}
+
+/**
+ * Paddle locks a subscription in the half hour before it renews. A change of interval takes two
+ * calls, so it stops a little earlier, before the second call could land inside the lock.
+ */
+const INTERVAL_CHANGE_STOPS_MS = 35 * 60_000;
+
+function renewsShortly() {
+  return new ApiFailure(
+    409,
+    "conflict",
+    "This subscription renews in the next few minutes. Change it after it renews.",
+  );
 }
 
 function notReady() {
@@ -491,6 +509,7 @@ export class PaddleProvider implements BillingProvider {
     const items = [{ price_id: price.id, quantity: update.quantity }];
     if (when === "renewal") {
       const until = owedOf(sub, new Date(this.now())) ?? periodEndOf(sub);
+      this.refuseLateIntervalChange(sub, update.interval, until);
       return {
         sub,
         until,
@@ -519,12 +538,39 @@ export class PaddleProvider implements BillingProvider {
     };
   }
 
+  private refuseLateIntervalChange(
+    sub: PaddleSubscription,
+    interval: BillingInterval,
+    until: string,
+  ) {
+    if (
+      interval !== intervalOf(sub.billing_cycle) &&
+      new Date(until).getTime() - this.now() < INTERVAL_CHANGE_STOPS_MS
+    )
+      throw renewsShortly();
+  }
+
+  /** Paddle's lock before a renewal reaches the person as the refusal it is, not a server error. */
+  private async alter<T>(method: string, path: string, body: unknown) {
+    try {
+      return await this.api.request<T>(method, path, body);
+    } catch (err) {
+      if (
+        err instanceof PaddleError &&
+        err.code &&
+        LOCKED_FOR_RENEWAL.has(err.code)
+      )
+        throw renewsShortly();
+      throw err;
+    }
+  }
+
   /** Paddle refuses items and a bill date in one request, so the date is put right after. */
   private async billOnOwedDate(subscriptionId: string) {
     const sub = await this.subscription(subscriptionId);
     const at = new Date(this.now());
     if (billedOnOwedDate(sub, at)) return;
-    await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
+    await this.alter("PATCH", `/subscriptions/${sub.id}`, {
       proration_billing_mode: "do_not_bill",
       next_billed_at: owedOf(sub, at),
     });
@@ -534,13 +580,12 @@ export class PaddleProvider implements BillingProvider {
     const price = await this.priceFor(paid.product, paid.interval, paid.unit);
     const sub = await this.subscription(held.providerSubscriptionId);
     const { held: _, bill_on: __, ...custom } = sub.custom_data ?? {};
-    await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
+    const billOn = owedOf(sub, new Date(this.now())) ?? periodEndOf(sub);
+    this.refuseLateIntervalChange(sub, paid.interval, billOn);
+    await this.alter("PATCH", `/subscriptions/${sub.id}`, {
       items: [{ price_id: price.id, quantity: paid.quantity }],
       proration_billing_mode: "do_not_bill",
-      custom_data: {
-        ...custom,
-        bill_on: owedOf(sub, new Date(this.now())) ?? periodEndOf(sub),
-      },
+      custom_data: { ...custom, bill_on: billOn },
     });
     await this.billOnOwedDate(sub.id);
   }
@@ -554,7 +599,7 @@ export class PaddleProvider implements BillingProvider {
     if (when === "now" && (await this.paysByUpi(sub.id)))
       return { taken: false, why: "needs_renewal" };
     try {
-      await this.api.request("PATCH", `/subscriptions/${sub.id}`, body);
+      await this.alter("PATCH", `/subscriptions/${sub.id}`, body);
     } catch (err) {
       if (
         err instanceof PaddleError &&
@@ -575,7 +620,7 @@ export class PaddleProvider implements BillingProvider {
     const { sub, body, until } = await this.updateFor(held, update, when);
     if (when === "now" && (await this.paysByUpi(sub.id)))
       return { refused: "needs_renewal" };
-    const preview = await this.api.request<PaddlePreview>(
+    const preview = await this.alter<PaddlePreview>(
       "PATCH",
       `/subscriptions/${sub.id}/preview`,
       body,
@@ -599,7 +644,7 @@ export class PaddleProvider implements BillingProvider {
 
   async cancel(held: HeldSubscription, when: "period_end" | "now") {
     try {
-      await this.api.request(
+      await this.alter(
         "POST",
         `/subscriptions/${held.providerSubscriptionId}/cancel`,
         {
@@ -619,13 +664,9 @@ export class PaddleProvider implements BillingProvider {
   }
 
   async resume(held: HeldSubscription) {
-    await this.api.request(
-      "PATCH",
-      `/subscriptions/${held.providerSubscriptionId}`,
-      {
-        scheduled_change: null,
-      },
-    );
+    await this.alter("PATCH", `/subscriptions/${held.providerSubscriptionId}`, {
+      scheduled_change: null,
+    });
   }
 
   async refund(providerPaymentId: string) {
