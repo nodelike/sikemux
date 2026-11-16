@@ -29,6 +29,6 @@ settle 6
 click 1505,275
 settle 2
 snap now-pill
-key cmd-j
+key cmd-alt-7
 settle 4
 snap asks-board
