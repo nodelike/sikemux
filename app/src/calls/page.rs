@@ -1,6 +1,7 @@
-//! The desk's Calls page: the open call of a project from the top of the pane, its choices as
-//! tiles with Go under them, then why it came up and what its asker opened, the other calls
-//! waiting under it, and the composer it is answered with pinned at the bottom.
+//! The desk's Calls page: the open call of a project from the top of the pane, the page it links
+//! under its question, its choices as tiles with Go under them, then why it came up and what its
+//! asker opened, the other calls waiting under it, and the composer it is answered with pinned at
+//! the bottom.
 
 use super::*;
 use crate::chat::composer::{self, Act};
@@ -246,6 +247,7 @@ fn body(call: &PersonCall, next: Option<String>, through: Through, cx: &mut App)
     let more: Vec<gpui_kit::Div> = lines
         .map(|line| prose(line.to_owned()).mt(px(10.)))
         .collect();
+    let page = linked_page(call, through, cx).map(|page| div().mt(px(16.)).child(page));
     let tiles = (!call.options.is_empty()).then(|| tiles(call, &chosen, sending, through, &t));
     let against = against_line(call, &t).map(|line| div().mt(SPACE_3_PX).child(line));
     let runs = (call.kind == CallKind::Production)
@@ -280,6 +282,7 @@ fn body(call: &PersonCall, next: Option<String>, through: Through, cx: &mut App)
         .child(who)
         .child(question)
         .children(more)
+        .children(page)
         .children(tiles)
         .children(against)
         .children(runs)
@@ -582,52 +585,11 @@ fn secret_field(
         .into_any_element()
 }
 
-/// What the asker opened for the call, drawn in full: the page it links and its evidence
+/// What the asker opened for the call, drawn in full: its files, its changes and its evidence
 /// pictures, each opening where it lives.
 fn opened_by(call: &PersonCall, through: Through, t: &Tokens, cx: &mut App) -> Option<AnyElement> {
-    let Through {
-        target,
-        cards,
-        bench,
-    } = through;
+    let bench = through.bench;
     let owner = call.about.as_ref().unwrap_or(&call.asker);
-    let page = call.page.as_ref().map(|page| {
-        let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
-        let (bench, agent, id) = (bench.clone(), owner.agent_id.clone(), page.id.clone());
-        let shown = div()
-            .h(px(ATTACHMENT_HEIGHT))
-            .w_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(t.surface_sunken)
-            .child(match picture {
-                Some(picture) => img(picture)
-                    .size_full()
-                    .object_fit(ObjectFit::Contain)
-                    .into_any_element(),
-                None => ui::icon(Icon::Tabs, 18.)
-                    .text_color(t.text_disabled)
-                    .into_any_element(),
-            });
-        let hover = t.surface_hover;
-        attachment(
-            div()
-                .id(SharedString::from(format!("call-page-{}", call.id)))
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover))
-                .clicks(move |_, _, cx| {
-                    bench
-                        .update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx))
-                        .ok();
-                }),
-            shown,
-            Icon::Tabs,
-            page.title.clone(),
-            t,
-        )
-        .into_any_element()
-    });
     let pictures = (call.evidence.iter().enumerate()).filter_map(|(ix, evidence)| {
         let path = evidence.picture.as_deref()?;
         let shown = picture(
@@ -655,7 +617,7 @@ fn opened_by(call: &PersonCall, through: Through, t: &Tokens, cx: &mut App) -> O
     });
     let opened = (call.opened.iter().enumerate())
         .filter_map(|(ix, opened)| opened_one(call, ix, opened, &owner.agent_id, bench, t));
-    let shown: Vec<AnyElement> = page.into_iter().chain(opened).chain(pictures).collect();
+    let shown: Vec<AnyElement> = opened.chain(pictures).collect();
     if shown.is_empty() {
         return None;
     }

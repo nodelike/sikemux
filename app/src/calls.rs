@@ -473,6 +473,27 @@ struct Through<'a> {
     bench: &'a WeakEntity<Workbench>,
 }
 
+/// The page a call names, as the row a chat shows for a page: a click opens it on its owner's
+/// desk.
+fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyElement> {
+    let Through {
+        target,
+        cards,
+        bench,
+    } = through;
+    let page = call.page.as_ref()?;
+    let owner = call.about.as_ref().unwrap_or(&call.asker);
+    let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
+    let place = t!("@{name}'s page", name = owner.name).into();
+    let page = sikemux_view::chat::PageRef {
+        id: page.id.clone(),
+        title: page.title.clone(),
+    };
+    let row =
+        crate::chat::page::tab_row(&page, picture, place, false, (&owner.agent_id, bench), cx);
+    Some(crate::chat::page::tab_frame(vec![row], cx))
+}
+
 /// The card of `call`: who asks, the question, its context and pictures, the options with the
 /// field under them, the point against, and the footer that answers it.
 fn card(
@@ -518,20 +539,7 @@ fn card(
         .text_color(t.text_primary)
         .child(call.question.clone());
     let context = context_words(call);
-    let page = call.page.as_ref().map(|page| {
-        let owner = call.about.as_ref().unwrap_or(&call.asker);
-        let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
-        let place = t!("@{name}'s page", name = owner.name).into();
-        let page = sikemux_view::chat::PageRef {
-            id: page.id.clone(),
-            title: page.title.clone(),
-        };
-        let row =
-            crate::chat::page::tab_row(&page, picture, place, false, (&owner.agent_id, bench), cx);
-        div()
-            .mt(SPACE_3_PX)
-            .child(crate::chat::page::tab_frame(vec![row], cx))
-    });
+    let page = linked_page(call, through, cx).map(|page| div().mt(SPACE_3_PX).child(page));
     let prose = |text: String| {
         div()
             .text_size(theme::ui_text(12.5))
