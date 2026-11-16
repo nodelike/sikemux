@@ -87,6 +87,8 @@ Only one nightly builds at a time, and of the pushes CI starts on meanwhile only
 
 A nightly links with thin LTO, and its Mac jobs compile through sccache, kept in the repository's Actions cache, so it builds in about half the time of a stable release, which keeps fat LTO and no cache, for a slightly larger DMG.
 
+A nightly's plan also starts the **Windows download** workflow on the same commit and version, which builds the Windows installers beside the Mac's jobs but outside the Release run, so the next nightly never waits for Windows. Once Release has published the nightly, its **Add the installers to the nightly** job signs them with the updater key (`scripts/sign-host.sh <version> windows`), attaches `Sikemux_<version>_<x64|arm64>-setup.exe` to the release, adds them to its `latest.json` as `windows-x86_64` and `windows-aarch64`, and repoints any feed already serving that nightly (`scripts/publish-windows.sh`). A failed Windows build leaves the nightly as it is. Stable releases carry no Windows build yet.
+
 A published nightly reaches the `staff` feed at once. Release then starts **Nightly soak**, which waits 30 minutes while it runs on staff machines and then moves the `nightly` feed to it, unless a newer build is already there or it was pulled. On the owner's Mac:
 
 - `scripts/nightly.sh why` says what each feed serves and whether nightlies are held.

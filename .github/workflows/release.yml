@@ -156,6 +156,16 @@ jobs:
           echo "channel=$channel" >>"$GITHUB_OUTPUT"
           echo "Releasing $channel v$version from $RELEASE_SHA" >>"$GITHUB_STEP_SUMMARY"
 
+      # Windows builds slower than the Mac, so it runs apart and joins the nightly once both are done.
+      - name: Start the Windows installers
+        if: steps.plan.outputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          gh workflow run windows-release.yml -R "$GITHUB_REPOSITORY" --ref main \
+            -f "version=$VERSION" -f "ref=$RELEASE_SHA" -f "release_run=$GITHUB_RUN_ID"
+
       # Every job builds and describes the release from these, so a push's version reaches them all.
       - name: Keep the version and notes
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
