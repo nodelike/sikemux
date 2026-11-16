@@ -40,8 +40,8 @@ macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, Ar
 
 ## Why Sikemux
 
-- **Every agent, side by side.** Claude, Codex, OpenCode, Hermes and Pi, several at once, each with its own browser tabs.
-- **Agents that see your work.** `@` a file, `#` an issue or PR, hand over a terminal selection or a log. Give a chat its own worktree.
+- **Every agent, side by side.** Claude, Codex, OpenCode, Hermes, Pi and Muse, several at once, each with its own browser tabs.
+- **Agents that see your work.** `@` an agent, `#` an issue, `!` a PR, `+` a file, `&` something from the stash, hand over a terminal selection or a log. Give a chat its own worktree.
 - **Your tools, already wired.** GitHub, GitLab, Jira, Linear, Slack, Vercel, AWS, your databases. Sign in once; every agent can use them.
 - **Nothing stops when you quit.** Terminals, agents and processes keep running and come back where you left them.
 - **Any machine.** Run chats and terminals on any host on your account. Turn an SSH host into one in a click.
