@@ -550,6 +550,7 @@
     // the pointer, so clicks and hit tests pass straight through it.
     const OVERLAY_STYLE = [
         ":host { all: initial; }",
+        ":host([aside]) .layer * { pointer-events: none !important; }",
         ".layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483647; font: 600 12px/1.3 -apple-system, system-ui, sans-serif; }",
         ".layer.quiet .pointer, .layer.quiet .ripple { visibility: hidden; }",
         ".pointer { position: absolute; left: 0; top: 0; width: 18px; height: 18px; margin: -2.1px 0 0 -2.1px; transition: transform 220ms cubic-bezier(.2,.7,.3,1), opacity 400ms; opacity: 0; }",
@@ -593,6 +594,16 @@
         '<svg viewBox="0 0 20 20" width="18" height="18"><defs><linearGradient id="fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c3a3ff"/><stop offset="1" stop-color="#7c4dff"/></linearGradient></defs>' +
         '<path d="M2.4 3.3 Q1.8 1.8 3.3 2.4 L15.8 7.3 Q18.2 8.3 15.6 8.8 L11.6 9.7 Q10 10 9.7 11.6 L8.8 15.6 Q8.3 18.2 7.3 15.8 Z" fill="url(#fill)" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>';
     let overlay = null;
+    // While the agent's pointer shows, every overlay on the page, a snip catcher or pin ring
+    // included, lets the agent's clicks through to the page beneath.
+    const AGENT_POINTER_MS = 2500;
+    let asideTimer = 0;
+    const standAside = () => {
+        const hosts = document.querySelectorAll("sikemux-overlay");
+        hosts.forEach((host) => host.setAttribute("aside", ""));
+        clearTimeout(asideTimer);
+        asideTimer = setTimeout(() => hosts.forEach((host) => host.removeAttribute("aside")), AGENT_POINTER_MS);
+    };
     let placedInput = null;
     let uploadLanded = false;
     let watchingUploads = false;
@@ -1068,6 +1079,7 @@
                 throw new Error(`element [${index}] is "${describe(element)}", not "${expectLabel}"; nothing was done`);
             }
             element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            standAside();
             const point = centre(element);
             const top = elementAt(point.x, point.y);
             const covered = top && !within(top, element) && !within(element, top) ? describe(top) : null;
@@ -1087,6 +1099,7 @@
         // say what it hit.
         hitAt(x, y, expectLabel) {
             if (x > innerWidth || y > innerHeight) throw new Error(`${x},${y} is outside the ${innerWidth}×${innerHeight} viewport; nothing was done`);
+            standAside();
             const top = elementAt(x, y);
             if (!top || top === document.documentElement || top === document.body) {
                 if (expectLabel != null) throw new Error(`nothing but the page itself is at ${x},${y}, not "${expectLabel}"; nothing was done`);
@@ -1123,7 +1136,10 @@
             const into = describe(element);
             if (target == null) return { replacing: replace ? selectContents(element) : false, into };
             element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-            if (isFrame(element)) return { replacing: false, clickFirst: centre(element), into };
+            if (isFrame(element)) {
+                standAside();
+                return { replacing: false, clickFirst: centre(element), into };
+            }
             element.focus({ preventScroll: true });
             return { replacing: selectContents(element), into };
         },
@@ -1196,6 +1212,7 @@
         },
         mark(x, y, ripple) {
             const { layer: root, pointer } = layer();
+            standAside();
             // A tab nobody can see runs no transitions, which would leave the
             // pointer stuck where it started.
             pointer.style.transition = document.visibilityState === "visible" ? "" : "none";
@@ -1209,7 +1226,7 @@
                 setTimeout(() => ripple.remove(), 600);
             }
             clearTimeout(overlay.fade);
-            overlay.fade = setTimeout(() => pointer.classList.remove("shown"), 2500);
+            overlay.fade = setTimeout(() => pointer.classList.remove("shown"), AGENT_POINTER_MS);
             return {};
         },
         annotate(index, x, y, text, durationMs) {
