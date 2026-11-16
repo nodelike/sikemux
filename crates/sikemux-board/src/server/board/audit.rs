@@ -106,12 +106,14 @@ pub fn due(core: &Arc<Core>) -> Option<u64> {
     let now = epoch_ms();
     let mut next = None;
     let mut starting = Vec::new();
+    let elsewhere = (core.board_above().records_elsewhere)(core);
     {
         let mut state = core.boards().state.locked();
         let projects: Vec<String> = state
             .boards
             .values()
             .map(|board| board.folder.clone())
+            .filter(|folder| !elsewhere.contains(folder))
             .collect();
         for project in projects {
             let Some(board) = state.of_mut(&project) else {

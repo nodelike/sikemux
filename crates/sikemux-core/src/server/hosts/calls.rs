@@ -13,8 +13,8 @@ use super::super::Core;
 use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
-    answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked, open, rehome,
-    reopen, route, spawn, transfer,
+    answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked, open, record,
+    rehome, reopen, route, spawn, transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -65,6 +65,8 @@ host_asks! {
     Machine "machine" machine::MachineParams;
     LeadMoved "leadMoved" rehome::LeadMovedParams;
     ChiefCopy "chiefCopy" chief_copy::ChiefCopy;
+    RecordCopy "recordCopy" record::RecordCopy;
+    RecordAct "recordAct" record::RecordAct;
 }
 
 /// Asks what became of the call `call`.
@@ -196,6 +198,8 @@ async fn dispatch(
         PassOn::METHOD => route::pass_on_here(core, host, read::<PassOn>(params)?),
         Copies::METHOD => copies::heard(core, host, read::<Copies>(params)?),
         ChiefCopy::METHOD => chief_copy::heard(core, read::<ChiefCopy>(params)?),
+        RecordCopy::METHOD => record::heard(core, host, read::<RecordCopy>(params)?),
+        RecordAct::METHOD => record::act_here(core, read::<RecordAct>(params)?).await,
         TakeChat::METHOD => chat_move::take_here(core, read::<TakeChat>(params)?).await,
         _ => Err(format!("this host does not know {method}")),
     }

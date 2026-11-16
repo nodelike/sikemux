@@ -85,7 +85,7 @@ fn placed(core: &Core, state: &mut State) {
 
 impl Board {
     /// Takes in `other`'s cards and decisions, numbered after its own.
-    fn fold(&mut self, other: Board) {
+    pub(super) fn fold(&mut self, other: Board) {
         let offset = self.next.saturating_sub(1);
         let card = |id: u64| id + offset;
         for mut taken in other.cards {

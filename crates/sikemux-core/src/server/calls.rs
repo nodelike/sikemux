@@ -143,6 +143,9 @@ macro_rules! calls {
             let Some($params) = here else {
                 return Ok(answered);
             };
+            if let Some(answered) = record_elsewhere(&$core, $client, $method, &$params).await {
+                return answered;
+            }
             // Each method's future lives on the heap, so the dispatch's own frame never carries a
             // method's whole chain on a worker thread's stack.
             match $method {
@@ -726,6 +729,50 @@ pub(crate) const ROW_ACTIONS: [&str; 7] = [
     "snoozeAgents",
     "settleAgents",
 ];
+
+/// A write to a project's board kept on another host goes to that host, signed here first.
+async fn record_elsewhere(
+    core: &Arc<Core>,
+    client: &ClientConn,
+    method: &str,
+    params: &Value,
+) -> Option<CoreResult<Value>> {
+    if method == "boardSettings" {
+        let settings = match parse(params.clone()) {
+            Ok(settings) => settings,
+            Err(error) => return Some(Err(error)),
+        };
+        let raising = board::raises_spend_ceiling(core, &settings);
+        let why = "Let agents spend more on this project before you hear of it.";
+        if let Err(error) = signs_if(core, client, raising, why).await {
+            return Some(Err(error));
+        }
+    }
+    let answered = super::hosts::record::app_write(core, method, params).await?;
+    Some(answered.map_err(CoreError::from))
+}
+
+/// A write from the app to a project's board that a linked host sent this host, which keeps it:
+/// [`super::hosts::record::APP_WRITES`] names the same methods.
+pub(crate) async fn record_write(
+    core: &Arc<Core>,
+    method: &str,
+    params: Value,
+) -> CoreResult<Value> {
+    match method {
+        "boardAdd" => answer(board::person_add(core, parse(params)?).await?),
+        "boardAddTicket" => answer(board::tickets::person_add_ticket(core, parse(params)?).await?),
+        "boardUpdate" => answer(board::person_update(core, parse(params)?).await?),
+        "boardRemove" => answer(board::person_remove(core, parse(params)?).await?),
+        "boardSettings" => answer(board::person_settings(core, parse(params)?).await?),
+        "boardAuditEvery" => answer(board::audit::person_audit_every(core, parse(params)?).await?),
+        "boardAuditNow" => answer(board::audit::person_audit_now(core, parse(params)?).await?),
+        "overruleDecision" => answer(board::goal::overrule(core, parse(params)?).await?),
+        "undoOverrule" => answer(board::goal::undo_overrule(core, parse(params)?).await?),
+        "boardDecide" => answer(board::goal::person_decide(core, parse(params)?).await?),
+        method => Err(format!("{method} does not write a project's board").into()),
+    }
+}
 
 /// A call that signs for the person only with some values, such as letting a device in.
 async fn signs_if(core: &Core, client: &ClientConn, signing: bool, what: &str) -> CoreResult<()> {

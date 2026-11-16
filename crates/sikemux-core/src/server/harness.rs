@@ -553,6 +553,20 @@ pub(crate) async fn call(
     result
 }
 
+/// An agent's write to a project's board that a linked host sent this host, which keeps it.
+pub(crate) async fn record_write(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+) -> Result<Value, String> {
+    match request.method.as_str() {
+        "board.add" => board::add(core, request).await,
+        "board.claim" => board::claim(core, request).await,
+        "board.update" => board::update(core, request).await,
+        "board.decide" => board::goal::tool(core, request).await,
+        method => Err(format!("{method} does not write a project's board")),
+    }
+}
+
 async fn dispatch(
     core: &Arc<Core>,
     mut request: HarnessRequest,
@@ -577,6 +591,9 @@ async fn dispatch(
                 tool_word(&request.method)
             ));
         }
+    }
+    if let Some(answered) = super::hosts::record::tool_write(core, &request).await {
+        return answered;
     }
     match request.method.as_str() {
         "process.read" => process_read(core, &request).await,

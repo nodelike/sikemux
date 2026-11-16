@@ -70,4 +70,8 @@ pub struct BoardAbove {
     pub hosts_started_by: fn(&Core, &str) -> Option<String>,
     /// The rows of linked hosts' agents changed.
     pub hosts_rows_moved: fn(&Core),
+    /// The boards kept under these keys changed, for the project's other hosts to hear.
+    pub records_changed: fn(&Arc<Core>, Vec<String>),
+    /// The folders of this host's projects whose record another host keeps.
+    pub records_elsewhere: fn(&Core) -> Vec<String>,
 }

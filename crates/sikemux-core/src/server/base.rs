@@ -500,6 +500,8 @@ pub(super) fn board_above() -> BoardAbove {
         chief_card_reopened: chief::card_reopened,
         hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
+        records_changed: hosts::record::changed,
+        records_elsewhere: hosts::record::elsewhere,
     }
 }
 

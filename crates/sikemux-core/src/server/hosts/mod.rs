@@ -23,6 +23,7 @@ pub mod open;
 mod outbox;
 pub(crate) mod probe;
 mod receipts;
+pub(crate) mod record;
 pub(crate) mod rehome;
 pub(crate) mod reopen;
 pub(crate) mod route;

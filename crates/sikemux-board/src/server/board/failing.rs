@@ -135,6 +135,9 @@ fn failures(jobs: &[FailedJob]) -> Vec<Failure> {
 /// CI ruled on `sha`, the pushed tip of `project`'s branch: it passed when
 /// no `jobs` failed. What failed on the run before too goes on a card.
 pub fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[FailedJob]) {
+    if ((core.board_above().records_elsewhere)(core).iter()).any(|folder| folder == project) {
+        return;
+    }
     let failed = failures(jobs);
     let again: Vec<Failure> = {
         let mut state = core.boards().state.locked();

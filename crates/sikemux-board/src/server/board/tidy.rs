@@ -13,6 +13,7 @@ const CLOSED_RESULT: &str = "Every card under it is done.";
 /// Tidies every board, and answers when the next card comes due to leave or move.
 pub fn settle(core: &Arc<Core>) -> Option<u64> {
     let now = epoch_ms();
+    let elsewhere = (core.board_above().records_elsewhere)(core);
     let projects: Vec<String> = core
         .boards()
         .state
@@ -20,6 +21,7 @@ pub fn settle(core: &Arc<Core>) -> Option<u64> {
         .boards
         .values()
         .map(|board| board.folder.clone())
+        .filter(|folder| !elsewhere.contains(folder))
         .collect();
     let mut next = None;
     for project in projects {

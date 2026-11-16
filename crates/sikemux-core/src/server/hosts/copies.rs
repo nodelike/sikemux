@@ -16,7 +16,9 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
-use sikemux_view::workspace::{ChiefHome, ProjectCopy, ProjectElsewhere, ProjectGit, Workspace};
+use sikemux_view::workspace::{
+    ChiefHome, ProjectCopy, ProjectElsewhere, ProjectGit, ProjectInfo, Workspace,
+};
 
 use super::super::changed::What;
 use super::super::kept::Kept;
@@ -162,18 +164,14 @@ impl Copies {
     }
 
     /// Adds the copies the linked hosts hold to `workspace`: each under this host's project of
-    /// the same repository, else in a project of its own among those only elsewhere. A project
-    /// here with no chief of its own takes the first linked host's that has one as its home.
+    /// the same repository, else in a project of its own among those only elsewhere.
     pub(crate) fn fold(&self, core: &Core, workspace: &mut Workspace) {
         let heard = self.heard.locked().clone();
-        let me = core.remote().core_id().unwrap_or_default();
-        let mut homes: BTreeMap<String, (u32, u64, String)> = BTreeMap::new();
         for link in core.remote().links() {
             let Some(held) = heard.get(&link.id) else {
                 continue;
             };
             let away = core.hosts().connected(&link.id).is_none();
-            let away_since = core.hosts().away_since(&link.id);
             for project in held {
                 let copy = ProjectCopy {
                     host: link.id.clone(),
@@ -196,35 +194,6 @@ impl Copies {
                 if let Some(here) =
                     (workspace.projects.iter_mut()).find(|here| same(&here.identity))
                 {
-                    let theirs = Rank {
-                        count: project.chief_count,
-                        wrote: project.chief_wrote,
-                        host: &link.id,
-                    };
-                    let ours = here.chief.as_ref().map(|chief| Rank {
-                        count: here.chief_count,
-                        wrote: crate::server::chief::person_wrote_at(core, chief).unwrap_or(0),
-                        host: &me,
-                    });
-                    let best = homes.get(identity).map(|(count, wrote, host)| Rank {
-                        count: *count,
-                        wrote: *wrote,
-                        host,
-                    });
-                    let wins = ours.is_none_or(|ours| theirs.over(&ours))
-                        && best.is_none_or(|best| theirs.over(&best));
-                    if let Some(chief) = project.chief.clone().filter(|_| wins) {
-                        homes.insert(
-                            identity.clone(),
-                            (project.chief_count, project.chief_wrote, link.id.clone()),
-                        );
-                        here.chief_home = Some(ChiefHome {
-                            host: link.id.clone(),
-                            host_name: link.name.clone(),
-                            agent_id: chief,
-                            away_since,
-                        });
-                    }
                     here.copies.push(copy);
                 } else if let Some(there) =
                     (workspace.elsewhere.iter_mut()).find(|there| same(&there.identity))
@@ -239,6 +208,51 @@ impl Copies {
                 }
             }
         }
+        for here in &mut workspace.projects {
+            here.chief_home = self.home_of(core, here);
+        }
+    }
+
+    /// The linked host whose chief of `project`'s repository outranks this host's own, if any:
+    /// the project's home, which keeps its record.
+    pub(crate) fn home_of(&self, core: &Core, project: &ProjectInfo) -> Option<ChiefHome> {
+        let identity = project.identity.as_deref()?;
+        if self.heard.locked().is_empty() {
+            return None;
+        }
+        let me = core.remote().core_id().unwrap_or_default();
+        let mut best = project.chief.as_ref().map(|chief| Rank {
+            count: project.chief_count,
+            wrote: crate::server::chief::person_wrote_at(core, chief).unwrap_or(0),
+            host: me.as_str(),
+        });
+        let links = core.remote().links();
+        let heard = self.heard.locked();
+        let mut home = None;
+        for link in &links {
+            let held = (heard.get(&link.id).into_iter().flatten())
+                .find(|held| held.identity.as_deref() == Some(identity));
+            let Some((held, chief)) = held.and_then(|held| Some((held, held.chief.as_ref()?)))
+            else {
+                continue;
+            };
+            let theirs = Rank {
+                count: held.chief_count,
+                wrote: held.chief_wrote,
+                host: &link.id,
+            };
+            if best.as_ref().is_none_or(|best| theirs.over(best)) {
+                best = Some(theirs);
+                home = Some((link, chief));
+            }
+        }
+        let (link, chief) = home?;
+        Some(ChiefHome {
+            host: link.id.clone(),
+            host_name: link.name.clone(),
+            agent_id: chief.clone(),
+            away_since: core.hosts().away_since(&link.id),
+        })
     }
 }
 
@@ -312,6 +326,9 @@ pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
         super::rehome::follow(core, host);
         stand_down(core);
         core.changed(What::View);
+    }
+    if let Some(core) = core.arc() {
+        super::record::heard_holds(&core, host);
     }
     Ok(serde_json::Value::Null)
 }

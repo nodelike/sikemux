@@ -139,7 +139,7 @@ async fn taken_up(
         0 => format!("Nothing of where you stood reached this host from {home_name}, so ask the person what they need."),
         at => format!("What follows is where you stood when {home_name} last sent it, {} minutes ago.", epoch_ms().saturating_sub(at) / 60_000),
     };
-    let moved = format!("{home_name}, where you ran as this project's chief, {gone}, so you run on this host now under the same name, in a fresh session. Your chat before the move and the board stayed on {home_name}. Your workers on other hosts report here from now on, and their reports that waited for {home_name} come here too. {stood}");
+    let moved = format!("{home_name}, where you ran as this project's chief, {gone}, so you run on this host now under the same name, in a fresh session. Your chat before the move stayed on {home_name}. The board is here as {home_name} last sent it, and this host keeps it now. Your workers on other hosts report here from now on, and their reports that waited for {home_name} come here too. {stood}");
     standing.insert(
         0,
         crate::sessions::for_agent::sikemux_context(

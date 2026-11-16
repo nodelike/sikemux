@@ -75,10 +75,14 @@ enum Work {
 pub fn due(core: &Arc<Core>) -> Option<u64> {
     let now = epoch_ms();
     let mut next = None;
+    let elsewhere = (core.board_above().records_elsewhere)(core);
     let due: Vec<(String, u64, CardTicket, Work)> = {
         let mut state = core.boards().state.locked();
         let mut due = Vec::new();
         for (project, board) in &state.boards {
+            if elsewhere.contains(&board.folder) {
+                continue;
+            }
             for card in &board.cards {
                 let Some(ticket) = &card.ticket else { continue };
                 if Jira::of(core, ticket).is_none() {

@@ -49,6 +49,7 @@ pub mod goal;
 pub mod hand_off;
 mod key;
 mod migrate;
+pub mod record;
 mod spend;
 pub mod steps;
 pub mod tickets;
@@ -173,6 +174,10 @@ pub struct Board {
     /// When its drift audits run and those that ran.
     #[serde(default, skip_serializing_if = "audit::Audits::is_none")]
     audits: audit::Audits,
+    /// Its cards are already part of the record its project's hosts share, so it never sends
+    /// them to another home to fold in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    shared: bool,
     /// The latest CI run that failed on the project's branch, while the core runs.
     #[serde(skip)]
     ci_failing: failing::Latest,
@@ -226,6 +231,7 @@ impl Board {
             carried_over: _,
             decided,
             audits,
+            shared,
             ci_failing: _,
             places: _,
         } = self;
@@ -238,6 +244,7 @@ impl Board {
             places_proposal: places_proposal.clone(),
             decided: decided.clone(),
             audits: audits.clone(),
+            shared: *shared,
             ..Self::default()
         }
     }
@@ -402,6 +409,8 @@ pub struct State {
     keys: HashMap<String, String>,
     /// The folders of boards that changed since clients were last told.
     dirty: BTreeSet<String>,
+    /// The keys of boards that changed since the project's other hosts were last sent them.
+    unsent: BTreeSet<String>,
     /// What is kept about each card while the ticket sync works on it, by project and card.
     work: HashMap<(String, u64), CardWork>,
 }
@@ -425,6 +434,13 @@ impl State {
             .get(folder)
             .cloned()
             .unwrap_or_else(|| folder.to_owned())
+    }
+
+    /// The folder on this host of the project kept under `key`.
+    fn folder_of(&self, key: &str) -> String {
+        (self.keys.iter())
+            .find(|(_, kept)| *kept == key)
+            .map_or_else(|| key.to_owned(), |(folder, _)| folder.clone())
     }
 
     /// The board of the project at `folder`.
@@ -659,6 +675,7 @@ impl Boards {
             return;
         };
         state.dirty.insert(board.folder.clone());
+        state.unsent.insert(key.to_owned());
         self.wake.now();
         if let Some(folder) = &self.folder {
             self.writer
@@ -2424,6 +2441,10 @@ pub fn settle(core: &Arc<Core>) {
         (core.board_above().questions_boards_changed)(core);
     }
     tell_clients(core);
+    let unsent = std::mem::take(&mut core.boards().state.locked().unsent);
+    if !unsent.is_empty() {
+        (core.board_above().records_changed)(core, unsent.into_iter().collect());
+    }
 }
 
 /// Tells every client which boards changed, so each reads them again.
