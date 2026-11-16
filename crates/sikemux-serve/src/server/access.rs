@@ -76,8 +76,9 @@ pub struct Setup {
 pub struct Rule {
     pub needs: Needs,
     program: Program,
-    /// It signs for the person, so only a connection that may sign sends it.
-    pub signs: bool,
+    /// It signs for the person, so only a connection that may sign sends it, and the person
+    /// is asked in these words where this computer asks them in a window of the core's own.
+    pub signs: Option<&'static str>,
 }
 
 /// Which programs on this host may send a request.
@@ -156,14 +157,22 @@ pub fn rule(request: &Request, row: fn(&str) -> Rule) -> Rule {
         | Request::FocusAgent(_) => (Needs::NoDevice, Program::App),
     };
     let signs = match request {
-        Request::SetOwner(ask::SetOwner { owner }) => owner.is_some(),
-        Request::AnswerPairing(ask::AnswerPairing { allow, .. }) => *allow,
-        Request::SetDeviceAccess(ask::SetDeviceAccess { access, .. }) => {
-            *access == DeviceAccess::Full
+        Request::SetOwner(ask::SetOwner { owner: Some(_) }) => {
+            Some("Sign this computer in to your Sikemux account.")
         }
-        Request::SetRemoteAccess(ask::SetRemoteAccess { enabled }) => *enabled,
-        Request::SignRegistration(_) | Request::AllowDevices(_) => true,
-        _ => false,
+        Request::SignRegistration(_) => Some("Add this computer to your Sikemux account."),
+        Request::AnswerPairing(ask::AnswerPairing { allow: true, .. }) => {
+            Some("Let a device pair with this computer.")
+        }
+        Request::SetDeviceAccess(ask::SetDeviceAccess {
+            access: DeviceAccess::Full,
+            ..
+        }) => Some("Give a paired device full use of this computer."),
+        Request::SetRemoteAccess(ask::SetRemoteAccess { enabled: true }) => {
+            Some("Let your paired devices reach this computer.")
+        }
+        Request::AllowDevices(_) => Some("Let your account's phones into this computer."),
+        _ => None,
     };
     Rule {
         needs,
@@ -174,9 +183,9 @@ pub fn rule(request: &Request, row: fn(&str) -> Rule) -> Rule {
 
 impl Rule {
     /// What typing into a terminal takes, by a request or a frame of input.
-    pub const TERMINAL_INPUT: Rule = Rule::new(Needs::Full, Program::App, false);
+    pub const TERMINAL_INPUT: Rule = Rule::new(Needs::Full, Program::App, None);
 
-    pub const fn new(needs: Needs, program: Program, signs: bool) -> Self {
+    pub const fn new(needs: Needs, program: Program, signs: Option<&'static str>) -> Self {
         Self {
             needs,
             program,

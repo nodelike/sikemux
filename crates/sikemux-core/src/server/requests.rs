@@ -42,10 +42,19 @@ pub(super) fn admit(core: &Core, client: &ClientConn, rule: &Rule) -> CoreResult
     if client.peer == Peer::Local && rule.only_the_app(core.remote().setup()) {
         return Err(access::APP_ONLY.into());
     }
-    if rule.signs {
+    if rule.signs.is_some() {
         core.remote().may_sign(&client.peer)?;
     }
     Ok(())
+}
+
+/// Asks the person in Sikemux's own window, where this computer has one, before a request
+/// that signs for them.
+async fn sign(core: &Core, client: &ClientConn, signs: Option<&str>) -> CoreResult<()> {
+    match signs {
+        Some(what) => core.remote().sign(&client.peer, what).await,
+        None => Ok(()),
+    }
 }
 
 /// Writes to a session's program in the order writes arrived, and tells
@@ -101,14 +110,12 @@ pub(super) async fn run(
     while let Some((request_id, request)) = queue.recv().await {
         let core = core.clone();
         let client = client.clone();
-        if let Err(refused) = admit(
-            &core,
-            &client,
-            &access::rule(&request, super::base::access_of),
-        ) {
+        let rule = access::rule(&request, super::base::access_of);
+        if let Err(refused) = admit(&core, &client, &rule) {
             client.respond(request_id, Err(refused));
             continue;
         }
+        let signs = rule.signs;
         match request {
             Request::Spawn(ask::Spawn { launch, target }) => {
                 tokio::spawn(async move {
@@ -472,13 +479,20 @@ pub(super) async fn run(
             }
             Request::SetRemoteAccess(ask::SetRemoteAccess { enabled }) => {
                 tokio::spawn(async move {
-                    let result = remote::set_enabled(&core, enabled).await;
+                    let result = match sign(&core, &client, signs).await {
+                        Ok(()) => remote::set_enabled(&core, enabled).await,
+                        Err(refused) => Err(refused),
+                    };
                     client.answer::<ask::SetRemoteAccess>(request_id, result.map(Box::new));
                 });
             }
             Request::SetDeviceAccess(ask::SetDeviceAccess { id, access }) => {
-                let result = remote::set_access(&core, &id, access);
-                client.answer::<ask::SetDeviceAccess>(request_id, result.map(Box::new));
+                tokio::spawn(async move {
+                    let result = sign(&core, &client, signs)
+                        .await
+                        .and_then(|()| remote::set_access(&core, &id, access));
+                    client.answer::<ask::SetDeviceAccess>(request_id, result.map(Box::new));
+                });
             }
             Request::BackdropImage => {
                 let data_url = core.workspaces().backdrop_image();
@@ -582,18 +596,22 @@ pub(super) async fn run(
                 super::launching::resume_chat(&core, &client, request_id, choice);
             }
             Request::AnswerPairing(ask::AnswerPairing { id, allow, access }) => {
-                let result = core
-                    .remote()
-                    .answer(&id, allow.then_some(access))
-                    .map(|()| remote::announce(&core));
-                client.answer::<ask::AnswerPairing>(request_id, result.map(Box::new));
+                tokio::spawn(async move {
+                    let result = sign(&core, &client, signs)
+                        .await
+                        .and_then(|()| core.remote().answer(&id, allow.then_some(access)))
+                        .map(|()| remote::announce(&core));
+                    client.answer::<ask::AnswerPairing>(request_id, result.map(Box::new));
+                });
             }
             Request::AllowDevices(ask::AllowDevices { devices }) => {
-                let result = core
-                    .remote()
-                    .allow(devices)
-                    .map(|()| remote::announce(&core));
-                client.answer::<ask::AllowDevices>(request_id, result.map(Box::new));
+                tokio::spawn(async move {
+                    let result = sign(&core, &client, signs)
+                        .await
+                        .and_then(|()| core.remote().allow(devices))
+                        .map(|()| remote::announce(&core));
+                    client.answer::<ask::AllowDevices>(request_id, result.map(Box::new));
+                });
             }
             Request::Unpair => {
                 let Peer::Device { id } = &client.peer else {
@@ -614,14 +632,21 @@ pub(super) async fn run(
             }
             Request::SignRegistration(ask::SignRegistration { nonce, user_id }) => {
                 tokio::spawn(async move {
-                    let result =
-                        account::host_registration(&core, &nonce, &user_id, &client.peer).await;
+                    let result = match sign(&core, &client, signs).await {
+                        Ok(()) => {
+                            account::host_registration(&core, &nonce, &user_id, &client.peer).await
+                        }
+                        Err(refused) => Err(refused),
+                    };
                     client.answer::<ask::SignRegistration>(request_id, result);
                 });
             }
             Request::SetOwner(ask::SetOwner { owner }) => {
                 tokio::spawn(async move {
-                    let result = remote::set_owner(&core, owner, &client.peer).await;
+                    let result = match sign(&core, &client, signs).await {
+                        Ok(()) => remote::set_owner(&core, owner, &client.peer).await,
+                        Err(refused) => Err(refused),
+                    };
                     client.answer::<ask::SetOwner>(request_id, result.map(Box::new));
                 });
             }
