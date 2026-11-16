@@ -431,12 +431,17 @@ fn activity_events(
             at.format(&time::format_description::well_known::Rfc3339)
                 .ok()
         });
-    let date = timestamp.as_deref().map(|at| at[..10].to_owned());
+    let date = timestamp
+        .as_deref()
+        .and_then(|at| at.get(..10))
+        .map(str::to_owned);
     let event = |name: &str, own: Value| {
         let mut properties = common_properties(active, platform);
-        properties["day"] = json!(date);
-        if let (Some(properties), Value::Object(own)) = (properties.as_object_mut(), own) {
-            properties.extend(own);
+        if let Some(properties) = properties.as_object_mut() {
+            properties.insert("day".to_owned(), json!(date));
+            if let Value::Object(own) = own {
+                properties.extend(own);
+            }
         }
         json!({
             "event": name,
@@ -554,7 +559,7 @@ fn event_id(install_id: &str, name: &str, day: i64, properties: &Value) -> Strin
     ]
     .map(|value| value.as_str().unwrap_or_default());
     let digest = Sha256::digest(format!("{install_id}|{name}|{day}|{}", key.join("|")));
-    uuid::Builder::from_random_bytes(digest[..16].try_into().expect("16 bytes"))
+    uuid::Builder::from_random_bytes(digest.first_chunk::<16>().copied().unwrap_or_default())
         .into_uuid()
         .to_string()
 }

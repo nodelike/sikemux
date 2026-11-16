@@ -185,20 +185,23 @@ pub(crate) fn rows(
         );
         let earlier = later
             .then(|| {
-                going.iter().position(|&place| {
-                    let row = &rows[place];
-                    row.to == entry.to
-                        && (entry.from.is_none() || row.from == entry.from)
-                        && (entry.kind.is_none() || row.kind == entry.kind)
+                (going.iter().enumerate()).find(|(_, place)| {
+                    rows.get(**place).is_some_and(|row| {
+                        row.to == entry.to
+                            && (entry.from.is_none() || row.from == entry.from)
+                            && (entry.kind.is_none() || row.kind == entry.kind)
+                    })
                 })
             })
-            .flatten();
-        if let Some(waiting) = earlier {
-            let row = &mut rows[going[waiting]];
-            row.waited |= !matches!(row.outcome, MessageOutcome::Typed);
-            row.outcome = entry.outcome;
-            row.tone = tone(entry.outcome);
-            row.at = entry.at;
+            .flatten()
+            .map(|(waiting, place)| (waiting, *place));
+        if let Some((waiting, place)) = earlier {
+            if let Some(row) = rows.get_mut(place) {
+                row.waited |= !matches!(row.outcome, MessageOutcome::Typed);
+                row.outcome = entry.outcome;
+                row.tone = tone(entry.outcome);
+                row.at = entry.at;
+            }
             if !still_going(entry.outcome) {
                 going.remove(waiting);
             }

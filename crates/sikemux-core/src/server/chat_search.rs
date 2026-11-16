@@ -120,7 +120,7 @@ impl Query {
             let mut found = false;
             for (at, _) in title.match_indices(word.as_str()) {
                 found = true;
-                let before = title[..at].chars().next_back();
+                let before = title.get(..at).and_then(|head| head.chars().next_back());
                 if before.is_none_or(|before| !before.is_alphanumeric()) {
                     starts = true;
                     break;

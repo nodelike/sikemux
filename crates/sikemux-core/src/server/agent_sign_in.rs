@@ -85,11 +85,12 @@ fn sign_ins() -> MutexGuard<'static, HashMap<String, SignIn>> {
 
 fn first_url(line: &str) -> Option<&str> {
     let start = line.find("https://")?;
-    let rest = &line[start..];
-    let end = rest
-        .find(|ch: char| ch.is_whitespace() || ch == '"' || ch == '\'' || ch == '>')
-        .unwrap_or(rest.len());
-    Some(rest[..end].trim_end_matches(['.', ',', ')']))
+    let rest = line.get(start..)?;
+    let url = rest
+        .split(|ch: char| ch.is_whitespace() || ch == '"' || ch == '\'' || ch == '>')
+        .next()
+        .unwrap_or(rest);
+    Some(url.trim_end_matches(['.', ',', ')']))
 }
 
 pub(super) fn pages() -> Vec<Page> {

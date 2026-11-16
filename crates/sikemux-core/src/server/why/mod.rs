@@ -808,20 +808,23 @@ fn source(core: &Core, agent: &str, asked_at: u64) {
         let at = |key| event.payload.get(key).and_then(Value::as_u64);
         at("until").or(at("at"))
     };
-    let Some(start) =
-        (events.iter()).position(|(_, event)| stamp(event).is_some_and(|at| at >= asked_at))
+    let Some(tail) = (events.iter())
+        .position(|(_, event)| stamp(event).is_some_and(|at| at >= asked_at))
+        .and_then(|start| events.get(start..))
     else {
         return;
     };
-    let from = events[start].0;
-    let Some(until) = (events[start..].iter())
+    let Some(&(from, _)) = tail.first() else {
+        return;
+    };
+    let Some(until) = (tail.iter())
         .find(|(_, event)| event.kind == ChatEventKind::TurnCompleted)
         .map(|(index, _)| *index)
     else {
         return;
     };
     let mut answer = String::new();
-    for (index, event) in &events[start..] {
+    for (index, event) in tail {
         if *index > until {
             break;
         }
@@ -1077,12 +1080,15 @@ fn links(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = text;
     while let Some(at) = rest.find(&opening) {
-        let href = &rest[at + 2..];
+        let Some(href) = rest.get(at + 2..) else {
+            break;
+        };
         let end = href
             .find(|c: char| c == ')' || c.is_whitespace())
             .unwrap_or(href.len());
-        found.push(href[..end].to_owned());
-        rest = &href[end..];
+        let (link, after) = href.split_at_checked(end).unwrap_or((href, ""));
+        found.push(link.to_owned());
+        rest = after;
     }
     found
 }

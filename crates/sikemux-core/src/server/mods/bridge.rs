@@ -247,7 +247,7 @@ async fn run(
 ) -> CoreResult<Value> {
     match reach {
         Reach::Agents => {
-            let every = params["all"].as_bool().unwrap_or(false);
+            let every = params.get("all").and_then(Value::as_bool).unwrap_or(false);
             let core = core.clone();
             blocking(move || {
                 let project = project.filter(|_| !every);
@@ -264,8 +264,8 @@ async fn run(
             Ok(serde_json::to_value(board::board(core, params).await?)?)
         }
         Reach::Processes => {
-            let project = in_project(params, &project)?["project"]
-                .as_str()
+            let project = (in_project(params, &project)?.get("project"))
+                .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
             Ok(serde_json::to_value(tasks::list(core, project).await?)?)
@@ -280,8 +280,8 @@ async fn run(
         )?),
         Reach::Load => Ok(serde_json::to_value(super::super::host_stats::load(core))?),
         Reach::Repo => {
-            let project = in_project(params, &project)?["project"]
-                .as_str()
+            let project = (in_project(params, &project)?.get("project"))
+                .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
             let repo = codehost::repo::of_project(core, &project)

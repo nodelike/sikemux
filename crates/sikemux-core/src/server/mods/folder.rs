@@ -205,8 +205,8 @@ pub(super) fn scan(folder: &Path) -> Local {
 
 /// Where a mod's folder is built before it takes the place of the one there.
 pub(super) fn staging(mods: &Path, id: &str) -> std::io::Result<PathBuf> {
-    let suffix =
-        hex::encode(super::super::vault::random_key().unwrap_or_default())[..12].to_owned();
+    let mut suffix = hex::encode(super::super::vault::random_key().unwrap_or_default());
+    suffix.truncate(12);
     let staged = mods.join(format!(".{id}.incoming-{suffix}"));
     std::fs::create_dir_all(&staged)?;
     Ok(staged)

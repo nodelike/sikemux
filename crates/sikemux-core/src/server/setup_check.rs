@@ -221,7 +221,7 @@ fn run(
 /// The steps of both checkouts as one list: a step fails when it failed in either.
 fn merged(results: &[Vec<SetupStep>]) -> Vec<SetupStep> {
     let mut steps = results.first().cloned().unwrap_or_default();
-    for other in &results[1.min(results.len())..] {
+    for other in results.iter().skip(1) {
         for (step, theirs) in steps.iter_mut().zip(other) {
             if step.outcome != Outcome::Failed && theirs.outcome == Outcome::Failed {
                 *step = theirs.clone();

@@ -100,14 +100,16 @@ pub(crate) async fn call(request: &HarnessRequest) -> Result<Value, String> {
         }
         let waited = started.elapsed().as_millis() as u64;
         if failing.is_empty() || Instant::now() >= deadline {
-            let mut answer = json!({ "met": failing.is_empty(), "waitedMs": waited });
+            let mut answer = serde_json::Map::new();
+            answer.insert("met".to_owned(), json!(failing.is_empty()));
+            answer.insert("waitedMs".to_owned(), json!(waited));
             if !failing.is_empty() {
-                answer["failing"] = json!(failing);
+                answer.insert("failing".to_owned(), json!(failing));
             }
             if let Some(tail) = scan.as_ref().and_then(Scan::tail) {
-                answer["tail"] = json!(tail);
+                answer.insert("tail".to_owned(), json!(tail));
             }
-            return Ok(answer);
+            return Ok(Value::Object(answer));
         }
         tokio::select! {
             () = changed.notified() => {}

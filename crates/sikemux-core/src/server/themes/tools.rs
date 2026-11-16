@@ -168,9 +168,9 @@ fn topic() -> &'static str {
     let Some(start) = GUIDE.find(TOPIC) else {
         return "";
     };
-    let rest = &GUIDE[start..];
-    let end = rest[TOPIC.len()..]
-        .find("\n## ")
+    let rest = GUIDE.get(start..).unwrap_or_default();
+    let end = (rest.get(TOPIC.len()..))
+        .and_then(|after| after.find("\n## "))
         .map_or(rest.len(), |end| end + TOPIC.len() + 1);
-    rest[..end].trim_end()
+    rest.get(..end).unwrap_or(rest).trim_end()
 }

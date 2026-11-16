@@ -178,11 +178,8 @@ pub(crate) fn cut_bytes(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_owned();
     }
-    let mut end = max;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{} […]", text[..end].trim_end())
+    let kept = text.get(..text.floor_char_boundary(max)).unwrap_or(text);
+    format!("{} […]", kept.trim_end())
 }
 
 fn cut_chars(text: &str, max: usize) -> String {
@@ -198,7 +195,7 @@ fn without_tag(text: &str, tag: &str) -> String {
     let open = format!("<{tag} ");
     let mut text = text.to_owned();
     while let Some(start) = text.find(&open) {
-        let Some(length) = text[start..].find('>') else {
+        let Some(length) = text.get(start..).and_then(|rest| rest.find('>')) else {
             break;
         };
         text.replace_range(start..=start + length, "");
@@ -288,10 +285,11 @@ impl Turn {
             .then(|| self.said.pop())
             .flatten();
         let tools = self.tools_line();
-        let mut turn = json!({
-            "state": self.ended.take().unwrap_or_else(|| "working".into()),
-        });
-        let fields = turn.as_object_mut().expect("a turn is an object");
+        let mut fields = serde_json::Map::new();
+        fields.insert(
+            "state".into(),
+            self.ended.take().unwrap_or_else(|| "working".into()),
+        );
         let mut omitted = Vec::new();
         let earlier_asked = self.asked.len().saturating_sub(TURN_ASKED);
         if earlier_asked > 0 {
@@ -306,8 +304,7 @@ impl Turn {
             fields.insert("asked".into(), asked.into());
         }
         if !self.said.is_empty() {
-            let said: Vec<String> = self.said[earlier_said..]
-                .iter()
+            let said: Vec<String> = (self.said.iter().skip(earlier_said))
                 .map(|text| cut_bytes(text, MAX_SAID_BYTES))
                 .collect();
             fields.insert("said".into(), said.into());
@@ -321,7 +318,7 @@ impl Turn {
         if let Some(answer) = answer {
             fields.insert("answer".into(), cut_bytes(&answer, MAX_ANSWER_BYTES).into());
         }
-        turn
+        Value::Object(fields)
     }
 }
 
@@ -336,7 +333,9 @@ fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
         if starts || ended {
             turns.push(Turn::new(index));
         }
-        let turn = turns.last_mut().expect("a turn was just made");
+        let Some(turn) = turns.last_mut() else {
+            continue;
+        };
         match said {
             Said::Asked(text) => {
                 turn.asked.push(asked(&text));
@@ -440,7 +439,9 @@ fn read_chat(target: &Listed, feed: &Feed, cursor: Option<&str>) -> Result<Value
         "more": rest.is_some(),
     });
     if !notes.is_empty() {
-        answer["note"] = notes.join(" ").into();
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("note".into(), notes.join(" ").into());
+        }
     }
     Ok(answer)
 }
@@ -567,8 +568,11 @@ fn read_terminal(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<V
     };
     let file = answer.get("cursor").is_some();
     if !file || target.status == AgentStatus::Blocked {
-        if let Some(screen) = screen_tail(core, &target.agent_id, SCREEN_LINES) {
-            answer["screen"] = screen.into();
+        if let (Some(screen), Some(fields)) = (
+            screen_tail(core, &target.agent_id, SCREEN_LINES),
+            answer.as_object_mut(),
+        ) {
+            fields.insert("screen".into(), screen.into());
         }
         if file {
             notes.push(format!(
@@ -577,7 +581,9 @@ fn read_terminal(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<V
         }
     }
     if !notes.is_empty() {
-        answer["note"] = notes.join(" ").into();
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("note".into(), notes.join(" ").into());
+        }
     }
     Ok(answer)
 }
@@ -767,14 +773,15 @@ pub(crate) fn read_target(
             "note": format!("{name} kept no record Sikemux can read."),
         }),
     };
-    let fields = answer.as_object_mut().expect("an answer is an object");
-    fields.insert("name".into(), name.into());
-    fields.insert("agentId".into(), target.agent_id.clone().into());
-    fields.insert("cli".into(), target.cli.clone().into());
-    fields.insert(
-        "status".into(),
-        roster::status_word(crate::server::roster::standing(target, core)).into(),
-    );
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("name".into(), name.into());
+        fields.insert("agentId".into(), target.agent_id.clone().into());
+        fields.insert("cli".into(), target.cli.clone().into());
+        fields.insert(
+            "status".into(),
+            roster::status_word(crate::server::roster::standing(target, core)).into(),
+        );
+    }
     Ok(answer)
 }
 
@@ -847,9 +854,8 @@ pub(crate) fn waited(
             found.push(waited);
         }
     }
-    if found
-        .iter()
-        .any(|waited| waited.project != found[0].project)
+    if (found.first())
+        .is_some_and(|first| found.iter().any(|waited| waited.project != first.project))
     {
         return Err(
             "agent_wait waits on agents of one project at a time; wait on each project's apart"
@@ -921,7 +927,9 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             .await
             .map_err(|error| error.to_string())?
     };
-    let project = first[0].project.clone();
+    let project = (first.first())
+        .map(|waited| waited.project.clone())
+        .ok_or("agent_wait needs an agent to wait on")?;
     let ids: HashSet<String> = first.iter().map(|waited| waited.agent_id.clone()).collect();
     let after = match after {
         Some(after) => after,
@@ -1011,7 +1019,9 @@ fn answer(
         "note": note,
     });
     if truncated {
-        answer["truncated"] = true.into();
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("truncated".into(), true.into());
+        }
     }
     answer
 }

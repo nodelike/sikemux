@@ -651,6 +651,10 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     if let Some(lead) = &request.agent_id {
         rename_in(core, lead);
     }
+    #[expect(
+        clippy::unreachable,
+        reason = "start answers AlreadyOpen only for a session it was asked to resume"
+    )]
     let started = match (opened, &saved) {
         (Opened::New(started), _) => started,
         (Opened::AlreadyOpen(agent_id, name), Some(saved)) => {
@@ -814,7 +818,9 @@ async fn with_overlap(core: &Arc<Core>, lead: &str, prompt: &str, mut answer: Va
     let (owner, lead, prompt) = (core.clone(), lead.to_owned(), prompt.to_owned());
     if let Ok(Some(overlap)) = blocking(move || Ok(overlap::of_brief(&owner, &lead, &prompt))).await
     {
-        answer["overlap"] = overlap;
+        if let Some(object) = answer.as_object_mut() {
+            object.insert("overlap".to_owned(), overlap);
+        }
     }
     answer
 }
@@ -822,7 +828,9 @@ async fn with_overlap(core: &Arc<Core>, lead: &str, prompt: &str, mut answer: Va
 /// A lead that started a teammate reporting back hears from it without asking.
 fn woken_by_answers(mut answer: Value, reports: bool) -> Value {
     if reports {
-        answer["next"] = "Its answer wakes you, so end your turn once your own work is done rather than waiting, polling or calling agent_wait.".into();
+        if let Some(object) = answer.as_object_mut() {
+            object.insert("next".to_owned(), "Its answer wakes you, so end your turn once your own work is done rather than waiting, polling or calling agent_wait.".into());
+        }
     }
     answer
 }
@@ -1312,8 +1320,8 @@ fn cut(answer: &str) -> String {
     }
     format!(
         "{}\n\n[{} KB in the middle left out; read it with agent_read.]\n\n{}",
-        answer[..end].trim_end(),
+        answer.get(..end).unwrap_or_default().trim_end(),
         (start - end).div_ceil(1024),
-        answer[start..].trim_start()
+        answer.get(start..).unwrap_or_default().trim_start()
     )
 }

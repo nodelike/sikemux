@@ -1001,8 +1001,11 @@ pub(super) fn on_host(wanted: &str) -> (&str, Option<&str>) {
         return (name.trim(), Some(host.trim()));
     }
     let lower = wanted.to_ascii_lowercase();
-    match lower.find(" on ") {
-        Some(at) => (wanted[..at].trim(), Some(wanted[at + 4..].trim())),
+    let split = lower
+        .find(" on ")
+        .and_then(|at| Some((wanted.get(..at)?, wanted.get(at + 4..)?)));
+    match split {
+        Some((name, host)) => (name.trim(), Some(host.trim())),
         None => (wanted, None),
     }
 }
@@ -1040,7 +1043,9 @@ async fn send_team(
 async fn send_each(core: &Arc<Core>, request: &HarnessRequest, to: Vec<(String, String)>) -> Value {
     let sending = to.into_iter().map(|(name, address)| {
         let mut one = request.clone();
-        one.params["to"] = Value::String(address);
+        if let Some(params) = one.params.as_object_mut() {
+            params.insert("to".into(), Value::String(address));
+        }
         async move { (name, Box::pin(send(core, &one)).await) }
     });
     let answers = futures_util::future::join_all(sending).await;
@@ -1048,7 +1053,7 @@ async fn send_each(core: &Arc<Core>, request: &HarnessRequest, to: Vec<(String, 
     for (name, answer) in answers {
         match answer {
             Ok(answer) => sent.push(
-                json!({ "to": name, "agentId": answer["agentId"], "delivery": answer["delivery"] }),
+                json!({ "to": name, "agentId": answer.get("agentId"), "delivery": answer.get("delivery") }),
             ),
             Err(why) => failed.push(json!({ "to": name, "error": why })),
         }
@@ -1215,10 +1220,10 @@ async fn reopen_elsewhere(
         .await
         .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
     Ok(json!({
-        "to": opened["name"],
-        "agentId": opened["agentId"],
+        "to": opened.get("name"),
+        "agentId": opened.get("agentId"),
         "delivery": "reopened",
-        "note": format!("{name} had closed, so Sikemux reopened its session on {}; it gets this as its task once it is ready.", opened["host"].as_str().unwrap_or("its host")),
+        "note": format!("{name} had closed, so Sikemux reopened its session on {}; it gets this as its task once it is ready.", opened.get("host").and_then(Value::as_str).unwrap_or("its host")),
     }))
 }
 
@@ -1300,7 +1305,7 @@ async fn reopen(
     let opened = Box::pin(super::spawn::spawn(core, &spawning))
         .await
         .map_err(|why| format!("{name} had closed, and reopening its session failed: {why}"))?;
-    let now = opened["name"].as_str().unwrap_or(name);
+    let now = opened.get("name").and_then(Value::as_str).unwrap_or(name);
     let as_now = if now.eq_ignore_ascii_case(name) {
         String::new()
     } else {
@@ -1308,7 +1313,7 @@ async fn reopen(
     };
     Ok(json!({
         "to": now,
-        "agentId": opened["agentId"],
+        "agentId": opened.get("agentId"),
         "delivery": "reopened",
         "note": format!("{name} had closed, so Sikemux reopened its session{as_now}; it gets this as its task once it is ready."),
     }))

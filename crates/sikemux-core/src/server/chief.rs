@@ -1268,9 +1268,12 @@ fn sentence(text: &str) -> String {
     let line = crate::text::one_line(text);
     let end = line
         .char_indices()
-        .find(|(at, c)| matches!(c, '.' | '?' | '!') && line[at + 1..].starts_with(' '))
+        .find(|(at, c)| {
+            matches!(c, '.' | '?' | '!')
+                && line.get(at + 1..).is_some_and(|rest| rest.starts_with(' '))
+        })
         .map_or(line.len(), |(at, _)| at + 1);
-    crate::text::clipped(&line[..end], LONGEST_QUOTE)
+    crate::text::clipped(line.get(..end).unwrap_or(&line), LONGEST_QUOTE)
 }
 
 /// The decision `decision` in the chief's away block is struck as overruled, or stands again.
@@ -1382,7 +1385,7 @@ pub(crate) fn card_reopened(core: &Core, project: &str, card: u64) {
     let key = closed_key(project, card);
     let line = core.chiefs().read(&chief, |seat| {
         let row = seat.rows.iter().find(|row| row.key == key)?;
-        serde_json::from_value::<ClosedCard>(row.update["closedCard"].clone()).ok()
+        serde_json::from_value::<ClosedCard>(row.update.get("closedCard")?.clone()).ok()
     });
     let Some(mut line) = line.flatten() else {
         return;
@@ -1585,7 +1588,9 @@ pub(crate) fn rule_lines_back(core: &Core, project: &str, back: impl Fn(&RuleCha
     if let Some(chief) = chief_at(core, project) {
         let lines = core.chiefs().read(&chief, |seat| {
             (seat.rows.iter())
-                .filter_map(|row| serde_json::from_value(row.update["ruleChange"].clone()).ok())
+                .filter_map(|row| {
+                    serde_json::from_value(row.update.get("ruleChange")?.clone()).ok()
+                })
                 .filter(|line| picked(line))
                 .collect::<Vec<RuleChange>>()
         });

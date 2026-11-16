@@ -68,7 +68,7 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
         None if app_state_file().is_some_and(|file| file.exists()) => return,
         None => Value::Null,
     };
-    let prefs = &app["prefs"];
+    let prefs = app.get("prefs").unwrap_or(&Value::Null);
     if !preferences_carried {
         for (key, value) in prefs.as_object().into_iter().flatten() {
             let _ = core.preferences().carry(key, value.clone());
@@ -79,8 +79,11 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
         core.hosts().carry_installed_from(installed_from(dir));
         done.insert(HOSTS_STEP.to_owned());
     }
-    let aws_profile = prefs["pluginSettings"][AWS_PLUGIN]["profile"]
-        .as_str()
+    let aws_profile = prefs
+        .get("pluginSettings")
+        .and_then(|settings| settings.get(AWS_PLUGIN))
+        .and_then(|plugin| plugin.get("profile"))
+        .and_then(Value::as_str)
         .filter(|profile| !profile.trim().is_empty())
         .map(str::to_owned);
     if aws_profile.is_none() {
@@ -115,6 +118,8 @@ fn installed_from(dir: &Path) -> BTreeMap<String, String> {
     std::fs::read(dir.join("hosts.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|file| serde_json::from_value(file["ssh"].clone()).ok())
+        .and_then(|file| {
+            serde_json::from_value(file.get("ssh").cloned().unwrap_or(Value::Null)).ok()
+        })
         .unwrap_or_default()
 }

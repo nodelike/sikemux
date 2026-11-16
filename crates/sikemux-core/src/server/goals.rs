@@ -385,7 +385,11 @@ fn place_needs(rows: &mut [Placed], needing: &[&InboxItem]) -> Vec<LooseNeed> {
                 .or_else(|| rows.iter().position(holds))
         };
         match on_card.or_else(by_agent) {
-            Some(at) => rows[at].row.needs.push(item.id.clone()),
+            Some(at) => {
+                if let Some(placed) = rows.get_mut(at) {
+                    placed.row.needs.push(item.id.clone());
+                }
+            }
             None => loose.extend(item.need.map(|need| {
                 LooseNeed {
                     id: item.id.clone(),

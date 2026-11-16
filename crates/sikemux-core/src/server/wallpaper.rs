@@ -104,13 +104,15 @@ fn median_cut(mut pixels: Vec<[u8; 3]>, depth: u32) -> Vec<Vec<[u8; 3]>> {
         return vec![pixels];
     }
     let span = |channel: usize| {
-        let values = pixels.iter().map(|pixel| pixel[channel]);
+        let values = pixels
+            .iter()
+            .filter_map(|pixel| pixel.get(channel).copied());
         values.clone().max().unwrap_or(0) - values.min().unwrap_or(0)
     };
     let spans = [span(0), span(1), span(2)];
     let widest = spans.iter().copied().max().unwrap_or(0);
     let channel = spans.iter().position(|span| *span == widest).unwrap_or(0);
-    pixels.sort_by_key(|pixel| pixel[channel]);
+    pixels.sort_by_key(|pixel| pixel.get(channel).copied());
     let upper = pixels.split_off(pixels.len() / 2);
     let mut boxes = median_cut(pixels, depth - 1);
     boxes.extend(median_cut(upper, depth - 1));
@@ -137,7 +139,8 @@ fn clusters(rgba: &[u8]) -> Result<Vec<Cluster>, String> {
         .map(|cut| {
             let mean = |channel: usize| {
                 cut.iter()
-                    .map(|pixel| f64::from(pixel[channel]))
+                    .filter_map(|pixel| pixel.get(channel))
+                    .map(|channel| f64::from(*channel))
                     .sum::<f64>()
                     / cut.len() as f64
             };
@@ -309,7 +312,7 @@ mod tests {
     }
 
     fn channels(colour: &str) -> [u8; 3] {
-        let at = |from: usize| u8::from_str_radix(&colour[from..from + 2], 16).unwrap();
+        let at = |from: usize| u8::from_str_radix(colour.get(from..from + 2).unwrap(), 16).unwrap();
         [at(1), at(3), at(5)]
     }
 
@@ -362,6 +365,8 @@ mod tests {
         assert_eq!(colours.len(), 21);
         assert!(colours.iter().all(|colour| colour.len() == 7
             && colour.starts_with('#')
-            && colour[1..].chars().all(|char| char.is_ascii_hexdigit())));
+            && colour
+                .get(1..)
+                .is_some_and(|hex| hex.chars().all(|char| char.is_ascii_hexdigit()))));
     }
 }

@@ -158,14 +158,14 @@ fn forget_oldest(folder: &Path) {
         return;
     }
     files.sort();
-    for (_, file) in &files[..files.len() - MAX_FILES] {
+    for (_, file) in files.iter().take(files.len() - MAX_FILES) {
         let _ = std::fs::remove_file(file);
     }
 }
 
 fn hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
-    digest[..12].iter().map(|b| format!("{b:02x}")).collect()
+    digest.iter().take(12).map(|b| format!("{b:02x}")).collect()
 }
 
 fn tell_clients(core: &Core, (project, _): &Goal) {

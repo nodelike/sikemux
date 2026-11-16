@@ -1,7 +1,7 @@
 //! What the store keeps of the account's copy of each document, and how what the account sends
 //! is taken in.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{hash_map, BTreeSet, HashMap, HashSet};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{Map, Value};
@@ -109,10 +109,10 @@ fn counts_in<'a>(
     transaction: &Connection,
     module: &str,
 ) -> CoreResult<&'a mut Counts> {
-    if !counts.contains_key(module) {
-        counts.insert(module.to_owned(), counts_of(transaction, module)?);
-    }
-    Ok(counts.get_mut(module).expect("just inserted"))
+    Ok(match counts.entry(module.to_owned()) {
+        hash_map::Entry::Occupied(counted) => counted.into_mut(),
+        hash_map::Entry::Vacant(uncounted) => uncounted.insert(counts_of(transaction, module)?),
+    })
 }
 
 /// `document` without the stamps written after `limit`.

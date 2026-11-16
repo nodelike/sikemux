@@ -297,7 +297,7 @@ mod tests {
     use crate::server::turn_state::Work;
     use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
     use crate::server::ServerCore;
-    use serde_json::{json, Value};
+    use serde_json::json;
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -316,7 +316,7 @@ mod tests {
     }
 
     fn open(core: &Core, id: &str, project: &str, cwd: &Path, lead: Option<&str>) {
-        let Value::Object(agent) = json!({
+        let agent = json!({
             "id": id,
             "provider": "claude",
             "project": project,
@@ -324,9 +324,10 @@ mod tests {
             "title": id,
             "lead": lead,
             "permissionMode": "auto",
-        }) else {
-            unreachable!()
-        };
+        })
+        .as_object()
+        .cloned()
+        .expect("an agent is an object");
         core.workspaces().put_agent_draft(agent).expect("the agent");
     }
 

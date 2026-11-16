@@ -28,8 +28,8 @@ impl Store {
         let Some(listed) = self.one(id, OWN, FOLDER, &|_| None)? else {
             return Ok(None);
         };
-        Ok(serde_json::from_value(listed.doc[FOLDER].clone())
-            .ok()
+        Ok((listed.doc.get(FOLDER))
+            .and_then(|folder| serde_json::from_value(folder.clone()).ok())
             .map(|shared| (shared, listed.at)))
     }
 
@@ -37,7 +37,7 @@ impl Store {
     pub(super) fn text_of(&self, id: &str, hash: &str) -> CoreResult<Option<String>> {
         Ok(self
             .one(id, FILES, hash, &|_| None)?
-            .and_then(|listed| listed.doc["text"].as_str().map(str::to_owned)))
+            .and_then(|listed| listed.doc.get("text")?.as_str().map(str::to_owned)))
     }
 
     /// The mods whose folder the account keeps.

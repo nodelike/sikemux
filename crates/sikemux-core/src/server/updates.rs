@@ -570,7 +570,9 @@ async fn apply_through_service(core: &Core) -> CoreResult<()> {
 
 #[cfg(not(windows))]
 async fn apply_through_service(_core: &Core) -> CoreResult<()> {
-    unreachable!("only a Windows core runs under the service")
+    Err(CoreError::from(
+        "only a Windows core runs under the service",
+    ))
 }
 
 /// `by_itself` is an update a desktop app began on its own, which waits for every chat to rest
@@ -1003,8 +1005,8 @@ async fn put_in_place(
         // Beside the AppImage, so putting it in place is one rename on the same disk.
         OwnApp::AppImage(file) => beside(file, "update")?,
         #[cfg(not(windows))]
-        OwnApp::Installer => unreachable!("only Windows has an installer"),
-        OwnApp::Host => unreachable!("root puts a host's core in place"),
+        OwnApp::Installer => return Err("only Windows has an installer".into()),
+        OwnApp::Host => return Err("root puts a host's core in place".into()),
     };
     let mut last = Instant::now();
     let fetched = release_feed::fetch_verified(
@@ -1042,8 +1044,8 @@ async fn put_in_place(
         match &app {
             OwnApp::Bundle(bundle) => swap(bundle, &unpack),
             OwnApp::AppImage(file) => replace_appimage(file, &unpack),
-            OwnApp::Installer => unreachable!("the installer replaces the app"),
-            OwnApp::Host => unreachable!("root puts a host's core in place"),
+            OwnApp::Installer => Err("the installer replaces the app".to_owned()),
+            OwnApp::Host => Err("root puts a host's core in place".to_owned()),
         }
         .map_err(CoreError::from)
     })

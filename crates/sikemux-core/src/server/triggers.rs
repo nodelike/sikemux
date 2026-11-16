@@ -1026,44 +1026,45 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(_) => "it adds a card to this project's board, titled as the trigger with its prompt as the details, which Auto carries when it is on. It stays after this chat closes.",
         None => "it sends this chat its prompt, as a message you read like any other.",
     };
-    let mut answer = json!({ "trigger": trigger.id });
+    let mut answer = serde_json::Map::new();
+    answer.insert("trigger".into(), trigger.id.into());
     if let Some((_, shown, at)) = &park {
-        answer["note"] = format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into();
-        return Ok(answer);
+        answer.insert("note".into(), format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into());
+        return Ok(Value::Object(answer));
     }
     if let Some((_, shown)) = &rundeck {
         answer["note"] = format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into();
         return Ok(answer);
     }
     if let Some(check) = &trigger.check {
-        answer["check"] = check.said().into();
+        answer.insert("check".into(), check.said().into());
     }
     match (&trigger.when, next_at) {
         (TriggerWhen::Ci { on }, _) => {
-            answer["note"] = format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into();
+            answer.insert("note".into(), format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into());
         }
         (TriggerWhen::Mod { on }, _) => {
-            answer["note"] = format!("Each time anyone but you adds or changes documents in {on}{}, {what} The documents are named, a few seconds of changes at once; read them with mod_read.", match watch.as_ref().is_some_and(on_mod::Watch::filtered) {
+            answer.insert("note".into(), format!("Each time anyone but you adds or changes documents in {on}{}, {what} The documents are named, a few seconds of changes at once; read them with mod_read.", match watch.as_ref().is_some_and(on_mod::Watch::filtered) {
                 true => " that match where",
                 false => "",
-            }).into();
+            }).into());
         }
         (TriggerWhen::Webhook { url }, _) => {
-            answer["url"] = url.clone().into();
-            answer["note"] = format!("Each time something posts to url, {what} The request comes with it, marked as untrusted. Anyone with the url can fire it, so give it only to the service that needs it.").into();
+            answer.insert("url".into(), url.clone().into());
+            answer.insert("note".into(), format!("Each time something posts to url, {what} The request comes with it, marked as untrusted. Anyone with the url can fire it, so give it only to the service that needs it.").into());
         }
         (_, Some(next)) => {
-            answer["next"] = when(next).into();
-            answer["nextAt"] = next.into();
-            answer["note"] = match &trigger.check {
+            answer.insert("next".into(), when(next).into());
+            answer.insert("nextAt".into(), next.into());
+            answer.insert("note".into(), match &trigger.check {
                 Some(_) => format!("Each time it comes due its check runs, and only when the check says something other than the last time, {what} check holds what it says now."),
                 None => format!("When it fires, {what}"),
             }
-            .into();
+            .into());
         }
         (_, None) => {}
     }
-    Ok(answer)
+    Ok(Value::Object(answer))
 }
 
 pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
@@ -1381,17 +1382,18 @@ fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
                 false => {}
             }
         }
-        match same_run {
-            Some(at) => {
-                if let Some(other) = state.triggers[at].ci.as_mut() {
+        match (same_run, watch.pushed_by().first().cloned()) {
+            (Some(at), _) => {
+                let same = state.triggers.get_mut(at).and_then(|same| same.ci.as_mut());
+                if let Some(other) = same {
                     other.join(watch.pushed_by());
                 }
             }
-            None if state.triggers.len() < MAX_TRIGGERS => {
+            (None, Some(agent_id)) if state.triggers.len() < MAX_TRIGGERS => {
                 state.next_id += 1;
                 state.triggers.push(Trigger {
                     id: state.next_id,
-                    agent_id: watch.pushed_by()[0].clone(),
+                    agent_id,
                     board: None,
                     title: format!("CI after the push of {}", watch.shown()),
                     prompt: String::new(),
@@ -1410,7 +1412,7 @@ fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
                     dropped: 0,
                 });
             }
-            None => {}
+            (None, _) => {}
         }
         state.triggers.retain(|trigger| {
             !(trigger.ci.as_ref()).is_some_and(|ci| ci.after_push() && ci.pushed_by().is_empty())

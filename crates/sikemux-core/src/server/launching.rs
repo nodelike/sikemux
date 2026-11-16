@@ -424,10 +424,12 @@ pub(crate) async fn smart_pick(
     Ok(place(core, &mut chosen)
         .await
         .map(|notice| sikemux_view::chat::AccountMove {
-            label: notice["label"].as_str().unwrap_or_default().to_owned(),
+            label: (notice.get("label").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned(),
             from: None,
             reason: sikemux_view::chat::MoveReason::Chosen,
-            placed: notice["why"].as_str().map(str::to_owned),
+            placed: (notice.get("why").and_then(Value::as_str)).map(str::to_owned),
         }))
 }
 

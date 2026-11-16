@@ -262,12 +262,12 @@ pub(super) async fn ended(core: &Arc<Core>, watch: &CiWatch) -> Result<Ci, Strin
 
 async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     let detail = codehost::run(repo, id).await?;
-    let run = &detail["run"];
-    if run["status"] != "completed" {
+    let run = |key: &str| detail.get("run").and_then(|run| run.get(key)?.as_str());
+    if run("status") != Some("completed") {
         return Ok(Ci::Going { running: true });
     }
-    let conclusion = run["conclusion"].as_str().unwrap_or("ended");
-    let url = run["url"].as_str().unwrap_or_default();
+    let conclusion = run("conclusion").unwrap_or("ended");
+    let url = run("url").unwrap_or_default();
     let how = match Conclusion::of(conclusion) {
         Conclusion::Passed => CiEnded::Passed,
         Conclusion::Failed => match codehost::jobs_conclusion(&detail) {
@@ -283,14 +283,16 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     };
     let mut said = format!("CI run {} ended {ended}. {url}", id_text(id));
     if how == CiEnded::Failed {
-        let failed: Vec<&str> = detail["jobs"]
-            .as_array()
+        let failed: Vec<&str> = (detail.get("jobs").and_then(Value::as_array))
             .into_iter()
             .flatten()
             .filter(|job| {
-                job["conclusion"].as_str().map(Conclusion::of) == Some(Conclusion::Failed)
+                job.get("conclusion")
+                    .and_then(Value::as_str)
+                    .map(Conclusion::of)
+                    == Some(Conclusion::Failed)
             })
-            .filter_map(|job| job["name"].as_str())
+            .filter_map(|job| job.get("name")?.as_str())
             .collect();
         if !failed.is_empty() {
             said.push_str(&format!("\nFailed: {}", failed.join(", ")));

@@ -32,7 +32,7 @@ pub(crate) fn upgrade(config: &ServerConfig) {
         read => match read
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|format| format["format"].as_u64())
+            .and_then(|format| format.get("format").and_then(Value::as_u64))
         {
             Some(format) => format as usize,
             None => {
@@ -225,8 +225,8 @@ fn asks_keep_what_was_said(data_dir: &Path, _: &ServerConfig) -> std::io::Result
         };
         for ask in asks.iter_mut() {
             let mut said = json!({ "at": ask["at"], "text": ask["title"] });
-            if let Some(images) = ask.get("images") {
-                said["images"] = images.clone();
+            if let (Some(images), Some(said)) = (ask.get("images"), said.as_object_mut()) {
+                said.insert("images".to_owned(), images.clone());
             }
             ask["said"] = json!([said]);
         }
@@ -381,7 +381,7 @@ mod tests {
         let scrubbed = std::fs::read_to_string(&record).expect("record");
         assert_eq!(scrubbed.len(), written.len(), "{scrubbed}");
         let second = written.find('\n').expect("a line") + 1;
-        assert_eq!(scrubbed[second..], written[second..]);
+        assert_eq!(scrubbed.get(second..), written.get(second..));
         assert!(
             !scrubbed.contains("correct horse") && !scrubbed.contains("hiddenCall"),
             "{scrubbed}"

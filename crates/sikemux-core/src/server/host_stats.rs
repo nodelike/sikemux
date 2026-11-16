@@ -547,8 +547,8 @@ impl Looker {
             count: 0,
         };
         let mut rest_busy = 0u64;
-        for (index, usage) in usages.iter().enumerate() {
-            match tree.owner[index] {
+        for ((usage, usage_busy), owner) in usages.iter().zip(&busy).zip(&tree.owner) {
+            match *owner {
                 Some(agent_id) => {
                     let agent = agents.entry(agent_id).or_insert_with(|| AgentUse {
                         agent_id: agent_id.to_owned(),
@@ -561,16 +561,16 @@ impl Looker {
                     agent.memory += usage.memory;
                 }
                 None => {
-                    rest_busy += busy[index];
+                    rest_busy += usage_busy;
                     rest.memory += usage.memory;
                     rest.count += 1;
                 }
             }
         }
         let mut agent_busy: HashMap<&str, u64> = HashMap::new();
-        for (index, owner) in tree.owner.iter().enumerate() {
+        for (owner, usage_busy) in tree.owner.iter().zip(&busy) {
             if let Some(agent_id) = owner {
-                *agent_busy.entry(agent_id).or_default() += busy[index];
+                *agent_busy.entry(agent_id).or_default() += usage_busy;
             }
         }
         let mut started = Vec::new();
@@ -582,7 +582,9 @@ impl Looker {
             let Some(command) = tree.command(root, window * COMMAND_BUSY / 1_000) else {
                 continue;
             };
-            let usage = &usages[command];
+            let Some(usage) = usages.get(command) else {
+                continue;
+            };
             if agent.command.is_some() {
                 continue;
             }
@@ -603,13 +605,15 @@ impl Looker {
         }
         let mut agents: Vec<AgentUse> = agents.into_values().collect();
         agents.sort_by(|a, b| (b.cpu, b.memory, &a.agent_id).cmp(&(a.cpu, a.memory, &b.agent_id)));
-        let mut order: Vec<usize> = (0..usages.len()).collect();
-        order.sort_by(|a, b| (busy[*b], usages[*b].memory).cmp(&(busy[*a], usages[*a].memory)));
+        let mut order: Vec<(&Usage, u64)> = (usages.iter().zip(&busy).zip(&tree.owner))
+            .filter(|(_, owner)| owner.is_none())
+            .map(|((usage, usage_busy), _)| (usage, *usage_busy))
+            .collect();
+        order.sort_by(|(a, a_busy), (b, b_busy)| (b_busy, b.memory).cmp(&(a_busy, a.memory)));
         rest.cpu = share(rest_busy);
         let mut named = HashSet::new();
         rest.names = (order.iter())
-            .filter(|index| tree.owner[**index].is_none())
-            .map(|index| usages[*index].name.as_str())
+            .map(|(usage, _)| usage.name.as_str())
             .filter(|name| named.insert(*name))
             .take(REST_NAMED)
             .map(str::to_owned)
@@ -618,9 +622,10 @@ impl Looker {
         core.host_watch().icons.meet(met);
         let mut grouped: Vec<(ProcessUse, u64, u64)> = Vec::new();
         let mut group_of: HashMap<(&str, Option<&str>), usize> = HashMap::new();
-        for (index, usage) in usages.iter().enumerate() {
-            let owner = tree.owner[index];
-            let app = in_apps[index].as_deref();
+        let each = (usages.iter().zip(&busy)).zip(tree.owner.iter().zip(&in_apps));
+        for ((usage, usage_busy), (owner, app)) in each {
+            let owner = *owner;
+            let app = app.as_deref();
             let group = app.map(|app| (app.key.as_str(), owner));
             let at = match group.and_then(|group| group_of.get(&group)) {
                 Some(at) => *at,
@@ -637,34 +642,33 @@ impl Looker {
                         0,
                         0,
                     ));
-                    group_of.extend(group.map(|group| (group, grouped.len() - 1)));
-                    grouped.len() - 1
+                    let at = grouped.len() - 1;
+                    group_of.extend(group.map(|group| (group, at)));
+                    at
                 }
             };
-            let (process, busy_together, heaviest) = &mut grouped[at];
-            *busy_together += busy[index];
+            let Some((process, busy_together, heaviest)) = grouped.get_mut(at) else {
+                continue;
+            };
+            *busy_together += usage_busy;
             process.memory += usage.memory;
             if usage.memory > *heaviest {
                 *heaviest = usage.memory;
                 process.pid = usage.pid;
             }
         }
-        let mut busiest: Vec<usize> = (0..grouped.len()).collect();
-        busiest.sort_by(|a, b| {
-            (grouped[*b].1, grouped[*b].0.memory).cmp(&(grouped[*a].1, grouped[*a].0.memory))
-        });
-        let mut heaviest: Vec<usize> = (0..grouped.len()).collect();
-        heaviest.sort_by(|a, b| grouped[*b].0.memory.cmp(&grouped[*a].0.memory));
+        let mut busiest: Vec<(usize, &(ProcessUse, u64, u64))> =
+            grouped.iter().enumerate().collect();
+        let mut heaviest = busiest.clone();
+        busiest.sort_by_key(|(_, (usage, busy, _))| std::cmp::Reverse((*busy, usage.memory)));
+        heaviest.sort_by_key(|(_, (usage, _, _))| std::cmp::Reverse(usage.memory));
         let mut kept = HashSet::new();
         let top: Vec<ProcessUse> = (busiest.iter().take(TOP_KEPT))
             .chain(heaviest.iter().take(TOP_KEPT))
-            .filter(|index| kept.insert(**index))
-            .map(|index| {
-                let (process, busy_together, _) = &grouped[*index];
-                ProcessUse {
-                    cpu: share(*busy_together),
-                    ..process.clone()
-                }
+            .filter(|(index, _)| kept.insert(*index))
+            .map(|(_, (process, busy_together, _))| ProcessUse {
+                cpu: share(*busy_together),
+                ..process.clone()
             })
             .collect();
         let shown = shown_of(&agents, &rest, &top);
@@ -753,19 +757,21 @@ impl<'a> Tree<'a> {
             let mut order = Vec::new();
             let mut stack = vec![root];
             while let Some(at) = stack.pop() {
-                if owner[at].is_some() {
+                let Some(slot) = owner.get_mut(at).filter(|slot| slot.is_none()) else {
                     continue;
-                }
-                owner[at] = Some(agent_id.as_str());
+                };
+                *slot = Some(agent_id.as_str());
                 order.push(at);
                 stack.extend(children.get(&at).into_iter().flatten().copied());
             }
             for at in order.into_iter().rev() {
                 let below: u64 = (children.get(&at).into_iter().flatten())
-                    .filter(|child| owner[**child] == Some(agent_id.as_str()))
-                    .map(|child| subtree[*child])
+                    .filter(|child| owner.get(**child) == Some(&Some(agent_id.as_str())))
+                    .filter_map(|child| subtree.get(*child))
                     .sum();
-                subtree[at] = busy[at] + below;
+                if let (Some(total), Some(own)) = (subtree.get_mut(at), busy.get(at)) {
+                    *total = own + below;
+                }
             }
         }
         Self {
@@ -780,12 +786,13 @@ impl<'a> Tree<'a> {
     fn busiest_child(&self, of: usize) -> Option<usize> {
         (self.children.get(&of).into_iter().flatten())
             .copied()
-            .max_by_key(|child| self.busy[*child])
+            .max_by_key(|child| self.busy.get(*child))
     }
 
     fn is_shell(&self, at: usize) -> bool {
-        let name = self.names[at].trim_start_matches('-');
-        SHELLS.contains(&name)
+        self.names
+            .get(at)
+            .is_some_and(|name| SHELLS.contains(&name.trim_start_matches('-')))
     }
 
     /// What the agent at `root` runs beyond itself: below the agent's own process, the
@@ -798,8 +805,14 @@ impl<'a> Tree<'a> {
         }
         let mut command = (self.children.get(&agent).into_iter().flatten())
             .copied()
-            .filter(|child| self.is_shell(*child) || self.busy[*child] >= busy_floor)
-            .max_by_key(|child| (self.busy[*child], !self.is_shell(*child)))?;
+            .filter(|child| {
+                self.is_shell(*child)
+                    || self
+                        .busy
+                        .get(*child)
+                        .is_some_and(|busy| *busy >= busy_floor)
+            })
+            .max_by_key(|child| (self.busy.get(*child), !self.is_shell(*child)))?;
         while self.is_shell(command) {
             match self.busiest_child(command) {
                 Some(child) => command = child,
@@ -812,15 +825,15 @@ impl<'a> Tree<'a> {
 
 /// `cargo test --workspace`, from the arguments a process was started with.
 fn command_line(usage: &Usage) -> String {
-    let Some(arguments) = procs::command_line(usage.pid).filter(|line| !line.is_empty()) else {
+    let arguments = procs::command_line(usage.pid).unwrap_or_default();
+    let Some((program, rest)) = arguments.split_first() else {
         return usage.name.clone();
     };
-    let program = Path::new(&arguments[0]).file_name().map_or_else(
-        || arguments[0].clone(),
+    let mut line = Path::new(program).file_name().map_or_else(
+        || program.clone(),
         |name| name.to_string_lossy().into_owned(),
     );
-    let mut line = program;
-    for argument in &arguments[1..] {
+    for argument in rest {
         if line.chars().count() >= MAX_COMMAND_CHARS {
             break;
         }
@@ -828,7 +841,7 @@ fn command_line(usage: &Usage) -> String {
         line.push_str(argument);
     }
     match line.char_indices().nth(MAX_COMMAND_CHARS) {
-        Some((cut, _)) => format!("{}…", &line[..cut]),
+        Some((cut, _)) => format!("{}…", line.get(..cut).unwrap_or(&line)),
         None => line,
     }
 }

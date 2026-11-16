@@ -169,7 +169,8 @@ pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
             let status = call(core, &listed.id, "status", Value::Null);
             match sikemux_plugin_api::vault::as_caller(checking, status).await {
                 Ok(status) => {
-                    listed.browser_sign_in = browser && status["browserSignIn"] != false;
+                    listed.browser_sign_in =
+                        browser && status.get("browserSignIn") != Some(&Value::Bool(false));
                     let status = serde_json::from_value::<SignInStatus<IgnoredAny>>(status).ok();
                     listed.signed_in = Some(
                         status
@@ -359,7 +360,14 @@ async fn with_project_repo(
                 )));
             }
             Some(_) => {}
-            None => arguments[field] = value.into(),
+            None => {
+                if arguments.is_null() {
+                    arguments = Value::Object(serde_json::Map::new());
+                }
+                if let Some(object) = arguments.as_object_mut() {
+                    object.insert(field.to_owned(), value.into());
+                }
+            }
         }
     }
     Ok(arguments)

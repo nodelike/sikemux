@@ -292,8 +292,7 @@ impl Line {
     /// another holds, while it waits.
     pub(crate) fn waiting(&self, core: &Core, agent_id: &str) -> Option<InLine> {
         let state = self.state.locked();
-        let at = (state.waiting.iter()).position(|run| run.is_for(agent_id))?;
-        let run = &state.waiting[at];
+        let (at, run) = (state.waiting.iter().enumerate()).find(|(_, run)| run.is_for(agent_id))?;
         let by = (run.wants.as_ref())
             .and_then(Wanted::holder)
             .map(|holder| name_of(core, holder));
@@ -313,10 +312,10 @@ impl Line {
     /// Where the heavy command of the `process_start` run `execution_id` stands, while it waits.
     pub(crate) fn waiting_for_run(&self, execution_id: &str) -> Option<InLine> {
         let state = self.state.locked();
-        let at = (state.waiting.iter())
-            .position(|run| run.execution_id.as_deref() == Some(execution_id))?;
+        let (at, run) = (state.waiting.iter().enumerate())
+            .find(|(_, run)| run.execution_id.as_deref() == Some(execution_id))?;
         Some(InLine {
-            what: state.waiting[at].command.clone(),
+            what: run.command.clone(),
             place: at as u32 + 1,
             expected_ms: expected_wait(&state, at),
             by: None,
@@ -415,8 +414,12 @@ impl Line {
     /// one stops.
     pub(crate) fn stop(&self, core: &Core, id: u64) -> Result<(), String> {
         let mut state = self.state.locked();
-        if let Some(at) = state.waiting.iter().position(|run| run.id == id) {
-            let run = &state.waiting[at];
+        if let Some((at, run)) = state
+            .waiting
+            .iter()
+            .enumerate()
+            .find(|(_, run)| run.id == id)
+        {
             if run.callers.is_empty() && run.kind != Kind::Process {
                 state.waiting.remove(at);
                 drop(state);
@@ -504,9 +507,8 @@ impl Line {
         let mut woken = Vec::new();
         let mut blocked = false;
         let mut at = 0;
-        while at < state.waiting.len() {
+        while let Some(run) = state.waiting.get(at) {
             let running: Vec<u64> = state.running.iter().map(|run| run.id).collect();
-            let run = &state.waiting[at];
             let set_aside = matches!(run.held, Held::PlaceUntil(_))
                 || run.after.is_some_and(|after| running.contains(&after));
             if set_aside {
@@ -515,17 +517,21 @@ impl Line {
             }
             let wants = things::unfree(state, run, &room.around);
             let waits_for_thing = wants.is_some();
-            state.waiting[at].wants = wants;
+            let in_line = run.in_line;
+            if let Some(run) = state.waiting.get_mut(at) {
+                run.wants = wants;
+            }
             if waits_for_thing {
                 at += 1;
                 continue;
             }
-            if state.waiting[at].in_line {
+            if in_line {
                 if blocked {
                     at += 1;
                     continue;
                 }
-                if let Some(why) = why_not_yet(state, &state.waiting[at], room) {
+                let why = (state.waiting.get(at)).and_then(|run| why_not_yet(state, run, room));
+                if let Some(why) = why {
                     state.why = why;
                     blocked = true;
                     at += 1;
@@ -945,7 +951,7 @@ fn name_of(core: &Core, agent_id: &str) -> String {
 /// every one of them was measured.
 fn expected_wait(state: &State, at: usize) -> Option<u64> {
     let now = epoch_ms();
-    let ahead = (state.waiting[..at].iter())
+    let ahead = (state.waiting.iter().take(at))
         .map(|run| run.expected.map(|size| size.took_ms))
         .sum::<Option<u64>>()?;
     let soonest_free = (state
@@ -1238,10 +1244,12 @@ impl Turn {
                 },
             };
         }
-        if let Some(at) = state.waiting.iter().position(|run| run.id == self.run) {
-            let after = state.waiting[at].after;
-            let wants = (state.waiting[at].wants.as_ref())
-                .map(|wants| wants.words(&|agent| name_of(&self.core, agent)));
+        if let Some((at, run)) =
+            (state.waiting.iter().enumerate()).find(|(_, run)| run.id == self.run)
+        {
+            let after = run.after;
+            let wants =
+                (run.wants.as_ref()).map(|wants| wants.words(&|agent| name_of(&self.core, agent)));
             let why = match at {
                 _ if wants.is_some() => wants.unwrap_or_default(),
                 _ if after.is_some_and(|after| state.running.iter().any(|run| run.id == after)) => {
@@ -1330,8 +1338,9 @@ impl Drop for Turn {
         let line = self.core.line();
         let now = epoch_ms();
         let mut state = line.state.locked();
-        if let Some(at) = state.running.iter().position(|run| run.id == self.run) {
-            let run = &mut state.running[at];
+        if let Some((at, run)) =
+            (state.running.iter_mut().enumerate()).find(|(_, run)| run.id == self.run)
+        {
             let first = run
                 .callers
                 .first()
@@ -1348,8 +1357,9 @@ impl Drop for Turn {
                 }
                 state.finished.push((run.id, exit, run.log, now));
             }
-        } else if let Some(at) = state.waiting.iter().position(|run| run.id == self.run) {
-            let run = &mut state.waiting[at];
+        } else if let Some((at, run)) =
+            (state.waiting.iter_mut().enumerate()).find(|(_, run)| run.id == self.run)
+        {
             run.callers.retain(|caller| caller.id != self.caller);
             if let Some(next) = run.callers.first() {
                 run.agent_id = next.agent_id.clone();

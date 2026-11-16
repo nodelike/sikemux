@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::shown::{PageShown, Picture, ResultRow, TurnShown, WidthShown};
@@ -145,8 +145,7 @@ impl Pictures {
         self.change(|sets| {
             let mut gone = Vec::new();
             let mut at = 0;
-            while at < sets.len() {
-                let set = &sets[at];
+            while let Some(set) = sets.get(at) {
                 let closed_and_old = !open.contains(&set.agent)
                     && (sets.iter()).any(|newer| {
                         newer.agent == set.agent
@@ -244,9 +243,11 @@ fn shown_by_agent(sets: &[Set]) -> HashMap<String, Vec<TurnShown>> {
     }
     let mut before: HashMap<usize, usize> = HashMap::new();
     for taken in by_page.values_mut() {
-        taken.sort_by_key(|at| sets[*at].at);
+        taken.sort_by_key(|at| sets.get(*at).map(|set| set.at));
         for pair in taken.windows(2) {
-            before.insert(pair[1], pair[0]);
+            if let [earlier, later] = pair {
+                before.insert(*later, *earlier);
+            }
         }
     }
     let picture = |set: &Set, width: u32| {
@@ -259,7 +260,7 @@ fn shown_by_agent(sets: &[Set]) -> HashMap<String, Vec<TurnShown>> {
     };
     let mut turns: HashMap<String, Vec<(u64, PageShown)>> = HashMap::new();
     for (at, set) in sets.iter().enumerate() {
-        let earlier = before.get(&at).map(|earlier| &sets[*earlier]);
+        let earlier = before.get(&at).and_then(|earlier| sets.get(*earlier));
         let page = PageShown {
             page: set.page.clone(),
             widths: (set.shots.iter())
@@ -507,10 +508,10 @@ async fn shoot(
             params: json!({ "url": url, "width": width }),
         };
         let taken = forward(core, request).await?;
-        let bytes = (taken["data"].as_str())
+        let bytes = (taken.get("data").and_then(Value::as_str))
             .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
             .ok_or("The window sent no picture")?;
-        let width = (taken["width"].as_u64())
+        let width = (taken.get("width").and_then(Value::as_u64))
             .and_then(|width| u32::try_from(width).ok())
             .unwrap_or_default();
         let id = format!("{}-{at}-w{width}.jpg", uuid::Uuid::new_v4().simple());

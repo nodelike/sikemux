@@ -465,8 +465,8 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                         chat.insert("notice".into(), Value::Null);
                     }
                 }
-                state["liveChats"] = Value::Array(Vec::new());
-                state["format"] = Value::from(5);
+                put(&mut state, "liveChats", Value::Array(Vec::new()));
+                put(&mut state, "format", Value::from(5));
             }
             5 => {
                 // Format 5 cores kept no messages between agents, and their
@@ -477,7 +477,7 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 }
                 let chats = state.get_mut("liveChats").and_then(Value::as_array_mut);
                 for chat in chats.into_iter().flatten() {
-                    if chat["launch"]["provider"] != "claude" {
+                    if chat.pointer("/launch/provider").and_then(Value::as_str) != Some("claude") {
                         continue;
                     }
                     let turn = chat.pointer_mut("/backend/shared/turn");
@@ -485,7 +485,7 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                         turn.insert("letters".into(), json!({}));
                     }
                 }
-                state["format"] = Value::from(6);
+                put(&mut state, "format", Value::from(6));
             }
             6 => {
                 // Format 6 cores knew whether a chat's agent names the
@@ -493,19 +493,22 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 // wrote a Claude chat's request for a title as `{ "title": true }`.
                 let chats = state.get_mut("liveChats").and_then(Value::as_array_mut);
                 for chat in chats.into_iter().flatten() {
-                    let versioned = chat["launch"]["provider"] != "codex";
+                    let versioned =
+                        chat.pointer("/launch/provider").and_then(Value::as_str) != Some("codex");
                     let rpc = chat.pointer_mut("/backend/rpc");
                     if let Some(rpc) = rpc.and_then(Value::as_object_mut) {
                         rpc.insert("versioned".into(), json!(versioned));
                     }
                     let control = chat.pointer_mut("/backend/control");
                     for entry in control.and_then(Value::as_array_mut).into_iter().flatten() {
-                        if entry[1] == json!({ "title": true }) {
-                            entry[1] = json!("title");
+                        if let Some(asked) = entry.get_mut(1) {
+                            if *asked == json!({ "title": true }) {
+                                *asked = json!("title");
+                            }
                         }
                     }
                 }
-                state["format"] = Value::from(7);
+                put(&mut state, "format", Value::from(7));
             }
             7 => {
                 // Format 7 cores wrote whether a terminal was setting a host up
@@ -527,7 +530,7 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                         record.insert("setup".into(), json!(plain));
                     }
                 }
-                state["format"] = Value::from(8);
+                put(&mut state, "format", Value::from(8));
             }
             8 => {
                 // Format 8 cores named the client a prompt to send again came
@@ -540,13 +543,13 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                         }
                     }
                 }
-                state["format"] = Value::from(9);
+                put(&mut state, "format", Value::from(9));
             }
             9 => {
                 // Format 9 cores carried what the person typed while a secret or an access
                 // call waited, marked as hidden; now such words are never kept.
                 data_format::scrub_carried(&mut state);
-                state["format"] = Value::from(10);
+                put(&mut state, "format", Value::from(10));
             }
             10 => {
                 // Format 10 cores handed an ACP agent attached pictures only as
@@ -558,11 +561,17 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                         backend.insert("images".into(), json!(false));
                     }
                 }
-                state["format"] = Value::from(11);
+                put(&mut state, "format", Value::from(11));
             }
             11 => return Ok(state),
             other => return Err(format!("it is in format {other}, not {RESUME_FORMAT}")),
         }
+    }
+}
+
+fn put(state: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = state.as_object_mut() {
+        fields.insert(key.into(), value);
     }
 }
 

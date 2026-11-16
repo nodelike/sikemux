@@ -46,7 +46,8 @@ pub(super) fn tidied(line: &str) -> String {
                 return vec![Token::Word(word)];
             };
             let end = word.rfind(CUT).map_or(start, |end| end + CUT.len_utf8());
-            let (before, close) = (&word[..start], &word[end..]);
+            let before = word.get(..start).unwrap_or_default();
+            let close = word.get(end..).unwrap_or_default();
             match before.chars().any(char::is_alphanumeric) {
                 true => vec![Token::Word(before), Token::Cut { open: "", close }],
                 false => vec![Token::Cut {
@@ -59,9 +60,9 @@ pub(super) fn tidied(line: &str) -> String {
     let joins = |word: &str| matches!(word, "and" | "or" | "&" | ",");
     let mut kept: Vec<String> = Vec::new();
     let mut at = 0;
-    while at < tokens.len() {
-        let Token::Cut { open, .. } = tokens[at] else {
-            if let Token::Word(word) = tokens[at] {
+    while let Some(token) = tokens.get(at) {
+        let Token::Cut { open, .. } = *token else {
+            if let Token::Word(word) = *token {
                 kept.push(word.to_owned());
             }
             at += 1;
@@ -69,8 +70,8 @@ pub(super) fn tidied(line: &str) -> String {
         };
         let mut last = at;
         let mut next = at + 1;
-        while next < tokens.len() {
-            match tokens[next] {
+        while let Some(token) = tokens.get(next) {
+            match *token {
                 Token::Cut { .. } => last = next,
                 Token::Word(word)
                     if joins(word) && matches!(tokens.get(next + 1), Some(Token::Cut { .. })) => {}
@@ -78,9 +79,9 @@ pub(super) fn tidied(line: &str) -> String {
             }
             next += 1;
         }
-        let close = match tokens[last] {
-            Token::Cut { close, .. } => close,
-            Token::Word(_) => "",
+        let close = match tokens.get(last) {
+            Some(Token::Cut { close, .. }) => *close,
+            _ => "",
         };
         let ends = next == tokens.len() || close.contains(['.', '!', '?', ';', ':']);
         let closing = |char: char| !open.is_empty() && matches!(char, ')' | ']' | '}');
