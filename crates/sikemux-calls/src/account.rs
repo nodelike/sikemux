@@ -17,3 +17,11 @@ pub struct AccountPictureParams {
 pub struct SignInPage {
     pub url: String,
 }
+
+/// What a host with no browser shows its person: the code they enter on a device
+/// already signed in, and where.
+#[derive(Serialize, Deserialize)]
+pub struct SignInCode {
+    pub url: String,
+    pub code: String,
+}

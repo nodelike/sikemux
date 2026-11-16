@@ -359,8 +359,8 @@ async fn login(core: &CoreClient) -> Result<(), String> {
     let account = crate::account::sign_in_by_code(core, |signing| {
         println!(
             "\n  Open this link to add the host to your account:\n\n    {}\n\n  and enter the code {}, or enter it in Sikemux on your phone.\n",
-            style::accent(&signing.verification_url),
-            style::bold(&signing.user_code)
+            style::accent(&signing.url),
+            style::bold(&signing.code)
         );
         style::note("Waiting for approval…");
     })
@@ -380,10 +380,7 @@ async fn login_json(core: &CoreClient) -> Result<(), String> {
         .owner;
     if owner.is_none() {
         crate::account::sign_in_by_code(core, |signing| {
-            println!(
-                "{}",
-                json!({ "code": signing.user_code, "url": signing.verification_url })
-            );
+            println!("{}", json!({ "code": signing.code, "url": signing.url }));
         })
         .await?;
     }

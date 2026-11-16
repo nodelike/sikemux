@@ -177,6 +177,67 @@ function Check-Window($Core) {
     Check 'answered Yes, the request is signed' ($null -ne $window -and $answer -match '(?m)^signed \S+') "$answer".Trim()
 }
 
+# Stands in for the accounts server a dev core reaches at 127.0.0.1:4000, approving the first
+# code it hands out.
+$accounts = {
+    $listener = [System.Net.HttpListener]::new()
+    $listener.Prefixes.Add('http://127.0.0.1:4000/')
+    $listener.Start()
+    while ($listener.IsListening) {
+        $context = $listener.GetContext()
+        $now = [DateTime]::UtcNow
+        $answer = switch ($context.Request.Url.AbsolutePath) {
+            '/v1/host-sign-ins' { @{
+                code = 'c' * 64; userCode = 'BCDF GHJK'; verificationUrl = 'http://127.0.0.1:4000/approve'
+                expiresAt = $now.AddMinutes(10).ToString('yyyy-MM-ddTHH:mm:ssZ'); interval = 1
+            } }
+            '/v1/host-sign-ins/poll' { @{ status = 'approved'; account = 'user_login'; nonce = 'b' * 64 } }
+            '/v1/host-sign-ins/finish' { @{
+                key = 'k'; role = 'host'; name = 'proof'; platform = 'windows'
+                createdAt = $now.ToString('yyyy-MM-ddTHH:mm:ssZ'); lastSeenAt = $null
+            } }
+        }
+        $context.Response.StatusCode = if ($answer) { 200 } else { 404 }
+        $body = [Text.Encoding]::UTF8.GetBytes($(if ($answer) { $answer | ConvertTo-Json } else { '{}' }))
+        $context.Response.ContentType = 'application/json'
+        $context.Response.OutputStream.Write($body, 0, $body.Length)
+        $context.Response.Close()
+    }
+}
+
+function Check-Login($Core) {
+    $corePid = [uint32]$Core.pid
+    $server = Start-Job $accounts
+    Wait-For { try { [Net.Sockets.TcpClient]::new('127.0.0.1', 4000).Close(); $true } catch { $false } } 30 | Out-Null
+    $said = Join-Path $Out 'login.txt'
+    $login = Start-Process $cli -ArgumentList 'login', '--json' -NoNewWindow -PassThru `
+        -RedirectStandardOutput $said -RedirectStandardError (Join-Path $Out 'login-errors.txt')
+    $null = $login.Handle
+    $asked = @()
+    $deadline = (Get-Date).AddSeconds(90)
+    while (-not $login.HasExited -and (Get-Date) -lt $deadline) {
+        $window = [Dialogs]::Find($corePid, 'Sikemux')
+        if ($window -ne [IntPtr]::Zero) {
+            $asked += [Dialogs]::Message($window)
+            [Dialogs]::Press($window, $(if ($asked.Count -eq 1) { $yes } else { $no }))
+            Wait-For { [Dialogs]::Find($corePid, 'Sikemux') -eq [IntPtr]::Zero } 10 | Out-Null
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $login.HasExited) { $login.Kill() }
+    Stop-Job $server
+    Remove-Job -Force $server
+    $printed = [string](Get-Content -Raw $said -ErrorAction SilentlyContinue)
+    $complaint = [string](Get-Content -Raw (Join-Path $Out 'login-errors.txt') -ErrorAction SilentlyContinue)
+    Check '`sikemux login` shows the code to approve' ($printed -match '"code":"BCDF GHJK"') "$printed".Trim()
+    Check '`sikemux login` asks once, in the core''s window' (
+        $asked.Count -eq 1 -and $asked[0] -match 'Sign this computer in to your Sikemux account'
+    ) "$($asked.Count) asks: $($asked -join ' | ')"
+    Check '`sikemux login` signs the host in' ($printed -match '"signedIn":true' -and $login.ExitCode -eq 0) (
+        "exit $($login.ExitCode) $complaint".Trim()
+    )
+}
+
 # The load config the linker wrote, read from the installed file.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\dumpbin.exe' | Select-Object -First 1
@@ -219,6 +280,7 @@ try {
     Copy-Item $Remote $app
     & (Join-Path $PSScriptRoot 'windows-children.ps1') -Socket $core.socket -Probe $Probe -App $app -Out $Out
     if ($LASTEXITCODE) { $failed += 'each child the core starts runs at Medium' }
+    Check-Login $core
 } finally {
     $removed = Host-Command '--service', 'remove'
     Check 'the service is removed' ($removed.Code -eq 0) $removed.Text.Trim()
