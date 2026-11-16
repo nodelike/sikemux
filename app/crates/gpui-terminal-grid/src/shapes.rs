@@ -187,7 +187,9 @@ fn draw_arc(
         point(center.x, y + cell_size.height),
         point(x, center.y),
     ];
-    let (from, to) = (ends[edges[0]], ends[edges[1]]);
+    let [Some(&from), Some(&to)] = edges.map(|edge| ends.get(edge)) else {
+        return false;
+    };
     let radius = f32::from(cell_size.width.min(cell_size.height)) / 2.;
     let toward = |end: Point<Pixels>| {
         let (dx, dy) = (f32::from(end.x - center.x), f32::from(end.y - center.y));

@@ -356,8 +356,11 @@ impl Pen {
         if blocks.blocks.len() >= TALL && blocks.width.get().is_some() {
             return root.child(Tall(blocks)).id(id).into_any_element();
         }
-        let children: Vec<_> = (0..blocks.blocks.len())
-            .map(|ix| blocks.draw(ix, window, cx))
+        let children: Vec<_> = blocks
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(ix, block)| blocks.draw(ix, block, window, cx))
             .collect();
         root.children(children)
             .on_children_prepainted(move |bounds, _, _| {
@@ -389,9 +392,14 @@ struct Blocks {
 }
 
 impl Blocks {
-    fn draw(&self, ix: usize, window: &mut Window, cx: &mut App) -> AnyElement {
+    fn draw(&self, ix: usize, block: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let tasks = match self.style.on_task {
-            Some(_) => self.blocks[..ix].iter().map(|block| tasks_in(block)).sum(),
+            Some(_) => self
+                .blocks
+                .iter()
+                .take(ix)
+                .map(|block| tasks_in(block))
+                .sum(),
             None => 0,
         };
         let mut draw = Draw {
@@ -405,14 +413,21 @@ impl Blocks {
             align: TextAlign::Left,
             capitals: false,
         };
-        draw.block(&self.blocks[ix], ix, window, cx)
+        draw.block(block, ix, window, cx)
     }
 
-    fn laid_out(&self, ix: usize, width: Pixels, window: &mut Window, cx: &mut App) -> AnyElement {
-        let mut element = self.draw(ix, window, cx);
+    fn laid_out(
+        &self,
+        ix: usize,
+        block: &Node,
+        width: Pixels,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let mut element = self.draw(ix, block, window, cx);
         let space = size(AvailableSpace::Definite(width), AvailableSpace::MinContent);
         let height = element.layout_as_root(space, window, cx).height;
-        self.blocks[ix].size.set(Some(size(width, height)));
+        block.size.set(Some(size(width, height)));
         element
     }
 }
@@ -450,13 +465,13 @@ impl Element for Tall {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let blocks = &self.0;
         let width = blocks.width.get().unwrap_or_default();
-        let laid: Vec<_> = (0..blocks.blocks.len())
-            .map(|ix| {
-                let fresh = blocks.blocks[ix]
-                    .size
-                    .get()
-                    .is_some_and(|size| size.width == width);
-                (!fresh).then(|| blocks.laid_out(ix, width, window, cx))
+        let laid: Vec<_> = blocks
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(ix, block)| {
+                let fresh = block.size.get().is_some_and(|size| size.width == width);
+                (!fresh).then(|| blocks.laid_out(ix, block, width, window, cx))
             })
             .collect();
         let heights = blocks
@@ -500,12 +515,12 @@ impl Element for Tall {
         let view = window.content_mask().bounds;
         let mut top = bounds.top();
         let mut shown = Vec::new();
-        for (ix, block) in blocks.blocks.iter().enumerate() {
+        for ((ix, block), laid) in blocks.blocks.iter().enumerate().zip(laid.iter_mut()) {
             let height = block.size.get().map_or(px(0.), |size| size.height);
             if top + height >= view.top() && top <= view.bottom() {
-                let mut element = laid[ix]
+                let mut element = laid
                     .take()
-                    .unwrap_or_else(|| blocks.laid_out(ix, width, window, cx));
+                    .unwrap_or_else(|| blocks.laid_out(ix, block, width, window, cx));
                 element.prepaint_at(point(bounds.left(), top), window, cx);
                 shown.push(element);
             }
@@ -585,7 +600,7 @@ impl Code {
             let (from, to) = (range.start.max(start), range.end.min(end));
             (from < to).then(|| (from - start..to - start, *look))
         });
-        let text = StyledText::new(SharedString::from(self.text[start..end].to_owned()))
+        let text = StyledText::new(SharedString::from(self.text.get(start..end)?.to_owned()))
             .with_highlights(looks);
         Some((text, lines, start, end))
     }
@@ -812,14 +827,18 @@ impl Draw<'_> {
                     (_, true) => [1.52, 1.24, 0.72, 1., 1., 1.],
                     _ => [1.4, 1.2, 1.07, 1., 1., 1.],
                 };
-                let scale = scales[usize::from(level.clamp(&1, &6) - 1)];
+                let scale = scales
+                    .get(usize::from(level.clamp(&1, &6) - 1))
+                    .copied()
+                    .unwrap_or(1.);
                 let blocks = &self.on.blocks;
                 let top_level = blocks
                     .get(ix)
                     .is_some_and(|block| std::ptr::eq(&**block, node));
                 let number = (style.numbered_sections && *level == 2 && top_level).then(|| {
-                    let before = blocks[..ix]
+                    let before = blocks
                         .iter()
+                        .take(ix)
                         .filter(|block| matches!(block.kind, Kind::Heading(2)))
                         .count();
                     format!("{:02}", before + 1)
@@ -921,7 +940,9 @@ impl Draw<'_> {
             && blocks
                 .get(ix)
                 .is_some_and(|block| std::ptr::eq(&**block, node))
-            && matches!(blocks[ix - 1].kind, Kind::Heading(1))
+            && blocks
+                .get(ix - 1)
+                .is_some_and(|block| matches!(block.kind, Kind::Heading(1)))
     }
 
     fn flow(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -931,9 +952,12 @@ impl Draw<'_> {
         }
         let children: Vec<_> = pieces
             .iter()
-            .map(|piece| match piece {
-                Piece::Text(rich) => self.rich(rich, cx),
-                Piece::Block(ix) => self.block(&node.children[*ix], *ix, window, cx),
+            .filter_map(|piece| match piece {
+                Piece::Text(rich) => Some(self.rich(rich, cx)),
+                Piece::Block(ix) => node
+                    .children
+                    .get(*ix)
+                    .map(|child| self.block(child, *ix, window, cx)),
             })
             .collect();
         let gap = self.on.style.gap;
@@ -1325,7 +1349,11 @@ impl Draw<'_> {
 
     fn list(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let style = &*self.on.style;
-        let bullet = ["•", "◦", "▪"][self.depth % 3];
+        let bullet = match self.depth % 3 {
+            0 => "•",
+            1 => "◦",
+            _ => "▪",
+        };
         let editorial = style.editorial;
         let bullet_ink = match self.depth {
             0 => style.accent,
@@ -1435,7 +1463,7 @@ impl Draw<'_> {
         let key = ElementId::NamedChild(Arc::new(id.clone()), "wrap".into());
         let wrap = window.use_keyed_state(key, cx, |_, _| false);
         let wrapped = *wrap.read(cx);
-        let block = self.on.blocks[self.block].clone();
+        let block = self.on.blocks.get(self.block).cloned();
         let wrap_id = self.id("wrap");
         let toggle = self
             .button(wrap_id, style.card.wrap.clone(), wrapped)
@@ -1444,7 +1472,9 @@ impl Draw<'_> {
                     *wrapped = !*wrapped;
                     cx.notify();
                 });
-                block.size.set(None);
+                if let Some(block) = &block {
+                    block.size.set(None);
+                }
                 window.refresh();
             });
         let (title, numbered) = match &name {
@@ -1829,7 +1859,7 @@ impl Draw<'_> {
         let key = (self.block, self.folds);
         let turned = self.on.turned.clone();
         let open = written_open != turned.borrow().contains(&key);
-        let block = self.on.blocks[self.block].clone();
+        let block = self.on.blocks.get(self.block).cloned();
         let summary = if summary.is_empty() {
             "Details".into()
         } else {
@@ -1847,7 +1877,9 @@ impl Draw<'_> {
                 if !turned.remove(&key) {
                     turned.insert(key);
                 }
-                block.size.set(None);
+                if let Some(block) = &block {
+                    block.size.set(None);
+                }
                 window.refresh();
             });
         let content = open.then(|| div().pl(px(16.)).child(self.flow(node, window, cx)));
@@ -1887,7 +1919,10 @@ fn highlights(
     edges
         .windows(2)
         .filter_map(|edge| {
-            let run = edge[0]..edge[1];
+            let &[start, end] = edge else {
+                return None;
+            };
+            let run = start..end;
             let marks = rich
                 .marks
                 .iter()
@@ -1943,9 +1978,15 @@ fn chips_in(
     longest.sort_by_key(|chip| std::cmp::Reverse(chip.written.len()));
     let mut found = linked;
     for chip in longest {
-        for (at, _) in rich.text.match_indices(chip.written.as_ref()) {
-            let range = at..at + chip.written.len();
-            let (before, after) = (&rich.text[..at], &rich.text[range.end..]);
+        for (at, written) in rich.text.match_indices(chip.written.as_ref()) {
+            let range = at..at + written.len();
+            let Some((before, after)) = rich
+                .text
+                .split_at_checked(at)
+                .and_then(|(before, rest)| Some((before, rest.strip_prefix(written)?)))
+            else {
+                continue;
+            };
             let apart = before
                 .chars()
                 .next_back()
@@ -1954,7 +1995,7 @@ fn chips_in(
                     letter => !letter.is_alphanumeric(),
                 })
                 && after.chars().next().is_none_or(|letter| match letter {
-                    '/' => after[1..].starts_with('@'),
+                    '/' => after.get(1..).is_some_and(|rest| rest.starts_with('@')),
                     letter => !letter.is_alphanumeric(),
                 });
             let taken = code.iter().any(|code| overlap(code, &range))

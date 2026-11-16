@@ -15,3 +15,6 @@ gpui = { package = "gpui-pre", version = "=0.3.10" }
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = ["font-kit", "test-support", "bench-support"] }
+
+[lints]
+workspace = true

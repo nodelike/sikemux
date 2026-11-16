@@ -277,8 +277,10 @@ impl<R: Row> Transcript<R> {
     pub fn found_at(&self) -> Option<(&str, &str, usize)> {
         let hit = self.hits.get(self.current)?;
         let (row, doc) = (hit.at.0, hit.at.1);
-        let nth = self.hits[..self.current]
+        let nth = self
+            .hits
             .iter()
+            .take(self.current)
             .filter(|before| before.at.0 == row && before.at.1 == doc)
             .count();
         let row = self.rows.get(row)?;
@@ -310,13 +312,17 @@ impl<R: Row> Transcript<R> {
         let Some(ix) = self.position(row) else {
             return;
         };
-        let (doc, nth) = (self.rows[ix].doc_named(doc), *nth);
+        let (doc, nth) = (self.rows.get(ix).and_then(|row| row.doc_named(doc)), *nth);
         self.pending = None;
         let Some(doc) = doc else {
             return;
         };
-        let in_doc: Vec<usize> = (0..self.hits.len())
-            .filter(|&hit| self.hits[hit].at.0 == ix && self.hits[hit].at.1 == doc)
+        let in_doc: Vec<usize> = self
+            .hits
+            .iter()
+            .enumerate()
+            .filter(|(_, hit)| hit.at.0 == ix && hit.at.1 == doc)
+            .map(|(at, _)| at)
             .collect();
         if let Some(&hit) = in_doc.get(nth).or(in_doc.last()) {
             self.current = hit;
@@ -425,15 +431,21 @@ impl<R: Row> Transcript<R> {
         match stale {
             Stale::None => return,
             Stale::All => {
-                self.hits = (0..self.rows.len())
-                    .flat_map(|ix| hits_in(&self.rows[ix], ix, query))
+                self.hits = self
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(ix, row)| hits_in(row, ix, query))
                     .collect();
             }
             Stale::Rows(rows) => {
-                for ix in rows.into_iter().filter(|ix| *ix < self.rows.len()) {
+                for ix in rows {
+                    let Some(row) = self.rows.get(ix) else {
+                        continue;
+                    };
                     let from = self.hits.partition_point(|hit| hit.at.0 < ix);
                     let to = self.hits.partition_point(|hit| hit.at.0 <= ix);
-                    let found = hits_in(&self.rows[ix], ix, query);
+                    let found = hits_in(row, ix, query);
                     self.hits.splice(from..to, found);
                 }
             }
@@ -569,7 +581,9 @@ impl<R: Row> Transcript<R> {
             match change {
                 Change::Put(row) => match self.position(row.id()) {
                     Some(ix) => {
-                        self.rows[ix] = row;
+                        if let Some(slot) = self.rows.get_mut(ix) {
+                            *slot = row;
+                        }
                         self.list.remeasure_items(ix..ix + 1);
                         self.stale.row(ix);
                     }
@@ -582,7 +596,9 @@ impl<R: Row> Transcript<R> {
                 },
                 Change::Update(id, change) => {
                     if let Some(ix) = self.position(&id) {
-                        change(&mut self.rows[ix]);
+                        if let Some(row) = self.rows.get_mut(ix) {
+                            change(row);
+                        }
                         self.list.remeasure_items(ix..ix + 1);
                         self.stale.row(ix);
                     }
@@ -599,7 +615,11 @@ impl<R: Row> Transcript<R> {
                     let kept: HashSet<&str> = ids.iter().map(|id| id.as_ref()).collect();
                     let first = self.rows.iter().position(|row| kept.contains(row.id()));
                     for ix in (first.unwrap_or(0)..end).rev() {
-                        if !kept.contains(self.rows[ix].id()) {
+                        if self
+                            .rows
+                            .get(ix)
+                            .is_some_and(|row| !kept.contains(row.id()))
+                        {
                             self.rows.remove(ix);
                             self.list.splice(ix..ix + 1, 0);
                         }
@@ -748,7 +768,7 @@ impl<R: Row> Transcript<R> {
     }
 
     fn text_of(&self, (row, doc, block, n): &Key) -> Option<SharedString> {
-        let row = &self.rows[self.position(row)?];
+        let row = self.rows.get(self.position(row)?)?;
         let texts = row.docs().get(*doc)?.texts(*block);
         texts.get((*n as usize).checked_sub(1)?).cloned()
     }

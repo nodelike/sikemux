@@ -263,7 +263,11 @@ impl Node {
                 for piece in self.flow() {
                     match piece {
                         Piece::Text(rich) => texts.push(rich.text.clone()),
-                        Piece::Block(ix) => self.children[*ix].walk(texts, open),
+                        Piece::Block(ix) => {
+                            if let Some(child) = self.children.get(*ix) {
+                                child.walk(texts, open);
+                            }
+                        }
                     }
                 }
             }
@@ -288,9 +292,15 @@ impl Node {
             .char_indices()
             .nth(limit)
             .map_or(self.text.len(), |(at, _)| at);
-        let head = &self.text[..end];
+        let head = self.text.get(..end)?;
         let end = match head.rfind('\n') {
-            Some(at) if head[..at].chars().count() >= limit / 2 => at,
+            Some(at)
+                if head
+                    .get(..at)
+                    .is_some_and(|lines| lines.chars().count() >= limit / 2) =>
+            {
+                at
+            }
             _ => end,
         };
         let mut head = self.clone();
@@ -380,7 +390,7 @@ pub fn superscript(n: u64) -> String {
     const DIGITS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
     n.to_string()
         .bytes()
-        .map(|digit| DIGITS[usize::from(digit - b'0')])
+        .filter_map(|digit| DIGITS.get(usize::from(digit - b'0')).copied())
         .collect()
 }
 
@@ -584,14 +594,17 @@ impl Markdown {
             return None;
         }
         let (mut kept, mut count) = (0, 0);
-        while count < lens.len() && kept + lens[count] <= limit {
-            kept += lens[count];
+        while let Some(&len) = lens.get(count) {
+            if kept + len > limit {
+                break;
+            }
+            kept += len;
             count += 1;
         }
         let blocks = if count > 0 {
-            self.blocks[..count].to_vec()
+            self.blocks.iter().take(count).cloned().collect()
         } else {
-            let head = self.blocks[0].code_head(limit)?;
+            let head = self.blocks.first()?.code_head(limit)?;
             kept = head.shown_len();
             vec![Rc::new(head)]
         };
