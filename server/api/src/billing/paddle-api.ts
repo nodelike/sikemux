@@ -11,7 +11,6 @@ export const CLIENT_TOKEN_NAME = "app.sikemux.com checkout";
 
 /** The events the webhook destination subscribes to: the ones the adapter reads. */
 export const PADDLE_EVENTS = [
-  "subscription.created",
   "subscription.updated",
   "subscription.activated",
   "subscription.resumed",

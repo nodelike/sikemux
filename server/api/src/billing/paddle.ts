@@ -137,6 +137,14 @@ function linesOf(
   }));
 }
 
+/**
+ * The customer a checkout of ours was opened for. Anyone holding the client token can open a
+ * checkout with Paddle.js and any custom data, so only a transaction our API made is believed.
+ */
+function ourCustomerRef(txn: PaddleTransaction): string | null {
+  return txn.origin === "api" ? (txn.custom_data?.customer_ref ?? null) : null;
+}
+
 function reasonOf(origin: string): InvoiceReason | null {
   switch (origin) {
     case "web":
@@ -227,7 +235,6 @@ export interface PaddleOptions {
  */
 export class PaddleProvider implements BillingProvider {
   readonly name = "paddle";
-  readonly eventRetrySpanMs = 3 * 24 * 60 * 60_000;
   private readonly api: PaddleApi;
   private readonly log: Logger;
   private readonly now: () => number;
@@ -250,6 +257,11 @@ export class PaddleProvider implements BillingProvider {
 
   get sandbox() {
     return this.api.sandbox;
+  }
+
+  /** Paddle retries for about two days live and for about two minutes in the sandbox. */
+  get eventRetrySpanMs() {
+    return this.sandbox ? 10 * 60_000 : 3 * 24 * 60 * 60_000;
   }
 
   private notSetUp(what: string): never {
@@ -522,35 +534,15 @@ export class PaddleProvider implements BillingProvider {
       )
         return null;
     }
-    return eventsOf(JSON.parse(request.body) as PaddleEvent, this.log);
+    return eventsOf(JSON.parse(request.body) as PaddleEvent);
   }
 }
 
 /** What one Paddle event means to the API; most mean nothing. */
-export function eventsOf(event: PaddleEvent, log: Logger): ProviderEvent[] {
+export function eventsOf(event: PaddleEvent): ProviderEvent[] {
   const at = new Date(event.occurred_at);
   const base = { eventId: event.event_id, at };
   switch (event.event_type) {
-    case "subscription.created": {
-      const sub = event.data as PaddleSubscription;
-      const customerRef = sub.custom_data?.customer_ref;
-      if (!customerRef) {
-        log.warn(
-          { subscription: sub.id },
-          "a Paddle subscription no checkout of ours made",
-        );
-        return [];
-      }
-      return [
-        {
-          ...base,
-          type: "subscription.started",
-          customerRef,
-          providerCustomerId: sub.customer_id,
-          subscription: subscriptionOf(sub, at),
-        },
-      ];
-    }
     case "subscription.updated":
     case "subscription.activated":
     case "subscription.resumed":
@@ -585,7 +577,9 @@ export function eventsOf(event: PaddleEvent, log: Logger): ProviderEvent[] {
     case "transaction.payment_failed": {
       const txn = event.data as PaddleTransaction;
       const reason = reasonOf(txn.origin);
+      const total = Number(txn.details.totals.grand_total);
       if (!txn.subscription_id || !reason || !txn.items.length) return [];
+      if (total === 0 && reason !== "first_payment") return [];
       const payment: ProviderEvent = {
         ...base,
         type:
@@ -597,15 +591,13 @@ export function eventsOf(event: PaddleEvent, log: Logger): ProviderEvent[] {
         lines: linesOf(txn.items),
         reason,
         total: {
-          amount: Number(txn.details.totals.grand_total),
+          amount: total,
           currency: txn.currency_code.toLowerCase(),
         },
       };
-      const customerRef = txn.custom_data?.customer_ref;
       if (
         payment.type !== "payment.made" ||
         reason !== "first_payment" ||
-        !customerRef ||
         !txn.customer_id ||
         !txn.billing_period
       )
@@ -616,8 +608,9 @@ export function eventsOf(event: PaddleEvent, log: Logger): ProviderEvent[] {
           eventId: `${event.event_id}.started`,
           at,
           type: "subscription.started",
-          customerRef,
+          customerRef: ourCustomerRef(txn),
           providerCustomerId: txn.customer_id,
+          providerPaymentId: txn.id,
           subscription: {
             providerSubscriptionId: txn.subscription_id,
             items: txn.items.map((item) => ({
