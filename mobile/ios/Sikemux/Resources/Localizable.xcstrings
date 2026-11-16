@@ -112,6 +112,7 @@
     "1 subagent running" : {},
     "1 terminal" : {},
     "1 tool call" : {},
+    "A browser" : {},
     "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent." : {},
     "A computer" : {},
     "A host" : {},
