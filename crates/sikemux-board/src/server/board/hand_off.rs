@@ -12,6 +12,7 @@ pub use sikemux_calls::board::{BoardHandOffParams, HandedOff};
 use std::path::Path;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::{add_card, claim_card, long_text, project_at, project_view, title_of, Adding, By};
@@ -44,14 +45,15 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
         return Err("Say what should get done".into());
     }
     let title = title_of(&clipped_line(&text, TITLE_CHARS))?;
-    let adding = Adding {
+    let held = HeldCard {
+        project: String::new(),
         details: if title == text {
             String::new()
         } else {
             text.clone()
         },
         title,
-        ..super::Adding::default()
+        agent: String::new(),
     };
     let worker = Worker {
         project: params.project,
@@ -62,7 +64,14 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
         effort: params.effort,
     };
     let (agent, started) = start_worker(core, worker, text.clone(), move |core, project, agent| {
-        add_card(core, project, &By::Person, adding, Some(agent)).map(|(card, _)| card)
+        place(
+            core,
+            HeldCard {
+                project: project.to_owned(),
+                agent: agent.to_owned(),
+                ..held
+            },
+        )
     })
     .await?;
     let board = project_view(core, &started.project);
@@ -81,6 +90,47 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
         .await
     });
     Ok(HandedOff { card, agent, board })
+}
+
+/// The card a handed-off agent holds from the start.
+#[derive(Serialize, Deserialize)]
+pub struct HeldCard {
+    project: String,
+    title: String,
+    #[serde(default)]
+    details: String,
+    agent: String,
+}
+
+/// Puts `held` on its project's board, at the project's home when another host keeps the board.
+fn place(core: &Arc<Core>, held: HeldCard) -> Result<u64, String> {
+    let params = serde_json::to_value(&held).map_err(|error| error.to_string())?;
+    match (core.board_above().records_act)(core, &held.project, "boardHeldCard", params) {
+        Some(placed) => placed?
+            .as_u64()
+            .ok_or_else(|| "the project's home answered without a card".into()),
+        None => held_card(core, held),
+    }
+}
+
+fn held_card(core: &Arc<Core>, held: HeldCard) -> Result<u64, String> {
+    let adding = Adding {
+        title: held.title,
+        details: held.details,
+        ..Adding::default()
+    };
+    add_card(core, &held.project, &By::Person, adding, Some(&held.agent)).map(|(card, _)| card)
+}
+
+/// A linked host handed work to one of its agents: its card goes on the board this host keeps.
+pub async fn person_held_card(core: &Arc<Core>, mut held: HeldCard) -> Result<u64, String> {
+    let core = core.clone();
+    blocking(move || {
+        held.project = project_at(&core, &held.project)?;
+        Ok(held_card(&core, held)?)
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Starts an agent in a checkout of its own on card `card` of `project`, which a trigger added

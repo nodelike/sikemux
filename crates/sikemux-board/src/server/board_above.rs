@@ -12,6 +12,9 @@ use sikemux_view::chat::{ChatTrigger, TriggerWhen};
 use super::board::goal::Overrule;
 use super::Core;
 
+/// Has the home of the project at a folder do a write to its record: its method and params.
+pub type RecordAct = fn(&Arc<Core>, &str, &str, Value) -> Option<Result<Value, String>>;
+
 type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// A note on its way to an agent: what the agent's side answered, or why it could not be given.
 type Told<'a> = Doing<'a, Result<Value, String>>;
@@ -74,4 +77,7 @@ pub struct BoardAbove {
     pub records_changed: fn(&Arc<Core>, Vec<String>),
     /// The folders of this host's projects whose record another host keeps.
     pub records_elsewhere: fn(&Core) -> Vec<String>,
+    /// Has the home of the project at this folder make a change to its record, when another
+    /// host keeps it; refuses when the home is out of reach. Called off the async workers.
+    pub records_act: RecordAct,
 }

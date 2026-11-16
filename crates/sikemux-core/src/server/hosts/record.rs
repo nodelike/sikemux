@@ -127,6 +127,25 @@ pub(crate) async fn tool_write(
     Some(act(core, &home, asked).await)
 }
 
+/// Has the home of the project at `folder` do the record's `method`, when another host keeps it.
+/// Runs on a thread that may wait, never on the async workers.
+pub(crate) fn act_waiting(
+    core: &Arc<Core>,
+    folder: &str,
+    method: &str,
+    mut params: Value,
+) -> Option<Result<Value, String>> {
+    let (home, identity) = away(core, folder)?;
+    params["project"] = identity.clone().into();
+    let asked = RecordAct {
+        identity,
+        method: method.to_owned(),
+        params,
+        agent_id: None,
+    };
+    Some(tokio::runtime::Handle::current().block_on(act(core, &home, asked)))
+}
+
 async fn act(core: &Arc<Core>, home: &ChiefHome, asked: RecordAct) -> Result<Value, String> {
     let out_of_reach = || {
         format!(

@@ -162,7 +162,16 @@ pub async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> {
                 goals.save(&mut chats);
                 goal
             };
-            let mut notices = super::remove_card(&core, &goal.project, goal.card)?;
+            let removed = (core.board_above().records_act)(
+                &core,
+                &goal.project,
+                "boardRemove",
+                json!({ "id": goal.card }),
+            );
+            let mut notices = match removed {
+                Some(removed) => removed.map(|_| Vec::new())?,
+                None => super::remove_card(&core, &goal.project, goal.card)?,
+            };
             notices.retain(|notice| notice.to != agent);
             Ok(notices)
         })

@@ -502,6 +502,7 @@ pub(super) fn board_above() -> BoardAbove {
         hosts_rows_moved: hosts::route::rows_moved,
         records_changed: hosts::record::changed,
         records_elsewhere: hosts::record::elsewhere,
+        records_act: hosts::record::act_waiting,
     }
 }
 

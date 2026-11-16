@@ -770,6 +770,7 @@ pub(crate) async fn record_write(
         "overruleDecision" => answer(board::goal::overrule(core, parse(params)?).await?),
         "undoOverrule" => answer(board::goal::undo_overrule(core, parse(params)?).await?),
         "boardDecide" => answer(board::goal::person_decide(core, parse(params)?).await?),
+        "boardHeldCard" => answer(board::hand_off::person_held_card(core, parse(params)?).await?),
         method => Err(format!("{method} does not write a project's board").into()),
     }
 }
