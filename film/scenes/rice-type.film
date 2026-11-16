@@ -2,9 +2,9 @@
 # rows, 1.5-point borders and no shadows, over Nord's colours.
 stage 1440 900
 window 1440 900
-prefer customThemes rice-type.json
-prefer themeId custom-type-rice
 project storefront line-shop
+core saveTheme rice-type.json
+prefer themeId custom-type-rice
 core openChief {"project":"storefront"}
 chat Flint
 title "Fix the rounding in cart totals"

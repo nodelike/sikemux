@@ -1,5 +1,5 @@
-[
-  {
+{
+  "theme": {
     "id": "custom-type-rice",
     "name": "Type rice",
     "dark": true,
@@ -76,4 +76,4 @@
       "shadows": 0
     }
   }
-]
+}

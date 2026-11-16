@@ -592,9 +592,6 @@ impl World {
                 let value = match step.text(1) {
                     Err(_) => expand_home(&self.world["preferences"][key]),
                     Ok("null") => Value::Null,
-                    Ok(file) if file.ends_with(".json") => {
-                        serde_json::from_slice(&std::fs::read(self.scenes.join(file))?)?
-                    }
                     Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
                 };
                 for (method, params) in setting(key, &value) {
@@ -626,7 +623,13 @@ impl World {
             }
             "core" => {
                 let (_, path) = self.project()?.clone();
-                let params = (step.text(1)?)
+                let params = match step.text(1)? {
+                    file if file.ends_with(".json") => {
+                        std::fs::read_to_string(self.scenes.join(file))?
+                    }
+                    text => text.to_owned(),
+                };
+                let params = params
                     .replace("$project", &path.to_string_lossy())
                     .replace("$chat", self.chat.as_deref().unwrap_or_default())
                     .replace("$checkout", self.checkout.as_deref().unwrap_or_default());
