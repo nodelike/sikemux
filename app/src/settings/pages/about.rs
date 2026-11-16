@@ -64,38 +64,29 @@ pub fn render(
         .this_view()
         .and_then(|view| view.account.as_deref())
         .is_some_and(|account| account.flags.contains(&Flag::StaffFeed));
-    let channels: &[UpdateChannel] = match staff_feed {
-        true => &[
-            UpdateChannel::Stable,
-            UpdateChannel::Nightly,
-            UpdateChannel::Staff,
-        ],
-        false => &[UpdateChannel::Stable, UpdateChannel::Nightly],
-    };
     let channel = {
         let this = this.clone();
-        let shown = match preferences.update_channel {
-            UpdateChannel::Staff if !staff_feed => UpdateChannel::Nightly,
-            chosen => chosen,
+        let chosen = match preferences.update_channel {
+            UpdateChannel::Stable => 0,
+            _ => 1,
         };
-        let chosen = channels
-            .iter()
-            .position(|channel| *channel == shown)
-            .unwrap_or(0);
         ui::Segmented::new(
             "update-channel",
-            channels
-                .iter()
-                .map(|channel| match channel {
-                    UpdateChannel::Stable => (Icon::Shield, SharedString::from(t!("Stable"))),
-                    UpdateChannel::Nightly => (Icon::Flask, SharedString::from(t!("Nightly"))),
-                    UpdateChannel::Staff => (Icon::Rocket, SharedString::from(t!("Staff"))),
-                })
-                .collect(),
+            vec![
+                (Icon::Shield, SharedString::from(t!("Stable"))),
+                match staff_feed {
+                    true => (Icon::Rocket, SharedString::from(t!("Staff"))),
+                    false => (Icon::Flask, SharedString::from(t!("Nightly"))),
+                },
+            ],
             chosen,
         )
         .on_select(move |chosen, _, cx| {
-            let channel = channels[*chosen];
+            let channel = if *chosen == 0 {
+                UpdateChannel::Stable
+            } else {
+                UpdateChannel::Nightly
+            };
             this.update(cx, |bench, _| {
                 crate::settings::set(bench, PreferenceChange::UpdateChannel(channel))
             })
@@ -192,7 +183,7 @@ pub fn render(
                 .child(rows::row(
                     t!("Channel"),
                     Some(match staff_feed {
-                        true => t!("Stable follows the latest signed release; nightly the newest build, prerelease or stable; staff, for the people who make Sikemux, each build of main the moment it is published, before nightly."),
+                        true => t!("Stable follows the latest signed release; staff takes each build of main the moment it is published, before nightly."),
                         false => t!("Stable follows the latest signed release; nightly the newest build, prerelease or stable."),
                     }),
                     channel,
@@ -219,15 +210,8 @@ pub fn render(
     };
     let privacy = rows::row(
         t!("Share anonymous usage"),
-        Some(t!(
-            "Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. When Sikemux crashes, sends where in its code and what it had just logged, with no paths. Never your files, prompts, commands or projects."
-        )),
-        rows::switch(
-            "share-usage",
-            PreferenceChange::ShareUsageData,
-            preferences.share_usage_data,
-            this,
-        ),
+        Some(t!("Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. When Sikemux crashes, sends where in its code and what it had just logged, with no paths. Never your files, prompts, commands or projects.")),
+        rows::switch("share-usage", PreferenceChange::ShareUsageData, preferences.share_usage_data, this),
         cx,
     );
     let help =
