@@ -22,6 +22,8 @@ pub mod os;
 pub mod sessions;
 pub mod ship;
 pub mod skills;
+#[cfg(windows)]
+pub mod tcp_table;
 
 use sikemux_base::http;
 use sikemux_corekit::{accounts, android_sdk, cli, flights, tasks, text, timeout, trailers};
