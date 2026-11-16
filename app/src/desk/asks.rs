@@ -23,8 +23,6 @@ use crate::workbench::Workbench;
 
 const THUMB_H: f32 = 132.;
 const FOOT_H: f32 = 36.;
-const LANE_MIN: f32 = 232.;
-const EMPTY_LANE: f32 = 132.;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Lane {
@@ -88,11 +86,6 @@ pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>)
         (lane, asks)
     });
     let handle = cx.weak_entity();
-    let lane_w = |asks: &[&NowAsk]| match asks.is_empty() {
-        true => EMPTY_LANE,
-        false => LANE_MIN,
-    };
-    let min_w = (lanes.iter()).map(|(_, asks)| lane_w(asks)).sum::<f32>();
     let body = match now.asks.is_empty() {
         true => div()
             .flex_1()
@@ -102,7 +95,6 @@ pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>)
             .child(ui::meta(t!("Nothing you asked is open"), cx))
             .into_any_element(),
         false => div()
-            .min_w(px(min_w) + SPACE_3H * 3. + SPACE_6 * 2.)
             .flex()
             .gap(SPACE_3H)
             .px(SPACE_6)
@@ -111,8 +103,8 @@ pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>)
             .children(lanes.iter().map(|(lane, asks)| {
                 div()
                     .map(|column| match asks.is_empty() {
-                        true => column.flex_none().w(px(EMPTY_LANE)),
-                        false => column.flex_1().min_w(px(LANE_MIN)),
+                        true => column.flex_none(),
+                        false => column.flex_1().flex_basis(px(0.)).min_w_0(),
                     })
                     .flex()
                     .flex_col()
@@ -130,7 +122,7 @@ pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>)
         .size_full()
         .flex()
         .flex_col()
-        .overflow_scroll()
+        .overflow_y_scroll()
         .child(head(&lanes, &t))
         .child(body)
         .into_any_element()
