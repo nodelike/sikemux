@@ -265,7 +265,9 @@ pub fn may_pass(core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Re
                 .into(),
         );
     }
-    core.remote().may_sign(peer).map_err(|error| error.to_string())?;
+    core.remote()
+        .may_sign(peer)
+        .map_err(|error| error.to_string())?;
     match picked {
         true => Ok(()),
         false => Err("a production place passes only on the call's button".into()),
@@ -329,7 +331,10 @@ pub async fn set_level(
 ) -> CoreResult<Places> {
     let core = core.clone();
     let from = tapped_on(peer);
-    let signs = core.remote().may_sign(peer).map_err(|error| error.to_string());
+    let signs = core
+        .remote()
+        .may_sign(peer)
+        .map_err(|error| error.to_string());
     blocking(move || {
         let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
