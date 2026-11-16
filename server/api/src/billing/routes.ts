@@ -28,10 +28,10 @@ import { requireBillingAccess } from "./access.ts";
 import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
 import { CATALOG, REFUND_DAYS, product, unitPrice } from "./catalog.ts";
-import type {
-  BillingProvider,
-  HeldSubscription,
-  ProviderRequest,
+import {
+  heldSubscription,
+  type BillingProvider,
+  type ProviderRequest,
 } from "./provider.ts";
 import { StandInProvider } from "./stand-in.ts";
 
@@ -60,7 +60,7 @@ async function receive(
 ) {
   const events = await provider.readEvents(request);
   if (!events) throw unauthorized("The provider's signature is not valid.");
-  await applyProviderEvents(db, provider.name, events, log);
+  await applyProviderEvents(db, provider, events, log);
 }
 
 /** The payment provider's webhook. Like /v1/hooks it sits outside the per-address limit. */
@@ -100,21 +100,6 @@ function subscriptionBody(row: SubscriptionRow): Subscription {
           },
         }
       : {}),
-  };
-}
-
-function held(
-  row: SubscriptionRow,
-  providerCustomerId: string | null,
-): HeldSubscription {
-  return {
-    providerSubscriptionId: row.provider_subscription_id,
-    providerCustomerId,
-    product: row.product,
-    interval: row.interval,
-    quantity: row.quantity,
-    currentPeriodEnd: row.current_period_end,
-    cancelAtPeriodEnd: row.cancel_at_period_end,
   };
 }
 
@@ -419,7 +404,7 @@ export function billingRoutes({
       const when = change.when ?? "now";
       if (!same) {
         const outcome = await ready.change(
-          held(row, row.provider_customer_id),
+          heldSubscription(row, row.provider_customer_id),
           { ...next, unit },
           when,
         );
@@ -455,7 +440,7 @@ export function billingRoutes({
         const ready = needProvider(provider);
         const row = await subscriptionFor(c);
         if (row.cancel_at_period_end !== cancel) {
-          const subscription = held(row, row.provider_customer_id);
+          const subscription = heldSubscription(row, row.provider_customer_id);
           await (cancel
             ? ready.cancel(subscription, "period_end")
             : ready.resume(subscription));
@@ -526,7 +511,7 @@ export function billingRoutes({
         .execute();
       for (const subscription of rows)
         await ready.cancel(
-          held(subscription, subscription.provider_customer_id),
+          heldSubscription(subscription, subscription.provider_customer_id),
           "period_end",
         );
       await ready.refund(row.provider_payment_id);

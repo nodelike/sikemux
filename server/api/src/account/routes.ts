@@ -4,10 +4,10 @@ import { Hono } from "hono";
 
 import type { AuthEnv } from "../auth.ts";
 import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
-import { conflict, notFound, readOptionalBody } from "../http.ts";
+import { notFound, readOptionalBody } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { planOf } from "../billing/allowance.ts";
-import { orgsOnlyOwnedBy } from "../orgs/roles.ts";
+import { endDeletedBilling } from "../billing/deleted.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
 import { isStaff } from "./staff.ts";
@@ -19,9 +19,16 @@ export function accountRoutes({
   clerk,
   appleSignIn: apple,
   push: { app },
+  billing: { provider },
 }: Pick<
   Services,
-  "database" | "verifier" | "limiter" | "clerk" | "appleSignIn" | "push"
+  | "database"
+  | "verifier"
+  | "limiter"
+  | "clerk"
+  | "appleSignIn"
+  | "push"
+  | "billing"
 >) {
   return new Hono<AuthEnv>()
     .use(requireIdentity(verifier, db, { allowDeleted: true }))
@@ -72,11 +79,6 @@ export function accountRoutes({
       async (c) => {
         const identity = c.get("identity");
         const request = await readOptionalBody(c, "AccountDeletionRequest");
-        if ((await orgsOnlyOwnedBy(db, identity.userId)).length > 0)
-          throw conflict(
-            "You are the only owner of an org: make someone else its owner, or delete it, first.",
-          );
-
         const deletion = await markDeleted(db, {
           userId: identity.userId,
           actor: `user:${identity.userId}`,
@@ -85,6 +87,7 @@ export function accountRoutes({
         });
         const log = c.get("log");
         log.info({ at: deletion.requestedAt }, "deleted an account");
+        await endDeletedBilling(db, provider, log, identity.userId);
         await revokeAppleSignIn(db, apple, clerk, log, {
           userId: identity.userId,
           code: request?.appleAuthorizationCode,

@@ -1,6 +1,7 @@
 import { sql, type Kysely } from "kysely";
 
 import { audit } from "../audit.ts";
+import { holdsOpenSubscriptions } from "../billing/deleted.ts";
 import type { Tables } from "../db.ts";
 import { pruneChallenges } from "../devices/challenge.ts";
 import type { Logger } from "../log.ts";
@@ -16,10 +17,12 @@ const RETENTION_DAYS = {
   shares: 30,
 } as const;
 const BATCH = 5_000;
+const DAY_MS = 24 * 60 * 60_000;
 
 /**
- * Erases accounts deleted more than 30 days ago that Clerk has deleted too. Only a count of
- * their devices survives, in an audit row that names no one.
+ * Erases accounts deleted more than 30 days ago that Clerk has deleted too and that pay for
+ * nothing any more, with the orgs they were alone in. Only a count of their devices and orgs
+ * survives, in an audit row that names no one. Invoices go too; the provider keeps the tax record.
  */
 export async function purgeAccounts(
   db: Kysely<Tables>,
@@ -39,12 +42,18 @@ export async function purgeAccounts(
 
   const due = await db
     .selectFrom("users")
-    .select("id")
+    .select(["id", "purge_after"])
     .where("purge_after", "<", sql<Date>`now()`)
     .where("clerk_deleted_at", "is not", null)
     .execute();
   let purged = 0;
-  for (const { id } of due) {
+  let stillPaying = 0;
+  for (const { id, purge_after: purgeAfter } of due) {
+    if (await holdsOpenSubscriptions(db, id)) {
+      if (purgeAfter && purgeAfter.getTime() < Date.now() - DAY_MS)
+        stillPaying += 1;
+      continue;
+    }
     const done = await db.transaction().execute(async (trx) => {
       const user = await trx
         .selectFrom("users")
@@ -67,17 +76,49 @@ export async function purgeAccounts(
         .execute();
       await trx.deleteFrom("audit").where("user_id", "=", id).execute();
       await trx.deleteFrom("challenges").where("user_id", "=", id).execute();
+      const orgs = await trx
+        .deleteFrom("orgs")
+        .where((eb) =>
+          eb(
+            "id",
+            "in",
+            eb
+              .selectFrom("org_users")
+              .select("org_id")
+              .where("user_id", "=", id),
+          ),
+        )
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom("org_users as other")
+                .select("other.user_id")
+                .whereRef("other.org_id", "=", "orgs.id")
+                .where("other.user_id", "<>", id),
+            ),
+          ),
+        )
+        .executeTakeFirst();
       await trx.deleteFrom("users").where("id", "=", id).execute();
       await audit(trx, {
         userId: null,
         actor: "system",
         action: "account.purged",
-        detail: { devices: Number(removed.n) },
+        detail: {
+          devices: Number(removed.n),
+          orgs: Number(orgs.numDeletedRows),
+        },
       });
       return true;
     });
     if (done) purged += 1;
   }
+  if (stillPaying)
+    log.error(
+      { accounts: stillPaying },
+      "deleted accounts are due to be purged but the payment provider has not ended their subscriptions yet",
+    );
   if (purged) log.info({ accounts: purged }, "purged deleted accounts");
   return purged;
 }

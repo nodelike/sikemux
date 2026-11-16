@@ -93,6 +93,10 @@ const TEAM_FEATURES: readonly PlanFeature[] = [
   "org_policy",
 ];
 
+export const PLAN_PRODUCTS: readonly BillingProductId[] = PRODUCTS.filter(
+  (sold) => sold.kind === "plan",
+).map((sold) => sold.id);
+
 export const PLANS: readonly BillingPlan[] = [
   { id: "free", name: "Free", features: [] },
   { id: "pro", name: "Pro", features: [...PRO_FEATURES] },

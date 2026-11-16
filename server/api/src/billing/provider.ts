@@ -19,6 +19,29 @@ export interface HeldSubscription {
   cancelAtPeriodEnd: boolean;
 }
 
+/** A subscription row as a provider acts on it. */
+export function heldSubscription(
+  row: {
+    provider_subscription_id: string;
+    product: BillingProductId;
+    interval: BillingInterval;
+    quantity: number;
+    current_period_end: Date;
+    cancel_at_period_end: boolean;
+  },
+  providerCustomerId: string | null,
+): HeldSubscription {
+  return {
+    providerSubscriptionId: row.provider_subscription_id,
+    providerCustomerId,
+    product: row.product,
+    interval: row.interval,
+    quantity: row.quantity,
+    currentPeriodEnd: row.current_period_end,
+    cancelAtPeriodEnd: row.cancel_at_period_end,
+  };
+}
+
 /** One product under a provider's subscription, with a change waiting for renewal if one is. */
 export interface ProviderItem {
   product: BillingProductId;

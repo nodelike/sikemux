@@ -4,8 +4,11 @@ import { sql, type Kysely } from "kysely";
 import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { removeDevice } from "../devices/removal.ts";
+import { holdsOpenSubscriptions } from "../billing/deleted.ts";
 import { appendEvent } from "../events/log.ts";
+import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
+import { retryLater } from "../retry.ts";
 import type { ClerkBackend } from "./clerk.ts";
 
 /**
@@ -13,11 +16,6 @@ import type { ClerkBackend } from "./clerk.ts";
  * the account's records erased; until then its tombstones tell offline hosts it is gone.
  */
 export const PURGE_AFTER_DAYS = release.account.restorableDays;
-/** Failed calls to Clerk are retried after a minute, doubling up to an hour. */
-const RETRY_BASE_MS = 60_000;
-const RETRY_MAX_MS = 60 * 60_000;
-/** After this many failures every further one is logged as an error, which alerts. */
-const ALERT_AFTER_ATTEMPTS = 6;
 
 interface DeletionRequest {
   userId: string;
@@ -33,36 +31,22 @@ interface Deletion {
   deletedInClerk: boolean;
 }
 
-function retryDelayMs(attempts: number): number {
-  return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1));
-}
-
-/**
- * After a call to Clerk failed for the attempts-th time: logs it, as an error once it keeps
- * failing, and returns what to record on the row so the sweeper tries again later.
- */
+/** After a call to Clerk failed: what to record on the row so the sweeper tries again later. */
 function clerkFailed(
   log: Logger,
   what: string,
-  {
-    error,
-    attempts,
-    ...fields
-  }: Record<string, unknown> & { error: unknown; attempts: number },
+  failure: Record<string, unknown> & { error: unknown; attempts: number },
 ) {
-  const logged = { err: error, ...fields, attempts };
-  if (attempts >= ALERT_AFTER_ATTEMPTS)
-    log.error(logged, `Clerk still cannot ${what}`);
-  else log.warn(logged, `Clerk could not ${what}; retrying later`);
   return {
-    clerk_attempts: attempts,
-    clerk_retry_at: new Date(Date.now() + retryDelayMs(attempts)),
+    clerk_attempts: failure.attempts,
+    clerk_retry_at: retryLater(log, { service: "Clerk", what }, failure),
   };
 }
 
 /**
  * Deletes the account here, in one transaction: every device moves to a tombstone, the account
  * hears device.revoked for each and one account.deleted, and its tokens are refused from now on.
+ * It leaves its orgs, and what it pays for is left for `endDeletedBilling` to end with the provider.
  * The sign-in stays in Clerk until the account can no longer be restored. A repeat finds the
  * account marked and changes nothing, except recording Clerk's deletion.
  */
@@ -80,7 +64,7 @@ export async function markDeleted(
       .selectFrom("users")
       .select(["deleted_at", "purge_after", "clerk_deleted_at"])
       .where("id", "=", userId)
-      .forUpdate()
+      .forNoKeyUpdate()
       .executeTakeFirstOrThrow();
 
     if (user.deleted_at) {
@@ -93,9 +77,14 @@ export async function markDeleted(
       };
     }
 
+    const orgs = await leaveOrgs(trx, userId, { handOver: deletedInClerk });
     const marked = await trx
       .updateTable("users")
       .set({
+        billing_attempts: 0,
+        billing_retry_at: (await holdsOpenSubscriptions(trx, userId))
+          ? sql<Date>`now()`
+          : null,
         deleted_at: sql<Date>`now()`,
         purge_after: sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
         clerk_deleted_at: deletedInClerk ? sql<Date>`now()` : null,
@@ -125,7 +114,7 @@ export async function markDeleted(
       userId,
       actor,
       action: "account.deletion_requested",
-      detail: { via, devices: devices.length },
+      detail: { via, devices: devices.length, ...orgs },
     });
     if (deletedInClerk) await auditClerkDeletion(trx, userId, actor);
     return {
@@ -134,6 +123,75 @@ export async function markDeleted(
       deletedInClerk,
     };
   });
+}
+
+/**
+ * Takes the person out of every org they share with others. An org's only owner is refused,
+ * unless `handOver`, when the org passes to its longest-standing admin, else member. An org they
+ * are alone in stays theirs, with its pending invites revoked, until it is erased with them.
+ */
+async function leaveOrgs(
+  trx: Kysely<Tables>,
+  userId: string,
+  { handOver }: { handOver: boolean },
+) {
+  const memberships = await trx
+    .selectFrom("org_users")
+    .select("org_id")
+    .where("user_id", "=", userId)
+    .orderBy("org_id")
+    .execute();
+  const counts = { orgsLeft: 0, orgsHandedOver: 0, orgsKept: 0 };
+  for (const { org_id: orgId } of memberships) {
+    await trx
+      .selectFrom("orgs")
+      .select("id")
+      .where("id", "=", orgId)
+      .forUpdate()
+      .execute();
+    const members = await trx
+      .selectFrom("org_users")
+      .select(["user_id", "role"])
+      .where("org_id", "=", orgId)
+      .orderBy("joined_at")
+      .orderBy("user_id")
+      .execute();
+    const others = members.filter((member) => member.user_id !== userId);
+    if (!others.length) {
+      await trx
+        .updateTable("org_invites")
+        .set({ revoked_at: sql<Date>`now()` })
+        .where("org_id", "=", orgId)
+        .where("accepted_at", "is", null)
+        .where("revoked_at", "is", null)
+        .execute();
+      counts.orgsKept += 1;
+      continue;
+    }
+    const mine = members.find((member) => member.user_id === userId);
+    if (mine?.role === "owner" && !others.some((o) => o.role === "owner")) {
+      if (!handOver)
+        throw conflict(
+          "You are the only owner of an org with other members: make one of them an owner first.",
+        );
+      const heir = others.find((o) => o.role === "admin") ?? others[0];
+      if (heir)
+        await trx
+          .updateTable("org_users")
+          .set({ role: "owner" })
+          .where("org_id", "=", orgId)
+          .where("user_id", "=", heir.user_id)
+          .execute();
+      counts.orgsHandedOver += 1;
+    }
+    await trx
+      .deleteFrom("org_users")
+      .where("org_id", "=", orgId)
+      .where("user_id", "=", userId)
+      .execute();
+    counts.orgsLeft += 1;
+  }
+  return counts;
 }
 
 /**
@@ -160,6 +218,8 @@ export async function restoreAccount(
         purge_after: null,
         clerk_attempts: 0,
         clerk_retry_at: null,
+        billing_attempts: 0,
+        billing_retry_at: null,
       })
       .where("id", "=", userId)
       .execute();

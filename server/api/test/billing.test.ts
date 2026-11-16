@@ -133,6 +133,8 @@ async function overview(token: string, orgId?: string) {
 }
 
 const DAY_MS = 24 * 60 * 60_000;
+const noCall = () =>
+  Promise.reject(new Error("no call to the provider was expected"));
 
 /** A Team plan of 3 seats, halfway through its month. */
 async function halfwayTeam() {
@@ -384,7 +386,7 @@ describe("the provider's events", () => {
       new Date(at.getTime() + minutes * 60_000);
     await applyProviderEvents(
       database.db,
-      "boxes",
+      { name: "boxes", cancel: noCall, refund: noCall },
       [
         {
           eventId: "evt_1",

@@ -120,7 +120,10 @@ export function createApp(services: Services) {
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/orgs", orgRoutes(services));
-  app.route("/v1/webhooks", clerkWebhookRoutes(database, webhookSecret));
+  app.route(
+    "/v1/webhooks",
+    clerkWebhookRoutes(database, webhookSecret, services.billing.provider),
+  );
   app.route("/v1/hooks", hookRoutes(services));
   app.route("/v1/billing", billingRoutes(services));
   app.route("/updates", updateRoutes(database, limiter));

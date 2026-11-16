@@ -63,6 +63,8 @@ export class StandInProvider implements BillingProvider {
   private readonly heldRefunds: string[] = [];
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
+  /** Fails every cancellation, as a provider that cannot be reached. */
+  refuseCancels = false;
   /** Keeps refunds waiting for approval, as a provider that approves each by hand, until `approveRefunds`. */
   holdRefunds = false;
   private readonly checkoutBase: string;
@@ -225,6 +227,8 @@ export class StandInProvider implements BillingProvider {
   }
 
   async cancel(held: HeldSubscription, when: "period_end" | "now") {
+    if (this.refuseCancels)
+      throw new Error("The stand-in provider cannot be reached.");
     if (when === "period_end") return this.setCancel(held, true);
     await this.send({
       ...this.event("subscription.ended"),

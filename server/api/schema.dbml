@@ -11,8 +11,11 @@ Table users {
   events_pruned_through bigint [not null, default: 0]
   stash_seen_at timestamptz
   staff boolean [not null, default: `false`]
+  billing_attempts integer [not null, default: 0]
+  billing_retry_at timestamptz
 
   indexes {
+    billing_retry_at [name: 'users_awaiting_billing', note: 'where (billing_retry_at IS NOT NULL)']
     clerk_retry_at [name: 'users_awaiting_clerk', note: 'where ((deleted_at IS NOT NULL) AND (clerk_deleted_at IS NULL))']
     purge_after [name: 'users_to_purge', note: 'where (purge_after IS NOT NULL)']
   }

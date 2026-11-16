@@ -46,6 +46,8 @@ export interface Tables {
     clerk_attempts: ColumnType<number, never, number>;
     clerk_retry_at: ColumnType<Date | null, never, Date | null>;
     purge_after: ColumnType<Date | null, never, Date | null>;
+    billing_attempts: ColumnType<number, never, number>;
+    billing_retry_at: ColumnType<Date | null, never, Date | null>;
     events_pruned_through: ColumnType<string, never, string | number>;
     stash_seen_at: ColumnType<Date | null, never, Date>;
     staff: ColumnType<boolean, never, boolean>;

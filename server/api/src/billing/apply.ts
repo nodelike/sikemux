@@ -5,15 +5,34 @@ import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { ApiFailure } from "../http.ts";
 import type { Logger } from "../log.ts";
+import { PLAN_PRODUCTS, product } from "./catalog.ts";
 import type {
+  BillingProvider,
   ProviderEvent,
   ProviderItem,
   ProviderSubscription,
 } from "./provider.ts";
 
-/** The provider told of something the API has not heard of yet; it sends the event again later. */
-function notYet(what: string): ApiFailure {
+/**
+ * How long an event about something unknown is answered "not yet", for the provider to send again
+ * once what it follows has arrived. Past that, what it is about was erased with its account.
+ */
+const GONE_AFTER_MS = 24 * 60 * 60_000;
+
+/** An event about something erased, which is acknowledged and changes nothing. */
+class Gone extends Error {}
+
+function unknown(what: string, at: Date): Error {
+  if (Date.now() - at.getTime() > GONE_AFTER_MS) return new Gone(what);
   return new ApiFailure(503, "unavailable", `${what} is not known yet.`);
+}
+
+type Acting = Pick<BillingProvider, "name" | "cancel" | "refund">;
+
+interface Applied {
+  customerId: string;
+  /** What to ask of the provider once the event is recorded. */
+  afterwards?: (provider: Acting) => Promise<void>;
 }
 
 /** The rows of one provider subscription, one per product, locked for the event. */
@@ -21,6 +40,7 @@ async function rowsOf(
   trx: Transaction<Tables>,
   provider: string,
   providerSubscriptionId: string,
+  at: Date,
 ) {
   const rows = await trx
     .selectFrom("subscriptions")
@@ -35,6 +55,8 @@ async function rowsOf(
       "subscriptions.product",
       "subscriptions.status",
       "subscriptions.provider_updated_at",
+      "subscriptions.started_at",
+      "subscriptions.ended_at",
     ])
     .where("billing_customers.provider", "=", provider)
     .where(
@@ -46,7 +68,7 @@ async function rowsOf(
     .forUpdate("subscriptions")
     .execute();
   const [first] = rows;
-  if (!first) throw notYet("The subscription");
+  if (!first) throw unknown("The subscription", at);
   return { rows, customerId: first.customer_id };
 }
 
@@ -76,6 +98,7 @@ function insertItems(
   sub: ProviderSubscription,
   items: readonly ProviderItem[],
   at: Date,
+  { surplus = false } = {},
 ) {
   if (!items.length) return;
   return trx
@@ -84,9 +107,9 @@ function insertItems(
       items.map((item) => ({
         customer_id: customerId,
         provider_subscription_id: sub.providerSubscriptionId,
-        status: "active" as const,
+        status: surplus ? ("ended" as const) : ("active" as const),
         started_at: at,
-        ended_at: null,
+        ended_at: surplus ? at : null,
         ...itemColumns(sub, item, at),
       })),
     )
@@ -144,12 +167,37 @@ async function changeItems(
       .execute();
 }
 
+/**
+ * A second plan for one payer, as two checkouts finishing together make: it is kept as a
+ * subscription that ended as it started, and ended with the provider and refunded.
+ */
+async function isSurplus(
+  trx: Transaction<Tables>,
+  customerId: string,
+  sub: ProviderSubscription,
+) {
+  if (!sub.items.some((item) => product(item.product).kind === "plan"))
+    return false;
+  const plan = await trx
+    .selectFrom("subscriptions")
+    .select("id")
+    .where("customer_id", "=", customerId)
+    .where("status", "<>", "ended")
+    .where("product", "in", PLAN_PRODUCTS)
+    .where("provider_subscription_id", "<>", sub.providerSubscriptionId)
+    .executeTakeFirst();
+  return plan !== undefined;
+}
+
+const neverHeld = (rows: readonly Row[]) =>
+  rows.every((row) => row.ended_at?.getTime() === row.started_at.getTime());
+
 /** Applies one event and answers which customer it changed. */
 async function apply(
   trx: Transaction<Tables>,
   provider: string,
   event: ProviderEvent,
-): Promise<string> {
+): Promise<Applied> {
   const { at } = event;
   switch (event.type) {
     case "subscription.started": {
@@ -160,15 +208,29 @@ async function apply(
         .where("provider", "=", provider)
         .returning("id")
         .executeTakeFirst();
-      if (!customer) throw notYet("The customer");
-      await insertItems(
-        trx,
-        customer.id,
-        event.subscription,
-        event.subscription.items,
-        at,
-      );
-      return customer.id;
+      if (!customer) throw new Gone("The customer");
+      const sub = event.subscription;
+      const surplus = await isSurplus(trx, customer.id, sub);
+      await insertItems(trx, customer.id, sub, sub.items, at, { surplus });
+      if (!surplus) return { customerId: customer.id };
+      return {
+        customerId: customer.id,
+        afterwards: async (acting) => {
+          for (const item of sub.items)
+            await acting.cancel(
+              {
+                providerSubscriptionId: sub.providerSubscriptionId,
+                providerCustomerId: event.providerCustomerId,
+                product: item.product,
+                interval: sub.interval,
+                quantity: item.quantity,
+                currentPeriodEnd: sub.currentPeriodEnd,
+                cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+              },
+              "now",
+            );
+        },
+      };
     }
     case "subscription.changed": {
       const sub = event.subscription;
@@ -176,9 +238,10 @@ async function apply(
         trx,
         provider,
         sub.providerSubscriptionId,
+        at,
       );
       if (isNewer(rows, at)) await changeItems(trx, rows, customerId, sub, at);
-      return customerId;
+      return { customerId };
     }
     case "subscription.lapsed":
     case "subscription.ended": {
@@ -186,6 +249,7 @@ async function apply(
         trx,
         provider,
         event.providerSubscriptionId,
+        at,
       );
       const ended = event.type === "subscription.ended";
       const ids = rows
@@ -201,7 +265,7 @@ async function apply(
           )
           .where("id", "in", ids)
           .execute();
-      return customerId;
+      return { customerId };
     }
     case "payment.made":
     case "payment.failed": {
@@ -209,6 +273,7 @@ async function apply(
         trx,
         provider,
         event.providerSubscriptionId,
+        at,
       );
       const paid = event.type === "payment.made";
       await trx
@@ -237,7 +302,12 @@ async function apply(
           .set({ status: "active", provider_updated_at: at })
           .where("id", "in", lapsed)
           .execute();
-      return customerId;
+      if (!paid || !neverHeld(rows)) return { customerId };
+      const { providerPaymentId } = event;
+      return {
+        customerId,
+        afterwards: (acting) => acting.refund(providerPaymentId),
+      };
     }
     case "payment.refunded": {
       const invoice = await trx
@@ -255,15 +325,15 @@ async function apply(
       if (invoice) {
         if (invoice.reason === "first_payment")
           await endRefunded(trx, invoice, at);
-        return invoice.customer_id;
+        return { customerId: invoice.customer_id };
       }
       const known = await trx
         .selectFrom("invoices")
         .select("customer_id")
         .where("provider_payment_id", "=", event.providerPaymentId)
         .executeTakeFirst();
-      if (!known) throw notYet("The payment");
-      return known.customer_id;
+      if (!known) throw unknown("The payment", at);
+      return { customerId: known.customer_id };
     }
   }
 }
@@ -314,30 +384,61 @@ export async function peopleOf(
 
 /**
  * Applies a provider's events, each once: one already handled, even before a restart, is skipped.
- * Each goes in its own transaction with the plan.changed events for the people it concerns.
+ * Each goes in its own transaction with the plan.changed events for the people it concerns. An
+ * event whose call to the provider then fails is forgotten, so the provider's retry repeats both.
  */
 export async function applyProviderEvents(
   db: Kysely<Tables>,
-  provider: string,
+  provider: Acting,
   events: readonly ProviderEvent[],
   log: Logger,
 ): Promise<void> {
+  const name = provider.name;
   for (const event of events) {
-    await db.transaction().execute(async (trx) => {
-      const fresh = await trx
-        .insertInto("billing_events")
-        .values({ provider, event_id: event.eventId, type: event.type })
-        .onConflict((oc) => oc.columns(["provider", "event_id"]).doNothing())
-        .returning("event_id")
-        .executeTakeFirst();
-      if (!fresh) return;
-      const customerId = await apply(trx, provider, event);
-      const people = await peopleOf(trx, customerId);
-      await appendEvents(
-        trx,
-        people.map((userId) => ({ userId, type: "plan.changed" as const })),
+    let applied: Applied | undefined;
+    try {
+      applied = await db.transaction().execute(async (trx) => {
+        const fresh = await trx
+          .insertInto("billing_events")
+          .values({ provider: name, event_id: event.eventId, type: event.type })
+          .onConflict((oc) => oc.columns(["provider", "event_id"]).doNothing())
+          .returning("event_id")
+          .executeTakeFirst();
+        if (!fresh) return undefined;
+        const result = await apply(trx, name, event);
+        const people = await peopleOf(trx, result.customerId);
+        await appendEvents(
+          trx,
+          people.map((userId) => ({ userId, type: "plan.changed" as const })),
+        );
+        log.info(
+          { provider: name, type: event.type, customerId: result.customerId },
+          "billing event",
+        );
+        return result;
+      });
+    } catch (error) {
+      if (!(error instanceof Gone)) throw error;
+      log.info(
+        { provider: name, type: event.type, gone: error.message },
+        "acknowledged a billing event about something erased",
       );
-      log.info({ provider, type: event.type, customerId }, "billing event");
-    });
+      continue;
+    }
+    if (!applied?.afterwards) continue;
+    try {
+      await applied.afterwards(provider);
+    } catch (error) {
+      await db
+        .deleteFrom("billing_events")
+        .where("provider", "=", name)
+        .where("event_id", "=", event.eventId)
+        .execute();
+      log.error(
+        { err: error, provider: name, type: event.type },
+        "could not undo a second plan with the payment provider",
+      );
+      throw error;
+    }
   }
 }

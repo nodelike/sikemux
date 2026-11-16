@@ -3,6 +3,8 @@ import { Hono } from "hono";
 
 import { markDeleted } from "../account/deletion.ts";
 import { audit } from "../audit.ts";
+import { endDeletedBilling } from "../billing/deleted.ts";
+import type { BillingProvider } from "../billing/provider.ts";
 import type { Database } from "../db.ts";
 import { ApiFailure, type Env, badRequest, unauthorized } from "../http.ts";
 
@@ -59,7 +61,11 @@ interface ClerkEvent {
 }
 
 /** Clerk's webhook. It acts only on user.deleted, cleaning up as if the person deleted the account here. */
-export function clerkWebhookRoutes({ db }: Database, secret: string | null) {
+export function clerkWebhookRoutes(
+  { db }: Database,
+  secret: string | null,
+  provider: BillingProvider | null,
+) {
   const seen = new SeenIds();
   return new Hono<Env>().post("/clerk", async (c) => {
     if (!secret)
@@ -103,6 +109,7 @@ export function clerkWebhookRoutes({ db }: Database, secret: string | null) {
       via: "webhook",
       deletedInClerk: true,
     });
+    await endDeletedBilling(db, provider, c.get("log"), userId);
     await audit(db, {
       userId,
       actor: "clerk",

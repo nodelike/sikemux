@@ -183,8 +183,8 @@ describe("orgs", () => {
     expect(await planChanges()).toEqual([ADMIN, MEMBER, MEMBER, ADMIN]);
   });
 
-  it("refuse deleting the account of an org's only owner", async () => {
-    await createOrg(1);
+  it("refuse deleting the account of an org's only owner while others are in it", async () => {
+    await fullOrg();
     const token = await sessionToken(OWNER, { claims: { fva: [0, -1] } });
     const response = await call("/v1/account", token, { method: "DELETE" });
     expect(response.status).toBe(409);
