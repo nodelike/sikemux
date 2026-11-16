@@ -69,7 +69,10 @@ impl Library {
             .loaded
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        for name in self.index.grammars[id]
+        for name in self
+            .index
+            .grammars
+            .get(id)?
             .requires
             .iter()
             .map(String::as_str)
@@ -80,7 +83,7 @@ impl Library {
             }
             let entry = self.index.grammars.get(name)?;
             let mut source = Vec::new();
-            GzDecoder::new(&self.grammars[entry.at..entry.at + entry.size])
+            GzDecoder::new(self.grammars.get(entry.at..entry.at + entry.size)?)
                 .read_to_end(&mut source)
                 .ok()?;
             self.highlighter.load_language(name, source).ok()?;

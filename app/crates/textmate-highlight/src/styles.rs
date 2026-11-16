@@ -92,8 +92,8 @@ impl Styles {
             if role.is_some() && font.is_some() {
                 break;
             }
-            match prefix.rfind('.') {
-                Some(dot) => prefix = &prefix[..dot],
+            match prefix.rsplit_once('.') {
+                Some((parent, _)) => prefix = parent,
                 None => break,
             }
         }

@@ -127,10 +127,9 @@ impl Compositor {
                 window_size.0 as f32,
                 window_size.1 as f32,
             );
-            for y in 0..size.1 {
-                for x in 0..size.0 {
-                    alpha[y * size.0 + x] =
-                        coverage(x as f32 + 0.5, y as f32 + 0.5, rect, RADIUS * d);
+            for (y, line) in alpha.chunks_exact_mut(size.0).enumerate() {
+                for (x, value) in line.iter_mut().enumerate() {
+                    *value = coverage(x as f32 + 0.5, y as f32 + 0.5, rect, RADIUS * d);
                 }
             }
             gaussian(&mut alpha, size.0, size.1, blur * d / 2.);
@@ -144,13 +143,16 @@ impl Compositor {
         let mut mask = vec![0f32; window_size.0 * window_size.1];
         let mut rim = vec![0f32; window_size.0 * window_size.1];
         let rect = (0., 0., window_size.0 as f32, window_size.1 as f32);
-        for y in 0..window_size.1 {
-            for x in 0..window_size.0 {
+        for (y, (mask_line, rim_line)) in mask
+            .chunks_exact_mut(window_size.0)
+            .zip(rim.chunks_exact_mut(window_size.0))
+            .enumerate()
+        {
+            for (x, (mask, rim)) in mask_line.iter_mut().zip(rim_line).enumerate() {
                 let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-                let at = y * window_size.0 + x;
-                mask[at] = coverage(px, py, rect, RADIUS * d);
+                *mask = coverage(px, py, rect, RADIUS * d);
                 let edge = distance(px, py, rect, RADIUS * d);
-                rim[at] = (1. - (edge + d * 0.5).abs() / (d * 0.5)).clamp(0., 1.) * 0.09;
+                *rim = (1. - (edge + d * 0.5).abs() / (d * 0.5)).clamp(0., 1.) * 0.09;
             }
         }
         let lockup = setup
@@ -242,6 +244,10 @@ impl Compositor {
         &self.frame
     }
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the window and lockup sit inside the stage buffers sized in new; checked slices would slow the per-pixel loop"
+    )]
     fn paint_canvas(&mut self, window: &RgbaImage, end: f32) {
         let shown = 1. - smooth((end / 0.6).clamp(0., 1.));
         let card = smooth(((end - 0.35) / 0.65).clamp(0., 1.));
@@ -322,6 +328,10 @@ impl Compositor {
         self.dirty = end > 0.;
     }
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the loop skips every pixel off the frame; checked slices would slow the per-pixel loop"
+    )]
     fn paint_pointer(&mut self, shape: Shape, size: f32, at: (f32, f32), opacity: f32) {
         let key = (shape, (size * 20.).round() as u32);
         let art = self
@@ -371,10 +381,12 @@ impl Compositor {
                 if x < 0 || y < 0 || x as usize >= width || y as usize >= height {
                     continue;
                 }
-                let pixel = &mut frame[(y as usize * width + x as usize) * 4..][..4];
-                pixel[0] = (pixel[0] as f32 + (255. - pixel[0] as f32) * strength) as u8;
-                pixel[1] = (pixel[1] as f32 * (1. - strength)) as u8;
-                pixel[2] = (pixel[2] as f32 + (255. - pixel[2] as f32) * strength) as u8;
+                let at = (y as usize * width + x as usize) * 4;
+                if let Some([red, green, blue, _]) = frame.get_mut(at..at + 4) {
+                    *red = (*red as f32 + (255. - *red as f32) * strength) as u8;
+                    *green = (*green as f32 * (1. - strength)) as u8;
+                    *blue = (*blue as f32 + (255. - *blue as f32) * strength) as u8;
+                }
             }
         };
         let digit_size = (scale * 1.6).max(2.);
@@ -463,6 +475,10 @@ fn gaussian(values: &mut [f32], width: usize, height: usize, sigma: f32) {
 }
 
 /// One box blur along lines `count` long, `stride` apart within a line and `step` between lines.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "every index is clamped into its line; checked reads would slow the blur's inner loop"
+)]
 fn box_pass(
     from: &[f32],
     into: &mut [f32],
@@ -506,8 +522,8 @@ fn wallpaper(path: Option<&Path>, size: (usize, usize)) -> Vec<u8> {
         let t = y as f32 / size.1 as f32;
         let colour = [11. + 18. * t, 10. + 12. * t, 16. + 30. * t];
         for pixel in line.as_chunks_mut::<4>().0 {
-            for channel in 0..3 {
-                pixel[channel] = colour[channel] as u8;
+            for (channel, value) in pixel.iter_mut().zip(colour) {
+                *channel = value as u8;
             }
         }
     }
@@ -516,10 +532,18 @@ fn wallpaper(path: Option<&Path>, size: (usize, usize)) -> Vec<u8> {
 
 fn draw_pointer(shape: Shape, size: f32) -> Art {
     let (svg, hot) = shape.art();
+    #[expect(
+        clippy::expect_used,
+        reason = "the pointer pictures are constants in this file"
+    )]
     let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).expect("pointer art");
     let pad = (4. * size).ceil();
     let width = (tree.size().width() * size + pad * 2.).ceil() as u32;
     let height = (tree.size().height() * size + pad * 2.).ceil() as u32;
+    #[expect(
+        clippy::expect_used,
+        reason = "a pointer is a few dozen pixels a side, never empty or too large"
+    )]
     let mut pixmap = tiny_skia::Pixmap::new(width, height).expect("pointer size");
     resvg::render(
         &tree,
@@ -537,20 +561,25 @@ fn draw_pointer(shape: Shape, size: f32) -> Art {
     gaussian(&mut shadow, w, h, size);
     let drop = (1.5 * size).round() as usize;
     let mut pixels = vec![0u8; w * h * 4];
-    for y in 0..h {
-        for x in 0..w {
-            let at = y * w + x;
-            let under = if y >= drop {
-                shadow[at - drop * w] * 0.45
-            } else {
-                0.
-            };
-            let source = &art[at * 4..at * 4 + 4];
-            let alpha = source[3] as f32 / 255.;
-            let out = &mut pixels[at * 4..at * 4 + 4];
-            out[..3].copy_from_slice(&source[..3]);
-            out[3] = ((alpha + under * (1. - alpha)) * 255.).round() as u8;
-        }
+    for (at, (out, source)) in pixels
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(art.as_chunks::<4>().0)
+        .enumerate()
+    {
+        let under = at
+            .checked_sub(drop * w)
+            .and_then(|above| shadow.get(above))
+            .map_or(0., |shadow| shadow * 0.45);
+        let [red, green, blue, alpha] = *source;
+        let alpha = alpha as f32 / 255.;
+        *out = [
+            red,
+            green,
+            blue,
+            ((alpha + under * (1. - alpha)) * 255.).round() as u8,
+        ];
     }
     Art {
         pixels,
@@ -601,7 +630,9 @@ fn taps(source: usize, start: f64, extent: f64, out: usize) -> Taps {
             taken.iter_mut().for_each(|weight| *weight /= total);
         } else {
             taken = vec![0.; hi - lo];
-            taken[0] = 1.;
+            if let Some(first) = taken.first_mut() {
+                *first = 1.;
+            }
         }
         first.push(lo.min(source - 1));
         weights.push(taken);
@@ -610,6 +641,10 @@ fn taps(source: usize, start: f64, extent: f64, out: usize) -> Taps {
 }
 
 /// Draws the part of `source` inside `rect` (in source pixels) into all of `out`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "taps keeps every source pixel it names inside the picture; checked reads would slow the per-pixel loops"
+)]
 fn resample(
     source: &[u8],
     size: (usize, usize),
@@ -682,7 +717,9 @@ const DIGITS: [[u8; 5]; 10] = [
 
 fn digits(frame: &mut [u8], width: usize, height: usize, number: u32, x: f32, y: f32, size: f32) {
     for (place, digit) in number.to_string().bytes().enumerate() {
-        let glyph = DIGITS[(digit - b'0') as usize];
+        let Some(glyph) = DIGITS.get(digit.wrapping_sub(b'0') as usize) else {
+            continue;
+        };
         for (row, bits) in glyph.iter().enumerate() {
             for column in 0..3 {
                 if bits & (4 >> column) == 0 {
@@ -693,8 +730,10 @@ fn digits(frame: &mut [u8], width: usize, height: usize, number: u32, x: f32, y:
                 for py in top as usize..(top + size) as usize {
                     for px in left as usize..(left + size) as usize {
                         if px < width && py < height {
-                            let pixel = &mut frame[(py * width + px) * 4..][..4];
-                            pixel[..3].copy_from_slice(&[255, 220, 80]);
+                            let at = (py * width + px) * 4;
+                            if let Some(pixel) = frame.get_mut(at..at + 3) {
+                                pixel.copy_from_slice(&[255, 220, 80]);
+                            }
                         }
                     }
                 }
