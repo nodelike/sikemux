@@ -1,6 +1,6 @@
 # Proves an installer on a clean runner, which runs as an administrator: a silent install, the app opening from where it was
-# installed, a silent reinstall over the running app that starts it again, and an uninstall
-# that leaves only the person's data.
+# installed, a silent reinstall over the running app as the service runs an update, and an
+# uninstall that leaves only the person's data.
 param(
   [Parameter(Mandatory)][string]$Installer,
   [Parameter(Mandatory)][string]$Version,
@@ -81,12 +81,9 @@ $Entry = Get-ItemProperty $Uninstall
 Check ($Entry.DisplayVersion -eq $Version) "Apps & features lists $Version"
 $Info = (Get-Item $App).VersionInfo
 Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux.exe says Sikemux $Version"
-$HasCore = Test-Path $Core
-if ($HasCore) {
-  $Info = (Get-Item $Core).VersionInfo
-  Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux-host.exe says Sikemux $Version"
-  Check (Service-Running) "the $Service service runs and starts at boot"
-}
+$Info = (Get-Item $Core).VersionInfo
+Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux-host.exe says Sikemux $Version"
+Check (Service-Running) "the $Service service runs and starts at boot"
 Check ((Get-Content $Preferences -Raw) -match '"shareUsageData":false') "unticking sharing turns usage data and crash reports off"
 
 Start-Process $App
@@ -94,30 +91,26 @@ $Window = Wait-Window 60
 Check $Window "the installed app opens a window"
 Write-Host "window: $($Window.MainWindowTitle)"
 
-if ($HasCore) {
-  Check (Wait-Core 60) "the app starts its core"
-  Check ((Core-Run enable) -eq 0) "sikemux-host enable exits 0"
-  $Command = (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue).$SignInName
-  Check ($Command -like "`"$App`" --start-core *") "the core is set to start at sign-in from the app: $Command"
-  Installed-Running | Stop-Process -Force
-  Check ((Core-Run stop) -eq 0) "sikemux-host stop exits 0"
-  Check (-not (Core-Answers)) "the core and its watcher are stopped"
-  # Exactly what Windows runs at sign-in.
-  Start-Process cmd.exe -ArgumentList "/d /s /c `"$Command`"" -WindowStyle Hidden
-  Check (Wait-Core 30) "the sign-in command starts a core that answers"
-  Start-Process $App
-  $Window = Wait-Window 60
-  Check $Window "the app opens again beside the core"
-}
-
-$Before = $Window.Id
-Run-Setup ($Silent + "/relaunch=1") "update.log"
+Check (Wait-Core 60) "the app starts its core"
+Check ((Core-Run enable) -eq 0) "sikemux-host enable exits 0"
+$Command = (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue).$SignInName
+Check ($Command -like "`"$App`" --start-core *") "the core is set to start at sign-in from the app: $Command"
+Installed-Running | Stop-Process -Force
+Check ((Core-Run stop) -eq 0) "sikemux-host stop exits 0"
+Check (-not (Core-Answers)) "the core and its watcher are stopped"
+# Exactly what Windows runs at sign-in.
+Start-Process cmd.exe -ArgumentList "/d /s /c `"$Command`"" -WindowStyle Hidden
+Check (Wait-Core 30) "the sign-in command starts a core that answers"
+Start-Process $App
 $Window = Wait-Window 60
-Check ($Window -and $Window.Id -ne $Before) "a silent reinstall over the running app starts it again"
-if ($HasCore) {
-  Check (Wait-Core 60) "the core answers after the reinstall"
-  Check (Service-Running) "the $Service service runs again after the reinstall"
-}
+Check $Window "the app opens again beside the core"
+
+Run-Setup $Silent "update.log"
+Check ((Installed-Running).Count -eq 0) "a silent reinstall closes the running app"
+Check (Service-Running) "the $Service service runs again after the reinstall"
+Start-Process $App
+Check (Wait-Window 60) "the updated app opens"
+Check (Wait-Core 60) "the updated app's core answers"
 & "$Dir\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$Out\uninstall.log" | Out-Null
 # The uninstaller hands its work to a copy of itself and returns at once.
 $Deadline = (Get-Date).AddSeconds(60)
