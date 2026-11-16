@@ -33,7 +33,7 @@ pub fn settle(core: &Core) {
             let Some(project) = core.names().get(&agent).map(|named| named.project) else {
                 continue;
             };
-            let step = (state.boards.get(&project))
+            let step = (state.of(&project))
                 .and_then(|board| board.settings.spend_ceiling)
                 .unwrap_or(STEP_USD)
                 .max(1);

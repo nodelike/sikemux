@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use super::{add_card, Adding, Board, By, MAX_TITLE_CHARS};
+use super::{add_card, Adding, By, MAX_TITLE_CHARS};
 use crate::git::short;
 use crate::server::codehost::repo::FailedJob;
 use crate::server::Core;
@@ -138,10 +138,7 @@ pub fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[FailedJob]) 
     let failed = failures(jobs);
     let again: Vec<Failure> = {
         let mut state = core.boards().state.locked();
-        let board = state
-            .boards
-            .entry(project.to_owned())
-            .or_insert_with(|| Board::empty(project));
+        let board = state.made(project);
         if board.ci_failing.sha == sha {
             return;
         }

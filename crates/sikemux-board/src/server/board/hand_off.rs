@@ -210,7 +210,7 @@ async fn hand_task(
         checkout,
         cwd,
     } = started;
-    let title = (core.boards().state.locked().boards.get(&project))
+    let title = (core.boards().state.locked().of(&project))
         .and_then(|board| board.card(card).ok())
         .map(|held| held.title.clone());
     workspace::retitle(core, agent, title, true);

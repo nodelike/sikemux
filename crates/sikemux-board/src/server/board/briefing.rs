@@ -28,7 +28,7 @@ fn lead(core: &Core, agent_id: &str) -> Option<String> {
 /// The goal's own words, as a section of `agent_id`'s brief, unless the goal is its own card.
 pub fn sections(core: &Core, agent_id: &str, goal: &GoalRef) -> Vec<String> {
     let state = core.boards().state.locked();
-    let Some(board) = state.boards.get(&goal.project) else {
+    let Some(board) = state.of(&goal.project) else {
         return Vec::new();
     };
     let Ok(goal_card) = board.card(goal.card) else {

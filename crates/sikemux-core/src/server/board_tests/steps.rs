@@ -22,10 +22,7 @@ fn production_loosened() -> Vec<Value> {
 fn a_proposal_changes_no_setting() {
     let core = Core::new(Default::default(), None).unwrap();
     let mut state = core.boards().state.locked();
-    let board = state
-        .boards
-        .entry(PROJECT.to_owned())
-        .or_insert_with(|| Board::empty(PROJECT));
+    let board = state.made(PROJECT);
     propose(
         board,
         production_loosened(),
@@ -36,14 +33,14 @@ fn a_proposal_changes_no_setting() {
     assert!(board.settings.places.is_empty());
     assert!(board.places_proposal.is_some());
     answer_proposal(&mut state, PROJECT, false).unwrap();
-    let board = state.boards.get_mut(PROJECT).unwrap();
+    let board = state.of_mut(PROJECT).unwrap();
     assert!(board.settings.places.is_empty());
     assert!(board.places_proposal.is_none());
 }
 
 #[test]
 fn a_proposal_cannot_loosen_production_either() {
-    let mut board = Board::empty(PROJECT);
+    let mut board = Board::empty(PROJECT, PROJECT);
     propose(
         &mut board,
         production_loosened(),

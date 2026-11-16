@@ -558,6 +558,7 @@ impl ServerCore for Core {
             ]
         });
         from_app::carry(&core, data_dir);
+        board::rekey(&core);
         sikemux_repo::server::credential::provide(&core);
         pictures::tidy(&core, false);
         core.theme_changed();

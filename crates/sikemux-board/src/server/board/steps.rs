@@ -44,8 +44,7 @@ pub fn answer_proposal(
     accept: bool,
 ) -> Result<Vec<Place>, String> {
     let board = state
-        .boards
-        .get_mut(project)
+        .of_mut(project)
         .ok_or("this project's board has no proposal")?;
     let proposal = board
         .places_proposal

@@ -229,8 +229,7 @@ fn settle(
 ) {
     let mut state = core.boards().state.locked();
     let Some(card) = state
-        .boards
-        .get_mut(project)
+        .of_mut(project)
         .and_then(|board| board.card_mut(id).ok())
     else {
         return;
@@ -260,7 +259,7 @@ async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
     let notices = blocking(move || {
         let open = {
             let mut state = core2.boards().state.locked();
-            let Some(board) = state.boards.get_mut(&project) else {
+            let Some(board) = state.of_mut(&project) else {
                 return Ok(Vec::new());
             };
             let Ok(card) = board.card_mut(id) else {
@@ -317,7 +316,7 @@ fn ticket_card(
 /// one.
 fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
     let state = core.boards().state.locked();
-    let card = (state.boards.get(project)?.cards.iter())
+    let card = (state.of(project)?.cards.iter())
         .filter(|card| {
             card.ticket
                 .as_ref()
@@ -326,7 +325,7 @@ fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
         .min_by_key(|card| card.status == CardStatus::Done)?;
     let parent_done = card
         .parent
-        .and_then(|parent| state.boards.get(project)?.card(parent).ok())
+        .and_then(|parent| state.of(project)?.card(parent).ok())
         .is_some_and(|parent| parent.status == CardStatus::Done);
     Some(TicketHeld {
         id: card.id,

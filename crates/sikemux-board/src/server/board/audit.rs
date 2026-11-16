@@ -75,7 +75,7 @@ pub async fn person_audit_every(
     blocking(move || {
         let project = project_at(&core, &params.project)?;
         let mut state = core.boards().state.locked();
-        let board = (state.boards.entry(project.clone())).or_insert_with(|| Board::empty(&project));
+        let board = state.made(&project);
         let now = epoch_ms();
         board.audits.next_at = (params.every.as_ref())
             .and_then(|every| (core.board_above().triggers_next_after)(every, now, now));
@@ -108,9 +108,13 @@ pub fn due(core: &Arc<Core>) -> Option<u64> {
     let mut starting = Vec::new();
     {
         let mut state = core.boards().state.locked();
-        let projects: Vec<String> = state.boards.keys().cloned().collect();
+        let projects: Vec<String> = state
+            .boards
+            .values()
+            .map(|board| board.folder.clone())
+            .collect();
         for project in projects {
-            let Some(board) = state.boards.get_mut(&project) else {
+            let Some(board) = state.of_mut(&project) else {
                 continue;
             };
             let (Some(every), Some(at)) = (board.audits.every.clone(), board.audits.next_at) else {
@@ -141,7 +145,7 @@ pub fn due(core: &Arc<Core>) -> Option<u64> {
 
 fn running(core: &Core, project: &str) -> bool {
     let state = core.boards().state.locked();
-    state.boards.get(project).is_some_and(latest_running)
+    state.of(project).is_some_and(latest_running)
 }
 
 fn latest_running(board: &Board) -> bool {
@@ -160,7 +164,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
         blocking(move || {
             let since = {
                 let state = core.boards().state.locked();
-                (state.boards.get(&project))
+                (state.of(&project))
                     .and_then(|board| board.audits.runs.last())
                     .map(|run| (run.head.clone(), run.at))
             };
@@ -181,8 +185,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
                 .boards()
                 .state
                 .locked()
-                .boards
-                .get(&project)
+                .of(&project)
                 .map(|board| board.settings.clone());
             let settings = settings.unwrap_or_default();
             let (mut launch, launcher) = core.workspaces().board_launch(
@@ -217,7 +220,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
             };
             {
                 let mut state = core.boards().state.locked();
-                if let Some(board) = state.boards.get_mut(&project) {
+                if let Some(board) = state.of_mut(&project) {
                     board.audits.runs.push(Run {
                         card,
                         at: epoch_ms(),

@@ -18,8 +18,8 @@ pub fn settle(core: &Arc<Core>) -> Option<u64> {
         .state
         .locked()
         .boards
-        .keys()
-        .cloned()
+        .values()
+        .map(|board| board.folder.clone())
         .collect();
     let mut next = None;
     for project in projects {
@@ -45,7 +45,7 @@ fn finished_under(core: &Core, card: &Card, under: &[&Card]) -> bool {
 
 fn close_parents(core: &Arc<Core>, project: &str) {
     let mut state = core.boards().state.locked();
-    let Some(board) = state.boards.get(project) else {
+    let Some(board) = state.of(project) else {
         return;
     };
     let mut under: HashMap<u64, Vec<&Card>> = HashMap::new();
@@ -86,7 +86,7 @@ fn close_parents(core: &Arc<Core>, project: &str) {
 /// owner has left it or waits on the person. The chief's chat says so, with Undo.
 fn close_checked(core: &Arc<Core>, project: &str) {
     let mut state = core.boards().state.locked();
-    let Some(board) = state.boards.get(project) else {
+    let Some(board) = state.of(project) else {
         return;
     };
     let closing: Vec<(u64, String, String)> = (board.cards.iter())
@@ -144,7 +144,7 @@ fn wanted(board: &Board) -> HashSet<u64> {
 /// Moves the open cards nobody has touched for long to Later, and brings back each one that
 /// was taken up, changed or is wanted again. Answers when the next card comes due to move.
 fn put_aside(core: &Core, state: &mut State, project: &str, now: u64) -> Option<u64> {
-    let board = state.boards.get(project)?;
+    let board = state.of(project)?;
     let wanted = wanted(board);
     let idle: HashSet<u64> = (board.cards.iter())
         .filter(|card| {
@@ -152,7 +152,7 @@ fn put_aside(core: &Core, state: &mut State, project: &str, now: u64) -> Option<
         })
         .map(|card| card.id)
         .collect();
-    let board = state.boards.get_mut(project)?;
+    let board = state.of_mut(project)?;
     let mut changed = false;
     let mut next = None;
     for card in &mut board.cards {

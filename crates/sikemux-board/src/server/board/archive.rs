@@ -24,7 +24,7 @@ fn may_archive(state: &State, project: &str, parents: &HashSet<u64>, card: &Card
 /// Moves finished cards off a full board, the oldest first. A finished card
 /// with cards under it stays until they have gone.
 pub fn make_room(boards: &Boards, state: &mut State, project: &str) {
-    let Some(board) = state.boards.get(project) else {
+    let Some(board) = state.of(project) else {
         return;
     };
     if board.cards.len() + ROOM_KEPT < MAX_CARDS {
@@ -57,7 +57,7 @@ pub fn finished_long_ago(core: &Core, state: &mut State, project: &str, now: u64
 /// The finished cards that may leave the board: none under them, none being worked, and their
 /// ticket told they are done.
 fn finished<'a>(state: &'a State, project: &str) -> Vec<&'a Card> {
-    let Some(board) = state.boards.get(project) else {
+    let Some(board) = state.of(project) else {
         return Vec::new();
     };
     let parents: HashSet<u64> = board.cards.iter().filter_map(|card| card.parent).collect();
@@ -70,7 +70,7 @@ fn move_off(boards: &Boards, state: &mut State, project: &str, going: HashSet<u6
     if going.is_empty() {
         return;
     }
-    let Some(board) = state.boards.get_mut(project) else {
+    let Some(board) = state.of_mut(project) else {
         return;
     };
     let (gone, kept): (Vec<Card>, Vec<Card>) = std::mem::take(&mut board.cards)

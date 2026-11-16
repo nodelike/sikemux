@@ -47,6 +47,7 @@ pub mod chat_goal;
 pub mod failing;
 pub mod goal;
 pub mod hand_off;
+mod key;
 mod migrate;
 mod spend;
 pub mod steps;
@@ -57,6 +58,7 @@ pub use super::checks::CiCard;
 pub use failing::ci_ruled;
 pub use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandedOff};
+pub use key::rekey;
 pub use steps::{BoardProposalParams, PlacesProposal};
 
 const FOLDER: &str = "boards";
@@ -150,7 +152,11 @@ const VERSION: u32 = 7;
 pub struct Board {
     #[serde(default)]
     version: u32,
+    /// The record it is kept under: its repository's identity, else its folder (ADR 0023).
     project: String,
+    /// Its project's folder on this host.
+    #[serde(skip)]
+    folder: String,
     next: u64,
     pub cards: Vec<Card>,
     #[serde(default)]
@@ -196,10 +202,11 @@ impl Board {
             .max_by_key(|card| card.work_rank())
     }
 
-    pub fn empty(project: &str) -> Self {
+    pub fn empty(key: &str, folder: &str) -> Self {
         Self {
             version: VERSION,
-            project: project.to_owned(),
+            project: key.to_owned(),
+            folder: folder.to_owned(),
             next: 1,
             ..Self::default()
         }
@@ -211,6 +218,7 @@ impl Board {
         let Self {
             version,
             project,
+            folder: _,
             next,
             cards,
             settings,
@@ -388,8 +396,11 @@ impl Board {
 
 #[derive(Default)]
 pub struct State {
+    /// By the key each is kept under.
     pub boards: BTreeMap<String, Board>,
-    /// Boards that changed since clients were last told.
+    /// The key of each project on this host, by its folder.
+    keys: HashMap<String, String>,
+    /// The folders of boards that changed since clients were last told.
     dirty: BTreeSet<String>,
     /// What is kept about each card while the ticket sync works on it, by project and card.
     work: HashMap<(String, u64), CardWork>,
@@ -408,6 +419,30 @@ pub struct CardWork {
 }
 
 impl State {
+    /// The key the board of the project at `folder` is kept under.
+    pub fn key(&self, folder: &str) -> String {
+        self.keys
+            .get(folder)
+            .cloned()
+            .unwrap_or_else(|| folder.to_owned())
+    }
+
+    /// The board of the project at `folder`.
+    pub fn of(&self, folder: &str) -> Option<&Board> {
+        self.boards.get(&self.key(folder))
+    }
+
+    pub fn of_mut(&mut self, folder: &str) -> Option<&mut Board> {
+        let key = self.key(folder);
+        self.boards.get_mut(&key)
+    }
+
+    /// The board of the project at `folder`, made empty when it has none.
+    pub fn made(&mut self, folder: &str) -> &mut Board {
+        let key = self.key(folder);
+        (self.boards.entry(key.clone())).or_insert_with(|| Board::empty(&key, folder))
+    }
+
     fn work(&mut self, project: &str, id: u64) -> &mut CardWork {
         self.work.entry((project.to_owned(), id)).or_default()
     }
@@ -557,6 +592,7 @@ impl Boards {
         let inherited = folders.as_deref().map(migrate::folder_environments);
         let carry_over = |board| migrate::carry_over(board, inherited.as_ref());
         for mut board in kept::load_all_upgraded::<Board>(folder.as_deref(), carry_over) {
+            board.folder = board.project.clone();
             if let Some(places) = board.carried_over.take() {
                 crate::server::places::store::carried_over(data_dir, &board.project, places);
             }
@@ -567,11 +603,11 @@ impl Boards {
                 board.version = VERSION;
                 upgraded.push(board.project.clone());
             }
-            state.dirty.insert(board.project.clone());
+            state.dirty.insert(board.folder.clone());
             state.boards.insert(board.project.clone(), board);
         }
         for kept in crate::server::places::store::read_all(data_dir) {
-            if let Some(board) = state.boards.get_mut(&kept.project) {
+            if let Some(board) = state.of_mut(&kept.project) {
                 board.settings.places = kept.places;
                 board.settings.places_confirmed = kept.confirmed;
             }
@@ -614,13 +650,20 @@ impl Boards {
     }
 
     fn save(&self, state: &mut State, project: &str) {
-        state.dirty.insert(project.to_owned());
-        self.wake.now();
-        let (Some(folder), Some(board)) = (&self.folder, state.boards.get(project)) else {
+        let key = state.key(project);
+        self.save_key(state, &key);
+    }
+
+    fn save_key(&self, state: &mut State, key: &str) {
+        let Some(board) = state.boards.get(key) else {
             return;
         };
-        self.writer
-            .hand(folder.join(kept::file_for(project)), board.saved());
+        state.dirty.insert(board.folder.clone());
+        self.wake.now();
+        if let Some(folder) = &self.folder {
+            self.writer
+                .hand(folder.join(kept::file_for(key)), board.saved());
+        }
     }
 }
 
@@ -923,7 +966,7 @@ pub fn wants_name(title: &str, details: &str) -> bool {
 /// What the person asked for goal `card` of `project`, when its title is too long to go by.
 pub fn asked_for_name(core: &Core, project: &str, card: u64) -> Option<String> {
     let state = core.boards().state.locked();
-    let goal = state.boards.get(project)?.card(card).ok()?;
+    let goal = state.of(project)?.card(card).ok()?;
     wants_name(&goal.title, &goal.details).then(|| match goal.details.as_str() {
         "" => goal.title.clone(),
         details => details.to_owned(),
@@ -939,10 +982,10 @@ pub fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
         .filter(|(board, card)| card.status != CardStatus::Done && board.is_goal(card))
         .filter(|(_, card)| wants_name(&card.title, &card.details))
         .filter(|(board, card)| {
-            (core.board_above().goal_title)(core, &board.project, card.id).is_none()
+            (core.board_above().goal_title)(core, &board.folder, card.id).is_none()
         })
         .filter_map(|(board, card)| {
-            Some((board.project.clone(), card.id, card.owner_id()?.to_owned()))
+            Some((board.folder.clone(), card.id, card.owner_id()?.to_owned()))
         })
         .collect();
     state.boards.values().for_each(Board::forget_places);
@@ -958,7 +1001,7 @@ pub fn goals_to_name(core: &Core, agent: &str, title: &str) -> Vec<(String, u64)
         .filter(|(_, card)| card.parent.is_none() && card.owner_id() == Some(agent))
         .filter(|(_, card)| wants_name(&card.title, &card.details))
         .filter(|(_, card)| !wants_name(title, &card.details))
-        .map(|(board, card)| (board.project.clone(), card.id))
+        .map(|(board, card)| (board.folder.clone(), card.id))
         .collect()
 }
 
@@ -1154,7 +1197,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
 /// of what the person asked until that arrives.
 fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
     (card.parent.is_none() && wants_name(&card.title, &card.details)).then(|| {
-        (core.board_above().goal_title)(core, &board.project, card.id)
+        (core.board_above().goal_title)(core, &board.folder, card.id)
             .unwrap_or_else(|| first_clause(card))
     })
 }
@@ -1162,7 +1205,7 @@ fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
 fn board_view(core: &Core, board: &Board) -> ProjectBoard {
     board.place_cards();
     let view = ProjectBoard {
-        project: board.project.clone(),
+        project: board.folder.clone(),
         cards: board
             .cards
             .iter()
@@ -1171,7 +1214,7 @@ fn board_view(core: &Core, board: &Board) -> ProjectBoard {
         settings: board.settings.clone(),
         places_proposal: board.places_proposal.clone(),
         problems: Vec::new(),
-        triggers: (core.board_above().triggers_on_board)(core, &board.project),
+        triggers: (core.board_above().triggers_on_board)(core, &board.folder),
         audit: audit::view(core, board),
     };
     board.forget_places();
@@ -1306,10 +1349,7 @@ pub fn add_card(
     let boards = core.boards();
     let mut state = boards.state.locked();
     archive::make_room(boards, &mut state, project);
-    let board = state
-        .boards
-        .entry(project.to_owned())
-        .or_insert_with(|| Board::empty(project));
+    let board = state.made(project);
     if board.cards.len() >= MAX_CARDS {
         return Err(format!(
             "This project's board already holds {MAX_CARDS} cards, the most it may, and none of its finished ones can leave it yet; finish or remove some before adding more"
@@ -1385,7 +1425,7 @@ pub fn add_for_trigger(
     };
     let (id, _) = add_card(core, project, &By::Auto("Trigger"), adding, None)?;
     let state = core.boards().state.locked();
-    let board = state.boards.get(project).ok_or("The board is gone")?;
+    let board = state.of(project).ok_or("The board is gone")?;
     let card = board.card(id)?;
     let free = card.status != CardStatus::Done
         && holder(core, card).is_none()
@@ -1401,7 +1441,7 @@ pub fn triggers_changed(core: &Core, project: &str) {
 /// each of them works now keeps it, to close by itself once its owner leaves it.
 pub fn check_passed(core: &Arc<Core>, project: &str, agents: &[String], sha: &str) {
     let mut state = core.boards().state.locked();
-    let Some(board) = state.boards.get_mut(project) else {
+    let Some(board) = state.of_mut(project) else {
         return;
     };
     let working: Vec<u64> = (agents.iter())
@@ -1440,7 +1480,7 @@ pub fn committed(
     landed: bool,
 ) {
     let mut state = core.boards().state.locked();
-    let Some(board) = state.boards.get_mut(project) else {
+    let Some(board) = state.of_mut(project) else {
         return;
     };
     let Some(id) = board.open_working_card(agent).map(|card| card.id) else {
@@ -1473,8 +1513,7 @@ pub fn committed(
 /// What the code host says of `pull`, which card `id`'s commits went up in.
 pub fn pull_seen(core: &Core, project: &str, id: u64, pull: CardPull) {
     let mut state = core.boards().state.locked();
-    let Some(card) = (state.boards.get_mut(project)).and_then(|board| board.card_mut(id).ok())
-    else {
+    let Some(card) = (state.of_mut(project)).and_then(|board| board.card_mut(id).ok()) else {
         return;
     };
     match card
@@ -1492,14 +1531,14 @@ pub fn pull_seen(core: &Core, project: &str, id: u64, pull: CardPull) {
 /// Whether card `id` is one the board closed by itself, which the person's reopening puts back.
 fn closed_by_check(core: &Core, project: &str, id: u64) -> bool {
     let state = core.boards().state.locked();
-    (state.boards.get(project))
+    (state.of(project))
         .and_then(|board| board.card(id).ok())
         .is_some_and(|card| card.status == CardStatus::Done && card.checked.is_some())
 }
 
 pub fn ci_card(core: &Core, project: &str) -> Option<CiCard> {
     let state = core.boards().state.locked();
-    let card = (state.boards.get(project)?.cards.iter())
+    let card = (state.of(project)?.cards.iter())
         .find(|card| card.status != CardStatus::Done && !card.ci.is_empty())?;
     Some(CiCard {
         label: card.label(),
@@ -1515,8 +1554,7 @@ pub fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Va
     let boards = core.boards();
     let mut state = boards.state.locked();
     let board = state
-        .boards
-        .get_mut(project)
+        .of_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let card = board.card(id)?;
     if card.owner_id() == Some(agent) && card.status == CardStatus::Progress {
@@ -1579,8 +1617,7 @@ fn change_in(
     changes: Changes,
 ) -> Result<(Value, Vec<Notice>), String> {
     let board = state
-        .boards
-        .get_mut(project)
+        .of_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let before = board.card(id)?.clone();
     if let By::Agent(agent) = by {
@@ -1693,8 +1730,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
     let boards = core.boards();
     let mut state = boards.state.locked();
     let board = state
-        .boards
-        .get_mut(project)
+        .of_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let removed = board.card(id)?.clone();
     let blocked_before = board.blocked();
@@ -1854,7 +1890,7 @@ pub async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     blocking(move || {
         let project = super::caller::project_of(&core, &request);
         let state = core.boards().state.locked();
-        let Some(board) = state.boards.get(&project) else {
+        let Some(board) = state.of(&project) else {
             if let Some(id) = one {
                 return Err(format!("There is no card #{id} on this project's board").into());
             }
@@ -1916,8 +1952,11 @@ pub async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
 fn held_card<'a>(state: &'a mut State, agent_id: &str) -> Option<(&'a String, &'a mut Card)> {
     state
         .boards
-        .iter_mut()
-        .flat_map(|(project, board)| board.cards.iter_mut().map(move |card| (project, card)))
+        .values_mut()
+        .flat_map(|Board { folder, cards, .. }| {
+            let folder = &*folder;
+            cards.iter_mut().map(move |card| (folder, card))
+        })
         .filter(|(_, card)| card.owner_id() == Some(agent_id))
         .max_by_key(|(_, card)| card.work_rank())
 }
@@ -1937,8 +1976,8 @@ pub fn card_line(core: &Core, agent_id: &str) -> Option<String> {
 /// The open card an agent works now, on whichever board, and the board: the highest of them, as
 /// [`held_card`] takes, so its report, ticket and goal all name one card.
 fn open_work<'a>(state: &'a State, agent_id: &str) -> Option<(&'a String, &'a Board, &'a Card)> {
-    (state.boards.iter())
-        .filter_map(|(project, board)| Some((project, board, board.open_working_card(agent_id)?)))
+    (state.boards.values())
+        .filter_map(|board| Some((&board.folder, board, board.open_working_card(agent_id)?)))
         .max_by_key(|(_, _, card)| card.work_rank())
 }
 
@@ -1969,7 +2008,7 @@ pub struct Summary {
 impl Card {
     fn summary(&self, core: &Core, board: &Board) -> Summary {
         Summary {
-            project: board.project.clone(),
+            project: board.folder.clone(),
             id: self.id,
             goal: Some(board.goal_above(self).id).filter(|goal| *goal != self.id),
             title: display_title(core, board, self).unwrap_or_else(|| self.title.clone()),
@@ -1988,7 +2027,7 @@ pub fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
     let mut state = core.boards().state.locked();
     let (project, id) =
         held_card(&mut state, agent_id).map(|(project, card)| (project.clone(), card.id))?;
-    let board = state.boards.get(&project)?;
+    let board = state.of(&project)?;
     Some(board.card(id).ok()?.summary(core, board))
 }
 
@@ -2057,15 +2096,15 @@ pub fn boards(core: &Core) -> Vec<ProjectBoard> {
 
 pub fn project_view(core: &Core, project: &str) -> ProjectBoard {
     let state = core.boards().state.locked();
-    match state.boards.get(project) {
+    match state.of(project) {
         Some(board) => board_view(core, board),
-        None => board_view(core, &Board::empty(project)),
+        None => board_view(core, &Board::empty(&state.key(project), project)),
     }
 }
 
 /// How `project`'s board is set up.
 pub fn settings_of(core: &Core, project: &str) -> BoardSettings {
-    (core.boards().state.locked().boards.get(project))
+    (core.boards().state.locked().of(project))
         .map(|board| board.settings.clone())
         .unwrap_or_default()
 }
@@ -2206,10 +2245,7 @@ pub async fn person_settings(
         }
         if params.landing.is_some() || params.landed.is_some() || params.spend_ceiling.is_some() {
             let mut state = core.boards().state.locked();
-            let board = state
-                .boards
-                .entry(project.clone())
-                .or_insert_with(|| Board::empty(&project));
+            let board = state.made(&project);
             if let Some(landing) = params.landing {
                 board.settings.landing = landing;
             }
@@ -2262,10 +2298,7 @@ pub fn propose_environments(
     let project = project_at(core, project)?;
     let by = name_of(core, agent);
     let mut state = core.boards().state.locked();
-    let board = state
-        .boards
-        .entry(project.clone())
-        .or_insert_with(|| Board::empty(&project));
+    let board = state.made(&project);
     steps::propose(board, environments, why, by)?;
     core.boards().save(&mut state, &project);
     Ok(
@@ -2274,21 +2307,21 @@ pub fn propose_environments(
 }
 
 pub fn proposals(core: &Core) -> Vec<(String, PlacesProposal)> {
-    (core.boards().state.locked().boards.iter())
-        .filter_map(|(project, board)| Some((project.clone(), board.places_proposal.clone()?)))
+    (core.boards().state.locked().boards.values())
+        .filter_map(|board| Some((board.folder.clone(), board.places_proposal.clone()?)))
         .collect()
 }
 
 /// Who passes what lands in `project`: Sikemux once it is on the branch, or the person.
 pub fn landing(core: &Core, project: &str) -> Landing {
     let state = core.boards().state.locked();
-    (state.boards.get(project)).map_or_else(Default::default, |board| board.settings.landing)
+    (state.of(project)).map_or_else(Default::default, |board| board.settings.landing)
 }
 
 /// What the person set to count as landed in `project`, when they did.
 pub fn landed_set(core: &Core, project: &str) -> Option<sikemux_view::turn::Landed> {
     let state = core.boards().state.locked();
-    state.boards.get(project)?.settings.landed
+    state.of(project)?.settings.landed
 }
 
 /// Whether the place called `name` is one of `project`'s production places.
@@ -2314,7 +2347,7 @@ pub fn mirror_places(
     confirmed: Option<u64>,
 ) {
     let mut state = core.boards().state.locked();
-    let Some(board) = state.boards.get_mut(project) else {
+    let Some(board) = state.of_mut(project) else {
         return;
     };
     if board.settings.places == places && board.settings.places_confirmed == confirmed {
@@ -2341,7 +2374,7 @@ pub async fn person_forget_inherited(
 /// The address a deploy to the place called `name` in `project` is read healthy at.
 pub fn health_of(core: &Core, project: &str, name: &str) -> Option<String> {
     let state = core.boards().state.locked();
-    state.boards.get(project)?.settings.health(name)
+    state.of(project)?.settings.health(name)
 }
 
 /// What a released client is told when it asks for a part of the board that no longer exists:

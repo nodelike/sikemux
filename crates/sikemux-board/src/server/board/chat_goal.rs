@@ -191,8 +191,8 @@ fn say(chat: &Chat, title: String, marker: GoalMarker) {
 fn goal_line(core: &Core, chat: &Chat, goal: &Attached, moment: GoalMoment) {
     let (steps, of_gates, state) = {
         let boards = core.boards().state.locked();
-        let found = (boards.boards.get(&goal.project))
-            .and_then(|board| Some((board, board.card(goal.card).ok()?)));
+        let found =
+            (boards.of(&goal.project)).and_then(|board| Some((board, board.card(goal.card).ok()?)));
         let steps = (found.map(|(board, card)| goal_steps(core, board, card))).unwrap_or_default();
         let state = found.and_then(|(board, card)| goal_state(core, board, card));
         (steps, false, state)
@@ -276,7 +276,7 @@ fn goals_held<'a>(
         let Some(project) = core.names().get(agent).map(|named| named.project) else {
             continue;
         };
-        let Some(board) = state.boards.get(&project) else {
+        let Some(board) = state.of(&project) else {
             continue;
         };
         let held = (board.cards.iter())
@@ -297,7 +297,7 @@ fn goals_held<'a>(
 /// Whether the goal the chat worked on finished, rather than being taken away from it.
 fn finished(core: &Core, goal: &Attached) -> bool {
     let state = core.boards().state.locked();
-    (state.boards.get(&goal.project))
+    (state.of(&goal.project))
         .and_then(|board| Some((board, board.card(goal.card).ok()?)))
         .is_some_and(|(board, card)| {
             card.status == CardStatus::Done
@@ -403,7 +403,7 @@ fn added_itself(core: &Core, held: &HashMap<String, ChatGoal>) -> HashSet<String
     let state = core.boards().state.locked();
     (held.iter())
         .filter(|(agent, goal)| {
-            (state.boards.get(&goal.project))
+            (state.of(&goal.project))
                 .and_then(|board| board.card(goal.card).ok())
                 .is_some_and(|card| card.maker_id() == Some(agent.as_str()))
         })
@@ -426,9 +426,9 @@ fn tell_owner_changes(core: &Core) {
                 .filter(|card| card.owner.is_some() && card.status != CardStatus::Done);
             for card in owned {
                 let stands = state_of(core, card);
-                let key = (board.project.clone(), card.id);
+                let key = (board.folder.clone(), card.id);
                 if seen.get(&key) != Some(&stands) {
-                    changed.push(board.project.clone());
+                    changed.push(board.folder.clone());
                 }
                 now.insert(key, stands);
             }

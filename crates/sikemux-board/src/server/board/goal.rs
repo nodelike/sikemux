@@ -21,7 +21,7 @@ use sikemux_view::inbox::SwarmDecision;
 use sikemux_view::memory::Learned;
 use sikemux_view::slice::{Decision, GoalRule};
 
-use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
+use super::{goal_of, project_at, project_view, GoalRef, ProjectBoard};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -104,6 +104,16 @@ impl Decided {
         self.decisions.get_mut(at)
     }
 
+    /// Takes in `other`'s decisions after its own, oldest first, on the goals `card` renumbers.
+    pub(super) fn fold(&mut self, other: Decided, card: impl Fn(u64) -> u64) {
+        let mut decisions = other.decisions;
+        decisions.sort_by_key(|decision| decision.learned.at);
+        for mut decision in decisions {
+            decision.goal = decision.goal.map(&card);
+            self.add(decision);
+        }
+    }
+
     fn add(&mut self, mut decision: Decision) -> (Decision, Option<u64>) {
         let dropped = make_room(&mut self.decisions, MAX_DECISIONS);
         self.last += 1;
@@ -126,7 +136,7 @@ pub fn standing_since(core: &Core, project: &str, since: u64, most: usize) -> Ve
 /// The project's decisions that still stand, oldest first.
 pub fn standing(core: &Core, project: &str) -> Vec<Decision> {
     let state = core.boards().state.locked();
-    (state.boards.get(project))
+    (state.of(project))
         .map(|board| board.decided.standing().cloned().collect())
         .unwrap_or_default()
 }
@@ -134,7 +144,7 @@ pub fn standing(core: &Core, project: &str) -> Vec<Decision> {
 /// The rules goal `goal` keeps that still stand, oldest first.
 pub fn rules(core: &Core, goal: &GoalRef) -> Vec<GoalRule> {
     let state = core.boards().state.locked();
-    (state.boards.get(&goal.project))
+    (state.of(&goal.project))
         .and_then(|board| board.card(goal.card).ok())
         .map(|card| {
             (card.goal.rules.iter())
@@ -320,9 +330,7 @@ pub fn change(
     by: Learned,
 ) -> Result<String, String> {
     let mut state = core.boards().state.locked();
-    let board = (state.boards)
-        .entry(project.to_owned())
-        .or_insert_with(|| Board::empty(project));
+    let board = state.made(project);
     if let Some(goal) = goal {
         let card = board.card(goal)?;
         if card.parent.is_some() {
@@ -560,9 +568,7 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         .as_ref()
         .map_or(settled.project, |goal| goal.project.clone());
     let mut state = core.boards().state.locked();
-    let board = (state.boards)
-        .entry(project.clone())
-        .or_insert_with(|| Board::empty(&project));
+    let board = state.made(&project);
     let goal = goal.and_then(|goal| board.goal_log(goal.card).map(|card| card.id));
     let (decision, _) = board.decided.add(Decision {
         id: 0,
@@ -588,7 +594,7 @@ pub fn decided_since(core: &Core, since: Option<u64>, project: Option<&str>) -> 
     let state = core.boards().state.locked();
     let mut decided = Vec::new();
     for board in state.boards.values() {
-        if project.is_some_and(|project| project != board.project) {
+        if project.is_some_and(|project| project != board.folder) {
             continue;
         }
         let recent = board.decided.standing().filter(|decision| {
@@ -596,7 +602,7 @@ pub fn decided_since(core: &Core, since: Option<u64>, project: Option<&str>) -> 
             decision.holder.is_some() && decision.learned.at >= from
         });
         decided.extend(recent.map(|decision| SwarmDecision {
-            project: board.project.clone(),
+            project: board.folder.clone(),
             goal: decision.goal,
             decision: decision.clone(),
         }));
@@ -616,7 +622,7 @@ pub async fn overrule(core: &Arc<Core>, params: OverruleParams) -> Result<Projec
             let project = project_at(&core, &params.project)?;
             let by = learned(&core, None);
             let mut state = core.boards().state.locked();
-            let board = (state.boards.get_mut(&project))
+            let board = (state.of_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
             let decision = (board.decided.find(params.goal, params.decision))
                 .ok_or("That decision is not kept here")?;
@@ -693,7 +699,7 @@ pub async fn undo_overrule(
         blocking(move || {
             let project = project_at(&core, &params.project)?;
             let mut state = core.boards().state.locked();
-            let board = (state.boards.get_mut(&project))
+            let board = (state.of_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
             let decision = (board.decided.find(params.goal, params.decision))
                 .ok_or("That decision is not kept here")?;
@@ -735,7 +741,7 @@ pub async fn undo_overrule(
 /// decisions the person overruled then.
 pub fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, usize) {
     let state = core.boards().state.locked();
-    let Some(board) = state.boards.get(project) else {
+    let Some(board) = state.of(project) else {
         return (0, 0);
     };
     let decisions = board.decided.decisions.iter();
