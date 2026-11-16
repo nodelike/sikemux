@@ -21,6 +21,8 @@ struct Stamping {
     log: Handle,
     pipe: Handle,
     mid_line: bool,
+    #[cfg(windows)]
+    copied: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 static STAMPING: Mutex<Option<Stamping>> = Mutex::new(None);
@@ -41,15 +43,23 @@ pub fn start() {
     let Some((log, pipe)) = platform::take_stderr() else {
         return;
     };
+    let (copying, copied) = std::sync::mpsc::channel::<()>();
     *held = Some(Stamping {
         log,
         pipe,
         mid_line: false,
+        #[cfg(windows)]
+        copied: Some(copied),
     });
+    #[cfg(unix)]
+    drop(copied);
     drop(held);
     let started = std::thread::Builder::new()
         .name("sikemux-log".into())
-        .spawn(move || copy(pipe));
+        .spawn(move || {
+            copy(pipe);
+            drop(copying);
+        });
     if started.is_err() {
         give_back(&mut stamping());
     }
@@ -57,12 +67,31 @@ pub fn start() {
 }
 
 /// Copies whatever waits in the pipe into the log now, as before the process ends.
+#[cfg(unix)]
 pub fn flush() {
     let mut held = stamping();
     if let Some(stamping) = held.as_mut() {
         if drain(stamping, &[]).is_err() {
             give_back(&mut held);
         }
+    }
+}
+
+/// Puts stderr back on the log file and gives the copying thread a second to copy what
+/// waits. Reading the pipe from here would wait behind that thread's read until the next
+/// line, as Windows takes one read of a pipe at a time.
+#[cfg(windows)]
+pub fn flush() {
+    let copied = {
+        let mut held = stamping();
+        let Some(stamping) = held.as_mut() else {
+            return;
+        };
+        platform::give_back(stamping.log, stamping.pipe);
+        stamping.copied.take()
+    };
+    if let Some(copied) = copied {
+        let _ = copied.recv_timeout(std::time::Duration::from_secs(1));
     }
 }
 
