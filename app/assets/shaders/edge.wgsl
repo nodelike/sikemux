@@ -1,5 +1,5 @@
 // A pane whose agent waits on the person: warn dots on the 2 pt grid along all four inside
-// edges, solid to half the band's reach and thinning out to none at its end, breathing from
+// edges, thinning fast away from the edge and gone by the band's reach, breathing from
 // 55% to their peak once in 2.5 s until the shader time given, then holding at the peak.
 //
 // params: the time the breath ends, device pixels per point and the pane's corner radius in
@@ -7,6 +7,7 @@
 
 const PX_SIZE: f32 = 2.0;
 const REACH: f32 = 12.0;
+const FALLOFF: f32 = 5.0;
 const BREATH_SECONDS: f32 = 2.5;
 const BREATH_LOW: f32 = 0.55;
 
@@ -27,7 +28,7 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let cell = floor(local / PX_SIZE);
     let at = (cell + 0.5) * PX_SIZE;
     let inside = min(min(at.x, at.y), min(size.x - at.x, size.y - at.y));
-    let level = 1.0 - smoothstep(0.5 * REACH, REACH, inside);
+    let level = exp(-inside / FALLOFF) * (1.0 - smoothstep(0.5 * REACH, REACH, inside));
     if (level <= bayer8(cell)) {
         discard;
     }
