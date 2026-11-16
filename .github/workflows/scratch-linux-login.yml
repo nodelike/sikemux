@@ -1,0 +1,30 @@
+name: Scratch Linux login
+on:
+  push:
+    branches: [scratch/linux-login]
+jobs:
+  login:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/apt-install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: false
+      - run: cargo build --locked -p sikemux-host --bin sikemux-host
+      - name: Sign in with no app and no browser
+        run: |
+          sudo rm -f /usr/bin/xdg-open /usr/bin/x-www-browser /usr/bin/sensible-browser
+          unset DISPLAY WAYLAND_DISPLAY BROWSER
+          python3 scratch/accounts.py > accounts.log 2>&1 &
+          sleep 2
+          target/debug/sikemux-host start
+          timeout 120 target/debug/sikemux-host login --json | tee login.txt
+          grep -q '"signedIn":true' login.txt
+          target/debug/sikemux-host status --json | tee status.txt
+          grep -Eq '"account": ?"user_login"' status.txt
+          timeout 30 target/debug/sikemux-host login | tee again.txt
+          grep -q 'Already signed in' again.txt
+      - if: always()
+        run: cat accounts.log; find ~ -name core.log -path '*sikemux*' -exec tail -50 {} \;
