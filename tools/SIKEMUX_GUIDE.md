@@ -245,6 +245,8 @@ else is refused. `chrome.ink` must read at 4.5:1 on `chrome.bg`. Style:
 - `density` — row height, 0.85 (tighter) to 1.3 (roomier); 1 is the default.
 - `borders` — border width in points, 1 to 2.
 - `shadows` — 0 (none) to 2 (twice as dark); 1 is the default.
+- `gap` — points between panes and rails, 0 to 24; 10 is the default.
+- `inset` — points between the window's edge and the panes, 0 to 24; 10 is the default.
 
 `{"base": "nord", "name": "Nord Mono", "style": {"uiFont": "Iosevka", "monoFont": "Iosevka", "density": 0.9, "shadows": 0}}`
 

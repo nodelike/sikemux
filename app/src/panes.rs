@@ -19,12 +19,12 @@ use crate::pane_kind::Separable;
 use crate::text_size::Surface;
 use crate::theme::SPACE_1;
 use crate::workbench::{Strip, Workbench};
-use crate::{motion, ui};
+use crate::{motion, theme, ui};
 use sikemux_calls::call;
 use sikemux_calls::layout;
 
-/// The room between two panes, which is also where a divider is dragged.
-pub const GAP: f32 = 10.;
+/// The least width a divider can be grabbed across, however small the theme's gap.
+const LEAST_GRAB: f32 = 6.;
 /// How tall the strip of tabs over a stack is.
 const STACK_STRIP: f32 = 32.;
 /// The least a pane is squeezed to by a divider.
@@ -481,7 +481,7 @@ fn stack(
     div()
         .flex()
         .flex_col()
-        .gap(px(GAP))
+        .gap(px(theme::gap()))
         .size_full()
         .min_w_0()
         .min_h_0()
@@ -597,7 +597,7 @@ fn split(
         let beside = if at > 0 { at - 1 } else { at + 1 };
         if beside < panes.len() {
             grows[beside] += grows[at] * (1. - out);
-            reach[beside] = (GAP * (1. - out), beside < at);
+            reach[beside] = (theme::gap() * (1. - out), beside < at);
         }
         grows[at] *= out;
     }
@@ -665,18 +665,23 @@ pub(crate) fn handle<T: Clone + 'static>(
     value: T,
     across: bool,
 ) -> Stateful<Div> {
+    let gap = theme::gap();
+    let grab = gap.max(LEAST_GRAB);
+    let overhang = px((gap - grab) / 2.);
     div()
         .id(id.into())
         .flex_none()
         .when(across, |divider| {
             divider
-                .w(px(GAP))
+                .w(px(grab))
+                .mx(overhang)
                 .h_full()
                 .cursor(CursorStyle::ResizeLeftRight)
         })
         .when(!across, |divider| {
             divider
-                .h(px(GAP))
+                .h(px(grab))
+                .my(overhang)
                 .w_full()
                 .cursor(CursorStyle::ResizeUpDown)
         })
@@ -720,7 +725,7 @@ impl Panes {
         } else {
             (bounds.top(), bounds.size.height, at.y)
         };
-        let room = f32::from(length) - GAP * (sizes.len() - 1) as f32;
+        let room = f32::from(length) - theme::gap() * (sizes.len() - 1) as f32;
         if room <= 0. {
             return;
         }
@@ -729,7 +734,7 @@ impl Panes {
             .iter()
             .map(|&size| f32::from(size))
             .sum();
-        let offset = f32::from(pointer - start) - GAP * (divider.at as f32 + 0.5);
+        let offset = f32::from(pointer - start) - theme::gap() * (divider.at as f32 + 0.5);
         let pair = f32::from(before) + f32::from(after);
         let least = (MIN_PANE / room * total).min(pair / 2.);
         let wanted = (offset / room * total - ahead).clamp(least, pair - least);

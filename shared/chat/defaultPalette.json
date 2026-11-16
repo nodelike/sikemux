@@ -124,7 +124,9 @@
     "radius4": 14.0,
     "density": 1.0,
     "border": 1.0,
-    "shadows": 1.0
+    "shadows": 1.0,
+    "gap": 10.0,
+    "inset": 10.0
   },
   "backdrop": {
     "look": {

@@ -164,6 +164,24 @@ thread_local! {
     static BORDER: Cell<f32> = const { Cell::new(1.) };
     /// How tall the worn theme's rows are, as a share of the default.
     static DENSITY: Cell<f32> = const { Cell::new(1.) };
+    /// The worn theme's room between panes, and inside the window's edge, in points.
+    static SPACING: Cell<(f32, f32)> = const { Cell::new((10., 10.)) };
+}
+
+/// The room between panes and rails in the worn theme.
+pub fn gap() -> f32 {
+    SPACING.with(Cell::get).0
+}
+
+/// The room between the window's edge and what is inside it in the worn theme.
+pub fn inset() -> f32 {
+    SPACING.with(Cell::get).1
+}
+
+/// The room between a bar and what is beside it, less than [`inset`] so the bar's border reads
+/// as the edge.
+pub fn under_bar() -> f32 {
+    (inset() * 0.4).round()
 }
 
 /// A row `points` tall at the default density, as tall as the worn theme's density makes it.
@@ -241,6 +259,7 @@ fn wear_style(style: &UiStyle) {
     DENSITY.with(|density| density.set(style.density as f32));
     BORDER.with(|border| border.set(style.border as f32));
     SHADOWS.with(|shadows| shadows.set(style.shadows as f32));
+    SPACING.with(|spacing| spacing.set((style.gap as f32, style.inset as f32)));
 }
 
 /// What a find in a terminal tints its matches with, the current one brighter, in every theme.

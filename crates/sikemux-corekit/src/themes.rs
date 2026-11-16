@@ -89,6 +89,8 @@ fn style(theme: &Theme) -> UiStyle {
         density: worn.density.clamp(DENSITY.0, DENSITY.1),
         border: worn.borders.clamp(BORDERS.0, BORDERS.1),
         shadows: worn.shadows.clamp(SHADOWS.0, SHADOWS.1),
+        gap: worn.gap.clamp(SPACING.0, SPACING.1),
+        inset: worn.inset.clamp(SPACING.0, SPACING.1),
         corners,
         radius1: 4. * corners,
         radius2: 5. * corners,
@@ -348,6 +350,8 @@ pub const DENSITY: (f64, f64) = (0.85, 1.3);
 pub const BORDERS: (f64, f64) = (1., 2.);
 /// The lightest and darkest a theme's shadows can be, as a share of the default.
 pub const SHADOWS: (f64, f64) = (0., 2.);
+/// The least and most room a theme can leave between panes, and inside the window's edge, in points.
+pub const SPACING: (f64, f64) = (0., 24.);
 /// The most themes of the person's own that are kept.
 pub const MOST_CUSTOM_THEMES: usize = 64;
 /// The longest a theme's id or name can be, in characters.
@@ -394,6 +398,8 @@ pub fn checked(theme: Theme) -> Result<(Theme, Vec<String>), String> {
         ("density", &mut style.density, DENSITY),
         ("borders", &mut style.borders, BORDERS),
         ("shadows", &mut style.shadows, SHADOWS),
+        ("gap", &mut style.gap, SPACING),
+        ("inset", &mut style.inset, SPACING),
     ] {
         let within = (value.clamp(least, most) * 100.).round() / 100.;
         if within != *value {

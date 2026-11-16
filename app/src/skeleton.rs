@@ -4,15 +4,10 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{div, px, AnyElement, Div, IntoElement, ParentElement, StyleRefinement, Styled};
 
-use crate::panes::GAP;
 use crate::rail::{Edge, Rail};
+use crate::theme::{gap, inset, under_bar};
 use crate::workbench::Workbench;
 
-/// The room between the window's edge and what is inside it.
-pub const INSET: f32 = 10.;
-/// The room between a bar and what is beside it, less than [`INSET`] so the bar's border reads
-/// as the edge.
-pub const UNDER_BAR: f32 = 4.;
 /// The least room the stage keeps, however wide the rails beside it are.
 pub const STAGE_MIN: (f32, f32) = (260., 240.);
 
@@ -238,9 +233,9 @@ impl Workbench {
             .collect();
         let taken: f32 = beside
             .iter()
-            .map(|rail| rails.drawn[*rail as usize] + GAP)
+            .map(|rail| rails.drawn[*rail as usize] + gap())
             .sum();
-        let room = width - 2. * INSET - STAGE_MIN.0;
+        let room = width - 2. * inset() - STAGE_MIN.0;
         let over = taken - room;
         let give: f32 = (beside.iter())
             .map(|rail| rails.drawn[*rail as usize] - rail.widths().min)
@@ -265,11 +260,12 @@ impl Workbench {
             Part::Side | Part::Agents => part.rail().is_some_and(|rail| tucks[rail as usize] < 1.),
             Part::Bar | Part::Stage => true,
         };
+        let inset = inset();
         let edges = Owed {
-            top: INSET,
-            right: INSET,
-            bottom: INSET,
-            left: INSET,
+            top: inset,
+            right: inset,
+            bottom: inset,
+            left: inset,
         };
         match self.skeleton.root.shown(&drawn) {
             Some(root) => self.node(&root, edges, None, tucks, cx).size_full(),
@@ -326,10 +322,10 @@ impl Workbench {
             if !row {
                 let above = at.checked_sub(1).and_then(|above| nodes.get(above));
                 if above.is_some_and(|above| above.bar_at(Side::Bottom)) {
-                    passing.top = UNDER_BAR;
+                    passing.top = under_bar();
                 }
                 if (nodes.get(at + 1)).is_some_and(|below| below.bar_at(Side::Top)) {
-                    passing.bottom = UNDER_BAR;
+                    passing.bottom = under_bar();
                 }
             }
             passing
@@ -338,8 +334,8 @@ impl Workbench {
         for (at, child) in nodes.iter().enumerate() {
             if at > 0 && self.spaced(&nodes[at - 1], child, row) {
                 drawn = drawn.child(match row {
-                    true => div().flex_none().w(px(GAP)),
-                    false => div().flex_none().h(px(GAP)),
+                    true => div().flex_none().w(px(gap())),
+                    false => div().flex_none().h(px(gap())),
                 });
             }
             drawn = drawn.child(self.node(child, passed(at), Some(row), tucks, cx));

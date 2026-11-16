@@ -354,7 +354,7 @@ pub fn stage(
         cards,
         start,
         motion,
-        Between::Gap(panes::GAP),
+        Between::Gap(crate::theme::gap()),
         move |event, cx| {
             this.update(cx, |bench, cx| bench.swipe_stage(event, cx))
                 .unwrap_or(false)

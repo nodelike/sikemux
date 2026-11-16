@@ -2101,7 +2101,7 @@ impl Workbench {
             })
             .flex_none()
             .h_full()
-            .w(px((width + crate::panes::GAP) * (1. - tuck)))
+            .w(px((width + crate::theme::gap()) * (1. - tuck)))
             .overflow_hidden()
             .flex()
             .opacity(1. - tuck)
@@ -2115,7 +2115,7 @@ impl Workbench {
                         true => x - bounds.left(),
                         false => bounds.right() - x,
                     };
-                    let width = f32::from(width) - crate::panes::GAP / 2.;
+                    let width = f32::from(width) - crate::theme::gap() / 2.;
                     bench.resize_rail(rail, width, window, cx);
                 },
             ));
@@ -2166,8 +2166,8 @@ impl Workbench {
                 Rail::Agents => "peek-agents",
             })
             .absolute()
-            .top(px(tabs::BAR_HEIGHT + crate::skeleton::UNDER_BAR))
-            .bottom(px(crate::skeleton::INSET))
+            .top(px(tabs::BAR_HEIGHT + crate::theme::under_bar()))
+            .bottom(px(crate::theme::inset()))
             .w(px(if shown > 0. { width + 20. } else { PEEK_REACH }))
             .px(SPACE_2H)
             .on_hover(cx.listener(move |bench, inside: &bool, _, cx| bench.peek(rail, *inside, cx)))

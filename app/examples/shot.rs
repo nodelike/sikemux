@@ -33,7 +33,8 @@
 //!                                 "settings <page>" opens settings at the page of that name;
 //!                                 "language es" draws the app in that language, as its picker does;
 //!                                 "update {json}" draws the window as if the core's update status were that;
-//!                                 "theme <id> [corners]" draws in that theme, its corners set if given,
+//!                                 "theme <id> [corners] [gap] [inset]" draws in that theme, with each of
+//!                                 its corners, gap and inset set if given,
 //!                                 and "scrollbars scrolling|hover|always" shows scroll bars so, without
 //!                                 changing the person's preferences
 
@@ -311,8 +312,11 @@ fn main() -> anyhow::Result<()> {
                     let shelf = sikemux_corekit::themes::Shelf::default();
                     let theme_id = words.next().unwrap_or_default();
                     let mut worn = sikemux_corekit::themes::resolve(&shelf, theme_id);
-                    if let Some(corners) = words.next().and_then(|corners| corners.parse().ok()) {
-                        worn.style.corners = corners;
+                    let style = &mut worn.style;
+                    for value in [&mut style.corners, &mut style.gap, &mut style.inset] {
+                        if let Some(given) = words.next().and_then(|word| word.parse().ok()) {
+                            *value = given;
+                        }
                     }
                     theme::apply(
                         &sikemux_corekit::themes::palette_of(worn, Default::default()),

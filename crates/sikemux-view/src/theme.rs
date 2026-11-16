@@ -113,6 +113,10 @@ theme_parts! {
 pub struct ThemeStyle / ThemeStyleChanges {
     /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
     pub corners: f64,
+    /// Points between panes and rails.
+    pub gap: f64,
+    /// Points between the window's edge and what it holds.
+    pub inset: f64,
     /// The interface's font family, installed on the computer; empty is Sikemux's own.
     pub ui_font: String,
     /// The code and terminal font family, installed on the computer; empty is Sikemux's own.
@@ -209,6 +213,8 @@ impl Default for ThemeStyle {
     fn default() -> Self {
         Self {
             corners: 1.,
+            gap: 10.,
+            inset: 10.,
             ui_font: String::new(),
             mono_font: String::new(),
             density: 1.,
@@ -278,6 +284,10 @@ pub struct UiStyle {
     pub border: f64,
     /// Shadows' darkness as a share of the default.
     pub shadows: f64,
+    /// Points between panes and rails.
+    pub gap: f64,
+    /// Points between the window's edge and what it holds.
+    pub inset: f64,
 }
 
 impl Eq for UiStyle {}
