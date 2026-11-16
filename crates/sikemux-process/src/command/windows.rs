@@ -263,6 +263,12 @@ impl Command {
     fn environment(&self) -> BTreeMap<Name, OsString> {
         let mut variables: BTreeMap<Name, OsString> = if self.clear_env {
             BTreeMap::new()
+        } else if let Some(child) = sikemux_trust::child() {
+            child
+                .environment
+                .iter()
+                .map(|(key, value)| (Name::new(key), value.clone()))
+                .collect()
         } else {
             std::env::vars_os()
                 .map(|(key, value)| (Name::new(&key), value))
@@ -379,7 +385,7 @@ impl Command {
             flags |= EXTENDED_STARTUPINFO_PRESENT;
         }
 
-        let token = child_token();
+        let token = sikemux_trust::child().map_or(null_mut(), |child| child.token.handle());
         // SAFETY: plain data, for which zero is valid; CreateProcess fills it in.
         let mut started: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
         let inherit = i32::from(!handed.is_empty());
@@ -439,11 +445,6 @@ impl Command {
             stderr.map(ChildStderr::from),
         ))
     }
-}
-
-/// The token every child starts on, or null for this process's own.
-fn child_token() -> HANDLE {
-    null_mut()
 }
 
 #[derive(Clone, Copy)]
