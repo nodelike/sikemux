@@ -414,7 +414,7 @@ fn serve(
     serving: &mut Vec<Child>,
 ) -> Result<(), String> {
     let file = std::fs::File::create(log).map_err(|error| error.to_string())?;
-    let mut process = command_in(command, cwd, env);
+    let mut process = command_in(command, cwd, env)?;
     process
         .stdin(Stdio::null())
         .stdout(file.try_clone().map_err(|error| error.to_string())?)
@@ -446,7 +446,10 @@ fn checked(
     env: &[(String, String)],
     log: &Path,
 ) -> (Result<(), String>, Vec<String>) {
-    let mut process = command_in(command, cwd, env);
+    let mut process = match command_in(command, cwd, env) {
+        Ok(process) => process,
+        Err(error) => return (Err(error), Vec::new()),
+    };
     let file = match std::fs::File::create(log) {
         Ok(file) => file,
         Err(error) => return (Err(error.to_string()), Vec::new()),

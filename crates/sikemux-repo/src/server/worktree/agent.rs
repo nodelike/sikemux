@@ -552,18 +552,17 @@ pub async fn run_hooks(
 /// How long one setup command may run.
 pub const STEP_TIME: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
-/// The person's login shell running `command` in `cwd` with `env`, its group its own.
-pub fn command_in(command: &str, cwd: &Path, env: &[(String, String)]) -> std::process::Command {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    let mut process = sikemux_process::user_environment::agent_command_in_own_cgroup(shell);
+/// The person's login shell running `command` in `cwd` with `env`, for
+/// [`sikemux_process::spawn_tree`] to start.
+pub fn command_in(
+    command: &str,
+    cwd: &Path,
+    env: &[(String, String)],
+) -> Result<std::process::Command, String> {
+    let mut process = crate::os::login_shell()?;
     process.args(["-lc", command]).current_dir(cwd);
     process.envs(env.iter().map(|(key, value)| (key, value)));
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        process.process_group(0);
-    }
-    process
+    Ok(process)
 }
 
 /// Runs `command` to its end, writing what it printed to `log`. Why it failed, by the last
@@ -574,7 +573,7 @@ pub fn shell(
     env: &[(String, String)],
     log: &Path,
 ) -> Result<(), String> {
-    let mut process = command_in(command, cwd, env);
+    let mut process = command_in(command, cwd, env)?;
     let ran = sikemux_process::run(&mut process, None, STEP_TIME, 4 << 20, None);
     let output = match ran {
         Ok(output) => output,
