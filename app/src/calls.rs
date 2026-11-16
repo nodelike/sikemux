@@ -17,7 +17,7 @@ use gpui_kit::{
 use sikemux_calls::call;
 use sikemux_view::calls::{
     AnswerCallParams, CallAnswer, CallClient, CallKind, CallParams, CallResult, CallState,
-    PersonCall,
+    PersonCall, LOOK_SEEN,
 };
 use sikemux_view::device::DeviceView;
 
@@ -433,6 +433,40 @@ impl Workbench {
             return;
         };
         self.send_answer(params, cx);
+    }
+
+    /// Clears each open look call that shows page `id`, now the person has opened it.
+    pub(crate) fn saw_page(&mut self, id: &str, cx: &mut Context<Self>) {
+        let looks: Vec<String> = (self.calls_everywhere().into_iter())
+            .filter(|(_, call)| call.kind == CallKind::Look)
+            .filter(|(_, call)| call.page.as_ref().is_some_and(|page| page.id == id))
+            .map(|(_, call)| call.id.clone())
+            .collect();
+        for look in looks {
+            self.seen_look(&look, cx);
+        }
+    }
+
+    /// Answers look call `id` as seen.
+    pub(crate) fn seen_look(&mut self, id: &str, cx: &mut Context<Self>) {
+        let params = AnswerCallParams {
+            id: id.to_owned(),
+            option: Some(LOOK_SEEN.to_owned()),
+            ..AnswerCallParams::default()
+        };
+        self.send_answer(params, cx);
+    }
+
+    /// Opens the page look call `id` shows, which clears it.
+    pub(crate) fn open_look(&mut self, id: &str, cx: &mut Context<Self>) {
+        let shown = self.call_at(id).and_then(|(_, call)| {
+            let owner = call.about.as_ref().unwrap_or(&call.asker);
+            Some((owner.agent_id.clone(), call.page.as_ref()?.id.clone()))
+        });
+        match shown {
+            Some((owner, page)) => self.open_page_in_tab(&owner, &page, cx),
+            None => self.seen_look(id, cx),
+        }
     }
 
     /// Sends the answer `params` holds, once, its card sending until the core replies.

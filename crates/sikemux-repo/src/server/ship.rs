@@ -1774,6 +1774,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         id: hold.token.clone(),
         project: hold.project.clone(),
         kind: CallKind::Production,
+        title: None,
         asker: CallAsker {
             agent_id: hold.agent_id.clone(),
             cli: (core.repo_above().questions_cli_of)(core, &hold.agent_id),
@@ -1783,6 +1784,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         joined: Vec::new(),
         about: None,
         page: None,
+        link: None,
         question,
         context: hold.why.clone(),
         assumption: None,

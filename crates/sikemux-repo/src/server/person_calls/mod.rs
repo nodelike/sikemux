@@ -20,6 +20,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::calls::{
     AnswerCallParams, CallAnswer, CallAsker, CallBrief, CallClient, CallEvidence, CallKind,
     CallOption, CallOutcome, CallParams, CallPlace, CallResult, CallState, CallWhy, PersonCall,
+    DO_NOT_DOING,
 };
 use sikemux_wire::protocol::ErrorKind;
 
@@ -132,10 +133,12 @@ impl Raise {
             project: self.project,
             can_hand_back: false,
             kind: self.kind,
+            title: None,
             asker: self.asker,
             joined: Vec::new(),
             about: None,
             page: None,
+            link: None,
             question: self.question,
             context: self.context,
             assumption: None,
@@ -348,6 +351,8 @@ fn kind_name(kind: CallKind) -> &'static str {
         CallKind::Money => "money",
         CallKind::Taste => "taste",
         CallKind::Access => "access",
+        CallKind::Do => "do",
+        CallKind::Look => "look",
         CallKind::Unknown => "unknown",
     }
 }
@@ -1028,6 +1033,9 @@ fn answer_of(
     }
     if !picked && words.is_none() {
         return Err("pick an option or answer in your own words".into());
+    }
+    if params.option.as_deref() == Some(DO_NOT_DOING) && note.is_none() {
+        return Err("say why you're not doing it".into());
     }
     let typed = note.clone().or(words.clone());
     let refused = call.kind == CallKind::Production

@@ -958,12 +958,16 @@ fn called(core: &Core, call: &PersonCall, card: String) -> Option<Draft> {
     let pick = call.pick.as_ref().and_then(label);
     let said = pick.map(|pick| format!("My pick: {}", pick.label));
     let open = (call.kind == CallKind::Production).then(|| "Open to answer.".to_owned());
-    let body = [said, open]
+    let (title, what) = match &call.title {
+        Some(title) => (title, Some(call.question.clone())),
+        None => (&call.question, None),
+    };
+    let body = [what, said, open]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
         .join(". ");
-    draft.title = clipped_line(&call.question, MAX_TITLE_CHARS);
+    draft.title = clipped_line(title, MAX_TITLE_CHARS);
     draft.body = clipped_line(&body, MAX_BODY_CHARS);
     let place = named
         .project

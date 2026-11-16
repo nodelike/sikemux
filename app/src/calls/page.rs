@@ -6,8 +6,11 @@
 use super::*;
 use crate::chat::composer::{self, Act};
 use crate::ui::Clicks;
+use gpui_kit::MouseButton;
 use gpui_kit::StatefulInteractiveElement;
-use sikemux_view::calls::{CallChange, CallChangedFile, CallOpened, CallOption};
+use sikemux_view::calls::{
+    CallChange, CallChangedFile, CallLink, CallOpened, CallOption, DO_NOT_DOING,
+};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -112,7 +115,8 @@ impl Render for Page {
             cards.saw(&open, &target);
             cards.field(&open, window, cx)
         });
-        let reply = match open.secret {
+        let formed = matches!(open.kind, CallKind::Do | CallKind::Look);
+        let reply = match open.secret || formed {
             true => None,
             false => {
                 let hint = reply_hint(&open, &self.cards.read(cx).chosen(&open)).into();
@@ -122,7 +126,7 @@ impl Render for Page {
                     .flatten()
             }
         };
-        let body = body(&open, next, through, cx);
+        let body = body(&open, next, &field, through, cx);
         let waiting = (!waiting.is_empty()).then(|| {
             div()
                 .mt(px(28.))
@@ -139,6 +143,7 @@ impl Render for Page {
         });
         let answered_with = match &reply {
             Some(view) => view.clone().into_element().isolated().into_any_element(),
+            None if formed => div().into_any_element(),
             None => secret_field(&open, &field, through, window, cx),
         };
         let owner = reply::owner(&open.id);
@@ -198,7 +203,13 @@ fn reply_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
 
 /// The open call in full: who asks, the question, its choices with Go under them, why it came
 /// up and what its asker opened.
-fn body(call: &PersonCall, next: Option<String>, through: Through, cx: &mut App) -> AnyElement {
+fn body(
+    call: &PersonCall,
+    next: Option<String>,
+    field: &Entity<InputState>,
+    through: Through,
+    cx: &mut App,
+) -> AnyElement {
     let Through { cards, bench, .. } = through;
     let t = Tokens::get(cx).clone();
     let (chosen, sending) = {
@@ -236,24 +247,46 @@ fn body(call: &PersonCall, next: Option<String>, through: Through, cx: &mut App)
             .child(text)
     };
     let mut lines = (call.question.lines().map(str::trim)).filter(|line| !line.is_empty());
+    let formed = matches!(call.kind, CallKind::Do | CallKind::Look);
+    let headline = match call.title.as_ref().filter(|_| formed) {
+        Some(title) => title.clone(),
+        None => lines.next().unwrap_or_default().to_owned(),
+    };
     let question = div()
         .mt(px(14.))
         .text_size(theme::ui_text(21.))
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.3))
         .text_color(t.text_primary)
-        .child(lines.next().unwrap_or_default().to_owned());
+        .child(headline);
     let more: Vec<gpui_kit::Div> = lines
         .map(|line| prose(line.to_owned()).mt(px(10.)))
         .collect();
+    let link = (call.link.as_ref())
+        .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
     let page = linked_page(call, through, cx).map(|page| div().mt(px(16.)).child(page));
-    let tiles = (!call.options.is_empty()).then(|| tiles(call, &chosen, sending, through, &t));
+    let noted = !field.read(cx).value().trim().is_empty();
+    let note =
+        (call.kind == CallKind::Do && chosen.iter().any(|id| id == DO_NOT_DOING)).then(|| {
+            div()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(note_row(
+                    field,
+                    t!("Say why you're not doing it…"),
+                    noted,
+                    true,
+                    &t,
+                ))
+                .into_any_element()
+        });
+    let tiles = (!call.options.is_empty() && call.kind != CallKind::Look)
+        .then(|| tiles(call, &chosen, sending, note, through, &t));
     let against = against_line(call, &t).map(|line| div().mt(SPACE_3_PX).child(line));
     let runs = (call.kind == CallKind::Production)
         .then_some(call.action.as_deref())
         .flatten()
         .map(|action| runs(call, action, &t));
-    let go = go_row(call, &chosen, sending, next, through);
+    let go = go_row(call, (&chosen, noted), sending, next, through);
     let why: Vec<gpui_kit::Div> = (context_words(call).into_iter().map(prose))
         .chain(
             (call.evidence.iter())
@@ -281,6 +314,7 @@ fn body(call: &PersonCall, next: Option<String>, through: Through, cx: &mut App)
         .child(who)
         .child(question)
         .children(more)
+        .children(link)
         .children(page)
         .children(tiles)
         .children(against)
@@ -313,18 +347,28 @@ fn changes(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
     )
 }
 
-/// The call's choices as tiles, each a full-width row.
+/// The call's choices as tiles, each a full-width row; `note` goes in the row of Not doing.
 fn tiles(
     call: &PersonCall,
     chosen: &[String],
     sending: bool,
+    mut note: Option<AnyElement>,
     through: Through,
     t: &Tokens,
 ) -> gpui_kit::Div {
     let pictured = !call.secret && call.options.iter().any(|option| option.picture.is_some());
     let tiles = call.options.iter().enumerate().map(|(ix, option)| {
         let on = chosen.contains(&option.id);
-        tile(call, (ix, option), (on, pictured), sending, through, t)
+        let note = (option.id == DO_NOT_DOING).then(|| note.take()).flatten();
+        tile(
+            call,
+            (ix, option),
+            (on, pictured),
+            sending,
+            note,
+            through,
+            t,
+        )
     });
     div()
         .mt(px(18.))
@@ -341,6 +385,7 @@ fn tile(
     (ix, option): (usize, &CallOption),
     (on, pictured): (bool, bool),
     sending: bool,
+    note: Option<AnyElement>,
     through: Through,
     t: &Tokens,
 ) -> AnyElement {
@@ -436,6 +481,66 @@ fn tile(
                 .child(name)
                 .children(detail),
         )
+        .children(note)
+        .into_any_element()
+}
+
+/// The place a call links, as a row: a click opens it as a link in the asker's chat opens, and
+/// clears a look call.
+fn link_tile(call: &PersonCall, link: &CallLink, through: Through, t: &Tokens) -> AnyElement {
+    let mark = crate::chat::link::service_mark(&link.url).unwrap_or(Icon::Globe);
+    let url = (link.label != link.url).then(|| {
+        div()
+            .min_w_0()
+            .truncate()
+            .text_size(theme::ui_text(12.))
+            .text_color(t.text_tertiary)
+            .child(link.url.clone())
+    });
+    let (bench, agent) = (through.bench.clone(), call.asker.agent_id.clone());
+    let (href, id, look) = (
+        link.url.clone(),
+        call.id.clone(),
+        call.kind == CallKind::Look,
+    );
+    let hover = t.surface_hover;
+    BaseButton::new(SharedString::from(format!("call-link-{}", call.id)))
+        .w_full()
+        .h(px(44.))
+        .px(px(14.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .rounded(theme::radius_3())
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .bg(t.surface_composer)
+        .hover(move |style| style.bg(hover))
+        .child(ui::icon(mark, 14.).text_color(t.text_secondary))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_baseline()
+                .gap(SPACE_2)
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(theme::ui_text(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.text_primary)
+                        .child(link.label.clone()),
+                )
+                .children(url),
+        )
+        .child(ui::icon(Icon::ExternalLink, 12.).text_color(t.text_tertiary))
+        .on_click(move |_, window, cx| {
+            crate::chat::link::open(&href, &agent, &bench, window, cx);
+            if look {
+                bench.update(cx, |bench, cx| bench.seen_look(&id, cx)).ok();
+            }
+        })
         .into_any_element()
 }
 
@@ -476,21 +581,58 @@ fn runs(call: &PersonCall, action: &str, t: &Tokens) -> gpui_kit::Div {
 /// answers this one with the choice made. A call with no choices is answered from its composer.
 fn go_row(
     call: &PersonCall,
-    chosen: &[String],
+    (chosen, noted): (&[String], bool),
     sending: bool,
     next: Option<String>,
     through: Through,
 ) -> Option<gpui_kit::Div> {
-    let go = (!call.options.is_empty()).then(|| {
-        let option =
-            (chosen.first()).and_then(|id| call.options.iter().find(|option| &option.id == id));
-        let words: SharedString = match option {
-            Some(option) => t!("Go with {option}", option = option.label).into(),
-            None => t!("Go with this").into(),
-        };
-        let ready = !chosen.is_empty();
-        go_button(call, words, ready, sending, through.bench, Workbench::reply).sized(30., 14., 13.)
-    });
+    let bench = through.bench;
+    let go = match (call.kind, &call.page) {
+        (CallKind::Look, Some(_)) => Some(go_button(
+            call,
+            t!("Open page").into(),
+            true,
+            sending,
+            bench,
+            Workbench::open_look,
+        )),
+        (CallKind::Look, None) => Some(go_button(
+            call,
+            t!("Seen").into(),
+            true,
+            sending,
+            bench,
+            Workbench::seen_look,
+        )),
+        (CallKind::Do, _) => {
+            let option =
+                (chosen.first()).and_then(|id| call.options.iter().find(|option| &option.id == id));
+            let words: SharedString = match option {
+                Some(option) => option.label.clone().into(),
+                None => t!("Done").into(),
+            };
+            let ready = option.is_some_and(|option| option.id != DO_NOT_DOING || noted);
+            Some(go_button(
+                call,
+                words,
+                ready,
+                sending,
+                bench,
+                Workbench::go_with,
+            ))
+        }
+        _ => (!call.options.is_empty()).then(|| {
+            let option =
+                (chosen.first()).and_then(|id| call.options.iter().find(|option| &option.id == id));
+            let words: SharedString = match option {
+                Some(option) => t!("Go with {option}", option = option.label).into(),
+                None => t!("Go with this").into(),
+            };
+            let ready = !chosen.is_empty();
+            go_button(call, words, ready, sending, bench, Workbench::reply)
+        }),
+    }
+    .map(|go| go.sized(30., 14., 13.));
     let next = next.map(|next| {
         let cards = through.cards.clone();
         Button::new(

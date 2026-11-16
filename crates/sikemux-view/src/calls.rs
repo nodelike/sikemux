@@ -4,6 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The option that says a do call's task is done.
+pub const DO_DONE: &str = "done";
+/// The option that says the person won't do a do call's task, which needs a note saying why.
+pub const DO_NOT_DOING: &str = "notDoing";
+/// The option that says the person saw what a look call shows.
+pub const LOOK_SEEN: &str = "seen";
+
 /// What makes a decision the person's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +24,10 @@ pub enum CallKind {
     Taste,
     /// Access only the person has, such as a sign-in or a password.
     Access,
+    /// A task the person does themselves, answered Done or Not doing with a reason.
+    Do,
+    /// Finished work a lead shows the person. It asks for no yes and clears once they open it.
+    Look,
     /// One from a later release.
     #[serde(other)]
     Unknown,
@@ -76,6 +87,15 @@ pub struct CallEvidence {
 pub struct CallPage {
     pub id: String,
     pub title: String,
+}
+
+/// Where a do call's task is done, or the change a look call shows: a web address, or a
+/// `sikemux://` place in the app.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallLink {
+    pub label: String,
+    pub url: String,
 }
 
 /// A file or diff the asker opened for the person before asking, as it stood then.
@@ -234,6 +254,9 @@ pub struct PersonCall {
     pub id: String,
     pub project: String,
     pub kind: CallKind,
+    /// Its name in a few words, such as Test purchase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Who asks.
     pub asker: CallAsker,
     /// Other agents waiting on the same thing, which this one answer covers.
@@ -245,7 +268,10 @@ pub struct PersonCall {
     /// The page that shows what the call is about, such as the mockup of its choices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<CallPage>,
-    /// The decision, in one line.
+    /// Where a do call's task is done, or the change a look call shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<CallLink>,
+    /// The decision, in one line; on a do call, what to do; on a look call, what to look at.
     pub question: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,

@@ -1543,8 +1543,9 @@ impl Workbench {
     }
 
     /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
-    /// or opens one, as the person's.
+    /// or opens one, as the person's, clearing the look calls that show it.
     pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
+        self.saw_page(id, cx);
         let page = self
             .chat_target(agent)
             .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {

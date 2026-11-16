@@ -31,7 +31,8 @@ use crate::cli::protocol::HarnessRequest;
 use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
 use sikemux_view::calls::{
-    CallAsker, CallKind, CallOpened, CallOption, CallPage, CallState, PersonCall,
+    CallAsker, CallKind, CallLink, CallOpened, CallOption, CallPage, CallState, PersonCall,
+    DO_DONE, DO_NOT_DOING, LOOK_SEEN,
 };
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::WindowCall;
@@ -132,6 +133,9 @@ struct Question {
     /// The page that shows what it is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page: Option<CallPage>,
+    /// Where a do call's task is done, or the change a look call shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    link: Option<CallLink>,
     /// What the asker, or the agent it is about, opened for the person just before.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     opened: Vec<CallOpened>,
@@ -220,11 +224,16 @@ impl Question {
             _ if self.approval.is_some() => CallKind::Production,
             _ => self.kind.unwrap_or(CallKind::Taste),
         };
-        let (options, pick) = call_options(&self.choices);
+        let (options, pick) = match kind {
+            CallKind::Do => (form_options(&[DO_DONE, DO_NOT_DOING], &self.choices), None),
+            CallKind::Look => (form_options(&[LOOK_SEEN], &self.choices), None),
+            _ => call_options(&self.choices),
+        };
         PersonCall {
             id: self.id.clone(),
             project: self.project.clone(),
             kind,
+            title: self.header.clone(),
             asker: CallAsker {
                 agent_id: self.agent_id.clone(),
                 name: self.name.clone(),
@@ -234,6 +243,7 @@ impl Question {
             joined: Vec::new(),
             about: self.about.clone(),
             page: self.page.clone(),
+            link: self.link.clone(),
             question: self.text.clone(),
             context: None,
             assumption: None,
@@ -366,6 +376,38 @@ fn call_options(choices: &[QuestionChoice]) -> (Vec<CallOption>, Option<String>)
     (options, pick)
 }
 
+/// The fixed answers of a do or look call, by the ids clients know them by, over the choices the
+/// question holds in the same order.
+fn form_options(ids: &[&str], choices: &[QuestionChoice]) -> Vec<CallOption> {
+    (ids.iter().zip(choices))
+        .map(|(id, choice)| CallOption {
+            id: (*id).to_owned(),
+            label: choice.label.clone(),
+            detail: None,
+            picture: None,
+        })
+        .collect()
+}
+
+/// The choices a do or look call is answered by, in the order of [`form_options`].
+fn form_choices(kind: CallKind) -> Option<Vec<QuestionChoice>> {
+    let labels: &[&str] = match kind {
+        CallKind::Do => &["Done", "Not doing"],
+        CallKind::Look => &["Seen"],
+        _ => return None,
+    };
+    Some(
+        (labels.iter())
+            .map(|label| QuestionChoice {
+                label: (*label).to_owned(),
+                detail: None,
+                picture: None,
+                recommended: false,
+            })
+            .collect(),
+    )
+}
+
 fn recommended_of(choices: &[QuestionChoice]) -> Option<String> {
     (choices.iter())
         .find(|choice| choice.recommended)
@@ -381,6 +423,7 @@ struct Asked {
     kind: Option<CallKind>,
     about: Option<CallAsker>,
     page: Option<CallPage>,
+    link: Option<CallLink>,
     approval: Option<Approval>,
     dialog: Option<String>,
 }
@@ -932,7 +975,11 @@ fn open(
     let questions: Vec<Question> = asked
         .into_iter()
         .map(|asked| Question {
-            stage: if asked.secret || asked.approval.is_some() || asked.dialog.is_some() {
+            stage: if asked.secret
+                || asked.approval.is_some()
+                || asked.dialog.is_some()
+                || asked.kind == Some(CallKind::Look)
+            {
                 Stage::Person { lead: None }
             } else {
                 stage.clone()
@@ -949,6 +996,7 @@ fn open(
             ),
             about: asked.about,
             page: asked.page,
+            link: asked.link,
             id: format!("question-{}", uuid::Uuid::new_v4().simple()),
             agent_id: agent_id.to_owned(),
             name: name.clone(),
@@ -1006,7 +1054,15 @@ fn sent_note(question: &Question) -> String {
 /// The question as the lead reads it.
 fn for_lead(question: &Question) -> (String, String) {
     let name = &question.name;
-    let mut text = question.text.clone();
+    let mut text = match (question.kind, &question.header) {
+        (Some(CallKind::Do), Some(title)) => {
+            format!("A task for the person, {title}: {}", question.text)
+        }
+        _ => question.text.clone(),
+    };
+    if let Some(link) = &question.link {
+        text.push_str(&format!("\n\n{}: {}", link.label, link.url));
+    }
     if !question.choices.is_empty() {
         text.push_str("\n\nChoices:");
         for (index, choice) in question.choices.iter().enumerate() {
@@ -1072,7 +1128,8 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?
         .ok_or("question must be what you want to know, as nonempty text")?;
     let mut choices = choices(params.get("choices"))?;
-    let header = text_param(params, "header", MAX_QUESTION_BYTES)?
+    let header = (text_param(params, "title", MAX_QUESTION_BYTES)?)
+        .or(text_param(params, "header", MAX_QUESTION_BYTES)?)
         .map(|header| clipped(&header, MAX_HEADER_CHARS));
     let flag = |key: &str| match params.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -1081,8 +1138,20 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     };
     let kind = (params.get("kind")).and_then(|kind| CallKind::deserialize(kind).ok());
     let secret = flag("secret")?.unwrap_or(false);
-    let blocked = secret || flag("blocked")?.unwrap_or(true);
-    if let Some(pick) = params.get("pick").and_then(Value::as_str) {
+    let look = kind == Some(CallKind::Look);
+    let blocked = secret || (!look && flag("blocked")?.unwrap_or(true));
+    let link = link_param(params.get("link"))?;
+    let page_wanted = text_param(params, "page", 64)?;
+    if let Some(form) = kind.and_then(form_choices) {
+        formed(
+            core,
+            &agent_id,
+            look,
+            header.is_some(),
+            (&page_wanted, &link),
+        )?;
+        choices = form;
+    } else if let Some(pick) = params.get("pick").and_then(Value::as_str) {
         mark_pick(pick, &mut choices);
     }
     (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
@@ -1091,7 +1160,6 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(wanted) => about_of(core, &agent_id, wanted).await,
         None => None,
     };
-    let page_wanted = text_param(params, "page", 64)?;
     let page = match page_wanted.as_deref() {
         Some(id) => page_of(core, id),
         None => (about.as_ref()).and_then(|about| last_page_of(core, &about.agent_id)),
@@ -1109,6 +1177,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             kind,
             about,
             page,
+            link,
             approval: None,
             dialog: None,
         }],
@@ -1141,6 +1210,53 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             Stage::Person { .. } => "the person".to_owned(),
         },
         "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), page_wanted.filter(|_| question.page.is_none())),
+    }))
+}
+
+/// Refuses a do or look call that lacks what it is drawn with, and a look from an agent that leads
+/// no one: a look shows the person finished work, which only a lead knows is finished.
+fn formed(
+    core: &Core,
+    agent_id: &str,
+    look: bool,
+    titled: bool,
+    (page, link): (&Option<String>, &Option<CallLink>),
+) -> Result<(), String> {
+    if !titled {
+        return Err("a do or look call needs a title naming it in a few words".into());
+    }
+    if !look {
+        return Ok(());
+    }
+    if page.is_none() && link.is_none() {
+        return Err("a look call needs the page or the link it shows".into());
+    }
+    let leads =
+        !core.names().workers(agent_id).is_empty() || super::chief::all(core).contains(agent_id);
+    match leads {
+        true => Ok(()),
+        false => Err("only a lead raises a look call: tell your lead the work is finished".into()),
+    }
+}
+
+/// The `link` of an ask: where a do call's task is done, or what a look call shows.
+fn link_param(value: Option<&Value>) -> Result<Option<CallLink>, String> {
+    let link = match value {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Object(link)) => link,
+        Some(_) => return Err("link must be an object with a label and a url".into()),
+    };
+    let text = |key: &str| {
+        (link.get(key).and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let url = text("url").ok_or("link needs a url")?;
+    let label = text("label").unwrap_or_else(|| url.clone());
+    Ok(Some(CallLink {
+        label: clipped(&label, MAX_LABEL_CHARS),
+        url: clipped(&url, MAX_QUESTION_BYTES),
     }))
 }
 
@@ -1247,6 +1363,7 @@ pub(crate) fn put_to_person(
             kind: None,
             about: None,
             page: None,
+            link: None,
             approval: Some(approval),
             dialog: None,
         }],
@@ -1281,6 +1398,7 @@ pub(crate) fn ask_for_dialog(
             kind: None,
             about: None,
             page: None,
+            link: None,
             approval: None,
             dialog: Some(dialog),
         }],
@@ -1343,6 +1461,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 kind: None,
                 about: None,
                 page: None,
+                link: None,
                 approval: None,
                 dialog: None,
             })
