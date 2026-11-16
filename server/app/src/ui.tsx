@@ -116,6 +116,7 @@ export function Confirm({
   busy,
   label,
   danger,
+  unchanged,
   onCancel,
   onConfirm,
 }: {
@@ -125,6 +126,7 @@ export function Confirm({
   busy: boolean;
   label: string;
   danger?: boolean;
+  unchanged?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -153,7 +155,7 @@ export function Confirm({
           type="button"
           className={danger ? "button small danger" : "button small primary"}
           onClick={onConfirm}
-          disabled={busy}
+          disabled={busy || unchanged}
           data-busy={busy || undefined}
         >
           {label}

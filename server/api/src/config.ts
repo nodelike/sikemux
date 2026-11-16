@@ -4,6 +4,7 @@ import type { Network } from "@sikemux/protocol";
 import type { Level } from "pino";
 
 import { readAppleSignIn } from "./account/apple.ts";
+import { CLERK_API } from "./account/clerk.ts";
 import { isSandboxKey, PADDLE_KEY } from "./billing/paddle-api.ts";
 import type { AppleKey } from "./apple-key.ts";
 import { settingsFrom } from "./env.ts";
@@ -39,6 +40,8 @@ export interface Config extends MigrationConfig {
   clerkIssuer: string;
   /** The Mac app's Clerk OAuth client, the only one whose access tokens are accepted. */
   macClientId: string;
+  /** Where Clerk's Backend API is: Clerk's own, or the local stand-in sign-in that names its made-up people. */
+  clerkApi: string;
   /** For Clerk's Backend API. Without it, deleting accounts and revoking removed phones' sessions wait in the database. */
   clerkSecretKey: string | null;
   /** Checks the signatures on Clerk's webhooks. Without it, the webhook route refuses everything. */
@@ -245,6 +248,7 @@ export function loadConfig(
     apiOrigin,
     clerkIssuer,
     macClientId,
+    clerkApi: standInIssuer ? clerkIssuer : CLERK_API,
     clerkSecretKey,
     clerkWebhookSecret,
     network,

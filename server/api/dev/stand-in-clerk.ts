@@ -3,14 +3,15 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
 /**
  * A sign-in for made-up people on a local run, so the signed-in app can be seen without a real
- * account. Point the local API's CLERK_ISSUER and the app's VITE_STAND_IN_CLERK at it.
+ * account. Point the local API's CLERK_ISSUER and the app's VITE_STAND_IN_CLERK at it. It also
+ * answers the Backend API's user reads, so the API can name them.
  */
 const PEOPLE = [
-  { key: "ines", id: "user_standin_ines", name: "Inês Duarte" },
-  { key: "tomas", id: "user_standin_tomas", name: "Tomás Reyes" },
-  { key: "priya", id: "user_standin_priya", name: "Priya Natarajan" },
-  { key: "jonah", id: "user_standin_jonah", name: "Jonah Lindqvist" },
-  { key: "amara", id: "user_standin_amara", name: "Amara Okafor" },
+  { key: "ines", id: "user_standinines", name: "Inês Duarte" },
+  { key: "tomas", id: "user_standintomas", name: "Tomás Reyes" },
+  { key: "priya", id: "user_standinpriya", name: "Priya Natarajan" },
+  { key: "jonah", id: "user_standinjonah", name: "Jonah Lindqvist" },
+  { key: "amara", id: "user_standinamara", name: "Amara Okafor" },
 ];
 
 const port = Number(process.env.PORT ?? 4100);
@@ -31,6 +32,11 @@ function token(userId: string) {
     .sign(privateKey);
 }
 
+function user(person: (typeof PEOPLE)[number]) {
+  const [first, ...rest] = person.name.split(" ");
+  return { id: person.id, first_name: first, last_name: rest.join(" ") };
+}
+
 createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", issuer);
   response.setHeader("access-control-allow-origin", appOrigin);
@@ -41,6 +47,12 @@ createServer(async (request, response) => {
   };
   if (url.pathname === "/.well-known/jwks.json") return send(200, jwks);
   if (url.pathname === "/people") return send(200, PEOPLE);
+  if (url.pathname === "/v1/users") {
+    const ids = url.searchParams.getAll("user_id");
+    return send(200, PEOPLE.filter((p) => ids.includes(p.id)).map(user));
+  }
+  const one = PEOPLE.find((p) => url.pathname === `/v1/users/${p.id}`);
+  if (one) return send(200, user(one));
   if (url.pathname === "/token") {
     const person = PEOPLE.find((p) => p.key === url.searchParams.get("as"));
     if (!person) return send(404, { error: "no such person" });

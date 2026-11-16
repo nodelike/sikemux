@@ -8,9 +8,11 @@ export const HOST = "/host";
 export const HOSTS = "/hosts";
 export const BILLING = "/billing";
 export const PRICING = "/pricing";
+export const TEAM = "/team";
+export const JOIN = "/orgs/join";
 
 /** The signed-in pages a sign-in can come back to. */
-const PAGES = new Set(["/", HOSTS, BILLING, PRICING, DELETE_ACCOUNT]);
+const PAGES = new Set(["/", HOSTS, BILLING, TEAM, PRICING, DELETE_ACCOUNT]);
 
 const RETURN_KEY = "sikemux.returnTo";
 
@@ -62,7 +64,8 @@ export function takeReturn(): string | null {
   if (isSharePath(saved)) return saved;
   const [path = "/", query = ""] = saved.split("?", 2);
   if (path === "/" && appReturn(`?${query}`)) return saved;
-  if (path === CONSENT || path === HOST) return saved;
+  if (path === CONSENT || path === HOST || saved.startsWith(`${JOIN}#`))
+    return saved;
   return PAGES.has(path) ? path : "/";
 }
 
@@ -78,7 +81,7 @@ export function usePath() {
   const go = (to: string, { replace = false } = {}) => {
     if (replace) history.replaceState(null, "", to);
     else history.pushState(null, "", to);
-    setPath(to);
+    setPath(location.pathname);
     scrollTo(0, 0);
   };
 

@@ -1476,6 +1476,13 @@ a.button {
     display: none;
   }
 
+  .row:has(> .end > :nth-child(2)) > .end {
+    grid-column: 2 / -1;
+    grid-row: auto;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
   .notice {
     left: 16px;
     right: 16px;
@@ -1483,4 +1490,65 @@ a.button {
     transform: none;
     animation-name: none;
   }
+}
+
+.meter {
+  position: relative;
+  flex: 0 1 200px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--gray-200);
+}
+
+.meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--acc);
+  transition: width var(--dur-2);
+}
+
+.team-pitch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-glass);
+  font-size: 13px;
+}
+
+.team-pitch p {
+  margin: 0;
+  max-width: 520px;
+}
+
+.team-pitch-glyph {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--acc) 16%, transparent);
+  color: color-mix(in oklab, var(--acc) 60%, var(--ink));
+}
+
+.team-pitch .new-team {
+  width: min(100%, 360px);
+}
+
+.invite-link {
+  font: 12.5px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.join {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: 560px;
 }

@@ -12,6 +12,7 @@ import {
   IconServer,
   IconTag,
   IconUser,
+  IconUsers,
 } from "@shared/ui/Icons";
 
 import { AccountPage } from "./AccountPage.tsx";
@@ -27,6 +28,7 @@ import { Devices, useDevices } from "./Devices.tsx";
 import { HostApproval } from "./HostApproval.tsx";
 import { useLive } from "./live.ts";
 import { PricingPage } from "./Pricing.tsx";
+import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
@@ -36,8 +38,10 @@ import {
   HOST,
   HOSTS,
   isSharePath,
+  JOIN,
   PRICING,
   takeReturn,
+  TEAM,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
@@ -189,6 +193,8 @@ export function App() {
 const PAGE_TITLES: Record<string, string> = {
   [HOSTS]: "Hosts",
   [BILLING]: "Plan and billing",
+  [TEAM]: "Team",
+  [JOIN]: "Join an org",
   [PRICING]: "Pricing",
   [DELETE_ACCOUNT]: "Delete your account",
 };
@@ -221,6 +227,8 @@ function Account({
   const [planVersion, setPlanVersion] = useState(0);
   const shown: Record<string, boolean> = {
     [BILLING]: billingShown,
+    [TEAM]: billingShown,
+    [JOIN]: billingShown,
     [PRICING]: staff,
   };
   const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
@@ -268,6 +276,12 @@ function Account({
               },
             ],
           },
+          {
+            label: "Org",
+            items: [
+              { path: TEAM, name: "Team", icon: <IconUsers size={15} /> },
+            ],
+          },
         ]
       : []),
     ...(staff
@@ -288,7 +302,7 @@ function Account({
 
   return (
     <Shell
-      path={page === DELETE_ACCOUNT ? "/" : page}
+      path={page === DELETE_ACCOUNT ? "/" : page === JOIN ? TEAM : page}
       follow={follow}
       groups={groups}
     >
@@ -304,6 +318,10 @@ function Account({
           onBack={() => go("/")}
           onDeleted={onDeleted}
         />
+      ) : page === JOIN ? (
+        <JoinPage follow={follow} />
+      ) : page === TEAM ? (
+        <TeamPage follow={follow} />
       ) : page === PRICING ? (
         <PricingPage />
       ) : page === BILLING ? (

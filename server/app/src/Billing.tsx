@@ -7,7 +7,6 @@ import type {
   Money,
   Org,
   Subscription,
-  SubscriptionChange,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
@@ -43,7 +42,7 @@ import {
   useNotice,
 } from "./ui.tsx";
 
-const NOT_OPEN = "Buying is not open yet";
+export const NOT_OPEN = "Buying is not open yet";
 const ME = "me";
 
 type Loaded = {
@@ -407,7 +406,6 @@ function PlanRows({
   const seats = product?.unit === "seat";
   const ends = formatDay(sub.currentPeriodEnd, "long");
   const [asking, setAsking] = useState<"seats" | "cancel">();
-  const [count, setCount] = useState(sub.quantity);
   const action = useAction();
   const resume = async () => {
     await (await client("keep your plan")).resumeSubscription(sub.id);
@@ -417,18 +415,6 @@ function PlanRows({
     setAsking(undefined);
     action.clear();
   };
-  const change = (body: SubscriptionChange, done: string) =>
-    action.run(
-      async () => {
-        await (
-          await client("change your plan")
-        ).changeSubscription(sub.id, body);
-        close();
-        reload();
-        show(done);
-      },
-      (error) => `${problemText(error)} Nothing was charged.`,
-    );
   const price = product ? priceText(product, sub.interval) : undefined;
   const changing =
     sub.atRenewal &&
@@ -460,37 +446,16 @@ function PlanRows({
         }
         below={
           asking === "seats" ? (
-            <Confirm
-              problem={action.problem}
-              busy={action.busy}
-              label={
-                count > sub.quantity
-                  ? `Add ${count - sub.quantity} ${count - sub.quantity === 1 ? "seat" : "seats"}`
-                  : `Go to ${count} ${count === 1 ? "seat" : "seats"}`
-              }
-              onCancel={close}
-              onConfirm={() =>
-                void change(
-                  { quantity: count },
-                  count > sub.quantity
-                    ? `${count - sub.quantity} ${count - sub.quantity === 1 ? "seat" : "seats"} added`
-                    : `${name} is now ${count} ${count === 1 ? "seat" : "seats"}`,
-                )
-              }
-            >
-              <label className="stepper-line">
-                <Stepper
-                  value={count}
-                  min={1}
-                  max={product?.maxQuantity ?? 1000}
-                  onChange={setCount}
-                />
-                <span className="quiet">
-                  seats. Added seats are charged now for what's left of this
-                  period; fewer can't go below the people seated.
-                </span>
-              </label>
-            </Confirm>
+            <ChangeSeats
+              sub={sub}
+              name={name}
+              max={product?.maxQuantity}
+              onClose={close}
+              onChanged={(text) => {
+                reload();
+                show(text);
+              }}
+            />
           ) : null
         }
       >
@@ -619,7 +584,66 @@ function PlanRows({
   );
 }
 
-function Stepper({
+function seatsWord(count: number) {
+  return `${count} ${count === 1 ? "seat" : "seats"}`;
+}
+
+export function ChangeSeats({
+  sub,
+  name,
+  max = 1000,
+  min = 1,
+  onClose,
+  onChanged,
+}: {
+  sub: Subscription;
+  name: string;
+  max?: number;
+  min?: number;
+  onClose: () => void;
+  onChanged: (text: string) => void;
+}) {
+  const client = useClient();
+  const action = useAction();
+  const [count, setCount] = useState(Math.max(sub.quantity, min));
+  const added = count - sub.quantity;
+  return (
+    <Confirm
+      problem={action.problem}
+      busy={action.busy}
+      label={
+        added > 0 ? `Add ${seatsWord(added)}` : `Go to ${seatsWord(count)}`
+      }
+      onCancel={onClose}
+      onConfirm={() =>
+        void action.run(
+          async () => {
+            await (
+              await client("change your seats")
+            ).changeSubscription(sub.id, { quantity: count });
+            onClose();
+            onChanged(
+              added > 0
+                ? `${seatsWord(added)} added`
+                : `${name} is now ${seatsWord(count)}`,
+            );
+          },
+          (error) => `${problemText(error)} Nothing was charged.`,
+        )
+      }
+    >
+      <label className="stepper-line">
+        <Stepper value={count} min={min} max={max} onChange={setCount} />
+        <span className="quiet">
+          seats. Added seats are charged now for what's left of this period;
+          fewer can't go below the people seated.
+        </span>
+      </label>
+    </Confirm>
+  );
+}
+
+export function Stepper({
   value,
   min,
   max,
@@ -662,7 +686,7 @@ function Stepper({
   );
 }
 
-function useCheckout() {
+export function useCheckout() {
   const client = useClient();
   const action = useAction();
   const go = (
@@ -828,7 +852,7 @@ function PlanOffer({
   );
 }
 
-function NewTeam({
+export function NewTeam({
   catalog,
   checkout,
   onCancel,
@@ -866,7 +890,7 @@ function NewTeam({
         value={name}
         onChange={(event) => setName(event.target.value)}
         autoFocus
-        maxLength={80}
+        maxLength={64}
       />
       <label className="stepper-line">
         <Stepper

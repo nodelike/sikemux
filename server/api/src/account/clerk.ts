@@ -19,7 +19,7 @@ type Fetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-const BASE = "https://api.clerk.com";
+export const CLERK_API = "https://api.clerk.com";
 
 interface ClerkUser {
   id?: string;
@@ -46,9 +46,10 @@ function personOf(user: ClerkUser | undefined): Person {
 export function clerkBackend(
   secretKey: string,
   fetcher: Fetch = fetch,
+  base = CLERK_API,
 ): ClerkBackend {
   const request = async (method: string, path: string) => {
-    const response = await fetcher(`${BASE}${path}`, {
+    const response = await fetcher(`${base}${path}`, {
       method,
       headers: { authorization: `Bearer ${secretKey}` },
       signal: AbortSignal.timeout(TIMEOUT_MS),

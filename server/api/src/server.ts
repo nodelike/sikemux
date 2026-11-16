@@ -40,7 +40,7 @@ export function startServer(config: Config, log: Logger) {
   });
   const limiter = new RateLimiter();
   const clerk = config.clerkSecretKey
-    ? clerkBackend(config.clerkSecretKey)
+    ? clerkBackend(config.clerkSecretKey, fetch, config.clerkApi)
     : null;
   if (!clerk)
     log.warn(
