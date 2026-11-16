@@ -2909,6 +2909,53 @@ fn an_answer_followed_by_a_wait_and_a_short_message_stays_out_of_the_fold() {
     );
 }
 
+#[test]
+fn pages_shown_during_a_turn_stay_out_of_its_fold() {
+    let page = json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue" });
+    let mut chat = Chat::new();
+    chat.prompt(json!({ "text": "is the gap right?", "paths": [] }))
+        .turn_started()
+        .update(say("agent_thought_chunk", "Checking the bar."))
+        .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "page-1", "title": "mcp__sikemux-tools__page_show", "status": "in_progress" }))
+        .update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "page-1",
+            "status": "completed",
+            "rawOutput": json!({ "page": page, "note": "shown" }).to_string(),
+        }))
+        .update(crate::update::worker_page_notice(WorkerPage {
+            id: "fedcba9876543210fedcba9876543210".into(),
+            title: "Segmented switch: darker fills".into(),
+            agent_id: "agent-ogami".into(),
+            name: "Ogami".into(),
+        }))
+        .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "send-1", "title": "agent_send", "status": "in_progress" }))
+        .update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "send-1", "status": "completed" }))
+        .update(chunk("The gap above the tabs is 5 pt.", "m1"))
+        .turn_completed(Some("end_turn"));
+    let rows = chat.rows();
+    let folded: Vec<_> = rows
+        .iter()
+        .filter_map(|row| Some((row, row.fold.as_ref()?)))
+        .collect();
+    assert!(!folded.is_empty(), "the turn folds");
+    let mut pages = Vec::new();
+    for (row, fold) in folded {
+        for at in &fold.shown {
+            match &row.parts[*at as usize] {
+                ChatPart::Tool {
+                    page: Some(page), ..
+                } => pages.push(page.title.clone()),
+                ChatPart::AgentNotice { notice, .. } => {
+                    pages.extend(notice.worker_page.as_ref().map(|page| page.title.clone()))
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(pages, vec!["Revenue", "Segmented switch: darker fills"]);
+}
+
 mod window {
     use super::*;
 
