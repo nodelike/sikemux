@@ -103,8 +103,8 @@ impl AgentMenu {
                 .filter(|other| other.project == agent.project && other.id != agent.id)
                 .map(|other| other.id.clone())
                 .collect(),
-            can_move: agent.worktree.is_none()
-                && (agent.resume_id.is_none()
+            can_move: agent.worktree.is_some()
+                || (agent.resume_id.is_none()
                     || catalog.is_some_and(|kind| kind.relocatable_sessions)
                         && (agent.asleep
                             || row.as_ref().is_none_or(|row| {

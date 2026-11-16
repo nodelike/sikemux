@@ -325,6 +325,21 @@ pub fn project_of(cwd: &Path, projects: &[PathBuf]) -> String {
         .into_owned()
 }
 
+/// The open project that is `cwd`'s own repository or a folder in it, never a parent
+/// such as the home folder that merely holds the repository.
+pub fn repo_project_of(cwd: &Path, projects: &[PathBuf]) -> Option<String> {
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let cwd = canonical(cwd);
+    let path = in_main_checkout(&cwd).unwrap_or(cwd);
+    let repo = sikemux_process::files::repo_root(&path).unwrap_or(&path);
+    projects
+        .iter()
+        .map(|project| canonical(project))
+        .filter(|project| path.starts_with(project) && project.starts_with(repo))
+        .max_by_key(|project| project.as_os_str().len())
+        .map(|project| project.to_string_lossy().into_owned())
+}
+
 /// The folder in the main checkout matching `cwd` in a linked git worktree.
 fn in_main_checkout(cwd: &Path) -> Option<PathBuf> {
     let root = sikemux_process::files::repo_root(cwd)?;
@@ -1286,6 +1301,12 @@ impl Workspaces {
     /// this host's projects.
     pub fn project_of(&self, cwd: &Path) -> String {
         project_of(cwd, &self.project_paths())
+    }
+
+    /// The project a worker in `cwd` belongs to: its repository's own project when that
+    /// is open here, else its lead's.
+    pub fn worker_project(&self, cwd: &Path, lead_project: String) -> String {
+        repo_project_of(cwd, &self.project_paths()).unwrap_or(lead_project)
     }
 
     /// The project the checkout at `top` belongs to, and whether it is that

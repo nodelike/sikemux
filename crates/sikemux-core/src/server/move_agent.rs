@@ -17,21 +17,13 @@ use crate::sessions::relocate::relocate;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::workspace::WorkspaceAgent;
 
-fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {
-    let agent = core.workspaces().agent_or_gone(agent_id)?;
-    if agent.worktree.is_some() {
-        return Err("an agent working in its own worktree stays in its project".into());
-    }
-    Ok(agent)
-}
-
 /// Moves an agent into the project at a folder, as `move_agent` does, making the folder a
 /// project first when it is not one.
 pub(crate) async fn move_to_folder(
     core: &Arc<Core>,
     params: MoveToFolder,
 ) -> CoreResult<WorkspaceAgent> {
-    movable(core, &params.agent_id)?;
+    core.workspaces().agent_or_gone(&params.agent_id)?;
     let project = super::workspace::add_project(core, AddProjectParams::at(params.path)).await?;
     move_agent(
         core,
@@ -44,15 +36,18 @@ pub(crate) async fn move_to_folder(
 }
 
 pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResult<WorkspaceAgent> {
-    let agent = movable(core, &params.agent_id)?;
+    let agent = core.workspaces().agent_or_gone(&params.agent_id)?;
     let to = core
         .workspaces()
         .project_info(&params.project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
+    let followed = layout::agent_in_front(core, &agent.id, &agent.project);
+    if agent.worktree.is_some() {
+        return refile(core, &agent, &to.id, followed);
+    }
     if agent.cwd == to.path {
         return Ok(agent);
     }
-    let followed = layout::agent_in_front(core, &agent.id, &agent.project);
     let chat = core.chats().get(&agent.id).is_some();
     let terminal = agent
         .pty_id
@@ -101,12 +96,7 @@ pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResu
             moved.pty_id = None;
         }
     })?;
-    if followed {
-        layout::open_tab(
-            core,
-            OpenTab::new(At::project(&to.id), PaneKind::Agent, &agent.id),
-        )?;
-    }
+    follow(core, &agent.id, &to.id, followed)?;
     if chat {
         let (core, agent_id) = (core.clone(), agent.id.clone());
         // A chat that never ran goes on waiting for the person in its new project.
@@ -120,4 +110,31 @@ pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResu
         });
     }
     Ok(moved)
+}
+
+/// Files an agent in its own worktree under another project, leaving it at work in its checkout.
+fn refile(
+    core: &Core,
+    agent: &WorkspaceAgent,
+    project: &str,
+    followed: bool,
+) -> CoreResult<WorkspaceAgent> {
+    if agent.project == project {
+        return Ok(agent.clone());
+    }
+    let moved = core.workspaces().edit_agent(&agent.id, |moved| {
+        moved.project = project.to_owned();
+    })?;
+    follow(core, &agent.id, project, followed)?;
+    Ok(moved)
+}
+
+fn follow(core: &Core, agent_id: &str, project: &str, followed: bool) -> CoreResult<()> {
+    if followed {
+        layout::open_tab(
+            core,
+            OpenTab::new(At::project(project), PaneKind::Agent, agent_id),
+        )?;
+    }
+    Ok(())
 }
