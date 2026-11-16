@@ -1,4 +1,5 @@
-; Sikemux for Windows: a per-user install, so neither installing nor updating asks for admin.
+; Sikemux for Windows: one install per machine, with one administrator prompt. Its service keeps
+; secrets, starts each person's core and installs updates with no further prompt.
 ; build.ps1 passes Version, NumericVersion, Arch, Stage and Output.
 
 #define Name "Sikemux"
@@ -21,7 +22,7 @@ VersionInfoProductName={#Name}
 VersionInfoProductVersion={#NumericVersion}
 VersionInfoProductTextVersion={#Version}
 VersionInfoDescription={#Name} installer
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 DefaultDirName={autopf}\{#Name}
 DisableDirPage=auto
 DisableProgramGroupPage=yes
@@ -60,11 +61,15 @@ Source: "{#Core}"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{autoprograms}\{#Name}"; Filename: "{app}\{#Exe}"; AppUserModelID: "com.nodelike.sikemux"
 
 [Run]
-Filename: "{app}\{#Exe}"; Description: "Open {#Name}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\{#Exe}"; Flags: nowait; Check: Relaunching
+#ifexist AddBackslash(Stage) + Core
+Filename: "{app}\{#Core}"; Parameters: "--service install"; StatusMsg: "Starting the Sikemux service..."; Flags: runhidden waituntilterminated
+#endif
+Filename: "{app}\{#Exe}"; Description: "Open {#Name}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\{#Exe}"; Flags: nowait runasoriginaluser; Check: Relaunching
 
 [UninstallRun]
 #ifexist AddBackslash(Stage) + Core
+Filename: "{app}\{#Core}"; Parameters: "--service remove"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
 Filename: "{app}\{#Core}"; Parameters: "disable"; Flags: runhidden waituntilterminated; RunOnceId: "ForgetSignIn"
 Filename: "{app}\{#Core}"; Parameters: "stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopCore"
 #endif
@@ -156,14 +161,16 @@ begin
   SaveStringToFile(Preferences(), '{' + Fields + '}', False);
 end;
 
-{ An update stops the core and the process that restarts it, so neither holds a file being replaced. }
+{ An update stops the service, the core and the process that restarts it, so none holds a file being replaced. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
 begin
   Result := '';
-  if FileExists(ExpandConstant('{app}\{#Core}')) then
+  if FileExists(ExpandConstant('{app}\{#Core}')) then begin
+    Exec(ExpandConstant('{app}\{#Core}'), '--service stop', '', SW_HIDE, ewWaitUntilTerminated, Code);
     Exec(ExpandConstant('{app}\{#Core}'), 'stop', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

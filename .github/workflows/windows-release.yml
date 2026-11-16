@@ -125,6 +125,20 @@ jobs:
           $installer = Get-ChildItem "$env:RUNNER_TEMP\installer\*-setup.exe" | Select-Object -First 1
           packaging\windows\prove.ps1 -Installer $installer.FullName -Version $env:VERSION -Out "$env:RUNNER_TEMP\proof"
 
+      # Both entries point at this one installer: the check is of the manifests' shape, not its hashes.
+      - name: Write and validate the winget and Scoop manifests
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $installer = (Get-ChildItem "$env:RUNNER_TEMP\installer\*-setup.exe" | Select-Object -First 1).FullName
+          $out = "$env:RUNNER_TEMP\proof\manifests"
+          packaging\windows\manifests.ps1 -Version $env:VERSION -X64 $installer -Arm64 $installer -Out $out
+          winget validate --manifest "$out\winget\manifests\n\Nodelike\Sikemux\$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "winget rejects the manifests" }
+          Get-Content "$out\scoop\sikemux.json" -Raw | ConvertFrom-Json | Out-Null
+
       - name: Keep the installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
