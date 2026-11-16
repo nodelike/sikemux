@@ -398,6 +398,23 @@ async function team(seats: number, options: { ends?: string } = {}) {
   return { orgId, sub, txn, id: held?.id };
 }
 
+function chargeback(transactionId: string, total: number) {
+  return {
+    id: `adj_${randomUUID()}`,
+    action: "chargeback",
+    type: "full",
+    status: "approved",
+    transaction_id: transactionId,
+    currency_code: "USD",
+    totals: { total: String(total) },
+  };
+}
+
+async function invoices(userId: string) {
+  return (await body(await as(userId, "/v1/billing/invoices"), "InvoiceList"))
+    .invoices;
+}
+
 const prorated = () =>
   paddle.patches.filter((each) => each.mode === "prorated_immediately");
 
@@ -538,5 +555,31 @@ describe("the webhook", () => {
       settings: asked("/notification-settings"),
       tokens: asked("/client-tokens"),
     }).toEqual({ settings: 1, tokens: 1 });
+  });
+});
+
+describe("a chargeback", () => {
+  it("F6: ends the plan now, here and with Paddle, and the invoice reads disputed", async () => {
+    const { txn } = await pay(OWNER, "pro");
+    const answer = await deliver(
+      "adjustment.created",
+      chargeback(txn.id, 800),
+      ago(20),
+    );
+    const [invoice] = await invoices(OWNER);
+    const after = await overview(OWNER);
+    expect({
+      answer,
+      invoice: invoice?.status,
+      plan: after.allowance.plan,
+      cancelsAskedOfPaddle: paddle.calls.filter(
+        (each) => each.method === "POST" && each.path.endsWith("/cancel"),
+      ).length,
+    }).toEqual({
+      answer: 204,
+      invoice: "disputed",
+      plan: "free",
+      cancelsAskedOfPaddle: 1,
+    });
   });
 });

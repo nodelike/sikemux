@@ -555,6 +555,7 @@ pub enum InvoiceReason {
     Unknown,
 }
 
+/// disputed: the payer's bank took the payment back, and the plan it paid for ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InvoiceStatus {
     #[serde(rename = "paid")]
@@ -563,6 +564,8 @@ pub enum InvoiceStatus {
     Failed,
     #[serde(rename = "refunded")]
     Refunded,
+    #[serde(rename = "disputed")]
+    Disputed,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,

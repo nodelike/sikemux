@@ -594,11 +594,13 @@ export const invoiceReasonValues: readonly InvoiceReason[] = [
   "change",
 ];
 
-export type InvoiceStatus = "paid" | "failed" | "refunded";
+/** disputed: the payer's bank took the payment back, and the plan it paid for ended. */
+export type InvoiceStatus = "paid" | "failed" | "refunded" | "disputed";
 export const invoiceStatusValues: readonly InvoiceStatus[] = [
   "paid",
   "failed",
   "refunded",
+  "disputed",
 ];
 
 /** Which host on the account the phone wants to join. */

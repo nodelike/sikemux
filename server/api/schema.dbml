@@ -461,7 +461,7 @@ Table invoices {
   reason text [not null, note: 'reason = ANY (ARRAY[\'first_payment\', \'renewal\', \'change\'])']
   amount bigint [not null, note: 'amount >= 0']
   currency text [not null, note: 'currency ~ \'^[a-z]{3}$\'']
-  status text [not null, note: 'status = ANY (ARRAY[\'paid\', \'failed\', \'refunded\'])']
+  status text [not null, note: 'status = ANY (ARRAY[\'paid\', \'failed\', \'refunded\', \'disputed\'])']
   at timestamptz [not null]
   refund_requested_at timestamptz
   refunded_at timestamptz

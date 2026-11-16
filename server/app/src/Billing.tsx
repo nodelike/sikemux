@@ -1709,6 +1709,7 @@ const STATUS_WORDS: Record<Invoice["status"], string> = {
   paid: "Paid",
   failed: "Failed",
   refunded: "Refunded",
+  disputed: "Disputed",
 };
 
 function Invoices({

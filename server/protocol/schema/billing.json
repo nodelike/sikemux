@@ -443,8 +443,9 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "InvoiceStatus": {
+      "description": "disputed: the payer's bank took the payment back, and the plan it paid for ended.",
       "type": "string",
-      "enum": ["paid", "failed", "refunded"]
+      "enum": ["paid", "failed", "refunded", "disputed"]
     },
     "InvoiceLine": {
       "description": "One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.",

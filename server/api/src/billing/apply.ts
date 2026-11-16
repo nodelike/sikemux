@@ -467,9 +467,16 @@ async function apply(
           .execute();
         return { customerId };
       }
-      const full =
-        !event.chargeback && event.returned.amount >= Number(invoice.amount);
-      if (!full) return { customerId };
+      if (event.chargeback) {
+        await trx
+          .updateTable("invoices")
+          .set({ status: "disputed" })
+          .where("id", "=", invoice.id)
+          .execute();
+        await endPlanNow(trx, from, customerId, subscriptionId, at);
+        return { customerId };
+      }
+      if (event.returned.amount < Number(invoice.amount)) return { customerId };
       await trx
         .updateTable("invoices")
         .set({ status: "refunded", refunded_at: at })
@@ -479,7 +486,7 @@ async function apply(
         invoice.refund_requested_at &&
         (await refundGiven(trx, customerId, subscriptionId))
       )
-        await endRefundedPlan(trx, from, customerId, subscriptionId, at);
+        await endPlanNow(trx, from, customerId, subscriptionId, at);
       return { customerId };
     }
   }
@@ -505,8 +512,8 @@ async function refundGiven(
   );
 }
 
-/** A plan whose refund was paid ends now, here and with the provider. */
-async function endRefundedPlan(
+/** A plan refunded, or whose payment the bank took back, ends now, here and with the provider. */
+async function endPlanNow(
   trx: Transaction<Tables>,
   from: From,
   customerId: string,

@@ -1419,7 +1419,8 @@ a.button {
   font-size: 12px;
 }
 
-.status[data-status="failed"] {
+.status[data-status="failed"],
+.status[data-status="disputed"] {
   color: var(--danger);
 }
 

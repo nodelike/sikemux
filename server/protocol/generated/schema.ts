@@ -1015,7 +1015,12 @@ export const schema = {
       type: "string",
       enum: ["first_payment", "renewal", "change"],
     },
-    InvoiceStatus: { type: "string", enum: ["paid", "failed", "refunded"] },
+    InvoiceStatus: {
+      description:
+        "disputed: the payer's bank took the payment back, and the plan it paid for ended.",
+      type: "string",
+      enum: ["paid", "failed", "refunded", "disputed"],
+    },
     JoinRequest: {
       description: "Which host on the account the phone wants to join.",
       type: "object",
