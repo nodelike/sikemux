@@ -1,5 +1,13 @@
 import type { BillingProductId, PlanFeature } from "@sikemux/protocol";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { applyProviderEvents } from "../src/billing/apply.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
@@ -438,6 +446,54 @@ describe("the provider's events", () => {
       body: "[]",
     });
     expect(response.status).toBe(401);
+  });
+
+  it("still ends a second plan when the API stopped before telling the provider", async () => {
+    const ada = await person("user_ada");
+    await buy(ada, "pro");
+    const held = await database.db
+      .selectFrom("billing_customers")
+      .select(["id", "provider_customer_id"])
+      .executeTakeFirstOrThrow();
+    const at = new Date();
+    const second = {
+      eventId: "evt_second_plan",
+      at,
+      type: "subscription.started" as const,
+      customerRef: held.id,
+      providerCustomerId: held.provider_customer_id ?? "",
+      subscription: {
+        providerSubscriptionId: "sub_second",
+        items: [{ product: "pro" as const, quantity: 1 }],
+        interval: "month" as const,
+        currentPeriodEnd: new Date(at.getTime() + 30 * DAY_MS),
+        cancelAtPeriodEnd: false,
+      },
+    };
+    await new Promise<void>((stopped) => {
+      void applyProviderEvents(
+        database.db,
+        {
+          name: "stand-in",
+          refund: noCall,
+          cancel: () => {
+            stopped();
+            return new Promise<void>(() => {});
+          },
+        },
+        [second],
+        log,
+      );
+    });
+
+    const cancel = vi.fn(() => Promise.resolve());
+    await applyProviderEvents(
+      database.db,
+      { name: "stand-in", refund: noCall, cancel },
+      [second],
+      log,
+    );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });
 

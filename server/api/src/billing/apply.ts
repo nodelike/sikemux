@@ -5,9 +5,9 @@ import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { ApiFailure } from "../http.ts";
 import type { Logger } from "../log.ts";
+import { callLater, makeDueCalls, type Calling } from "./calls.ts";
 import { PLAN_PRODUCTS, product } from "./catalog.ts";
 import type {
-  BillingProvider,
   ProviderEvent,
   ProviderItem,
   ProviderSubscription,
@@ -25,14 +25,6 @@ class Gone extends Error {}
 function unknown(what: string, at: Date): Error {
   if (Date.now() - at.getTime() > GONE_AFTER_MS) return new Gone(what);
   return new ApiFailure(503, "unavailable", `${what} is not known yet.`);
-}
-
-type Acting = Pick<BillingProvider, "name" | "cancel" | "refund">;
-
-interface Applied {
-  customerId: string;
-  /** What to ask of the provider once the event is recorded. */
-  afterwards?: (provider: Acting) => Promise<void>;
 }
 
 /** The rows of one provider subscription, one per product, locked for the event. */
@@ -225,7 +217,7 @@ async function apply(
   trx: Transaction<Tables>,
   provider: string,
   event: ProviderEvent,
-): Promise<Applied> {
+): Promise<{ customerId: string }> {
   const { at } = event;
   switch (event.type) {
     case "subscription.started": {
@@ -241,25 +233,24 @@ async function apply(
       const sub = event.subscription;
       const surplus = await isSurplus(trx, customer.id, sub);
       await insertItems(trx, customer.id, sub, sub.items, at, { surplus });
-      if (!surplus) return { customerId: customer.id };
-      return {
-        customerId: customer.id,
-        afterwards: async (acting) => {
-          for (const item of sub.items)
-            await acting.cancel(
-              {
-                providerSubscriptionId: sub.providerSubscriptionId,
-                providerCustomerId: event.providerCustomerId,
-                product: item.product,
-                interval: sub.interval,
-                quantity: item.quantity,
-                currentPeriodEnd: sub.currentPeriodEnd,
-                cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-              },
-              "now",
-            );
-        },
-      };
+      if (surplus)
+        await callLater(
+          trx,
+          provider,
+          sub.items.map((item) => ({
+            action: "cancel_now",
+            subscription: {
+              providerSubscriptionId: sub.providerSubscriptionId,
+              providerCustomerId: event.providerCustomerId,
+              product: item.product,
+              interval: sub.interval,
+              quantity: item.quantity,
+              currentPeriodEnd: sub.currentPeriodEnd,
+              cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+            },
+          })),
+        );
+      return { customerId: customer.id };
     }
     case "subscription.changed": {
       const sub = event.subscription;
@@ -343,12 +334,11 @@ async function apply(
           .set({ status: "active", provider_updated_at: at })
           .where("id", "in", lapsed)
           .execute();
-      if (!paid || !neverHeld(rows)) return { customerId };
-      const { providerPaymentId } = event;
-      return {
-        customerId,
-        afterwards: (acting) => acting.refund(providerPaymentId),
-      };
+      if (paid && neverHeld(rows))
+        await callLater(trx, provider, [
+          { action: "refund", providerPaymentId: event.providerPaymentId },
+        ]);
+      return { customerId };
     }
     case "payment.refunded": {
       const invoice = await trx
@@ -425,61 +415,54 @@ export async function peopleOf(
 
 /**
  * Applies a provider's events, each once: one already handled, even before a restart, is skipped.
- * Each goes in its own transaction with the plan.changed events for the people it concerns. An
- * event whose call to the provider then fails is forgotten, so the provider's retry repeats both.
+ * Each goes in its own transaction with the plan.changed events for the people it concerns and the
+ * calls to the provider it leads to, which are then made.
  */
 export async function applyProviderEvents(
   db: Kysely<Tables>,
-  provider: Acting,
+  provider: Calling,
   events: readonly ProviderEvent[],
   log: Logger,
 ): Promise<void> {
   const name = provider.name;
-  for (const event of events) {
-    let applied: Applied | undefined;
-    try {
-      applied = await db.transaction().execute(async (trx) => {
-        const fresh = await trx
-          .insertInto("billing_events")
-          .values({ provider: name, event_id: event.eventId, type: event.type })
-          .onConflict((oc) => oc.columns(["provider", "event_id"]).doNothing())
-          .returning("event_id")
-          .executeTakeFirst();
-        if (!fresh) return undefined;
-        const result = await apply(trx, name, event);
-        const people = await peopleOf(trx, result.customerId);
-        await appendEvents(
-          trx,
-          people.map((userId) => ({ userId, type: "plan.changed" as const })),
-        );
-        log.info(
-          { provider: name, type: event.type, customerId: result.customerId },
-          "billing event",
-        );
-        return result;
-      });
-    } catch (error) {
-      if (!(error instanceof Gone)) throw error;
+  try {
+    for (const event of events) await applyOnce(db, name, event, log);
+  } finally {
+    await makeDueCalls(db, provider, log);
+  }
+}
+
+async function applyOnce(
+  db: Kysely<Tables>,
+  name: string,
+  event: ProviderEvent,
+  log: Logger,
+) {
+  try {
+    await db.transaction().execute(async (trx) => {
+      const fresh = await trx
+        .insertInto("billing_events")
+        .values({ provider: name, event_id: event.eventId, type: event.type })
+        .onConflict((oc) => oc.columns(["provider", "event_id"]).doNothing())
+        .returning("event_id")
+        .executeTakeFirst();
+      if (!fresh) return;
+      const result = await apply(trx, name, event);
+      const people = await peopleOf(trx, result.customerId);
+      await appendEvents(
+        trx,
+        people.map((userId) => ({ userId, type: "plan.changed" as const })),
+      );
       log.info(
-        { provider: name, type: event.type, gone: error.message },
-        "acknowledged a billing event about something erased",
+        { provider: name, type: event.type, customerId: result.customerId },
+        "billing event",
       );
-      continue;
-    }
-    if (!applied?.afterwards) continue;
-    try {
-      await applied.afterwards(provider);
-    } catch (error) {
-      await db
-        .deleteFrom("billing_events")
-        .where("provider", "=", name)
-        .where("event_id", "=", event.eventId)
-        .execute();
-      log.error(
-        { err: error, provider: name, type: event.type },
-        "could not undo a second plan with the payment provider",
-      );
-      throw error;
-    }
+    });
+  } catch (error) {
+    if (!(error instanceof Gone)) throw error;
+    log.info(
+      { provider: name, type: event.type, gone: error.message },
+      "acknowledged a billing event about something erased",
+    );
   }
 }

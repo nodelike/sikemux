@@ -483,6 +483,23 @@ Table billing_events {
   }
 }
 
+Table billing_calls {
+  id bigint [pk, increment]
+  provider text [not null]
+  action text [not null, note: 'action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'refund\'])']
+  subscription jsonb
+  provider_payment_id text
+  attempts integer [not null, default: 0]
+  retry_at timestamptz [not null, default: `now()`]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    retry_at [name: 'billing_calls_due']
+  }
+
+  Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = \'refund\') = (subscription IS NULL)'
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]

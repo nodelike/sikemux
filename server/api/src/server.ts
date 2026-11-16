@@ -5,6 +5,7 @@ import type { Server } from "node:http";
 import { appleSignIn } from "./account/apple.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
+import { makeDueCalls } from "./billing/calls.ts";
 import { sweepDeletedBilling } from "./billing/deleted.ts";
 import { PaddleProvider } from "./billing/paddle.ts";
 import { PaddleApi } from "./billing/paddle-api.ts";
@@ -192,6 +193,13 @@ export function startServer(config: Config, log: Logger) {
       clerk &&
         sweepClerk(database.db, clerk, log).catch((error: unknown) =>
           log.error({ err: error }, "retrying calls to Clerk failed"),
+        ),
+      provider &&
+        makeDueCalls(database.db, provider, log).catch((error: unknown) =>
+          log.error(
+            { err: error },
+            "making the calls billing owes the payment provider failed",
+          ),
         ),
       sweepDeletedBilling(database.db, provider, log).catch((error: unknown) =>
         log.error(

@@ -358,6 +358,20 @@ export interface Tables {
     type: string;
     received_at: CreatedAt;
   };
+  billing_calls: {
+    id: Generated<string>;
+    provider: string;
+    action: "cancel_now" | "cancel_at_period_end" | "refund";
+    subscription: ColumnType<
+      Record<string, unknown> | null,
+      string | null,
+      never
+    >;
+    provider_payment_id: string | null;
+    attempts: ColumnType<number, never, number>;
+    retry_at: ColumnType<Date, never, Date>;
+    created_at: CreatedAt;
+  };
   audit: {
     id: Generated<string>;
     user_id: string | null;
