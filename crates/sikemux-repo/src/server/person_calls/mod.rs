@@ -537,12 +537,14 @@ impl PersonCalls {
         open.chain(closed).collect()
     }
 
-    /// The open call `agent_id` has waited on longest, and how many it waits on.
+    /// The open call `agent_id` has waited on longest, and how many it waits on; a look call
+    /// waits on nothing.
     pub fn of_agent(&self, agent_id: &str) -> Option<AgentCall> {
         let book = self.book.locked();
         let open: Vec<&PersonCall> = (book.iter())
             .map(|kept| &kept.call)
             .filter(|call| call.state == CallState::Open && waits_on(call, agent_id))
+            .filter(|call| call.kind != CallKind::Look)
             .collect();
         let top = open.iter().min_by_key(|call| call.raised_at)?;
         Some(AgentCall {

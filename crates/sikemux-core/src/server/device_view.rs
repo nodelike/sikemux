@@ -19,7 +19,7 @@ use tokio::sync::Notify;
 
 use super::connection::ClientConn;
 use super::{access, display, goals, host_stats, inbox, layout, updates, workspace, Core};
-use sikemux_view::calls::{CallState, PersonCall};
+use sikemux_view::calls::{CallKind, CallState, PersonCall};
 use sikemux_view::device::DeviceView;
 use sikemux_view::turn::{TurnPhase, TurnState};
 use sikemux_view::workspace::{ProjectInfo, ProjectStanding};
@@ -492,14 +492,15 @@ fn stand_projects(
     }
     for project in projects {
         let path = project.path.to_string_lossy();
-        project.calls = (calls.iter())
-            .filter(|call| call.project == path && call.state == CallState::Open)
-            .count() as u32;
+        let open =
+            (calls.iter()).filter(|call| call.project == path && call.state == CallState::Open);
+        project.calls = open.clone().count() as u32;
+        let asks_you = open.clone().any(|call| call.kind != CallKind::Look);
         let phases = phases
             .get(&project.id)
             .map(Vec::as_slice)
             .unwrap_or_default();
-        project.standing = if project.calls > 0 || phases.contains(&TurnPhase::NeedsYou) {
+        project.standing = if asks_you || phases.contains(&TurnPhase::NeedsYou) {
             ProjectStanding::NeedsYou
         } else if (phases.iter())
             .any(|phase| matches!(phase, TurnPhase::Working | TurnPhase::Waiting))

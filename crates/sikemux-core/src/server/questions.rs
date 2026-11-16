@@ -2245,6 +2245,7 @@ fn tell_phones(core: &Core) {
         state.shown_devices = shown;
         let now: HashMap<String, Asking> = (state.open.iter())
             .filter(|question| question.listed_for_devices())
+            .filter(|question| question.kind != Some(CallKind::Look))
             .map(|question| {
                 let asking = Asking::new(
                     &question.agent_id,
