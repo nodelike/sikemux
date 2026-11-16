@@ -291,6 +291,10 @@ pub struct ChatHead {
     /// offers any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed: Option<crate::workspace::ConfigPicker>,
+    /// The agent's own ways of working the person can switch between, such as OpenCode's
+    /// build and plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_mode: Option<crate::workspace::ConfigPicker>,
     pub permissions: Vec<PermissionAsk>,
     pub tasks: Vec<AsyncTask>,
     /// The chat's own subagents still at work.

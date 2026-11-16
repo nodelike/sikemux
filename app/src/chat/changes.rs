@@ -182,6 +182,7 @@ named_fields!(head_field, ChatHead {
     "modelsUnread" => models_unread,
     "effort" => effort,
     "speed" => speed,
+    "sessionMode" => session_mode,
     "permissions" => permissions,
     "tasks" => tasks,
     "runningSubagents" => running_subagents,

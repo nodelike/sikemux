@@ -739,7 +739,7 @@ pub(super) fn composer(
             .model_open(open, opened);
     }
     if model.is_some() || effort.is_some() {
-        composer = composer.pickers(model, effort, pick);
+        composer = composer.pickers(model, effort, pick.clone());
     }
     if kind.is_some_and(|kind| kind.bypass) {
         let mode = head.map_or(PermissionMode::WorkspaceWrite, |head| head.permission_mode);
@@ -759,6 +759,9 @@ pub(super) fn composer(
                 this.update(cx, |bench, _| bench.switch_mode(&agent, chosen))
                     .ok();
             }),
+            work: head
+                .and_then(|head| head.session_mode.clone())
+                .map(|picker| (picker, pick.clone())),
         });
     }
     Some((composer, offering || tray_open))

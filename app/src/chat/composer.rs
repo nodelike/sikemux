@@ -42,6 +42,9 @@ pub struct Modes {
     pub offered: Vec<PermissionMode>,
     pub held: bool,
     pub pick: PickMode,
+    /// The agent's own ways of working, such as OpenCode's build and plan, and what picking
+    /// one does.
+    pub work: Option<(ConfigPicker, Pick)>,
 }
 
 /// The line under the composer: why the last message did not go, with what to do about it, or
@@ -52,7 +55,7 @@ pub enum Notice {
     /// Something just done, and how to take it back.
     Done(SharedString, (SharedString, Act)),
 }
-type Pick = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
+pub type Pick = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
 type Paste = Rc<dyn Fn(&ClipboardItem, &mut Window, &mut App) -> bool>;
 type Chip = Rc<dyn Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement>;
 type DrawAside = Box<dyn FnOnce(bool) -> AnyElement>;
@@ -966,6 +969,10 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
     let t = Tokens::get(cx).clone();
     let mode = modes.current;
     let on = mode == PermissionMode::Bypass;
+    let working = modes.work.as_ref().and_then(|(picker, _)| {
+        let first = picker.choices.first()?;
+        (first.value != picker.current).then(|| chosen(picker, ""))
+    });
     let about = match mode {
         PermissionMode::Bypass => t!(
             "YOLO mode on — {agent} runs without approvals.",
@@ -1014,11 +1021,21 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
                     })
                     .into_any_element(),
             })
+            .children(working.map(|work| {
+                ui::text(work.to_uppercase(), TEXT_3XS_H, FontWeight::SEMIBOLD)
+                    .letter_spacing(0.08)
+                    .text_color(t.accent)
+            }))
         });
     if !settable {
         return chip.into_any_element();
     }
-    let Modes { offered, pick, .. } = modes;
+    let Modes {
+        offered,
+        pick,
+        work,
+        ..
+    } = modes;
     ui::menu_button(
         "composer-mode",
         Anchor::BottomLeft,
@@ -1046,6 +1063,19 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
                         .item(cx)
                         .on_click(move |_, window, cx| pick(choice, window, cx)),
                 );
+            }
+            if let Some((picker, pick)) = &work {
+                popup = popup.separator();
+                for choice in &picker.choices {
+                    let (pick, id, value) = (pick.clone(), picker.id.clone(), choice.value.clone());
+                    popup = popup.item(
+                        ui::MenuRow::new(choice.label.clone())
+                            .when_some(choice.description.clone(), |row, about| row.about(about))
+                            .chosen(choice.value == picker.current)
+                            .item(cx)
+                            .on_click(move |_, window, cx| pick(&id, &value, window, cx)),
+                    );
+                }
             }
             popup
         },

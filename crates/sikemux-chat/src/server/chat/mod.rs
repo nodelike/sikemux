@@ -1139,6 +1139,7 @@ impl Chat {
                 .note_session(self.agent_id(), &start.session_id);
         }
         self.feed.set_start(start.clone());
+        self.tell_options(&start.session_id, &start.setup["configOptions"]);
         self.tell_saved_usage(&start);
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {
@@ -1146,6 +1147,24 @@ impl Chat {
             (core.chat_above().memory_chat_ready)(&core, self);
             core.changed(What::Agents);
         }
+    }
+
+    /// Keeps what the session offers to pick in the chat's history, which a rebuilt chat
+    /// replays over its start, so it outlasts the offers made before the session started.
+    pub fn tell_options(&self, session_id: &str, options: &Value) {
+        if !options.is_array() {
+            return;
+        }
+        self.emit(
+            ChatEventKind::SessionUpdate,
+            json!({
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": UpdateKind::ConfigOptionUpdate,
+                    "configOptions": options,
+                },
+            }),
+        );
     }
 
     pub fn is_ready(&self) -> bool {

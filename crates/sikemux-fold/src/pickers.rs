@@ -19,6 +19,11 @@ pub fn speed(options: &Value) -> Option<ConfigPicker> {
     select(options, &|row| row["category"] == SPEED)
 }
 
+/// The agent's own ways of working, such as OpenCode's build and plan agents.
+pub fn session_mode(options: &Value) -> Option<ConfigPicker> {
+    select(options, &|row| row["category"] == "mode")
+}
+
 fn select(options: &Value, matches: &dyn Fn(&Value) -> bool) -> Option<ConfigPicker> {
     options
         .as_array()

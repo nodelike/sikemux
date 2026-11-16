@@ -1391,7 +1391,7 @@ impl<B: Backend> Running<'_, B> {
         };
         if let Ok(options) = &result {
             self.state.setup["configOptions"] = options.clone();
-            self.chat.feed.set_setup(&self.state.setup);
+            self.chat.tell_options(&self.state.session_id, options);
         }
         let _ = reply.send(result.map(|options| json!({ "configOptions": options })));
     }

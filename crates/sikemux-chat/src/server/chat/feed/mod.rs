@@ -1018,17 +1018,6 @@ impl Feed {
         inner.start = Some(start);
     }
 
-    pub fn set_setup(&self, setup: &Value) {
-        let mut inner = self.inner.locked();
-        if let Some(start) = inner.start.as_mut() {
-            start.setup = setup.clone();
-        }
-        if let Some(fold) = inner.fold.as_mut() {
-            fold.set_setup(setup);
-        }
-        self.flush_locked(&mut inner);
-    }
-
     pub fn set_permission_mode(&self, mode: PermissionMode) {
         let mut inner = self.inner.locked();
         inner.permission_mode = mode;

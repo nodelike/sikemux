@@ -747,6 +747,11 @@ impl Fold {
             self.head.speed = speed;
             self.set_head("speed");
         }
+        let session_mode = pickers::session_mode(&self.head.setup["configOptions"]);
+        if self.head.session_mode != session_mode {
+            self.head.session_mode = session_mode;
+            self.set_head("sessionMode");
+        }
     }
 
     /// Counts what it takes in from now on as change `seq`.
@@ -801,12 +806,6 @@ impl Fold {
         if running {
             self.drop_suggestion();
         }
-    }
-
-    pub fn set_setup(&mut self, setup: &Value) {
-        self.head.setup = setup.clone();
-        self.set_head("setup");
-        self.read_pickers();
     }
 
     /// The models and efforts the session offers, on the ones it runs.
