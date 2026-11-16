@@ -129,6 +129,16 @@ fn saved_recovery(bench: &Workbench, cx: &mut Context<Workbench>) {
     report(asked, t!("Recovery key saved"), cx);
 }
 
+fn show_recovery(bench: &Workbench, cx: &mut Context<Workbench>) {
+    let asked = Target::here(&bench.asks).request_typed::<call::VaultShowRecovery>(NoParams {});
+    cx.spawn(async move |bench, cx| {
+        if let Err(error) = asked.await {
+            cx.update(|cx| toast::show(&bench, toast::error(error), cx));
+        }
+    })
+    .detach();
+}
+
 fn recover(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let mut typed = None;
     change(bench, cx, |fields, cx| {
@@ -225,6 +235,25 @@ pub(super) fn section(
                                     saving.update(cx, |bench, cx| saved_recovery(bench, cx))
                                 }),
                         ),
+                )
+                .into_any_element()
+        }
+        (ShownStatus::Open, None) if shown.recovery_in_window => {
+            let showing = this.clone();
+            div()
+                .flex()
+                .flex_col()
+                .gap(SPACE_2)
+                .px(SPACE_4)
+                .py(SPACE_3)
+                .child(quiet(t!("Save the vault's recovery key somewhere only you can reach. It is the only way back in if every host that holds the vault is lost. Sikemux shows it in a window of its own, out of reach of your other programs.").into()))
+                .child(
+                    div().flex().child(
+                        ui::Button::new("vault-show-recovery", t!("Show the recovery key"), ui::Variant::Primary)
+                            .on_click(move |_, _, cx| {
+                                showing.update(cx, |bench, cx| show_recovery(bench, cx))
+                            }),
+                    ),
                 )
                 .into_any_element()
         }

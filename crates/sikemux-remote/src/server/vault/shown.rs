@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
 
+use super::super::remote::{asks_in_window, secret_kept};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
 use super::{local, sync, State, Status};
 use sikemux_calls::hosts::Reach;
@@ -36,6 +37,7 @@ pub fn named(core: &Core, state: &State, key: &str) -> (String, bool) {
 
 pub fn vault(core: &Core) -> ShownVault {
     let state = core.vault().state.locked();
+    let in_window = asks_in_window();
     let (status, failed) = match &state.status {
         Status::Off => (ShownStatus::Off, None),
         Status::Waiting => (ShownStatus::Waiting, None),
@@ -60,7 +62,8 @@ pub fn vault(core: &Core) -> ShownVault {
         status,
         failed,
         holders: state.holders.len(),
-        recovery: state.recovery_text.clone(),
+        recovery: state.recovery_text.clone().filter(|_| !in_window),
+        recovery_in_window: in_window && state.recovery_text.is_some(),
         sign_ins,
         kept: state
             .here
@@ -132,6 +135,19 @@ pub async fn recovery_saved(core: &Arc<Core>) -> CoreResult<()> {
     core.vault().state.locked().recovery_text = None;
     super::announce(core);
     super::inbox_changed(core);
+    Ok(())
+}
+
+/// Shows the recovery key in this core's own window, where the app never holds it, and
+/// forgets it once the person says they saved it.
+pub async fn show_recovery(core: &Arc<Core>) -> CoreResult<()> {
+    let Some(text) = core.vault().state.locked().recovery_text.clone() else {
+        return Err(CoreError::from("the recovery key was saved already"));
+    };
+    let what = "Your Sikemux vault's recovery key. Keep it somewhere only you can reach: it is the only way back in if every computer that holds the vault is lost.";
+    if secret_kept(what, &text).await? {
+        recovery_saved(core).await?;
+    }
     Ok(())
 }
 

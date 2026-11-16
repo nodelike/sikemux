@@ -445,6 +445,7 @@ calls! { core, client, method, params;
     "removeStash" = RemoveStash: Owner => super::stash::remove(&core, params).await?,
     "vault" = Vault: Owner => super::vault::shown::vault(&core),
     "vaultRecoverySaved" = VaultRecoverySaved: Owner => super::vault::shown::recovery_saved(&core).await?,
+    "vaultShowRecovery" = VaultShowRecovery: Owner => super::vault::shown::show_recovery(&core).await?,
     "vaultRecover" = VaultRecover: Owner => super::vault::shown::recover(&core, params).await?,
     "vaultKeep" = VaultKeep: Owner, counted => super::vault::shown::keep(&core, params).await?,
     "vaultKeepNew" = VaultKeepNew: Owner, counted => super::vault::shown::keep_new(&core, params).await?,

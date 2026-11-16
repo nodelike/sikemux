@@ -218,6 +218,7 @@ crate::calls! {
     "removeStash" RemoveStash (crate::stash::StashItemParams) -> ();
     "vault" Vault (crate::params::NoParams) -> crate::vault::ShownVault;
     "vaultRecoverySaved" VaultRecoverySaved (crate::params::NoParams) -> ();
+    "vaultShowRecovery" VaultShowRecovery (crate::params::NoParams) -> ();
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;
     "newTerminal" NewTerminal (crate::spare::NewTerminal) -> String;
     "showTerminals" ShowTerminals (crate::params::NoParams) -> ();

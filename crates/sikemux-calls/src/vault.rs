@@ -28,6 +28,9 @@ pub struct ShownVault {
     /// The recovery key of the vault this host made, until the person says they saved it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<String>,
+    /// The recovery key waits to be saved, but only this computer's own window shows it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recovery_in_window: bool,
     /// The vault's sign-ins, which every host on the account uses.
     pub sign_ins: Vec<ShownSignIn>,
     /// The sign-ins that stay on this host, out of the vault.

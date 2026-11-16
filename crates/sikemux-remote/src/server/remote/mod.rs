@@ -39,8 +39,8 @@ use super::changed::Topic;
 use super::connection::{blocking, serve_client};
 use super::host_key::{secret_from_hex, HostKey, Keeper};
 use super::{Core, CoreError, CoreResult};
-pub use window::asks_in_window;
 use window::confirmed;
+pub use window::{asks_in_window, secret_kept};
 
 pub mod account;
 pub mod held;
