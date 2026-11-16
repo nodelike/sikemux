@@ -66,6 +66,19 @@ pub(super) fn opencode_db_paths() -> Vec<PathBuf> {
     paths
 }
 
+/// How many sign-ins and keys OpenCode keeps, or `None` when it has no database to read.
+pub fn saved_credentials() -> Option<usize> {
+    let counts: Vec<i64> = opencode_db_paths()
+        .iter()
+        .filter_map(|db| {
+            let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+            conn.query_row("SELECT COUNT(*) FROM credential", [], |row| row.get(0))
+                .ok()
+        })
+        .collect();
+    (!counts.is_empty()).then(|| counts.iter().sum::<i64>() as usize)
+}
+
 /// The API key OpenCode keeps for `integration`, the one it uses when it has several.
 pub fn saved_key(integration: &str) -> Option<String> {
     opencode_db_paths().iter().find_map(|db| {
@@ -367,11 +380,11 @@ impl AgentOps for Opencode {
 
     fn sign_in_status<'a>(
         &self,
-        program: &'a Path,
-        config_path: Option<&'a str>,
+        _program: &'a Path,
+        _config_path: Option<&'a str>,
         providers: BTreeMap<String, String>,
     ) -> Pending<'a, AgentStatus> {
-        Box::pin(status::opencode_sign_in(program, config_path, providers))
+        Box::pin(status::opencode_sign_in(providers))
     }
 
     fn route_chat(

@@ -253,47 +253,16 @@ fn pi_status(exit_code: Option<i32>) -> AgentStatus {
     }
 }
 
-fn without_escapes(text: &str) -> String {
-    let mut plain = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for next in chars.by_ref() {
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        plain.push(c);
-    }
-    plain
-}
-
 /// The `account` of an agent that is ready only on its free models, with no sign-in or key.
 pub const FREE_MODELS: &str = "freeModels";
 
-/// `opencode auth list` ends with a count such as "1 credentials". A provider key in the
+/// How many credentials OpenCode keeps, if its database can be read. A provider key in the
 /// environment counts as well, since OpenCode reads those without a stored credential. With
 /// neither, OpenCode still runs its own free models, unless they are turned off.
 fn opencode_status<'a>(
-    listing: &str,
+    stored: Option<usize>,
     environment: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> AgentStatus {
-    let plain = without_escapes(listing);
-    let stored = plain.lines().rev().find_map(|line| {
-        let words: Vec<&str> = line
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .split_whitespace()
-            .collect();
-        match words.as_slice() {
-            [count, noun, ..] if noun.starts_with("credential") => count.parse::<u32>().ok(),
-            _ => None,
-        }
-    });
     if stored.is_some_and(|count| count > 0) {
         return AgentStatus::Ready { account: None };
     }
@@ -376,22 +345,14 @@ pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> Age
     }
 }
 
-pub(crate) async fn opencode_sign_in(
-    program: &Path,
-    config_path: Option<&str>,
-    providers: BTreeMap<String, String>,
-) -> AgentStatus {
-    let Some((_, listing)) =
-        exit_code_and_output("opencode", program, config_path, &["auth", "list"]).await
-    else {
-        return AgentStatus::Unknown;
-    };
+pub(crate) async fn opencode_sign_in(providers: BTreeMap<String, String>) -> AgentStatus {
+    let stored = crate::sessions::opencode::saved_credentials();
     let shell = sikemux_pty::user_shell::login_shell_environment();
     let environment = shell
         .iter()
         .chain(providers.iter())
         .map(|(name, value)| (name.as_str(), value.as_str()));
-    opencode_status(&listing, environment)
+    opencode_status(stored, environment)
 }
 
 fn parse_claude_status(text: &str) -> Option<AccountStatus> {
@@ -672,20 +633,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn opencode_is_asked_for_its_credentials() {
-        let dir = tempfile::tempdir().unwrap();
-        let listed = fake_cli(
-            dir.path(),
-            &[("auth list", "┌  Credentials\n│\n└  2 credentials\n", 0)],
-            ("", 1),
-        );
-        assert_eq!(
-            check_sign_in("opencode", &listed, None, BTreeMap::new()).await,
-            AgentStatus::Ready { account: None }
-        );
-    }
-
-    #[tokio::test]
     async fn claude_answers_through_its_account_check() {
         let dir = tempfile::tempdir().unwrap();
         let signed_in = fake_cli(
@@ -720,12 +667,11 @@ mod tests {
 
     #[test]
     fn opencode_counts_its_credentials_and_provider_keys() {
-        let one = "\u{1b}[0m\n┌  Credentials \u{1b}[90m~/.local/share/opencode/auth.json\n│\n●  Anthropic \u{1b}[90mapi\n│\n└  1 credentials\n";
         assert_eq!(
-            opencode_status(one, []),
+            opencode_status(Some(1), []),
             AgentStatus::Ready { account: None }
         );
-        let none = "┌  Credentials ~/.local/share/opencode/auth.json\n│\n└  0 credentials\n";
+        let none = Some(0);
         let free = AgentStatus::Ready {
             account: Some(FREE_MODELS.into()),
         };
@@ -748,7 +694,7 @@ mod tests {
             opencode_status(none, [("OPENAI_API_KEY", " "), ("PATH", "/bin")]),
             free
         );
-        assert_eq!(opencode_status("something else", []), AgentStatus::Unknown);
+        assert_eq!(opencode_status(None, []), AgentStatus::Unknown);
     }
 
     #[test]
