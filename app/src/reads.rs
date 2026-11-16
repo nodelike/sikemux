@@ -243,6 +243,8 @@ pub struct Reads {
     pub hosts: Vec<HostRow>,
     /// How updating this app stands, once the core has said.
     pub update: Option<UpdateStatus>,
+    /// The build whose notes the person last read, while a nightly's notes wait unread.
+    pub news_since: Option<String>,
     /// How much of its plan each account has used, as the core last read it.
     pub usage: Vec<AccountUsage>,
     /// The chats this host shares read-only.
@@ -576,7 +578,11 @@ impl Workbench {
             }
             Read::WhatsNew => {
                 let news = decoded::<WhatsNew>(value, "release notes");
-                let unseen = news.is_some_and(|news| news.unseen);
+                let unseen = news.as_ref().is_some_and(|news| news.unseen);
+                let since = news.and_then(|news| news.since);
+                if keep(&mut self.reads.news_since, since) {
+                    cx.notify();
+                }
                 crate::screens::experience::whats_new_read(self, unseen, cx);
             }
             Read::PickerFolders => {

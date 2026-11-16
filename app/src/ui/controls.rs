@@ -304,6 +304,18 @@ impl Button {
         self
     }
 
+    /// Drawn before the label in place of an icon, for one in a colour of its own.
+    pub fn lead(mut self, lead: impl IntoElement) -> Self {
+        self.lead = Some(lead.into_any_element());
+        self
+    }
+
+    /// Drawn after the label.
+    pub fn trail(mut self, trail: impl IntoElement) -> Self {
+        self.trail = Some(trail.into_any_element());
+        self
+    }
+
     /// Dimmed, and does nothing when clicked.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;

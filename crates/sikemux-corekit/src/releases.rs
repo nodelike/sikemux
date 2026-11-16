@@ -1,6 +1,6 @@
 //! What a release says about itself: its notes, read from the GitHub release,
 //! and who made it, read from the commits since the previous release on the
-//! same channel. Avatars are fetched here too, because the window only draws
+//! same channel, or since the build whose notes the person last read. Avatars are fetched here too, because the window only draws
 //! images handed to it as `data:` URLs.
 
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use semver::Version;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -61,6 +61,8 @@ struct Comparison {
 struct ComparedCommit {
     author: Option<Account>,
     commit: CommitDetail,
+    #[serde(default)]
+    parents: Vec<IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +76,8 @@ struct Account {
 #[derive(Deserialize)]
 struct CommitDetail {
     author: Option<ReleaseCommitAuthor>,
+    #[serde(default)]
+    message: String,
 }
 
 #[derive(Deserialize)]
@@ -99,25 +103,47 @@ pub fn bundled_credits(manifest: &serde_json::Value) -> Option<ReleaseCredits> {
     Some(credits)
 }
 
-/// The notes of one published release, and everyone who committed to it.
-/// The notes are what matter, so a failed contributor lookup leaves the
+/// The notes of one published release, and everyone who committed to it. Given the build
+/// the person last read, the notes list every change since that build instead of the
+/// release's own. The notes are what matter, so a failed contributor lookup leaves the
 /// credits empty rather than failing the whole answer.
-pub async fn release_notes(version: String) -> Result<ReleaseNotes, String> {
+pub async fn release_notes(version: String, since: Option<String>) -> Result<ReleaseNotes, String> {
     let parsed = Version::parse(&version)
         .map_err(|_| "a release version must be a semantic version".to_owned())?;
-    if let Some(known) = cached_notes(&version) {
+    let since = since
+        .map(|since| match Version::parse(&since) {
+            Ok(read) if read < parsed => Ok(Some(since)),
+            Ok(_) => Ok(None),
+            Err(_) => Err("a release version must be a semantic version".to_owned()),
+        })
+        .transpose()?
+        .flatten();
+    let key = match &since {
+        Some(since) => format!("{since}...{version}"),
+        None => version.clone(),
+    };
+    if let Some(known) = cached_notes(&key) {
         return Ok(known);
     }
     let tag = format!("v{version}");
     let release_url = format!("{REPO_API}/releases/tags/{tag}");
-    let (release, credits) = tokio::join!(get_json::<GithubRelease>(&release_url), async {
-        let previous = previous_tag(&parsed).await?;
+    let (release, compared) = tokio::join!(get_json::<GithubRelease>(&release_url), async {
+        let previous = match &since {
+            Some(since) => format!("v{since}"),
+            None => previous_tag(&parsed).await?,
+        };
         credits_between(&previous, &tag).await
     });
     let release = release.map_err(|error| format!("GitHub has no release {tag}: {error}"))?;
+    let own_notes = release.body.filter(|body| !body.trim().is_empty());
+    let (credits, subjects) = compared.unzip();
+    let notes = match (&since, subjects) {
+        (Some(since), Some(subjects)) => changes_since(since, &subjects),
+        _ => own_notes,
+    };
     let notes = ReleaseNotes {
-        version: version.clone(),
-        notes: release.body.filter(|body| !body.trim().is_empty()),
+        version,
+        notes,
         date: release.published_at,
         commits: credits.as_ref().map(|credits| credits.commits),
         compare: credits.as_ref().map(|credits| credits.compare.clone()),
@@ -126,9 +152,41 @@ pub async fn release_notes(version: String) -> Result<ReleaseNotes, String> {
             .unwrap_or_default(),
     };
     if notes.compare.is_some() {
-        remember_notes(&version, notes.clone());
+        remember_notes(&key, notes.clone());
     }
     Ok(notes)
+}
+
+/// The `feat`, `fix` and `perf` subjects since `since`, oldest first, listed as
+/// `scripts/stamp-nightly.sh` lists a nightly's.
+fn changes_since(since: &str, subjects: &[String]) -> Option<String> {
+    let changes: Vec<String> = subjects
+        .iter()
+        .filter_map(|subject| change(subject))
+        .map(|change| format!("- {change}"))
+        .collect();
+    if changes.is_empty() {
+        return None;
+    }
+    Some(format!("## New since {since}\n\n{}\n", changes.join("\n")))
+}
+
+/// `fix(rail)!: The chip waits. More detail` as `The chip waits.`; nothing for another kind.
+fn change(subject: &str) -> Option<&str> {
+    let rest = ["feat", "fix", "perf"]
+        .into_iter()
+        .find_map(|kind| subject.strip_prefix(kind))?;
+    let rest = match rest.strip_prefix('(') {
+        Some(scoped) => &scoped[scoped.find(')')? + 1..],
+        None => rest,
+    };
+    let said = rest.strip_prefix('!').unwrap_or(rest).strip_prefix(": ")?;
+    match said.find('.') {
+        Some(stop) if said[stop + 1..].is_empty() || said[stop + 1..].starts_with(' ') => {
+            Some(&said[..=stop])
+        }
+        _ => Some(said),
+    }
 }
 
 async fn previous_tag(version: &Version) -> Option<String> {
@@ -152,7 +210,8 @@ fn previous_release<'a>(version: &Version, tags: impl Iterator<Item = &'a str>) 
     .map(|(_, tag)| tag.to_owned())
 }
 
-async fn credits_between(previous: &str, tag: &str) -> Option<ReleaseCredits> {
+/// Who committed between the two tags, and the subjects of the commits that are not merges.
+async fn credits_between(previous: &str, tag: &str) -> Option<(ReleaseCredits, Vec<String>)> {
     let page_url = |page: usize| {
         format!("{REPO_API}/compare/{previous}...{tag}?per_page={COMMITS_PER_PAGE}&page={page}")
     };
@@ -174,12 +233,19 @@ async fn credits_between(previous: &str, tag: &str) -> Option<ReleaseCredits> {
     }
     rest.sort_by_key(|(page, _)| *page);
     commits.extend(rest.into_iter().flat_map(|(_, page)| page));
-    Some(ReleaseCredits {
+    let subjects = commits
+        .iter()
+        .filter(|commit| commit.parents.len() < 2)
+        .filter_map(|commit| commit.commit.message.lines().next())
+        .map(str::to_owned)
+        .collect();
+    let credits = ReleaseCredits {
         commits: total,
         compare: format!("{REPO_WEB}/compare/{previous}...{tag}"),
         contributors: tally(commits),
         avatars: HashMap::new(),
-    })
+    };
+    Some((credits, subjects))
 }
 
 /// People ordered by how many commits they made. Commits with no GitHub

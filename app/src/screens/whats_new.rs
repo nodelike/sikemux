@@ -84,10 +84,11 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     cx.spawn(async move |bench, cx| {
         let here = Target::here(&asks);
         let running = here.request_typed::<call::WhatsNew>(NoParams {}).await;
-        let Ok(version) = running.map(|news| news.version) else {
+        let Ok(running) = running else {
             return;
         };
-        let Ok((version, complete)) = bench.update(cx, |bench, cx| {
+        let version = running.version;
+        let Ok((version, since, complete)) = bench.update(cx, |bench, cx| {
             // An app that updates by itself shows a release's notes once it runs it, not before.
             let available = pending(bench)
                 .filter(|update| update.automatic != Some(true))
@@ -95,6 +96,7 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             let shown =
                 available.map_or_else(|| version.clone(), |release| release.version.clone());
             let bundled = available.and_then(Bundled::of);
+            let since = running.since.filter(|_| available.is_none());
             if let Some(news) = news_of(bench) {
                 news.running = Some(version);
                 news.version = Some(shown.clone());
@@ -104,7 +106,7 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
                 show_notes(bench, Ok(bundled.notes), bundled.avatars);
             }
             bench.parts.redraw(&bench.parts.over, cx);
-            (shown, complete)
+            (shown, since, complete)
         }) else {
             return;
         };
@@ -112,7 +114,7 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             return;
         }
         let notes = here
-            .request_typed::<call::ReleaseNotes>(NotesParams { version })
+            .request_typed::<call::ReleaseNotes>(NotesParams { version, since })
             .await;
         let urls: Vec<String> = notes
             .as_ref()

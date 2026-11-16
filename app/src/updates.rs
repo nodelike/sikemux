@@ -183,9 +183,11 @@ pub(crate) fn tell_put_back(bench: &mut Workbench, cx: &mut Context<Workbench>) 
 }
 
 /// The rail's note that an update is out, or how its install is going, which opens this
-/// screen; none while there is no update.
+/// screen; with no update, the quiet note that a nightly's notes wait unread.
 pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let update = pending(bench)?;
+    let Some(update) = pending(bench) else {
+        return news_note(bench, cx);
+    };
     let version = available_version(update);
     let (label, icon, variant, tip) = match update.state {
         UpdateState::Failed => (
@@ -249,16 +251,47 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
                 _ => experience::open_whats_new(bench, cx),
             }),
         );
-    Some(
-        div()
-            .flex_none()
-            .mx(SPACE_2H)
-            .mb(SPACE_2)
-            .flex()
-            .flex_col()
-            .child(chip)
-            .into_any_element(),
-    )
+    Some(rail_slot(chip))
+}
+
+/// A nightly installed itself without opening its notes, so the rail offers every change
+/// since the build the person last read; reading them clears it.
+fn news_note(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let since = bench.reads.news_since.as_deref()?;
+    let t = Tokens::get(cx);
+    let build = match since.split_once("-nightly.") {
+        Some((_, number)) => t!("since nightly {number}", number = number),
+        None => t!("since v{version}", version = since),
+    };
+    let mut tip = t!("New since v{version}.", version = since);
+    if let Some(update) = bench.reads.update.as_ref() {
+        tip = format!("{tip}\n{}", running(update));
+    }
+    let note = ui::Button::new("rail-whats-new", t!("What's new"), ui::Variant::Ghost)
+        .lead(ui::icon(Icon::Sparkle, 11.).text_color(t.accent))
+        .trail(
+            div()
+                .flex_1()
+                .flex()
+                .justify_end()
+                .text_color(t.text_tertiary)
+                .child(build),
+        )
+        .tooltip(tip)
+        .on_click(cx.listener(|bench, _, _, cx| experience::open_whats_new(bench, cx)));
+    Some(rail_slot(note))
+}
+
+/// Where the rail draws its update chip or news note, above the account.
+fn rail_slot(chip: impl IntoElement) -> AnyElement {
+    div()
+        .flex_none()
+        .mx(SPACE_2H)
+        .mb(SPACE_2)
+        .flex()
+        .flex_col()
+        .child(chip)
+        .into_any_element()
 }
 
 /// Covers the window while the accounts server no longer works with this build, which keeps

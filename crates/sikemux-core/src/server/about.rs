@@ -15,7 +15,7 @@ use super::{Core, CoreError, CoreResult};
 use crate::releases;
 
 pub(crate) async fn release_notes(params: NotesParams) -> CoreResult<releases::ReleaseNotes> {
-    releases::release_notes(params.version)
+    releases::release_notes(params.version, params.since)
         .await
         .map_err(CoreError::from)
 }
@@ -26,15 +26,19 @@ pub(crate) async fn release_avatars(params: AvatarsParams) -> HashMap<String, St
 }
 
 /// An app that asks before updating showed the notes before the update went in, so only
-/// one that updates by itself has notes left to show once it runs the new release.
+/// one that updates by itself has notes left to show once it runs the new release. A nightly
+/// installs itself after every idle break, so its notes wait to be asked for.
 pub(crate) fn whats_new(core: &Core) -> WhatsNew {
     let preferences = core.preferences().get();
     let version = core.config().build.version.clone();
-    let updates_by_itself = super::updates::updates_by_itself(core);
+    let unread = super::updates::updates_by_itself(core)
+        && preferences.onboarding_complete
+        && preferences.last_seen_version != version;
+    let nightly = version.contains("-nightly.");
+    let since = Some(preferences.last_seen_version).filter(|seen| !seen.is_empty());
     WhatsNew {
-        unseen: updates_by_itself
-            && preferences.onboarding_complete
-            && preferences.last_seen_version != version,
+        unseen: unread && !nightly,
+        since: since.filter(|_| unread && nightly),
         version,
     }
 }
