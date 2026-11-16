@@ -373,6 +373,10 @@
         "403": {
           "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
           "body": "ApiError"
+        },
+        "409": {
+          "description": "You are the only owner of an org: make someone else its owner, or delete it, first.",
+          "body": "ApiError"
         }
       }
     },
@@ -403,6 +407,283 @@
         "200": {
           "description": "The profile, read from the account's sign-in.",
           "body": "AccountProfile"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs",
+      "operationId": "createOrg",
+      "summary": "Make an org, with you as its owner",
+      "auth": "session",
+      "request": "OrgCreate",
+      "responses": {
+        "201": {
+          "description": "The new org. It has no seats beyond its owner until it has a Team plan.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgCreate.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs",
+      "operationId": "listOrgs",
+      "summary": "The orgs you are in",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Each org with your role and its seats.",
+          "body": "OrgList"
+        },
+        "404": {
+          "description": "Your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/join",
+      "operationId": "joinOrg",
+      "summary": "Accept an invite and join its org",
+      "auth": "session",
+      "request": "OrgJoin",
+      "responses": {
+        "200": {
+          "description": "You are in the org, with the invite's role. The invite is used up.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgJoin.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No invite has that token, or it was used, revoked or has expired.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "You are already in the org, or it has no free seat because its Team plan lapsed or its seats were cut.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/name",
+      "operationId": "renameOrg",
+      "summary": "Rename an org, as its owner or an admin",
+      "auth": "session",
+      "request": "OrgRename",
+      "responses": {
+        "200": {
+          "description": "The org under its new name.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgRename.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}",
+      "operationId": "deleteOrg",
+      "summary": "Delete an org, as its owner",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The org, its members and its invites are gone."
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org still has a subscription that has not ended; cancel it first.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/members",
+      "operationId": "listOrgMembers",
+      "summary": "Everyone in an org",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The members with their roles.",
+          "body": "OrgMemberList"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/members/{userId}/role",
+      "operationId": "setOrgMemberRole",
+      "summary": "Change a member's role",
+      "auth": "session",
+      "request": "OrgRoleChange",
+      "responses": {
+        "200": {
+          "description": "The member with the new role. An admin changes admins and users; only an owner makes or unmakes an owner.",
+          "body": "OrgMember"
+        },
+        "400": {
+          "description": "The body is not a valid OrgRoleChange.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "It would leave the org with no owner.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/members/{userId}",
+      "operationId": "removeOrgMember",
+      "summary": "Take someone out of an org",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "They are no longer in the org, and their seat is free. An admin removes admins and users; only an owner removes an owner."
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "It would leave the org with no owner.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/leave",
+      "operationId": "leaveOrg",
+      "summary": "Leave an org",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "You are no longer in the org, and your seat is free."
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "You are its only owner: make someone else an owner, or delete the org.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/invites",
+      "operationId": "createOrgInvite",
+      "summary": "Make an invite link, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgInviteCreate",
+      "responses": {
+        "201": {
+          "description": "The invite and its link, shown only now. It holds a seat until it is accepted, revoked or expires in 7 days.",
+          "body": "OrgInviteCreated"
+        },
+        "400": {
+          "description": "The body is not a valid OrgInviteCreate.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it. Only an owner invites an owner.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/invites",
+      "operationId": "listOrgInvites",
+      "summary": "An org's pending invites, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The invites not yet accepted, revoked or expired.",
+          "body": "OrgInviteList"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/invites/{inviteId}",
+      "operationId": "revokeOrgInvite",
+      "summary": "Revoke an invite, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The link no longer works and its seat is free. Revoking one already used, revoked or expired changes nothing."
+        },
+        "403": {
+          "description": "Your role in the org does not allow it. Only an owner revokes an invite to be an owner.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no invite with that id.",
+          "body": "ApiError"
         }
       }
     },

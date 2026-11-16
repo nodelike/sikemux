@@ -828,8 +828,108 @@ pub struct Money {
     pub currency: Currency,
 }
 
+/// An org you are in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Org {
+    pub id: OrgId,
+    pub name: OrgName,
+    /// Your role in it.
+    pub role: OrgRole,
+    pub seats: OrgSeats,
+    pub created_at: String,
+}
+
+/// A new org, with you as its owner.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgCreate {
+    pub name: OrgName,
+}
+
 /// An org's id, a UUID in lowercase.
 pub type OrgId = String;
+
+/// An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInvite {
+    pub id: OrgInviteId,
+    /// The role whoever accepts it joins with.
+    pub role: OrgRole,
+    pub invited_by: OrgUserId,
+    pub created_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInviteCreate {
+    pub role: OrgRole,
+}
+
+/// A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInviteCreated {
+    pub invite: OrgInvite,
+    pub token: OrgInviteToken,
+    pub link: String,
+}
+
+/// An invite's id, a UUID in lowercase.
+pub type OrgInviteId = String;
+
+/// The org's pending invites, newest first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInviteList {
+    pub invites: Vec<OrgInvite>,
+}
+
+/// The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.
+pub type OrgInviteToken = String;
+
+/// Accepting an invite.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgJoin {
+    pub token: OrgInviteToken,
+}
+
+/// The orgs you are in, oldest first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgList {
+    pub orgs: Vec<Org>,
+}
+
+/// Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMember {
+    pub user_id: OrgUserId,
+    pub role: OrgRole,
+    pub name: Option<String>,
+    pub image_url: Option<String>,
+    pub joined_at: String,
+}
+
+/// Everyone in the org, in the order they joined.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMemberList {
+    pub members: Vec<OrgMember>,
+}
+
+/// What the org is called, as its members see it.
+pub type OrgName = String;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRename {
+    pub name: OrgName,
+}
 
 /// What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -844,6 +944,23 @@ pub enum OrgRole {
     #[serde(other)]
     Unknown,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRoleChange {
+    pub role: OrgRole,
+}
+
+/// Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgSeats {
+    pub held: i64,
+    pub limit: i64,
+}
+
+/// A member's account, by its Clerk user id.
+pub type OrgUserId = String;
 
 /// The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1345,8 +1462,25 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveRole" => through::<LiveRole>(json),
         "LiveServerMessage" => through::<LiveServerMessage>(json),
         "Money" => through::<Money>(json),
+        "Org" => through::<Org>(json),
+        "OrgCreate" => through::<OrgCreate>(json),
         "OrgId" => through::<OrgId>(json),
+        "OrgInvite" => through::<OrgInvite>(json),
+        "OrgInviteCreate" => through::<OrgInviteCreate>(json),
+        "OrgInviteCreated" => through::<OrgInviteCreated>(json),
+        "OrgInviteId" => through::<OrgInviteId>(json),
+        "OrgInviteList" => through::<OrgInviteList>(json),
+        "OrgInviteToken" => through::<OrgInviteToken>(json),
+        "OrgJoin" => through::<OrgJoin>(json),
+        "OrgList" => through::<OrgList>(json),
+        "OrgMember" => through::<OrgMember>(json),
+        "OrgMemberList" => through::<OrgMemberList>(json),
+        "OrgName" => through::<OrgName>(json),
+        "OrgRename" => through::<OrgRename>(json),
         "OrgRole" => through::<OrgRole>(json),
+        "OrgRoleChange" => through::<OrgRoleChange>(json),
+        "OrgSeats" => through::<OrgSeats>(json),
+        "OrgUserId" => through::<OrgUserId>(json),
         "PaymentCard" => through::<PaymentCard>(json),
         "PlanFeature" => through::<PlanFeature>(json),
         "PlanId" => through::<PlanId>(json),

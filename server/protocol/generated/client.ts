@@ -36,7 +36,18 @@ import type {
   ModsPush,
   ModsPushed,
   Network,
+  Org,
+  OrgCreate,
   OrgId,
+  OrgInviteCreate,
+  OrgInviteCreated,
+  OrgInviteList,
+  OrgJoin,
+  OrgList,
+  OrgMember,
+  OrgMemberList,
+  OrgRename,
+  OrgRoleChange,
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
@@ -154,6 +165,59 @@ export function apiClient(send: Send) {
     restoreAccount: () => send<Account>("POST", `/v1/account/restore`),
     /** The name, email and picture of the account a host is on. */
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
+    /** Make an org, with you as its owner. */
+    createOrg: (body: OrgCreate) => send<Org>("POST", `/v1/orgs`, body),
+    /** The orgs you are in. */
+    listOrgs: () => send<OrgList>("GET", `/v1/orgs`),
+    /** Accept an invite and join its org. */
+    joinOrg: (body: OrgJoin) => send<Org>("POST", `/v1/orgs/join`, body),
+    /** Rename an org, as its owner or an admin. */
+    renameOrg: (orgId: string, body: OrgRename) =>
+      send<Org>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/name`, body),
+    /** Delete an org, as its owner. */
+    deleteOrg: (orgId: string) =>
+      send<void>("DELETE", `/v1/orgs/${encodeURIComponent(orgId)}`),
+    /** Everyone in an org. */
+    listOrgMembers: (orgId: string) =>
+      send<OrgMemberList>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/members`,
+      ),
+    /** Change a member's role. */
+    setOrgMemberRole: (orgId: string, userId: string, body: OrgRoleChange) =>
+      send<OrgMember>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/role`,
+        body,
+      ),
+    /** Take someone out of an org. */
+    removeOrgMember: (orgId: string, userId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
+      ),
+    /** Leave an org. */
+    leaveOrg: (orgId: string) =>
+      send<void>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/leave`),
+    /** Make an invite link, as an owner or an admin. */
+    createOrgInvite: (orgId: string, body: OrgInviteCreate) =>
+      send<OrgInviteCreated>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
+        body,
+      ),
+    /** An org's pending invites, as an owner or an admin. */
+    listOrgInvites: (orgId: string) =>
+      send<OrgInviteList>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
+      ),
+    /** Revoke an invite, as an owner or an admin. */
+    revokeOrgInvite: (orgId: string, inviteId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}`,
+      ),
     /** Stash a link, text or file on your account. */
     addStash: (body: StashAdd) => send<StashItem>("POST", `/v1/stash`, body),
     /** Your stash, newest first. */

@@ -895,12 +895,103 @@ export interface Network {
   flags?: Flags;
 }
 
+/** An org you are in. */
+export interface Org {
+  id: OrgId;
+  name: OrgName;
+  /** Your role in it. */
+  role: OrgRole;
+  seats: OrgSeats;
+  createdAt: string;
+}
+
+/** A new org, with you as its owner. */
+export interface OrgCreate {
+  name: OrgName;
+}
+
 /** An org's id, a UUID in lowercase. */
 export type OrgId = string;
+
+/** An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires. */
+export interface OrgInvite {
+  id: OrgInviteId;
+  /** The role whoever accepts it joins with. */
+  role: OrgRole;
+  invitedBy: OrgUserId;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface OrgInviteCreate {
+  role: OrgRole;
+}
+
+/** A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days. */
+export interface OrgInviteCreated {
+  invite: OrgInvite;
+  token: OrgInviteToken;
+  link: string;
+}
+
+/** An invite's id, a UUID in lowercase. */
+export type OrgInviteId = string;
+
+/** The org's pending invites, newest first. */
+export interface OrgInviteList {
+  invites: OrgInvite[];
+}
+
+/** The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash. */
+export type OrgInviteToken = string;
+
+/** Accepting an invite. */
+export interface OrgJoin {
+  token: OrgInviteToken;
+}
+
+/** The orgs you are in, oldest first. */
+export interface OrgList {
+  orgs: Org[];
+}
+
+/** Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now. */
+export interface OrgMember {
+  userId: OrgUserId;
+  role: OrgRole;
+  name: string | null;
+  imageUrl: string | null;
+  joinedAt: string;
+}
+
+/** Everyone in the org, in the order they joined. */
+export interface OrgMemberList {
+  members: OrgMember[];
+}
+
+/** What the org is called, as its members see it. */
+export type OrgName = string;
+
+export interface OrgRename {
+  name: OrgName;
+}
 
 /** What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner. */
 export type OrgRole = "owner" | "admin" | "user";
 export const orgRoleValues: readonly OrgRole[] = ["owner", "admin", "user"];
+
+export interface OrgRoleChange {
+  role: OrgRole;
+}
+
+/** Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited. */
+export interface OrgSeats {
+  held: number;
+  limit: number;
+}
+
+/** A member's account, by its Clerk user id. */
+export type OrgUserId = string;
 
 /** The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept. */
 export interface PaymentCard {
@@ -1716,8 +1807,25 @@ export interface Definitions {
   ModStored: ModStored;
   Money: Money;
   Network: Network;
+  Org: Org;
+  OrgCreate: OrgCreate;
   OrgId: OrgId;
+  OrgInvite: OrgInvite;
+  OrgInviteCreate: OrgInviteCreate;
+  OrgInviteCreated: OrgInviteCreated;
+  OrgInviteId: OrgInviteId;
+  OrgInviteList: OrgInviteList;
+  OrgInviteToken: OrgInviteToken;
+  OrgJoin: OrgJoin;
+  OrgList: OrgList;
+  OrgMember: OrgMember;
+  OrgMemberList: OrgMemberList;
+  OrgName: OrgName;
+  OrgRename: OrgRename;
   OrgRole: OrgRole;
+  OrgRoleChange: OrgRoleChange;
+  OrgSeats: OrgSeats;
+  OrgUserId: OrgUserId;
   PaymentCard: PaymentCard;
   PendingHost: PendingHost;
   PlanFeature: PlanFeature;

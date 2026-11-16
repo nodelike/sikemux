@@ -828,6 +828,14 @@
               }
             }
           },
+          "409": {
+            "description": "You are the only owner of an org: make someone else its owner, or delete it, first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "default": {
             "description": "Something went wrong.",
             "content": {
@@ -885,6 +893,664 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/AccountProfile" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs": {
+      "post": {
+        "operationId": "createOrg",
+        "summary": "Make an org, with you as its owner",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new org. It has no seats beyond its owner until it has a Team plan.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgCreate.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listOrgs",
+        "summary": "The orgs you are in",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "Each org with your role and its seats.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgList" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/join": {
+      "post": {
+        "operationId": "joinOrg",
+        "summary": "Accept an invite and join its org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgJoin" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "You are in the org, with the invite's role. The invite is used up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgJoin.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No invite has that token, or it was used, revoked or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "You are already in the org, or it has no free seat because its Team plan lapsed or its seats were cut.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/name": {
+      "post": {
+        "operationId": "renameOrg",
+        "summary": "Rename an org, as its owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgRename" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The org under its new name.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgRename.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}": {
+      "delete": {
+        "operationId": "deleteOrg",
+        "summary": "Delete an org, as its owner",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The org, its members and its invites are gone."
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org still has a subscription that has not ended; cancel it first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/members": {
+      "get": {
+        "operationId": "listOrgMembers",
+        "summary": "Everyone in an org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The members with their roles.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgMemberList" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/members/{userId}/role": {
+      "put": {
+        "operationId": "setOrgMemberRole",
+        "summary": "Change a member's role",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgRoleChange" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The member with the new role. An admin changes admins and users; only an owner makes or unmakes an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgMember" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgRoleChange.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "It would leave the org with no owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/members/{userId}": {
+      "delete": {
+        "operationId": "removeOrgMember",
+        "summary": "Take someone out of an org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "They are no longer in the org, and their seat is free. An admin removes admins and users; only an owner removes an owner."
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "It would leave the org with no owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/leave": {
+      "post": {
+        "operationId": "leaveOrg",
+        "summary": "Leave an org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "You are no longer in the org, and your seat is free."
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "You are its only owner: make someone else an owner, or delete the org.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/invites": {
+      "post": {
+        "operationId": "createOrgInvite",
+        "summary": "Make an invite link, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgInviteCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The invite and its link, shown only now. It holds a seat until it is accepted, revoked or expires in 7 days.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgInviteCreated" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgInviteCreate.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it. Only an owner invites an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listOrgInvites",
+        "summary": "An org's pending invites, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invites not yet accepted, revoked or expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgInviteList" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/invites/{inviteId}": {
+      "delete": {
+        "operationId": "revokeOrgInvite",
+        "summary": "Revoke an invite, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "inviteId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The link no longer works and its seat is free. Revoking one already used, revoked or expired changes nothing."
+          },
+          "403": {
+            "description": "Your role in the org does not allow it. Only an owner revokes an invite to be an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no invite with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
               }
             }
           },
@@ -4491,15 +5157,176 @@
         "required": ["relays", "minimumVersions"],
         "additionalProperties": false
       },
+      "Org": {
+        "description": "An org you are in.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgId" },
+          "name": { "$ref": "#/components/schemas/OrgName" },
+          "role": {
+            "description": "Your role in it.",
+            "$ref": "#/components/schemas/OrgRole"
+          },
+          "seats": { "$ref": "#/components/schemas/OrgSeats" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "role", "seats", "createdAt"],
+        "additionalProperties": false
+      },
+      "OrgCreate": {
+        "description": "A new org, with you as its owner.",
+        "type": "object",
+        "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
+        "required": ["name"],
+        "additionalProperties": false
+      },
       "OrgId": {
         "description": "An org's id, a UUID in lowercase.",
         "type": "string",
         "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
       },
+      "OrgInvite": {
+        "description": "An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgInviteId" },
+          "role": {
+            "description": "The role whoever accepts it joins with.",
+            "$ref": "#/components/schemas/OrgRole"
+          },
+          "invitedBy": { "$ref": "#/components/schemas/OrgUserId" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "role", "invitedBy", "createdAt", "expiresAt"],
+        "additionalProperties": false
+      },
+      "OrgInviteCreate": {
+        "type": "object",
+        "properties": { "role": { "$ref": "#/components/schemas/OrgRole" } },
+        "required": ["role"],
+        "additionalProperties": false
+      },
+      "OrgInviteCreated": {
+        "description": "A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.",
+        "type": "object",
+        "properties": {
+          "invite": { "$ref": "#/components/schemas/OrgInvite" },
+          "token": { "$ref": "#/components/schemas/OrgInviteToken" },
+          "link": { "type": "string", "format": "uri", "maxLength": 2048 }
+        },
+        "required": ["invite", "token", "link"],
+        "additionalProperties": false
+      },
+      "OrgInviteId": {
+        "description": "An invite's id, a UUID in lowercase.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgInviteList": {
+        "description": "The org's pending invites, newest first.",
+        "type": "object",
+        "properties": {
+          "invites": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgInvite" }
+          }
+        },
+        "required": ["invites"],
+        "additionalProperties": false
+      },
+      "OrgInviteToken": {
+        "description": "The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{43}$"
+      },
+      "OrgJoin": {
+        "description": "Accepting an invite.",
+        "type": "object",
+        "properties": {
+          "token": { "$ref": "#/components/schemas/OrgInviteToken" }
+        },
+        "required": ["token"],
+        "additionalProperties": false
+      },
+      "OrgList": {
+        "description": "The orgs you are in, oldest first.",
+        "type": "object",
+        "properties": {
+          "orgs": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Org" }
+          }
+        },
+        "required": ["orgs"],
+        "additionalProperties": false
+      },
+      "OrgMember": {
+        "description": "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
+        "type": "object",
+        "properties": {
+          "userId": { "$ref": "#/components/schemas/OrgUserId" },
+          "role": { "$ref": "#/components/schemas/OrgRole" },
+          "name": { "type": ["string", "null"], "maxLength": 256 },
+          "imageUrl": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "joinedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["userId", "role", "name", "imageUrl", "joinedAt"],
+        "additionalProperties": false
+      },
+      "OrgMemberList": {
+        "description": "Everyone in the org, in the order they joined.",
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgMember" }
+          }
+        },
+        "required": ["members"],
+        "additionalProperties": false
+      },
+      "OrgName": {
+        "description": "What the org is called, as its members see it.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "OrgRename": {
+        "type": "object",
+        "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
+        "required": ["name"],
+        "additionalProperties": false
+      },
       "OrgRole": {
         "description": "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
         "type": "string",
         "enum": ["owner", "admin", "user"]
+      },
+      "OrgRoleChange": {
+        "type": "object",
+        "properties": { "role": { "$ref": "#/components/schemas/OrgRole" } },
+        "required": ["role"],
+        "additionalProperties": false
+      },
+      "OrgSeats": {
+        "description": "Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.",
+        "type": "object",
+        "properties": {
+          "held": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["held", "limit"],
+        "additionalProperties": false
+      },
+      "OrgUserId": {
+        "description": "A member's account, by its Clerk user id.",
+        "type": "string",
+        "pattern": "^user_[A-Za-z0-9]+$"
       },
       "PaymentCard": {
         "description": "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",

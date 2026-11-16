@@ -11,6 +11,234 @@
       "description": "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
       "type": "string",
       "enum": ["owner", "admin", "user"]
+    },
+    "OrgName": {
+      "description": "What the org is called, as its members see it.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "OrgUserId": {
+      "description": "A member's account, by its Clerk user id.",
+      "type": "string",
+      "pattern": "^user_[A-Za-z0-9]+$"
+    },
+    "OrgInviteId": {
+      "description": "An invite's id, a UUID in lowercase.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "OrgSeats": {
+      "description": "Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.",
+      "type": "object",
+      "properties": {
+        "held": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["held", "limit"],
+      "additionalProperties": false
+    },
+    "Org": {
+      "description": "An org you are in.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/OrgId"
+        },
+        "name": {
+          "$ref": "#/$defs/OrgName"
+        },
+        "role": {
+          "description": "Your role in it.",
+          "$ref": "#/$defs/OrgRole"
+        },
+        "seats": {
+          "$ref": "#/$defs/OrgSeats"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "role", "seats", "createdAt"],
+      "additionalProperties": false
+    },
+    "OrgList": {
+      "description": "The orgs you are in, oldest first.",
+      "type": "object",
+      "properties": {
+        "orgs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Org"
+          }
+        }
+      },
+      "required": ["orgs"],
+      "additionalProperties": false
+    },
+    "OrgCreate": {
+      "description": "A new org, with you as its owner.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/OrgName"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "OrgRename": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/OrgName"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "OrgMember": {
+      "description": "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "$ref": "#/$defs/OrgUserId"
+        },
+        "role": {
+          "$ref": "#/$defs/OrgRole"
+        },
+        "name": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "imageUrl": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "role", "name", "imageUrl", "joinedAt"],
+      "additionalProperties": false
+    },
+    "OrgMemberList": {
+      "description": "Everyone in the org, in the order they joined.",
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgMember"
+          }
+        }
+      },
+      "required": ["members"],
+      "additionalProperties": false
+    },
+    "OrgRoleChange": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/OrgRole"
+        }
+      },
+      "required": ["role"],
+      "additionalProperties": false
+    },
+    "OrgInvite": {
+      "description": "An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/OrgInviteId"
+        },
+        "role": {
+          "description": "The role whoever accepts it joins with.",
+          "$ref": "#/$defs/OrgRole"
+        },
+        "invitedBy": {
+          "$ref": "#/$defs/OrgUserId"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "role", "invitedBy", "createdAt", "expiresAt"],
+      "additionalProperties": false
+    },
+    "OrgInviteList": {
+      "description": "The org's pending invites, newest first.",
+      "type": "object",
+      "properties": {
+        "invites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgInvite"
+          }
+        }
+      },
+      "required": ["invites"],
+      "additionalProperties": false
+    },
+    "OrgInviteCreate": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/OrgRole"
+        }
+      },
+      "required": ["role"],
+      "additionalProperties": false
+    },
+    "OrgInviteToken": {
+      "description": "The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "OrgInviteCreated": {
+      "description": "A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.",
+      "type": "object",
+      "properties": {
+        "invite": {
+          "$ref": "#/$defs/OrgInvite"
+        },
+        "token": {
+          "$ref": "#/$defs/OrgInviteToken"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        }
+      },
+      "required": ["invite", "token", "link"],
+      "additionalProperties": false
+    },
+    "OrgJoin": {
+      "description": "Accepting an invite.",
+      "type": "object",
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/OrgInviteToken"
+        }
+      },
+      "required": ["token"],
+      "additionalProperties": false
     }
   }
 }
