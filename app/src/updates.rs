@@ -1,6 +1,7 @@
 //! How updating this app stands: the rail's note, the screen an update that must be taken puts
 //! over the window, and installing it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::FluentBuilder;
@@ -37,19 +38,41 @@ pub(crate) struct LastKey(pub Instant);
 
 impl Global for LastKey {}
 
+/// Set once this app has begun restarting. On the Mac every restart opens a new copy of the app,
+/// so a second one would leave two windows behind.
+static RESTARTING: AtomicBool = AtomicBool::new(false);
+
+/// Set while a wait for the person to go idle is running, so the update turning ready again
+/// does not start another one beside it.
+static WAITING_FOR_IDLE: AtomicBool = AtomicBool::new(false);
+
+/// Starts the app again, once however many times it is asked.
+pub(crate) fn restart_once(cx: &mut App) {
+    if !RESTARTING.swap(true, Ordering::SeqCst) {
+        cx.restart();
+    }
+}
+
 /// Starts the app again on the update in place. On Windows the core only fetched the release's
 /// installer, which the Sikemux service runs: it replaces the app and the core and opens the app
 /// again, so this hands over to it through the core.
 fn restart_into_update(asks: &UnboundedSender<Ask>, cx: &mut App) {
+    if RESTARTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
     #[cfg(windows)]
     if sikemux_process::paths::update_setup().is_some_and(|setup| setup.is_file()) {
         let applied = Target::here(asks).request_typed::<call::UpdateApply>(NoParams {});
         cx.spawn(async move |cx| match applied.await {
             Ok(true) => cx.update(|cx| cx.quit()),
             Ok(false) => {
-                eprintln!("sikemux: no Sikemux service runs this core to install the update")
+                eprintln!("sikemux: no Sikemux service runs this core to install the update");
+                RESTARTING.store(false, Ordering::SeqCst);
             }
-            Err(error) => eprintln!("sikemux: the update did not start: {error}"),
+            Err(error) => {
+                eprintln!("sikemux: the update did not start: {error}");
+                RESTARTING.store(false, Ordering::SeqCst);
+            }
         })
         .detach();
         return;
@@ -80,27 +103,43 @@ pub(crate) fn restart_when_keys_rest(asks: UnboundedSender<Ask>, cx: &mut App) {
 /// Restarts into an update that began by itself once the person has been idle a while,
 /// unless a chat started a turn meanwhile, which the core reports by waiting again.
 pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
-    cx.spawn(async move |bench, cx| loop {
-        let Ok((rested, asks)) = bench.update(cx, |bench, cx| {
-            let ready = (bench.reads.update.as_ref())
-                .is_some_and(|update| update.by_itself && update.state == UpdateState::Ready);
-            let rested = ready.then(|| cx.try_global::<LastKey>().map(|key| key.0.elapsed()));
-            (rested, bench.asks.clone())
-        }) else {
-            return;
-        };
-        match rested {
-            None => return,
-            Some(Some(rested)) if rested < IDLE => {
-                cx.background_executor().timer(IDLE - rested).await;
-            }
-            Some(_) => {
-                cx.update(|cx| restart_into_update(&asks, cx));
+    if WAITING_FOR_IDLE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    cx.spawn(async move |bench, cx| {
+        let _waiting = WaitingForIdle;
+        loop {
+            let Ok((rested, asks)) = bench.update(cx, |bench, cx| {
+                let ready = (bench.reads.update.as_ref())
+                    .is_some_and(|update| update.by_itself && update.state == UpdateState::Ready);
+                let rested = ready.then(|| cx.try_global::<LastKey>().map(|key| key.0.elapsed()));
+                (rested, bench.asks.clone())
+            }) else {
                 return;
+            };
+            match rested {
+                None => return,
+                Some(Some(rested)) if rested < IDLE => {
+                    cx.background_executor().timer(IDLE - rested).await;
+                }
+                Some(_) => {
+                    cx.update(|cx| restart_into_update(&asks, cx));
+                    return;
+                }
             }
         }
     })
     .detach();
+}
+
+/// Clears `WAITING_FOR_IDLE` however the wait ends, so the update turning ready again later
+/// starts a new one.
+struct WaitingForIdle;
+
+impl Drop for WaitingForIdle {
+    fn drop(&mut self) {
+        WAITING_FOR_IDLE.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Installs the update, or restarts into one that is in place and waiting for the person

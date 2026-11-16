@@ -337,7 +337,7 @@ impl Workbench {
                 }
                 if (self.reads.update.as_ref()).is_some_and(crate::updates::put_back_from_here) {
                     if !was_put_back {
-                        cx.defer(|cx| cx.restart());
+                        cx.defer(crate::updates::restart_once);
                     }
                     return;
                 }
