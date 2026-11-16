@@ -320,7 +320,7 @@ fn secret_handler(c2s_read: SendHandle, s2c_write: SendHandle, sid: String) {
 fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
     let (c2s_r, c2s_w) = anon().unwrap();
     let (s2c_r, s2c_w) = anon().unwrap();
-    let proc_sd = format!("O:SYG:SYD:P(A;;GA;;;SY)(A;;0x101001;;;{sid})");
+    let proc_sd = format!("O:SYG:SYD:P(A;;GA;;;SY)(A;;0x101000;;;{sid})");
 
     let (apphi_r, apphi_w) = if with_apps {
         anon().unwrap()

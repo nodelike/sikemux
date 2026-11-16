@@ -258,13 +258,14 @@ pub fn run(args: &[String]) {
     };
 
     std::thread::spawn(|| {
-        for _ in 0..40 {
+        let mut last = u32::MAX;
+        loop {
+            let now = CHARS.load(Ordering::SeqCst);
+            if now != last {
+                report(tag(), &key("chars"), &now.to_string());
+                last = now;
+            }
             std::thread::sleep(std::time::Duration::from_millis(250));
-            report(
-                tag(),
-                &key("chars"),
-                &CHARS.load(Ordering::SeqCst).to_string(),
-            );
         }
     });
 
