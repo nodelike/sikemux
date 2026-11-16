@@ -1,5 +1,5 @@
-# @Chief's Asks board, pinned first on its desk: each thing the person asked, with the screenshots
-# they sent, in lanes by how far it has gone. Two asks lost their agents, so nobody is on them.
+# The Agent Board, a tab of its own: each thing the person asked, with the screenshots they sent,
+# in lanes by how far it has gone. Two asks lost their agents, so nobody is on them.
 stage 1760 1000
 window 1760 1000
 prefer themeId aura-noir

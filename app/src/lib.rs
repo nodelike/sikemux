@@ -6,6 +6,7 @@ mod account_picker;
 mod accounts;
 mod activity_view;
 mod add_provider;
+mod agent_board;
 mod agents;
 mod asking;
 mod battery;

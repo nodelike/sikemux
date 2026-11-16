@@ -1,5 +1,4 @@
-//! The Asks board pinned on a chief's desk: each thing the person asked in its project as one
-//! card, set in four lanes by how far it has gone. The core says where each ask stands and which
+//! The Agent Board, a tab of its own: each thing the person asked in a project as one card, set in four lanes by how far it has gone. The core says where each ask stands and which
 //! agents wait on the person; this only sorts those into lanes and draws them.
 
 use gpui_kit::prelude::FluentBuilder;
@@ -10,6 +9,7 @@ use gpui_kit::{
 };
 use std::path::PathBuf;
 
+use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::now::{AskStand, NowAsk, NowGroup, ProjectNow};
 
 use crate::icons::Icon;
@@ -61,17 +61,28 @@ fn waits(now: &ProjectNow, agent: &str) -> bool {
     (now.rows.iter()).any(|row| row.agent == agent && row.group == NowGroup::WaitingOnYou)
 }
 
-/// The board for `chief`'s project, filling the desk below its tabs.
-pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>) -> AnyElement {
+impl Workbench {
+    /// Opens the Agent Board of the project in front.
+    pub(crate) fn open_agent_board(&self) {
+        if let Some(project) = self.project() {
+            self.open_in_front(board_tab(&project.id));
+        }
+    }
+
+    pub(crate) fn open_board_of(&self, project: &str) {
+        self.open_in_front(board_tab(project));
+    }
+}
+
+pub(crate) fn board_tab(project: &str) -> OpenTab {
+    OpenTab::new(At::project(project), PaneKind::Asks, project)
+}
+
+/// The board of `project`, by id, as a pane.
+pub(crate) fn pane(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let now = (bench.agent_by_id(chief))
-        .and_then(|chief| {
-            let view = bench.view_at(&bench.place())?;
-            view.now
-                .iter()
-                .find(|now| now.project == chief.project)
-                .cloned()
-        })
+    let now = (bench.view_at(&bench.place()))
+        .and_then(|view| view.now.iter().find(|now| now.project == project).cloned())
         .unwrap_or_else(|| ProjectNow {
             project: String::new(),
             rows: Vec::new(),
@@ -110,22 +121,19 @@ pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>)
                     .flex_col()
                     .gap(SPACE_2)
                     .child(lane_label(lane.words(), asks.len(), cx))
-                    .children(
-                        asks.iter()
-                            .map(|ask| card(bench, ask, chief, *lane, &handle, cx)),
-                    )
+                    .children(asks.iter().map(|ask| card(bench, ask, *lane, &handle, cx)))
             }))
             .into_any_element(),
     };
-    div()
-        .id(SharedString::from(format!("asks-board-{chief}")))
+    let board = div()
+        .id(SharedString::from(format!("asks-board-{project}")))
         .size_full()
         .flex()
         .flex_col()
         .overflow_y_scroll()
         .child(head(&lanes, &t))
-        .child(body)
-        .into_any_element()
+        .child(body);
+    ui::pane(cx).child(board).into_any_element()
 }
 
 /// The page's name, then how many stand in each lane.
@@ -187,7 +195,6 @@ fn lane_label(words: &str, count: usize, cx: &App) -> Div {
 fn card(
     bench: &Workbench,
     ask: &NowAsk,
-    chief: &str,
     lane: Lane,
     handle: &WeakEntity<Workbench>,
     cx: &App,
@@ -239,7 +246,7 @@ fn card(
                 .child(title(ask, bench, &t, cx)),
         )
         .children(thumbnail(ask, &t))
-        .children(links(bench, ask, chief, handle, cx))
+        .children(links(bench, ask, handle, cx))
         .child(
             div()
                 .h(px(FOOT_H))
@@ -317,14 +324,8 @@ enum Link {
 }
 
 /// The pages and files the ask's agent opened on its desk while on it, the first two as chips
-/// that open on `chief`'s desk with one click, and how many more.
-fn links(
-    bench: &Workbench,
-    ask: &NowAsk,
-    chief: &str,
-    handle: &WeakEntity<Workbench>,
-    cx: &App,
-) -> Option<Div> {
+/// that open on that agent's desk with one click, and how many more.
+fn links(bench: &Workbench, ask: &NowAsk, handle: &WeakEntity<Workbench>, cx: &App) -> Option<Div> {
     const SHOWN: usize = 2;
     let t = Tokens::get(cx);
     let count = ask.pages.len() + ask.files.len();
@@ -332,14 +333,14 @@ fn links(
         return None;
     }
     let opener = |link: Link| {
-        let (handle, chief) = (handle.clone(), chief.to_owned());
+        let (handle, agent) = (handle.clone(), ask.to.clone());
         move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
             cx.stop_propagation();
             let _ = handle.update(cx, |bench, cx| match &link {
                 Link::Page(url) => {
-                    bench.open_on_desk(&chief, url, cx);
+                    bench.open_on_desk(&agent, url, cx);
                 }
-                Link::File(path) => bench.open_file_on_desk(&chief, path.clone(), None, None, cx),
+                Link::File(path) => bench.open_file_on_desk(&agent, path.clone(), None, None, cx),
             });
         }
     };
@@ -429,4 +430,16 @@ fn title(ask: &NowAsk, bench: &Workbench, t: &Tokens, cx: &App) -> AnyElement {
     let named = crate::chat::named(&ask.title, &ask.images, &[], &agents);
     let pieces = crate::stash::pieces(&ask.title, &named, &[]);
     crate::stash::sentence(Some(&format!("ask-{}", ask.id)), &pieces, bench, t, cx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_board_opens_as_its_own_tab_and_no_chats() {
+        let tab = board_tab("sikemux");
+        assert_eq!(tab.kind, PaneKind::Asks);
+        assert_eq!(tab.at(), At::project("sikemux"));
+    }
 }

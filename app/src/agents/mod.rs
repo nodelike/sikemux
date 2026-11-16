@@ -1416,9 +1416,9 @@ fn chief_row(
             (Some(id), _) => bench.open_agent(id, cx),
             (None, Some((host, project))) => {
                 let on = Target::new(&bench.asks, bench.place_of(host));
-                bench.open_chief_on(on, project, cx).detach();
+                bench.open_chief_on(on, project, cx);
             }
-            (None, None) => bench.open_chief(&project_id, cx).detach(),
+            (None, None) => bench.open_chief(&project_id, cx),
         }),
     )
     .into_any_element()

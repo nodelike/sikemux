@@ -1,7 +1,6 @@
 //! An agent's desk, beside it in its tab: the pages its browser holds, one in front.
 
 mod address;
-mod asks;
 mod downloads;
 mod pins;
 mod snip;
@@ -142,13 +141,11 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
 
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
 /// agent started, or what a link named, shown among its pages: a pull request, issue or run,
-/// or a plugin's own item such as a Jira issue. A chief's desk also has its Asks board pinned
-/// first among its pages.
+/// or a plugin's own item such as a Jira issue.
 #[derive(Clone, PartialEq)]
 pub enum DeskItem {
     File(PathBuf),
     Terminal { session: u64, title: String },
-    Asks,
 }
 
 impl DeskItem {
@@ -156,7 +153,6 @@ impl DeskItem {
         match self {
             DeskItem::File(_) => DeskKind::Files,
             DeskItem::Terminal { .. } => DeskKind::Terminals,
-            DeskItem::Asks => DeskKind::Pages,
         }
     }
 
@@ -167,7 +163,6 @@ impl DeskItem {
                 DeskItem::Terminal { session: one, .. },
                 DeskItem::Terminal { session: other, .. },
             ) => one == other,
-            (DeskItem::Asks, DeskItem::Asks) => true,
             _ => false,
         }
     }
@@ -470,7 +465,6 @@ impl Desks {
                         title: title.clone(),
                         running: false,
                     }),
-                    DeskItem::Asks => {}
                 }
             }
         }
@@ -486,7 +480,7 @@ impl Desks {
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
             DeskItem::File(path) => Some(path),
-            DeskItem::Terminal { .. } | DeskItem::Asks => None,
+            DeskItem::Terminal { .. } => None,
         })
     }
 }
@@ -975,58 +969,11 @@ impl Workbench {
         }
     }
 
-    /// Brings `chief`'s Asks board to the front of its desk, bringing the desk out if it is closed.
-    pub(crate) fn show_asks(&mut self, chief: &str, cx: &mut Context<Self>) {
-        self.desks.update(cx, |desks, cx| {
-            desks.show_kind(chief, DeskKind::Pages, cx);
-            desks.bring_front(chief, DeskItem::Asks, cx);
-        });
-        if !self.desk_open_anywhere(chief) {
-            self.reveal_desk(chief);
-        }
-        self.parts.redraw_stage(cx);
-    }
-
-    /// Brings the chief of the project in front forward with its Agent Board, opening the chief
-    /// the first time.
-    pub(crate) fn open_agent_board(&mut self, cx: &mut Context<Self>) {
-        let Some((project, chief)) = self
-            .project()
-            .map(|project| (project.id.clone(), project.chief.clone()))
-        else {
-            return;
-        };
-        let chief = match chief {
-            Some(chief) => self.bring_agent(&chief, cx),
-            None => self.open_chief(&project, cx),
-        };
-        cx.spawn(async move |bench, cx| {
-            let chief = chief.await?;
-            bench
-                .update(cx, |bench, cx| {
-                    bench.board_wait = Some(chief);
-                    bench.settle_board_wait(cx);
-                })
-                .ok()
-        })
-        .detach();
-    }
-
-    pub(crate) fn settle_board_wait(&mut self, cx: &mut Context<Self>) {
-        let Some(chief) = self.board_wait.take() else {
-            return;
-        };
-        match self.agent_place(&chief) {
-            Some(_) => self.show_asks(&chief, cx),
-            None => self.board_wait = Some(chief),
-        }
-    }
-
     /// Takes an item off the agent's desk, asking first when that loses a file's unsaved edits.
     fn close_desk_item(&mut self, agent: &str, item: DeskItem, cx: &mut Context<Self>) {
         let closing = match &item {
             DeskItem::File(path) => vec![crate::editor::FileKey::new(self.place(), path)],
-            DeskItem::Terminal { .. } | DeskItem::Asks => Vec::new(),
+            DeskItem::Terminal { .. } => Vec::new(),
         };
         let agent = agent.to_owned();
         crate::editor::close_unsaved(
@@ -1175,11 +1122,6 @@ impl Workbench {
         };
         let Some(desk) = self.desk_of(tab, agent) else {
             self.split_desk(&self.target(), &strip, tab, view, agent, false);
-            if self.agent_by_id(agent).is_some_and(|row| row.chief) {
-                return self
-                    .desks
-                    .update(cx, |desks, cx| desks.bring_front(agent, DeskItem::Asks, cx));
-            }
             return self.open_first_page(agent, cx);
         };
         if self.narrow_desk(&desk, view, cx) {
@@ -2014,20 +1956,6 @@ pub fn pane(
     ui::forget_spots(|| format!("desk-close-{agent}-"));
     let mut front_pill = None;
     let mut pill_count = 0;
-    let chief = bench.agent_by_id(agent).is_some_and(|row| row.chief);
-    if chief && kind == DeskKind::Pages {
-        let shown = front_item == Some(&DeskItem::Asks);
-        if shown {
-            front_pill = Some(pill_count);
-        }
-        pill_count += 1;
-        let pick = agent.to_owned();
-        pills = pills.child(
-            pinned_pill(shown, cx).clicks(cx.listener(move |bench, _, _, cx| {
-                bench.show_asks(&pick, cx);
-            })),
-        );
-    }
     let pages = match kind {
         DeskKind::Pages => strip.map(|strip| strip.tabs.as_slice()).unwrap_or_default(),
         _ => &[],
@@ -2126,7 +2054,6 @@ pub fn pane(
                     .into_any_element(),
                 title.clone(),
             ),
-            DeskItem::Asks => continue,
         };
         let (pick_agent, pick_item) = (agent.to_owned(), item.clone());
         let (close_agent, close_item) = (agent.to_owned(), item.clone());
@@ -2302,7 +2229,6 @@ pub fn pane(
                 &session.to_string(),
                 cx,
             ),
-            DeskItem::Asks => asks::board(bench, agent, cx),
         };
         return frame(
             bench,
@@ -2503,25 +2429,6 @@ fn pill(
         )
 }
 
-/// The Asks board's tab on a chief's desk: always first, and with a pin where others close.
-fn pinned_pill(shown: bool, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx);
-    pill_face(
-        "desk-asks".into(),
-        ui::chief_mark(13.),
-        t!("Agent Board").to_owned(),
-        shown,
-        None,
-        cx,
-    )
-    .w(px(PILL_MIN))
-    .child(
-        ui::icon(Icon::Pin, 12.)
-            .flex_none()
-            .text_color(t.text_tertiary),
-    )
-}
-
 fn pill_face(
     id: SharedString,
     mark: AnyElement,
@@ -2657,7 +2564,6 @@ fn tab_menu(
                 .separator()
                 .item(close),
             DeskTab::Item(DeskItem::Terminal { .. }) => popup.item(close),
-            DeskTab::Item(DeskItem::Asks) => popup,
         }
     }
 }

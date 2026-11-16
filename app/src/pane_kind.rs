@@ -54,6 +54,7 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::ProjectSettings => kind_of(Icon::Book, t!("Playbook"), Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Server, "Sikemux", Never, true),
         PaneKind::Stash => kind_of(Icon::Stack, t!("Stash"), Never, true),
+        PaneKind::Asks => kind_of(Icon::SquareKanban, t!("Agent Board"), Never, true),
         PaneKind::Hosts => kind_of(Icon::Gauge, t!("Devices"), Never, true),
         PaneKind::Mod => kind_of(Icon::Dashboard, t!("Mod"), Always, false),
         PaneKind::Unknown => kind_of(Icon::Window, t!("Needs a newer Sikemux"), Never, true),
@@ -144,6 +145,7 @@ pub fn make(
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash
+        | PaneKind::Asks
         | PaneKind::Hosts
         | PaneKind::Mod
         | PaneKind::Unknown => {}
@@ -188,6 +190,7 @@ pub fn draw(
         PaneKind::ProjectSettings => crate::playbook::pane(bench, target, window, cx),
         PaneKind::InstallSikemux => crate::hosts::install_pane::pane(bench, target, cx),
         PaneKind::Stash => crate::stash::pane(bench, cx),
+        PaneKind::Asks => crate::agent_board::pane(bench, target, cx),
         PaneKind::Hosts => crate::hosts::page::pane(bench, target, window, cx),
         PaneKind::Unknown => ui::pane(cx)
             .child(
@@ -231,6 +234,7 @@ pub fn focus(kind: PaneKind, bench: &Workbench, target: &str, window: &mut Windo
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash
+        | PaneKind::Asks
         | PaneKind::Hosts
         | PaneKind::Mod
         | PaneKind::Unknown => bench.keys.focus.focus(window, cx),
