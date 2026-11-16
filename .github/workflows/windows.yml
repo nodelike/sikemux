@@ -166,8 +166,10 @@ jobs:
         run: |
           cargo build --locked -p sikemux-host --bin sikemux-host
           cargo build --locked -p sikemux-app --bin sikemux --features drive
+          cargo build --locked -p sikemux-core --bin sikemux-fake-claude
+          cargo build --locked -p sikemux-app --example fake_chat
 
-      - name: Open the app on its own core with a terminal
+      - name: Open the app on its own core with a terminal and a stand-in agent
         shell: powershell
         run: app\ci\windows-core.ps1 -App target\debug\sikemux.exe -Out "$env:RUNNER_TEMP\window\core"
 
