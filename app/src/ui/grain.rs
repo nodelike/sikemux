@@ -17,10 +17,10 @@ use gpui::{
     ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
 };
 use sikemux_view::backdrop::{BackdropKind, GridShape, WornBackdrop};
-use sikemux_wire::protocol::AgentGroup;
 use sikemux_view::prefs::{
     Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern, Preferences,
 };
+use sikemux_wire::protocol::AgentGroup;
 
 use crate::theme::{self, radius_3, Tokens};
 
@@ -295,8 +295,7 @@ fn paced(speed: f32, agent: Option<&str>, cx: &App) -> (f32, f32) {
     };
     match (mood(cx), agent) {
         (false, _) => paces.window.clock(speed),
-        (true, Some(agent)) => (paces.agents.get(agent))
-            .map_or((0., 0.), |pace| pace.clock(speed)),
+        (true, Some(agent)) => (paces.agents.get(agent)).map_or((0., 0.), |pace| pace.clock(speed)),
         (true, None) => (0., 0.),
     }
 }

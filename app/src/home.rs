@@ -94,7 +94,13 @@ pub fn agent_view(
         .map(|agent| pane_header(bench, agent, tab, view, cx));
     let glow = welcoming(bench, agent.as_ref(), cx);
     let shown = agent_shown(bench, agent.as_ref(), cx);
-    under_header(agent.as_ref().map(|agent| agent.id.as_str()), header, shown, glow, cx)
+    under_header(
+        agent.as_ref().map(|agent| agent.id.as_str()),
+        header,
+        shown,
+        glow,
+        cx,
+    )
 }
 
 /// How strong a new chat's glow is in an agent's view: whole while nothing is said in it, and
