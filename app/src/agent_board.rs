@@ -625,7 +625,13 @@ fn sheet_of(
                 .small()
                 .on_click(on(Workbench::close_sheet)),
         );
-    let named = ask.name.clone().unwrap_or_else(|| ask.title.clone());
+    let named = match &ask.name {
+        Some(name) => name.clone().into_any_element(),
+        None => {
+            let key = format!("ask-sheet-{}-title", ask.id);
+            written(bench, &ask.to, &key, &ask.title, &ask.images, &t, cx)
+        }
+    };
     let standing = div()
         .flex()
         .items_center()
@@ -641,9 +647,11 @@ fn sheet_of(
         .gap(SPACE_1H)
         .child(caps)
         .child(
-            ui::text(named, 16., FontWeight::SEMIBOLD)
-                .whitespace_normal()
-                .text_color(t.text_primary),
+            div()
+                .text_size(theme::ui_text(16.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(t.text_primary)
+                .child(named),
         )
         .child(standing);
     let said = sheet.said.iter().enumerate().map(|(at, said)| {
