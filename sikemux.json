@@ -63,6 +63,27 @@
       "label": "the phone's eslint",
       "command": "cd mobile/app && for f; do set -- \"$@\" \"${f#mobile/app/}\"; shift; done && node_modules/.bin/eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-land/ \"$@\"",
       "when": ["mobile/app/**/*.{ts,tsx,js,mjs,cjs}"]
+    },
+    {
+      "label": "the phone's Prettier",
+      "command": "cd mobile/app && for f; do set -- \"$@\" \"${f#mobile/app/}\"; shift; done && node_modules/.bin/prettier --check \"$@\"",
+      "fix": "cd mobile/app && for f; do set -- \"$@\" \"${f#mobile/app/}\"; shift; done && node_modules/.bin/prettier --write \"$@\"",
+      "when": ["mobile/app/**/*.{ts,tsx,mts,js,mjs}"]
+    },
+    {
+      "label": "ESLint",
+      "command": "node_modules/.bin/eslint --max-warnings=0 --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-land/ \"$@\"",
+      "when": ["shared/**/*.{ts,tsx}", "scripts/**/*.mjs"]
+    },
+    {
+      "label": "the phones in the stores still fit the core",
+      "command": "node scripts/check-phone-compat.mjs",
+      "when": [
+        "crates/**/*.rs",
+        "mobile/store-versions.json",
+        "scripts/check-phone-compat.mjs",
+        "scripts/generate-wire-types.mjs"
+      ]
     }
   ],
   "worktree": {

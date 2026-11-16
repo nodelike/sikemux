@@ -1102,8 +1102,21 @@ async fn failing_land_check<'a>(
         let Some((check, files, why)) = land_checks_at(core, key, to, due).await else {
             continue;
         };
-        let before = vec![(check, files)];
-        if land_checks_at(core, key, from, before).await.is_none() {
+        let (repo, at) = (key.0.clone(), from.clone());
+        let older = blocking(move || {
+            Ok((files.into_iter())
+                .filter(|file| git(&repo, &["cat-file", "-e", &format!("{at}:{file}")]).is_ok())
+                .collect::<Vec<_>>())
+        })
+        .await
+        .unwrap_or_default();
+        if older.is_empty() {
+            return Some((laid, why));
+        }
+        if land_checks_at(core, key, from, vec![(check, older)])
+            .await
+            .is_none()
+        {
             return Some((laid, why));
         }
     }
