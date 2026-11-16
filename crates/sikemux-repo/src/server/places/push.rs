@@ -112,12 +112,14 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
     let git = || Git::quick(cwd);
     let mut positional: Vec<&str> = Vec::new();
     let mut tags = false;
+    let mut deleting = false;
     let mut at = 0;
     while let Some(arg) = args.get(at) {
         at += 1;
         match *arg {
             "-o" | "--push-option" | "--receive-pack" | "--exec" => at += 1,
             "--tags" | "--follow-tags" => tags = true,
+            "--delete" => deleting = true,
             arg if arg.starts_with("--recurse-submodules=") => {
                 if !arg.ends_with("=no") && !arg.ends_with("=check") {
                     return unknown();
@@ -138,9 +140,10 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
                 if letters.starts_with('o') {
                     continue;
                 }
-                if !letters.chars().all(|letter| "funqv46".contains(letter)) {
+                if !letters.chars().all(|letter| "funqv46d".contains(letter)) {
                     return unknown();
                 }
+                deleting |= letters.contains('d');
             }
             arg => positional.push(arg),
         }
@@ -180,7 +183,10 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
             }
         }
         false => (refspecs.iter())
-            .map(|refspec| refspec_reach(refspec, &remote, cwd))
+            .map(|refspec| match deleting {
+                true => refspec_reach(&format!(":{refspec}"), &remote, cwd),
+                false => refspec_reach(refspec, &remote, cwd),
+            })
             .collect(),
     };
     let follows = git()
@@ -283,15 +289,15 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
         Some((source, destination)) => (source, Some(destination)),
         None => (refspec, None),
     };
-    if source.is_empty() {
-        return Reach::Tags(Vec::new());
-    }
     let git = || Git::quick(cwd);
     let is_ref = |full: &str| {
         git()
             .trimmed(&["show-ref", "--verify", "--quiet", full])
             .is_ok()
     };
+    if source.is_empty() {
+        return deleted_reach(destination.unwrap_or_default(), remote, cwd, is_ref);
+    }
     let source = match source {
         "HEAD" | "@" => match git().trimmed(&["symbolic-ref", "--short", "HEAD"]) {
             Ok(branch) => branch,
@@ -333,6 +339,74 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
         return Reach::Tags(vec![branch.to_owned()]);
     }
     branch_reach(branch, remote, cwd)
+}
+
+/// Where deleting `destination` on `remote` reaches: a branch or a tag as its full name or
+/// what the checkout last saw of the remote says, else whatever it could be.
+fn deleted_reach(
+    destination: &str,
+    remote: &str,
+    cwd: &Path,
+    is_ref: impl Fn(&str) -> bool,
+) -> Reach {
+    if let Some(tag) =
+        (destination.strip_prefix("refs/tags/")).or_else(|| destination.strip_prefix("tags/"))
+    {
+        return Reach::Tags(vec![tag.to_owned()]);
+    }
+    if let Some(branch) =
+        (destination.strip_prefix("refs/heads/")).or_else(|| destination.strip_prefix("heads/"))
+    {
+        return branch_reach(branch, remote, cwd);
+    }
+    if destination.is_empty() || destination.starts_with("refs/") {
+        return Reach::Tags(Vec::new());
+    }
+    let tag = is_ref(&format!("refs/tags/{destination}"));
+    match (tag, is_ref(&format!("refs/remotes/{remote}/{destination}"))) {
+        (false, true) => branch_reach(destination, remote, cwd),
+        (true, false) => Reach::Tags(vec![destination.to_owned()]),
+        _ => Reach::Tags(Vec::new()),
+    }
+}
+
+/// The refs the push `what` deletes, as the person names them, when deleting is all it does.
+pub fn deletes(what: &str) -> Option<Vec<String>> {
+    let words: Vec<&str> = what.split_whitespace().collect();
+    let at = words.iter().position(|word| *word == "push")?;
+    let args = &words[at + 1..];
+    let flagged = args.iter().any(|arg| {
+        *arg == "--delete" || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('d'))
+    });
+    let positional: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
+    let refspecs = positional
+        .get(1..)
+        .filter(|refspecs| !refspecs.is_empty())?;
+    let named = |name: &str| match (name.strip_prefix("refs/tags/"))
+        .or_else(|| name.strip_prefix("tags/"))
+    {
+        Some(tag) => format!("tag {tag}"),
+        None => {
+            let branch = (name.strip_prefix("refs/heads/")).or_else(|| name.strip_prefix("heads/"));
+            branch.map_or_else(|| name.to_owned(), |branch| format!("branch {branch}"))
+        }
+    };
+    (refspecs.iter())
+        .map(|refspec| {
+            let refspec = refspec.trim_start_matches('+');
+            match flagged {
+                true => Some(named(refspec)),
+                false => refspec
+                    .strip_prefix(':')
+                    .filter(|name| !name.is_empty())
+                    .map(named),
+            }
+        })
+        .collect()
 }
 
 fn resolved_or(resolved: &str, source: &str) -> String {
@@ -431,6 +505,9 @@ pub mod tests {
             "git push -u origin feature",
             "git push --force-with-lease origin feature",
             "git push",
+            "git push origin :feature",
+            "git push -d origin feature",
+            "git push --delete origin feature",
         ] {
             assert_eq!(reached(&dir, line), Reach::Branches, "{line}");
         }
@@ -458,15 +535,42 @@ pub mod tests {
             "git push origin refs/heads/*:refs/heads/*",
             "git -c remote.origin.push=HEAD:refs/heads/main push",
             "git --git-dir=x push origin feature",
-            "git push origin :feature",
             "git push origin gh-pages",
             "git push origin main",
             "git push origin release-2",
-            "git push -d origin feature",
+            "git push origin :main",
+            "git push origin :refs/heads/main",
+            "git push -d origin release-2",
         ] {
             let reached = reached(&dir, line);
             assert!(matches!(reached, Reach::Project | Reach::Tags(_)), "{line}");
         }
+    }
+
+    /// Deleting a proof branch on GitHub asked the person to publish tags to Releases.
+    #[test]
+    fn a_delete_reaches_what_it_deletes() {
+        let dir = checkout();
+        assert_eq!(
+            reached(&dir, "git push -f origin :refs/heads/proof/w6-installer"),
+            Reach::Branches
+        );
+        assert_eq!(
+            reached(&dir, "git push origin :refs/tags/v1.0.0"),
+            Reach::Tags(vec!["v1.0.0".to_owned()])
+        );
+        assert_eq!(
+            reached(&dir, "git push origin --delete rc"),
+            Reach::Tags(vec!["rc".to_owned()])
+        );
+        assert_eq!(
+            deletes("git push -f origin :refs/heads/proof/w6-installer :refs/tags/v1"),
+            Some(vec![
+                "branch proof/w6-installer".to_owned(),
+                "tag v1".to_owned()
+            ])
+        );
+        assert_eq!(deletes("git push origin v1 :v0"), None);
     }
 
     #[test]

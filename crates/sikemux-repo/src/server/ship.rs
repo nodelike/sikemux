@@ -538,13 +538,22 @@ fn call_for(
         let (owner, name) = super::credential::owner_and_name(&remote)?;
         Some(format!("{owner}/{name}"))
     };
-    let tag = match &ship.target {
-        Some(Target::Tag { name }) if !name.is_empty() => Some(format!("Publish {name}")),
-        Some(Target::Tag { .. }) => Some("Publish these tags".to_owned()),
+    let tag = match (&ship.target, push::deletes(&ship.what)) {
+        (Some(Target::Tag { .. }), Some(deleted)) => Some(format!(
+            "Delete {} on {}",
+            deleted.join(", "),
+            here().unwrap_or_else(|| "GitHub".to_owned())
+        )),
+        (Some(Target::Tag { name }), None) if !name.is_empty() => {
+            Some(format!("Publish {name} to {}", place.name()))
+        }
+        (Some(Target::Tag { .. }), None) => Some(format!(
+            "Run this push, which may send tags to {}",
+            place.name()
+        )),
         _ => None,
     };
-    let github = (tag.map(|tag| format!("{tag} to {}", place.name())))
-        .or_else(|| github_write(&ship.what, here));
+    let github = tag.or_else(|| github_write(&ship.what, here));
     let option = |id: &str, label: String| CallOption {
         id: id.to_owned(),
         label,
