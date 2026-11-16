@@ -240,6 +240,7 @@ impl Workbench {
             }
             crate::agents::setup::settle(self, cx);
             self.settle_open_waits();
+            self.settle_board_wait(cx);
             crate::notifications::badge(self);
             crate::notifications::kept_running(self, cx);
             self.note_place();

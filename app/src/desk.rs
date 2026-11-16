@@ -1003,10 +1003,23 @@ impl Workbench {
         cx.spawn(async move |bench, cx| {
             let chief = chief.await?;
             bench
-                .update(cx, |bench, cx| bench.show_asks(&chief, cx))
+                .update(cx, |bench, cx| {
+                    bench.board_wait = Some(chief);
+                    bench.settle_board_wait(cx);
+                })
                 .ok()
         })
         .detach();
+    }
+
+    pub(crate) fn settle_board_wait(&mut self, cx: &mut Context<Self>) {
+        let Some(chief) = self.board_wait.take() else {
+            return;
+        };
+        match self.agent_place(&chief) {
+            Some(_) => self.show_asks(&chief, cx),
+            None => self.board_wait = Some(chief),
+        }
     }
 
     /// Takes an item off the agent's desk, asking first when that loses a file's unsaved edits.

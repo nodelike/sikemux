@@ -87,6 +87,8 @@ pub struct Workbench {
     pub kept_running_told: bool,
     /// Each waiting `sikemux open --wait`, with the tabs it opened that are still open.
     pub(crate) open_waits: Vec<(sikemux_wire::protocol::CallId, HashMap<String, bool>)>,
+    /// The chief whose Agent Board shows once its chat has a tab to put the desk beside.
+    pub(crate) board_wait: Option<String>,
     /// Each open Playbook tab's state, by the project's folder.
     pub project_settings: HashMap<String, crate::playbook::PlaybookTab>,
     pub shown: crate::screens::experience::Shown,
@@ -357,6 +359,7 @@ impl Workbench {
             project_settings: HashMap::new(),
             kept_running_told: false,
             open_waits: Vec::new(),
+            board_wait: None,
             pairing: crate::pairing::RemotePairing::new(cx),
             shown: Default::default(),
             picture: crate::picture::AccountPicture::default(),
