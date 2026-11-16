@@ -1629,7 +1629,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         (
             n!("Manage account"),
             Icon::User,
-            None,
+            Some(Trailing::Icon(Icon::ExternalLink)),
             act(|_, _, cx| cx.open_url(&sikemux_corekit::accounts::app_base())),
         ),
         (
@@ -1653,7 +1653,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         (
             n!("Settings"),
             Icon::Settings,
-            settings_keys,
+            settings_keys.map(Trailing::Keys),
             act(|bench, window, cx| {
                 keymap::count(actions::ToggleSettings::ID.name(), cx);
                 bench.open_settings(Page::default(), window, cx)
@@ -1668,9 +1668,9 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         row,
         move |mut popup, _, _| {
             popup = popup.min_w(menu_width).max_w(menu_width);
-            for (label, icon, hint, act) in items.iter().cloned() {
+            for (label, icon, trailing, act) in items.iter().cloned() {
                 popup = popup.item(
-                    account_item(label, icon, hint)
+                    account_item(label, icon, trailing)
                         .on_click(move |event, window, cx| act(event, window, cx)),
                 );
             }
@@ -1695,7 +1695,13 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
 }
 
 /// A row of the account menu, roomier than other menus' rows since it opens the width of the rail.
-fn account_item(label: &'static str, icon: Icon, hint: Option<SharedString>) -> PopupMenuItem {
+#[derive(Clone)]
+enum Trailing {
+    Keys(SharedString),
+    Icon(Icon),
+}
+
+fn account_item(label: &'static str, icon: Icon, trailing: Option<Trailing>) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
         let t = Tokens::get(cx);
         div()
@@ -1716,11 +1722,17 @@ fn account_item(label: &'static str, icon: Icon, hint: Option<SharedString>) -> 
                     .truncate()
                     .child(crate::i18n::tr(label)),
             )
-            .children(hint.clone().map(|hint| {
-                div()
-                    .text_size(crate::theme::ui_text(TEXT_XS))
-                    .text_color(t.text_tertiary)
-                    .child(hint)
+            .children(trailing.clone().map(|trailing| {
+                match trailing {
+                    Trailing::Keys(keys) => div()
+                        .text_size(crate::theme::ui_text(TEXT_XS))
+                        .text_color(t.text_tertiary)
+                        .child(keys)
+                        .into_any_element(),
+                    Trailing::Icon(icon) => ui::icon(icon, 13.)
+                        .text_color(t.text_tertiary)
+                        .into_any_element(),
+                }
             }))
     })
 }
