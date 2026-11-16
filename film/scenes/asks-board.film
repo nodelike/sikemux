@@ -17,7 +17,7 @@ settle 2
 core closeChat {"agentId":"$chat"}
 chat Rimuru
 title "Receipt rounding"
-say "Some orders come out a cent off on the receipt" asks-board/cart.jpg asks-board/cart-phone.jpg
+say "Some orders come out a cent off on the receipt [Image #1], like @Nami saw with tax" asks-board/cart.jpg asks-board/cart-phone.jpg
 chat Yuno
 title "Search order"
 say "Search puts sold-out items first"
