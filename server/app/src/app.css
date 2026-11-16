@@ -119,6 +119,29 @@ input {
   left: var(--rail-width);
 }
 
+/* The host's picture fades itself out, down its band or across the whole page, as on the Mac. */
+.backdrop[data-look] {
+  mask-image: none;
+}
+
+.backdrop[data-look="band"] {
+  bottom: 40%;
+}
+
+.backdrop[data-look] canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  animation: backdrop-in var(--dur-4) var(--ease-out);
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .page {
   position: relative;
   z-index: 1;
