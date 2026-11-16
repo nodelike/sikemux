@@ -45,6 +45,8 @@ interface Held {
 }
 
 interface CustomData {
+  /** The subscription this was written for. */
+  subscription?: string;
   held?: Held;
   /** Where a change taken back leaves the next bill: the end of the period paid for. */
   bill_on?: string;
@@ -196,11 +198,26 @@ function periodEndOf(sub: PaddleSubscription): string {
 }
 
 /**
+ * What the API wrote in a subscription's custom data. A buyer can set custom data on the checkout,
+ * and the subscription copies it, but its id does not exist until the checkout is paid.
+ */
+function ownDataOf(sub: PaddleSubscription): CustomData {
+  return sub.custom_data?.subscription === sub.id ? sub.custom_data : {};
+}
+
+/** A change waiting for renewal that Paddle already holds. */
+function heldOf(sub: PaddleSubscription, at: Date) {
+  const { held } = ownDataOf(sub);
+  return held && new Date(held.until) > at ? held : null;
+}
+
+/**
  * The day the next bill is owed, while it is ahead. Changing the interval restarts Paddle's period
  * at the change, so the paid period's end rides in custom data until Paddle bills on it again.
  */
 function owedOf(sub: PaddleSubscription, at: Date): string | null {
-  const owed = sub.custom_data?.held?.until ?? sub.custom_data?.bill_on;
+  const own = ownDataOf(sub);
+  const owed = own.held?.until ?? own.bill_on;
   return owed && new Date(owed) > at ? owed : null;
 }
 
@@ -230,10 +247,9 @@ function subscriptionOf(
     currentPeriodEnd: new Date(owedOf(sub, at) ?? periodEndOf(sub)),
     cancelAtPeriodEnd: sub.scheduled_change?.action === "cancel",
   };
-  const held = sub.custom_data?.held;
+  const held = heldOf(sub, at);
   const [now] = items;
-  if (!held || !now || items.length !== 1 || new Date(held.until) <= at)
-    return reported;
+  if (!held || !now || items.length !== 1) return reported;
   return {
     ...reported,
     items: [
@@ -535,6 +551,7 @@ export class PaddleProvider implements BillingProvider {
           items,
           proration_billing_mode: "do_not_bill",
           custom_data: {
+            subscription: sub.id,
             held: {
               product: held.product,
               quantity: held.quantity,
@@ -545,8 +562,14 @@ export class PaddleProvider implements BillingProvider {
         },
       };
     }
+    const at = new Date(this.now());
     return {
       sub,
+      refused: heldOf(sub, at)
+        ? ("held" as const)
+        : this.swapsAfterTakeBack(sub, price.id, at)
+          ? ("swap_taken_back" as const)
+          : null,
       body: {
         items,
         proration_billing_mode: "prorated_immediately",
@@ -554,6 +577,22 @@ export class PaddleProvider implements BillingProvider {
         custom_data: {},
       },
     };
+  }
+
+  /** Paddle gives no credit for what was paid on a price it swapped away and back without billing. */
+  private swapsAfterTakeBack(
+    sub: PaddleSubscription,
+    priceId: string,
+    at: Date,
+  ) {
+    const { bill_on } = ownDataOf(sub);
+    return (
+      !!bill_on &&
+      new Date(bill_on) > at &&
+      !sub.items.some(
+        (item) => item.status !== "inactive" && item.price.id === priceId,
+      )
+    );
   }
 
   private refuseLateIntervalChange(
@@ -597,13 +636,15 @@ export class PaddleProvider implements BillingProvider {
   async takeBack(held: HeldSubscription, paid: SubscriptionUpdate) {
     const price = await this.priceFor(paid.product, paid.interval, paid.unit);
     const sub = await this.subscription(held.providerSubscriptionId);
+    const at = new Date(this.now());
+    if (!heldOf(sub, at)) return;
     const { held: _, bill_on: __, ...custom } = sub.custom_data ?? {};
-    const billOn = owedOf(sub, new Date(this.now())) ?? periodEndOf(sub);
+    const billOn = owedOf(sub, at) ?? periodEndOf(sub);
     this.refuseLateIntervalChange(sub, paid.interval, billOn);
     await this.alter("PATCH", `/subscriptions/${sub.id}`, {
       items: [{ price_id: price.id, quantity: paid.quantity }],
       proration_billing_mode: "do_not_bill",
-      custom_data: { ...custom, bill_on: billOn },
+      custom_data: { ...custom, subscription: sub.id, bill_on: billOn },
     });
     await this.billOnOwedDate(sub.id);
   }
@@ -613,7 +654,8 @@ export class PaddleProvider implements BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangeOutcome> {
-    const { sub, body } = await this.updateFor(held, update, when);
+    const { sub, body, refused } = await this.updateFor(held, update, when);
+    if (refused) return { taken: false, why: refused };
     if (when === "now" && (await this.paysByUpi(sub.id)))
       return { taken: false, why: "needs_renewal" };
     try {
@@ -635,7 +677,12 @@ export class PaddleProvider implements BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangePreview> {
-    const { sub, body, until } = await this.updateFor(held, update, when);
+    const { sub, body, until, refused } = await this.updateFor(
+      held,
+      update,
+      when,
+    );
+    if (refused) return { refused };
     if (when === "now" && (await this.paysByUpi(sub.id)))
       return { refused: "needs_renewal" };
     const preview = await this.alter<PaddlePreview>(

@@ -9,7 +9,7 @@ import type {
   Subscription,
 } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
-import type { Kysely, Selectable } from "kysely";
+import { sql, type Kysely, type Selectable } from "kysely";
 
 import { audit } from "../audit.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
@@ -36,6 +36,7 @@ import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
   heldSubscription,
   type BillingProvider,
+  type NotNow,
   type ProviderRequest,
 } from "./provider.ts";
 import { PaddleProvider } from "./paddle.ts";
@@ -573,8 +574,16 @@ export function billingRoutes({
       );
   };
 
-  const NOT_MID_PERIOD =
-    "This payment method cannot be charged mid-period. Ask for the change at renewal.";
+  const notNow = (why: NotNow) =>
+    why === "held"
+      ? heldForRenewal()
+      : new ApiFailure(
+          409,
+          "conflict",
+          why === "needs_renewal"
+            ? "This payment method cannot be charged mid-period. Ask for the change at renewal."
+            : "After a change was taken back, only seats change before renewal. Ask for this at renewal.",
+        );
 
   app.post(
     "/subscriptions/:subscriptionId/preview",
@@ -589,8 +598,7 @@ export function billingRoutes({
         { ...next, unit },
         when,
       );
-      if ("refused" in preview)
-        throw new ApiFailure(409, "conflict", NOT_MID_PERIOD);
+      if ("refused" in preview) throw notNow(preview.refused);
       const body: ChangePreview = {
         now: preview.now,
         ...(preview.renewal
@@ -611,10 +619,12 @@ export function billingRoutes({
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const { row, next, unit, same, held, orgId, when } = await askedChange(c);
-      if (same && !held) return c.json(await reread(row.id));
+      const { row, next, unit, same, orgId, when } = await askedChange(c);
       const subscription = heldSubscription(row, row.provider_customer_id);
       const take = async (trx: Kysely<Tables>) => {
+        await sql`select pg_advisory_xact_lock(hashtext('billing-change'), hashtext(${row.id}))`.execute(
+          trx,
+        );
         if (same) {
           await ready.takeBack(subscription, { ...next, unit });
           if (orgId)
@@ -632,13 +642,13 @@ export function billingRoutes({
           when,
         );
         if (!outcome.taken)
-          throw new ApiFailure(
-            409,
-            "conflict",
-            outcome.why === "payment_failed"
-              ? "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead."
-              : NOT_MID_PERIOD,
-          );
+          throw outcome.why === "payment_failed"
+            ? new ApiFailure(
+                409,
+                "conflict",
+                "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead.",
+              )
+            : notNow(outcome.why);
         if (orgId)
           await trx
             .updateTable("subscriptions")
@@ -648,7 +658,7 @@ export function billingRoutes({
             .where("id", "=", row.id)
             .execute();
       };
-      await (orgId ? db.transaction().execute(take) : take(db));
+      await db.transaction().execute(take);
       const { userId } = c.get("identity");
       await audit(db, {
         userId,

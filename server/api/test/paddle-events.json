@@ -1656,6 +1656,7 @@
       "business_id": null,
       "canceled_at": null,
       "custom_data": {
+        "subscription": "sub_01m7h6sr15kpcxsgs30ffgh74q",
         "held": {
           "until": "2026-12-16T03:35:47.986Z",
           "product": "team",

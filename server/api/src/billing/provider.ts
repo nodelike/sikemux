@@ -132,14 +132,20 @@ export interface SubscriptionUpdate {
   unit: Money;
 }
 
+/**
+ * Why a change asked for now waits for renewal: the payment method cannot be charged mid-period,
+ * a change for renewal is already held, or a different price after one was taken back this period.
+ */
+export type NotNow = "needs_renewal" | "held" | "swap_taken_back";
+
 /** Whether a change was taken. One asked for now is refused when its payment does not go through. */
 export type ChangeOutcome =
-  { taken: true } | { taken: false; why: "payment_failed" | "needs_renewal" };
+  { taken: true } | { taken: false; why: "payment_failed" | NotNow };
 
-/** What a change would charge, or that it would be refused because it cannot be charged mid-period. */
+/** What a change would charge, or why it would be refused. */
 export type ChangePreview =
   | { now: Money; renewal: { at: Date; amount: Money } | null }
-  | { refused: "needs_renewal" };
+  | { refused: NotNow };
 
 /** A request the provider sent to the API's webhook, as it arrived. */
 export interface ProviderRequest {
@@ -191,7 +197,10 @@ export interface BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangePreview>;
-  /** Drops a change waiting for renewal, so the subscription renews with what is paid for now. */
+  /**
+   * Drops a change waiting for renewal, so the subscription renews with what is paid for now. The
+   * provider is asked even when no change is known here, since its event may not have arrived.
+   */
   takeBack(
     subscription: HeldSubscription,
     paid: SubscriptionUpdate,

@@ -12,6 +12,7 @@ import {
 } from "../src/billing/paddle-api.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
+import { seatLimit } from "../src/billing/seats.ts";
 import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
 import { FakeClerk } from "./clerk.ts";
 import { APP_ORIGIN, body, log, testApp } from "./support.ts";
@@ -1015,5 +1016,119 @@ describe("an owner demoted while their first payment is applied", () => {
         askedOfPaddle("/adjustments"),
       ],
     }).toEqual({ payer: null, endedAndRefunded: [1, 1] });
+  });
+});
+
+const FAR = "2099-01-01T00:00:00.000Z";
+
+/** A checkout the API opened, paid after its custom data was set from the page's console. */
+async function payWithCustomData(
+  userId: string,
+  product: BillingProductId,
+  customData: Record<string, unknown>,
+  orgId?: string,
+) {
+  const { status, txn: id } = await openCheckout(userId, product, 1, orgId);
+  expect(status).toBe(200);
+  const sub = paddleSub(ctmOf(userId), product, 1);
+  sub.custom_data = customData;
+  paddle.subscriptions.set(sub.id, sub);
+  expect(
+    await deliver("transaction.completed", paddleTxn(sub, { id }), ago(60)),
+  ).toBe(204);
+  return sub;
+}
+
+describe("custom data the buyer set on the checkout page", () => {
+  it("R1a: one Team seat paid, 1000 named as held: the org's limit stays 1", async () => {
+    const orgId = await createOrg();
+    const sub = await payWithCustomData(
+      OWNER,
+      "team",
+      {
+        held: { product: "team", quantity: 1000, interval: "year", until: FAR },
+      },
+      orgId,
+    );
+    const paidFor = await seatLimit(database.db, orgId);
+
+    const answer = await deliver("subscription.updated", sub, ago(30));
+
+    const [held] = (await overview(OWNER, orgId)).subscriptions;
+    expect({
+      answer,
+      paidFor,
+      seats: await seatLimit(database.db, orgId),
+      shown: [held?.quantity, held?.interval, held?.currentPeriodEnd],
+    }).toEqual({
+      answer: 204,
+      paidFor: 1,
+      seats: 1,
+      shown: [1, "month", sub.current_billing_period.ends_at],
+    });
+  });
+
+  it("R1b: Pro paid by someone not staff, Shed boxes named as held: Pro is what they hold", async () => {
+    const sub = await payWithCustomData(NOT_STAFF, "pro", {
+      held: {
+        product: "shed_large",
+        quantity: 20,
+        interval: "month",
+        until: FAR,
+      },
+    });
+    const answer = await deliver("subscription.updated", sub, ago(30));
+    const held = (await overview(NOT_STAFF)).subscriptions.map(
+      (each) => `${each.product} x${each.quantity}`,
+    );
+    expect({ answer, held }).toEqual({ answer: 204, held: ["pro x1"] });
+  });
+
+  it("R1c: a bill date named on the checkout page leaves Paddle's next bill where it was", async () => {
+    const sub = await payWithCustomData(NOT_STAFF, "pro", { bill_on: FAR });
+    const paidEnd = sub.current_billing_period.ends_at;
+
+    const created = await deliver("subscription.created", sub, ago(59));
+    const billDatesAsked = paddle.calls
+      .filter((each) => each.method === "PATCH" && each.body?.next_billed_at)
+      .map((each) => each.body?.next_billed_at);
+    const updated = await deliver("subscription.updated", sub, ago(30));
+
+    const [held] = (await overview(NOT_STAFF)).subscriptions;
+    expect({
+      answers: [created, updated],
+      billDatesAsked,
+      paddleBillsNextOn: sub.next_billed_at,
+      shownEnd: held?.currentPeriodEnd,
+    }).toEqual({
+      answers: [204, 204],
+      billDatesAsked: [],
+      paddleBillsNextOn: paidEnd,
+      shownEnd: paidEnd,
+    });
+  });
+});
+
+describe("a change for renewal whose event has not arrived yet", () => {
+  it("R2a: a change now straight after it is refused, so nothing is prorated from unpaid seats", async () => {
+    const { id } = await team(5);
+    const first = await change(OWNER, id, { quantity: 1000, when: "renewal" });
+    const second = await change(OWNER, id, { quantity: 6 });
+    expect({
+      answers: [first.status, second.status],
+      prorated: prorated(),
+    }).toEqual({ answers: [200, 409], prorated: [] });
+  });
+
+  it("R2b: taking it back straight after gives Paddle the paid seats back", async () => {
+    const { sub, id } = await team(5);
+    await change(OWNER, id, { quantity: 1000, when: "renewal" });
+    const asked = paddle.patches.length;
+    const back = await change(OWNER, id, { quantity: 5 });
+    expect({
+      answer: back.status,
+      askedOfPaddle: paddle.patches.length - asked,
+      paddleBillsAtRenewal: sub.items[0]?.quantity,
+    }).toEqual({ answer: 200, askedOfPaddle: 1, paddleBillsAtRenewal: 5 });
   });
 });
