@@ -1,23 +1,24 @@
-//! The Now card floating at the top right of a chief's chat: how many of its project's agents
-//! wait on the person, are ready to look at, are moving and stand unsure, set large; then the
-//! rows the person acts on, the moving ones as marks, and the agents closed lately with a way to
-//! open them again. Folded, it is the four counts alone. The core works out every group and fact;
-//! this only words and draws them.
+//! The Now card floating at the top right of a chief's chat: its project's agents in four groups,
+//! waiting on the person, ready to look at, moving and not sure, one row each, then the agents
+//! closed lately with a way to open them again. Folded, it is the four counts alone. The core
+//! works out every group and fact; this only words and draws them.
 
 use super::*;
 use crate::ui::Clicks;
-use gpui_kit::ClickEvent;
+use gpui_kit::{linear_color_stop, linear_gradient, ClickEvent};
 
 use sikemux_view::now::{
     AskStand, ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRow, ProjectNow,
 };
 use sikemux_view::turn::TurnWaitKind;
 
-use crate::theme::{SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS, TEXT_XS_H};
+use crate::theme::{
+    SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
+};
 
 const WIDTH: f32 = 356.;
-const ROW: f32 = 27.;
-const MARK: f32 = 24.;
+const ROW: f32 = 30.;
+const NAME: f32 = 84.;
 /// Rows of a group shown before the rest fold into one line.
 const SHOWN: usize = 4;
 const CLOSED_SHOWN: usize = 3;
@@ -52,10 +53,14 @@ pub(super) fn card(
     let face = div()
         .id("now-card")
         .block_mouse_except_scroll()
-        .bg(t.surface_raised)
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(theme::mix(t.surface_raised, t.text_primary, 0.035), 0.),
+            linear_color_stop(t.surface_raised, 0.3),
+        ))
         .border(crate::theme::border())
         .border_color(t.border)
-        .shadow(theme::shadow_large());
+        .shadow(t.shadow_float());
     let card = match chat.now_folded {
         true => face
             .rounded_full()
@@ -79,13 +84,14 @@ pub(super) fn card(
                 .flex()
                 .flex_col()
                 .child(head(now, &chief.id, fold, cx))
-                .child(counts.stats(cx))
                 .child(
                     div()
-                        .px(SPACE_1H)
-                        .pb(SPACE_2)
+                        .px(SPACE_2)
+                        .pt(SPACE_1H)
+                        .pb(SPACE_2H)
                         .flex()
                         .flex_col()
+                        .gap(SPACE_2H)
                         .children(rows),
                 )
                 .into_any_element()
@@ -142,44 +148,6 @@ impl Counts {
             (self.moving, t!("Moving").into(), t.text_tertiary),
             (self.unsure, t!("Not sure").into(), t.warn),
         ]
-    }
-
-    /// The four counts set large, each over its tinted label.
-    fn stats(&self, cx: &App) -> Div {
-        let t = Tokens::get(cx);
-        let each = self.each(t).into_iter().enumerate();
-        div()
-            .flex()
-            .px(SPACE_2)
-            .pb(SPACE_2)
-            .border_b(crate::theme::border())
-            .border_color(t.line_soft)
-            .children(each.map(|(at, (n, label, tint))| {
-                let ink = match (at, n) {
-                    (_, 0) => t.text_disabled,
-                    (0, _) => t.accent,
-                    _ => t.text_primary,
-                };
-                div()
-                    .flex_1()
-                    .px(SPACE_2)
-                    .py(SPACE_1)
-                    .child(
-                        ui::text(n.to_string(), 22., FontWeight::SEMIBOLD)
-                            .font_features(theme::tabular())
-                            .line_height(px(25.))
-                            .text_color(ink),
-                    )
-                    .child(
-                        div()
-                            .mt(px(2.))
-                            .flex()
-                            .items_center()
-                            .gap(SPACE_1H)
-                            .child(div().size(px(6.)).rounded_full().bg(tint))
-                            .child(ui::caps(&label, cx).line_height(px(14.))),
-                    )
-            }))
     }
 
     /// The folded card: each count beside its tint, the person's own lit while anything waits.
@@ -280,18 +248,20 @@ fn head(
     let agents = now.rows.len();
     div()
         .id("now-card-head")
-        .h(px(36.))
-        .pl(px(14.))
-        .pr(SPACE_1H)
+        .h(px(44.))
+        .pl(px(16.))
+        .pr(SPACE_2)
         .flex()
         .items_center()
         .gap(SPACE_2)
+        .border_b(crate::theme::border())
+        .border_color(t.line_soft)
         .clicks(fold)
-        .child(ui::chief_mark(13.))
-        .child(ui::text(t!("Now"), TEXT_XS_H, FontWeight::SEMIBOLD).text_color(t.text_primary))
+        .child(ui::chief_mark(14.))
+        .child(ui::text(t!("Now"), TEXT_SM, FontWeight::SEMIBOLD).text_color(t.text_primary))
         .child(
             ui::text(
-                t!("{count} agents", count = agents),
+                format!("· {}", t!("{count} agents", count = agents)),
                 TEXT_XS,
                 FontWeight::NORMAL,
             )
@@ -309,45 +279,51 @@ fn body(
     chat: &Chat,
     cx: &App,
 ) -> Vec<AnyElement> {
-    let mut out = Vec::new();
+    let t = Tokens::get(cx);
     let agent = |id: &str| bench.agent_by_id(id);
-    for group in [NowGroup::WaitingOnYou, NowGroup::ReadyToLook] {
+    let mut out = Vec::new();
+    for (group, tint) in [
+        (NowGroup::WaitingOnYou, t.accent),
+        (NowGroup::ReadyToLook, t.live),
+        (NowGroup::Moving, t.text_tertiary),
+        (NowGroup::NotSure, t.warn),
+    ] {
         let rows: Vec<&NowRow> = shown(now, group).collect();
         if rows.is_empty() {
             continue;
         }
-        out.push(label(group_words(group), rows.len(), cx).into_any_element());
-        for row in rows.iter().take(SHOWN) {
-            if let Some(agent) = agent(&row.agent) {
-                out.push(fact_row(&agent, row, handle, cx).into_any_element());
-            }
-        }
-        if let Some(more) = rest(&rows[SHOWN.min(rows.len())..], &agent, cx) {
-            out.push(more.into_any_element());
-        }
-    }
-    let moving: Vec<&NowRow> = shown(now, NowGroup::Moving).collect();
-    if !moving.is_empty() {
-        out.push(label(group_words(NowGroup::Moving), moving.len(), cx).into_any_element());
-        out.push(cluster(now, &moving, &agent, handle, cx).into_any_element());
-    }
-    let unsure: Vec<&NowRow> = shown(now, NowGroup::NotSure).collect();
-    if !unsure.is_empty() {
-        out.push(label(group_words(NowGroup::NotSure), unsure.len(), cx).into_any_element());
-        for row in unsure.iter().take(SHOWN) {
-            if let Some(agent) = agent(&row.agent) {
-                out.push(fact_row(&agent, row, handle, cx).into_any_element());
-            }
-        }
-        if let Some(more) = rest(&unsure[SHOWN.min(unsure.len())..], &agent, cx) {
-            out.push(more.into_any_element());
-        }
+        let lines = rows.iter().take(SHOWN).filter_map(|row| {
+            let agent = agent(&row.agent)?;
+            let under = workers(now, &agent.id);
+            Some(fact_row(&agent, row, under, handle, cx).into_any_element())
+        });
+        let more = rest(&rows[SHOWN.min(rows.len())..], &agent, cx);
+        out.push(
+            div()
+                .flex()
+                .flex_col()
+                .child(label(group_words(group), rows.len(), tint, cx))
+                .children(lines)
+                .children(more.map(IntoElement::into_any_element))
+                .into_any_element(),
+        );
     }
     if !now.closed.is_empty() {
-        out.push(label(t!("Closed lately").into(), now.closed.len(), cx).into_any_element());
-        for closed in now.closed.iter().take(CLOSED_SHOWN) {
-            out.push(closed_row(closed, chat.target.clone(), cx).into_any_element());
-        }
+        let lines = (now.closed.iter().take(CLOSED_SHOWN))
+            .map(|closed| closed_row(closed, chat.target.clone(), cx).into_any_element());
+        out.push(
+            div()
+                .flex()
+                .flex_col()
+                .child(label(
+                    t!("Closed lately").into(),
+                    now.closed.len(),
+                    t.text_tertiary,
+                    cx,
+                ))
+                .children(lines)
+                .into_any_element(),
+        );
     }
     out
 }
@@ -362,21 +338,23 @@ fn group_words(group: NowGroup) -> SharedString {
     .into()
 }
 
-fn label(words: SharedString, count: usize, cx: &App) -> Div {
+/// A group's spaced capitals in its colour, how many stand in it, and a hairline to the edge.
+fn label(words: SharedString, count: usize, tint: Hsla, cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
         .h(px(24.))
-        .mt(SPACE_1)
-        .px(SPACE_2)
+        .px(SPACE_2H)
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .child(ui::caps(&words, cx))
+        .child(ui::caps(&words, cx).flex_none().text_color(tint))
         .child(
-            ui::text(count.to_string(), TEXT_2XS, FontWeight::MEDIUM)
+            ui::text(count.to_string(), TEXT_2XS, FontWeight::NORMAL)
+                .flex_none()
                 .font_features(theme::tabular())
-                .text_color(t.text_secondary),
+                .text_color(t.text_tertiary),
         )
+        .child(div().flex_1().h(px(1.)).bg(t.border))
 }
 
 fn line(id: SharedString, cx: &App) -> gpui_kit::Stateful<Div> {
@@ -384,17 +362,18 @@ fn line(id: SharedString, cx: &App) -> gpui_kit::Stateful<Div> {
     div()
         .id(id)
         .h(px(ROW))
-        .px(SPACE_2)
+        .px(SPACE_2H)
         .rounded(theme::radius_2())
         .flex()
         .items_center()
-        .gap(px(9.))
+        .gap(SPACE_2H)
         .hover(|row| row.bg(t.surface_hover))
 }
 
 fn fact_row(
     agent: &AgentRow,
     row: &NowRow,
+    under: usize,
     handle: &WeakEntity<Workbench>,
     cx: &App,
 ) -> impl IntoElement {
@@ -410,7 +389,29 @@ fn fact_row(
     };
     line(SharedString::from(format!("now:{}", agent.id)), cx)
         .clicks(open)
-        .child(attach::agent_pill(agent, TEXT_XS, handle, cx))
+        .child(div().flex_none().child(agent.mark(TEXT_XS_H, cx)))
+        .child(
+            div()
+                .flex_none()
+                .w(px(NAME))
+                .flex()
+                .items_baseline()
+                .gap(SPACE_1)
+                .overflow_hidden()
+                .child(
+                    ui::text(name_of(agent), TEXT_XS_H, FontWeight::MEDIUM)
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_color(t.text_primary),
+                )
+                .children((under > 0).then(|| {
+                    ui::text(format!("+{under}"), TEXT_2XS, FontWeight::NORMAL)
+                        .flex_none()
+                        .text_color(t.text_tertiary)
+                })),
+        )
         .child(
             div()
                 .flex_1()
@@ -422,7 +423,6 @@ fn fact_row(
                 .text_color(t.text_secondary)
                 .child(fact_words(&row.fact)),
         )
-        .children(matches!(row.group, NowGroup::NotSure).then(|| ui::dot(ui::Tone::Idle, cx)))
         .child(clock(row.since, late, cx))
 }
 
@@ -475,94 +475,6 @@ fn marks(agents: &[AgentRow], cx: &App) -> Div {
                 .items_center()
                 .justify_center()
                 .child(agent.mark(11., cx))
-        }))
-}
-
-/// The moving agents as marks, each with its live dot, a lead as a chip naming how many work
-/// under it; under them, what the longest standing is doing.
-fn cluster(
-    now: &ProjectNow,
-    moving: &[&NowRow],
-    agent: &impl Fn(&str) -> Option<AgentRow>,
-    handle: &WeakEntity<Workbench>,
-    cx: &App,
-) -> impl IntoElement {
-    let t = Tokens::get(cx);
-    let stars = moving.iter().filter_map(|row| {
-        let agent = agent(&row.agent)?;
-        let under = workers(now, &agent.id);
-        let open = {
-            let (id, handle) = (agent.id.clone(), handle.clone());
-            move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                handle
-                    .update(cx, |bench, cx| bench.open_agent(&id, cx))
-                    .ok();
-            }
-        };
-        let face = div()
-            .id(SharedString::from(format!("now-mark:{}", agent.id)))
-            .relative()
-            .h(px(MARK))
-            .rounded(px(8.))
-            .bg(t.surface_active)
-            .flex()
-            .items_center()
-            .justify_center()
-            .hover(|face| face.bg(t.surface_selected))
-            .tooltip(ui::tooltip(format!(
-                "{} · {}",
-                name_of(&agent),
-                fact_words(&row.fact)
-            )))
-            .clicks(open)
-            .child(agent.mark(13., cx))
-            .child(
-                div()
-                    .absolute()
-                    .right(px(-2.))
-                    .bottom(px(-2.))
-                    .size(px(7.))
-                    .rounded_full()
-                    .bg(t.live)
-                    .border_2()
-                    .border_color(t.surface_raised),
-            );
-        Some(match under {
-            0 => face.w(px(MARK)).into_any_element(),
-            n => face
-                .px(SPACE_1H)
-                .gap(px(5.))
-                .child(
-                    ui::text(name_of(&agent), TEXT_2XS, FontWeight::MEDIUM)
-                        .text_color(t.text_secondary),
-                )
-                .child(
-                    ui::text(format!("+{n}"), TEXT_2XS, FontWeight::NORMAL)
-                        .text_color(t.text_tertiary),
-                )
-                .into_any_element(),
-        })
-    });
-    let first = moving
-        .first()
-        .and_then(|row| Some((agent(&row.agent)?, *row)));
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_1H)
-        .px(SPACE_2)
-        .pt(theme::SPACE_0)
-        .pb(SPACE_1)
-        .child(div().flex().flex_wrap().gap(px(5.)).children(stars))
-        .children(first.map(|(agent, row)| {
-            ui::text(
-                format!("{} {}", name_of(&agent), fact_words(&row.fact)),
-                TEXT_2XS,
-                FontWeight::NORMAL,
-            )
-            .text_color(t.text_tertiary)
-            .overflow_hidden()
-            .text_ellipsis()
         }))
 }
 
@@ -627,6 +539,10 @@ fn age_ms(since: u64) -> u64 {
 fn clock(since: u64, late: bool, cx: &App) -> Div {
     let t = Tokens::get(cx);
     ui::text(crate::ui::time::age(since), TEXT_2XS, FontWeight::NORMAL)
+        .flex_none()
+        .min_w(px(28.))
+        .flex()
+        .justify_end()
         .font_features(theme::tabular())
         .text_color(if late { t.warn } else { t.text_tertiary })
 }
