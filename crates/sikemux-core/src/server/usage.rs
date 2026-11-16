@@ -46,6 +46,8 @@ pub struct Active<'a> {
     /// The account this host is signed in to, so one person on several hosts
     /// counts once. Only a hash of it leaves the machine.
     pub account: Option<&'a str>,
+    /// Someone who makes Sikemux, whose use stays out of the counts of people.
+    pub staff: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -320,6 +322,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
             continue;
         };
         let account = core.remote().owner();
+        let staff = core.account().shown().is_some_and(|shown| shown.staff);
         sentry_core::Hub::main().configure_scope(|scope| {
             scope.set_user(account.as_deref().map(|account| sentry_core::User {
                 id: Some(account_hash(account)),
@@ -331,6 +334,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
             version: &host.version,
             channel,
             account: account.as_deref(),
+            staff,
         };
         if let Err(error) = report_active(&data_dir, active).await {
             eprintln!("sikemux core: {error}");
@@ -402,6 +406,7 @@ fn common_properties(active: &Active<'_>, platform: &Platform) -> Value {
         "source": "app",
         "install": active.install.name(),
         "user": active.account.map(account_hash),
+        "staff": active.staff,
         "version": active.version,
         "update_channel": active.channel.name(),
         "os": platform.os,
@@ -639,6 +644,7 @@ mod tests {
             version: "0.4.2",
             channel: BuildChannel::Nightly,
             account: Some("user-1"),
+            staff: false,
         };
         let event = active_event("install-1", &active, &platform);
 
@@ -658,6 +664,7 @@ mod tests {
                 "os",
                 "os_version",
                 "source",
+                "staff",
                 "update_channel",
                 "user",
                 "version"

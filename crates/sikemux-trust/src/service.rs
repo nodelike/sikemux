@@ -703,6 +703,7 @@ const PERSON_NAMES: &[&str] = &[
     "LOCALAPPDATA",
     "TEMP",
     "TMP",
+    "DO_NOT_TRACK",
 ];
 
 fn is_one_of(name: &OsStr, names: &[&str]) -> bool {

@@ -75,6 +75,8 @@ function Wait-Window($Seconds) {
 }
 
 $Silent = "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+# The service starts the core with the signed-in person's saved environment, not this step's.
+[Environment]::SetEnvironmentVariable("DO_NOT_TRACK", "1", "Machine")
 
 Run-Setup ($Silent + '/MERGETASKS="!shareusage"') "install.log"
 Check (Test-Path $App) "the app is in $Dir"
