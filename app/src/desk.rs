@@ -2557,8 +2557,8 @@ fn tab_menu(
     }
 }
 
-/// The desk's switch between what it holds, as the Mac's: its pages, its files, its task
-/// terminals and its simulator. A kind with nothing in it is greyed, but for the pages and the
+/// The desk's switch between what it holds, as the Mac's: the calls waiting on the person, its
+/// pages, its files, its task terminals and its simulator. A kind with nothing in it is greyed, but for the pages and the
 /// simulator, which open one; one the agent is at work in, and not shown, takes its colour.
 fn kinds(
     bench: &Workbench,
@@ -2587,6 +2587,14 @@ fn kinds(
     let ground = crate::see_through::ground(t.surface, cx);
     let mut row = div().flex().items_center().gap(SPACE_0);
     for (id, icon, label, kind, count, busy) in [
+        (
+            "desk-calls",
+            Icon::Bell,
+            t!("Calls"),
+            DeskKind::Calls,
+            calls,
+            false,
+        ),
         (
             "desk-pages",
             Icon::Globe,
@@ -2617,14 +2625,6 @@ fn kinds(
             t!("Simulators"),
             DeskKind::Simulator,
             0,
-            false,
-        ),
-        (
-            "desk-calls",
-            Icon::Bell,
-            t!("Calls"),
-            DeskKind::Calls,
-            calls,
             false,
         ),
     ]
