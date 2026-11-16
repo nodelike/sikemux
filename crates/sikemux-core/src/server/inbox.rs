@@ -659,14 +659,16 @@ pub(crate) fn uncommitted_files(
     cwd: &Path,
 ) -> Vec<String> {
     let files = edited_files(core, project, agent_id);
-    if files.is_empty() {
-        return Vec::new();
-    }
-    if let Some(listed) = uncommitted_in(cwd, &files) {
-        return listed;
-    }
     (checkouts_holding(&files, cwd).iter())
-        .filter_map(|(checkout, files)| uncommitted_in(checkout, files))
+        .filter_map(|(checkout, files)| {
+            let listed = uncommitted_in(checkout, &files[..files.len().min(MAX_STATUS_FILES)])?;
+            Some(listed.into_iter().map(|file| {
+                let path = checkout.join(file);
+                (path.strip_prefix(cwd).unwrap_or(&path))
+                    .to_string_lossy()
+                    .into_owned()
+            }))
+        })
         .flatten()
         .collect()
 }
@@ -694,12 +696,11 @@ fn edited_files(core: &Core, project: &str, agent_id: &str) -> Vec<String> {
         .collect();
     files.sort_unstable();
     files.dedup();
-    files.truncate(MAX_STATUS_FILES);
     files
 }
 
-/// Which of `files` git at `checkout` lists as changed; None when git there cannot say, as
-/// outside a checkout or for a file outside it.
+/// Which of `files` git at `checkout` lists as changed, relative to the checkout; None when
+/// git there cannot say.
 fn uncommitted_in(checkout: &Path, files: &[String]) -> Option<Vec<String>> {
     let mut status = vec!["status", "--porcelain", "--"];
     status.extend(files.iter().map(String::as_str));
@@ -717,8 +718,8 @@ fn uncommitted_in(checkout: &Path, files: &[String]) -> Option<Vec<String>> {
 fn checkouts_holding(files: &[String], cwd: &Path) -> BTreeMap<PathBuf, Vec<String>> {
     let mut held: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     for file in files {
-        let checkout = (Path::new(file).ancestors().skip(1))
-            .find(|dir| dir.is_absolute() && dir.join(".git").exists())
+        let checkout = (Path::new(file).parent())
+            .and_then(sikemux_process::files::repo_root)
             .filter(|checkout| checkout.starts_with(cwd) || cwd.starts_with(checkout));
         if let Some(checkout) = checkout {
             held.entry(checkout.to_path_buf())
