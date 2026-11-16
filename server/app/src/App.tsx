@@ -232,7 +232,7 @@ function Account({
           path: HOSTS,
           name: "Hosts",
           icon: <IconServer size={15} />,
-          count: hostCount === undefined ? undefined : String(hostCount),
+          count: hostCount ? String(hostCount) : undefined,
         },
       ],
     },
