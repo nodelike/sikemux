@@ -26,6 +26,7 @@ use crate::proc::{
 };
 use crate::sd::{
     deny_admins, medium_restricted, set_integrity, to_primary, user_sid_string, HIGH_RID,
+    MEDIUM_RID,
 };
 use crate::util::{
     install_exe, report, report_err, secrets_dir, SendHandle, SERVICE_NAME, SVC_PIPE,
@@ -137,6 +138,10 @@ fn handle(pipe: HANDLE, req: &str) {
             let ok = start(pipe);
             send_line(pipe, if ok { "ok" } else { "fail" });
         }
+        Some("agent") => {
+            let ok = start_agent(pipe);
+            send_line(pipe, if ok { "ok" } else { "fail" });
+        }
         Some("hwnd") => {
             let tag = parts.next().unwrap_or("");
             let value: isize = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -170,10 +175,10 @@ fn handle(pipe: HANDLE, req: &str) {
     }
 }
 
-fn start(pipe: HANDLE) -> bool {
+fn client_token(pipe: HANDLE, step: &str) -> Option<HANDLE> {
     if unsafe { ImpersonateNamedPipeClient(pipe) } == 0 {
-        report_err("svc", "start", "impersonate");
-        return false;
+        report_err("svc", step, "impersonate");
+        return None;
     }
     let mut thread_token: HANDLE = null_mut();
     let got = unsafe {
@@ -186,16 +191,42 @@ fn start(pipe: HANDLE) -> bool {
     };
     unsafe { RevertToSelf() };
     if got == 0 {
-        report_err("svc", "start", "open_thread_token");
-        return false;
+        report_err("svc", step, "open_thread_token");
+        return None;
     }
-
-    let primary = to_primary(thread_token);
-    let locked = deny_admins(primary);
+    let locked = deny_admins(to_primary(thread_token));
     if locked.is_null() {
-        report_err("svc", "start", "deny_admins");
-        return false;
+        report_err("svc", step, "deny_admins");
+        return None;
     }
+    Some(locked)
+}
+
+fn start_agent(pipe: HANDLE) -> bool {
+    let Some(locked) = client_token(pipe, "agent") else {
+        return false;
+    };
+    if !set_integrity(locked, MEDIUM_RID) {
+        report_err("svc", "agent", "set_integrity");
+    }
+    let spawned = spawn(&Spawn {
+        token: locked,
+        cmdline: format!("\"{}\" agent", install_exe().display()),
+        inherit: &[],
+        mitigation: None,
+        visible_desktop: true,
+        process_sddl: None,
+    });
+    if spawned.is_none() {
+        report_err("svc", "agent", "create_process");
+    }
+    spawned.is_some()
+}
+
+fn start(pipe: HANDLE) -> bool {
+    let Some(locked) = client_token(pipe, "start") else {
+        return false;
+    };
     if !set_integrity(locked, HIGH_RID) {
         report_err("svc", "start", "set_integrity");
     }

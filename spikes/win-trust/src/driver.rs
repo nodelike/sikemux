@@ -3,9 +3,6 @@ use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::CloseHandle;
-use windows_sys::Win32::Security::{
-    TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY,
-};
 use windows_sys::Win32::System::Services::{
     CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
     OpenServiceW, StartServiceW, SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_CONTROL_STOP,
@@ -16,8 +13,6 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::pipe::{client, recv_line, send_line};
-use crate::proc::{spawn, Spawn};
-use crate::sd::{deny_admins, self_token, set_integrity, to_primary, MEDIUM_RID};
 use crate::util::{
     data_dir, install_dir, install_exe, log_path, report, secrets_dir, wide, SERVICE_NAME, SVC_PIPE,
 };
@@ -49,7 +44,11 @@ fn stage() {
     let _ = std::fs::create_dir_all(install_dir());
     let _ = std::fs::create_dir_all(secrets_dir());
     let _ = std::fs::create_dir_all(data_dir());
-    let _ = std::fs::remove_file(log_path());
+    let _ = std::fs::write(log_path(), "");
+    let _ = std::process::Command::new("icacls")
+        .arg(log_path())
+        .args(["/grant", "*S-1-1-0:(M)"])
+        .output();
     let me = std::env::current_exe().expect("current exe");
     std::fs::copy(&me, install_exe()).expect("copy spike.exe to Program Files");
 }
@@ -142,28 +141,14 @@ fn ask_start() {
 }
 
 fn launch_agent() {
-    let base =
-        self_token(TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT);
-    let primary = to_primary(base);
-    let locked = deny_admins(primary);
-    if locked.is_null() {
-        report("driver", "agent_token", "failed");
+    let h = client(SVC_PIPE);
+    if h.is_null() {
+        report("driver", "agent_launch", "no-pipe");
         return;
     }
-    set_integrity(locked, MEDIUM_RID);
-    let spawned = spawn(&Spawn {
-        token: locked,
-        cmdline: format!("\"{}\" agent", install_exe().display()),
-        inherit: &[],
-        mitigation: None,
-        visible_desktop: true,
-        process_sddl: None,
-    });
-    if spawned.is_some() {
-        report("driver", "agent_launch", "started");
-    } else {
-        crate::util::report_err("driver", "agent_launch", "create_process");
-    }
+    send_line(h, "agent");
+    report("driver", "agent_launch", &recv_line(h).unwrap_or_default());
+    unsafe { CloseHandle(h) };
 }
 
 fn second_user() {

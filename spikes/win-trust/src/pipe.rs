@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::HANDLE;
+use windows_sys::Win32::Foundation::{GetLastError, HANDLE};
 use windows_sys::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
@@ -53,7 +53,8 @@ pub fn create_named(name: &str, sddl: &str) -> HANDLE {
 }
 
 pub fn wait_client(pipe: HANDLE) -> bool {
-    unsafe { ConnectNamedPipe(pipe, null_mut()) != 0 }
+    const ERROR_PIPE_CONNECTED: u32 = 535;
+    unsafe { ConnectNamedPipe(pipe, null_mut()) != 0 || GetLastError() == ERROR_PIPE_CONNECTED }
 }
 
 pub fn disconnect(pipe: HANDLE) {
