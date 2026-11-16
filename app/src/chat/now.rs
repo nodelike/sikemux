@@ -72,7 +72,7 @@ pub(super) fn card(
             .gap(px(2.))
             .clicks(fold)
             .children(counts.pills(cx))
-            .children(asks_pill(now, &chief.id, cx))
+            .children(asks_pill(now, cx))
             .child(chevron(false, cx))
             .into_any_element(),
         false => {
@@ -83,7 +83,7 @@ pub(super) fn card(
                 .overflow_hidden()
                 .flex()
                 .flex_col()
-                .child(head(now, &chief.id, fold, cx))
+                .child(head(now, fold, cx))
                 .child(
                     div()
                         .px(SPACE_2)
@@ -194,9 +194,9 @@ fn chevron(open: bool, cx: &App) -> Div {
         )
 }
 
-/// The person's open asks as one pill opening the chief's Asks board: amber with how many have
-/// nobody on them, else quiet with how many there are.
-fn asks_pill(now: &ProjectNow, chief: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+/// The person's open asks as one pill: amber with how many have nobody on them, else quiet with
+/// how many there are.
+fn asks_pill(now: &ProjectNow, cx: &App) -> Option<AnyElement> {
     if now.asks.is_empty() {
         return None;
     }
@@ -219,10 +219,8 @@ fn asks_pill(now: &ProjectNow, chief: &str, cx: &mut Context<Workbench>) -> Opti
             t.warn.opacity(0.14),
         ),
     };
-    let chief = chief.to_owned();
     Some(
         div()
-            .id("now-asks")
             .h(px(24.))
             .px(px(9.))
             .flex_none()
@@ -231,23 +229,17 @@ fn asks_pill(now: &ProjectNow, chief: &str, cx: &mut Context<Workbench>) -> Opti
             .items_center()
             .bg(fill)
             .text_color(ink)
-            .hover(move |pill| pill.bg(fill.opacity((fill.a * 1.6).min(1.))))
             .child(ui::text(words, TEXT_XS, FontWeight::SEMIBOLD).font_features(theme::tabular()))
-            .clicks(cx.listener(move |bench, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                bench.show_asks(&chief, cx);
-            }))
             .into_any_element(),
     )
 }
 
 fn head(
     now: &ProjectNow,
-    chief: &str,
     fold: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
+    let t = Tokens::get(cx);
     let agents = now.rows.len();
     div()
         .id("now-card-head")
@@ -277,7 +269,7 @@ fn head(
             .text_color(t.text_tertiary),
         )
         .child(div().flex_1())
-        .children(asks_pill(now, chief, cx))
+        .children(asks_pill(now, cx))
         .child(chevron(true, cx))
 }
 

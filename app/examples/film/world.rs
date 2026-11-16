@@ -561,18 +561,13 @@ impl World {
                     .chat
                     .clone()
                     .ok_or_else(|| anyhow!("open a chat first"))?;
-                self.runtime.block_on(
-                    self.client.ask(ask::AcpPrompt {
-                        agent_id: chat,
-                        message_id: None,
-                        text: step.text(0)?.to_owned(),
-                        paths: (1..)
-                            .map_while(|at| step.text(at).ok())
-                            .map(|path| self.scenes.join(path).to_string_lossy().into_owned())
-                            .collect(),
-                        context: Vec::new(),
-                    }),
-                )?;
+                self.runtime.block_on(self.client.ask(ask::AcpPrompt {
+                    agent_id: chat,
+                    message_id: None,
+                    text: step.text(0)?.to_owned(),
+                    paths: Vec::new(),
+                    context: Vec::new(),
+                }))?;
             }
             "auto" => {
                 let (_, path) = self.project()?.clone();

@@ -4,7 +4,7 @@
 //! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
 //! holds, opens that slice in the project whose code host repository it names.
 //! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
-//! `sikemux://ask/<number>` opens one of the person's asks, as its card on the board does.
+//! `sikemux://ask/<number>` opens one of the person's asks.
 
 use std::path::PathBuf;
 
