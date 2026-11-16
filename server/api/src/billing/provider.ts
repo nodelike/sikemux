@@ -138,6 +138,12 @@ export interface ProviderRequest {
 export interface BillingProvider {
   /** The name kept beside each customer, such as "stand-in". */
   readonly name: string;
+  /**
+   * How long the provider keeps sending an event the API answered "not yet". An event about
+   * something unknown is answered so until it is older than this, then taken as about something
+   * erased.
+   */
+  readonly eventRetrySpanMs: number;
   /** The provider's hosted page to buy a product. */
   checkout(request: CheckoutRequest): Promise<{ url: string }>;
   /**

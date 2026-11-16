@@ -227,6 +227,7 @@ export interface PaddleOptions {
  */
 export class PaddleProvider implements BillingProvider {
   readonly name = "paddle";
+  readonly eventRetrySpanMs = 3 * 24 * 60 * 60_000;
   private readonly api: PaddleApi;
   private readonly log: Logger;
   private readonly now: () => number;

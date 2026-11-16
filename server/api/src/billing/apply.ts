@@ -13,24 +13,29 @@ import type {
   ProviderSubscription,
 } from "./provider.ts";
 
-/**
- * How long an event about something unknown is answered "not yet", for the provider to send again
- * once what it follows has arrived. Past that, what it is about was erased with its account.
- */
-const GONE_AFTER_MS = 24 * 60 * 60_000;
-
 /** An event about something erased, which is acknowledged and changes nothing. */
 class Gone extends Error {}
 
-function unknown(what: string, at: Date): Error {
-  if (Date.now() - at.getTime() > GONE_AFTER_MS) return new Gone(what);
+/** The provider an event came from, as applying it needs. */
+interface From {
+  name: string;
+  eventRetrySpanMs: number;
+}
+
+/**
+ * An event about something unknown is answered "not yet", for the provider to send again once
+ * what it follows has arrived. Once the provider would have stopped sending it, what it is about
+ * was erased with its account.
+ */
+function unknown(from: From, what: string, at: Date): Error {
+  if (Date.now() - at.getTime() > from.eventRetrySpanMs) return new Gone(what);
   return new ApiFailure(503, "unavailable", `${what} is not known yet.`);
 }
 
 /** The rows of one provider subscription, one per product, locked for the event. */
 async function rowsOf(
   trx: Transaction<Tables>,
-  provider: string,
+  from: From,
   providerSubscriptionId: string,
   at: Date,
 ) {
@@ -50,7 +55,7 @@ async function rowsOf(
       "subscriptions.started_at",
       "subscriptions.ended_at",
     ])
-    .where("billing_customers.provider", "=", provider)
+    .where("billing_customers.provider", "=", from.name)
     .where(
       "subscriptions.provider_subscription_id",
       "=",
@@ -60,7 +65,7 @@ async function rowsOf(
     .forUpdate("subscriptions")
     .execute();
   const [first] = rows;
-  if (!first) throw unknown("The subscription", at);
+  if (!first) throw unknown(from, "The subscription", at);
   return { rows, customerId: first.customer_id };
 }
 
@@ -215,9 +220,10 @@ async function endingForDeletedPayer(trx: Kysely<Tables>, customerId: string) {
 /** Applies one event and answers which customer it changed. */
 async function apply(
   trx: Transaction<Tables>,
-  provider: string,
+  from: From,
   event: ProviderEvent,
 ): Promise<{ customerId: string }> {
+  const provider = from.name;
   const { at } = event;
   switch (event.type) {
     case "subscription.started": {
@@ -256,7 +262,7 @@ async function apply(
       const sub = event.subscription;
       const { rows, customerId } = await rowsOf(
         trx,
-        provider,
+        from,
         sub.providerSubscriptionId,
         at,
       );
@@ -267,7 +273,7 @@ async function apply(
     case "subscription.ended": {
       const { rows, customerId } = await rowsOf(
         trx,
-        provider,
+        from,
         event.providerSubscriptionId,
         at,
       );
@@ -291,7 +297,7 @@ async function apply(
     case "payment.failed": {
       const { rows, customerId } = await rowsOf(
         trx,
-        provider,
+        from,
         event.providerSubscriptionId,
         at,
       );
@@ -363,7 +369,7 @@ async function apply(
         .select("customer_id")
         .where("provider_payment_id", "=", event.providerPaymentId)
         .executeTakeFirst();
-      if (!known) throw unknown("The payment", at);
+      if (!known) throw unknown(from, "The payment", at);
       return { customerId: known.customer_id };
     }
   }
@@ -424,9 +430,8 @@ export async function applyProviderEvents(
   events: readonly ProviderEvent[],
   log: Logger,
 ): Promise<void> {
-  const name = provider.name;
   try {
-    for (const event of events) await applyOnce(db, name, event, log);
+    for (const event of events) await applyOnce(db, provider, event, log);
   } finally {
     await makeDueCalls(db, provider, log);
   }
@@ -434,10 +439,11 @@ export async function applyProviderEvents(
 
 async function applyOnce(
   db: Kysely<Tables>,
-  name: string,
+  from: From,
   event: ProviderEvent,
   log: Logger,
 ) {
+  const { name } = from;
   try {
     await db.transaction().execute(async (trx) => {
       const fresh = await trx
@@ -447,7 +453,7 @@ async function applyOnce(
         .returning("event_id")
         .executeTakeFirst();
       if (!fresh) return;
-      const result = await apply(trx, name, event);
+      const result = await apply(trx, from, event);
       const people = await peopleOf(trx, result.customerId);
       await appendEvents(
         trx,

@@ -57,6 +57,7 @@ function revive(_key: string, value: unknown) {
  */
 export class StandInProvider implements BillingProvider {
   readonly name = "stand-in";
+  readonly eventRetrySpanMs = 3 * 24 * 60 * 60_000;
   private readonly secret = randomBytes(32);
   private readonly checkouts = new Map<string, CheckoutRequest>();
   private readonly paying = new Set<string>();

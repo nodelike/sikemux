@@ -601,7 +601,9 @@ describe("the provider's events", () => {
   }
 
   it("acknowledges an event about a subscription that was erased", async () => {
-    expect((await lateEnd(2 * DAY_MS)).status).toBe(204);
+    expect((await lateEnd(provider.eventRetrySpanMs + DAY_MS)).status).toBe(
+      204,
+    );
   });
 
   it("asks again for a fresh event about a subscription it does not know yet", async () => {

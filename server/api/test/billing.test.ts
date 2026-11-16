@@ -394,7 +394,12 @@ describe("the provider's events", () => {
       new Date(at.getTime() + minutes * 60_000);
     await applyProviderEvents(
       database.db,
-      { name: "boxes", cancel: noCall, refund: noCall },
+      {
+        name: "boxes",
+        eventRetrySpanMs: provider.eventRetrySpanMs,
+        cancel: noCall,
+        refund: noCall,
+      },
       [
         {
           eventId: "evt_1",
@@ -475,6 +480,7 @@ describe("the provider's events", () => {
         database.db,
         {
           name: "stand-in",
+          eventRetrySpanMs: provider.eventRetrySpanMs,
           refund: noCall,
           cancel: () => {
             stopped();
@@ -489,11 +495,66 @@ describe("the provider's events", () => {
     const cancel = vi.fn(() => Promise.resolve());
     await applyProviderEvents(
       database.db,
-      { name: "stand-in", refund: noCall, cancel },
+      {
+        name: "stand-in",
+        eventRetrySpanMs: provider.eventRetrySpanMs,
+        refund: noCall,
+        cancel,
+      },
       [second],
       log,
     );
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a payment that arrives a day late, ahead of its subscription", async () => {
+    const ada = await person("user_ada");
+    await buy(ada, "pro");
+    const held = await database.db
+      .selectFrom("billing_customers")
+      .select(["id", "provider_customer_id"])
+      .executeTakeFirstOrThrow();
+    await database.pool.query("truncate subscriptions, invoices cascade");
+    const at = new Date(Date.now() - 25 * 60 * 60_000);
+    const paid = {
+      eventId: "evt_late_paid",
+      at,
+      type: "payment.made" as const,
+      providerPaymentId: "pay_late",
+      providerSubscriptionId: "sub_late",
+      lines: [{ product: "pro" as const, quantity: 1 }],
+      reason: "first_payment" as const,
+      total: { amount: 800, currency: "usd" },
+    };
+    await expect(
+      applyProviderEvents(database.db, provider, [paid], log),
+    ).rejects.toThrow();
+    await applyProviderEvents(
+      database.db,
+      provider,
+      [
+        {
+          eventId: "evt_late_started",
+          at,
+          type: "subscription.started",
+          customerRef: held.id,
+          providerCustomerId: held.provider_customer_id ?? "",
+          subscription: {
+            providerSubscriptionId: "sub_late",
+            items: [{ product: "pro", quantity: 1 }],
+            interval: "month",
+            currentPeriodEnd: new Date(at.getTime() + 30 * DAY_MS),
+            cancelAtPeriodEnd: false,
+          },
+        },
+        paid,
+      ],
+      log,
+    );
+    expect({
+      plan: (await overview(ada)).allowance.plan,
+      invoices: (await invoices(ada)).length,
+    }).toEqual({ plan: "pro", invoices: 1 });
   });
 });
 

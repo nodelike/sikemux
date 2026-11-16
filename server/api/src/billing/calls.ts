@@ -13,7 +13,10 @@ export type ProviderCall =
     }
   | { action: "refund"; providerPaymentId: string };
 
-export type Calling = Pick<BillingProvider, "name" | "cancel" | "refund">;
+export type Calling = Pick<
+  BillingProvider,
+  "name" | "eventRetrySpanMs" | "cancel" | "refund"
+>;
 
 const BATCH = 50;
 
