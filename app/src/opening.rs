@@ -709,17 +709,22 @@ impl Workbench {
 
     /// Opens the chief of the project `project` in front, making its chat the first time and
     /// bringing a closed one back as itself.
-    pub fn open_chief(&self, project: &str, cx: &mut Context<Self>) {
-        self.open_chief_on(self.target(), project, cx);
+    pub fn open_chief(&self, project: &str, cx: &mut Context<Self>) -> Task<Option<String>> {
+        self.open_chief_on(self.target(), project, cx)
     }
 
     /// Opens the chief of `project`, a project of the core `target`, as [`Self::open_chief`].
-    pub fn open_chief_on(&self, target: Target, project: &str, cx: &mut Context<Self>) {
+    pub fn open_chief_on(
+        &self,
+        target: Target,
+        project: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
         let opening =
             target.request_typed::<call::OpenChief>(sikemux_calls::chief::OpenChiefParams {
                 project: project.to_owned(),
             });
-        self.show_chief(target, project, opening, cx);
+        self.show_chief(target, project, opening, cx)
     }
 
     /// Takes the chief of `project` over on this host while the host it lives on is out of
@@ -730,7 +735,7 @@ impl Workbench {
             target.request_typed::<call::TakeOverChief>(sikemux_calls::chief::OpenChiefParams {
                 project: project.to_owned(),
             });
-        self.show_chief(target, project, taking, cx);
+        self.show_chief(target, project, taking, cx).detach();
     }
 
     fn show_chief(
@@ -740,22 +745,23 @@ impl Workbench {
         opening: impl std::future::Future<Output = Result<sikemux_calls::chief::OpenedChief, String>>
             + 'static,
         cx: &mut Context<Self>,
-    ) {
+    ) -> Task<Option<String>> {
         let project = project.to_owned();
         cx.spawn(async move |bench, cx| match opening.await {
             Ok(opened) => {
                 target.call_typed::<call::OpenTab>(OpenTab::new(
                     At::project(&project),
                     PaneKind::Agent,
-                    opened.agent_id,
+                    opened.agent_id.clone(),
                 ));
+                Some(opened.agent_id)
             }
             Err(error) => {
                 let note = toast::error(t!("@Chief did not open: {error}", error = error));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                None
             }
         })
-        .detach();
     }
 
     /// Brings the tab of the open agent `id` forward, and says whether any view lists it.

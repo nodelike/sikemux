@@ -167,6 +167,7 @@ icons!(
     Slack => "slack",
     Sort => "sort",
     Sparkle => "sparkle",
+    SquareKanban => "square-kanban",
     SquarePlus => "square-plus",
     Stack => "stack",
     Star => "star",

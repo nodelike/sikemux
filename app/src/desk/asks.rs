@@ -153,7 +153,7 @@ fn head(lanes: &[(Lane, Vec<&NowAsk>); 4], t: &Tokens) -> Div {
         .px(SPACE_6)
         .pt(px(22.))
         .pb(SPACE_1H)
-        .child(ui::text(t!("Asks"), 18., FontWeight::SEMIBOLD).text_color(t.text_primary))
+        .child(ui::text(t!("Agent Board"), 18., FontWeight::SEMIBOLD).text_color(t.text_primary))
         .child(
             div()
                 .flex()

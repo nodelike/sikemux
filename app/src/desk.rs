@@ -987,6 +987,28 @@ impl Workbench {
         self.parts.redraw_stage(cx);
     }
 
+    /// Brings the chief of the project in front forward with its Agent Board, opening the chief
+    /// the first time.
+    pub(crate) fn open_agent_board(&mut self, cx: &mut Context<Self>) {
+        let Some((project, chief)) = self
+            .project()
+            .map(|project| (project.id.clone(), project.chief.clone()))
+        else {
+            return;
+        };
+        let chief = match chief {
+            Some(chief) => self.bring_agent(&chief, cx),
+            None => self.open_chief(&project, cx),
+        };
+        cx.spawn(async move |bench, cx| {
+            let chief = chief.await?;
+            bench
+                .update(cx, |bench, cx| bench.show_asks(&chief, cx))
+                .ok()
+        })
+        .detach();
+    }
+
     /// Takes an item off the agent's desk, asking first when that loses a file's unsaved edits.
     fn close_desk_item(&mut self, agent: &str, item: DeskItem, cx: &mut Context<Self>) {
         let closing = match &item {
@@ -2474,7 +2496,7 @@ fn pinned_pill(shown: bool, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
     pill_face(
         "desk-asks".into(),
         ui::chief_mark(13.),
-        t!("Asks").to_owned(),
+        t!("Agent Board").to_owned(),
         shown,
         None,
         cx,

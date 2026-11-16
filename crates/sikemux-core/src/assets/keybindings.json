@@ -516,6 +516,14 @@
         "other": "Ctrl+Alt+Digit6"
     },
     {
+        "id": "window.board",
+        "label": "Agent Board",
+        "detail": "Open the project's Agent Board on its chief's desk: everything you asked, by who has it",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit7",
+        "other": "Ctrl+Alt+Digit7"
+    },
+    {
         "id": "window.hosts",
         "label": "Devices",
         "detail": "Open the Devices page: how busy each host is, what needs you, and the phones paired here",
