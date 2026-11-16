@@ -546,7 +546,10 @@ impl World {
                 let (_, path) = self.project()?.clone();
                 let title = step.text(0)?;
                 let every: u64 = step.text(1)?.parse()?;
-                let params = json!({ "title": title, "prompt": title, "every": every });
+                let mut params = json!({ "title": title, "prompt": title, "every": every });
+                if let Ok(check) = step.text(2) {
+                    params["check"] = json!(check);
+                }
                 sikemux_corekit::cli::client::attempt(
                     &self.work.join("cli.json"),
                     &path.to_string_lossy(),

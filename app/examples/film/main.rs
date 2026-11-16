@@ -18,7 +18,8 @@
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
-//!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS
+//!   trigger "TITLE" SECONDS ["CHECK"]    sets the last chat a trigger that sends it TITLE every
+//!                               SECONDS, or only when CHECK's output changes
 //!   say "TEXT" [FILE...]        sends the last chat TEXT, as the person, with no typing shown,
 //!                               with FILEs under film/scenes attached
 //!   pause ID                    pauses trigger ID as the person does
