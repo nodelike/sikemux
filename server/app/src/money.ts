@@ -89,11 +89,17 @@ export function priceText(
     .join(" ");
 }
 
-export type ShedWords = { tag: string; specs: string[]; runsOn: string };
+export type ShedWords = {
+  tag: string;
+  line: string;
+  specs: string[];
+  runsOn: string;
+};
 
 export const SHED_WORDS: Partial<Record<BillingProductId, ShedWords>> = {
   shed: {
     tag: "Sleeps when idle",
+    line: "Up to 8 GiB of memory · wakes in about a second",
     specs: [
       "Agents keep working with your laptop shut",
       "Sleeps when no agent is working and nobody is connected, wakes in about a second",
@@ -104,6 +110,7 @@ export const SHED_WORDS: Partial<Record<BillingProductId, ShedWords>> = {
   },
   shed_always_on: {
     tag: "Never sleeps",
+    line: "4 vCPU, 8 GB of memory, 75 GB of disk",
     specs: [
       "4 vCPU, 8 GB of memory, 75 GB of disk",
       "For agents that work round the clock",
@@ -113,6 +120,7 @@ export const SHED_WORDS: Partial<Record<BillingProductId, ShedWords>> = {
   },
   shed_large: {
     tag: "Never sleeps",
+    line: "8 vCPU, 24 GB of memory, 200 GB of disk",
     specs: [
       "8 vCPU, 24 GB of memory, 200 GB of disk",
       "Room for big builds and many agents",

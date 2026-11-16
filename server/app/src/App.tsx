@@ -9,7 +9,6 @@ import {
 
 import {
   IconCreditCard,
-  IconCube,
   IconPlug,
   IconServer,
   IconTag,
@@ -31,7 +30,7 @@ import { Devices, useDevices } from "./Devices.tsx";
 import { HostApproval } from "./HostApproval.tsx";
 import { useLive } from "./live.ts";
 import { PricingPage } from "./Pricing.tsx";
-import { ShedNotHost, ShedPage } from "./Shed.tsx";
+import { ShedNotHost } from "./Shed.tsx";
 import { Pay } from "./Pay.tsx";
 import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
@@ -47,7 +46,6 @@ import {
   JOIN,
   PAY,
   PRICING,
-  SHED,
   takeReturn,
   TEAM,
   usePath,
@@ -208,7 +206,6 @@ const PAGE_TITLES: Record<string, string> = {
   [CONNECTORS]: "Connectors",
   [HOSTS]: "Hosts",
   [BILLING]: "Plan and billing",
-  [SHED]: "Shed",
   [TEAM]: "Team",
   [JOIN]: "Join an org",
   [PRICING]: "Pricing",
@@ -245,7 +242,6 @@ function Account({
     [BILLING]: billingShown,
     [TEAM]: billingShown,
     [JOIN]: billingShown,
-    [SHED]: staff,
     [PRICING]: staff,
   };
   const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
@@ -296,9 +292,6 @@ function Account({
                 name: "Plan and billing",
                 icon: <IconCreditCard size={15} />,
               },
-              ...(staff
-                ? [{ path: SHED, name: "Shed", icon: <IconCube size={15} /> }]
-                : []),
             ],
           },
           {
@@ -350,10 +343,8 @@ function Account({
         <TeamPage follow={follow} />
       ) : page === PRICING ? (
         <PricingPage />
-      ) : page === SHED ? (
-        <ShedPage version={planVersion} />
       ) : page === BILLING ? (
-        <BillingPage version={planVersion} staff={staff} follow={follow} />
+        <BillingPage version={planVersion} staff={staff} />
       ) : page === HOSTS ? (
         <>
           <PageHead title="Hosts">

@@ -95,16 +95,63 @@ export function ItemRow({
 
 export function PageHead({
   title,
+  tag,
+  aside,
   children,
 }: {
   title: string;
+  tag?: ReactNode;
+  aside?: ReactNode;
   children?: ReactNode;
 }) {
   return (
-    <>
-      <h1>{title}</h1>
-      {children ? <p className="lede">{children}</p> : null}
-    </>
+    <header className="page-head">
+      <div>
+        <h1>
+          {title}
+          {tag}
+        </h1>
+        {children ? <p className="lede">{children}</p> : null}
+      </div>
+      {aside}
+    </header>
+  );
+}
+
+/** A thing for sale, or held, with its price in a column of its own so the prices of a list line up. */
+export function PriceRow({
+  glyph,
+  name,
+  detail,
+  price,
+  per,
+  end,
+  foot,
+  children,
+}: {
+  glyph?: ReactNode;
+  name: ReactNode;
+  detail?: ReactNode;
+  price?: string;
+  per?: string;
+  end?: ReactNode;
+  foot?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <li className={foot ? "row priced foot" : "row priced"}>
+      {glyph ? <span className="glyph">{glyph}</span> : null}
+      <span className="name">{name}</span>
+      {detail ? <span className="detail">{detail}</span> : null}
+      {price ? (
+        <span className="price">
+          <span className="amount">{price}</span>
+          {per ? <span className="per">{per}</span> : null}
+        </span>
+      ) : null}
+      {end ? <span className="act">{end}</span> : null}
+      {children}
+    </li>
   );
 }
 

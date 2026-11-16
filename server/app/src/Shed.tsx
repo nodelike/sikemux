@@ -5,45 +5,29 @@ import type {
   BillingProduct,
   Subscription,
 } from "@sikemux/protocol";
-import { formatDay } from "@shared/lib/format";
 import { IconCube, IconInfo, IconLock } from "@shared/ui/Icons";
 import { useEffect, useState, type MouseEvent } from "react";
 
-import { problemText } from "./api.ts";
-import { BilledSwitch } from "./BilledSwitch.tsx";
 import {
   NOT_OPEN,
-  Refunds,
+  ShedBox,
   Stepper,
   useCheckout,
   useClient,
+  type Show,
 } from "./Billing.tsx";
-import {
-  money,
-  priceOf,
-  priceText,
-  productOf,
-  SHED_WORDS,
-  times,
-} from "./money.ts";
-import { SHED } from "./navigation.ts";
-import { ItemRow, PageHead, Rows, Section, useNotice } from "./ui.tsx";
+import { money, priceOf, productOf, SHED_WORDS, times } from "./money.ts";
+import { BILLING } from "./navigation.ts";
+import { PriceRow, ItemRow, Rows, Section } from "./ui.tsx";
 
 type Loaded = {
   catalog: BillingCatalog;
   overview: BillingOverview;
-  readAt: number;
 };
 
-type Load =
-  | { state: "loading" }
-  | { state: "failed"; problem: string }
-  | ({ state: "loaded" } & Loaded);
-
-function useShed(version: number) {
+function useShed() {
   const client = useClient();
-  const [load, setLoad] = useState<Load>({ state: "loading" });
-  const [tick, setTick] = useState(0);
+  const [load, setLoad] = useState<Loaded>();
   useEffect(() => {
     let current = true;
     void (async () => {
@@ -53,17 +37,16 @@ function useShed(version: number) {
           routes.getBillingCatalog(),
           routes.getBilling({}),
         ]);
-        if (current)
-          setLoad({ state: "loaded", catalog, overview, readAt: Date.now() });
-      } catch (error) {
-        if (current) setLoad({ state: "failed", problem: problemText(error) });
+        if (current) setLoad({ catalog, overview });
+      } catch {
+        if (current) setLoad(undefined);
       }
     })();
     return () => {
       current = false;
     };
-  }, [version, tick, client]);
-  return { load, reload: () => setTick((n) => n + 1) };
+  }, [client]);
+  return load;
 }
 
 function boxesOf({ catalog, overview }: Loaded): Subscription[] {
@@ -74,228 +57,176 @@ function boxesOf({ catalog, overview }: Loaded): Subscription[] {
   );
 }
 
-export function ShedPage({ version }: { version: number }) {
-  const { load, reload } = useShed(version);
-  const { notice, show } = useNotice();
+/** Shed on Plan and billing: the boxes held, and for the person's own bill, the boxes for sale. */
+export function ShedBoxes({
+  catalog,
+  bought,
+  buying,
+  interval,
+  canBuy,
+  pays,
+  reload,
+  show,
+}: {
+  catalog: BillingCatalog;
+  bought: Subscription[];
+  buying: boolean;
+  interval: BillingInterval;
+  canBuy: boolean;
+  pays: boolean;
+  reload: () => void;
+  show: Show;
+}) {
+  const boxes = catalog.products.filter((product) => product.kind === "shed");
+  const forSale = buying && boxes.length > 0;
+  if (!forSale && bought.length === 0) return null;
+  const one = bought.length === 1 && bought[0]?.quantity === 1;
   return (
-    <>
-      <div className="staff-only">
-        <IconLock size={13} />
-        Staff only until boxes are provisioned.
-      </div>
-      <PageHead title="Shed">
-        A Linux box we run, joined to your account. Buy one or several by the
-        box. You sign in to Claude Code and Codex on it with your own plans.
-      </PageHead>
-      {load.state === "failed" ? (
-        <p className="problem" role="alert">
-          {load.problem}
+    <Section
+      label="Shed boxes"
+      aside={
+        <span className="staff-tag">
+          <IconLock size={12} />
+          Staff only until boxes are provisioned
+        </span>
+      }
+    >
+      {forSale ? (
+        <p className="section-lede">
+          A Linux box we run, joined to your account, on any plan.
+          {bought.length === 0 ? " Nothing runs behind a bought box yet." : ""}
         </p>
-      ) : load.state === "loading" ? (
-        <div className="groups">
-          <Section label="Your boxes">
-            <Rows busy />
-          </Section>
-        </div>
-      ) : (
-        <div className="groups">
-          <Boxes {...load} />
-          <Refunds
-            subs={boxesOf(load)}
-            readAt={load.readAt}
-            catalog={load.catalog}
-            reload={reload}
-            show={show}
-          />
-          <Buy catalog={load.catalog} canBuy={load.overview.canBuy} />
-        </div>
-      )}
-      {notice}
-    </>
-  );
-}
-
-function Boxes(loaded: Loaded) {
-  const boxes = boxesOf(loaded);
-  if (boxes.length === 0) return null;
-  return (
-    <Section label="Your boxes" count={boxes.length}>
-      <Rows>
-        {boxes.map((sub) => {
-          const product = productOf(loaded.catalog, sub.product);
-          const price = product ? priceText(product, sub.interval) : undefined;
-          return (
-            <ItemRow
+      ) : null}
+      {bought.length > 0 ? (
+        <Rows>
+          {bought.map((sub) => (
+            <ShedBox
               key={sub.id}
-              glyph={<IconCube size={17} />}
-              name={
-                <>
-                  {product?.name ?? sub.product}
-                  {sub.quantity > 1 ? ` × ${sub.quantity}` : ""}
-                  <span className="chip warn">Not provisioned</span>
-                </>
-              }
-              detail={[`Bought ${formatDay(sub.startedAt, "long")}`, price]
-                .filter(Boolean)
-                .join(" · ")}
+              sub={sub}
+              catalog={catalog}
+              canBuy={canBuy}
+              pays={pays}
+              reload={reload}
+              show={show}
             />
-          );
-        })}
-        <li className="row note">
-          <span className="glyph">
-            <IconInfo size={15} />
-          </span>
-          <span>
-            Nothing is provisioned behind{" "}
-            {boxes.length === 1 && boxes[0]?.quantity === 1
-              ? "this box"
-              : "these boxes"}{" "}
-            yet: no machine runs, and nothing is used. Boxes join your Hosts the
-            day they ship.
-          </span>
-        </li>
-      </Rows>
+          ))}
+          <li className="row note">
+            <span className="glyph">
+              <IconInfo size={15} />
+            </span>
+            <span>
+              Nothing is provisioned behind {one ? "this box" : "these boxes"}{" "}
+              yet: no machine runs, and nothing is used. Boxes join your Hosts
+              the day they ship.
+            </span>
+          </li>
+        </Rows>
+      ) : null}
+      {forSale ? (
+        <Buy boxes={boxes} interval={interval} canBuy={canBuy} />
+      ) : null}
     </Section>
   );
 }
 
 function Buy({
-  catalog,
+  boxes,
+  interval,
   canBuy,
 }: {
-  catalog: BillingCatalog;
+  boxes: BillingProduct[];
+  interval: BillingInterval;
   canBuy: boolean;
 }) {
   const checkout = useCheckout();
-  const [interval, setInterval] = useState<BillingInterval>("month");
   const [picked, setPicked] = useState<{
     product: BillingProduct;
     count: number;
   }>();
-  const boxes = catalog.products.filter((product) => product.kind === "shed");
-  if (boxes.length === 0) return null;
   const unit = picked ? priceOf(picked.product, interval) : undefined;
+  const ready = canBuy && !!picked && !!unit;
 
   return (
-    <Section
-      label="Buy boxes"
-      aside={
-        <BilledSwitch
-          interval={interval}
-          onChange={setInterval}
-          saving={boxes[0]}
-        />
-      }
-    >
-      <Rows>
-        {boxes.map((product) => {
-          const price = priceOf(product, interval);
-          const words = SHED_WORDS[product.id];
-          return (
-            <ItemRow
-              key={product.id}
-              glyph={<IconCube size={17} />}
-              name={
-                <>
-                  {product.name}
-                  {words ? <span className="quiet"> · {words.tag}</span> : null}
-                </>
-              }
-              detail={words?.specs.slice(0, 2).join(" · ")}
-              end={
-                <>
-                  {price ? (
-                    <span>
-                      <span className="amount">
-                        {money(price, { cents: false })}
-                      </span>
-                      <span className="quiet"> a box a {interval}</span>
-                    </span>
-                  ) : null}
-                  <Stepper
-                    value={picked?.product.id === product.id ? picked.count : 0}
-                    min={0}
-                    max={product.maxQuantity}
-                    onChange={(count) =>
-                      setPicked(count > 0 ? { product, count } : undefined)
-                    }
-                  />
-                </>
-              }
-            />
-          );
-        })}
-        <ItemRow
-          glyph={null}
-          name={
-            picked ? `${picked.count} × ${picked.product.name}` : "Adding none"
-          }
-          detail={
-            picked && unit
-              ? `${money(times(unit, picked.count))} a ${interval}. One size at a time.`
-              : "Change a count to buy."
-          }
-          end={
-            <button
-              type="button"
-              className="button primary"
-              disabled={!canBuy || !picked || !unit || checkout.busy}
-              data-busy={checkout.busy || undefined}
-              title={canBuy ? undefined : NOT_OPEN}
-              onClick={() => {
-                if (!picked) return;
-                void checkout.go((routes) =>
-                  routes.startCheckout({
-                    product: picked.product.id,
-                    interval,
-                    quantity: picked.count,
-                  }),
-                );
-              }}
-            >
-              {canBuy ? "Buy" : NOT_OPEN}
-            </button>
-          }
-        >
-          {checkout.problem ? (
-            <p className="problem row-problem" role="alert">
-              {checkout.problem}
-            </p>
-          ) : null}
-        </ItemRow>
-      </Rows>
-    </Section>
-  );
-}
-
-/** On Free's plan page: where a Shed box can be bought. */
-export function ShedOffer({
-  catalog,
-  follow,
-}: {
-  catalog: BillingCatalog;
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const lowest = catalog.products
-    .filter((product) => product.kind === "shed")
-    .flatMap((product) => priceOf(product, "month") ?? [])
-    .sort((a, b) => a.amount - b.amount)[0];
-  if (!lowest) return null;
-  return (
-    <Section label="Shed">
-      <Rows>
-        <ItemRow
-          glyph={<IconCube size={16} />}
-          name="Shed boxes come on any plan, Free included"
-          detail={`A Linux box we run, joined to your account. From ${money(lowest, { cents: false })} a box a month.`}
-          end={
-            <a className="button small" href={SHED} onClick={follow(SHED)}>
-              See Shed
-            </a>
-          }
-        />
-      </Rows>
-    </Section>
+    <Rows>
+      {boxes.map((product) => {
+        const price = priceOf(product, interval);
+        const words = SHED_WORDS[product.id];
+        return (
+          <PriceRow
+            key={product.id}
+            glyph={<IconCube size={17} />}
+            name={
+              <>
+                {product.name}
+                {words ? <span className="quiet"> · {words.tag}</span> : null}
+              </>
+            }
+            detail={words?.line}
+            price={price ? money(price, { cents: false }) : undefined}
+            per={`a box a ${interval}`}
+            end={
+              <Stepper
+                value={picked?.product.id === product.id ? picked.count : 0}
+                min={0}
+                max={product.maxQuantity}
+                onChange={(count) =>
+                  setPicked(count > 0 ? { product, count } : undefined)
+                }
+              />
+            }
+          />
+        );
+      })}
+      <PriceRow
+        foot
+        name={
+          picked ? (
+            `${picked.count} × ${picked.product.name}`
+          ) : (
+            <span className="quiet">
+              {canBuy ? "Pick how many boxes you want" : NOT_OPEN}
+            </span>
+          )
+        }
+        detail={
+          picked
+            ? `Billed ${interval === "month" ? "monthly" : "yearly"} · one size per checkout`
+            : undefined
+        }
+        price={
+          picked && unit
+            ? money(times(unit, picked.count), { cents: false })
+            : undefined
+        }
+        per={picked ? `a ${interval}` : undefined}
+        end={
+          <button
+            type="button"
+            className={ready ? "button small primary" : "button small"}
+            disabled={!ready || checkout.busy}
+            data-busy={checkout.busy || undefined}
+            onClick={() => {
+              if (!picked) return;
+              void checkout.go((routes) =>
+                routes.startCheckout({
+                  product: picked.product.id,
+                  interval,
+                  quantity: picked.count,
+                }),
+              );
+            }}
+          >
+            Buy
+          </button>
+        }
+      >
+        {checkout.problem ? (
+          <p className="problem" role="alert">
+            {checkout.problem}
+          </p>
+        ) : null}
+      </PriceRow>
+    </Rows>
   );
 }
 
@@ -305,8 +236,8 @@ export function ShedNotHost({
 }: {
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
-  const { load } = useShed(0);
-  if (load.state !== "loaded") return null;
+  const load = useShed();
+  if (!load) return null;
   const boxes = boxesOf(load);
   const first = boxes[0];
   if (!first) return null;
@@ -326,8 +257,12 @@ export function ShedNotHost({
               : "Nothing is provisioned behind them. They join this list once boxes ship."
           }
           end={
-            <a className="button small" href={SHED} onClick={follow(SHED)}>
-              Open Shed
+            <a
+              className="button small"
+              href={BILLING}
+              onClick={follow(BILLING)}
+            >
+              Plan and billing
             </a>
           }
         />

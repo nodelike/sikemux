@@ -11,7 +11,6 @@ export const BILLING = "/billing";
 export const PRICING = "/pricing";
 export const TEAM = "/team";
 export const JOIN = "/orgs/join";
-export const SHED = "/shed";
 export const PAY = "/pay";
 
 /** The signed-in pages a sign-in can come back to. */
@@ -20,7 +19,6 @@ const PAGES = new Set([
   CONNECTORS,
   HOSTS,
   BILLING,
-  SHED,
   TEAM,
   PRICING,
   DELETE_ACCOUNT,

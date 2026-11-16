@@ -18,20 +18,17 @@ import {
   IconCircleAlert,
   IconCreditCard,
   IconDownload,
+  IconInfo,
   IconUndo,
+  IconUser,
+  IconUsers,
 } from "@shared/ui/Icons";
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import { PlanCard } from "./PlanCard.tsx";
-import { ShedOffer } from "./Shed.tsx";
+import { ShedBoxes } from "./Shed.tsx";
 import {
   FEATURE_WORDS,
   featuresAdded,
@@ -47,6 +44,7 @@ import {
   Confirm,
   ItemRow,
   PageHead,
+  PriceRow,
   Row,
   Rows,
   Section,
@@ -102,11 +100,9 @@ export function useBillingShown(ready: boolean): boolean {
 export function BillingPage({
   version,
   staff,
-  follow,
 }: {
   version: number;
   staff: boolean;
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const client = useClient();
   const [orgs, setOrgs] = useState<Org[]>();
@@ -205,7 +201,7 @@ export function BillingPage({
         org={org}
         orgs={orgs ?? []}
         switcher={switcher}
-        shedOffer={staff ? follow : undefined}
+        staff={staff}
         reload={reload}
         show={show}
       />
@@ -214,7 +210,7 @@ export function BillingPage({
   );
 }
 
-type Show = (text: string, undo?: () => Promise<void>) => void;
+export type Show = (text: string, undo?: () => Promise<void>) => void;
 
 function Bill({
   catalog,
@@ -224,18 +220,19 @@ function Bill({
   org,
   orgs,
   switcher,
-  shedOffer,
+  staff,
   reload,
   show,
 }: Loaded & {
   org?: Org;
   orgs: Org[];
   switcher: ReactNode;
-  shedOffer?: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+  staff: boolean;
   reload: () => void;
   show: Show;
 }) {
   const { allowance, live, canBuy } = overview;
+  const [interval, setInterval] = useState<BillingInterval>("month");
   const open = overview.subscriptions.filter((sub) => sub.status !== "ended");
   const kindOf = (sub: Subscription) => productOf(catalog, sub.product)?.kind;
   const planSub = open.find((sub) => kindOf(sub) === "plan");
@@ -266,18 +263,34 @@ function Bill({
         ? `You have ${planName} through a seat in ${seatIn.join(", ")}.`
         : `You're on ${planName}.`;
 
+  const pro = productOf(catalog, "pro");
+  const boxes = catalog.products.filter((product) => product.kind === "shed");
+  const buyingBoxes = staff && !org && boxes.length > 0;
+  const priced = free || buyingBoxes;
+
   return (
     <>
-      <PageHead title="Plan and billing">{lede}</PageHead>
+      <PageHead
+        title="Plan and billing"
+        tag={live ? null : <span className="testmode">TEST MODE</span>}
+        aside={
+          priced ? (
+            <BilledSwitch
+              interval={interval}
+              onChange={setInterval}
+              saving={free ? pro : boxes[0]}
+            />
+          ) : null
+        }
+      >
+        {lede}
+      </PageHead>
       {switcher}
       <div className="groups">
         {planSub?.status === "lapsed" ? (
           <Lapsed sub={planSub} catalog={catalog} query={query} pays={pays} />
         ) : null}
-        <Section
-          label="Plan"
-          aside={live ? null : <span className="testmode">TEST MODE</span>}
-        >
+        <Section label="Plan">
           <Rows>
             {planSub ? (
               <PlanRows
@@ -289,50 +302,39 @@ function Bill({
                 show={show}
               />
             ) : (
-              <Row label="Plan">
-                <span className="chip">{org ? "No plan" : planName}</span>
-                {free ? (
-                  <>
-                    <span>$0</span>
-                    <span className="quiet">
-                      · the whole app, every host you own
-                    </span>
-                  </>
-                ) : seatIn.length > 0 && !org ? (
-                  <span className="quiet">· through a seat</span>
-                ) : null}
-              </Row>
+              <PriceRow
+                glyph={org ? <IconUsers size={16} /> : <IconUser size={16} />}
+                name={org ? "No plan" : planName}
+                detail={
+                  free
+                    ? "The whole app, on every host you own"
+                    : seatIn.length > 0 && !org
+                      ? `Through a seat in ${seatIn.join(", ")}`
+                      : undefined
+                }
+                price={free ? "$0" : undefined}
+                per={free ? PER.month : undefined}
+                end={org ? null : <span className="quiet">Your plan</span>}
+              />
             )}
           </Rows>
         </Section>
         {free ? (
-          <>
-            <Upgrade catalog={catalog} canBuy={canBuy} />
-            {shedOffer ? (
-              <ShedOffer catalog={catalog} follow={shedOffer} />
-            ) : null}
-          </>
+          <Upgrade catalog={catalog} canBuy={canBuy} interval={interval} />
         ) : org && !planSub ? (
           <StartTeam catalog={catalog} canBuy={canBuy} org={org} />
         ) : null}
+        <ShedBoxes
+          catalog={catalog}
+          bought={shedSubs}
+          buying={buyingBoxes}
+          interval={interval}
+          canBuy={canBuy}
+          pays={pays}
+          reload={reload}
+          show={show}
+        />
         <NextCharge subs={open} catalog={catalog} card={overview.card} />
-        {shedSubs.length > 0 ? (
-          <Section label="Shed billing">
-            <Rows>
-              {shedSubs.map((sub) => (
-                <ShedBox
-                  key={sub.id}
-                  sub={sub}
-                  catalog={catalog}
-                  canBuy={canBuy}
-                  pays={pays}
-                  reload={reload}
-                  show={show}
-                />
-              ))}
-            </Rows>
-          </Section>
-        ) : null}
         <Refunds
           subs={open}
           readAt={readAt}
@@ -343,21 +345,21 @@ function Bill({
         {open.length === 0 && invoices.length === 0 ? (
           <Section label="Billing">
             <Rows>
-              <Row label="Payment method">
-                <span className="quiet">
-                  No card yet. You add one when you upgrade.
+              <ItemRow
+                glyph={<IconCreditCard size={16} />}
+                name="No card or invoices yet"
+                detail="You add a card at your first checkout; each payment's invoice shows here."
+              />
+              <li className="row note">
+                <span className="glyph">
+                  <IconInfo size={15} />
                 </span>
-              </Row>
-              <Row label="Invoices">
-                <span className="quiet">None yet</span>
-              </Row>
-              <Row label="Refunds">
-                <span className="quiet">
+                <span>
                   Everything you pay for a plan in its first{" "}
                   {catalog.refundDays} days comes back in full if you ask within
                   them, once for each plan.
                 </span>
-              </Row>
+              </li>
             </Rows>
           </Section>
         ) : (
@@ -963,11 +965,12 @@ export function useCheckout() {
 function Upgrade({
   catalog,
   canBuy,
+  interval,
 }: {
   catalog: BillingCatalog;
   canBuy: boolean;
+  interval: BillingInterval;
 }) {
-  const [interval, setInterval] = useState<BillingInterval>("month");
   const pro = productOf(catalog, "pro");
   const team = productOf(catalog, "team");
   const checkout = useCheckout();
@@ -976,12 +979,7 @@ function Upgrade({
   const proYear = priceOf(pro, "year");
 
   return (
-    <Section
-      label="Upgrade"
-      aside={
-        <BilledSwitch interval={interval} onChange={setInterval} saving={pro} />
-      }
-    >
+    <Section label="Upgrade">
       <div className="plan-cards">
         {pro ? (
           <PlanOffer
@@ -1304,7 +1302,7 @@ function NextCharge({
 
 type BoxAsk = { interval: BillingInterval } | { product: BillingProductId };
 
-function ShedBox({
+export function ShedBox({
   sub,
   catalog,
   canBuy,
