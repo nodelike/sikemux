@@ -1,7 +1,7 @@
 //! Closes an agent once its own facts say it is finished: its work is on the project's branch on
-//! its remote, or it changed nothing; its last turn asked nothing; no agent waits on it; and the
-//! person has not written to it in the last hour; and, for a chat the person started, they have
-//! opened its last answer. It runs when one of those facts may have moved,
+//! its remote, or it changed nothing; its last turn since it opened asked nothing; no agent waits
+//! on it; and the person has not written to it in the last hour; and, for a chat the person
+//! started, they have opened its last answer. It runs when one of those facts may have moved,
 //! never as a poll.
 
 use crate::server::agent_now::AgentNowCore;
@@ -162,6 +162,10 @@ fn at_rest(
     waited: &HashSet<String>,
 ) -> bool {
     if agent.terminal || super::chief::is_chief(core, &agent.id) || waited.contains(&agent.id) {
+        return false;
+    }
+    // A chat taken up again keeps the turn it closed on, which says nothing of it now.
+    if turn.since < agent.created_at {
         return false;
     }
     if turn.state != TurnPhase::Done
