@@ -1,0 +1,19 @@
+# A theme that celebrates its agents' moments in full: when Sikemux merges an agent's pull
+# request, six bursts of sparks play a second apart along its pane's top and sides. The
+# director hands over the moment a core would fold.
+stage 1440 900
+window 1440 900
+replies sparkle-replies.json
+project storefront shop
+core saveTheme sparkle.json
+prefer themeId custom-sparkle-rice
+prefer paneBackdrop theme
+chat Wren
+title "Cache the product pages"
+say "Cache the product pages so a page loads without asking the database each time."
+settle 6
+front Wren
+settle 2
+moment Wren show
+hold 2.3
+snap show

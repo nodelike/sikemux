@@ -42,9 +42,10 @@ pub enum GridShape {
 pub enum Moments {
     #[default]
     Off,
-    /// Only the big ones, each with one burst.
+    /// One burst for a merged pull request.
     Quiet,
-    /// One burst for a land or passing checks, a show of six for the big ones.
+    /// One burst for a land or passing checks, and a show of six for a merged pull request,
+    /// at most once in 30 s.
     Full,
 }
 

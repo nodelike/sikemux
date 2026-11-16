@@ -148,6 +148,10 @@ pub enum Signal {
     Landed {
         agent_id: String,
     },
+    /// Sikemux merged a pull request for an agent.
+    Merged {
+        agent_id: String,
+    },
 }
 
 /// A moment of an agent's work a theme may celebrate in its pane.
@@ -155,6 +159,7 @@ pub enum Signal {
 pub enum Feat {
     Landed,
     ChecksPassed,
+    Merged,
 }
 
 /// The latest feat on this host, and how many there have been since the core started.
@@ -164,6 +169,8 @@ pub struct Achieved {
     pub feat: Feat,
     pub at: u64,
     pub count: u64,
+    /// No merge before it in the last 30 s took the room for a show.
+    pub roomy: bool,
 }
 
 /// A question waiting on the person, as a phone is told of it.
@@ -212,6 +219,7 @@ struct State {
     /// What each phone's Live Activity was last sent, by phone.
     activities: HashMap<String, activity::Sent>,
     achieved: Option<Achieved>,
+    roomy_at: Option<u64>,
 }
 
 impl Notifier {
@@ -592,6 +600,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             }
         }
         Signal::Landed { agent_id } => achieve(core, &agent_id, Feat::Landed, now),
+        Signal::Merged { agent_id } => achieve(core, &agent_id, Feat::Merged, now),
         Signal::Problem { agent_id, message } => {
             if core
                 .notify()
@@ -609,15 +618,24 @@ fn apply(core: &Core, signal: Signal, now: u64) {
     }
 }
 
+/// How long after one merge's show another merge plays only one burst.
+const SHOW_ROOM_MS: u64 = 30_000;
+
 fn achieve(core: &Core, agent_id: &str, feat: Feat, now: u64) {
     {
         let mut state = core.notify().state.locked();
         let count = state.achieved.as_ref().map_or(0, |last| last.count) + 1;
+        let roomy = feat == Feat::Merged
+            && (state.roomy_at).is_none_or(|at| now.saturating_sub(at) >= SHOW_ROOM_MS);
+        if roomy {
+            state.roomy_at = Some(now);
+        }
         state.achieved = Some(Achieved {
             agent_id: agent_id.to_owned(),
             feat,
             at: now,
             count,
+            roomy,
         });
     }
     core.changed(What::View);

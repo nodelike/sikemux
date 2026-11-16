@@ -1699,14 +1699,18 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
 /// The latest feat here when the theme celebrates it.
 fn moment(core: &Core) -> Option<Celebration> {
     let achieved = core.notify().achieved()?;
-    match (core.look().palette().backdrop.look.moments, achieved.feat) {
-        (Moments::Full, Feat::Landed | Feat::ChecksPassed) => {}
-        (Moments::Quiet | Moments::Off, Feat::Landed | Feat::ChecksPassed) => return None,
-    }
+    let show = match (core.look().palette().backdrop.look.moments, achieved.feat) {
+        (Moments::Off, _) | (Moments::Quiet, Feat::Landed | Feat::ChecksPassed) => return None,
+        (Moments::Full, Feat::Landed | Feat::ChecksPassed) | (Moments::Quiet, Feat::Merged) => {
+            false
+        }
+        (Moments::Full, Feat::Merged) => achieved.roomy,
+    };
     Some(Celebration {
         agent_id: achieved.agent_id,
         at: achieved.at,
         count: achieved.count,
+        show,
     })
 }
 

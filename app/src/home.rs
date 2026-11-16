@@ -171,7 +171,15 @@ fn under_header(
         .flex_col()
         .child(crate::ui::grain::pane_ground(agent, cx)(glow))
         .children(header)
-        .child(div().flex_1().min_h_0().p(px(ui::AGENT_INSET)).child(shown))
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .p(px(ui::AGENT_INSET))
+                .children(crate::ui::grain::burst_in(agent, cx))
+                .child(shown),
+        )
         .into_any_element()
 }
 

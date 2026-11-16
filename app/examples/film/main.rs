@@ -350,7 +350,9 @@ fn main() -> anyhow::Result<()> {
             "moment" => step
                 .text(0)
                 .and_then(|name| world.chat_named(name))
-                .and_then(|agent| director.moment(agent)),
+                .and_then(|agent| {
+                    director.moment(agent, step.text(1).is_ok_and(|size| size == "show"))
+                }),
             _ => director.run(step),
         };
         if let Err(error) = ran {

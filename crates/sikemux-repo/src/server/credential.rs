@@ -13,6 +13,8 @@ use sikemux_plugin_api::vault::{as_caller, Caller};
 
 use crate::cli::protocol::HarnessRequest;
 use crate::git_guard::identity;
+use crate::server::notify::Signal;
+use crate::server::remote_state::RemoteParts;
 use crate::server::Core;
 
 /// Has the stand-ins tell from the plugins, as they know without asking over the network,
@@ -141,11 +143,12 @@ pub async fn merge(
         sha: text("sha"),
         message: None,
     };
+    let agent = match asker {
+        Asker::Agent(agent) => Some(agent),
+        Asker::Core => None,
+    };
     let caller = Caller {
-        agent: match asker {
-            Asker::Agent(agent) => Some(agent),
-            Asker::Core => None,
-        },
+        agent: agent.clone(),
     };
     let merged = as_caller(
         caller,
@@ -157,6 +160,9 @@ pub async fn merge(
         return Err(format!(
             "Sikemux has no identity of the agents' own on {remote}"
         ));
+    }
+    if let Some(agent_id) = agent {
+        core.notify().send(Signal::Merged { agent_id });
     }
     let (Some(branch), Some(head)) = (text("deleteBranch"), text("head")) else {
         return Ok(json!({ "said": format!("Merged pull request #{number}") }));

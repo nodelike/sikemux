@@ -377,8 +377,8 @@ pub struct Inbox {
     pub moment: Option<Celebration>,
 }
 
-/// One moment of an agent's work worth a burst of sparks at the top right of its pane. A
-/// client plays it once, when its count is new and it happened under 10 s ago.
+/// One moment of an agent's work worth a burst of sparks near the top right of its pane, or a
+/// show of six. A client plays it once, when its count is new and it happened under 10 s ago.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Celebration {
@@ -386,6 +386,10 @@ pub struct Celebration {
     /// When it happened, in milliseconds since the Unix epoch.
     pub at: u64,
     pub count: u64,
+    /// Six bursts along the pane's top and sides, in the pane in front when the agent's is not
+    /// on screen.
+    #[serde(default)]
+    pub show: bool,
 }
 
 /// How devices show an open agent here.

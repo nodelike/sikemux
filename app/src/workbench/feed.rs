@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use gpui_kit::Context;
 use sikemux_view::changed::Topic;
 use sikemux_view::device::DeviceView;
+use sikemux_view::inbox::Celebration;
+use sikemux_view::layout::PaneKind;
 
 use crate::chat::Chat;
 use crate::core::{utc_offset_minutes, ChatAsk, ChatNews, Target, Update};
@@ -35,6 +37,24 @@ pub(crate) struct Watched {
 }
 
 impl Workbench {
+    /// The agent whose pane plays `moment`: its own agent's, or for a show, the agent pane in
+    /// front when its own is not on screen.
+    fn celebrated_in(&self, moment: &Celebration) -> Option<String> {
+        let tab = self.tab()?;
+        let agents: Vec<&String> = crate::panes::views(&tab.pane)
+            .filter(|view| view.kind == PaneKind::Agent)
+            .map(|view| view.target)
+            .collect();
+        if !moment.show || agents.contains(&&moment.agent_id) {
+            return Some(moment.agent_id.clone());
+        }
+        let front = (self.focused_view())
+            .and_then(|id| crate::panes::find_view(&tab.pane, &id))
+            .filter(|view| view.kind == PaneKind::Agent)
+            .map(|view| view.target);
+        front.or(agents.first().copied()).cloned()
+    }
+
     pub(crate) fn apply(&mut self, update: Update, cx: &mut Context<Self>) {
         #[cfg(feature = "drive")]
         if let Update::Read(_, key, _) = &update {
@@ -199,7 +219,10 @@ impl Workbench {
         let any = self.shown().is_some_and(|view| view.inbox.working > 0);
         crate::ui::grain::working(any, &agents, cx);
         let moment = self.shown().and_then(|view| view.inbox.moment.clone());
-        crate::ui::grain::celebrate(moment.as_ref(), cx);
+        let in_pane = moment
+            .as_ref()
+            .and_then(|moment| self.celebrated_in(moment));
+        crate::ui::grain::celebrate(moment.as_ref(), in_pane.as_deref(), cx);
         self.keep_cards(cx);
         // The chat's call cards draw inside the cached stage, which a new view alone leaves as it was.
         if calls_moved {

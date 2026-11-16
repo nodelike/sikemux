@@ -90,11 +90,22 @@ const EASE_STEPS: u32 = 8;
 const BREATHING: Duration = Duration::from_secs(20);
 
 /// A burst of sparks: how long it plays, how far its sparks reach, and where its middle is
-/// from the pane's top right corner, in points.
+/// from the top right of what the pane shows below its header, in points.
 const BURST_LASTS: Duration = Duration::from_millis(950);
 const SPARK_REACH: f32 = 18.;
 const SPARK_FROM_RIGHT: f32 = 34.;
-const SPARK_FROM_TOP: f32 = 30.;
+const SPARK_FROM_TOP: f32 = 24.;
+/// A show: its bursts start a second apart, each within this many points of the pane's top or
+/// sides, at these spots across and down what the pane shows below its header.
+const SHOW_ZONE: f32 = 80.;
+const SHOW_SPOTS: [Spot; 6] = [
+    Spot::Top(0.5),
+    Spot::Right(0.3),
+    Spot::Top(0.2),
+    Spot::Left(0.45),
+    Spot::Top(0.8),
+    Spot::Right(0.55),
+];
 /// A moment older than this when it arrives has passed, so it plays nothing.
 const MOMENT_FRESH: Duration = Duration::from_secs(10);
 
@@ -151,6 +162,25 @@ struct Burst {
     started: f32,
     /// Varies where its sparks fly from one burst to the next.
     seed: f32,
+    show: bool,
+}
+
+impl Burst {
+    fn lasts(&self) -> Duration {
+        match self.show {
+            true => Duration::from_secs(SHOW_SPOTS.len() as u64 - 1) + BURST_LASTS,
+            false => BURST_LASTS,
+        }
+    }
+}
+
+/// Where one of a show's bursts goes: along the top, across by the share given, or along a
+/// side, down by the share given.
+#[derive(Clone, Copy)]
+enum Spot {
+    Top(f32),
+    Left(f32),
+    Right(f32),
 }
 
 impl Default for Paces {
@@ -193,13 +223,13 @@ impl Paces {
 
     fn bursting(&self) -> Option<&Burst> {
         (self.burst.as_ref())
-            .filter(|burst| self.time() < burst.started + BURST_LASTS.as_secs_f32())
+            .filter(|burst| self.time() < burst.started + burst.lasts().as_secs_f32())
     }
 }
 
-/// Plays the latest moment the core says the theme celebrates in its agent's pane, once: when
-/// its count is new and it happened under 10 s ago. Less motion plays none.
-pub fn celebrate(moment: Option<&Celebration>, cx: &mut App) {
+/// Plays the latest moment the core says the theme celebrates in the pane of the agent `in_pane`,
+/// once: when its count is new and it happened under 10 s ago. Less motion plays none.
+pub fn celebrate(moment: Option<&Celebration>, in_pane: Option<&str>, cx: &mut App) {
     let Some(moment) = moment else {
         return;
     };
@@ -211,21 +241,21 @@ pub fn celebrate(moment: Option<&Celebration>, cx: &mut App) {
     let fresh = epoch_ms().saturating_sub(moment.at) < MOMENT_FRESH.as_millis() as u64;
     let drawn = (cx.try_global::<Grain>())
         .is_some_and(|grain| grain.worn.spark > 0. && !grain.worn.sparks.is_empty());
-    let plays = fresh && drawn && !cx.reduce_motion();
-    if plays {
-        paces.burst = Some(Burst {
-            agent: moment.agent_id.clone(),
-            started: paces.time(),
-            seed: (moment.count % 997) as f32,
-        });
-    }
-    cx.set_global(paces);
-    if !plays {
+    let burst = (in_pane.filter(|_| fresh && drawn && !cx.reduce_motion())).map(|agent| Burst {
+        agent: agent.to_owned(),
+        started: paces.time(),
+        seed: (moment.count % 997) as f32,
+        show: moment.show,
+    });
+    let Some(lasts) = burst.as_ref().map(Burst::lasts) else {
+        cx.set_global(paces);
         return;
-    }
+    };
+    paces.burst = burst;
+    cx.set_global(paces);
     cx.refresh_windows();
     cx.spawn(async move |cx| {
-        cx.background_executor().timer(BURST_LASTS).await;
+        cx.background_executor().timer(lasts).await;
         cx.update(|cx| {
             if let Some(paces) = cx.try_global::<Paces>().cloned() {
                 cx.set_global(paces);
@@ -655,7 +685,6 @@ pub fn field(cx: &App) -> Option<AnyElement> {
 pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
     let field = field_at(agent, cx);
     let edge = agent.and_then(|agent| waiting_edge(agent, cx));
-    let burst = agent.and_then(|agent| burst_in(agent, cx));
     let welcome_picture = welcome_picture(cx);
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
@@ -694,7 +723,6 @@ pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement 
                 .inset_0()
             }))
             .children(edge.as_ref().map(|draw| draw()))
-            .children(burst.as_ref().map(|draw| draw()))
             .into_any_element()
     }
 }
@@ -737,10 +765,11 @@ fn waiting_edge(agent: &str, cx: &App) -> Option<impl Fn() -> AnyElement + 'stat
     })
 }
 
-/// The burst of sparks at the top right of the pane of `agent` while one plays there.
-fn burst_in(agent: &str, cx: &App) -> Option<impl Fn() -> AnyElement + 'static> {
+/// The burst of sparks near the top right of what the pane of `agent` shows below its header,
+/// or a show's six along its top and sides, while one plays there.
+pub fn burst_in(agent: Option<&str>, cx: &App) -> Option<AnyElement> {
     let burst = cx.try_global::<Paces>()?.bursting()?;
-    if burst.agent != agent {
+    if Some(burst.agent.as_str()) != agent {
         return None;
     }
     let worn = &cx.try_global::<Grain>()?.worn;
@@ -752,26 +781,56 @@ fn burst_in(agent: &str, cx: &App) -> Option<impl Fn() -> AnyElement + 'static> 
     for (at, ink) in inks.iter().cycle().take(3).enumerate() {
         params[4 + 4 * at..7 + 4 * at].copy_from_slice(&[ink.r, ink.g, ink.b]);
     }
-    params[7] = SPARK_REACH;
-    Some(move || {
+    let show = burst.show;
+    Some(
         canvas(
             |_, _, _| {},
             move |bounds, (), window, _| {
-                let mut params = params;
-                params[1] = window.ground_scale();
-                let middle = point(
-                    bounds.right() - px(SPARK_FROM_RIGHT),
-                    bounds.top() + px(SPARK_FROM_TOP),
-                );
-                let side = px(2.4 * SPARK_REACH);
-                let square = Bounds::centered_at(middle, size(side, side));
-                let _ = window.paint_ground_shader(square, &BURST, params, None);
+                let inset = px(0.5 * SHOW_ZONE);
+                let spots: Vec<_> = match show {
+                    false => vec![(
+                        point(
+                            bounds.right() - px(SPARK_FROM_RIGHT),
+                            bounds.top() + px(SPARK_FROM_TOP),
+                        ),
+                        SPARK_REACH,
+                    )],
+                    true => (SHOW_SPOTS.into_iter())
+                        .map(|spot| {
+                            let middle = match spot {
+                                Spot::Top(across) => point(
+                                    bounds.left() + bounds.size.width * across,
+                                    bounds.top() + inset,
+                                ),
+                                Spot::Left(down) => point(
+                                    bounds.left() + inset,
+                                    bounds.top() + bounds.size.height * down,
+                                ),
+                                Spot::Right(down) => point(
+                                    bounds.right() - inset,
+                                    bounds.top() + bounds.size.height * down,
+                                ),
+                            };
+                            (middle, 0.42 * SHOW_ZONE)
+                        })
+                        .collect(),
+                };
+                for (after, (middle, reach)) in spots.into_iter().enumerate() {
+                    let mut one = params;
+                    one[0] += after as f32;
+                    one[1] = window.ground_scale();
+                    one[2] += 31. * after as f32;
+                    one[7] = reach;
+                    let side = px(2.4 * reach);
+                    let square = Bounds::centered_at(middle, size(side, side));
+                    let _ = window.paint_ground_shader(square, &BURST, one, None);
+                }
             },
         )
         .absolute()
         .inset_0()
-        .into_any_element()
-    })
+        .into_any_element(),
+    )
 }
 
 /// The pane picture as a new chat's welcome shows it: over the whole pane and as solid as

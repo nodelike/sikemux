@@ -746,16 +746,17 @@ impl Director {
         Ok(())
     }
 
-    pub(super) fn moment(&mut self, agent_id: String) -> anyhow::Result<()> {
+    pub(super) fn moment(&mut self, agent_id: String, show: bool) -> anyhow::Result<()> {
         self.moments += 1;
         let moment = sikemux_view::inbox::Celebration {
             agent_id,
             at: sikemux_process::clock::epoch_ms(),
             count: self.moments,
+            show,
         };
         self.cx
             .update_window(self.window, |_, _, cx| {
-                sikemux_gpui::ui::grain::celebrate(Some(&moment), cx)
+                sikemux_gpui::ui::grain::celebrate(Some(&moment), Some(&moment.agent_id), cx)
             })
             .map_err(|error| anyhow!("{error}"))
     }
