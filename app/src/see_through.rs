@@ -73,7 +73,8 @@ pub fn follow(window: &mut Window, cx: &App) {
     }
     SHOWN.set(Some(wanted));
     let clear = wanted.opacity < 1.;
-    window.set_background_appearance(match clear {
+    // Windows draws the app over its page windows, so it must clear to nothing for them to show.
+    window.set_background_appearance(match clear || cfg!(windows) {
         true => WindowBackgroundAppearance::Transparent,
         false => WindowBackgroundAppearance::Opaque,
     });

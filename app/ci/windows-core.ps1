@@ -51,6 +51,23 @@ public static class Grab {
       bmp.Save(path); return ok;
     }
   }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  // How many colours a picture of the window holds in an area given in the app's own points.
+  public static int Colours(IntPtr h, string path, float x, float y, float w, float h2) {
+    RECT r; GetWindowRect(h, out r);
+    var client = new POINT(); ClientToScreen(h, ref client);
+    float scale = GetDpiForWindow(h) / 96f;
+    var seen = new System.Collections.Generic.HashSet<int>();
+    using (var bmp = new Bitmap(path)) {
+      int left = client.X - r.L + (int)(x * scale), top = client.Y - r.T + (int)(y * scale);
+      int right = Math.Min(bmp.Width, left + (int)(w * scale)), bottom = Math.Min(bmp.Height, top + (int)(h2 * scale));
+      for (int py = Math.Max(0, top); py < bottom; py += 2)
+        for (int px = Math.Max(0, left); px < right; px += 2) seen.Add(bmp.GetPixel(px, py).ToArgb());
+    }
+    return seen.Count;
+  }
   public static void Screen(IntPtr h, string path) {
     RECT r; GetWindowRect(h, out r);
     using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
@@ -146,6 +163,14 @@ Start-Sleep -Seconds 28
 $state = Drive 'what the window holds' 'state'
 if (-not $state.Contains('example.com')) { $failed += "the stand-in's browser tab" }
 Picture 'window'
+# example.com is grey with dark text, so a page drawn in its pane is more than a few colours.
+$bounds = ([regex]::Match($state, '"pageBounds":\[([^\]]+)\]').Groups[1].Value -split ',') | ForEach-Object { [float] $_ }
+if ($bounds.Count -ne 4) { $failed += 'the desk places its page' }
+else {
+    $colours = [Grab]::Colours($proc.MainWindowHandle, (Join-Path $Out 'window.png'), $bounds[0], $bounds[1], $bounds[2], $bounds[3])
+    "page area: $colours colours" | Out-File -Append (Join-Path $Out 'steps.txt')
+    if ($colours -lt 8) { $failed += "the page drawn in its pane ($colours colours)" }
+}
 # PrintWindow can miss a page the window composes from another process; the screen shows it.
 [Grab]::Screen($proc.MainWindowHandle, (Join-Path $Out 'window-screen.png'))
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
