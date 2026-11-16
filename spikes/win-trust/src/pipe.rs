@@ -72,6 +72,7 @@ pub fn disconnect(pipe: HANDLE) {
 pub fn client(name: &str) -> HANDLE {
     const READ_WRITE_DATA: u32 = 0x0010_0083;
     const ERROR_PIPE_BUSY: u32 = 231;
+    const ERROR_FILE_NOT_FOUND: u32 = 2;
     let wn = wide(name);
     for _ in 0..20 {
         let h = unsafe {
@@ -88,10 +89,13 @@ pub fn client(name: &str) -> HANDLE {
         if h != INVALID_HANDLE_VALUE {
             return h;
         }
-        if unsafe { GetLastError() } != ERROR_PIPE_BUSY {
-            return null_mut();
+        match unsafe { GetLastError() } {
+            ERROR_PIPE_BUSY => unsafe {
+                WaitNamedPipeW(wn.as_ptr(), 1000);
+            },
+            ERROR_FILE_NOT_FOUND => std::thread::sleep(std::time::Duration::from_millis(100)),
+            _ => return null_mut(),
         }
-        unsafe { WaitNamedPipeW(wn.as_ptr(), 1000) };
     }
     null_mut()
 }

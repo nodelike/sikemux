@@ -2,13 +2,16 @@ use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{LocalFree, HANDLE};
-use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+use windows_sys::Win32::Security::Authorization::{
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+};
 use windows_sys::Win32::Security::{
     AllocateAndInitializeSid, CreateRestrictedToken, CreateWellKnownSid, DuplicateTokenEx,
-    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, SecurityImpersonation,
-    SetTokenInformation, TokenIntegrityLevel, TokenPrimary, TokenUser, WinBuiltinAdministratorsSid,
-    DISABLE_MAX_PRIVILEGE, SECURITY_MANDATORY_LABEL_AUTHORITY, SID_AND_ATTRIBUTES,
-    TOKEN_ACCESS_MASK, TOKEN_ALL_ACCESS, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
+    GetSecurityDescriptorDacl, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation,
+    SecurityImpersonation, SetTokenInformation, TokenDefaultDacl, TokenIntegrityLevel,
+    TokenPrimary, TokenUser, WinBuiltinAdministratorsSid, ACL, DISABLE_MAX_PRIVILEGE,
+    SECURITY_MANDATORY_LABEL_AUTHORITY, SID_AND_ATTRIBUTES, TOKEN_ACCESS_MASK, TOKEN_ALL_ACCESS,
+    TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
 };
 use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -206,4 +209,34 @@ pub fn medium_restricted(base: HANDLE) -> HANDLE {
 
 pub fn fail(context: &str) -> String {
     format!("{context} failed ({})", errno())
+}
+
+/// An elevated token's default DACL grants only Administrators and SYSTEM, so once
+/// Administrators is deny-only the new process cannot open its own objects.
+pub fn grant_user_default_dacl(token: HANDLE, sid: &str) -> bool {
+    let sddl = crate::util::wide(&format!("D:(A;;GA;;;SY)(A;;GA;;;{sid})"));
+    let mut sd: *mut c_void = null_mut();
+    let converted = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut sd,
+            null_mut(),
+        )
+    };
+    if converted == 0 {
+        return false;
+    }
+    let (mut present, mut defaulted) = (0i32, 0i32);
+    let mut dacl: *mut ACL = null_mut();
+    unsafe { GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted) };
+    let info = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
+    unsafe {
+        SetTokenInformation(
+            token,
+            TokenDefaultDacl,
+            &info as *const _ as *const c_void,
+            std::mem::size_of::<TOKEN_DEFAULT_DACL>() as u32,
+        ) != 0
+    }
 }

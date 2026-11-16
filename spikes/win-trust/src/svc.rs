@@ -17,7 +17,9 @@ use windows_sys::Win32::System::Services::{
     SERVICE_ACCEPT_STOP, SERVICE_CONTROL_STOP, SERVICE_RUNNING, SERVICE_STATUS,
     SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
 };
-use windows_sys::Win32::System::Threading::{GetProcessId, OpenThreadToken, WaitForSingleObject};
+use windows_sys::Win32::System::Threading::{
+    GetExitCodeProcess, GetProcessId, OpenThreadToken, WaitForSingleObject,
+};
 
 use crate::pipe::{anon, create_named, disconnect, recv_line, send_line, wait_client};
 use crate::proc::{
@@ -25,8 +27,8 @@ use crate::proc::{
     IMAGE_LOAD_NO_REMOTE_ALWAYS_ON,
 };
 use crate::sd::{
-    deny_admins, medium_restricted, set_integrity, to_primary, user_sid_string, HIGH_RID,
-    MEDIUM_RID,
+    deny_admins, grant_user_default_dacl, medium_restricted, set_integrity, to_primary,
+    user_sid_string, HIGH_RID, MEDIUM_RID,
 };
 use crate::util::{
     install_exe, report, report_err, secrets_dir, SendHandle, SERVICE_NAME, SVC_PIPE,
@@ -199,6 +201,10 @@ fn client_token(pipe: HANDLE, step: &str) -> Option<HANDLE> {
         report_err("svc", step, "deny_admins");
         return None;
     }
+    let granted = user_sid_string(locked).is_some_and(|sid| grant_user_default_dacl(locked, &sid));
+    if !granted {
+        report_err("svc", step, "default_dacl");
+    }
     Some(locked)
 }
 
@@ -217,10 +223,16 @@ fn start_agent(pipe: HANDLE) -> bool {
         visible_desktop: true,
         process_sddl: None,
     });
-    if spawned.is_none() {
+    let Some(info) = spawned else {
         report_err("svc", "agent", "create_process");
-    }
-    spawned.is_some()
+        return false;
+    };
+    let process = SendHandle(info.hProcess);
+    std::thread::spawn(move || {
+        let process = process;
+        report("svc", "agent_exit", &exit_code(process.0));
+    });
+    true
 }
 
 fn start(pipe: HANDLE) -> bool {
@@ -373,7 +385,7 @@ fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
     let sid2 = sid.to_string();
     std::thread::spawn(move || {
         let watch = watch;
-        unsafe { WaitForSingleObject(watch.0, u32::MAX) };
+        report("svc", &format!("core_exit_gen{gen}"), &exit_code(watch.0));
         if gen < 2 {
             report("svc", "core_restart", "relaunching");
             launch_core(token2, &sid2, gen + 1, false);
@@ -408,4 +420,13 @@ fn launch_app(core_token: SendHandle, tag: &str, token: HANDLE, link_w: HANDLE, 
     }
     let _ = core_token;
     unsafe { CloseHandle(link_w) };
+}
+
+fn exit_code(process: HANDLE) -> String {
+    let mut code = 0u32;
+    unsafe {
+        WaitForSingleObject(process, u32::MAX);
+        GetExitCodeProcess(process, &mut code);
+    }
+    format!("{code:#x}")
 }
