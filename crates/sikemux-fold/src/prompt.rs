@@ -26,7 +26,7 @@ const LETTER_TAGS: [&str; 2] = ["agent-message", "question-answer"];
 /// The sender the core names on the prompts of a chat's triggers.
 const TRIGGER: &str = "trigger";
 
-pub(super) fn is_agent_letter(text: &str) -> bool {
+pub fn is_agent_letter(text: &str) -> bool {
     let text = text.trim_start();
     LETTER_TAGS.iter().any(|tag| {
         text.strip_prefix('<')

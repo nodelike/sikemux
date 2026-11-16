@@ -13,11 +13,12 @@ const FILE: &str = "data-format.json";
 type Step = fn(&Path, &ServerConfig) -> std::io::Result<()>;
 
 /// Each step takes the folder from the format of its index to the next.
-const STEPS: [Step; 4] = [
+const STEPS: [Step; 5] = [
     prompts_say_whether_shown,
     host_key_named_by_socket_path,
     activity_database_in_the_data_folder,
     typed_answers_scrubbed,
+    asks_titled_as_the_chat_reads_them,
 ];
 
 pub(crate) fn upgrade(config: &ServerConfig) {
@@ -186,6 +187,32 @@ fn typed_answers_scrubbed(data_dir: &Path, _: &ServerConfig) -> std::io::Result<
         left(&resumes, error);
     }
     Ok(())
+}
+
+/// Format 4 cores titled the person's asks with the prompt as it was sent. Each is titled now as
+/// the chat reads it. An answer to a call was cut to the call's first line, losing the answer, so
+/// its ask goes.
+fn asks_titled_as_the_chat_reads_them(data_dir: &Path, _: &ServerConfig) -> std::io::Result<()> {
+    rewrite(&data_dir.join(super::now::FILE), |saved| {
+        let Some(asks) = saved.get_mut("asks").and_then(Value::as_array_mut) else {
+            return false;
+        };
+        let before = asks.len();
+        asks.retain(|ask| !sikemux_fold::is_agent_letter(ask["title"].as_str().unwrap_or("")));
+        let mut changed = asks.len() != before;
+        for ask in asks.iter_mut() {
+            let images: Vec<String> = (ask["images"].as_array().into_iter().flatten())
+                .filter_map(|path| path.as_str().map(str::to_owned))
+                .collect();
+            let sent = ask["title"].as_str().unwrap_or("");
+            let title = super::now::asks::title(sent, &images);
+            if title != sent {
+                ask["title"] = Value::String(title);
+                changed = true;
+            }
+        }
+        changed
+    })
 }
 
 /// The files directly in `dir` with `extension`.

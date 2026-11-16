@@ -28,7 +28,7 @@ use super::changed::{ChangedCore, What};
 use super::kept::Kept;
 use super::Core;
 
-const FILE: &str = "now.json";
+pub(super) const FILE: &str = "now.json";
 /// Closed agents a project's strip keeps, newest kept.
 const MOST_CLOSED: usize = 30;
 

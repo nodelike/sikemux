@@ -8,7 +8,7 @@ mod event;
 mod find;
 pub mod pickers;
 mod prompt;
-pub use prompt::{sent_spans, SentNames};
+pub use prompt::{is_agent_letter, sent_spans, SentNames};
 mod kinds;
 mod left_out;
 mod own;

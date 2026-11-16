@@ -122,6 +122,11 @@ fn change(core: &Core, change: impl FnOnce(&mut Vec<Ask>, &mut u64) -> bool) {
 
 /// The person sent `text` to `agent`, with the files at `paths`, as a reply on the ask `filed`
 /// when it names one. The ask it is, by number.
+/// The title of an ask the person sent as `text` with the files at `paths`.
+pub(crate) fn title(text: &str, paths: &[String]) -> String {
+    clipped_line(&sikemux_fold::person_wrote(text, paths), TITLE_CHARS)
+}
+
 pub(crate) fn asked(
     core: &Core,
     agent: &str,
@@ -132,7 +137,7 @@ pub(crate) fn asked(
     if filed.is_some() {
         return filed;
     }
-    let title = clipped_line(&sikemux_fold::person_wrote(text, paths), TITLE_CHARS);
+    let title = title(text, paths);
     let images: Vec<String> = (paths.iter())
         .filter(|path| is_image_path(path))
         .cloned()
