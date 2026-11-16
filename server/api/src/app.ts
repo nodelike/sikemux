@@ -8,6 +8,8 @@ import type { ClerkBackend } from "./account/clerk.ts";
 import { accountRoutes } from "./account/routes.ts";
 import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
+import { billingProviderRoutes, billingRoutes } from "./billing/routes.ts";
+import type { BillingProvider } from "./billing/provider.ts";
 import { deviceRoutes } from "./devices/routes.ts";
 import { healthRoutes } from "./health/routes.ts";
 import type { HookHosts } from "./hooks/hosts.ts";
@@ -60,6 +62,11 @@ export interface Services {
   stash: StashFiles | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
   hookHosts: HookHosts;
+  billing: {
+    /** Null when BILLING_PROVIDER is not set, and buying or changing anything answers unavailable. */
+    provider: BillingProvider | null;
+    live: boolean;
+  };
 }
 
 export function createApp(services: Services) {
@@ -80,6 +87,7 @@ export function createApp(services: Services) {
   // Senders such as GitHub post every account's webhooks from a few addresses, so each webhook
   // has its own limit instead of the address's.
   app.route("/v1/hooks", hookReceiveRoutes(services));
+  app.route("/v1/billing/provider", billingProviderRoutes(services));
   app.use(limit<Env>(limiter, "address", 600, clientAddress));
   app.use(
     cors({
@@ -112,6 +120,7 @@ export function createApp(services: Services) {
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/webhooks", clerkWebhookRoutes(database, webhookSecret));
   app.route("/v1/hooks", hookRoutes(services));
+  app.route("/v1/billing", billingRoutes(services));
   app.route("/updates", updateRoutes(database, limiter));
 
   app.notFound((c) =>

@@ -6,6 +6,7 @@ import type { AuthEnv } from "../auth.ts";
 import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
 import { notFound, readOptionalBody } from "../http.ts";
 import { perUser } from "../limits.ts";
+import { planOf } from "../billing/allowance.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
 import { isStaff } from "./staff.ts";
@@ -30,6 +31,7 @@ export function accountRoutes({
         .select(["deleted_at", "purge_after", "staff"])
         .where("id", "=", userId)
         .executeTakeFirst();
+      const plan = await planOf(db, userId);
       const body: Account =
         user?.deleted_at && user.purge_after
           ? {
@@ -37,11 +39,13 @@ export function accountRoutes({
               deletesAt: user.purge_after.toISOString(),
               restorableDays: PURGE_AFTER_DAYS,
               staff: user.staff,
+              plan,
             }
           : {
               status: "active",
               restorableDays: PURGE_AFTER_DAYS,
               staff: user?.staff ?? false,
+              plan,
             };
       return c.json(body);
     })
@@ -56,6 +60,7 @@ export function accountRoutes({
         status: "active",
         restorableDays: PURGE_AFTER_DAYS,
         staff: await isStaff(db, identity.userId),
+        plan: await planOf(db, identity.userId),
       };
       return c.json(body);
     })

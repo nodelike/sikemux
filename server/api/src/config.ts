@@ -55,6 +55,15 @@ export interface Config extends MigrationConfig {
   relayAccessToken: string | null;
   /** Null when STASH_DIR and STASH_KEY are not set, and the stash answers that it is not set up. */
   stash: StashSettings | null;
+  billing: BillingSettings;
+}
+
+/** Which payment provider billing goes through, and whether plans are on sale to everyone. */
+interface BillingSettings {
+  /** Null leaves billing answering that it is not set up. The stand-in never runs in a release. */
+  provider: "stand-in" | null;
+  /** Off, billing answers only staff and nothing a plan pays for is held back from anyone. */
+  live: boolean;
 }
 
 const LEVELS: readonly Level[] = [
@@ -117,6 +126,8 @@ export function loadConfig(
     problems,
     text,
     optional,
+    oneOf,
+    flag,
     port: readPort,
     readDatabaseUrl,
     readLogLevel,
@@ -177,6 +188,14 @@ export function loadConfig(
       ? { dir: stashDir, key: Buffer.from(stashKey, "hex") }
       : null;
 
+  const provider = oneOf("BILLING_PROVIDER", ["none", "stand-in"], "none");
+  if (provider === "stand-in" && release)
+    problems.push("BILLING_PROVIDER=stand-in is for development only");
+  const billing: BillingSettings = {
+    provider: provider === "none" ? null : provider,
+    live: flag("BILLING_LIVE", false),
+  };
+
   return finish({
     host,
     port,
@@ -194,6 +213,7 @@ export function loadConfig(
     placesDir,
     relayAccessToken,
     stash,
+    billing,
     logLevel,
   });
 }

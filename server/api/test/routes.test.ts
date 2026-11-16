@@ -22,10 +22,14 @@ const table = (
   ) as { routes: TableRoute[] }
 ).routes;
 
-/** Routes the table leaves out: Expo's update protocol, and the relay's own question. */
+/**
+ * Routes the table leaves out: Expo's update protocol, the relay's own question, and the
+ * development payment provider's checkout page.
+ */
 const NOT_IN_THE_TABLE = [
   "GET /updates/manifest",
   "POST /internal/relay-access",
+  "GET /v1/billing/stand-in/checkout/:token",
 ];
 
 const shape = (method: string, path: string) =>

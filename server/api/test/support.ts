@@ -8,6 +8,7 @@ import { inject } from "vitest";
 
 import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
 import { createApp, type Services } from "../src/app.ts";
+import { StandInProvider } from "../src/billing/stand-in.ts";
 import { HookHosts } from "../src/hooks/hosts.ts";
 import { RelayAccess } from "../src/relay/access.ts";
 import { openDatabase, type Database } from "../src/db.ts";
@@ -100,6 +101,10 @@ export function testApp(
     relayAccessToken: null,
     stash: null,
     hookHosts: new HookHosts(),
+    billing: {
+      provider: new StandInProvider("https://api.sikemux.com"),
+      live: false,
+    },
     ...services,
   });
 }

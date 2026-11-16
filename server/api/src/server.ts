@@ -21,6 +21,7 @@ import { Pusher } from "./push/send.ts";
 import { RelayAccess } from "./relay/access.ts";
 import { attachShares } from "./share/server.ts";
 import { StashFiles } from "./stash/files.ts";
+import { StandInProvider } from "./billing/stand-in.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
 const DRAIN_MS = 25_000;
@@ -128,6 +129,13 @@ export function startServer(config: Config, log: Logger) {
     relayAccessToken: config.relayAccessToken,
     stash: config.stash ? new StashFiles(config.stash) : null,
     hookHosts,
+    billing: {
+      provider:
+        config.billing.provider === "stand-in"
+          ? new StandInProvider(config.apiOrigin)
+          : null,
+      live: config.billing.live,
+    },
   });
   const server = serve(
     { fetch: app.fetch, hostname: config.host, port: config.port },
