@@ -15,5 +15,6 @@ front Wren
 settle 2
 snap opened-desk
 click 835,70
+move 1100,700 0.3
 settle 2
 snap calls-opened

@@ -482,7 +482,7 @@ fn changed_files(files: &[CallChangedFile], t: &Tokens) -> gpui_kit::Div {
             )
     });
     div()
-        .h(px(ATTACHMENT_HEIGHT))
+        .max_h(px(ATTACHMENT_HEIGHT))
         .w_full()
         .py(SPACE_2)
         .overflow_hidden()
