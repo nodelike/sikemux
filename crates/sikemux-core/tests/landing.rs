@@ -491,6 +491,11 @@ async fn a_turn_whose_shell_command_wrote_a_file_reads_uncommitted() {
     writer.run("echo hello > notes.txt").await;
     writer.chat.until(|chat| chat.turns_ended() >= 1).await;
 
+    reads(&mut onlooker, &writer.id, "done, uncommitted").await;
+}
+
+/// Waits for `agent_list` to say the turn of agent `id` stands as `stands`.
+async fn reads(onlooker: &mut Agent, id: &str, stands: &str) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let listed = onlooker
@@ -498,16 +503,80 @@ async fn a_turn_whose_shell_command_wrote_a_file_reads_uncommitted() {
             .await
             .expect("the agents");
         let turn = (listed["agents"].as_array().into_iter().flatten())
-            .find(|agent| agent["agentId"] == writer.id.as_str())
+            .find(|agent| agent["agentId"] == id)
             .map(|agent| agent["turn"].as_str().unwrap_or_default().to_owned())
             .unwrap_or_default();
-        if turn.starts_with("done, uncommitted") {
+        if turn.starts_with(stands) {
             return;
         }
         assert!(
             Instant::now() < deadline,
-            "the writer's turn reads {turn:?}"
+            "the turn reads {turn:?}, not {stands:?}"
         );
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
+}
+
+/// An agent in a folder that is not a git checkout itself read "committed, not landed" after
+/// every turn that followed an edit, whatever git said in the repository it worked in.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_in_a_folder_of_repositories_reads_the_one_it_changed() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    let inner = project.join("inner");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir_all(&inner).expect("inner");
+    git(&inner, &["init", "--quiet", "-b", "main"]);
+    commit_file(&inner, "base.txt", "base\n", "base");
+
+    let socket: PathBuf = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "omp",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    app.call("setAgentDefaults", json!({ "permissionMode": "bypass" }))
+        .await
+        .expect("the defaults");
+    let (writer, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the writer starts");
+    let (onlooker, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the onlooker starts");
+    let mut writer = Agent::open(&socket, &writer).await;
+    let mut onlooker = Agent::open(&socket, &onlooker).await;
+    let commit = "git -C inner -c user.name=Test -c user.email=test@example.com commit --quiet";
+
+    let notes = inner.join("notes.txt");
+    let said = writer
+        .says(format!("edit {}", notes.display()), "edited")
+        .await;
+    assert!(said.contains("Ok"), "{said}");
+
+    writer
+        .run(&format!("git -C inner add notes.txt && {commit} -m notes"))
+        .await;
+    reads(&mut onlooker, &writer.id, "done, landed").await;
+
+    writer
+        .run(&format!(
+            "git -C inner checkout --quiet -b side && echo more >> inner/notes.txt && {commit} -am more"
+        ))
+        .await;
+    reads(&mut onlooker, &writer.id, "done, committed, not landed").await;
 }
