@@ -2,7 +2,7 @@
 //! person's choice back as the answer Codex expects.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use sikemux_view::chat::PermissionKind;
 
@@ -65,12 +65,13 @@ impl Question {
             }
             Answer::Permissions(requested) => {
                 let granted = |scope: &str, strict: bool| {
-                    let mut permissions = json!({});
-                    for key in ["network", "fileSystem"] {
-                        if !requested[key].is_null() {
-                            permissions[key] = requested[key].clone();
-                        }
-                    }
+                    let permissions: Map<String, Value> = ["network", "fileSystem"]
+                        .into_iter()
+                        .filter_map(|key| {
+                            let granted = requested.get(key).filter(|value| !value.is_null())?;
+                            Some((key.to_owned(), granted.clone()))
+                        })
+                        .collect();
                     json!({ "permissions": permissions, "scope": scope, "strictAutoReview": strict })
                 };
                 match chosen {
@@ -102,7 +103,9 @@ impl Question {
     }
 
     pub fn allows(&self, chosen: Option<&str>) -> bool {
-        self.answer(chosen)["action"] == "accept"
+        self.answer(chosen)
+            .get("action")
+            .is_some_and(|action| action == "accept")
     }
 }
 
@@ -184,7 +187,9 @@ fn command_decisions(params: &Value) -> Option<Vec<Value>> {
                 }
                 let amendment =
                     decision.pointer("/applyNetworkPolicyAmendment/network_policy_amendment")?;
-                let host = params["networkApprovalContext"]["host"].as_str()?;
+                let host = params
+                    .pointer("/networkApprovalContext/host")
+                    .and_then(Value::as_str)?;
                 let proposed = params["proposedNetworkPolicyAmendments"].as_array()?;
                 let usable = amendment["host"] == host
                     && matches!(amendment["action"].as_str(), Some("allow" | "deny"))
@@ -329,8 +334,12 @@ fn permission_paths(permissions: &Value) -> Vec<String> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|entry| entry["path"]["type"] == "path")
-        .map(|entry| entry["path"]["path"].clone());
+        .filter(|entry| {
+            entry
+                .pointer("/path/type")
+                .is_some_and(|kind| kind == "path")
+        })
+        .filter_map(|entry| entry.pointer("/path/path").cloned());
     unique(
         listed
             .chain(entries)
@@ -340,7 +349,10 @@ fn permission_paths(permissions: &Value) -> Vec<String> {
 
 fn permission_content(permissions: &Value) -> Vec<Value> {
     let mut lines = Vec::new();
-    if let Some(enabled) = permissions["network"]["enabled"].as_bool() {
+    if let Some(enabled) = permissions
+        .pointer("/network/enabled")
+        .and_then(Value::as_bool)
+    {
         lines.push(
             if enabled {
                 "Enable network access"
@@ -350,8 +362,9 @@ fn permission_content(permissions: &Value) -> Vec<Value> {
             .to_owned(),
         );
     }
-    for entry in permissions["fileSystem"]["entries"]
-        .as_array()
+    for entry in permissions
+        .pointer("/fileSystem/entries")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
     {
@@ -380,23 +393,26 @@ fn permission_content(permissions: &Value) -> Vec<Value> {
 pub fn command(session_id: &str, params: &Value) -> Option<Question> {
     let (options, answers) = decision_options(&command_options(params)?)?;
     let network = &params["networkApprovalContext"];
-    let mut input = json!({});
+    let mut input = Map::new();
     if let Some(command) = params["command"]
         .as_str()
         .filter(|command| !command.is_empty())
     {
-        input["command"] = json!(strip_shell(command));
+        input.insert("command".to_owned(), json!(strip_shell(command)));
     }
     if let Some(cwd) = params["cwd"].as_str().filter(|cwd| !cwd.is_empty()) {
-        input["cwd"] = json!(cwd);
+        input.insert("cwd".to_owned(), json!(cwd));
     }
     let protocol = network["protocol"].as_str().unwrap_or_default();
     let host = network["host"].as_str().unwrap_or_default();
     if matches!(protocol, "http" | "https") {
-        input["url"] = json!(format!("{protocol}://{host}"));
+        input.insert("url".to_owned(), json!(format!("{protocol}://{host}")));
     }
     if !params["additionalPermissions"].is_null() {
-        input["additionalPermissions"] = params["additionalPermissions"].clone();
+        input.insert(
+            "additionalPermissions".to_owned(),
+            params["additionalPermissions"].clone(),
+        );
     }
     let mut tool_call = json!({
         "toolCallId": params["itemId"],
@@ -408,8 +424,10 @@ pub fn command(session_id: &str, params: &Value) -> Option<Question> {
             format!("{protocol} network access to {host}")
         },
     });
-    if input.as_object().is_some_and(|input| !input.is_empty()) {
-        tool_call["rawInput"] = input;
+    if !input.is_empty() {
+        if let Some(fields) = tool_call.as_object_mut() {
+            fields.insert("rawInput".to_owned(), Value::Object(input));
+        }
     }
     let action_paths = params["commandActions"]
         .as_array()
@@ -428,7 +446,9 @@ pub fn command(session_id: &str, params: &Value) -> Option<Question> {
         content.extend(permission_content(&params["additionalPermissions"]));
     }
     if !content.is_empty() {
-        tool_call["content"] = json!(content);
+        if let Some(fields) = tool_call.as_object_mut() {
+            fields.insert("content".to_owned(), json!(content));
+        }
     }
     Some(Question {
         request: request(session_id, tool_call, &options),
@@ -518,7 +538,9 @@ pub fn permissions(session_id: &str, params: &Value) -> Question {
     with_locations(&mut tool_call, permission_paths(permissions));
     let content = permission_content(permissions);
     if !content.is_empty() {
-        tool_call["content"] = json!(content);
+        if let Some(fields) = tool_call.as_object_mut() {
+            fields.insert("content".to_owned(), json!(content));
+        }
     }
     Question {
         request: request(session_id, tool_call, &options),
@@ -545,7 +567,10 @@ fn message_only(params: &Value) -> bool {
 
 /// Whether an elicitation is a tool server asking to run one of its tools.
 pub(super) fn is_tool_approval(params: &Value) -> bool {
-    params["_meta"]["codex_approval_kind"] == "mcp_tool_call" && message_only(params)
+    params
+        .pointer("/_meta/codex_approval_kind")
+        .is_some_and(|kind| kind == "mcp_tool_call")
+        && message_only(params)
 }
 
 /// `mcpServer/elicitation/request`. Sikemux has no forms, so only yes or no
@@ -563,7 +588,7 @@ pub(super) fn elicitation(
         return None;
     }
     let tool = is_tool_approval(params);
-    let persist = &params["_meta"]["persist"];
+    let persist = params.pointer("/_meta/persist").unwrap_or(&Value::Null);
     let persists = |scope: &str| {
         persist == scope
             || persist
@@ -597,28 +622,29 @@ pub(super) fn elicitation(
         options.push(option("cancel", "Cancel", PermissionKind::RejectOnce));
     }
     let message = text_content(params["message"].as_str().unwrap_or_default());
-    let mut request = json!({ "sessionId": session_id, "options": options });
     let mut resumes = None;
-    if url {
-        request["toolCall"] = json!({
+    let tool_call = if url {
+        json!({
             "toolCallId": format!("elicitation-{}", params["elicitationId"].as_str().unwrap_or_default()),
             "kind": "fetch",
             "status": "pending",
             "content": [message],
             "rawInput": { "serverName": params["serverName"], "url": params["url"] },
-        });
+        })
     } else if let Some(call) = correlated {
-        request["toolCall"] = json!({ "toolCallId": call, "kind": "execute", "status": "pending" });
+        let tool_call = json!({ "toolCallId": call, "kind": "execute", "status": "pending" });
         resumes = Some(call);
+        tool_call
     } else {
-        request["toolCall"] = json!({
+        json!({
             "toolCallId": standalone(),
             "kind": if tool { "execute" } else { "other" },
             "status": "pending",
             "content": [message],
             "rawInput": { "serverName": params["serverName"], "schema": params["requestedSchema"] },
-        });
-    }
+        })
+    };
+    let request = json!({ "sessionId": session_id, "options": options, "toolCall": tool_call });
     Some(Question {
         request,
         answer: Answer::Elicitation {
@@ -784,6 +810,10 @@ mod tests {
             "requestedSchema": { "type": "object", "properties": {} },
             "_meta": { "codex_approval_kind": "mcp_tool_call", "persist": ["session"] },
         });
+        #[expect(
+            clippy::unreachable,
+            reason = "a correlated call never makes its own id"
+        )]
         let question = elicitation("t", &params, Some("call_1".into()), || unreachable!()).unwrap();
         assert_eq!(ids(&question), ["allow_once", "allow_session", "cancel"]);
         assert_eq!(question.request["toolCall"]["toolCallId"], "call_1");

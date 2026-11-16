@@ -129,8 +129,9 @@ pub fn question(session: &str, params: &Value) -> Option<Question> {
         return None;
     }
     let mut raw_input = json!({ "tool": params["toolName"] });
-    if let Some(command) = text(subject, "command") {
-        raw_input["command"] = json!(command);
+    if let (Some(command), Some(raw_input)) = (text(subject, "command"), raw_input.as_object_mut())
+    {
+        raw_input.insert("command".to_owned(), json!(command));
     }
     let mut tool_call = json!({
         "toolCallId": params["itemId"],
@@ -139,8 +140,8 @@ pub fn question(session: &str, params: &Value) -> Option<Question> {
         "status": "pending",
         "rawInput": raw_input,
     });
-    if let Some(path) = text(subject, "path") {
-        tool_call["locations"] = json!([{ "path": path }]);
+    if let (Some(path), Some(tool_call)) = (text(subject, "path"), tool_call.as_object_mut()) {
+        tool_call.insert("locations".to_owned(), json!([{ "path": path }]));
     }
     Some(Question {
         request: request(session, tool_call, &options),

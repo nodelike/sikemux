@@ -196,10 +196,7 @@ impl RpcAgent for Session {
                 error_text(&error)
             ),
             (Purpose::ReadSubagent { child, result }, read) => {
-                let said: Vec<Value> = read
-                    .ok()
-                    .and_then(|read| read["history"]["items"].as_array().cloned())
-                    .unwrap_or_default();
+                let said: Vec<Value> = read.ok().as_ref().map(history_items).unwrap_or_default();
                 let effects = if said.iter().any(|item| item["kind"] != "userMessage") {
                     driver.session.locked().told_subagent(&child, &said)
                 } else {
@@ -302,8 +299,9 @@ impl Host {
             .rpc
             .notify("initialized", Value::Null)
             .map_err(|error| process.start_error(error))?;
-        let session_tools = initialized["grantedCapabilities"]
-            .as_array()
+        let session_tools = initialized
+            .get("grantedCapabilities")
+            .and_then(Value::as_array)
             .is_some_and(|granted| granted.iter().any(|name| name == "sessionMcp"));
         Ok(Self {
             process,
@@ -330,12 +328,26 @@ pub struct Muse {
     kept: Kept,
 }
 
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(object) = object.as_object_mut() {
+        object.insert(key.to_owned(), value);
+    }
+}
+
+fn history_items(read: &Value) -> Vec<Value> {
+    read.get("history")
+        .and_then(|history| history.get("items"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
 async fn list_models(rpc: &Rpc) -> Models {
     let listed = rpc.request("model/list", json!({})).await;
     config::models(
         listed
             .ok()
-            .and_then(|listed| listed["models"].as_array().cloned())
+            .and_then(|listed| listed.get("models").and_then(Value::as_array).cloned())
             .unwrap_or_default(),
     )
 }
@@ -353,10 +365,7 @@ async fn subagent_histories(rpc: &Rpc, items: &[Value]) -> HashMap<String, Vec<V
                 eprintln!("sikemux core: Muse subagent history {child} could not be read: {error}");
                 Value::Null
             });
-        read["history"]["items"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
+        history_items(&read)
     };
     session::subagent_histories(history::subagents(items), read, history::subagents).await
 }
@@ -417,7 +426,7 @@ impl Muse {
             "ifBusy": "queue",
         });
         if let Some(effort) = &self.kept.effort {
-            params["reasoningEffort"] = json!(effort);
+            set(&mut params, "reasoningEffort", json!(effort));
         }
         self.driver()
             .send_turn(turn, prompt, Some(&id), "turn/start", params)
@@ -433,7 +442,7 @@ impl Muse {
             } => {
                 let mut part = json!({ "type": "skill", "selector": selector });
                 if !arguments.is_empty() {
-                    part["arguments"] = json!(arguments);
+                    set(&mut part, "arguments", json!(arguments));
                 }
                 return self.send_turn(turn, prompt, vec![part]).await;
             }
@@ -507,7 +516,10 @@ impl Muse {
                 )
                 .await
                 .map_err(failed)?;
-            return Ok((opened["session"].clone(), Vec::new()));
+            return Ok((
+                opened.get("session").cloned().unwrap_or(Value::Null),
+                Vec::new(),
+            ));
         };
         let mut params = json!({
             "commandId": command_id(),
@@ -515,9 +527,9 @@ impl Muse {
             "config": config,
         });
         if history {
-            params["history"] = json!("inline");
+            set(&mut params, "history", json!("inline"));
         } else {
-            params["excludeItems"] = json!(true);
+            set(&mut params, "excludeItems", json!(true));
         }
         let resumed = rpc
             .request("session/resume", params)
@@ -529,14 +541,15 @@ impl Muse {
         )
         .await
         .map_err(failed)?;
-        let mut items = resumed["history"]["items"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        if history && items.is_empty() && resumed["history"]["mode"] != "inline" {
+        let mut items = history_items(&resumed);
+        let handed = resumed.get("history").and_then(|said| said.get("mode"));
+        if history && items.is_empty() && handed.and_then(Value::as_str) != Some("inline") {
             items = page_history(rpc, resume_id).await;
         }
-        Ok((resumed["session"].clone(), items))
+        Ok((
+            resumed.get("session").cloned().unwrap_or(Value::Null),
+            items,
+        ))
     }
 
     async fn replay(&self, session: &Value, items: &[Value]) {
@@ -593,7 +606,7 @@ async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
         .pages("view/page", |cursor| {
             let mut params = json!({ "sessionId": session_id, "limit": 1000 });
             if !cursor.is_null() {
-                params["cursor"] = cursor.clone();
+                set(&mut params, "cursor", cursor.clone());
             }
             params
         })
@@ -603,8 +616,10 @@ async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
     let mut latest: HashMap<String, Value> = HashMap::new();
     for page in &pages {
         for event in page["events"].as_array().into_iter().flatten() {
-            let item = &event["params"]["item"];
-            let Some(id) = item["itemId"].as_str() else {
+            let Some(item) = event.get("params").and_then(|params| params.get("item")) else {
+                continue;
+            };
+            let Some(id) = item.get("itemId").and_then(Value::as_str) else {
                 continue;
             };
             if !latest.contains_key(id) {
@@ -635,8 +650,9 @@ impl Backend for Muse {
         let host = Host::start(launch, mode, |rpc| Driver::new(rpc, sink, session)).await?;
         let models = list_models(&host.driver.rpc).await;
         let (opened, items) = Self::open(&host, launch, mode, true).await?;
-        let session_id = opened["sessionId"]
-            .as_str()
+        let session_id = opened
+            .get("sessionId")
+            .and_then(Value::as_str)
             .ok_or("Muse opened a session without an id")?
             .to_owned();
         *host.driver.session.locked() = Session::new(session_id.clone(), cwd.clone());
@@ -648,7 +664,9 @@ impl Backend for Muse {
             .or_else(|| text(&opened, "modelId").map(str::to_owned))
             .or_else(|| models.default_model())
             .unwrap_or_default();
-        if !model.is_empty() && opened["modelId"] != model.as_str() {
+        if !model.is_empty()
+            && opened.get("modelId").and_then(Value::as_str) != Some(model.as_str())
+        {
             host.driver
                 .rpc
                 .request(
@@ -823,8 +841,10 @@ impl Backend for Muse {
                     .await?
             }
         };
-        let moved = moved["session"]["sessionId"]
-            .as_str()
+        let moved = moved
+            .get("session")
+            .and_then(|session| session.get("sessionId"))
+            .and_then(Value::as_str)
             .ok_or("Muse went back without naming the session it made")?
             .to_owned();
         self.rpc()

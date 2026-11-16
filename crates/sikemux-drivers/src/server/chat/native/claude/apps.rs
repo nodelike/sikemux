@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sikemux_process::sync::Locked;
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -298,11 +298,12 @@ pub(super) fn call_result(reported: Option<&Value>, block: &Value) -> Value {
         Some(Value::Array(blocks)) => Value::Array(blocks.clone()),
         _ => json!([]),
     };
-    let mut result = json!({ "content": content });
+    let mut result = Map::new();
+    result.insert("content".to_owned(), content);
     for key in ["structuredContent", "_meta"] {
         if let Some(value) = source.get(key).filter(|value| !value.is_null()) {
-            result[key] = value.clone();
+            result.insert(key.to_owned(), value.clone());
         }
     }
-    result
+    Value::Object(result)
 }

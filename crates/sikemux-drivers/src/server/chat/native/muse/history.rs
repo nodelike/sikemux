@@ -132,7 +132,7 @@ fn tell(
                     .map(|update| (session.to_owned(), update)),
             ),
         }
-        for (target, update) in &mut out[from..] {
+        for (target, update) in out.iter_mut().skip(from) {
             if target == session {
                 super::super::stamp_replayed(update, at, false);
             }

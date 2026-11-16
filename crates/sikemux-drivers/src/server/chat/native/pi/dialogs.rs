@@ -80,13 +80,12 @@ pub(super) fn words_response(
     answer: String,
     choice: Option<usize>,
 ) -> Value {
-    let mut record = json!({ "type": "extension_ui_response", "id": id });
-    match choice {
-        Some(0) => record["value"] = json!(prefill.unwrap_or_default()),
-        Some(_) => record["cancelled"] = json!(true),
-        None => record["value"] = json!(answer),
-    }
-    record
+    let (key, value) = match choice {
+        Some(0) => ("value", json!(prefill.unwrap_or_default())),
+        Some(_) => ("cancelled", json!(true)),
+        None => ("value", json!(answer)),
+    };
+    json!({ "type": "extension_ui_response", "id": id, key: value })
 }
 
 fn visible<'a>(event: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -107,8 +106,11 @@ fn card(session: &str, id: &str, title: &str, detail: Option<&str>, options: &[V
         "kind": "other",
         "status": "pending",
     });
-    if let Some(detail) = detail {
-        tool_call["content"] = json!([sikemux_fold::update::text_content(detail)]);
+    if let (Some(detail), Some(fields)) = (detail, tool_call.as_object_mut()) {
+        fields.insert(
+            "content".to_owned(),
+            json!([sikemux_fold::update::text_content(detail)]),
+        );
     }
     request(session, tool_call, options)
 }
@@ -121,7 +123,7 @@ fn tool_permission(
 ) -> Option<(String, Value, Asked)> {
     let asked: Value = serde_json::from_str(message).ok()?;
     let tool = text(&asked, "toolName")?;
-    let input = &asked["input"];
+    let input = asked.get("input").unwrap_or(&Value::Null);
     let call_id = text(&asked, "toolCallId").unwrap_or(id);
     let remember = if tools::is_bash(tool) {
         format!("{tool}:{}", text(input, "command").unwrap_or_default())
@@ -234,22 +236,22 @@ pub fn read(
 
 /// Pi's response to the dialog, and what the session should remember allowing.
 pub fn response(asked: Asked, chosen: Option<&str>) -> (Value, Option<String>) {
-    let mut record = json!({ "type": "extension_ui_response", "id": asked.id });
     let mut remember = None;
-    match (asked.answer, chosen) {
+    let (key, value) = match (asked.answer, chosen) {
         (Answer::Tool { remember: tool }, Some(ALWAYS)) => {
             remember = Some(tool);
-            record["confirmed"] = json!(true);
+            ("confirmed", json!(true))
         }
-        (Answer::Tool { .. } | Answer::Confirm, Some(ALLOW)) => record["confirmed"] = json!(true),
-        (Answer::Tool { .. } | Answer::Confirm, Some(REJECT)) => record["confirmed"] = json!(false),
+        (Answer::Tool { .. } | Answer::Confirm, Some(ALLOW)) => ("confirmed", json!(true)),
+        (Answer::Tool { .. } | Answer::Confirm, Some(REJECT)) => ("confirmed", json!(false)),
         (Answer::Select { options }, Some(chosen)) => {
             match chosen.parse::<usize>().ok().and_then(|at| options.get(at)) {
-                Some(value) => record["value"] = json!(value),
-                None => record["cancelled"] = json!(true),
+                Some(value) => ("value", json!(value)),
+                None => ("cancelled", json!(true)),
             }
         }
-        _ => record["cancelled"] = json!(true),
-    }
+        _ => ("cancelled", json!(true)),
+    };
+    let record = json!({ "type": "extension_ui_response", "id": asked.id, key: value });
     (record, remember)
 }

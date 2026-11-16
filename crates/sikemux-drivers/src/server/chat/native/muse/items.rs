@@ -69,6 +69,12 @@ fn edits(tool: &str) -> bool {
     matches!(tool, "write_file" | "edit_file")
 }
 
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(object) = object.as_object_mut() {
+        object.insert(key.to_owned(), value);
+    }
+}
+
 fn tool_call(item: &Value, cwd: &str) -> Value {
     let id = text_or_empty(item, "itemId");
     let tool = text_or_empty(item, "tool");
@@ -76,12 +82,12 @@ fn tool_call(item: &Value, cwd: &str) -> Value {
     let path = pick(&args, &PATH_KEYS);
     let base = |kind: &str, title: String| {
         let mut call = update::tool_call(id, kind, &title, status(item));
-        call["rawInput"] = args.clone();
+        set(&mut call, "rawInput", args.clone());
         call
     };
     let with_path = |mut call: Value| {
         if let Some(path) = path {
-            call["locations"] = json!([{ "path": path }]);
+            set(&mut call, "locations", json!([{ "path": path }]));
         }
         call
     };
@@ -112,7 +118,7 @@ fn tool_call(item: &Value, cwd: &str) -> Value {
             ));
             let blocks = argument_diff(tool, &args, path, cwd);
             if !blocks.is_empty() {
-                call["content"] = Value::Array(blocks);
+                set(&mut call, "content", Value::Array(blocks));
             }
             call
         }
@@ -181,18 +187,19 @@ fn tool_done(item: &Value) -> Value {
     let mut update = tool_update(id, status(item));
     if tool.starts_with("mcp__") {
         let failed = status(item) == "failed";
-        update["rawOutput"] = json!({
+        let raw_output = json!({
             "result": (!failed).then(|| json!({ "content": [{ "type": "text", "text": said }] })),
             "error": failed.then(|| json!({ "message": said })),
         });
+        set(&mut update, "rawOutput", raw_output);
         return update;
     }
     if !said.is_empty() && !edits(tool) {
-        update["content"] = json!([text_content(said)]);
-        update["rawOutput"] = json!(said);
+        set(&mut update, "content", json!([text_content(said)]));
+        set(&mut update, "rawOutput", json!(said));
     } else if status(item) == "failed" {
         if let Some(reason) = pick(item, &["failureReason", "reason", "visibleOutput"]) {
-            update["content"] = json!([text_content(reason)]);
+            set(&mut update, "content", json!([text_content(reason)]));
         }
     }
     update
@@ -312,7 +319,7 @@ pub fn replayed(item: &Value, cwd: &str) -> Vec<Value> {
         "toolCall" if hidden(text_or_empty(item, "tool")) => Vec::new(),
         "toolCall" => {
             let mut call = tool_call(item, cwd);
-            call["status"] = json!("in_progress");
+            set(&mut call, "status", json!("in_progress"));
             vec![call, tool_done(item)]
         }
         "userShell" => user_shell(item, true),
@@ -566,7 +573,11 @@ impl Items {
                 }
                 self.background(session, item, &mut out);
                 if edits(text_or_empty(item, "tool")) && status(item) == "completed" {
-                    if let Some(output_ref) = item["patchRef"]["id"].as_str() {
+                    if let Some(output_ref) = item
+                        .get("patchRef")
+                        .and_then(|patch| patch.get("id"))
+                        .and_then(Value::as_str)
+                    {
                         follow.push(Follow::Patch {
                             session: session.to_owned(),
                             call: id,

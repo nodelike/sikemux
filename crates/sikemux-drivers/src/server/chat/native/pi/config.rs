@@ -77,14 +77,11 @@ impl Listed {
 /// nearest one above, otherwise the nearest below.
 pub(super) fn nearest_level(levels: &[&str], wanted: &str) -> Option<String> {
     let at = LEVELS.iter().position(|level| *level == wanted)?;
-    let above = LEVELS[at..].iter().find(|level| levels.contains(level));
+    let (below, above) = LEVELS.split_at_checked(at)?;
     above
-        .or_else(|| {
-            LEVELS[..at]
-                .iter()
-                .rev()
-                .find(|level| levels.contains(level))
-        })
+        .iter()
+        .find(|level| levels.contains(level))
+        .or_else(|| below.iter().rev().find(|level| levels.contains(level)))
         .map(|level| (*level).to_owned())
 }
 

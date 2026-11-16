@@ -78,11 +78,10 @@ impl Listed {
 /// A model as OpenCode names it in a session: its provider, its own id and the effort.
 pub fn model_ref(value: &str, effort: Option<&str>) -> Option<Value> {
     let (provider, id) = value.split_once('/')?;
-    let mut model = json!({ "providerID": provider, "id": id });
-    if let Some(effort) = effort {
-        model["variant"] = json!(effort);
-    }
-    Some(model)
+    Some(match effort {
+        Some(effort) => json!({ "providerID": provider, "id": id, "variant": effort }),
+        None => json!({ "providerID": provider, "id": id }),
+    })
 }
 
 /// A model reference OpenCode sent, as the model picker's value and the effort.
@@ -138,7 +137,8 @@ impl Catalog {
             .filter(|model| self.find(model).is_some())
             .map(str::to_owned)
             .or_else(|| self.default.clone())
-            .unwrap_or_else(|| self.listed[0].value())
+            .or_else(|| self.listed.first().map(Listed::value))
+            .unwrap_or_default()
     }
 
     /// `wanted` when `model` takes it.

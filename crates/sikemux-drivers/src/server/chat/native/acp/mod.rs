@@ -163,6 +163,16 @@ fn params(message: impl Serialize) -> Result<Value, String> {
     serde_json::to_value(message).map_err(|error| error.to_string())
 }
 
+/// Sets `key` on an object, making null into one first.
+fn set(value: &mut Value, key: &str, field: Value) {
+    if value.is_null() {
+        *value = json!({});
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_owned(), field);
+    }
+}
+
 /// The turn last prompted, the last one asked to stop while it ran, and
 /// whether the agent's output has closed.
 #[derive(Default, Serialize, Deserialize)]
@@ -217,10 +227,12 @@ impl Driver {
             // The agent is gone, and the chat says why once its process has
             // exited.
             Err(_) if self.turns.locked().gone => return,
-            Err(error) if error["code"] == AUTH_REQUIRED => TurnEnd::Failed {
-                failure: Failure::sign_in(error_text(&error)),
-                response: None,
-            },
+            Err(error) if error.get("code").and_then(Value::as_i64) == Some(AUTH_REQUIRED) => {
+                TurnEnd::Failed {
+                    failure: Failure::sign_in(error_text(&error)),
+                    response: None,
+                }
+            }
             Err(error) if self.free_models => free_model_failure(describe(&error)),
             Err(error) => TurnEnd::Refused(describe(&error)),
         };
@@ -258,7 +270,9 @@ impl Driver {
                 paths,
                 person,
             } => {
-                if result.is_ok_and(|answer| answer["outcome"] == Steered::Injected.word()) {
+                if result.is_ok_and(|answer| {
+                    answer.get("outcome").and_then(Value::as_str) == Some(Steered::Injected.word())
+                }) {
                     self.sink.prompted(&text, &paths, person);
                 }
             }
@@ -290,7 +304,10 @@ impl Reads for Driver {
                 }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
-                let session_id = params["sessionId"].as_str().unwrap_or_default();
+                let session_id = params
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 self.sink.update(session_id, update);
             }
             Some(Incoming::Request { id, method, params })
@@ -459,7 +476,7 @@ impl Acp {
             )
             .await?;
         if let Some(options) = answer.get("configOptions") {
-            self.kept.setup["configOptions"] = options.clone();
+            set(&mut self.kept.setup, "configOptions", options.clone());
         }
         Ok(())
     }
@@ -568,8 +585,8 @@ impl Backend for Acp {
         }
         let mut capabilities = params(&initialized.agent_capabilities)?;
         let steering = air::steering_supported(&params(&initialized.meta)?);
-        capabilities["steering"] = json!(steering);
-        capabilities["signInMethods"] = json!(sign_in);
+        set(&mut capabilities, "steering", json!(steering));
+        set(&mut capabilities, "signInMethods", json!(sign_in));
         let reopens = if initialized.agent_capabilities.load_session {
             Reopens::Load
         } else if initialized
@@ -645,7 +662,7 @@ impl Backend for Acp {
         let sent = self.send_steer(prompt);
         async move {
             let answer = sent?.answer(None).await.map_err(|error| describe(&error))?;
-            match &answer["outcome"] {
+            match answer.get("outcome").unwrap_or(&Value::Null) {
                 outcome if outcome == Steered::Injected.word() => Ok(Steered::Injected),
                 outcome if outcome == Steered::PromptRequired.word() => Ok(Steered::PromptRequired),
                 outcome => Err(format!("The agent answered a steer with {outcome}")),
@@ -678,7 +695,12 @@ impl Backend for Acp {
         } else {
             self.set_option(config_id, value).await?;
         }
-        Ok(self.kept.setup["configOptions"].clone())
+        Ok(self
+            .kept
+            .setup
+            .get("configOptions")
+            .cloned()
+            .unwrap_or(Value::Null))
     }
 
     async fn authenticate(&mut self, method_id: &str) -> Result<(), String> {

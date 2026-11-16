@@ -196,7 +196,7 @@ pub(super) fn status_text(status: &Status) -> String {
     let window = status.token_usage.and_then(|usage| {
         window_left(
             usage["modelContextWindow"].as_u64()?,
-            usage["last"]["totalTokens"].as_u64()?,
+            usage.pointer("/last/totalTokens").and_then(Value::as_u64)?,
         )
     });
     commands::status_text(commands::Status {

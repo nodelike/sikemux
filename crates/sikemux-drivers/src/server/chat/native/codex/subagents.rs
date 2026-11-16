@@ -236,7 +236,10 @@ impl Subagents {
 
     fn parent_for_path(&self, path: &str) -> String {
         let path = normalized(path);
-        let Some(parent_path) = path.rfind('/').filter(|at| *at > 0).map(|at| &path[..at]) else {
+        let Some((parent_path, _)) = path
+            .rsplit_once('/')
+            .filter(|(parent, _)| !parent.is_empty())
+        else {
             return self.root.clone();
         };
         self.children

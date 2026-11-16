@@ -500,7 +500,10 @@ impl History {
     /// everything the file holds, as a chat reads further back into a session it took up.
     /// Reading them is change `seq` of the chat.
     pub fn prepend(&mut self, events: &[(u64, ChatEvent, bool, bool)], seq: u64) {
-        if self.file.is_none() || events.is_empty() {
+        let Some(&(first, ..)) = events.first() else {
+            return;
+        };
+        if self.file.is_none() {
             return;
         }
         self.rewrites.fetch_add(1, Ordering::SeqCst);
@@ -534,7 +537,7 @@ impl History {
             return;
         }
         self.bytes += added;
-        self.first = events[0].0;
+        self.first = first;
         for point in &mut self.points {
             point.offset += added;
         }
@@ -661,8 +664,11 @@ impl Reader {
         if lo >= hi {
             return Ok(Vec::new());
         }
-        let from = self.points[..self.points.partition_point(|point| point.index <= lo)]
-            .last()
+        let from = self
+            .points
+            .partition_point(|point| point.index <= lo)
+            .checked_sub(1)
+            .and_then(|last| self.points.get(last))
             .map_or(0, |point| point.offset);
         let to = self
             .points

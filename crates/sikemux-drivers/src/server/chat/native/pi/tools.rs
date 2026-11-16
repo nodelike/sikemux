@@ -30,13 +30,19 @@ fn edits(args: &Value, path: &str) -> Vec<Value> {
     }
 }
 
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(object) = object.as_object_mut() {
+        object.insert(key.to_owned(), value);
+    }
+}
+
 pub fn call(id: &str, tool: &str, args: &Value, cwd: &str, status: &str) -> Value {
     let path = path_of(args);
     let base = |kind: &str, title: String| {
         let mut call = update::tool_call(id, kind, &title, status);
-        call["rawInput"] = args.clone();
+        set(&mut call, "rawInput", args.clone());
         if let Some(path) = path {
-            call["locations"] = json!([{ "path": path }]);
+            set(&mut call, "locations", json!([{ "path": path }]));
         }
         call
     };
@@ -77,7 +83,7 @@ pub fn call(id: &str, tool: &str, args: &Value, cwd: &str, status: &str) -> Valu
                 None => Vec::new(),
             };
             if !blocks.is_empty() {
-                call["content"] = Value::Array(blocks);
+                set(&mut call, "content", Value::Array(blocks));
             }
             call
         }
@@ -121,18 +127,19 @@ pub fn done(id: &str, tool: &str, result: &Value, failed: bool) -> Value {
     }
     let mut update = tool_update(id, status);
     if mcp_name(tool).is_some() {
-        update["rawOutput"] = json!({
+        let raw_output = json!({
             "result": (!failed).then(|| json!({ "content": result["content"] })),
             "error": failed.then(|| json!({ "message": said })),
         });
+        set(&mut update, "rawOutput", raw_output);
         return update;
     }
     if failed || !matches!(tool, "edit" | "write") {
         let blocks = blocks(result);
         if !blocks.is_empty() {
-            update["content"] = Value::Array(blocks);
+            set(&mut update, "content", Value::Array(blocks));
         }
-        update["rawOutput"] = json!(said);
+        set(&mut update, "rawOutput", json!(said));
     }
     update
 }

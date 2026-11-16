@@ -72,7 +72,7 @@ pub fn newest<T>(path: &Path, find: impl Fn(&[Value]) -> Option<T>) -> Result<Op
                 .iter()
                 .position(|byte| *byte == b'\n')
                 .map_or(bytes.len(), |at| at + 1);
-            &bytes[line..]
+            bytes.get(line..).unwrap_or_default()
         };
         let found = find(&finish_messages(active_branch(parse_entries(whole), false)));
         if found.is_some() || start == 0 {
@@ -106,7 +106,10 @@ fn entries_between(path: &Path, start: u64, end: u64) -> Result<(Vec<Value>, u64
             .position(|byte| *byte == b'\n')
             .map_or(bytes.len(), |at| at + 1),
     };
-    Ok((parse_entries(&bytes[line..]), start + line as u64))
+    Ok((
+        parse_entries(bytes.get(line..).unwrap_or_default()),
+        start + line as u64,
+    ))
 }
 
 /// The newest part of the active branch of the transcript at `path`, as far back as its last
@@ -298,13 +301,13 @@ fn parse_entries(bytes: &[u8]) -> Vec<Value> {
     let mut start = 0;
     for piece in 1..threads {
         let mut end = (bytes.len() * piece / threads).max(start);
-        while end < bytes.len() && bytes[end] != b'\n' {
+        while bytes.get(end).is_some_and(|byte| *byte != b'\n') {
             end += 1;
         }
-        pieces.push(&bytes[start..end]);
+        pieces.push(bytes.get(start..end).unwrap_or_default());
         start = end;
     }
-    pieces.push(&bytes[start..]);
+    pieces.push(bytes.get(start..).unwrap_or_default());
     std::thread::scope(|scope| {
         let parsing: Vec<_> = pieces
             .into_iter()
@@ -322,7 +325,7 @@ fn parse_lines(bytes: &[u8]) -> Vec<Value> {
         .split(|byte| *byte == b'\n')
         .filter_map(|line| {
             let start = line.iter().position(|byte| *byte > b' ')?;
-            let text = String::from_utf8_lossy(&line[start..]);
+            let text = String::from_utf8_lossy(line.get(start..)?);
             serde_json::from_str::<Value>(&text).ok()
         })
         .filter(|record| {
@@ -796,8 +799,8 @@ fn completed_local_commands(records: &[Value]) -> HashSet<usize> {
 fn answered_flags(records: &[Value], completed: &HashSet<usize>) -> Vec<bool> {
     let mut flags = vec![false; records.len()];
     let mut next_is_reply = false;
-    for (index, record) in records.iter().enumerate().rev() {
-        flags[index] = next_is_reply;
+    for ((index, record), flag) in records.iter().enumerate().zip(flags.iter_mut()).rev() {
+        *flag = next_is_reply;
         if str_field(record, "type") == Some("assistant")
             || carries_tool_result(record)
             || is_interruption(record)
@@ -876,15 +879,16 @@ fn finish_messages(records: Vec<Value>) -> Vec<Value> {
     let mut uuids: HashSet<String> = records.iter().map(|r| uuid_of(r).to_string()).collect();
     records
         .into_iter()
+        .zip(answered)
         .enumerate()
-        .map(|(index, mut record)| {
+        .map(|(index, (mut record, answered))| {
             if completed.contains(&index) {
                 if let Some(map) = record.as_object_mut() {
                     map.insert("isCompletedLocalCommand".into(), true.into());
                 }
                 return record;
             }
-            if answered[index] {
+            if answered {
                 if let Some(user) = queued_prompt(&record, &mut uuids) {
                     return user;
                 }
@@ -916,9 +920,10 @@ pub fn resumed_model(records: &[Value]) -> Option<String> {
             .as_str()?
             .trim();
         let placeholder = model.len() > 2
-            && model.starts_with('<')
-            && model.ends_with('>')
-            && !model[1..model.len() - 1].contains('>');
+            && model
+                .strip_prefix('<')
+                .and_then(|inner| inner.strip_suffix('>'))
+                .is_some_and(|inner| !inner.contains('>'));
         (!model.is_empty() && !placeholder).then(|| model.to_string())
     })
 }
@@ -1043,8 +1048,8 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
             {
                 turn_over = false;
             }
-            if let Some(session_id) = &woken_by {
-                update["subagentSessionId"] = json!(session_id);
+            if let (Some(session_id), Some(fields)) = (&woken_by, update.as_object_mut()) {
+                fields.insert("subagentSessionId".to_owned(), json!(session_id));
             }
             super::super::stamp_replayed(&mut update, at, opens_turn);
             opens_turn = false;
@@ -1318,12 +1323,15 @@ impl Replay<'_> {
     }
 
     fn session_of(&self, tool_use_id: Option<&str>) -> String {
-        tool_use_id.and_then(|id| self.child_index(id)).map_or_else(
-            || self.root.clone(),
-            |i| self.children[i].session_id.clone(),
-        )
+        tool_use_id
+            .and_then(|id| self.children.iter().find(|child| child.tool_use_id == id))
+            .map_or_else(|| self.root.clone(), |child| child.session_id.clone())
     }
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the index is found or pushed at the top and children only grow"
+    )]
     fn announce(&mut self, tool_use_id: &str, ancestors: &mut Vec<String>) -> String {
         let index = match self.child_index(tool_use_id) {
             Some(index) => index,
@@ -1368,14 +1376,13 @@ impl Replay<'_> {
     /// Says how a subagent ended where it ended, so its card is settled
     /// beside the work around it rather than with the chat's last turn.
     fn end(&mut self, ended: &Ended) {
-        let index = self.children.iter().position(|child| match ended {
+        let child = self.children.iter_mut().find(|child| match ended {
             Ended::Call(id) => child.tool_use_id == *id,
             Ended::Agent(id) => child.agent_id.as_deref() == Some(id.as_str()),
         });
-        let Some(index) = index else {
+        let Some(child) = child else {
             return;
         };
-        let child = &self.children[index];
         if !child.announced || child.ended || !child.reconstructable {
             return;
         }
@@ -1383,8 +1390,9 @@ impl Replay<'_> {
             return;
         };
         let update = state.update(&child.session_id);
-        let parent_session = self.session_of(child.parent_tool_use_id.as_deref());
-        self.children[index].ended = true;
+        let parent = child.parent_tool_use_id.clone();
+        child.ended = true;
+        let parent_session = self.session_of(parent.as_deref());
         self.updates.push((parent_session, update));
     }
 
@@ -1512,8 +1520,7 @@ impl Replay<'_> {
             let update = json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": id, "status": "cancelled" });
             self.updates.push((session, update));
         }
-        for index in (0..self.children.len()).rev() {
-            let child = &self.children[index];
+        for child in self.children.iter().rev() {
             if !child.announced || child.ended {
                 continue;
             }
@@ -1595,7 +1602,9 @@ pub fn strip_local_command_metadata(content: &Value) -> Option<Value> {
                     Some(text) if str_field(block, "type") == Some("text") => {
                         if let Some(stripped) = strip_command_text(text) {
                             let mut block = block.clone();
-                            block["text"] = Value::String(stripped);
+                            if let Some(fields) = block.as_object_mut() {
+                                fields.insert("text".to_owned(), Value::String(stripped));
+                            }
                             kept.push(block);
                         }
                     }
@@ -1617,45 +1626,49 @@ fn strip_command_text(text: &str) -> Option<String> {
 }
 
 fn strip_marker_tags(text: &str) -> String {
-    let markers: Vec<(String, String)> = TRANSCRIPT_MARKERS
+    let mut live: Vec<(String, String)> = TRANSCRIPT_MARKERS
         .iter()
         .map(|tag| (format!("<{tag}>"), format!("</{tag}>")))
         .collect();
-    let mut dead = vec![false; markers.len()];
     let mut result = String::new();
     let mut copied_up_to = 0;
     let mut index = 0;
     let bytes = text.as_bytes();
-    while index < bytes.len() {
-        if bytes[index] == b'<' {
-            let found = markers
+    while let Some(rest) = bytes.get(index..).filter(|rest| !rest.is_empty()) {
+        if rest.starts_with(b"<") {
+            let found = live
                 .iter()
                 .enumerate()
-                .find(|(i, (open, _))| !dead[*i] && bytes[index..].starts_with(open.as_bytes()));
+                .find(|(_, (open, _))| rest.starts_with(open.as_bytes()));
             if let Some((marker, (open, close))) = found {
-                match text[index + open.len()..].find(close.as_str()) {
+                let closed = text
+                    .get(index + open.len()..)
+                    .and_then(|after| after.find(close.as_str()));
+                match closed {
                     Some(offset) => {
-                        result.push_str(&text[copied_up_to..index]);
+                        result.push_str(text.get(copied_up_to..index).unwrap_or_default());
                         index += open.len() + offset + close.len();
                         copied_up_to = index;
                         continue;
                     }
-                    None => dead[marker] = true,
+                    None => {
+                        live.remove(marker);
+                    }
                 }
             }
         }
         index += 1;
     }
-    result.push_str(&text[copied_up_to..]);
+    result.push_str(text.get(copied_up_to..).unwrap_or_default());
     result
 }
 
 fn marker_text<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
-    let start = text.find(&open)? + open.len();
-    let end = text[start..].find(&close)? + start;
-    Some(&text[start..end])
+    let (_, after) = text.split_once(open.as_str())?;
+    let (inner, _) = after.split_once(close.as_str())?;
+    Some(inner)
 }
 
 fn command_invocation(text: &str) -> Option<String> {

@@ -271,8 +271,8 @@ impl Session {
         }));
         effects.push(send(json!({ "type": "get_session_stats" }), Purpose::Usage));
         let mut entries = json!({ "type": "get_entries" });
-        if let Some(leaf) = &self.leaf {
-            entries["since"] = json!(leaf);
+        if let (Some(leaf), Some(fields)) = (&self.leaf, entries.as_object_mut()) {
+            fields.insert("since".to_owned(), json!(leaf));
         }
         effects.push(send(entries, Purpose::Entries(self.turn_message.take())));
         effects
@@ -280,7 +280,9 @@ impl Session {
 
     fn end_turn(&mut self, turn: Prompted, outcome: Outcome, said: Option<&str>) -> Vec<Effect> {
         let mut payload = self.payload();
-        payload["usage"] = self.used.answer();
+        if let Some(fields) = payload.as_object_mut() {
+            fields.insert("usage".to_owned(), self.used.answer());
+        }
         let outcome = if outcome == Outcome::Completed && said.is_some() {
             Outcome::Failed
         } else {
@@ -305,12 +307,14 @@ impl Session {
 
     /// Tells the chat what `get_session_stats` said.
     pub fn stats(&mut self, stats: Value) -> Vec<Effect> {
-        let context = &stats["contextUsage"];
+        let context = stats.get("contextUsage");
+        let count = |key: &str| {
+            context
+                .and_then(|context| context.get(key))
+                .and_then(Value::as_u64)
+        };
         let mut effects = Vec::new();
-        if let (Some(used), Some(size)) = (
-            context["tokens"].as_u64(),
-            context["contextWindow"].as_u64(),
-        ) {
+        if let (Some(used), Some(size)) = (count("tokens"), count("contextWindow")) {
             effects.push(Effect::Update(
                 self.session_id.clone(),
                 update::usage(used, size),
@@ -496,7 +500,11 @@ impl Session {
                     .to_owned(),
             );
         }
-        let used = message["usage"]["totalTokens"].as_u64().unwrap_or(0);
+        let used = message
+            .get("usage")
+            .and_then(|usage| usage.get("totalTokens"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         if used > 0 && self.context_window > 0 {
             return vec![Effect::Update(
                 self.session_id.clone(),
@@ -566,7 +574,13 @@ impl Session {
                     _ => Vec::new(),
                 }
             }
-            Some("message_start") if event["message"]["role"] == "assistant" => {
+            Some("message_start")
+                if event
+                    .get("message")
+                    .and_then(|message| message.get("role"))
+                    .and_then(Value::as_str)
+                    == Some("assistant") =>
+            {
                 self.message = None;
                 self.spoken_parts.clear();
                 Vec::new()

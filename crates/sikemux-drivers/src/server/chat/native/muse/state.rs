@@ -100,8 +100,10 @@ impl Session {
     /// The chat session an approval belongs in: the subagent's that asked,
     /// when the chat has a card for it.
     pub fn session_for(&self, params: &Value) -> String {
-        params["subagentOrigin"]["childSessionId"]
-            .as_str()
+        params
+            .get("subagentOrigin")
+            .and_then(|origin| origin.get("childSessionId"))
+            .and_then(Value::as_str)
             .filter(|child| self.items.is_child(child))
             .unwrap_or(&self.session_id)
             .to_owned()
@@ -113,8 +115,8 @@ impl Session {
             Ended::Unprompted => self.end_unprompted(outcome),
             Ended::Prompted(turn) => {
                 let mut payload = self.payload();
-                if let Some(usage) = &ended.usage {
-                    payload["usage"] = turn_usage(usage);
+                if let (Some(usage), Some(payload)) = (&ended.usage, payload.as_object_mut()) {
+                    payload.insert("usage".to_owned(), turn_usage(usage));
                 }
                 self.end_prompted(turn, outcome, payload, || {
                     let error = ended
@@ -149,7 +151,7 @@ impl Session {
         let cwd = self.cwd.clone();
         match notification {
             Notification::Item { stage, params } if !stale(params.turn_id()) => {
-                if params.item["kind"] != "userMessage" {
+                if params.item.get("kind").and_then(Value::as_str) != Some("userMessage") {
                     let shown = match stage {
                         Stage::Opened => {
                             self.items.opened(&session, &params.item, &cwd, &mut follow)

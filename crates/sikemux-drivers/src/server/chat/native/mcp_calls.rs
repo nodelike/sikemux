@@ -60,7 +60,11 @@ fn omp_write(update: &mut Value, servers: &[String]) -> bool {
     update["title"] = json!(mcp_title(&server, &tool));
     update["kind"] = json!("other");
     if written.is_some() {
-        let content = update["rawInput"]["content"].as_str().unwrap_or_default();
+        let content = update
+            .get("rawInput")
+            .and_then(|input| input.get("content"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         update["rawInput"] = serde_json::from_str::<Value>(content)
             .ok()
             .filter(Value::is_object)

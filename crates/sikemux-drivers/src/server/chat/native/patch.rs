@@ -83,11 +83,9 @@ fn apply_hunks(text: &str, hunks: &[Hunk], reversed: bool) -> Option<String> {
             Some(expected.min(lines.len()))
         } else {
             let fits = |at: usize| {
-                at + from.len() <= lines.len()
-                    && lines[at..at + from.len()]
-                        .iter()
-                        .zip(from)
-                        .all(|(line, wanted)| line == wanted)
+                lines.get(at..at + from.len()).is_some_and(|window| {
+                    window.iter().zip(from).all(|(line, wanted)| line == wanted)
+                })
             };
             let reach = lines.len().max(expected);
             (0..=reach).find_map(|distance| {
@@ -99,16 +97,17 @@ fn apply_hunks(text: &str, hunks: &[Hunk], reversed: bool) -> Option<String> {
                 (before >= position && fits(before)).then_some(before)
             })
         }?;
-        out.extend_from_slice(&lines[position..found]);
+        out.extend_from_slice(lines.get(position..found).unwrap_or_default());
         out.extend(to.iter().map(String::as_str));
         position = found + from.len();
     }
-    out.extend_from_slice(&lines[position..]);
+    out.extend_from_slice(lines.get(position..).unwrap_or_default());
     Some(out.join("\n"))
 }
 
 fn clean(diff: &str) -> &str {
-    diff.find("\n\nMoved to: ").map_or(diff, |end| &diff[..end])
+    diff.split_once("\n\nMoved to: ")
+        .map_or(diff, |(kept, _)| kept)
 }
 
 /// `text` with the edit made.

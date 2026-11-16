@@ -145,7 +145,12 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
                     for block in blocks.as_array().into_iter().flatten() {
                         let mut update = json!({ "sessionUpdate": UpdateKind::UserMessageChunk, "messageId": id, "content": block });
                         if !for_agent.is_empty() {
-                            update["forAgent"] = json!(std::mem::take(&mut for_agent));
+                            if let Some(fields) = update.as_object_mut() {
+                                fields.insert(
+                                    "forAgent".to_owned(),
+                                    json!(std::mem::take(&mut for_agent)),
+                                );
+                            }
                         }
                         self.out.push((session.clone(), update));
                     }
@@ -154,7 +159,7 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
                 }
                 let at = if said { started } else { completed };
                 if let Some(at) = at {
-                    for (target, update) in &mut self.out[from..] {
+                    for (target, update) in self.out.iter_mut().skip(from) {
                         if *target == session {
                             super::super::stamp_replayed(update, Some(at), false);
                         }

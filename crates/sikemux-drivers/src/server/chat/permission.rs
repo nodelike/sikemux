@@ -20,12 +20,19 @@ pub fn option(id: &str, name: &str, kind: PermissionKind) -> Value {
 /// Marks an allow that lasts only for the session, so a client offering one
 /// "Always allow" picks a lasting allow when there is one.
 pub fn for_session(mut option: Value) -> Value {
-    option["_meta"]["scope"] = json!("session");
+    if let Some(meta) = option
+        .as_object_mut()
+        .map(|object| object.entry("_meta").or_insert_with(|| json!({})))
+        .and_then(Value::as_object_mut)
+    {
+        meta.insert("scope".to_owned(), json!("session"));
+    }
     option
 }
 
 pub fn kind_of(option: &Value) -> PermissionKind {
-    PermissionKind::deserialize(&option["kind"]).unwrap_or(PermissionKind::Unknown)
+    PermissionKind::deserialize(option.get("kind").unwrap_or(&Value::Null))
+        .unwrap_or(PermissionKind::Unknown)
 }
 
 /// Where an option stands among a request's: allowing once first, then always, then the rest.

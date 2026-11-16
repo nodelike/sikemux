@@ -39,21 +39,17 @@ pub fn strip_shell(command: &str) -> &str {
 
 fn without_shell(command: &str) -> Option<&str> {
     let rest = command.strip_prefix("/bin/").unwrap_or(command);
-    let shell = ["bash", "zsh", "sh"]
-        .iter()
-        .find(|shell| rest.starts_with(**shell))?;
-    let after = &rest[shell.len()..];
+    let after = ["bash", "zsh", "sh"]
+        .into_iter()
+        .find_map(|shell| rest.strip_prefix(shell))?;
     let rest = after.trim_start();
     if rest.len() == after.len() {
         return None;
     }
     if let Some(flags) = rest.strip_prefix('-') {
-        let end = flags
-            .find(|character: char| character != 'l' && character != 'c')
-            .unwrap_or(flags.len());
-        let after_flags = &flags[end..];
+        let after_flags = flags.trim_start_matches(['l', 'c']);
         let spaced = after_flags.trim_start();
-        if end > 0 && spaced.len() < after_flags.len() {
+        if after_flags.len() < flags.len() && spaced.len() < after_flags.len() {
             return Some(spaced);
         }
     }
@@ -74,7 +70,9 @@ fn command_call(item: &Value) -> Value {
             "read" => {
                 let title = update::read_title(path.unwrap_or_default());
                 let mut call = tool_call(id, "read", &title, status);
-                call["locations"] = json!([{ "path": action["path"] }]);
+                if let Some(fields) = call.as_object_mut() {
+                    fields.insert("locations".to_owned(), json!([{ "path": action["path"] }]));
+                }
                 return call;
             }
             "search" => {
@@ -119,11 +117,17 @@ pub fn read_file(path: &str) -> Option<String> {
 fn change_block(change: &Value, read: &impl Fn(&str) -> Option<String>) -> Option<Value> {
     let path = text(change, "path");
     let diff = text(change, "diff");
-    match change["kind"]["type"].as_str()? {
+    let kind = change.get("kind");
+    match kind
+        .and_then(|kind| kind.get("type"))
+        .and_then(Value::as_str)?
+    {
         "add" => Some(diff_block(path, None, diff)),
         "delete" => Some(diff_block(path, Some(diff), "")),
         "update" => {
-            let moved_to = change["kind"]["move_path"].as_str();
+            let moved_to = kind
+                .and_then(|kind| kind.get("move_path"))
+                .and_then(Value::as_str);
             patch::diff_block(path, moved_to, diff, false, read)
         }
         _ => None,
@@ -138,7 +142,9 @@ fn edit_call(item: &Value, status: &str, read: &impl Fn(&str) -> Option<String>)
         .filter_map(|change| change_block(change, read))
         .collect();
     let mut call = tool_call(text(item, "id"), "edit", update::EDITING_FILES, status);
-    call["content"] = json!(blocks);
+    if let Some(fields) = call.as_object_mut() {
+        fields.insert("content".to_owned(), json!(blocks));
+    }
     call
 }
 
@@ -155,17 +161,20 @@ fn mcp_call(item: &Value) -> Value {
         text(item, "tool"),
         &item["arguments"],
     );
-    if let Some(output) = mcp_output(item) {
-        call["rawOutput"] = output;
+    if let (Some(output), Some(fields)) = (mcp_output(item), call.as_object_mut()) {
+        fields.insert("rawOutput".to_owned(), output);
     }
     call
 }
 
 fn mcp_done(item: &Value) -> Value {
     let mut update = tool_update(text(item, "id"), ended(item));
-    update["rawInput"] = mcp_input(text(item, "server"), text(item, "tool"), &item["arguments"]);
-    if let Some(output) = mcp_output(item) {
-        update["rawOutput"] = output;
+    let input = mcp_input(text(item, "server"), text(item, "tool"), &item["arguments"]);
+    if let Some(fields) = update.as_object_mut() {
+        fields.insert("rawInput".to_owned(), input);
+        if let Some(output) = mcp_output(item) {
+            fields.insert("rawOutput".to_owned(), output);
+        }
     }
     update
 }
@@ -268,7 +277,9 @@ fn image_content(item: &Value) -> Vec<Value> {
             .as_str()
             .filter(|saved| !saved.trim().is_empty())
         {
-            image["uri"] = json!(saved);
+            if let Some(fields) = image.as_object_mut() {
+                fields.insert("uri".to_owned(), json!(saved));
+            }
         }
         blocks.push(content(image));
     }
@@ -281,8 +292,8 @@ fn image_output(item: &Value) -> Value {
         "revisedPrompt": item["revisedPrompt"],
         "result": item["result"],
     });
-    if let Some(saved) = item.get("savedPath") {
-        output["savedPath"] = saved.clone();
+    if let (Some(saved), Some(fields)) = (item.get("savedPath"), output.as_object_mut()) {
+        fields.insert("savedPath".to_owned(), saved.clone());
     }
     output
 }
@@ -531,7 +542,10 @@ pub fn plan(steps: &[PlanStep]) -> Value {
 
 /// The context window filling up, when Codex says how full it is.
 pub fn usage(usage: &Value) -> Option<Value> {
-    let used = usage["last"]["totalTokens"].as_u64()?;
+    let used = usage
+        .get("last")
+        .and_then(|last| last.get("totalTokens"))
+        .and_then(Value::as_u64)?;
     let size = usage["modelContextWindow"].as_u64()?;
     Some(update::usage(used, size))
 }
