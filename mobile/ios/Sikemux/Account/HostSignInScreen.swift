@@ -83,6 +83,7 @@ struct HostSignInScreen: View {
             case .android: "Android"
             case .macos: "macOS"
             case .linux: "Linux"
+            case .web: String(localized: "A browser")
             case .unknown: String(localized: "A computer")
             }
         return Screen {

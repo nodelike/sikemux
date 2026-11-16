@@ -1996,7 +1996,13 @@ function parseOrRust(item) {
 /** What the phone reads of the core and sends it, for scripts/check-phone-compat.mjs. */
 function phoneShapes() {
   const calls = coreCalls();
-  const read = [...TS_ROOTS, ...PHONE_ROOTS, ...GLANCE_ROOTS, "ServerMessage"];
+  // An older phone build lacks the types added since, and so never reads them.
+  const read = [
+    ...TS_ROOTS,
+    ...PHONE_ROOTS,
+    ...GLANCE_ROOTS,
+    "ServerMessage",
+  ].filter((name) => declared.has(name));
   const sent = ["ClientMessage"];
   const roots = [
     ...read,

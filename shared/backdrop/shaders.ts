@@ -1,4 +1,4 @@
-import { backdropKinds } from './kinds.generated';
+import { backdropKinds } from "./kinds.generated";
 
 /** A rectangle covering the surface; each fragment shader below works from where it is on it. */
 export const coverVertexShader = `#version 300 es
@@ -71,85 +71,85 @@ const GLOW_THRESHOLD = 0.45;
  * far by `glowSize`. `read` gives the picture's pixels at a size, top row first.
  */
 export function glowMap(
-  aspect: number,
-  glowSize: number,
-  read: (width: number, height: number) => Uint8Array,
+    aspect: number,
+    glowSize: number,
+    read: (width: number, height: number) => Uint8Array,
 ): { width: number; height: number; pixels: Uint8Array } {
-  const width = Math.max(Math.round(aspect >= 1 ? GLOW_LONGEST : GLOW_LONGEST * aspect), 1);
-  const height = Math.max(Math.round(aspect >= 1 ? GLOW_LONGEST / aspect : GLOW_LONGEST), 1);
-  const picture = read(width, height);
-  const bright = new Uint8Array(width * height);
-  for (let at = 0; at < bright.length; at++) {
-    const lum = (0.2126 * picture[at * 4] + 0.7152 * picture[at * 4 + 1] + 0.0722 * picture[at * 4 + 2]) / 255;
-    bright[at] = Math.floor(Math.max((lum - GLOW_THRESHOLD) / (1 - GLOW_THRESHOLD), 0) * 255);
-  }
-  const spread = 1 + glowSize * 10;
-  const near = blurred(bright, width, height, spread);
-  const far = blurred(bright, width, height, spread * 3);
-  const pixels = new Uint8Array(width * height * 4);
-  for (let at = 0; at < bright.length; at++) {
-    const glow = Math.floor(Math.min(near[at] * 1.2 + far[at] * 0.8, 255));
-    pixels.set([glow, glow, glow, 255], at * 4);
-  }
-  return { width, height, pixels };
+    const width = Math.max(Math.round(aspect >= 1 ? GLOW_LONGEST : GLOW_LONGEST * aspect), 1);
+    const height = Math.max(Math.round(aspect >= 1 ? GLOW_LONGEST / aspect : GLOW_LONGEST), 1);
+    const picture = read(width, height);
+    const bright = new Uint8Array(width * height);
+    for (let at = 0; at < bright.length; at++) {
+        const lum = (0.2126 * picture[at * 4] + 0.7152 * picture[at * 4 + 1] + 0.0722 * picture[at * 4 + 2]) / 255;
+        bright[at] = Math.floor(Math.max((lum - GLOW_THRESHOLD) / (1 - GLOW_THRESHOLD), 0) * 255);
+    }
+    const spread = 1 + glowSize * 10;
+    const near = blurred(bright, width, height, spread);
+    const far = blurred(bright, width, height, spread * 3);
+    const pixels = new Uint8Array(width * height * 4);
+    for (let at = 0; at < bright.length; at++) {
+        const glow = Math.floor(Math.min(near[at] * 1.2 + far[at] * 0.8, 255));
+        pixels.set([glow, glow, glow, 255], at * 4);
+    }
+    return { width, height, pixels };
 }
 
 /** A Gaussian blur made of three box blurs, as the Mac's `fast_blur` makes it. */
 function blurred(pixels: Uint8Array, width: number, height: number, sigma: number): Uint8Array {
-  const passes = 3;
-  let lower = Math.floor(Math.sqrt((12 * sigma * sigma) / passes + 1));
-  if (lower % 2 === 0) lower -= 1;
-  const upper = lower + 2;
-  const split = Math.max(Math.round(0.25 * passes * (lower + 3) - (3 * sigma * sigma) / (lower + 1)), 0);
-  let out = pixels;
-  for (let pass = 0; pass < passes; pass++) {
-    const half = Math.floor(Math.max((pass < split ? lower : upper) - 1, 0) / 2);
-    const radius = half % 2 === 0 ? half + 1 : half;
-    const across = box(out, height, width, 1, width, radius);
-    out = box(across, width, height, width, 1, radius);
-  }
-  return out;
+    const passes = 3;
+    let lower = Math.floor(Math.sqrt((12 * sigma * sigma) / passes + 1));
+    if (lower % 2 === 0) lower -= 1;
+    const upper = lower + 2;
+    const split = Math.max(Math.round(0.25 * passes * (lower + 3) - (3 * sigma * sigma) / (lower + 1)), 0);
+    let out = pixels;
+    for (let pass = 0; pass < passes; pass++) {
+        const half = Math.floor(Math.max((pass < split ? lower : upper) - 1, 0) / 2);
+        const radius = half % 2 === 0 ? half + 1 : half;
+        const across = box(out, height, width, 1, width, radius);
+        out = box(across, width, height, width, 1, radius);
+    }
+    return out;
 }
 
 /** Averages each run of `length` pixels over `radius` either side, holding the run's end pixels past its ends. */
 function box(source: Uint8Array, count: number, length: number, step: number, stride: number, radius: number) {
-  const target = new Uint8Array(source.length);
-  const span = 2 * radius + 1;
-  for (let run = 0; run < count; run++) {
-    const first = run * stride;
-    const at = (index: number) => source[first + Math.min(Math.max(index, 0), length - 1) * step];
-    let sum = 0;
-    for (let index = -radius; index <= radius; index++) sum += at(index);
-    for (let index = 0; index < length; index++) {
-      target[first + index * step] = Math.round(sum / span);
-      sum += at(index + radius + 1) - at(index - radius);
+    const target = new Uint8Array(source.length);
+    const span = 2 * radius + 1;
+    for (let run = 0; run < count; run++) {
+        const first = run * stride;
+        const at = (index: number) => source[first + Math.min(Math.max(index, 0), length - 1) * step];
+        let sum = 0;
+        for (let index = -radius; index <= radius; index++) sum += at(index);
+        for (let index = 0; index < length; index++) {
+            target[first + index * step] = Math.round(sum / span);
+            sum += at(index + radius + 1) - at(index - radius);
+        }
     }
-  }
-  return target;
+    return target;
 }
 
 /** Reads the picture bound to texture unit 0 back at a small size, top row first. */
 export function readPicture(gl: WebGL2RenderingContext, program: WebGLProgram, width: number, height: number): Uint8Array {
-  const target = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE2);
-  gl.bindTexture(gl.TEXTURE_2D, target);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  const frame = gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER, frame);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target, 0);
-  gl.useProgram(program);
-  gl.uniform1i(gl.getUniformLocation(program, 'u_image'), 0);
-  gl.uniform2fv(gl.getUniformLocation(program, 'u_resolution'), [width, height]);
-  gl.viewport(0, 0, width, height);
-  gl.disable(gl.BLEND);
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
-  const pixels = new Uint8Array(width * height * 4);
-  gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.deleteFramebuffer(frame);
-  gl.deleteTexture(target);
-  gl.activeTexture(gl.TEXTURE0);
-  return pixels;
+    const target = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, target);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    const frame = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, frame);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target, 0);
+    gl.useProgram(program);
+    gl.uniform1i(gl.getUniformLocation(program, "u_image"), 0);
+    gl.uniform2fv(gl.getUniformLocation(program, "u_resolution"), [width, height]);
+    gl.viewport(0, 0, width, height);
+    gl.disable(gl.BLEND);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(frame);
+    gl.deleteTexture(target);
+    gl.activeTexture(gl.TEXTURE0);
+    return pixels;
 }
