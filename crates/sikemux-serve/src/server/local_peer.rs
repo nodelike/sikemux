@@ -29,11 +29,10 @@ const APP: &str = sikemux_process::names::APP_PROGRAM;
 const BUNDLED_APP: &str = "Contents/MacOS/sikemux";
 pub const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
 pub const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
-/// The programs beside a dev build's own binary that act as its app.
-const DEV_PROGRAMS: [&str; 3] = [
+/// The notch beside a dev build's own binary, which acts as its app.
+const DEV_NOTCH: [&str; 2] = [
     "Sikemux Notch Dev.app",
     "Sikemux Notch Dev.app/Contents/MacOS/sikemux-notch",
-    "examples/remote",
 ];
 
 struct Trust {
@@ -85,7 +84,13 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
         paths.push(Path::new(host_update::INSTALLED_APP).join(host_update::INSTALLED_APP_PROGRAM));
     }
     if cfg!(debug_assertions) {
-        paths.extend(DEV_PROGRAMS.iter().map(|dev| directory.join(dev)));
+        paths.extend(DEV_NOTCH.iter().map(|dev| directory.join(dev)));
+        // Joined by part: a canonical Windows path takes no `/` as a separator.
+        paths.push(
+            directory
+                .join("examples")
+                .join(format!("remote{}", std::env::consts::EXE_SUFFIX)),
+        );
     }
     paths
 }
