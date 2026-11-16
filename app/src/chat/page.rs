@@ -8,8 +8,7 @@ use std::sync::Arc;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, img, px, AnyElement, App, FontWeight, Global, Image, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, SharedString, Styled, StyledImage,
-    Window,
+    ObjectFit, ParentElement, SharedString, Styled, StyledImage, Window,
 };
 use sikemux_view::chat::{PageRef, WorkerPage};
 
@@ -252,9 +251,9 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
                 if let Some(shown) = cx.global_mut::<Pages>().shown.get_mut(&id) {
                     match answer {
                         Ok(answer) => {
-                            shown.picture = answer.picture.and_then(|picture| {
-                                crate::picture::decode("image/jpeg", &picture)
-                            });
+                            shown.picture = answer
+                                .picture
+                                .and_then(|picture| crate::picture::decode("image/jpeg", &picture));
                         }
                         Err(error) => shown.failed = Some(error.into()),
                     }
