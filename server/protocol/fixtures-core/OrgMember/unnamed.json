@@ -3,5 +3,6 @@
   "role": "admin",
   "name": null,
   "imageUrl": null,
-  "joinedAt": "2026-11-16T09:05:00.000Z"
+  "joinedAt": "2026-11-16T09:05:00.000Z",
+  "you": false
 }

@@ -1734,8 +1734,12 @@ export const schema = {
         name: { type: ["string", "null"], maxLength: 256 },
         imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
         joinedAt: { type: "string", format: "date-time" },
+        you: {
+          description: "True on the row of the person asking.",
+          type: "boolean",
+        },
       },
-      required: ["id", "role", "name", "imageUrl", "joinedAt"],
+      required: ["id", "role", "name", "imageUrl", "joinedAt", "you"],
       additionalProperties: false,
     },
     OrgMemberId: {

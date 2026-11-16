@@ -89,6 +89,7 @@ function memberBody(
     "id" | "user_id" | "role" | "joined_at"
   >,
   named: Map<string, Person>,
+  caller: string,
 ): OrgMember {
   return {
     id: member.id,
@@ -96,6 +97,7 @@ function memberBody(
     name: named.get(member.user_id)?.name ?? null,
     imageUrl: named.get(member.user_id)?.imageUrl ?? null,
     joinedAt: member.joined_at.toISOString(),
+    you: member.user_id === caller,
   };
 }
 
@@ -396,7 +398,7 @@ export function orgRoutes({
         rows.map((row) => row.user_id),
       );
       const body: OrgMemberList = {
-        members: rows.map((row) => memberBody(row, named)),
+        members: rows.map((row) => memberBody(row, named, userId)),
       };
       return c.json(body);
     })
@@ -447,7 +449,9 @@ export function orgRoutes({
             .executeTakeFirstOrThrow();
         });
         await callProvider(c);
-        return c.json(memberBody(changed, await people(c, [changed.user_id])));
+        return c.json(
+          memberBody(changed, await people(c, [changed.user_id]), userId),
+        );
       },
     )
     .delete(

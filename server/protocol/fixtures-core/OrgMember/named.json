@@ -3,5 +3,6 @@
   "role": "admin",
   "name": "Ada Lovelace",
   "imageUrl": "https://img.clerk.com/ada.png",
-  "joinedAt": "2026-11-16T09:05:00.000Z"
+  "joinedAt": "2026-11-16T09:05:00.000Z",
+  "you": true
 }

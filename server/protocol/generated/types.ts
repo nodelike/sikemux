@@ -963,6 +963,8 @@ export interface OrgMember {
   name: string | null;
   imageUrl: string | null;
   joinedAt: string;
+  /** True on the row of the person asking. */
+  you: boolean;
 }
 
 /** A membership's id, a UUID in lowercase: one person's place in one org. */

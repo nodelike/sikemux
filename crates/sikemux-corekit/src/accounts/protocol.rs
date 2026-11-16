@@ -914,6 +914,8 @@ pub struct OrgMember {
     pub name: Option<String>,
     pub image_url: Option<String>,
     pub joined_at: String,
+    /// True on the row of the person asking.
+    pub you: bool,
 }
 
 /// A membership's id, a UUID in lowercase: one person's place in one org.
