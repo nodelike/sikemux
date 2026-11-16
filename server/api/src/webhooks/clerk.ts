@@ -1,8 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 
+import type { ClerkBackend } from "../account/clerk.ts";
 import { markDeleted } from "../account/deletion.ts";
 import { audit } from "../audit.ts";
+import { followAddress } from "../billing/customers.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
 import type { BillingProvider } from "../billing/provider.ts";
 import type { Database } from "../db.ts";
@@ -60,11 +62,15 @@ interface ClerkEvent {
   data?: { id?: unknown };
 }
 
-/** Clerk's webhook. It acts only on user.deleted, cleaning up as if the person deleted the account here. */
+/**
+ * Clerk's webhook. On user.deleted it cleans up as if the person deleted the account here; on
+ * user.updated it moves their payment customer to the email they now sign in with.
+ */
 export function clerkWebhookRoutes(
   { db }: Database,
   secret: string | null,
   provider: BillingProvider | null,
+  clerk: ClerkBackend | null,
 ) {
   const seen = new SeenIds();
   return new Hono<Env>().post("/clerk", async (c) => {
@@ -96,12 +102,24 @@ export function clerkWebhookRoutes(
       throw badRequest("The body is not JSON.");
     }
     const userId = event.data?.id;
-    if (event.type !== "user.deleted" || typeof userId !== "string") {
+    const handled = ["user.deleted", "user.updated"];
+    if (
+      typeof event.type !== "string" ||
+      !handled.includes(event.type) ||
+      typeof userId !== "string"
+    ) {
       seen.remember(id);
       return c.body(null, 204);
     }
     if (!/^user_[A-Za-z0-9]+$/.test(userId))
       throw badRequest("The event names no Clerk user.");
+
+    if (event.type === "user.updated") {
+      if (provider && clerk)
+        await followAddress(db, provider, clerk, c.get("log"), userId);
+      seen.remember(id);
+      return c.body(null, 204);
+    }
 
     await markDeleted(db, {
       userId,

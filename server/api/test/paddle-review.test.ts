@@ -151,6 +151,15 @@ class FakePaddle {
     if (method === "PATCH" && path.startsWith("/customers/")) {
       const id = path.slice("/customers/".length);
       if (typeof body?.email === "string") {
+        const taken = this.customerOf.get(body.email);
+        if (taken && taken !== id)
+          return Promise.reject(
+            new PaddleError(
+              409,
+              "customer_already_exists",
+              `Customer email conflicts with existing customer ID ${taken}`,
+            ),
+          );
         for (const [email, held] of this.customerOf)
           if (held === id) this.customerOf.delete(email);
         this.customerOf.set(body.email, id);
@@ -1011,6 +1020,43 @@ describe("an address that passes from one account to another", () => {
       portal: [before.status, after.status],
       boxCheckoutFor: box.opened?.customer_id,
     }).toEqual({ portal: [200, 200], boxCheckoutFor: ctmOf(OWNER) });
+  });
+});
+
+describe("4. a Paddle customer keeps an address its person gave up", () => {
+  const addressOf = (customerId: string) =>
+    [...paddle.customerOf].find(([, id]) => id === customerId)?.[0];
+
+  it("N4: the next checkout leaves the customer on the old address", async () => {
+    await pay(OWNER, "pro");
+    clerk.addressOf.set(OWNER, "user_owner_moved");
+    const box = await openCheckout(OWNER, "shed");
+
+    expect({ status: box.status, address: addressOf(ctmOf(OWNER)) }).toEqual({
+      status: 200,
+      address: "verified address of user_owner_moved",
+    });
+  });
+
+  it("N5: two addresses handed on in a row shut the third person out of checkout for good", async () => {
+    await pay(OTHER, "pro");
+    clerk.addressOf.set(OTHER, "user_b_moved");
+    await pay(OWNER, "pro");
+    clerk.addressOf.set(OWNER, OTHER);
+    clerk.addressOf.set(NOT_STAFF, OWNER);
+
+    const first = await openCheckout(NOT_STAFF, "pro");
+    const others = [
+      await openCheckout(OTHER, "shed"),
+      await openCheckout(OWNER, "shed"),
+    ].map((each) => each.status);
+    const again = await openCheckout(NOT_STAFF, "pro");
+
+    expect({ first: first.status, others, again: again.status }).toEqual({
+      first: 200,
+      others: [200, 200],
+      again: 200,
+    });
   });
 });
 

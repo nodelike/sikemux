@@ -175,8 +175,11 @@ export interface BillingProvider {
     userId: string,
     email: string | null,
   ): Promise<{ id: string; made: boolean } | null>;
-  /** Moves a customer at the provider to another email, which its receipts then go to. */
-  readdress(providerCustomerId: string, email: string): Promise<void>;
+  /**
+   * Moves a customer at the provider to another email, which its receipts then go to. When another
+   * customer holds that email, nothing moves and that customer's id comes back.
+   */
+  readdress(providerCustomerId: string, email: string): Promise<string | null>;
   /** The provider's hosted page to buy a product, and its id, which its payment comes back under. */
   checkout(
     request: CheckoutRequest,

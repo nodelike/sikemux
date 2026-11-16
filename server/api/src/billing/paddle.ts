@@ -292,6 +292,13 @@ export interface PaddleOptions {
 }
 
 /** Paddle's error with its message swapped out, since Paddle may quote the email it was sent. */
+/** The customer Paddle names as already holding an email. */
+function holderIn(err: unknown) {
+  return err instanceof PaddleError && err.code === "customer_already_exists"
+    ? /ctm_[a-z0-9]+/.exec(err.message)?.[0]
+    : undefined;
+}
+
 function withoutEmail(err: unknown, message: string) {
   return err instanceof PaddleError
     ? new PaddleError(err.status, err.code, message)
@@ -467,10 +474,7 @@ export class PaddleProvider implements BillingProvider {
       );
       return { id: made.id, made: true };
     } catch (err) {
-      const existing =
-        err instanceof PaddleError && err.code === "customer_already_exists"
-          ? /ctm_[a-z0-9]+/.exec(err.message)?.[0]
-          : undefined;
+      const existing = holderIn(err);
       if (!existing) throw withoutEmail(err, "no customer was made");
       await this.api.request("PATCH", `/customers/${existing}`, {
         status: "active",
@@ -485,7 +489,10 @@ export class PaddleProvider implements BillingProvider {
         email,
         status: "active",
       });
+      return null;
     } catch (err) {
+      const holder = holderIn(err);
+      if (holder && holder !== providerCustomerId) return holder;
       throw withoutEmail(err, "the customer's email was not moved");
     }
   }

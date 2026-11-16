@@ -133,7 +133,7 @@ export class StandInProvider implements BillingProvider {
   }
 
   readdress() {
-    return Promise.resolve();
+    return Promise.resolve(null);
   }
 
   checkout(request: CheckoutRequest) {

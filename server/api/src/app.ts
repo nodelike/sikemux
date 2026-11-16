@@ -122,7 +122,12 @@ export function createApp(services: Services) {
   app.route("/v1/orgs", orgRoutes(services));
   app.route(
     "/v1/webhooks",
-    clerkWebhookRoutes(database, webhookSecret, services.billing.provider),
+    clerkWebhookRoutes(
+      database,
+      webhookSecret,
+      services.billing.provider,
+      services.clerk,
+    ),
   );
   app.route("/v1/hooks", hookRoutes(services));
   app.route("/v1/billing", billingRoutes(services));

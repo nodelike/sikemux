@@ -479,7 +479,13 @@ export function billingRoutes({
       return found;
     });
 
-    const providerCustomerId = await ownCustomer(db, ready, clerk, userId);
+    const providerCustomerId = await ownCustomer(
+      db,
+      ready,
+      clerk,
+      c.get("log"),
+      userId,
+    );
     const checkout = await ready.checkout({
       providerCustomerId,
       product: sold.id,
