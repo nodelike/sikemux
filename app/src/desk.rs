@@ -2378,50 +2378,6 @@ fn pill(
     close: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let close_id = SharedString::from(format!("{id}-close"));
-    pill_face(id, mark, label, shown, at_work, cx)
-        .group_hover(DESK_PILL, |pill| pill.pr(SPACE_6))
-        .child(
-            ui::hover_actions(DESK_PILL)
-                .right(px(2.))
-                .top_0()
-                .bottom_0()
-                .child(
-                    div()
-                        .relative()
-                        .child(ui::close_button(close_id, t!("Close tab"), close, cx))
-                        .children(close_spot),
-                ),
-        )
-}
-
-/// The Asks board's tab on a chief's desk: always first, and with a pin where others close.
-fn pinned_pill(shown: bool, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx);
-    pill_face(
-        "desk-asks".into(),
-        ui::chief_mark(13.),
-        t!("Asks").to_owned(),
-        shown,
-        None,
-        cx,
-    )
-    .w(px(PILL_MIN))
-    .child(
-        ui::icon(Icon::Pin, 12.)
-            .flex_none()
-            .text_color(t.text_tertiary),
-    )
-}
-
-fn pill_face(
-    id: SharedString,
-    mark: AnyElement,
-    label: String,
-    shown: bool,
-    at_work: Option<(Hsla, AnyElement)>,
-    cx: &App,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
     let t = Tokens::get(cx).clone();
     let close_id = SharedString::from(format!("{id}-close"));
     let rest = t.text_primary.opacity(0.05);

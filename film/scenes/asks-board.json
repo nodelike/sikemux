@@ -1,9 +1,0 @@
-[
-  {
-    "when": "",
-    "steps": [
-      { "say": "Looking into it." },
-      { "tool": "Bash", "input": { "command": "pnpm test", "description": "Run the tests" }, "result": "ok", "ms": 600000 }
-    ]
-  }
-]
