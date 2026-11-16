@@ -51,6 +51,13 @@ public static class Grab {
       bmp.Save(path); return ok;
     }
   }
+  public static void Screen(IntPtr h, string path) {
+    RECT r; GetWindowRect(h, out r);
+    using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
+      using (var g = Graphics.FromImage(bmp)) { g.CopyFromScreen(r.L, r.T, 0, 0, bmp.Size); }
+      bmp.Save(path);
+    }
+  }
 }
 "@
 
@@ -133,10 +140,14 @@ $ErrorActionPreference = 'Stop'
 "start a chat on the stand-in (exit $LASTEXITCODE)`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
 Write-Host "start a chat on the stand-in (exit $LASTEXITCODE): $answer"
 if ($LASTEXITCODE -ne 0) { $failed += 'start a chat on the stand-in' }
-Start-Sleep -Seconds 30
+Start-Sleep -Seconds 2
+Picture 'reading'
+Start-Sleep -Seconds 28
 $state = Drive 'what the window holds' 'state'
 if (-not $state.Contains('example.com')) { $failed += "the stand-in's browser tab" }
 Picture 'window'
+# PrintWindow can miss a page the window composes from another process; the screen shows it.
+[Grab]::Screen($proc.MainWindowHandle, (Join-Path $Out 'window-screen.png'))
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
 
 Stop-Process -Id $proc.Id
