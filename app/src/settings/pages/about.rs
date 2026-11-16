@@ -3,7 +3,7 @@
 
 use crate::core::Target;
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
+    AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled, div, px,
 };
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
@@ -15,7 +15,7 @@ use sikemux_view::updates::UpdateState;
 use crate::icons::Icon;
 use crate::screens::whats_new::RELEASES;
 use crate::settings::index::Page::About;
-use crate::settings::index::{row, section, Entry};
+use crate::settings::index::{Entry, row, section};
 use crate::settings::rows;
 use crate::theme::{SPACE_2, SPACE_3H, SPACE_4, TEXT_2XS_H};
 use crate::toast;
@@ -65,7 +65,11 @@ pub fn render(
         .and_then(|view| view.account.as_deref())
         .is_some_and(|account| account.flags.contains(&Flag::StaffFeed));
     let channels: &[UpdateChannel] = match staff_feed {
-        true => &[UpdateChannel::Stable, UpdateChannel::Nightly, UpdateChannel::Staff],
+        true => &[
+            UpdateChannel::Stable,
+            UpdateChannel::Nightly,
+            UpdateChannel::Staff,
+        ],
         false => &[UpdateChannel::Stable, UpdateChannel::Nightly],
     };
     let channel = {
@@ -74,7 +78,10 @@ pub fn render(
             UpdateChannel::Staff if !staff_feed => UpdateChannel::Nightly,
             chosen => chosen,
         };
-        let chosen = channels.iter().position(|channel| *channel == shown).unwrap_or(0);
+        let chosen = channels
+            .iter()
+            .position(|channel| *channel == shown)
+            .unwrap_or(0);
         ui::Segmented::new(
             "update-channel",
             channels
@@ -212,8 +219,15 @@ pub fn render(
     };
     let privacy = rows::row(
         t!("Share anonymous usage"),
-        Some(t!("Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. When Sikemux crashes, sends where in its code and what it had just logged, with no paths. Never your files, prompts, commands or projects.")),
-        rows::switch("share-usage", PreferenceChange::ShareUsageData, preferences.share_usage_data, this),
+        Some(t!(
+            "Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. When Sikemux crashes, sends where in its code and what it had just logged, with no paths. Never your files, prompts, commands or projects."
+        )),
+        rows::switch(
+            "share-usage",
+            PreferenceChange::ShareUsageData,
+            preferences.share_usage_data,
+            this,
+        ),
         cx,
     );
     let help =
