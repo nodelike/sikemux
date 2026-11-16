@@ -320,7 +320,19 @@ async function apply(
           refund_requested_at: null,
           refunded_at: null,
         })
-        .onConflict((oc) => oc.column("provider_payment_id").doNothing())
+        .onConflict((oc) =>
+          paid
+            ? oc
+                .column("provider_payment_id")
+                .doUpdateSet({
+                  status: "paid",
+                  at,
+                  amount: event.total.amount,
+                  currency: event.total.currency,
+                })
+                .where("invoices.status", "=", "failed")
+            : oc.column("provider_payment_id").doNothing(),
+        )
         .execute();
       const lapsed = rows
         .filter((row) => row.status === "lapsed")
