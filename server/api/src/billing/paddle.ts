@@ -631,18 +631,25 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
     case "adjustment.created":
     case "adjustment.updated": {
       const adjustment = event.data as PaddleAdjustment;
-      if (adjustment.action !== "refund" || adjustment.status !== "approved")
+      const providerPaymentId = adjustment.transaction_id;
+      if (adjustment.action === "refund" && adjustment.status === "rejected")
+        return [{ ...base, type: "payment.refund_refused", providerPaymentId }];
+      const chargeback = adjustment.action === "chargeback";
+      if (
+        (adjustment.action !== "refund" && !chargeback) ||
+        adjustment.status !== "approved"
+      )
         return [];
       return [
         {
           ...base,
           type: "payment.refunded",
-          providerPaymentId: adjustment.transaction_id,
+          providerPaymentId,
           returned: {
             amount: Number(adjustment.totals.total),
             currency: adjustment.currency_code.toLowerCase(),
           },
-          chargeback: false,
+          chargeback,
         },
       ];
     }
