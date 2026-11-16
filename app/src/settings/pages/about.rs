@@ -3,7 +3,7 @@
 
 use crate::core::Target;
 use gpui_kit::{
-    AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled, div, px,
+    div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
@@ -15,7 +15,7 @@ use sikemux_view::updates::UpdateState;
 use crate::icons::Icon;
 use crate::screens::whats_new::RELEASES;
 use crate::settings::index::Page::About;
-use crate::settings::index::{Entry, row, section};
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::theme::{SPACE_2, SPACE_3H, SPACE_4, TEXT_2XS_H};
 use crate::toast;
