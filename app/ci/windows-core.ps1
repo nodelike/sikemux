@@ -30,7 +30,8 @@ Set-Content -Path $replies -Value (ConvertTo-Json -Depth 8 -InputObject @(
         steps = @(
             @{ say = 'Reading the README first.' },
             @{ tool = 'Read'; input = @{ file_path = (Join-Path $project 'README.md') }; result = '# A project opened by the window run'; ms = 5000 },
-            @{ tool = 'mcp__sikemux-tools__browser_navigate'; call = 'browser.navigate'; input = @{ url = 'https://example.com' }; ms = 1200 },
+            @{ tool = 'mcp__sikemux-tools__browser_navigate'; call = 'browser.navigate'; input = @{ url = 'https://example.com' }; ms = 3000 },
+            @{ tool = 'mcp__sikemux-tools__browser_evaluate'; call = 'browser.evaluate'; input = @{ script = "document.documentElement.style.background = 'red'; document.body.style.background = 'red'; return [innerWidth, innerHeight, devicePixelRatio, document.title]" }; ms = 1200 },
             @{ say = 'It is a project opened by the window run, and example.com is open beside this chat.' }
         )
     }
