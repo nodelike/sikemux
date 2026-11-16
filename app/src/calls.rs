@@ -290,7 +290,7 @@ impl Workbench {
     }
 
     /// Where `call` waits, as a card names it: its project, and its host when that is not this one.
-    fn call_place_words(&self, place: &Place, call: &PersonCall) -> String {
+    fn call_place(&self, place: &Place, call: &PersonCall) -> CallPlace {
         let project = (self.view_at(place).into_iter())
             .flat_map(|view| &view.workspace.projects)
             .find(|project| project.path.to_string_lossy() == call.project)
@@ -302,10 +302,11 @@ impl Workbench {
                     |name| name.to_string_lossy().into_owned(),
                 )
             });
-        match place {
-            Place::This => project,
-            Place::Account(host) => format!("{project} · {}", self.host_name(host)),
-        }
+        let host = match place {
+            Place::This => None,
+            Place::Account(host) => Some(self.host_name(host).to_string()),
+        };
+        CallPlace { project, host }
     }
 
     /// The calls of `project` on the host at `place` that wait on the person, newest first.
@@ -1513,12 +1514,12 @@ fn popover(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let asks = bench.read(cx).asks.clone();
-    let calls: Vec<(Target, String, PersonCall)> = {
+    let calls: Vec<(Target, CallPlace, PersonCall)> = {
         let read = bench.read(cx);
         (read.calls_everywhere().into_iter())
             .map(|(place, call)| {
-                let words = read.call_place_words(&place, call);
-                (Target::new(&asks, place), words, call.clone())
+                let named = read.call_place(&place, call);
+                (Target::new(&asks, place), named, call.clone())
             })
             .collect()
     };
@@ -1539,8 +1540,8 @@ fn popover(
     let shown = card(&open, Seat::Popover(dismiss), through, window, cx);
     let rest: Vec<AnyElement> = (calls.iter())
         .filter(|(_, _, call)| call.id != open.id)
-        .map(|(target, words, call)| {
-            let elsewhere = (words != &name).then_some(words.as_str());
+        .map(|(target, named, call)| {
+            let elsewhere = (named != &name).then_some(named);
             folded(cards, call, elsewhere, target, &weak, cx)
         })
         .collect();
@@ -1553,12 +1554,7 @@ fn popover(
         .gap(px(10.))
         .child(ui::caps(t!("Calls"), cx))
         .child(div().flex_1().h(px(1.)).bg(t.line))
-        .child(
-            div()
-                .text_size(theme::ui_text(11.))
-                .text_color(t.text_tertiary)
-                .child(name),
-        );
+        .child(name.tag(11., cx));
     call_keys(
         div().id("calls-popover").key_context("QuestionDock"),
         &open.id,
@@ -1585,7 +1581,7 @@ fn popover(
 fn folded(
     cards: &Entity<Cards>,
     call: &PersonCall,
-    elsewhere: Option<&str>,
+    elsewhere: Option<&CallPlace>,
     target: &Target,
     bench: &WeakEntity<Workbench>,
     cx: &App,
@@ -1630,15 +1626,7 @@ fn folded(
                 .truncate()
                 .child(headline(&call.question).to_owned()),
         )
-        .children(elsewhere.map(|words| {
-            div()
-                .flex_none()
-                .max_w(px(120.))
-                .truncate()
-                .text_size(theme::ui_text(11.5))
-                .text_color(t.text_tertiary)
-                .child(words.to_owned())
-        }))
+        .children(elsewhere.map(|named| named.tag(11.5, cx).flex_none().max_w(px(140.))))
         .child(
             div()
                 .flex_none()
@@ -1651,6 +1639,40 @@ fn folded(
                 .child(ui::time::age(call.raised_at)),
         )
         .into_any_element()
+}
+
+/// Where a call waits: its project's name, and its host's when that is not this one.
+#[derive(Clone, PartialEq)]
+struct CallPlace {
+    project: String,
+    host: Option<String>,
+}
+
+impl CallPlace {
+    /// The place in `size` text, each name after the mark its rail row carries.
+    fn tag(&self, size: f32, cx: &App) -> gpui_kit::Div {
+        let named = |glyph: gpui_kit::Svg, name: &str| {
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(glyph)
+                .child(div().min_w_0().truncate().child(name.to_owned()))
+        };
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .text_size(theme::ui_text(size))
+            .text_color(Tokens::get(cx).text_tertiary)
+            .child(named(crate::rail::project_glyph(size, cx), &self.project))
+            .children(
+                (self.host.as_deref())
+                    .map(|host| named(crate::rail::host_glyph(size, true, cx), host)),
+            )
+    }
 }
 
 /// The keys a card takes, bound as the question rows' are, for call `id`.

@@ -332,6 +332,17 @@ fn details_item(bench: WeakEntity<Workbench>, host: String) -> PopupMenuItem {
 }
 
 /// The host this window runs on, where new work starts.
+/// The folder a project's row is marked with, wherever a project is named.
+pub(crate) fn project_glyph(size: f32, cx: &App) -> gpui_kit::Svg {
+    ui::icon(Icon::Folder, size).text_color(Tokens::get(cx).live)
+}
+
+/// The laptop a host's row is marked with: a linked host's colour, else an SSH one's.
+pub(crate) fn host_glyph(size: f32, linked: bool, cx: &App) -> gpui_kit::Svg {
+    let t = Tokens::get(cx);
+    ui::icon(Icon::Laptop, size).text_color(if linked { t.host } else { t.ssh })
+}
+
 fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let agents = bench
@@ -460,7 +471,6 @@ fn approval_item(
 
 /// The account's other hosts, then the SSH hosts a terminal is open to.
 fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let t = Tokens::get(cx).clone();
     (bench.reads.hosts.iter())
         .map(|host| {
             let name = host.name.clone();
@@ -542,10 +552,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         bench.choose_host(crate::hosts::HostChoice::Account(key.clone()), cx)
                     }))
                 })
-                .mark(
-                    16.,
-                    ui::icon(Icon::Laptop, 14.).text_color(if linked { t.host } else { t.ssh }),
-                )
+                .mark(16., host_glyph(14., linked, cx))
                 .quiet()
                 .when_some(
                     {
@@ -1000,7 +1007,6 @@ fn project_tree(
     folded: &Folded,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
     let in_front = bench.copy_in_front(folded).cloned();
     let active = !bench.settings.read(cx).is_open()
         && in_front
@@ -1046,7 +1052,7 @@ fn project_tree(
         SharedString::from(format!("project-{key}")),
         folded.name.clone(),
     )
-    .mark(16., ui::icon(Icon::Folder, 13.).text_color(t.live))
+    .mark(16., project_glyph(13., cx))
     .quiet()
     .bold(active)
     .chosen(active)
