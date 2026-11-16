@@ -337,13 +337,20 @@ impl Queued {
 const CALM_HEADING: &str =
     "How turns of agents you started ended, sent by Sikemux; agent_read has the rest:";
 
-/// `queued` as one message, its calm reports as lines under one heading.
+/// `queued` as one message, its calm reports as lines under one heading in a letter from
+/// Sikemux, so the message stays only letters and the chat reads it as such.
 fn joined(queued: &[Queued]) -> String {
     let (calm, rest): (Vec<&Queued>, Vec<&Queued>) = queued.iter().partition(|q| q.is_calm());
     let mut parts: Vec<String> = rest.iter().map(|queued| queued.text.clone()).collect();
     if !calm.is_empty() {
         let lines: Vec<&str> = calm.iter().map(|queued| queued.text.as_str()).collect();
-        parts.push(format!("{CALM_HEADING}\n{}", lines.join("\n")));
+        let reports = Letter::from_sender(
+            Sender::Sikemux,
+            MessageKind::Report,
+            format!("{CALM_HEADING}\n{}", lines.join("\n")),
+            Some("Sent by Sikemux itself about agents you started, not by the person or another agent.".to_owned()),
+        );
+        parts.push(wrapped(&reports));
     }
     parts.join("\n\n")
 }
