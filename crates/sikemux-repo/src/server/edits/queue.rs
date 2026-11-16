@@ -155,12 +155,16 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         save(core, &lines);
         placed
     };
+    let (pushed, stays) = match push {
+        true => (" and pushed", String::new()),
+        false => ("", local_only(&key.0, &base)),
+    };
+    let stays = match stays.is_empty() {
+        true => stays,
+        false => format!(" It stays{stays}."),
+    };
     core.changed(What::View);
     wake(core, key);
-    let pushed = match push {
-        true => " and pushed",
-        false => "",
-    };
     let replaces = match replaced {
         Some(Replaced::Took(earlier)) => format!(
             " It takes the place of your land of {earlier}, which had not been checked yet."
@@ -172,12 +176,23 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
     };
     Ok(Queued {
         note: format!(
-            "Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy and the tests of the crates they change, and puts it on {base}{pushed} when that passes. Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."
+            "Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy and the tests of the crates they change, and puts it on {base}{pushed} when that passes.{stays} Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."
         ),
         branch: base,
         commits: laid.listed,
         ahead,
     })
+}
+
+/// Says a land without a push stays in `repo`'s checkout, when `branch` has a remote copy it won't reach.
+fn local_only(repo: &Path, branch: &str) -> String {
+    let remote = format!("refs/remotes/origin/{branch}");
+    match git(repo, &["rev-parse", "--verify", "-q", &remote]) {
+        Ok(_) => format!(
+            " in this computer's checkout only, not on origin/{branch}; land with push: true to push it too"
+        ),
+        Err(_) => String::new(),
+    }
 }
 
 /// Where the agent's commits wait to land.
@@ -781,6 +796,10 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
             .map(|stays| format!(" {stays}"))
             .unwrap_or_default();
         let on = format!("{} is on {} as {}", waiting.short(), key.1, shorts(commits));
+        let on = match waiting.push {
+            true => on,
+            false => format!("{on}{}", local_only(&key.0, &key.1)),
+        };
         tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
         core.notify().send(Signal::Landed {
             agent_id: waiting.agent.clone(),
