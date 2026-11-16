@@ -2,6 +2,7 @@
 # core, and checks what Windows and the core report about that core. Needs an elevated runner.
 param(
     [Parameter(Mandatory)] [string] $Built,
+    [Parameter(Mandatory)] [string] $Sign,
     [Parameter(Mandatory)] [string] $Out
 )
 $ErrorActionPreference = 'Stop'
@@ -65,6 +66,115 @@ function Check-Core([string] $When) {
     $status
 }
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class Dialogs {
+    delegate bool Each(IntPtr window, IntPtr data);
+    [DllImport("user32.dll")] static extern bool EnumWindows(Each each, IntPtr data);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int size);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder text, int size);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern uint GetDlgItemText(IntPtr window, int item, StringBuilder text, int size);
+    [DllImport("user32.dll")] static extern IntPtr GetDlgItem(IntPtr window, int item);
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+
+    public static IntPtr Find(uint pid, string title) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((window, data) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            if (owner == pid && IsWindowVisible(window) && Text(window) == title) { found = window; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    static string Text(IntPtr window) {
+        var text = new StringBuilder(256);
+        GetWindowText(window, text, text.Capacity);
+        return text.ToString();
+    }
+
+    public static string Class(IntPtr window) {
+        var name = new StringBuilder(256);
+        GetClassName(window, name, name.Capacity);
+        return name.ToString();
+    }
+
+    public static string Message(IntPtr window) {
+        var text = new StringBuilder(1024);
+        GetDlgItemText(window, 0xFFFF, text, text.Capacity);
+        return text.ToString();
+    }
+
+    public static bool HasButton(IntPtr window, int button) { return GetDlgItem(window, button) != IntPtr.Zero; }
+
+    public static int DefaultButton(IntPtr window) { return (int)SendMessage(window, 0x0400, IntPtr.Zero, IntPtr.Zero) & 0xFFFF; }
+
+    public static void Press(IntPtr window, int button) { PostMessage(window, 0x0111, (IntPtr)button, IntPtr.Zero); }
+}
+'@
+
+$yes = 6
+$no = 7
+
+function Start-Sign([string] $Socket, [string] $Name) {
+    $report = Join-Path $Out "sign-$Name.txt"
+    Remove-Item $report -ErrorAction SilentlyContinue
+    & $Sign $Socket $report
+    $report
+}
+
+function Wait-For([scriptblock] $Ready, [int] $Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while (-not ($found = & $Ready) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+    $found
+}
+
+function Answer-Of([string] $Report) {
+    Wait-For { if (Test-Path $Report) { Get-Content -Raw $Report } } 30
+}
+
+function Check-Window($Core) {
+    $corePid = [uint32]$Core.pid
+    $sessions = "the core is in session $((Get-Process -Id $corePid).SessionId), this step in $((Get-Process -Id $PID).SessionId)"
+    $first = Start-Sign $Core.socket 'no'
+    $window = Wait-For { $found = [Dialogs]::Find($corePid, 'Sikemux'); if ($found -ne [IntPtr]::Zero) { $found } } 30
+    Check 'a signing request from a Medium program opens a window of the core''s' ($null -ne $window) $sessions
+    if ($null -eq $window) {
+        Check 'the request is answered without the window' (Test-Path $first) "$(Get-Content -Raw $first -ErrorAction SilentlyContinue)"
+        return
+    }
+    Check 'the window is a Yes/No box with No as the default' (
+        [Dialogs]::Class($window) -eq '#32770' -and [Dialogs]::HasButton($window, $yes) -and
+        [Dialogs]::HasButton($window, $no) -and [Dialogs]::DefaultButton($window) -eq $no
+    ) "class $([Dialogs]::Class($window)), default $([Dialogs]::DefaultButton($window)): $([Dialogs]::Message($window))"
+    Start-Sleep -Seconds 3
+    Check 'the request waits while the window is open' (-not (Test-Path $first))
+
+    $second = Answer-Of (Start-Sign $Core.socket 'second')
+    Check 'a second request is refused while the window is open' (
+        $second -match 'another request is waiting for your answer'
+    ) "$second".Trim()
+
+    [Dialogs]::Press($window, $no)
+    $answer = Answer-Of $first
+    Check 'the signing program runs at Medium' ($answer -match '(?m)^integrity medium$') "$answer".Trim()
+    Check 'answered No, the request is refused' ($answer -match 'you said no') "$answer".Trim()
+
+    $third = Start-Sign $Core.socket 'yes'
+    $window = Wait-For { $found = [Dialogs]::Find($corePid, 'Sikemux'); if ($found -ne [IntPtr]::Zero) { $found } } 30
+    if ($null -ne $window) { [Dialogs]::Press($window, $yes) }
+    $answer = Answer-Of $third
+    Check 'answered Yes, the request is signed' ($null -ne $window -and $answer -match '(?m)^signed \S+') "$answer".Trim()
+}
+
 # The load config the linker wrote, read from the installed file.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\dumpbin.exe' | Select-Object -First 1
@@ -100,7 +210,8 @@ try {
     Check 'the service starts a new core after it is killed' ($again.running -and $again.pid -ne $first.pid) (
         "pid $($first.pid) then $($again.pid)"
     )
-    Check-Core 'after the restart' | Out-Null
+    $core = Check-Core 'after the restart'
+    Check-Window $core
 } finally {
     $removed = Host-Command '--service', 'remove'
     Check 'the service is removed' ($removed.Code -eq 0) $removed.Text.Trim()

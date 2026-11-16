@@ -217,11 +217,11 @@ jobs:
           cache: "true"
 
       - name: Build the host
-        run: cargo build --locked -p sikemux-host --bin sikemux-host
+        run: cargo build --locked -p sikemux-host --bin sikemux-host --example sign
 
       - name: Install the service and check the core it starts
         shell: powershell
-        run: app\ci\windows-service.ps1 -Built target\debug\sikemux-host.exe -Out "$env:RUNNER_TEMP\service"
+        run: app\ci\windows-service.ps1 -Built target\debug\sikemux-host.exe -Sign target\debug\examples\sign.exe -Out "$env:RUNNER_TEMP\service"
 
       - name: Upload what it reported
         if: always()
