@@ -41,11 +41,9 @@ pub fn open_document(
     let hash = content_hash(&content);
     let mut documents = server.open_docs.locked();
 
-    if documents.contains_key(path) {
+    if let Some(document) = documents.get_mut(path) {
         let mut last_change = server.last_change.locked();
-        let previous = *documents
-            .get(path)
-            .expect("document disappeared while its map is locked");
+        let previous = *document;
         let previous_hash = last_change.get(path).copied();
         if previous.refs == usize::MAX {
             return Err(LspError::new(
@@ -53,17 +51,12 @@ pub fn open_document(
             ));
         }
         if previous_hash == Some(hash) {
-            documents
-                .get_mut(path)
-                .expect("document disappeared while its map is locked")
-                .refs += 1;
+            document.refs += 1;
             return Ok(());
         }
 
         let next_version = previous.version.saturating_add(1);
-        *documents
-            .get_mut(path)
-            .expect("document disappeared while its map is locked") = OpenDoc {
+        *document = OpenDoc {
             refs: previous.refs + 1,
             version: next_version,
         };
@@ -132,10 +125,9 @@ pub fn change_document(
         return Ok(());
     }
     let version = requested_version.max(previous.version.saturating_add(1));
-    documents
-        .get_mut(path)
-        .expect("document disappeared while its map is locked")
-        .version = version;
+    if let Some(document) = documents.get_mut(path) {
+        document.version = version;
+    }
     last_change.insert(path.to_owned(), hash);
     let result = notify(
         server,
@@ -168,10 +160,9 @@ pub fn change_document_incremental(
     let mut last_change = server.last_change.locked();
     let previous_hash = last_change.remove(path);
     let version = requested_version.max(previous.version.saturating_add(1));
-    documents
-        .get_mut(path)
-        .expect("document disappeared while its map is locked")
-        .version = version;
+    if let Some(document) = documents.get_mut(path) {
+        document.version = version;
+    }
     let changes = changes
         .into_iter()
         .map(|change| {

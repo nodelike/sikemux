@@ -386,14 +386,16 @@ fn blame(top: &Path, path: &str, (start, end): (u64, u64)) -> Result<Found, Stri
                 continue;
             }
             let path = paths.get(&hash).cloned().unwrap_or_else(|| path.to_owned());
-            let lines = match found.commits.iter().position(|(seen, _)| *seen == hash) {
-                Some(index) => &mut found.commits[index].1,
+            let commit = match found.commits.iter().position(|(seen, _)| *seen == hash) {
+                Some(index) => found.commits.get_mut(index),
                 None => {
                     found.commits.push((hash, Vec::new()));
-                    &mut found.commits.last_mut().expect("just pushed").1
+                    found.commits.last_mut()
                 }
             };
-            lines.push(Blamed { path, orig, at });
+            if let Some((_, lines)) = commit {
+                lines.push(Blamed { path, orig, at });
+            }
         } else if let Some(name) = line.strip_prefix("filename ") {
             if let Some((hash, _, _)) = &current {
                 paths.insert(hash.clone(), name.to_owned());
@@ -565,13 +567,13 @@ fn uncommitted_by(core: &Core, top: &Path, path: &str, asked: Option<&Lines>) ->
     }
     by.into_iter()
         .filter(|(_, lines)| !lines.is_empty())
-        .map(|(author, lines)| {
-            let writer = &owners.authors[author];
+        .filter_map(|(author, lines)| {
+            let writer = owners.authors.get(author)?;
             let open = writer.open
                 && listed
                     .iter()
                     .any(|agent| agent.agent_id == writer.agent_id && agent.reach != Reach::Stopped);
-            json!({
+            Some(json!({
                 "kind": "agent",
                 "name": writer.name,
                 "cli": writer.cli,
@@ -579,9 +581,15 @@ fn uncommitted_by(core: &Core, top: &Path, path: &str, asked: Option<&Lines>) ->
                 "lines": ranges(&runs(lines.into_iter())),
                 "action": if open { "message" } else { "ask the person" },
                 "how": if open { format!("agent_send to {}", writer.name) } else { "it is no longer open".to_owned() },
-            })
+            }))
         })
         .collect()
+}
+
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = object.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
 }
 
 fn agent_value(owner: &AgentOwner) -> Value {
@@ -637,11 +645,15 @@ fn split(
                 .collect();
             if !lines.is_empty() {
                 let mut agent = agent_value(owner);
-                agent["linesInCommit"] = json!(lines);
+                set(&mut agent, "linesInCommit", json!(lines));
                 answered.push(agent);
             }
         }
-        person["linesInCommit"] = "every other line of the commit".into();
+        set(
+            &mut person,
+            "linesInCommit",
+            "every other line of the commit".into(),
+        );
         answered.push(person);
         return answered;
     }
@@ -654,7 +666,7 @@ fn split(
         );
         if !lines.is_empty() {
             let mut agent = agent_value(owner);
-            agent["lines"] = ranges(&lines).into();
+            set(&mut agent, "lines", ranges(&lines).into());
             answered.push(agent);
         }
     }
@@ -665,7 +677,7 @@ fn split(
             .map(|line| line.at),
     );
     if !rest.is_empty() {
-        person["lines"] = ranges(&rest).into();
+        set(&mut person, "lines", ranges(&rest).into());
         answered.push(person);
     }
     answered
@@ -885,8 +897,11 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                 });
                 let mut person = person(pull);
                 if commit.footer {
-                    person["footer"] =
-                        "its agent footer does not check out here, so it counts for nothing".into();
+                    set(
+                        &mut person,
+                        "footer",
+                        "its agent footer does not check out here, so it counts for nothing".into(),
+                    );
                 }
                 vec![person]
             } else if owners.iter().any(|owner| owner.lines.is_some()) {
@@ -938,7 +953,7 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         "note": note.trim_end(),
     });
     if !uncommitted.is_empty() {
-        answer["uncommitted"] = json!(uncommitted);
+        set(&mut answer, "uncommitted", json!(uncommitted));
     }
     if let Some(ci) = &ci {
         ci.describe(&mut answer);

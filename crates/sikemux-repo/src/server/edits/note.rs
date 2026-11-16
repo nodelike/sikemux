@@ -38,8 +38,9 @@ pub fn of(
         for run in &file.lines {
             let last = run.start + run.count - 1;
             let mut counted = false;
-            let authors: HashSet<&str> = owners.authors[run.author]
-                .agents()
+            let authors: HashSet<&str> = (owners.authors.get(run.author))
+                .into_iter()
+                .flat_map(|author| author.agents())
                 .filter_map(|chat| keys.get(chat).copied())
                 .collect();
             for key in authors {
@@ -85,7 +86,9 @@ pub fn read(dir: &Path, commits: &[&str], hosts: &[PublicKey]) -> HashMap<String
         input.push_str(&format!("{commit}\n"));
         for depth in 0..=2 {
             let (folders, rest) = commit.split_at(depth * 2);
-            let folders: Vec<&str> = (0..depth).map(|at| &folders[at * 2..at * 2 + 2]).collect();
+            let folders: Vec<&str> = (0..depth)
+                .filter_map(|at| folders.get(at * 2..at * 2 + 2))
+                .collect();
             let path = folders
                 .into_iter()
                 .chain([rest])
@@ -147,8 +150,8 @@ struct Answers<'a>(&'a [u8]);
 impl<'a> Answers<'a> {
     fn next(&mut self) -> Option<(String, &'a [u8])> {
         let end = self.0.iter().position(|byte| *byte == b'\n')?;
-        let header = String::from_utf8_lossy(&self.0[..end]).into_owned();
-        self.0 = &self.0[end + 1..];
+        let header = String::from_utf8_lossy(self.0.get(..end)?).into_owned();
+        self.0 = self.0.get(end + 1..)?;
         let mut words = header.split(' ');
         let (Some(_), Some(kind), Some(size)) = (words.next(), words.next(), words.next()) else {
             return None;
@@ -163,6 +166,7 @@ impl<'a> Answers<'a> {
 pub fn holds(wrote: &Wrote, path: &str, line: u64) -> bool {
     wrote.get(path).is_some_and(|runs| {
         let after = runs.partition_point(|(first, _)| *first <= line);
-        after > 0 && line <= runs[after - 1].1
+        (after.checked_sub(1).and_then(|before| runs.get(before)))
+            .is_some_and(|(_, last)| line <= *last)
     })
 }

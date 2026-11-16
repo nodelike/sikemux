@@ -20,6 +20,10 @@ pub fn lines(text: &str) -> Vec<&str> {
 
 /// `ours`, written from `base`, merged with `theirs`, which the file became
 /// meanwhile.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the change ranges come from diffing these same line lists"
+)]
 pub fn merge(base: &str, ours: &str, theirs: &str) -> Merged {
     let base = lines(base);
     let ours = lines(ours);
@@ -83,6 +87,10 @@ fn meets(other: &Range<usize>, span: &Range<usize>) -> bool {
 }
 
 /// The lines `side` has in place of `base`'s `span`, given its changes there.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the change ranges come from diffing these same line lists"
+)]
 fn applied<'a>(
     base: &[&'a str],
     side: &[&'a str],
@@ -102,6 +110,10 @@ fn applied<'a>(
 
 /// Whether `ours` keeps everything `theirs` did to `base`: all of `theirs`'
 /// lines in order, and none of the lines it took out.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the change ranges come from diffing these same line lists"
+)]
 fn holds(ours: &[&str], theirs: &[&str], base: &[&str]) -> bool {
     let taken_out: Vec<&str> = replaced(base, theirs)
         .into_iter()

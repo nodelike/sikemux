@@ -423,7 +423,7 @@ fn choose_tier(
 fn sample_seed(agent: &str) -> u32 {
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(agent.as_bytes());
-    u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]])
+    u32::from_be_bytes(*hash.first_chunk::<4>().unwrap_or(&[0; 4]))
 }
 
 /// What came of a batch's check in the integration checkout.
@@ -993,7 +993,7 @@ fn newest_with(dir: &Path, commits: Vec<Commit>) -> (Vec<Commit>, Vec<Commit>) {
     let Some(mut newest) = commits.first().map(|commit| commit.sha.clone()) else {
         return (Vec::new(), Vec::new());
     };
-    for commit in &commits[1..] {
+    for commit in commits.iter().skip(1) {
         if holds(&commit.sha, &newest) {
             newest.clone_from(&commit.sha);
         }

@@ -349,7 +349,9 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
             {
                 continue;
             }
-            let path = &paths[abs];
+            let Some(path) = paths.get(abs) else {
+                continue;
+            };
             let index = |line| {
                 if staged {
                     in_index(unstaged.get(path).map_or(&[][..], Vec::as_slice), line)
@@ -461,7 +463,7 @@ fn notes(changes: &[(u64, u64)], lines: &[Run]) -> Vec<Note> {
         let owners: Vec<Option<&Run>> = (start..start + count).map(owner).collect();
         let writers: HashSet<Option<usize>> =
             owners.iter().map(|run| run.map(|run| run.author)).collect();
-        if writers.len() == 1 && owners[0].is_none() {
+        if writers.len() == 1 && matches!(owners.first(), Some(None)) {
             continue;
         }
         let mixed = writers.len() > 1;
@@ -539,8 +541,7 @@ struct Agents<'a> {
 
 impl<'a> Agents<'a> {
     fn person(&self, at: usize) -> bool {
-        let edit = self.latest[at];
-        edit.agent_id.is_empty() && edit.shared.is_empty()
+        (self.latest.get(at)).is_some_and(|edit| edit.agent_id.is_empty() && edit.shared.is_empty())
     }
 
     fn of(&mut self, edit: &'a Edit) -> usize {
@@ -548,10 +549,9 @@ impl<'a> Agents<'a> {
             .index
             .entry((&edit.agent_id, &edit.shared))
             .or_insert(self.latest.len());
-        if at == self.latest.len() {
-            self.latest.push(edit);
-        } else {
-            self.latest[at] = edit;
+        match self.latest.get_mut(at) {
+            Some(latest) => *latest = edit,
+            None => self.latest.push(edit),
         }
         at
     }
@@ -570,6 +570,10 @@ impl<'a> Agents<'a> {
         let mut authors = Vec::new();
         let open = core.names().open_with(core.open_agents());
         files.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "agents are numbered by their place in latest, as long as numbers"
+        )]
         let mut renumber = |agent: &mut usize| {
             *agent = *numbers[*agent].get_or_insert_with(|| {
                 authors.push(author(core, self.latest[*agent], &open));
@@ -639,8 +643,14 @@ impl Replay {
         for line in self.lines.drain(..) {
             match place(&blocks, line.at) {
                 Ok(at) => lines.push(Line { at, ..line }),
-                Err(block) if line.author != author => over[block] = Some(line.author),
-                Err(block) => over[block] = over[block].or(line.over),
+                Err(block) => {
+                    if let Some(over) = over.get_mut(block) {
+                        *over = match line.author != author {
+                            true => Some(line.author),
+                            false => over.or(line.over),
+                        };
+                    }
+                }
             }
         }
         self.removed = self
@@ -666,7 +676,8 @@ impl Replay {
     ) -> (Vec<Run>, Vec<Removal>) {
         let added = |line: u64| {
             let after = hunks.partition_point(|hunk| hunk.start <= line);
-            after > 0 && line < hunks[after - 1].start + hunks[after - 1].count
+            (after.checked_sub(1).and_then(|before| hunks.get(before)))
+                .is_some_and(|hunk| line < hunk.start + hunk.count)
         };
         let lines = self
             .lines
@@ -730,7 +741,9 @@ pub fn authors(edits: &[Edit]) -> (Vec<Authored>, Option<u64>) {
         .iter()
         .map(|line| Authored {
             line: line.at,
-            agent_id: agents.latest[line.author].agent_id.clone(),
+            agent_id: (agents.latest.get(line.author))
+                .map(|edit| edit.agent_id.clone())
+                .unwrap_or_default(),
         })
         .collect();
     (lines, replay.total)

@@ -230,8 +230,8 @@ fn matches_part(pattern: &str, name: &str) -> bool {
         if index + 1 == pieces.len() {
             return rest.len() >= piece.len() && rest.ends_with(piece);
         }
-        match rest.find(piece) {
-            Some(at) => rest = &rest[at + piece.len()..],
+        match rest.split_once(piece) {
+            Some((_, after)) => rest = after,
             None => return false,
         }
     }

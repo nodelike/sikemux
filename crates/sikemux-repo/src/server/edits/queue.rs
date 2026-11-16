@@ -79,13 +79,13 @@ impl Waiting {
     }
 
     fn short(&self) -> &str {
-        &self.head[..self.head.len().min(9)]
+        self.head.get(..9).unwrap_or(&self.head)
     }
 }
 
 fn shorts(commits: &[String]) -> String {
     (commits.iter())
-        .map(|commit| &commit[..commit.len().min(9)])
+        .map(|commit| commit.get(..9).unwrap_or(commit))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -136,11 +136,16 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         let line = lines.entry(key.clone()).or_default();
         let earlier = (line.waiting.iter()).position(|w| w.agent == agent_id && !w.checking);
         let placed = match earlier {
-            Some(at) if line.waiting[at].head == waiting.head => (at, None),
+            Some(at)
+                if (line.waiting.get(at)).is_some_and(|earlier| earlier.head == waiting.head) =>
+            {
+                (at, None)
+            }
             Some(at) => {
-                let replaced = Replaced::Took(line.waiting[at].short().to_owned());
-                line.waiting[at] = waiting;
-                (at, Some(replaced))
+                let replaced = (line.waiting.get_mut(at)).map(|earlier| {
+                    Replaced::Took(std::mem::replace(earlier, waiting).short().to_owned())
+                });
+                (at, replaced)
             }
             None if (line.waiting.iter()).any(|w| w.is(&waiting)) => {
                 return Err(format!(
@@ -210,11 +215,11 @@ pub struct InLine {
 pub fn in_line(core: &Core, agent_id: &str) -> Option<InLine> {
     let lines = core.land_queue().0.locked();
     lines.iter().find_map(|((_, branch), line)| {
-        let at = line.waiting.iter().position(|w| w.agent == agent_id)?;
+        let (at, waiting) = (line.waiting.iter().enumerate()).find(|(_, w)| w.agent == agent_id)?;
         Some(InLine {
             branch: branch.clone(),
             place: at as u32 + 1,
-            since: line.waiting[at].queued_at,
+            since: waiting.queued_at,
         })
     })
 }
@@ -259,7 +264,7 @@ fn next(core: &Arc<Core>, key: &Key) -> Option<Vec<Waiting>> {
         .collect();
     match line.lane.next(&waiters) {
         Some((at, Next::Take(count))) => {
-            let taken = &mut line.waiting[at..at + count];
+            let taken = line.waiting.get_mut(at..at + count)?;
             taken.iter_mut().for_each(|w| w.checking = true);
             Some(taken.to_vec())
         }
@@ -631,9 +636,9 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     let pushes = stacked.laid.iter().any(|laid| laid.waiting.push);
     let _turn = merge_queue::checkout_turn(pushes).await;
     let stacked = tidy(core, key, stacked).await;
-    if stacked.laid.is_empty() {
+    let Some(first) = stacked.laid.first() else {
         return;
-    }
+    };
     let ranges: Vec<(String, String)> = (stacked.laid.iter())
         .scan(stacked.tip.clone(), |from, laid| {
             Some((std::mem::replace(from, laid.tip.clone()), laid.tip.clone()))
@@ -680,11 +685,11 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         mark_checked(key, stacked.top());
         return put_on(core, key, stacked).await;
     };
-    if repairing && stacked.laid[0].waiting.failed_over.as_deref() == Some(tip.as_str()) {
+    if repairing && first.waiting.failed_over.as_deref() == Some(tip.as_str()) {
         with_line(core, key, |line| line.lane.mark_red(&tip));
         return;
     }
-    let front = stacked.laid[0].waiting.agent.clone();
+    let front = first.waiting.agent.clone();
     let ran = checks::run_in_queue(core, &key.0, stacked.top(), &command, &front).await;
     let ran = match ran {
         Ok(ran) if ran.passed => {
@@ -719,13 +724,13 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         format!(
             "Your land onto {base} waits: {label} failed with it, and {base} at {short} fails it by itself as well, so Sikemux holds your land and tries it again once {base} moves. Nothing is yours to do unless the failure below comes from your commits:\n\n{tail}{log}",
             base = key.1,
-            short = &tip[..tip.len().min(9)],
+            short = tip.get(..9).unwrap_or(&tip),
             tail = crate::git::tail(&ran.output),
             log = keep_log(core, &waiting.agent, &ran.output),
         )
     };
     if repairing {
-        let waiting = &stacked.laid[0].waiting;
+        let waiting = &first.waiting;
         return failed_over(core, key, waiting, &tip, held(waiting));
     }
     let changes: Vec<Vec<String>> = stacked
@@ -736,7 +741,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     let blamed =
         merge_queue::blame(core, &key.0, &tip, &changes, &command, &front, ran.took_ms).await;
     let failed = |laid: &Laid| {
-        let ahead = match stacked.laid[0].waiting.is(&laid.waiting) {
+        let ahead = match first.waiting.is(&laid.waiting) {
             true => "",
             false => ", with the lands ahead of it in the queue",
         };
@@ -750,8 +755,9 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     match blamed {
         Ok(Blame::Broke(at)) => {
             with_line(core, key, |line| line.lane.one_at_a_time = false);
-            let laid = &stacked.laid[at];
-            send_back(core, key, &laid.waiting, &failed(laid));
+            if let Some(laid) = stacked.laid.get(at) {
+                send_back(core, key, &laid.waiting, &failed(laid));
+            }
         }
         Ok(Blame::BaseRed) => {
             with_line(core, key, |line| line.lane.mark_red(&tip));
@@ -763,8 +769,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             with_line(core, key, |line| line.lane.one_at_a_time = true);
         }
         Ok(Blame::Unknown) | Err(_) => {
-            let laid = &stacked.laid[0];
-            send_back(core, key, &laid.waiting, &failed(laid));
+            send_back(core, key, &first.waiting, &failed(first));
         }
     }
 }
@@ -1396,13 +1401,23 @@ fn members(checkout: &Path) -> Result<Vec<Member>, String> {
     }
     let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("cargo metadata did not read: {error}"))?;
-    let root = PathBuf::from(metadata["workspace_root"].as_str().unwrap_or_default());
-    let in_workspace: BTreeSet<&str> = (metadata["workspace_members"].as_array())
+    let root = PathBuf::from(
+        (metadata
+            .get("workspace_root")
+            .and_then(serde_json::Value::as_str))
+        .unwrap_or_default(),
+    );
+    let in_workspace: BTreeSet<&str> = (metadata.get("workspace_members"))
+        .and_then(serde_json::Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_str)
         .collect();
-    let packages = metadata["packages"].as_array().cloned().unwrap_or_default();
+    let packages = (metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array))
+    .cloned()
+    .unwrap_or_default();
     Ok(packages
         .iter()
         .filter(|package| (package["id"].as_str()).is_some_and(|id| in_workspace.contains(id)))

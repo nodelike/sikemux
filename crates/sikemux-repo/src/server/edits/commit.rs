@@ -930,21 +930,22 @@ impl Planner<'_> {
     /// Whether `author` is another agent still open, for certain, not agents
     /// at work together that may include the committing one.
     fn theirs(&self, author: usize) -> bool {
-        let writer = &self.owners.authors[author];
-        !self.mine.contains(&author) && writer.shared.is_empty() && writer.open
+        !self.mine.contains(&author)
+            && (self.owners.authors.get(author))
+                .is_some_and(|writer| writer.shared.is_empty() && writer.open)
     }
 
     fn name(&self, author: Option<usize>) -> String {
-        author.map_or_else(
-            || "no agent".to_owned(),
-            |at| self.owners.authors[at].name.clone(),
-        )
+        (author.and_then(|at| self.owners.authors.get(at)))
+            .map_or_else(|| "no agent".to_owned(), |writer| writer.name.clone())
     }
 
     /// Whether `author` is the committing agent, or agents at work together
     /// that include it when the commit names the file and so claims them.
     fn is_mine(&self, author: usize, claimed: bool) -> bool {
-        self.mine.contains(&author) && (claimed || self.owners.authors[author].shared.is_empty())
+        self.mine.contains(&author)
+            && (claimed
+                || (self.owners.authors.get(author)).is_some_and(|writer| writer.shared.is_empty()))
     }
 
     /// Plans what the commit takes of `path`: all of it when `may_whole` and
@@ -978,10 +979,8 @@ impl Planner<'_> {
         let leave = |by: BTreeSet<Option<usize>>, left: &mut Vec<Left>| {
             let open: Vec<String> = (by.iter().flatten())
                 .filter(|at| self.theirs(**at))
-                .map(|at| {
-                    let writer = &self.owners.authors[*at];
-                    crate::server::names::called(&writer.name, &writer.agent_id)
-                })
+                .filter_map(|at| self.owners.authors.get(*at))
+                .map(|writer| crate::server::names::called(&writer.name, &writer.agent_id))
                 .collect();
             let mut by: BTreeSet<String> = by.into_iter().map(|at| self.name(at)).collect();
             if by.is_empty() {

@@ -377,13 +377,13 @@ fn push_once(
                 tip = next;
                 going.push(commit);
             }
-            Err(_) if unpushed[..at].iter().any(|before| before.mine && before.waits) => {
+            Err(_) if unpushed.iter().take(at).any(|before| before.mine && before.waits) => {
                 waiting.push(commit)
             }
-            Err(_) if unpushed[..at].iter().any(|before| before.waits) => {
+            Err(_) if unpushed.iter().take(at).any(|before| before.waits) => {
                 return Err(Attempt::Failed(format!(
                     "Your commits build on a change to CI that waits for the person, so they go once it is passed and pushed: {}. Go on with other work, and push again after.",
-                    (unpushed[..at].iter())
+                    unpushed.iter().take(at)
                         .filter(|before| before.waits)
                         .map(|before| format!("{} {} by {}", short(&before.id), before.subject, before.by))
                         .collect::<Vec<_>>()

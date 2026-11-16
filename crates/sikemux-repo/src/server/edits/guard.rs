@@ -83,7 +83,8 @@ fn recorded(
             lines.chain(file.removed.iter().map(|removal| removal.author))
         })
         .filter(|at| !mine.contains(at))
-        .map(|at| owners.authors[at].name.clone())
+        .filter_map(|at| owners.authors.get(at))
+        .map(|writer| writer.name.clone())
         .collect())
 }
 

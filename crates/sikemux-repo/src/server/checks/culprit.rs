@@ -181,7 +181,12 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
             return unknown("it ran out of time".to_owned());
         }
         let middle = good + (bad - good) / 2;
-        match passes(core, &search, &commits[middle as usize], started).await {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "the search keeps -1 <= good < middle < bad < commits.len()"
+        )]
+        let middle_commit = &commits[middle as usize];
+        match passes(core, &search, middle_commit, started).await {
             Ok(ran) => {
                 step = Duration::from_millis(ran.took_ms);
                 if ran.passed {
@@ -193,6 +198,10 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
             Err(why) => return unknown(why),
         }
     }
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "bad starts at the last commit and only moves to a middle one"
+    )]
     let sha = commits[bad as usize].clone();
     let (owner, reading, found_sha) = (core.clone(), search.clone(), sha.clone());
     let (subject, agents) = tokio::task::spawn_blocking(move || {

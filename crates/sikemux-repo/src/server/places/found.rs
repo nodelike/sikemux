@@ -144,15 +144,14 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
 
 /// The tag patterns a workflow runs on, from its `on: push: tags:` filter.
 fn tag_patterns(text: &str) -> Vec<String> {
-    let lines: Vec<&str> = text.lines().collect();
-    let Some(at) = lines
-        .iter()
-        .position(|line| line.trim_start().starts_with("tags:"))
-    else {
+    let mut lines = text
+        .lines()
+        .skip_while(|line| !line.trim_start().starts_with("tags:"));
+    let Some(tagged) = lines.next() else {
         return Vec::new();
     };
     let clean = |item: &str| item.trim().trim_matches(['"', '\'']).to_owned();
-    let inline = lines[at].trim_start().trim_start_matches("tags:").trim();
+    let inline = tagged.trim_start().trim_start_matches("tags:").trim();
     if let Some(list) = inline
         .strip_prefix('[')
         .and_then(|list| list.strip_suffix(']'))
@@ -163,10 +162,10 @@ fn tag_patterns(text: &str) -> Vec<String> {
             .filter(|item| !item.is_empty())
             .collect();
     }
-    (lines[at + 1..].iter())
-        .map(|line| line.trim())
-        .take_while(|line| line.starts_with("- "))
-        .map(|line| clean(&line[2..]))
+    lines
+        .map(str::trim)
+        .map_while(|line| line.strip_prefix("- "))
+        .map(clean)
         .collect()
 }
 

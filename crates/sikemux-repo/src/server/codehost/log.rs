@@ -119,7 +119,7 @@ pub fn read_error(lines: &[String]) -> (Option<String>, Vec<String>) {
         .iter()
         .position(|line| line.starts_with(STEP_FAILED))
         .map_or(lines.len(), |at| at + 1);
-    let lines: Vec<String> = lines[..ended].iter().map(|line| plain(line)).collect();
+    let lines: Vec<String> = lines.iter().take(ended).map(|line| plain(line)).collect();
     let mut around = BTreeSet::new();
     for (at, line) in lines.iter().enumerate() {
         if says_failed(line) && !is_noise(line) {
@@ -130,7 +130,9 @@ pub fn read_error(lines: &[String]) -> (Option<String>, Vec<String>) {
     let mut last = None;
     let mut named = Vec::new();
     for at in around {
-        let line = &lines[at];
+        let Some(line) = lines.get(at) else {
+            continue;
+        };
         for path in paths_in(line) {
             if named.len() < MAX_NAMED && !named.contains(&path) {
                 named.push(path);

@@ -536,7 +536,9 @@ pub async fn run_hooks(
                 "" => why,
                 printed => {
                     let lines: Vec<&str> = printed.lines().collect();
-                    lines[lines.len().saturating_sub(FAILED_LINES)..].join("\n")
+                    (lines.get(lines.len().saturating_sub(FAILED_LINES)..))
+                        .unwrap_or_default()
+                        .join("\n")
                 }
             },
             Err(error) => error.to_string(),

@@ -249,9 +249,10 @@ pub fn known_states(core: &Core, urls: &[&str]) -> HashMap<String, String> {
     core.code_host_lists().lists.each(|_, answer| {
         let pulls = answer["pulls"].as_array().into_iter().flatten();
         for listed in pulls {
-            if let (Some(url), Some(state)) =
-                (listed["pull"]["url"].as_str(), listed["state"].as_str())
-            {
+            if let (Some(url), Some(state)) = (
+                listed.pointer("/pull/url").and_then(Value::as_str),
+                listed.get("state").and_then(Value::as_str),
+            ) {
                 if urls.contains(&url) {
                     known.insert(url.to_owned(), state.to_owned());
                 }
@@ -421,7 +422,7 @@ fn context(tracked: &Tracked, comments: &[Comment]) -> Value {
     let clip = |text: &str, limit: usize| match text.char_indices().nth(limit) {
         Some((at, _)) => format!(
             "{}\n\n[… cut, {} more characters]",
-            text[..at].trim_end(),
+            text.get(..at).unwrap_or(text).trim_end(),
             text.chars().count() - limit
         ),
         None => text.to_owned(),
@@ -488,7 +489,9 @@ fn context(tracked: &Tracked, comments: &[Comment]) -> Value {
         String::new(),
         body,
     ];
-    let latest = &comments[comments.len().saturating_sub(CONTEXT_COMMENTS)..];
+    let latest = comments
+        .get(comments.len().saturating_sub(CONTEXT_COMMENTS)..)
+        .unwrap_or_default();
     if !latest.is_empty() {
         lines.push(String::new());
         lines.push(if latest.len() < comments.len() {
