@@ -385,6 +385,7 @@ calls! { core, client, method, params;
     "chatAccounts" = ChatAccounts: Full => {
         agent_accounts::chat_accounts(&core, params)?
     },
+    "strandedChats" = StrandedChats: Full => agent_accounts::stranded(&core),
     "moveChatAccount" = MoveChatAccount: Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id).await?,
     "authenticateChat" = AuthenticateChat: NoDevice => {
         super::chat::authenticate(&core, &params.agent_id, params.method_id).await?

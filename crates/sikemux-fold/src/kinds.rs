@@ -119,6 +119,7 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         "agent_spawn" => (F::Agents, I::Start, arg("name")),
         "Agent" | "Task" => (F::Agents, I::Start, arg("subagent_type")),
         "agent_close" => (F::Agents, I::Stop, arg("agent")),
+        "agent_account" => (F::Agents, I::Move, arg("agent")),
         "agent_read" | "agent_list" | "agent_sessions" | "ListAgents" => {
             (F::Agents, I::Read, arg("agent"))
         }

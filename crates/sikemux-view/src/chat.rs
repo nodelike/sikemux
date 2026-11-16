@@ -488,6 +488,7 @@ pub struct Retrying {
 pub enum FailureKind {
     SignIn,
     Limit,
+    Payment,
     Network,
     Other,
     /// A kind a newer core sends.

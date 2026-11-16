@@ -42,6 +42,17 @@ pub struct ChatAccounts {
     pub none_because: Option<String>,
 }
 
+/// An account its provider refuses, the chats whose turns failed on it, and the accounts they
+/// could carry on on.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Stranded {
+    pub account: NamedAccount,
+    pub why: sikemux_view::chat::FailureKind,
+    pub chats: Vec<String>,
+    pub to: Vec<NamedAccount>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct NamedAccount {
     pub id: String,

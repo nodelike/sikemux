@@ -388,6 +388,82 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     Ok(result)
 }
 
+/// Moves agents' chats to another account of their agent, named by its name or id, where each
+/// carries on; lists those it refused, with why.
+pub(crate) async fn move_account(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+) -> Result<Value, String> {
+    let caller = request
+        .agent_id
+        .clone()
+        .ok_or("agent_account needs the calling agent's id")?;
+    let account = (request.params.get("account").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|account| !account.is_empty())
+        .ok_or("account must name the account to move to")?
+        .to_owned();
+    let wanted: Vec<String> = match request.params.get("agents") {
+        Some(Value::Array(agents)) if !agents.is_empty() => agents
+            .iter()
+            .map(|agent| agent.as_str().map(str::to_owned))
+            .collect::<Option<_>>()
+            .ok_or("agents must be names or ids")?,
+        _ => return Err("agents must list the agents to move".into()),
+    };
+    let (here, request) = (core.clone(), request.clone());
+    let (moving, mut refused) = blocking(move || {
+        let project = super::caller::project_of(&here, &request);
+        let agents = listed(&here);
+        let mut moving: Vec<(Listed, String)> = Vec::new();
+        let mut refused = Vec::new();
+        for to in &wanted {
+            let target = match resolve(&here, &agents, to, &project, &caller) {
+                Ok(target) if target.reach == Reach::Remote => {
+                    Err("it runs on another host".to_owned())
+                }
+                found => found,
+            };
+            let chosen = target.and_then(|target| {
+                let takers = super::chat::accounts(&here, &target.agent_id)
+                    .map_err(|error| error.to_string())?;
+                let named = |other: &&sikemux_wire::protocol::ChatAccount| {
+                    other.id == account || other.label.eq_ignore_ascii_case(&account)
+                };
+                match takers.others.iter().find(named) {
+                    Some(other) => Ok((target, other.id.clone())),
+                    None if takers.current.as_ref().is_some_and(|now| named(&now)) => {
+                        Err("it is on that account already".into())
+                    }
+                    None => Err(takers.none_because.unwrap_or_else(|| {
+                        format!("{account} is not an account it can carry on on")
+                    })),
+                }
+            });
+            match chosen {
+                Ok((target, account_id)) => moving.push((target, account_id)),
+                Err(why) => refused.push(json!({ "agent": to, "reason": why })),
+            }
+        }
+        Ok((moving, refused))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let mut moved = Vec::new();
+    for (target, account_id) in moving {
+        let name = target.name.unwrap_or_else(|| target.agent_id.clone());
+        match super::chat::move_to_account(core, &target.agent_id, &account_id).await {
+            Ok(()) => moved.push(name),
+            Err(why) => refused.push(json!({ "agent": name, "reason": why.to_string() })),
+        }
+    }
+    let mut result = json!({ "moved": moved });
+    if !refused.is_empty() {
+        result["refused"] = refused.into();
+    }
+    Ok(result)
+}
+
 /// The open agents other than `caller` that wait on another agent, by the agent each waits on.
 fn waited_on(core: &Core, caller: &str) -> HashMap<String, String> {
     (super::turn_state::all(core).into_iter())

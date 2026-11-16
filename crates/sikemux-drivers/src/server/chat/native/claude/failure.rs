@@ -19,3 +19,8 @@ pub(super) fn is_synthetic(message: &Value) -> bool {
 pub(super) fn asks_sign_in(said: &str) -> bool {
     said.contains("Please run /login")
 }
+
+/// Whether `said` is Claude Code's word that the account's subscription is unpaid.
+pub(super) fn says_unpaid(said: &str) -> bool {
+    said.contains("payment is past due")
+}

@@ -487,6 +487,7 @@ fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
     let can = match why {
         FailureKind::Limit => vec![Remedy::OtherAccount, Remedy::Retry],
         FailureKind::SignIn => vec![Remedy::SignIn, Remedy::OtherAccount],
+        FailureKind::Payment => vec![Remedy::OtherAccount, Remedy::Retry],
         FailureKind::Network if problem.fault == Some(Fault::Retrying) => vec![Remedy::Reconnect],
         FailureKind::Network | FailureKind::Other | FailureKind::Unknown => vec![Remedy::Retry],
     };

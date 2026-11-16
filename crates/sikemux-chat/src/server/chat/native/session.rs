@@ -263,6 +263,15 @@ impl SinkPort for ChatSink {
             TurnEnd::Completed(payload) => {
                 chat.note_answered(payload["stopReason"] == json!(StopReason::Cancelled));
                 chat.finish_turn(payload);
+                if let Some(core) = chat.core.upgrade() {
+                    let account = self.account.as_deref();
+                    (core.chat_above().agent_accounts_turn_ended)(
+                        &core,
+                        chat.provider(),
+                        account,
+                        None,
+                    );
+                }
             }
             TurnEnd::Failed { failure, response } if failure.kind != FailureKind::Other => {
                 chat.end_unprompted();
@@ -976,7 +985,7 @@ impl<B: Backend> Running<'_, B> {
         state.hold_failed(chat, last_prompt);
         let fault = match (failed.failure.kind, &state.failed_prompt) {
             (FailureKind::Limit | FailureKind::Network, Some(_)) => Fault::Retrying,
-            (FailureKind::SignIn | FailureKind::Limit, _) => Fault::Account,
+            (FailureKind::SignIn | FailureKind::Limit | FailureKind::Payment, _) => Fault::Account,
             (FailureKind::Network | FailureKind::Other, _) => Fault::Broke,
         };
         let failure = failed.failure.payload(current.as_deref());
@@ -985,11 +994,12 @@ impl<B: Backend> Running<'_, B> {
             chat.finish_turn(response);
         }
         chat.fail_turn(failure);
-        if let (FailureKind::SignIn, Some(core)) = (failed.failure.kind, chat.core.upgrade()) {
-            (core.chat_above().agent_accounts_chat_refused)(
+        if let Some(core) = chat.core.upgrade() {
+            (core.chat_above().agent_accounts_turn_ended)(
                 &core,
                 self.provider,
                 current.as_deref(),
+                Some(failed.failure.kind),
             );
         }
         if failed.failure.kind == FailureKind::Network && state.failed_prompt.is_some() {

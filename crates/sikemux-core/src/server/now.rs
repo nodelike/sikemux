@@ -229,7 +229,7 @@ fn row_of(turn: &TurnState) -> Option<(NowGroup, NowFact, u64)> {
         TurnPhase::Failed => {
             let why = (turn.failed.as_ref()).map_or(FailureKind::Other, |failed| failed.why);
             let group = match why {
-                FailureKind::SignIn => NowGroup::WaitingOnYou,
+                FailureKind::SignIn | FailureKind::Payment => NowGroup::WaitingOnYou,
                 _ => NowGroup::NotSure,
             };
             (group, NowFact::Failed { why }, since)
@@ -347,6 +347,7 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
         NowFact::Failed { why } => match why {
             FailureKind::Limit => "failed on the usage limit",
             FailureKind::SignIn => "failed, signed out",
+            FailureKind::Payment => "failed, the account's plan is unpaid",
             FailureKind::Network => "failed on the network",
             FailureKind::Other | FailureKind::Unknown => "failed",
         }

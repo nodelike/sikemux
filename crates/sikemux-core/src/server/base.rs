@@ -294,7 +294,7 @@ pub(super) fn chat_above() -> ChatAbove {
         memory_for_chat: memory::for_chat,
         questions_ask_for_dialog: questions::ask_for_dialog,
         turn_state_now: turn_state::now,
-        agent_accounts_chat_refused: agent_accounts::chat_refused,
+        agent_accounts_turn_ended: agent_accounts::turn_ended,
         board_take_note: board::chat_goal::take_note,
         memory_take_removed: memory::take_removed_note,
         memory_chat_ready: memory::chat_ready,

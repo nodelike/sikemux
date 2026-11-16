@@ -67,6 +67,8 @@ pub enum FailureKind {
     SignIn,
     /// The account ran out of usage, for now or until its plan resets.
     Limit,
+    /// The account's plan is unpaid, so its provider refuses every chat until it is paid.
+    Payment,
     /// The network or the model provider could not be reached; the same
     /// prompt can go again once it is back.
     Network,

@@ -521,6 +521,7 @@ fn failure_of(payload: &Value) -> Option<ChatFailure> {
     let kind = match text_of(failure.get("kind"))? {
         "signIn" => FailureKind::SignIn,
         "limit" => FailureKind::Limit,
+        "payment" => FailureKind::Payment,
         "network" => FailureKind::Network,
         "other" => FailureKind::Other,
         _ => return None,

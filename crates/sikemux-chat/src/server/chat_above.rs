@@ -53,9 +53,10 @@ pub struct ChatAbove {
     /// What an agent's turn starts with: a chief's digest of what happened since its last turn,
     /// and any lead's calm reports from the agents it started.
     pub turn_digest: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Vec<ChatContext>>,
-    /// A chat on `account`, one of the person's profiles or the default one when absent, was
-    /// refused for sign-in: the account is signed out now, whatever its CLI last said.
-    pub agent_accounts_chat_refused: fn(&Core, &str, Option<&str>),
+    /// How a turn of a chat on `account` ended: answered, or refused for the account's sign-in
+    /// or unpaid plan, which keeps that account off new chats.
+    pub agent_accounts_turn_ended:
+        fn(&Core, &str, Option<&str>, Option<crate::acp::failure::FailureKind>),
     /// What the agent is told with the person's next message, once.
     pub board_take_note: fn(&Core, &str) -> Option<ChatContext>,
     /// What an agent hears with its next turn of the rules kept from its chat that the person

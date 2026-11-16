@@ -97,6 +97,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
             let why = match failed.why {
                 FailureKind::Limit => t!("{maker}'s limit", maker = maker),
                 FailureKind::SignIn => t!("signed out of {maker}", maker = maker),
+                FailureKind::Payment => t!("{maker} plan is unpaid", maker = maker),
                 FailureKind::Network => t!("lost the connection to {maker}", maker = maker),
                 _ => failed
                     .said

@@ -8,7 +8,8 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::agent_accounts::Availability;
 pub use sikemux_calls::agent_accounts::{
     Account, Authenticate, ChatAccounts, ChatAccountsParams, Choosing, Forget, InProject,
-    MoveChatParams, MovedChat, NamedAccount, Picked, Removing, Smart, StayedChat, Unpicking,
+    MoveChatParams, MovedChat, NamedAccount, Picked, Removing, Smart, StayedChat, Stranded,
+    Unpicking,
 };
 pub use sikemux_calls::agent_accounts::{
     AccountUsage, Adding, Installed, Saving, UsedReset, UsingReset,
@@ -21,8 +22,11 @@ use super::changed::Topic;
 use super::connection::blocking;
 use super::workspace::refresh_launchers;
 use super::{Core, CoreResult};
+use crate::acp::failure::FailureKind;
 use crate::agent_accounts::allocate::{self, Aim, Candidate, Placement};
-use crate::agent_accounts::{chat_account, defaults, folders, status, usage, Book, Profile};
+use crate::agent_accounts::{
+    chat_account, defaults, folders, status, unpaid, usage, Book, Profile,
+};
 use crate::agent_catalog::{AgentEntry, AGENTS};
 use crate::flights::{shared, Flights};
 use crate::launch::account_environment;
@@ -259,7 +263,7 @@ fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Readin
         .collect()
 }
 
-/// The person's accounts with `provider`'s agent that are signed in.
+/// The person's accounts with `provider`'s agent that are signed in and paid for.
 fn signed_in(book: &Book, provider: &str) -> Vec<Profile> {
     (book.clone().with_built_ins().profiles.into_iter())
         .filter(|profile| profile.provider == provider)
@@ -270,7 +274,7 @@ fn signed_in(book: &Book, provider: &str) -> Vec<Profile> {
             matches!(
                 crate::agent_accounts::sign_in::signed_in(provider, &env),
                 Some(crate::agent_accounts::sign_in::SignIn::Account(_))
-            )
+            ) && !unpaid::is_unpaid(provider, profile.config_path.as_deref())
         })
         .collect()
 }
@@ -690,6 +694,7 @@ pub(super) fn forget(core: &Arc<Core>, forget: Forget) {
     status::forget(provider, config_path);
     if let Some(provider) = provider {
         usage::forget(provider, config_path);
+        unpaid::clear(provider, config_path);
     }
     discovery::forget_failures();
     tokio::spawn(refresh_launchers(core.clone()));
@@ -699,14 +704,31 @@ pub(super) fn mark_signed_out(core: &Core, account: Account) {
     signed_out(core, &account.provider, account.config_path.as_deref());
 }
 
-/// A chat on `account`, one of the person's profiles or the default one when absent, was
-/// refused for sign-in: the account is signed out now, whatever its CLI last said.
-pub(crate) fn chat_refused(core: &Core, provider: &str, account: Option<&str>) {
+/// How a turn of a chat on `account`, one of the person's profiles or the default one when
+/// absent, ended: answered, which shows its plan is paid, or refused for its sign-in or plan.
+pub(crate) fn turn_ended(
+    core: &Core,
+    provider: &str,
+    account: Option<&str>,
+    refused: Option<FailureKind>,
+) {
+    if refused.is_none() && !unpaid::any() {
+        return;
+    }
     let book = core.workspaces().accounts().unwrap_or_default();
     let config_path = account
         .and_then(|id| book.profile(id))
         .and_then(|profile| profile.config_path.clone());
-    signed_out(core, provider, config_path.as_deref());
+    let config_path = config_path.as_deref();
+    match refused {
+        None if unpaid::clear(provider, config_path) => core.changed(What::View),
+        Some(FailureKind::SignIn) => signed_out(core, provider, config_path),
+        Some(FailureKind::Payment) => {
+            unpaid::mark(provider, config_path);
+            core.changed(What::View);
+        }
+        _ => {}
+    }
 }
 
 fn signed_out(core: &Core, provider: &str, config_path: Option<&str>) {
@@ -736,6 +758,44 @@ pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult
         others: takers.others.into_iter().map(named).collect(),
         none_because: takers.none_because,
     })
+}
+
+/// The accounts their provider refuses, each with the chats stranded on it and where they could
+/// carry on, for the person to choose what moves.
+pub(super) fn stranded(core: &Core) -> Vec<Stranded> {
+    use sikemux_view::chat::FailureKind as Why;
+    let named = |account: ChatAccount| NamedAccount {
+        id: account.id,
+        label: account.label,
+    };
+    let mut stranded: Vec<Stranded> = Vec::new();
+    for (agent_id, turn) in super::turn_state::all(core) {
+        let Some(why) = turn.failed.map(|failed| failed.why) else {
+            continue;
+        };
+        if !matches!(why, Why::Payment | Why::SignIn) {
+            continue;
+        }
+        let Ok(takers) = super::chat::accounts(core, &agent_id) else {
+            continue;
+        };
+        let Some(account) = takers.current.map(named) else {
+            continue;
+        };
+        match stranded
+            .iter_mut()
+            .find(|held| held.account.id == account.id)
+        {
+            Some(held) => held.chats.push(agent_id),
+            None => stranded.push(Stranded {
+                account,
+                why,
+                chats: vec![agent_id],
+                to: takers.others.into_iter().map(named).collect(),
+            }),
+        }
+    }
+    stranded
 }
 
 /// How old a reading may grow before it says so: three of the app's reads missed.

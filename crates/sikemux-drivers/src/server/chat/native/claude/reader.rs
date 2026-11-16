@@ -273,7 +273,9 @@ fn failure_of(message: &Value) -> Option<Failure> {
     }
     let error = text(message, "error")?;
     let kind = match error {
-        "authentication_failed" | "oauth_org_not_allowed" => FailureKind::SignIn,
+        _ if failure::says_unpaid(&said) => FailureKind::Payment,
+        "authentication_failed" => FailureKind::SignIn,
+        "oauth_org_not_allowed" => FailureKind::Payment,
         "billing_error" | "account_on_hold" | "rate_limit" => FailureKind::Limit,
         _ => FailureKind::Other,
     };
@@ -1233,6 +1235,8 @@ impl Reader {
                 .unwrap_or_else(|| "Claude could not finish this turn".to_owned());
             let kind = if failure::asks_sign_in(&said) {
                 FailureKind::SignIn
+            } else if failure::says_unpaid(&said) {
+                FailureKind::Payment
             } else {
                 FailureKind::Other
             };
@@ -2109,6 +2113,16 @@ mod tests {
         assert_eq!(failure_of(&message).unwrap().kind, FailureKind::SignIn);
         let normal = json!({ "message": { "model": "claude-opus-5-5", "content": [{ "type": "text", "text": "hi" }] } });
         assert!(failure_of(&normal).is_none());
+    }
+
+    #[test]
+    fn a_past_due_subscription_reads_as_unpaid_not_signed_out() {
+        let message = json!({
+            "error": "oauth_org_not_allowed",
+            "isApiErrorMessage": true,
+            "message": { "model": "<synthetic>", "content": [{ "type": "text", "text": "Claude Code can't use your Claude subscription, usually because a payment is past due · Pay or renew at https://claude.ai/settings/billing (if you just paid, try again shortly), or use an Anthropic API key instead" }] },
+        });
+        assert_eq!(failure_of(&message).unwrap().kind, FailureKind::Payment);
     }
 
     #[test]

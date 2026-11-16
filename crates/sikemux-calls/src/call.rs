@@ -191,6 +191,7 @@ crate::calls! {
     "discardFailed" DiscardFailed (crate::agent_accounts::ChatAccountsParams) -> ();
     "chatAccounts" ChatAccounts (crate::agent_accounts::ChatAccountsParams) -> crate::agent_accounts::ChatAccounts;
     "moveChatAccount" MoveChatAccount (crate::agent_accounts::MoveChatParams) -> ();
+    "strandedChats" StrandedChats (crate::params::NoParams) -> Vec<crate::agent_accounts::Stranded>;
     "authenticateChat" AuthenticateChat (crate::agent_accounts::Authenticate) -> ();
     "shareChat" ShareChat (crate::share::ShareChatParams) -> crate::share::ShareView;
     "shares" Shares (crate::params::NoParams) -> Vec<crate::share::ShareView>;

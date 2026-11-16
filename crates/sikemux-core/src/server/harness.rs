@@ -619,6 +619,7 @@ async fn dispatch(
         "agent.read" => follow::read(core, &request).await,
         "agent.wait" => follow::wait(core, &request).await,
         "agent.close" => super::roster::close(core, &request).await,
+        "agent.account" => super::roster::move_account(core, &request).await,
         "agent.hire" => super::hire::tool(core, &request).await,
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
         "agent.why" => super::why::tool(core, &request).await,

@@ -11,6 +11,7 @@ pub mod folders;
 pub mod plan_limits;
 pub mod sign_in;
 pub mod status;
+pub mod unpaid;
 pub mod usage;
 
 use std::collections::BTreeMap;
@@ -260,8 +261,11 @@ impl Book {
                 )
             })
             .collect();
+        let paid: Vec<&&Profile> = (signed_in.iter().copied())
+            .filter(|other| !unpaid::is_unpaid(provider, other.config_path.as_deref()))
+            .collect();
         let from = current.and_then(|current| current.config_path.as_deref());
-        let taking: Vec<ChatAccount> = (signed_in.iter())
+        let taking: Vec<ChatAccount> = (paid.iter())
             .filter(|other| {
                 !started || folders::shares_chats(provider, from, other.config_path.as_deref())
             })
@@ -271,6 +275,7 @@ impl Book {
         let none_because = taking.is_empty().then(|| match () {
             _ if others.is_empty() => format!("{agent} has no other account here"),
             _ if signed_in.is_empty() => format!("No other {agent} account is signed in"),
+            _ if paid.is_empty() => format!("The other {agent} accounts' plans are unpaid"),
             _ => format!("The other {agent} accounts keep their chats apart from this one"),
         });
         Takers {

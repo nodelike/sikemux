@@ -1993,6 +1993,33 @@
       ]
     },
     {
+      "name": "agent_account",
+      "row": {"verb": "move", "kind": "edit", "icon": "user", "target": ["{agents}"], "detail": ["to {account}"]},
+      "method": "agent.account",
+      "description": "Move agents' chats to another account of their agent, by its name or id; each carries on there. Lists those it refused, with why.",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "agents",
+        "account"
+      ]
+    },
+    {
       "name": "agent_hire",
       "row": {"verb": "hire", "kind": "edit", "icon": "user", "target": ["{agent}", "as @{name}"], "detail": ["{role}"]},
       "method": "agent.hire",

@@ -637,7 +637,7 @@ pub(super) fn trouble(
         }));
     }
     let kind = failure.map(|failure| failure.kind);
-    if kind == Some(FailureKind::Limit) {
+    if matches!(kind, Some(FailureKind::Limit | FailureKind::Payment)) {
         let can = (head.turn.as_ref())
             .and_then(|turn| turn.failed.as_ref())
             .map(|failed| failed.can.as_slice())
