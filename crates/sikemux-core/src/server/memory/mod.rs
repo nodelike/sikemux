@@ -841,7 +841,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
     let core = core.clone();
     run(move || {
         let mut by = learned(&core, Some(&agent));
-        let new = match adding {
+        let (new, said, paths) = match adding {
             ToolAdd::Rule {
                 text,
                 person: true,
@@ -853,6 +853,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     agent,
                     name: by.name.take(),
                 });
+                let said = text.clone();
                 let id = add(
                     &core,
                     &project,
@@ -865,7 +866,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     by,
                 )?;
                 say_kept(&core, &agent, &project, id);
-                return Ok(json!({ "note": format!("Kept as #{id}, as the person's rule.") }));
+                let note = format!("Kept as #{id}, as the person's rule.");
+                return Ok(json!({ "note": with_check_asked(note, &said, &[]) }));
             }
             ToolAdd::Rule {
                 text,
@@ -875,12 +877,14 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 ..
             } => {
                 let goal = goal.then(|| goal_card(&core, &agent)).transpose()?;
-                NewMemory::Rule {
+                let said = text.clone();
+                let rule = NewMemory::Rule {
                     text,
                     goal,
                     sensitive,
                     folder,
-                }
+                };
+                (rule, said, Vec::new())
             }
             ToolAdd::Knowledge {
                 text,
@@ -888,18 +892,50 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 sensitive,
                 check,
                 folder,
-            } => NewMemory::Knowledge {
-                text,
-                about,
-                sensitive,
-                check,
-                folder,
-            },
+            } => {
+                let (said, paths) = (text.clone(), about.clone());
+                let knowledge = NewMemory::Knowledge {
+                    text,
+                    about,
+                    sensitive,
+                    check,
+                    folder,
+                };
+                (knowledge, said, paths)
+            }
         };
         let note = keep(&core, &project, new, by)?;
-        Ok(json!({ "note": note }))
+        Ok(json!({ "note": with_check_asked(note, &said, &paths) }))
     })
     .await
+}
+
+/// `note` with, when the memory is about code, a request for the check that
+/// would hold it: a note only an agent reads stops no one from breaking it.
+fn with_check_asked(note: String, text: &str, about: &[String]) -> String {
+    if !about_code(text, about) {
+        return note;
+    }
+    let asked = "This is about code, so a check should hold it too, not only this note: add a lint (such as a Clippy deny or a disallowed method) or a `landChecks` entry in sikemux.json, which the land queue runs on every land touching its paths, and land it. If no check can catch it, say why in your answer.";
+    match note.is_empty() {
+        true => asked.to_owned(),
+        false => format!("{note} {asked}"),
+    }
+}
+
+/// Whether a memory names source files or code by its words.
+fn about_code(text: &str, about: &[String]) -> bool {
+    const SOURCES: [&str; 9] = [
+        ".rs", ".ts", ".tsx", ".js", ".swift", ".kt", ".py", ".go", ".toml",
+    ];
+    const WORDS: [&str; 10] = [
+        "`", "::", "()", "crate", "function", "method", "clippy", "compile", "struct", " fn ",
+    ];
+    let lower = text.to_lowercase();
+    let names_source = |word: &str| SOURCES.iter().any(|ext| word.contains(ext));
+    about.iter().any(|path| names_source(path))
+        || lower.split_whitespace().any(names_source)
+        || WORDS.iter().any(|word| lower.contains(word))
 }
 
 /// Whether what the person said in this turn, as the chat's record has it, holds most of the
@@ -957,6 +993,9 @@ pub(crate) async fn tool_update(
         .is_some_and(|label| label.eq_ignore_ascii_case("said again"));
     let core = core.clone();
     run(move || {
+        let corrected = (given.text.as_deref())
+            .map(|text| with_check_asked(String::new(), text, given.about.as_deref().unwrap_or_default()))
+            .filter(|asked| !asked.is_empty());
         let update = MemoryUpdateParams {
             goal: given.goal.then(|| goal_card(&core, &agent)).transpose()?,
             project: project.clone(),
@@ -969,9 +1008,10 @@ pub(crate) async fn tool_update(
             drop_check: given.drop_check,
         };
         amend(&core, &project, update, learned(&core, Some(&agent)))?;
-        Ok(match said_again {
-            true => json!({ "id": id, "note": format!("Counted #{id} as said again; the rule is unchanged") }),
-            false => json!({ "id": id }),
+        Ok(match (said_again, corrected) {
+            (true, _) => json!({ "id": id, "note": format!("Counted #{id} as said again; the rule is unchanged") }),
+            (false, Some(asked)) => json!({ "id": id, "note": asked }),
+            (false, None) => json!({ "id": id }),
         })
     })
     .await
