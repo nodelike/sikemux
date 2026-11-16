@@ -343,12 +343,9 @@ pub fn error_detail(output: &[u8]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
     use super::{first_healthy, probe_agent_executable, probe_agent_executable_with_timeout};
-    #[cfg(unix)]
     use crate::agent_catalog::agent as catalog_agent;
 
-    #[cfg(unix)]
     fn agent(name: &str) -> &'static crate::agent_catalog::AgentEntry {
         catalog_agent(name).unwrap()
     }
@@ -502,6 +499,113 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            probe_agent_executable(agent("hermes"), &executable)
+                .await
+                .unwrap(),
+            "usage: hermes"
+        );
+        assert!(
+            probe_agent_executable_with_timeout(
+                agent("claude"),
+                &executable,
+                std::time::Duration::from_millis(20)
+            )
+            .await
+            .is_err(),
+            "other agents keep probing --version"
+        );
+    }
+
+    #[cfg(windows)]
+    fn script(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+        let path = dir.join(format!("{name}.cmd"));
+        std::fs::write(&path, format!("@echo off\r\n{body}\r\n")).unwrap();
+        path
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn executable_probe_rejects_broken_wrappers_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let healthy = script(dir.path(), "healthy", "echo codex-cli test");
+        let broken = script(
+            dir.path(),
+            "broken",
+            "echo saved launcher missing 1>&2\r\nexit /b 127",
+        );
+
+        assert!(probe_agent_executable(agent("codex"), &healthy)
+            .await
+            .is_ok());
+        assert!(probe_agent_executable(agent("codex"), &broken)
+            .await
+            .unwrap_err()
+            .contains("saved launcher missing"));
+
+        let (selected, failures) =
+            first_healthy(agent("codex"), vec![broken.clone(), healthy.clone()]).await;
+        assert_eq!(selected, Some(healthy));
+        assert_eq!(failures.len(), 1);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn executable_probe_reuses_success_and_invalidates_changed_files_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let count = dir.path().join("count");
+        let body = format!("echo x>>\"{}\"\r\necho version-one", count.display());
+        let executable = script(dir.path(), "agent", &body);
+        for _ in 0..2 {
+            assert_eq!(
+                probe_agent_executable(agent("codex"), &executable)
+                    .await
+                    .unwrap(),
+                "version-one"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&count).unwrap().lines().count(), 1);
+        script(dir.path(), "agent", "echo version-two-changed");
+        assert_eq!(
+            probe_agent_executable(agent("codex"), &executable)
+                .await
+                .unwrap(),
+            "version-two-changed"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn executable_probe_bounds_temporarily_busy_updaters_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let busy = script(
+            dir.path(),
+            "busy",
+            "ping -n 3 127.0.0.1 >nul\r\necho claude test",
+        );
+
+        assert_eq!(
+            probe_agent_executable_with_timeout(
+                agent("claude"),
+                &busy,
+                std::time::Duration::from_millis(20)
+            )
+            .await
+            .unwrap_err(),
+            "version check timed out"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn hermes_probe_skips_the_networked_version_check_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = script(
+            dir.path(),
+            "hermes",
+            "if \"%1\"==\"--help\" (echo usage: hermes) else (ping -n 31 127.0.0.1 >nul)",
+        );
 
         assert_eq!(
             probe_agent_executable(agent("hermes"), &executable)
