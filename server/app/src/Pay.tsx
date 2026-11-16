@@ -17,7 +17,7 @@ interface Paddle {
   Environment: { set(environment: "sandbox"): void };
   Initialize(options: {
     token: string;
-    checkout: { settings: { successUrl: string } };
+    checkout: { settings: { successUrl: string; allowLogout: boolean } };
     eventCallback: (event: PaddleEvent) => void;
   }): void;
 }
@@ -63,7 +63,7 @@ export function Pay() {
           paddle.Environment.set("sandbox");
         paddle.Initialize({
           token: checkout.clientToken,
-          checkout: { settings: { successUrl: back } },
+          checkout: { settings: { successUrl: back, allowLogout: false } },
           eventCallback: (event) => {
             if (event.name === "checkout.closed") location.replace(back);
           },
