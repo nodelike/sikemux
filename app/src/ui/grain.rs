@@ -18,7 +18,7 @@ use gpui::{
 };
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::backdrop::{BackdropKind, GridShape, WornBackdrop};
-use sikemux_view::inbox::Moment;
+use sikemux_view::inbox::Celebration;
 use sikemux_view::prefs::{
     Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern, Preferences,
 };
@@ -199,7 +199,7 @@ impl Paces {
 
 /// Plays the latest moment the core says the theme celebrates in its agent's pane, once: when
 /// its count is new and it happened under 10 s ago. Less motion plays none.
-pub fn celebrate(moment: Option<&Moment>, cx: &mut App) {
+pub fn celebrate(moment: Option<&Celebration>, cx: &mut App) {
     let Some(moment) = moment else {
         return;
     };

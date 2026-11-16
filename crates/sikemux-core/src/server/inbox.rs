@@ -44,7 +44,7 @@ use sikemux_fold::AgentNeed;
 use sikemux_view::backdrop::Moments;
 use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
-use sikemux_view::inbox::Moment;
+use sikemux_view::inbox::Celebration;
 use sikemux_view::push::ActivityGlance;
 use sikemux_view::turn::{TurnState, WorkAt};
 
@@ -1697,13 +1697,13 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
 }
 
 /// The latest feat here when the theme celebrates it.
-fn moment(core: &Core) -> Option<Moment> {
+fn moment(core: &Core) -> Option<Celebration> {
     let achieved = core.notify().achieved()?;
     match (core.look().palette().backdrop.look.moments, achieved.feat) {
         (Moments::Full, Feat::Landed | Feat::ChecksPassed) => {}
         (Moments::Quiet | Moments::Off, Feat::Landed | Feat::ChecksPassed) => return None,
     }
-    Some(Moment {
+    Some(Celebration {
         agent_id: achieved.agent_id,
         at: achieved.at,
         count: achieved.count,

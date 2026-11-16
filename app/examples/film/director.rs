@@ -748,7 +748,7 @@ impl Director {
 
     pub(super) fn moment(&mut self, agent_id: String) -> anyhow::Result<()> {
         self.moments += 1;
-        let moment = sikemux_view::inbox::Moment {
+        let moment = sikemux_view::inbox::Celebration {
             agent_id,
             at: sikemux_process::clock::epoch_ms(),
             count: self.moments,
