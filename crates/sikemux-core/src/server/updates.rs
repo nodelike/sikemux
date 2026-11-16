@@ -533,6 +533,46 @@ pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResu
     begin_install(core, params.force, false)
 }
 
+/// Hands the installer this core fetched to the Sikemux service, which installs it for everyone
+/// on this computer and opens the app again. False when no service runs this core, so the app
+/// runs the installer itself.
+pub(crate) async fn apply(core: &Arc<Core>) -> CoreResult<bool> {
+    if !super::remote::asks_in_window() {
+        return Ok(false);
+    }
+    let applied = apply_through_service(core).await;
+    if let Err(error) = &applied {
+        let error = error.to_string();
+        core.updates().edit(core, |held| {
+            held.status.state = UpdateState::Failed;
+            held.status.error = Some(error);
+        });
+    }
+    applied.map(|()| true)
+}
+
+#[cfg(windows)]
+async fn apply_through_service(core: &Core) -> CoreResult<()> {
+    let status = core.updates().status();
+    let found = core.updates().held.locked().found.clone();
+    let (Some(release), Some(found), UpdateState::Ready) = (status.available, found, status.state)
+    else {
+        return Err(CoreError::from("no update is ready to install"));
+    };
+    let setup = sikemux_process::paths::update_setup()
+        .ok_or_else(|| CoreError::from("there is no cache folder"))?;
+    blocking(move || {
+        sikemux_trust::service::apply_update(&setup, &found.signature, &release.version)
+            .map_err(|error| CoreError::from(error.to_string()))
+    })
+    .await
+}
+
+#[cfg(not(windows))]
+async fn apply_through_service(_core: &Core) -> CoreResult<()> {
+    unreachable!("only a Windows core runs under the service")
+}
+
 /// `by_itself` is an update a desktop app began on its own, which waits for every chat to rest
 /// however long that takes and stops none.
 fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<UpdateStatus> {

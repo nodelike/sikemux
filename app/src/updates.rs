@@ -12,7 +12,9 @@ use sikemux_calls::params::NoParams;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::{UpdateOutcomeState, UpdateState, UpdateStatus};
 
-use crate::core::Target;
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
 use crate::screens::experience;
 use crate::screens::whats_new::RELEASES;
@@ -36,15 +38,28 @@ pub(crate) struct LastKey(pub Instant);
 impl Global for LastKey {}
 
 /// Starts the app again on the update in place. On Windows the core only fetched the release's
-/// installer, which replaces the app and the core and opens the app again, so this hands over to it.
-fn restart_into_update(cx: &mut App) {
+/// installer, which replaces the app and the core and opens the app again, so this hands over to
+/// it: through the core to the Sikemux service when one runs the core, or else by running it.
+fn restart_into_update(asks: &UnboundedSender<Ask>, cx: &mut App) {
     #[cfg(windows)]
     if let Some(setup) = sikemux_process::paths::update_setup().filter(|setup| setup.is_file()) {
-        match run_setup(&setup) {
-            Ok(()) => return cx.quit(),
-            Err(error) => eprintln!("sikemux: the update's installer did not start: {error}"),
-        }
+        let applied = Target::here(asks).request_typed::<call::UpdateApply>(NoParams {});
+        cx.spawn(async move |cx| match applied.await {
+            Ok(true) => cx.update(|cx| cx.quit()),
+            Ok(false) => match run_setup(&setup) {
+                Ok(()) => cx.update(|cx| cx.quit()),
+                Err(error) => {
+                    eprintln!("sikemux: the update's installer did not start: {error}");
+                    cx.update(|cx| cx.restart());
+                }
+            },
+            Err(error) => eprintln!("sikemux: the update did not start: {error}"),
+        })
+        .detach();
+        return;
     }
+    #[cfg(not(windows))]
+    let _ = asks;
     cx.restart();
 }
 
@@ -65,7 +80,7 @@ fn run_setup(setup: &std::path::Path) -> std::io::Result<()> {
 
 /// Restarts into the installed update once the person's keys have rested, so the windows never
 /// close under a word being typed.
-pub(crate) fn restart_when_keys_rest(cx: &mut App) {
+pub(crate) fn restart_when_keys_rest(asks: UnboundedSender<Ask>, cx: &mut App) {
     cx.spawn(async move |cx| loop {
         let rested = cx.update(|cx| cx.try_global::<LastKey>().map(|key| key.0.elapsed()));
         match rested {
@@ -73,7 +88,7 @@ pub(crate) fn restart_when_keys_rest(cx: &mut App) {
                 cx.background_executor().timer(KEYS_REST - rested).await;
             }
             _ => {
-                cx.update(restart_into_update);
+                cx.update(|cx| restart_into_update(&asks, cx));
                 return;
             }
         }
@@ -85,10 +100,11 @@ pub(crate) fn restart_when_keys_rest(cx: &mut App) {
 /// unless a chat started a turn meanwhile, which the core reports by waiting again.
 pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
     cx.spawn(async move |bench, cx| loop {
-        let Ok(rested) = bench.update(cx, |bench, cx| {
+        let Ok((rested, asks)) = bench.update(cx, |bench, cx| {
             let ready = (bench.reads.update.as_ref())
                 .is_some_and(|update| update.by_itself && update.state == UpdateState::Ready);
-            ready.then(|| cx.try_global::<LastKey>().map(|key| key.0.elapsed()))
+            let rested = ready.then(|| cx.try_global::<LastKey>().map(|key| key.0.elapsed()));
+            (rested, bench.asks.clone())
         }) else {
             return;
         };
@@ -98,7 +114,7 @@ pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
                 cx.background_executor().timer(IDLE - rested).await;
             }
             Some(_) => {
-                cx.update(restart_into_update);
+                cx.update(|cx| restart_into_update(&asks, cx));
                 return;
             }
         }
@@ -111,7 +127,7 @@ pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
 pub(crate) fn install_now(bench: &Workbench, cx: &mut App) {
     match bench.reads.update.as_ref() {
         Some(update) if update.by_itself && update.state == UpdateState::Ready => {
-            restart_into_update(cx)
+            restart_into_update(&bench.asks, cx)
         }
         _ => install(bench, false),
     }
@@ -276,7 +292,7 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
         .on_click(
             cx.listener(|bench, _, _, cx| match bench.reads.update.as_ref() {
                 Some(update) if update.by_itself && update.state == UpdateState::Ready => {
-                    restart_into_update(cx)
+                    restart_into_update(&bench.asks, cx)
                 }
                 _ => experience::open_whats_new(bench, cx),
             }),

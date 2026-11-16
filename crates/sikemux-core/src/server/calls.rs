@@ -232,6 +232,7 @@ calls! { core, client, method, params;
     "updateStatus" = UpdateStatus: Watch, any_program => core.updates().status(),
     "updateCheck" = UpdateCheck: Owner => super::updates::check(&core).await?,
     "updateInstall" = UpdateInstall: Owner, counted => super::updates::install(&core, params)?,
+    "updateApply" = UpdateApply: Owner => super::updates::apply(&core).await?,
     "updateCancel" = UpdateCancel: Owner => super::updates::cancel(&core),
     "updateHost": NoDevice, any_program => answer(super::updates::update_host(&core).await?),
     "setHostUpdates" = SetHostUpdates: Owner => super::updates::set_automatic(&core, params).await?,

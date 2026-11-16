@@ -80,6 +80,7 @@ crate::calls! {
     "holdTrigger" HoldTrigger (crate::triggers::HoldTriggerParams) -> bool;
     "takeStep" TakeStep (crate::turn_state::TakeStepParams) -> ();
     "updateInstall" UpdateInstall (crate::updates::UpdateInstallParams) -> sikemux_view::updates::UpdateStatus;
+    "updateApply" UpdateApply (crate::params::NoParams) -> bool;
     "setHostUpdates" SetHostUpdates (crate::updates::HostUpdatesParams) -> sikemux_view::updates::UpdateStatus;
     "vaultRecover" VaultRecover (crate::vault::RecoverParams) -> ();
     "vaultKeep" VaultKeep (crate::vault::KeepParams) -> ();

@@ -360,7 +360,8 @@ impl Workbench {
                     if (self.reads.update.as_ref()).is_some_and(|update| update.by_itself) {
                         crate::updates::restart_when_idle(cx);
                     } else {
-                        cx.defer(crate::updates::restart_when_keys_rest);
+                        let asks = self.asks.clone();
+                        cx.defer(move |cx| crate::updates::restart_when_keys_rest(asks, cx));
                     }
                 }
             }
