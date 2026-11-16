@@ -28,6 +28,7 @@ workspace-members = [
     "sikemux-gpui",
     "sikemux-linked",
     "sikemux-mobile",
+    "sikemux-web-device",
     "sikemux-wire",
     "textmate-highlight",
 ]
