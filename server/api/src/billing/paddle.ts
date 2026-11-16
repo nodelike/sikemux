@@ -25,6 +25,7 @@ import type {
   ChangePreview,
   CheckoutRequest,
   HeldSubscription,
+  Paid,
   ProviderEvent,
   ProviderItem,
   ProviderRequest,
@@ -37,10 +38,7 @@ const SIGNATURE_TOLERANCE_S = 5 * 60;
 const REFETCH_AFTER_MS = 60_000;
 
 /** A change waiting for renewal: Paddle already holds the new items, so this is what is held until then. */
-interface Held {
-  product: BillingProductId;
-  quantity: number;
-  interval: BillingInterval;
+interface Held extends Paid {
   until: string;
 }
 
@@ -209,6 +207,20 @@ function ownDataOf(sub: PaddleSubscription): CustomData {
 function heldOf(sub: PaddleSubscription, at: Date) {
   const { held } = ownDataOf(sub);
   return held && new Date(held.until) > at ? held : null;
+}
+
+/** What this period is paid for: a change held for renewal leaves it in custom data until then. */
+function paidOf(sub: PaddleSubscription, at: Date): Paid {
+  const held = heldOf(sub, at);
+  if (held) return held;
+  const [item] = ours(sub.items.filter((each) => each.status !== "inactive"));
+  if (!item)
+    throw new Error(`Paddle's subscription ${sub.id} holds nothing of ours.`);
+  return {
+    product: item.product,
+    quantity: item.quantity,
+    interval: intervalOf(sub.billing_cycle),
+  };
 }
 
 /**
@@ -552,9 +564,11 @@ export class PaddleProvider implements BillingProvider {
     );
     const sub = await this.subscription(held.providerSubscriptionId);
     const items = [{ price_id: price.id, quantity: update.quantity }];
+    const at = new Date(this.now());
     if (when === "renewal") {
-      const until = owedOf(sub, new Date(this.now())) ?? periodEndOf(sub);
+      const until = owedOf(sub, at) ?? periodEndOf(sub);
       this.refuseLateIntervalChange(sub, update.interval, until);
+      const { product, quantity, interval } = paidOf(sub, at);
       return {
         sub,
         until,
@@ -563,17 +577,11 @@ export class PaddleProvider implements BillingProvider {
           proration_billing_mode: "do_not_bill",
           custom_data: {
             subscription: sub.id,
-            held: {
-              product: held.product,
-              quantity: held.quantity,
-              interval: held.interval,
-              until,
-            } satisfies Held,
+            held: { product, quantity, interval, until } satisfies Held,
           },
         },
       };
     }
-    const at = new Date(this.now());
     return {
       sub,
       refused: heldOf(sub, at)
@@ -644,6 +652,11 @@ export class PaddleProvider implements BillingProvider {
       proration_billing_mode: "do_not_bill",
       next_billed_at: owedOf(sub, at),
     });
+  }
+
+  async paid(held: HeldSubscription): Promise<Paid> {
+    const sub = await this.subscription(held.providerSubscriptionId);
+    return paidOf(sub, new Date(this.now()));
   }
 
   async takeBack(held: HeldSubscription, paid: SubscriptionUpdate) {

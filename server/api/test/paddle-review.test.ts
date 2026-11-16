@@ -68,6 +68,8 @@ class FakePaddle {
   /** How far Paddle's clock moves on between an items change and the next call. */
   gapAfterItems = 0;
   private later = 0;
+  /** How long Paddle takes to answer for a subscription. */
+  slowMs = 0;
   subscriptions = new Map<string, PaddleSub>();
   customerOf = new Map<string, string>();
   lastCheckout: string | undefined;
@@ -182,13 +184,18 @@ class FakePaddle {
       );
     const subscription = /^\/subscriptions\/([^/?]+)$/.exec(path);
     const sub = subscription && this.subscriptions.get(subscription[1] ?? "");
-    if (sub && method === "GET") return Promise.resolve(sub);
+    if (sub && method === "GET") {
+      const { slowMs } = this;
+      return slowMs
+        ? new Promise((resolve) => setTimeout(() => resolve(sub), slowMs))
+        : Promise.resolve(sub);
+    }
     if (sub && method === "PATCH" && body) {
       const items = body.items as
         { price_id: string; quantity: number }[] | undefined;
       const [first] = items ?? [];
       const billsOn = body.next_billed_at as string | undefined;
-      const now = Date.now() + this.later;
+      const now = Date.now() + ahead + this.later;
       const renewsIn = new Date(sub.next_billed_at).getTime() - now;
       if (renewsIn > 0 && renewsIn < 30 * MINUTE_MS)
         return Promise.reject(
@@ -281,11 +288,15 @@ function appWith(fake: FakePaddle, live = true) {
         api: fake as unknown as PaddleApi,
         apiOrigin: "https://api.sikemux.com",
         log,
+        now: () => Date.now() + ahead,
       }),
       live,
     },
   });
 }
+
+/** How far the adapter's clock and Paddle's run ahead of the test's, to stand past a period's end. */
+let ahead = 0;
 
 beforeAll(async () => {
   ({ database, drop } = await migratedDatabase());
@@ -294,6 +305,7 @@ beforeAll(async () => {
 afterAll(() => drop());
 
 beforeEach(async () => {
+  ahead = 0;
   await emptyTables(database);
   await database.pool.query("truncate orgs, billing_events cascade");
   await database.pool.query(
@@ -314,7 +326,10 @@ async function as(
   return call(path, await sessionToken(userId), init);
 }
 
-function signed(text: string, { secret = SECRET, at = Date.now() } = {}) {
+function signed(
+  text: string,
+  { secret = SECRET, at = Date.now() + ahead } = {},
+) {
   const ts = Math.floor(at / 1000);
   const h1 = createHmac("sha256", secret).update(`${ts}:${text}`).digest("hex");
   return `ts=${ts};h1=${h1}`;
@@ -492,6 +507,37 @@ async function team(seats: number, options: { ends?: string } = {}) {
   const [held] = (await overview(OWNER, orgId)).subscriptions;
   return { orgId, sub, txn, id: held?.id };
 }
+
+/** Paddle has renewed: the next period is open and the clock stands a minute past the paid one's end. */
+function renewed(sub: PaddleSub, paidEnd: Date) {
+  ahead = paidEnd.getTime() - Date.now() + MINUTE_MS;
+  const ends = new Date(paidEnd.getTime() + 30 * DAY_MS).toISOString();
+  sub.current_billing_period = {
+    starts_at: paidEnd.toISOString(),
+    ends_at: ends,
+  };
+  sub.next_billed_at = ends;
+  return structuredClone(sub);
+}
+
+const justAfter = (paidEnd: Date) => new Date(paidEnd.getTime() + 1000);
+const clockNow = () => new Date(Date.now() + ahead);
+
+/** A Team plan whose change for renewal Paddle holds and the API has heard of. */
+async function teamHolding(paid: number, atRenewal: number) {
+  const paidEnd = new Date(Date.now() + 40 * MINUTE_MS);
+  const held = await team(paid, { ends: paidEnd.toISOString() });
+  const asked = await change(OWNER, held.id, {
+    quantity: atRenewal,
+    when: "renewal",
+  });
+  expect(asked.status).toBe(200);
+  expect(await deliver("subscription.updated", held.sub)).toBe(204);
+  return { ...held, paidEnd };
+}
+
+const heldAtPaddle = (sub: PaddleSub) =>
+  (sub.custom_data as { held?: { quantity: number } } | null)?.held?.quantity;
 
 function chargeback(transactionId: string, total: number) {
   return {
@@ -1265,5 +1311,43 @@ describe("a change for renewal whose event has not arrived yet", () => {
       askedOfPaddle: paddle.patches.length - asked,
       paddleBillsAtRenewal: sub.items[0]?.quantity,
     }).toEqual({ answer: 200, askedOfPaddle: 1, paddleBillsAtRenewal: 5 });
+  });
+});
+
+describe("1. a change for renewal writes what is paid from our row, not Paddle's", () => {
+  it("N1a: after a renewal that billed 1 seat, the org holds the 10 it had before", async () => {
+    const { orgId, sub, id, paidEnd } = await teamHolding(10, 1);
+    const renewal = renewed(sub, paidEnd);
+
+    const asked = await change(OWNER, id, { quantity: 11, when: "renewal" });
+    expect(asked.status).toBe(200);
+    const written = heldAtPaddle(sub);
+    expect(
+      await deliver("subscription.updated", renewal, justAfter(paidEnd)),
+    ).toBe(204);
+    expect(await deliver("subscription.updated", sub, clockNow())).toBe(204);
+
+    expect({
+      writtenAsPaid: written,
+      seats: await seatLimit(database.db, orgId),
+    }).toEqual({ writtenAsPaid: 1, seats: 1 });
+  });
+
+  it("N1b: after a renewal that billed 10 seats, the org holds the 5 it had before", async () => {
+    const { orgId, sub, id, paidEnd } = await teamHolding(5, 10);
+    const renewal = renewed(sub, paidEnd);
+
+    const asked = await change(OWNER, id, { quantity: 12, when: "renewal" });
+    expect(asked.status).toBe(200);
+    const written = heldAtPaddle(sub);
+    expect(
+      await deliver("subscription.updated", renewal, justAfter(paidEnd)),
+    ).toBe(204);
+    expect(await deliver("subscription.updated", sub, clockNow())).toBe(204);
+
+    expect({
+      writtenAsPaid: written,
+      seats: await seatLimit(database.db, orgId),
+    }).toEqual({ writtenAsPaid: 10, seats: 10 });
   });
 });

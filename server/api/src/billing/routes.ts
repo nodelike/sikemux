@@ -545,17 +545,19 @@ export function billingRoutes({
     );
 
   /** The change a request asks of its subscription, refused here for whatever the change would refuse. */
-  const askedChange = async (c: Context<AuthEnv>) => {
+  const askedChange = async (c: Context<AuthEnv>, ready: BillingProvider) => {
     const row = await subscriptionFor(c);
     requirePayer(c, row);
     const change = await readBody(c, "SubscriptionChange");
     await refusePending(row);
+    const subscription = heldSubscription(row, row.provider_customer_id);
+    const paid = await ready.paid(subscription);
     const next = {
-      product: change.product ?? row.product,
-      interval: change.interval ?? row.interval,
-      quantity: change.quantity ?? row.quantity,
+      product: change.product ?? paid.product,
+      interval: change.interval ?? paid.interval,
+      quantity: change.quantity ?? paid.quantity,
     };
-    const from = product(row.product);
+    const from = product(paid.product);
     const to = product(next.product);
     if (from.kind !== "shed" || to.kind !== "shed") {
       if (to.id !== from.id)
@@ -567,15 +569,15 @@ export function billingRoutes({
     if (next.quantity > to.maxQuantity)
       throw badRequest(`${to.name} is sold up to ${to.maxQuantity} at once.`);
     const same =
-      next.product === row.product &&
-      next.interval === row.interval &&
-      next.quantity === row.quantity;
+      next.product === paid.product &&
+      next.interval === paid.interval &&
+      next.quantity === paid.quantity;
     const when = change.when ?? "now";
     const held = row.next_product !== null;
     if (when === "now" && held && !same) throw heldForRenewal();
     const costsLess =
-      next.quantity < row.quantity ||
-      (row.interval === "year" && next.interval === "month") ||
+      next.quantity < paid.quantity ||
+      (paid.interval === "year" && next.interval === "month") ||
       unit.amount < (unitPrice(from.id, next.interval)?.amount ?? 0);
     if (when === "now" && costsLess)
       throw new ApiFailure(
@@ -584,7 +586,7 @@ export function billingRoutes({
         "A change that costs less is taken at renewal. Ask for it then.",
       );
     const orgId = to.id === "team" ? row.org_id : null;
-    return { row, next, unit, same, held, orgId, when };
+    return { row, subscription, paid, next, unit, same, held, orgId, when };
   };
 
   const refuseFewerSeats = (held: number, quantity: number) => {
@@ -612,11 +614,14 @@ export function billingRoutes({
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const { row, next, unit, held, orgId, when } = await askedChange(c);
+      const { subscription, next, unit, held, orgId, when } = await askedChange(
+        c,
+        ready,
+      );
       if (held && when === "now") throw heldForRenewal();
       if (orgId) refuseFewerSeats(await seatsHeld(db, orgId), next.quantity);
       const preview = await ready.previewChange(
-        heldSubscription(row, row.provider_customer_id),
+        subscription,
         { ...next, unit },
         when,
       );
@@ -641,8 +646,8 @@ export function billingRoutes({
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const { row, next, unit, same, orgId, when } = await askedChange(c);
-      const subscription = heldSubscription(row, row.provider_customer_id);
+      const { row, subscription, paid, next, unit, same, orgId, when } =
+        await askedChange(c, ready);
       const take = async (trx: Kysely<Tables>) => {
         await sql`select pg_advisory_xact_lock(hashtext('billing-change'), hashtext(${row.id}))`.execute(
           trx,
@@ -675,7 +680,8 @@ export function billingRoutes({
           await trx
             .updateTable("subscriptions")
             .set({
-              seats_cut_to: next.quantity < row.quantity ? next.quantity : null,
+              seats_cut_to:
+                next.quantity < paid.quantity ? next.quantity : null,
             })
             .where("id", "=", row.id)
             .execute();

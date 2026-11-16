@@ -85,7 +85,7 @@ export class StandInProvider implements BillingProvider {
   private readonly checkouts = new Map<string, CheckoutRequest>();
   private readonly paying = new Set<string>();
   private readonly heldRefunds: string[] = [];
-  private readonly paid = new Map<string, Money>();
+  private readonly payments = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
   /** Fails every cancellation, as a provider that cannot be reached. */
@@ -114,7 +114,7 @@ export class StandInProvider implements BillingProvider {
   private async send(...events: ProviderEvent[]) {
     for (const event of events)
       if (event.type === "payment.made")
-        this.paid.set(event.providerPaymentId, event.total);
+        this.payments.set(event.providerPaymentId, event.total);
     const body = JSON.stringify(events);
     const signature = this.sign(body);
     await this.deliver({
@@ -237,6 +237,10 @@ export class StandInProvider implements BillingProvider {
     return { taken: true };
   }
 
+  async paid({ product, interval, quantity }: HeldSubscription) {
+    return { product, interval, quantity };
+  }
+
   async takeBack(held: HeldSubscription) {
     await this.send({
       ...this.event("subscription.changed"),
@@ -315,7 +319,7 @@ export class StandInProvider implements BillingProvider {
     return this.send({
       ...this.event("payment.refunded"),
       providerPaymentId,
-      returned: this.paid.get(providerPaymentId) ?? cents(0),
+      returned: this.payments.get(providerPaymentId) ?? cents(0),
       chargeback: false,
     });
   }

@@ -125,6 +125,13 @@ export interface CheckoutRequest {
   returnUrl: string;
 }
 
+/** What a subscription's current period is paid for. */
+export interface Paid {
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+}
+
 export interface SubscriptionUpdate {
   product: BillingProductId;
   interval: BillingInterval;
@@ -194,6 +201,11 @@ export interface BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangeOutcome>;
+  /**
+   * What the period now running is paid for, as the provider holds it: the API's record learns of
+   * a renewal only from the provider's event.
+   */
+  paid(subscription: HeldSubscription): Promise<Paid>;
   /** What `change` with the same input would charge now and at the next renewal, changing nothing. */
   previewChange(
     subscription: HeldSubscription,
