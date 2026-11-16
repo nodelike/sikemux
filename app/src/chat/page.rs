@@ -181,7 +181,11 @@ pub(crate) fn tab_row(
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .child(ui::text(page.title.clone(), 14., FontWeight::MEDIUM).truncate())
+                .child(
+                    ui::text(page.title.clone(), 14., FontWeight::MEDIUM)
+                        .whitespace_normal()
+                        .line_clamp(2),
+                )
                 .child(place),
         )
         .child(
