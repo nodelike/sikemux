@@ -401,21 +401,25 @@ for (const source of sources)
 
 /** A type's name, with its file when a client could not tell it from another of that name. */
 function shapeName(item) {
-  try {
-    if (byClientName(item.name) === item) return item.name;
-  } catch {}
-  return `${item.file}:${item.name}`;
+  const found = clientCandidates(item.name);
+  return found.length === 1 && found[0] === item
+    ? item.name
+    : `${item.file}:${item.name}`;
 }
 
-function byClientName(name) {
-  const [file, own] = name.split(":");
-  if (own) return declared.get(own).find((item) => item.file === file);
+function clientCandidates(name) {
   const all = declared.get(name) ?? [];
   // The contract's own crates hold the type a client means by a name.
   const contract = all.filter(
     (item) => item.file.startsWith(WIRE) || item.file.startsWith(VIEW),
   );
-  const found = contract.length ? contract : all;
+  return contract.length ? contract : all;
+}
+
+function byClientName(name) {
+  const [file, own] = name.split(":");
+  if (own) return declared.get(own).find((item) => item.file === file);
+  const found = clientCandidates(name);
   if (found.length !== 1)
     fail(
       `${name} is declared ${found.length} times: ${found.map((item) => item.file)}`,
