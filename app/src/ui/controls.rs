@@ -638,7 +638,7 @@ impl Segmented {
             .h(px(24.))
             .p(px(1.))
             .rounded(px(7.))
-            .bg(t.surface_hover)
+            .bg(t.surface_sunken)
             .border(crate::theme::border())
             .border_color(t.border)
             .when_some(self.disabled, |track, reason| {
@@ -652,7 +652,7 @@ impl Segmented {
                     .w(px(slot))
                     .h(px(20.))
                     .rounded(px(5.))
-                    .bg(t.surface_active),
+                    .bg(t.surface_raised),
             )
             .children(
                 self.options
@@ -732,6 +732,7 @@ impl RenderOnce for Segmented {
             .h(px(TOOLBAR_HEIGHT))
             .p(px(2.))
             .rounded(radius_2())
+            .bg(t.surface_sunken)
             .border(crate::theme::border())
             .border_color(t.border)
             .children(
@@ -766,7 +767,7 @@ impl RenderOnce for Segmented {
                             .gap(px(7.))
                             .rounded(px(3.))
                             .text_color(ink(chosen))
-                            .when(chosen, |segment| segment.bg(t.surface_active))
+                            .when(chosen, |segment| segment.bg(t.surface_raised))
                             .when(!locked, |segment| {
                                 segment.hover(move |style| style.text_color(t.text_primary))
                             })
