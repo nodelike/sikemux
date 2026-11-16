@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { applyProviderEvents } from "../src/billing/apply.ts";
 import type { PaddleApi } from "../src/billing/paddle-api.ts";
-import { PaddleProvider } from "../src/billing/paddle.ts";
+import { PADDLE_SANDBOX, PaddleProvider } from "../src/billing/paddle.ts";
 import type { Database } from "../src/db.ts";
 import { emptyTables, migratedDatabase } from "./accounts.ts";
 import { log } from "./support.ts";
@@ -86,9 +86,9 @@ async function customers() {
   await database.db
     .insertInto("billing_customers")
     .values([
-      { id: INES, user_id: "user_ines", provider: "paddle" },
-      { id: TOMAS, org_id: org.id, provider: "paddle" },
-      { id: PRIYA, user_id: "user_priya", provider: "paddle" },
+      { id: INES, user_id: "user_ines", provider: PADDLE_SANDBOX },
+      { id: TOMAS, org_id: org.id, provider: PADDLE_SANDBOX },
+      { id: PRIYA, user_id: "user_priya", provider: PADDLE_SANDBOX },
     ])
     .execute();
   const opened = (
@@ -99,7 +99,7 @@ async function customers() {
     product: "pro" | "team" | "shed",
     quantity: number,
   ) => ({
-    provider: "paddle",
+    provider: PADDLE_SANDBOX,
     provider_checkout_id: txn,
     customer_id,
     opened_by,

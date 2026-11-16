@@ -9,6 +9,7 @@ import { makeDueCalls } from "./billing/calls.ts";
 import { sweepDeletedBilling } from "./billing/deleted.ts";
 import { PaddleProvider } from "./billing/paddle.ts";
 import { PaddleApi } from "./billing/paddle-api.ts";
+import { endSandboxPlans } from "./billing/sandbox.ts";
 import { createApp } from "./app.ts";
 import { clerkVerifier } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -31,7 +32,7 @@ import { StandInProvider } from "./billing/stand-in.ts";
 const DRAIN_MS = 25_000;
 const SWEEP_MS = 60_000;
 
-export function startServer(config: Config, log: Logger) {
+export async function startServer(config: Config, log: Logger) {
   const database = openDatabase(config.databaseUrl, log);
   const verifier = clerkVerifier({
     issuer: config.clerkIssuer,
@@ -133,6 +134,8 @@ export function startServer(config: Config, log: Logger) {
         ? "billing goes through Paddle's sandbox"
         : "billing goes through Paddle's live account",
     );
+  if (provider instanceof PaddleProvider && !provider.sandbox)
+    await endSandboxPlans(database.db, log);
   const app = createApp({
     database,
     log,

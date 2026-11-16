@@ -105,9 +105,9 @@ const updateCommand =
   };
 
 const COMMANDS: Record<string, () => void | Promise<void>> = {
-  serve() {
+  async serve() {
     const config = loadConfig(process.env);
-    startServer(config, startLogging(config.logLevel));
+    await startServer(config, startLogging(config.logLevel));
   },
   migrate: () =>
     withDatabase(

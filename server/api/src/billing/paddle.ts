@@ -326,13 +326,16 @@ function notReady() {
   );
 }
 
+/** Sandbox customers and plans are kept under their own name, so a live key never reads them. */
+export const PADDLE_SANDBOX = "paddle-sandbox";
+
 /**
  * Paddle Billing. Each checkout makes one Paddle subscription holding one product. Prices are the
  * ones the setup command made, found by what it wrote on them; the webhook secret and checkout
  * token are read from Paddle by the destination and name the setup gave them.
  */
 export class PaddleProvider implements BillingProvider {
-  readonly name = "paddle";
+  readonly name: string;
   private readonly api: PaddleApi;
   private readonly log: Logger;
   private readonly now: () => number;
@@ -343,6 +346,7 @@ export class PaddleProvider implements BillingProvider {
 
   constructor(options: PaddleOptions) {
     this.api = options.api;
+    this.name = this.api.sandbox ? PADDLE_SANDBOX : "paddle";
     this.log = options.log;
     this.now = options.now ?? Date.now;
     this.webhookUrl = options.apiOrigin + WEBHOOK_PATH;
