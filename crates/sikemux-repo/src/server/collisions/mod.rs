@@ -1385,8 +1385,9 @@ impl Collisions {
 
     /// The chat agents in `project` that were running a shell command at
     /// `at`, ended one up to `grace` before, or were heard to begin one up to
-    /// `late` after, in the checkout holding `place`, each with the text of
-    /// those commands.
+    /// `late` after, in the checkout holding `place` or having read, written or
+    /// named `place` itself, each with the text of those commands. An agent in
+    /// a checkout of its own still edits files kept only in the main checkout.
     fn commands(
         &self,
         core: &Core,
@@ -1397,6 +1398,7 @@ impl Collisions {
         late: u64,
     ) -> BTreeMap<String, Vec<Arc<str>>> {
         let mut found: BTreeMap<String, Vec<Arc<str>>> = BTreeMap::new();
+        let handled: BTreeSet<String>;
         {
             let state = self.state.locked();
             let open = state
@@ -1412,8 +1414,21 @@ impl Collisions {
             for (agent, command) in open.chain(ended) {
                 found.entry(agent.clone()).or_default().extend(command);
             }
+            handled = found
+                .iter()
+                .filter(|(agent, commands)| {
+                    state
+                        .seen
+                        .contains_key(&((*agent).clone(), place.to_path_buf()))
+                        || commands.iter().any(|command| names_file(command, place))
+                })
+                .map(|(agent, _)| agent.clone())
+                .collect();
         }
-        found.retain(|agent, _| in_project(core, project, agent) && holds(core, place, agent));
+        found.retain(|agent, _| {
+            in_project(core, project, agent)
+                && (handled.contains(agent) || holds(core, place, agent))
+        });
         found
     }
 }
