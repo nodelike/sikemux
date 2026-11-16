@@ -7,13 +7,12 @@ use windows_sys::Win32::System::Console::{
     SetConsoleCtrlHandler, CTRL_C_EVENT,
 };
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicAccountingInformation,
-    JobObjectBasicProcessIdList, QueryInformationJobObject, TerminateJobObject, JOBOBJECTINFOCLASS,
+    CreateJobObjectW, JobObjectBasicAccountingInformation, JobObjectBasicProcessIdList,
+    QueryInformationJobObject, TerminateJobObject, JOBOBJECTINFOCLASS,
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
 };
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
-    PROCESS_TERMINATE,
+    OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 
 /// The exit code of a process stopped by force, as Task Manager leaves it.
@@ -91,26 +90,26 @@ fn trees() -> std::sync::MutexGuard<'static, HashMap<u32, Arc<Tree>>> {
     TREES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-pub(super) fn own_tree(pid: u32) {
-    let access = PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION;
-    let Some(head) = Handle::process(pid, access) else {
-        return;
-    };
-    // The job is not killed when its last handle closes: a tree outlives the core that
-    // started it, as a Unix process group does, so the next core can adopt it.
+/// A new job. It is not killed when its last handle closes: a tree outlives the core that
+/// started it, as a Unix process group does, so the next core can adopt it.
+fn new_job() -> Option<Handle> {
     // SAFETY: both arguments may be null; the result is a handle we own, or null.
-    let Some(job) = Handle::new(unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) })
-    else {
-        return;
+    Handle::new(unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) })
+}
+
+pub(super) fn spawn_tree(
+    command: &mut crate::command::Command,
+) -> std::io::Result<crate::command::Child> {
+    let Some(job) = new_job() else {
+        return command.spawn();
     };
-    // SAFETY: both handles are open, and the process handle has PROCESS_SET_QUOTA and
-    // PROCESS_TERMINATE.
-    if unsafe { AssignProcessToJobObject(job.0, head.0) } == 0 {
-        return;
+    let child = command.job(job.0).spawn()?;
+    if let Some(head) = Handle::process(child.id(), PROCESS_QUERY_LIMITED_INFORMATION) {
+        let mut trees = trees();
+        trees.retain(|_, tree| tree.running());
+        trees.insert(child.id(), Arc::new(Tree { job, _head: head }));
     }
-    let mut trees = trees();
-    trees.retain(|_, tree| tree.running());
-    trees.insert(pid, Arc::new(Tree { job, _head: head }));
+    Ok(child)
 }
 
 pub(super) fn terminate_tree(pid: u32, force: bool) {

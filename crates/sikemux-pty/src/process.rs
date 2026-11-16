@@ -77,9 +77,6 @@ pub struct SpawnedChildGuard(Option<Box<dyn Child + Send + Sync>>);
 
 impl SpawnedChildGuard {
     pub fn new(child: Box<dyn Child + Send + Sync>) -> Self {
-        if let Some(pid) = child.process_id() {
-            sikemux_process::own_tree(pid);
-        }
         Self(Some(child))
     }
 

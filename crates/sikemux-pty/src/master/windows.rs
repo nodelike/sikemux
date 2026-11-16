@@ -264,7 +264,9 @@ impl SlavePty for ConsoleSlave {
     fn spawn_command(&self, built: CommandBuilder) -> anyhow::Result<Box<dyn Child + Send + Sync>> {
         let mut command = command(&built)?;
         command.pseudoconsole(self.0.console.0);
-        Ok(Box::new(ConsoleChild(command.spawn()?)))
+        Ok(Box::new(ConsoleChild(sikemux_process::spawn_tree(
+            &mut command,
+        )?)))
     }
 }
 

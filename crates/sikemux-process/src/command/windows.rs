@@ -34,8 +34,8 @@ use windows_sys::Win32::System::Threading::{
     TerminateProcess, UnregisterWaitEx, UpdateProcThreadAttribute, WaitForSingleObject,
     CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, DETACHED_PROCESS, EXTENDED_STARTUPINFO_PRESENT,
     INFINITE, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
-    WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE,
 };
 
 /// The exit code of a process stopped by force, as std's `Child::kill` leaves it.
@@ -153,6 +153,7 @@ pub(super) struct Command {
     stderr: Option<Stdio>,
     flags: u32,
     pseudoconsole: Option<HPCON>,
+    job: Option<usize>,
 }
 
 impl Command {
@@ -168,6 +169,7 @@ impl Command {
             stderr: None,
             flags: 0,
             pseudoconsole: None,
+            job: None,
         }
     }
 
@@ -239,6 +241,10 @@ impl Command {
 
     pub(super) fn pseudoconsole(&mut self, console: HPCON) {
         self.pseudoconsole = Some(console);
+    }
+
+    pub(super) fn job(&mut self, job: HANDLE) {
+        self.job = Some(job as usize);
     }
 
     pub(super) fn get_program(&self) -> &OsStr {
@@ -341,8 +347,21 @@ impl Command {
             .map(|end| end.as_raw_handle())
             .collect();
         let mut attributes = Attributes::new(
-            usize::from(!handed.is_empty()) + usize::from(self.pseudoconsole.is_some()),
+            usize::from(!handed.is_empty())
+                + usize::from(self.pseudoconsole.is_some())
+                + usize::from(self.job.is_some()),
         )?;
+        let jobs: Vec<HANDLE> = self.job.iter().map(|&job| job as HANDLE).collect();
+        if !jobs.is_empty() {
+            // SAFETY: `jobs` outlives the attribute list's use in CreateProcess below.
+            unsafe {
+                attributes.set(
+                    PROC_THREAD_ATTRIBUTE_JOB_LIST as usize,
+                    jobs.as_ptr().cast(),
+                    size_of_val(jobs.as_slice()),
+                )?
+            };
+        }
         if !handed.is_empty() {
             // SAFETY: `handed` outlives the attribute list's use in CreateProcess below.
             unsafe {
