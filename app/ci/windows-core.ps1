@@ -102,6 +102,7 @@ public static class Grab {
 
 # The app is built with its drive feature, which takes key steps on this pipe.
 $env:SIKEMUX_GPUI_DRIVE = '\\.\pipe\sikemux-window-run'
+$env:GPUI_DISABLE_DIRECT_COMPOSITION = '1'
 $proc = Start-Process -FilePath $App -PassThru `
     -RedirectStandardError (Join-Path $Out 'stderr.txt') -RedirectStandardOutput (Join-Path $Out 'stdout.txt')
 $deadline = (Get-Date).AddSeconds(60)
