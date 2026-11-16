@@ -38,6 +38,19 @@ export async function setUpPaddle(
   { apiOrigin, appOrigin }: { apiOrigin: string; appOrigin: string },
   log: Logger,
 ) {
+  const account = await api.request<{ id: string; legal_name: string }>(
+    "GET",
+    "/account",
+  );
+  log.info(
+    {
+      account: account.id,
+      name: account.legal_name,
+      environment: api.sandbox ? "sandbox" : "live",
+    },
+    "setting up this Paddle account",
+  );
+  const trafficSource = api.sandbox ? "all" : "platform";
   const products = await api.list<PaddleProduct>(
     "/products?status=active&per_page=200",
   );
@@ -119,7 +132,7 @@ export async function setUpPaddle(
       type: "url",
       destination,
       api_version: 1,
-      traffic_source: "all",
+      traffic_source: trafficSource,
       subscribed_events: events,
     });
     log.info({ destination }, "made Paddle's webhook destination");
@@ -129,12 +142,12 @@ export async function setUpPaddle(
       .sort();
     if (
       !setting.active ||
-      setting.traffic_source !== "all" ||
+      setting.traffic_source !== trafficSource ||
       subscribed.join() !== events.join()
     ) {
       await api.request("PATCH", `/notification-settings/${setting.id}`, {
         active: true,
-        traffic_source: "all",
+        traffic_source: trafficSource,
         subscribed_events: events,
       });
       log.info({ destination }, "updated Paddle's webhook destination");
@@ -165,7 +178,7 @@ export async function setUpPaddle(
   }
 
   log.info(
-    { sandbox: api.sandbox, destination, payPage },
+    { destination, payPage },
     "Paddle holds the catalog, the webhook destination, the client token and the payment link",
   );
 }
