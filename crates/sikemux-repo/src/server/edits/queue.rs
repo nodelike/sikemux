@@ -863,6 +863,9 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, S
             Err(_) => break,
         };
         if tip != stacked.tip {
+            if checked_below(repo, base, &tip) != tip {
+                return (Vec::new(), refused);
+            }
             let batch: Vec<Waiting> = (stacked.laid.iter())
                 .map(|laid| laid.waiting.clone())
                 .collect();
@@ -1214,43 +1217,71 @@ fn rust_check(
         (changed.iter()).any(|path| WORKSPACE_FILES.contains(path) || path.starts_with(".cargo/"));
     let members = members(checkout)?;
     let reads = reads(repo, to, &members);
-    let mut names = BTreeSet::new();
+    let mut changed_crates = BTreeSet::new();
     for path in changed {
         let readers: Vec<&str> = (reads.iter())
             .filter(|(read, _)| path == read || path.starts_with(&format!("{read}/")))
             .map(|(_, name)| name.as_str())
             .collect();
         if !readers.is_empty() {
-            names.extend(readers.into_iter().map(str::to_owned));
+            changed_crates.extend(readers.into_iter().map(str::to_owned));
         } else if !path.ends_with(".md") && !path.ends_with(".mdx") {
-            names.extend(owner(&members, path).map(|member| member.name.clone()));
+            changed_crates.extend(owner(&members, path).map(|member| member.name.clone()));
         }
     }
-    if !every && names.is_empty() {
+    if !every && changed_crates.is_empty() {
         return Ok(None);
     }
-    let packages = (names.iter())
-        .map(|name| format!("-p {name}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let crates = names.iter().cloned().collect::<Vec<_>>().join(", ");
+    let tested = with_dependents(&members, &changed_crates);
+    let flags = |names: &BTreeSet<String>| {
+        (names.iter())
+            .map(|name| format!("-p {name}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let listed = |names: &BTreeSet<String>| names.iter().cloned().collect::<Vec<_>>().join(", ");
     let clippy =
         |scope: &str| format!("cargo clippy {scope} --all-targets --all-features -- -D warnings");
-    let targets = format!("{packages} --all-targets --all-features");
+    let targets = format!("{} --all-targets --all-features", flags(&tested));
     let tests = format!(
         "if command -v cargo-nextest >/dev/null; then cargo nextest run {targets} --no-tests=pass; else cargo test {targets}; fi"
     );
-    Ok(Some(match (every, names.is_empty()) {
+    let dependents = tested.len() - changed_crates.len();
+    let tests_of = match dependents {
+        0 => format!("the tests of {}", listed(&changed_crates)),
+        _ => format!(
+            "the tests of {} and the {dependents} crates that use them",
+            listed(&changed_crates)
+        ),
+    };
+    Ok(Some(match (every, changed_crates.is_empty()) {
         (true, true) => ("Clippy on every crate".to_owned(), clippy("--workspace")),
         (true, false) => (
-            format!("Clippy on every crate and the tests of {crates}"),
+            format!("Clippy on every crate and {tests_of}"),
             format!("{} && {tests}", clippy("--workspace")),
         ),
         (false, _) => (
-            format!("Clippy and the tests of {crates}"),
-            format!("{} && {tests}", clippy(&packages)),
+            format!("Clippy on {} and {tests_of}", listed(&changed_crates)),
+            format!("{} && {tests}", clippy(&flags(&changed_crates))),
         ),
     }))
+}
+
+/// `names` and every crate of the workspace that depends on one of them, however
+/// indirectly, since a change can break the tests of a crate that only uses it.
+fn with_dependents(members: &[Member], names: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut found = names.clone();
+    loop {
+        let more: Vec<String> = (members.iter())
+            .filter(|member| !found.contains(&member.name))
+            .filter(|member| member.uses.iter().any(|used| found.contains(used)))
+            .map(|member| member.name.clone())
+            .collect();
+        if more.is_empty() {
+            return found;
+        }
+        found.extend(more);
+    }
 }
 
 const METADATA_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
@@ -1261,6 +1292,8 @@ struct Member {
     name: String,
     /// Its folder from the workspace's root, empty for the root itself.
     dir: String,
+    /// The crates it depends on, for its build, its build script or its tests.
+    uses: Vec<String>,
 }
 
 /// The workspace's crates, as cargo reads them in `checkout`.
@@ -1302,9 +1335,14 @@ fn members(checkout: &Path) -> Result<Vec<Member>, String> {
                 .and_then(|dir| dir.strip_prefix(&root).ok())
                 .map(|dir| dir.to_string_lossy().into_owned())
                 .unwrap_or_default();
+            let uses = (package["dependencies"].as_array().into_iter().flatten())
+                .filter_map(|dependency| dependency["name"].as_str())
+                .map(str::to_owned)
+                .collect();
             Member {
                 name: package["name"].as_str().unwrap_or_default().to_owned(),
                 dir,
+                uses,
             }
         })
         .collect())
