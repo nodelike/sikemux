@@ -3,10 +3,15 @@ import type {
   BillingCatalog,
   BillingInterval,
   BillingOverview,
+  BillingProductId,
+  ChangePreview,
+  ChangeWhen,
   Invoice,
   Money,
   Org,
+  ScheduledChange,
   Subscription,
+  SubscriptionChange,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
@@ -314,11 +319,12 @@ function Bill({
           <Section label="Shed billing">
             <Rows>
               {shedSubs.map((sub) => (
-                <ShedInterval
+                <ShedBox
                   key={sub.id}
                   sub={sub}
                   catalog={catalog}
                   canBuy={canBuy}
+                  pays={pays}
                   reload={reload}
                   show={show}
                 />
@@ -456,20 +462,14 @@ function PlanRows({
     action.clear();
   };
   const price = product ? priceText(product, sub.interval) : undefined;
-  const changing =
-    sub.atRenewal &&
-    (sub.atRenewal.quantity !== sub.quantity ||
-      sub.atRenewal.interval !== sub.interval ||
-      sub.atRenewal.product !== sub.product)
-      ? sub.atRenewal
-      : undefined;
+  const held = heldChange(sub);
 
   return (
     <>
       <Row
         label="Plan"
         action={
-          seats && !refunding && pays ? (
+          seats && !refunding && pays && !held ? (
             <button
               type="button"
               className="button small"
@@ -512,26 +512,13 @@ function PlanRows({
           <span>Pro on your own hosts while you hold a seat</span>
         </Row>
       ) : null}
-      {changing ? (
-        <Row label="At renewal">
-          <span>
-            {[
-              changing.product !== sub.product
-                ? productOf(catalog, changing.product)?.name
-                : undefined,
-              changing.quantity !== sub.quantity && seats
-                ? `${changing.quantity} seats`
-                : undefined,
-              changing.interval !== sub.interval
-                ? intervalWord(changing.interval)
-                : undefined,
-            ]
-              .filter(Boolean)
-              .join(", ")}
-          </span>
-          <span className="quiet">· from {ends}</span>
-        </Row>
-      ) : null}
+      <AtRenewal
+        sub={sub}
+        catalog={catalog}
+        pays={pays}
+        reload={reload}
+        show={show}
+      />
       {refunding ? (
         <Row label="Ends">
           <span>When its refund is paid</span>
@@ -636,6 +623,202 @@ function seatsWord(count: number) {
   return `${count} ${count === 1 ? "seat" : "seats"}`;
 }
 
+function countWord(count: number, seats: boolean) {
+  return seats ? seatsWord(count) : `${count} ${count === 1 ? "box" : "boxes"}`;
+}
+
+/** A change asked for at renewal that differs from what is paid now. */
+export function heldChange(sub: Subscription): ScheduledChange | undefined {
+  const next = sub.atRenewal;
+  return next &&
+    (next.quantity !== sub.quantity ||
+      next.interval !== sub.interval ||
+      next.product !== sub.product)
+    ? next
+    : undefined;
+}
+
+type Preview =
+  | { for: string; state: "loading" }
+  | { for: string; state: "ready"; preview: ChangePreview }
+  | { for: string; state: "failed"; problem: string };
+
+/** What a change would charge, asked once the change has stopped moving: the route shares the change's rate limit. */
+function useChangePreview(
+  subId: string,
+  change?: SubscriptionChange,
+): Preview | undefined {
+  const client = useClient();
+  const key = change ? JSON.stringify(change) : "";
+  const [seen, setSeen] = useState<Preview>();
+  useEffect(() => {
+    if (!key) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const preview = await (
+            await client("see what the change costs")
+          ).previewSubscriptionChange(
+            subId,
+            JSON.parse(key) as SubscriptionChange,
+          );
+          if (current) setSeen({ for: key, state: "ready", preview });
+        } catch (error) {
+          if (current)
+            setSeen({ for: key, state: "failed", problem: problemText(error) });
+        }
+      })();
+    }, 450);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [key, subId, client]);
+  if (!key) return undefined;
+  return seen?.for === key ? seen : { for: key, state: "loading" };
+}
+
+function PreviewWords({
+  seen,
+  when,
+  interval,
+  until,
+}: {
+  seen?: Preview;
+  when: ChangeWhen;
+  interval: BillingInterval;
+  until?: string;
+}) {
+  if (!seen || seen.state === "failed") return null;
+  if (seen.state === "loading")
+    return <span className="quiet">Working out the amount…</span>;
+  const { now, renewal } = seen.preview;
+  if (when === "renewal")
+    return (
+      <span className="quiet">
+        {renewal
+          ? `From ${formatDay(renewal.at, "long")}: ${money(renewal.amount, { cents: false })} a ${interval}.`
+          : "It ends at the end of this period, so nothing more is charged."}
+        {until ? ` ${until}` : ""}
+      </span>
+    );
+  const then = renewal
+    ? `${money(renewal.amount, { cents: false })} a ${interval} from ${formatDay(renewal.at, "long")}`
+    : undefined;
+  return now.amount > 0 ? (
+    <span>
+      {money(now)} today
+      <span className="quiet">
+        {" "}
+        for what's left of this period{then ? `, then ${then}` : ""}.
+      </span>
+    </span>
+  ) : (
+    <span>
+      Nothing to pay today
+      <span className="quiet">{then ? `, then ${then}` : ""}.</span>
+    </span>
+  );
+}
+
+function previewReady(seen?: Preview): ChangePreview | undefined {
+  return seen?.state === "ready" ? seen.preview : undefined;
+}
+
+function chargedToday(preview?: ChangePreview) {
+  return preview && preview.now.amount > 0
+    ? ` ${money(preview.now)} charged today.`
+    : "";
+}
+
+function AtRenewal({
+  sub,
+  catalog,
+  pays,
+  reload,
+  show,
+}: {
+  sub: Subscription;
+  catalog: BillingCatalog;
+  pays: boolean;
+  reload: () => void;
+  show: Show;
+}) {
+  const client = useClient();
+  const action = useAction();
+  const held = heldChange(sub);
+  if (!held) return null;
+  const product = productOf(catalog, sub.product);
+  const name = product?.name ?? sub.product;
+  const seats = product?.unit === "seat";
+  const ends = formatDay(sub.currentPeriodEnd, "long");
+  const kept =
+    held.product !== sub.product
+      ? name
+      : held.quantity !== sub.quantity
+        ? countWord(sub.quantity, seats)
+        : intervalWord(sub.interval);
+  return (
+    <Row
+      label="At renewal"
+      action={
+        pays ? (
+          <button
+            type="button"
+            className="button small"
+            onClick={() =>
+              void action.run(
+                async () => {
+                  await (
+                    await client("keep your plan as it is")
+                  ).changeSubscription(sub.id, {
+                    product: sub.product,
+                    interval: sub.interval,
+                    quantity: sub.quantity,
+                  });
+                  reload();
+                  show(`${name} renews as it is now.`);
+                },
+                (error) =>
+                  `${problemText(error)} The change still happens on ${ends}.`,
+              )
+            }
+            disabled={action.busy}
+            data-busy={action.busy || undefined}
+          >
+            Keep {kept}
+          </button>
+        ) : null
+      }
+      below={
+        action.problem ? (
+          <p className="problem" role="alert">
+            {action.problem}
+          </p>
+        ) : null
+      }
+    >
+      <span>
+        {[
+          held.product !== sub.product
+            ? productOf(catalog, held.product)?.name
+            : undefined,
+          held.quantity !== sub.quantity
+            ? countWord(held.quantity, seats)
+            : undefined,
+          held.interval !== sub.interval
+            ? intervalWord(held.interval)
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join(", ")}
+      </span>
+      <span className="quiet">· from {ends}</span>
+    </Row>
+  );
+}
+
 export function ChangeSeats({
   sub,
   name,
@@ -655,25 +838,36 @@ export function ChangeSeats({
   const action = useAction();
   const [count, setCount] = useState(Math.max(sub.quantity, min));
   const added = count - sub.quantity;
+  const when: ChangeWhen = added > 0 ? "now" : "renewal";
+  const change = added === 0 ? undefined : { quantity: count, when };
+  const seen = useChangePreview(sub.id, change);
+  const ends = formatDay(sub.currentPeriodEnd, "long");
   return (
     <Confirm
-      problem={action.problem}
+      problem={
+        action.problem ?? (seen?.state === "failed" ? seen.problem : undefined)
+      }
       busy={action.busy}
+      unchanged={!previewReady(seen)}
       label={
-        added > 0 ? `Add ${seatsWord(added)}` : `Go to ${seatsWord(count)}`
+        added > 0
+          ? `Add ${seatsWord(added)}`
+          : `Go to ${seatsWord(count)} at renewal`
       }
       onCancel={onClose}
       onConfirm={() =>
         void action.run(
           async () => {
+            if (!change) return;
+            const preview = previewReady(seen);
             await (
               await client("change your seats")
-            ).changeSubscription(sub.id, { quantity: count });
+            ).changeSubscription(sub.id, change);
             onClose();
             onChanged(
               added > 0
-                ? `${seatsWord(added)} added`
-                : `${name} is now ${seatsWord(count)}`,
+                ? `${seatsWord(added)} added.${chargedToday(preview)}`
+                : `${name} goes to ${seatsWord(count)} on ${ends}.`,
             );
           },
           (error) => `${problemText(error)} Nothing was charged.`,
@@ -682,10 +876,23 @@ export function ChangeSeats({
     >
       <label className="stepper-line">
         <Stepper value={count} min={min} max={max} onChange={setCount} />
-        <span className="quiet">
-          seats. Added seats are charged now for what's left of this period;
-          fewer can't go below the people seated.
-        </span>
+        {change ? (
+          <PreviewWords
+            seen={seen}
+            when={when}
+            interval={sub.interval}
+            until={
+              when === "renewal"
+                ? `All ${seatsWord(sub.quantity)} stay until then.`
+                : undefined
+            }
+          />
+        ) : (
+          <span className="quiet">
+            seats. More are charged today for what's left of this period; fewer
+            start at renewal.
+          </span>
+        )}
       </label>
     </Confirm>
   );
@@ -1116,75 +1323,205 @@ function NextCharge({
   );
 }
 
-function ShedInterval({
+type BoxAsk = { interval: BillingInterval } | { product: BillingProductId };
+
+function ShedBox({
   sub,
   catalog,
   canBuy,
+  pays,
   reload,
   show,
 }: {
   sub: Subscription;
   catalog: BillingCatalog;
   canBuy: boolean;
+  pays: boolean;
   reload: () => void;
   show: Show;
 }) {
-  const client = useClient();
+  const [asked, setAsked] = useState<BoxAsk>();
   const product = productOf(catalog, sub.product);
-  const action = useAction();
-  const chosen = sub.atRenewal?.interval ?? sub.interval;
   const name = product?.name ?? sub.product;
-  const option = (interval: BillingInterval) => {
-    const unit = priceOf(product, interval);
-    return {
-      value: interval,
-      name: `${interval === "month" ? "Monthly" : "Yearly"}${unit ? ` · ${money(unit, { cents: false })}` : ""}`,
-    };
-  };
-  const pick = (interval: BillingInterval) => {
-    if (interval === chosen || action.busy || !canBuy) return;
-    void action.run(
-      async () => {
-        await (
-          await client("change how your box is billed")
-        ).changeSubscription(sub.id, { interval, when: "renewal" });
-        reload();
-        show(
-          `${name} goes ${intervalWord(interval)} on ${formatDay(sub.currentPeriodEnd, "long")}.`,
-        );
-      },
-      (error) => `${problemText(error)} It stays ${intervalWord(chosen)}.`,
-    );
-  };
+  const refunding = !!sub.refundRequestedAt;
+  const open = pays && canBuy && !refunding && !heldChange(sub);
+  const sizing = !!asked && "product" in asked;
   return (
-    <Row
-      label={name}
-      below={
-        action.problem ? (
-          <p className="problem" role="alert">
-            {action.problem}
-          </p>
-        ) : null
-      }
-    >
-      {sub.refundRequestedAt ? (
-        <span>Ends when its refund is paid</span>
-      ) : (
-        <span data-busy={action.busy || undefined}>
+    <>
+      <Row
+        label={name}
+        action={
+          open ? (
+            <button
+              type="button"
+              className="button small"
+              onClick={() =>
+                setAsked(sizing ? undefined : { product: sub.product })
+              }
+              aria-expanded={sizing}
+            >
+              Change size
+            </button>
+          ) : null
+        }
+        below={
+          asked ? (
+            <ChangeBox
+              sub={sub}
+              catalog={catalog}
+              asked={asked}
+              onAsk={setAsked}
+              onClose={() => setAsked(undefined)}
+              onChanged={(text) => {
+                reload();
+                show(text);
+              }}
+            />
+          ) : null
+        }
+      >
+        {refunding ? (
+          <span>Ends when its refund is paid</span>
+        ) : open ? (
           <Segmented
             label={`How ${name} is billed`}
-            value={chosen}
-            onChange={pick}
+            value={asked && "interval" in asked ? asked.interval : sub.interval}
+            onChange={(interval) =>
+              setAsked(interval === sub.interval ? undefined : { interval })
+            }
             options={(["month", "year"] as const)
               .filter((interval) => priceOf(product, interval))
-              .map(option)}
+              .map((interval) => {
+                const unit = priceOf(product, interval);
+                return {
+                  value: interval,
+                  name: `${interval === "month" ? "Monthly" : "Yearly"}${unit ? ` · ${money(unit, { cents: false })}` : ""}`,
+                };
+              })}
           />
-        </span>
-      )}
-      {sub.quantity > 1 ? (
-        <span className="quiet">· {sub.quantity} boxes</span>
-      ) : null}
-    </Row>
+        ) : (
+          <span>{intervalWord(sub.interval)}</span>
+        )}
+        {sub.quantity > 1 ? (
+          <span className="quiet">· {sub.quantity} boxes</span>
+        ) : null}
+      </Row>
+      <AtRenewal
+        sub={sub}
+        catalog={catalog}
+        pays={pays}
+        reload={reload}
+        show={show}
+      />
+    </>
+  );
+}
+
+function ChangeBox({
+  sub,
+  catalog,
+  asked,
+  onAsk,
+  onClose,
+  onChanged,
+}: {
+  sub: Subscription;
+  catalog: BillingCatalog;
+  asked: BoxAsk;
+  onAsk: (asked: BoxAsk) => void;
+  onClose: () => void;
+  onChanged: (text: string) => void;
+}) {
+  const client = useClient();
+  const action = useAction();
+  const from = productOf(catalog, sub.product);
+  const name = from?.name ?? sub.product;
+  const ends = formatDay(sub.currentPeriodEnd, "long");
+  const to = "product" in asked ? productOf(catalog, asked.product) : from;
+  const interval = "interval" in asked ? asked.interval : sub.interval;
+  const larger =
+    (priceOf(to, "month")?.amount ?? 0) > (priceOf(from, "month")?.amount ?? 0);
+  const when: ChangeWhen = larger ? "now" : "renewal";
+  const change: SubscriptionChange | undefined =
+    "interval" in asked
+      ? { interval, when: "renewal" }
+      : to && to.id !== sub.product
+        ? { product: to.id, when }
+        : undefined;
+  const seen = useChangePreview(sub.id, change);
+  const toName = to?.name ?? sub.product;
+  const sizes = catalog.products.filter(
+    (product) => product.kind === "shed" && priceOf(product, sub.interval),
+  );
+  return (
+    <Confirm
+      problem={
+        action.problem ?? (seen?.state === "failed" ? seen.problem : undefined)
+      }
+      busy={action.busy}
+      unchanged={!previewReady(seen)}
+      label={
+        "interval" in asked
+          ? `Go ${intervalWord(interval)} at renewal`
+          : when === "now"
+            ? `Move to ${toName}`
+            : `Move to ${toName} at renewal`
+      }
+      onCancel={() => {
+        action.clear();
+        onClose();
+      }}
+      onConfirm={() =>
+        void action.run(
+          async () => {
+            if (!change) return;
+            const preview = previewReady(seen);
+            await (
+              await client("change your box")
+            ).changeSubscription(sub.id, change);
+            onClose();
+            onChanged(
+              "interval" in asked
+                ? `${name} goes ${intervalWord(interval)} on ${ends}.`
+                : when === "now"
+                  ? `${name} is now ${toName}.${chargedToday(preview)}`
+                  : `${name} becomes ${toName} on ${ends}.`,
+            );
+          },
+          (error) => `${problemText(error)} Nothing was charged.`,
+        )
+      }
+    >
+      <span className="stepper-line">
+        {"product" in asked ? (
+          <Segmented
+            label="Box size"
+            value={asked.product}
+            onChange={(product) => onAsk({ product })}
+            options={sizes.map((size) => ({
+              value: size.id,
+              name: size.name,
+            }))}
+          />
+        ) : null}
+        {change ? (
+          <PreviewWords
+            seen={seen}
+            when={change.when ?? "now"}
+            interval={interval}
+            until={
+              change.when === "renewal" && "product" in asked
+                ? `It stays ${name} until then.`
+                : undefined
+            }
+          />
+        ) : (
+          <span className="quiet">
+            A larger box starts today; a smaller one at renewal.
+          </span>
+        )}
+      </span>
+    </Confirm>
   );
 }
 

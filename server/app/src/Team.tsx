@@ -21,6 +21,7 @@ import { problemText } from "./api.ts";
 import { PersonAvatar } from "./Avatar.tsx";
 import {
   ChangeSeats,
+  heldChange,
   NewTeam,
   NOT_OPEN,
   useCheckout,
@@ -298,13 +299,14 @@ function Seats({
   const max = team?.catalog.products.find(
     (product) => product.id === "team",
   )?.maxQuantity;
+  const atRenewal = team ? heldChange(team.sub) : undefined;
   return (
     <Section label="Seats">
       <Rows>
         <Row
           label="Seats"
           action={
-            team && !adding ? (
+            team && !adding && !atRenewal ? (
               <button
                 type="button"
                 className="button small"
@@ -334,6 +336,12 @@ function Seats({
                 {held} of {limit} used
               </span>
               <span className="quiet">· {free} free</span>
+              {atRenewal && team && atRenewal.quantity !== team.sub.quantity ? (
+                <span className="quiet">
+                  · {team.sub.quantity} paid until{" "}
+                  {formatDay(team.sub.currentPeriodEnd, "long")}
+                </span>
+              ) : null}
             </>
           ) : (
             <span className="quiet">
