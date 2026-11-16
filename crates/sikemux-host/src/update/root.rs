@@ -159,17 +159,6 @@ async fn attempt(
         write_checked(dir, channel, &installed, inode);
         return Ok(current);
     }
-    let mut outcome = UpdateOutcome {
-        id: id.to_owned(),
-        state: UpdateOutcomeState::Failed,
-        from: installed.to_string(),
-        to: Some(newest.version.to_string()),
-        at: now_ms(),
-        reason: Some("the update service stopped before it finished".into()),
-        evidence: None,
-    };
-    forget_previous(dir);
-    write_outcome(&outcome);
     let asset = newest
         .feed
         .platforms
@@ -189,13 +178,24 @@ async fn attempt(
         None
     };
 
+    let mut outcome = UpdateOutcome {
+        id: id.to_owned(),
+        state: UpdateOutcomeState::Failed,
+        from: installed.to_string(),
+        to: Some(newest.version.to_string()),
+        at: now_ms(),
+        reason: Some("the update service stopped before it finished".into()),
+        evidence: None,
+    };
+    forget_previous(dir);
+    write_outcome(&outcome);
     let work = dir.join(".update");
     let _ = fs::remove_dir_all(&work);
-    fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&work)
-        .map_err(|error| error.to_string())?;
     let result: Result<u64, Failure> = async {
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&work)
+            .map_err(|error| error.to_string())?;
         let unpacked = match &app_asset {
             Some(app_asset) => Some(fetch_app(&work, &newest.version, app_asset, report).await?),
             None => None,
