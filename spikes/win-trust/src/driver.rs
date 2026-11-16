@@ -3,11 +3,13 @@ use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::CloseHandle;
-use windows_sys::Win32::Security::{TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY};
+use windows_sys::Win32::Security::{
+    TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY,
+};
 use windows_sys::Win32::System::Services::{
-    CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW,
-    StartServiceW, SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_CONTROL_STOP, SERVICE_DEMAND_START,
-    SERVICE_ERROR_NORMAL, SERVICE_STATUS, SERVICE_WIN32_OWN_PROCESS,
+    CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
+    OpenServiceW, StartServiceW, SC_MANAGER_ALL_ACCESS, SERVICE_ALL_ACCESS, SERVICE_CONTROL_STOP,
+    SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_STATUS, SERVICE_WIN32_OWN_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{
     CreateProcessWithLogonW, PROCESS_INFORMATION, STARTUPINFOW,
@@ -31,11 +33,10 @@ impl Checks {
         Checks { rows: Vec::new() }
     }
     fn want(&mut self, log: &str, key: &str, expect: &'static str) {
-        let line = log
-            .lines()
-            .rev()
-            .find(|l| l.contains(&format!("{key}=")));
-        let pass = line.map(|l| l.contains(&format!("{key}={expect}"))).unwrap_or(false);
+        let line = log.lines().rev().find(|l| l.contains(&format!("{key}=")));
+        let pass = line
+            .map(|l| l.contains(&format!("{key}={expect}")))
+            .unwrap_or(false);
         self.rows.push((key.to_string(), expect, pass));
     }
     fn want_present(&mut self, log: &str, key: &str) {
@@ -87,7 +88,11 @@ fn install_service() {
     };
     assert!(!svc.is_null(), "CreateService/OpenService failed");
     let ok = unsafe { StartServiceW(svc, 0, null()) };
-    report("driver", "service_start", if ok != 0 { "ok" } else { "already-or-fail" });
+    report(
+        "driver",
+        "service_start",
+        if ok != 0 { "ok" } else { "already-or-fail" },
+    );
     unsafe {
         CloseServiceHandle(svc);
         CloseServiceHandle(scm);
@@ -137,7 +142,8 @@ fn ask_start() {
 }
 
 fn launch_agent() {
-    let base = self_token(TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT);
+    let base =
+        self_token(TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT);
     let primary = to_primary(base);
     let locked = deny_admins(primary);
     if locked.is_null() {
@@ -153,7 +159,15 @@ fn launch_agent() {
         visible_desktop: true,
         process_sddl: None,
     });
-    report("driver", "agent_launch", if spawned.is_some() { "started" } else { "failed" });
+    report(
+        "driver",
+        "agent_launch",
+        if spawned.is_some() {
+            "started"
+        } else {
+            "failed"
+        },
+    );
 }
 
 fn second_user() {
@@ -161,7 +175,11 @@ fn second_user() {
         .args(["user", USER_B, PASS_B, "/add"])
         .output();
     let added = add.map(|o| o.status.success()).unwrap_or(false);
-    report("driver", "second_user_add", if added { "ok" } else { "exists-or-fail" });
+    report(
+        "driver",
+        "second_user_add",
+        if added { "ok" } else { "exists-or-fail" },
+    );
 
     let user = wide(USER_B);
     let domain = wide(".");
@@ -185,7 +203,11 @@ fn second_user() {
             &mut info,
         )
     };
-    report("driver", "second_launch", if ok != 0 { "started" } else { "failed" });
+    report(
+        "driver",
+        "second_launch",
+        if ok != 0 { "started" } else { "failed" },
+    );
 }
 
 /// Run as a second signed-in person (via CreateProcessWithLogonW). Asks the
@@ -240,7 +262,7 @@ fn summarize(log: &str) -> bool {
     c.want(log, "app_link", "ok");
     c.want(log, "child_il", "medium");
     c.want(log, "core_gen", "2"); // restart brought it back
-    // Signed-in counts and two-person isolation.
+                                  // Signed-in counts and two-person isolation.
     c.want(log, "idle_users", "0");
     c.want(log, "second_start", "ok");
 
@@ -248,21 +270,31 @@ fn summarize(log: &str) -> bool {
     println!("\n===== WINDOWS TRUST SPIKE SUMMARY =====");
     for (key, expect, pass) in &c.rows {
         all &= pass;
-        println!("[{}] {key} -> want {expect}", if *pass { "PASS" } else { "FAIL" });
+        println!(
+            "[{}] {key} -> want {expect}",
+            if *pass { "PASS" } else { "FAIL" }
+        );
     }
     println!("======================================");
-    println!("secret dirs (signed-in people): {}", crate::driver::secret_dir_count());
+    println!(
+        "secret dirs (signed-in people): {}",
+        crate::driver::secret_dir_count()
+    );
     println!("RESULT: {}", if all { "PASS" } else { "FAIL" });
     all
 }
 
 pub fn secret_dir_count() -> usize {
-    std::fs::read_dir(secrets_dir()).map(|d| d.flatten().count()).unwrap_or(0)
+    std::fs::read_dir(secrets_dir())
+        .map(|d| d.flatten().count())
+        .unwrap_or(0)
 }
 
 fn cleanup() {
     remove_service();
-    let _ = std::process::Command::new("net").args(["user", USER_B, "/delete"]).output();
+    let _ = std::process::Command::new("net")
+        .args(["user", USER_B, "/delete"])
+        .output();
     let _ = std::fs::remove_dir_all(install_dir());
 }
 

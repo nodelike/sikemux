@@ -26,7 +26,10 @@ pub fn log_path() -> PathBuf {
 }
 
 pub fn wide(s: &str) -> Vec<u16> {
-    std::ffi::OsStr::new(s).encode_wide().chain(Some(0)).collect()
+    std::ffi::OsStr::new(s)
+        .encode_wide()
+        .chain(Some(0))
+        .collect()
 }
 
 pub fn from_wide_ptr(ptr: *const u16) -> String {
@@ -40,7 +43,9 @@ pub fn from_wide_ptr(ptr: *const u16) -> String {
         }
     }
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-    std::ffi::OsString::from_wide(slice).to_string_lossy().into_owned()
+    std::ffi::OsString::from_wide(slice)
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn errno() -> u32 {
@@ -66,7 +71,11 @@ pub fn as_ptr(h: HANDLE) -> *mut c_void {
 pub fn report(mode: &str, key: &str, value: &str) {
     let line = format!("[{mode}] {key}={value}\n");
     let _ = std::fs::create_dir_all(data_dir());
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path()) {
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
         let _ = file.write_all(line.as_bytes());
         let _ = file.flush();
     }

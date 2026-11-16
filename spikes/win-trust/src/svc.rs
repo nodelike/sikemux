@@ -7,25 +7,33 @@ use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
-use windows_sys::Win32::Security::{RevertToSelf, SECURITY_ATTRIBUTES, TOKEN_DUPLICATE, TOKEN_QUERY};
-use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
-use windows_sys::Win32::System::Services::{
-    RegisterServiceCtrlHandlerExW, SetServiceStatus, StartServiceCtrlDispatcherW, SERVICE_ACCEPT_STOP,
-    SERVICE_CONTROL_STOP, SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STATUS_HANDLE, SERVICE_STOPPED,
-    SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
+use windows_sys::Win32::Security::{
+    RevertToSelf, SECURITY_ATTRIBUTES, TOKEN_DUPLICATE, TOKEN_QUERY,
 };
+use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
 use windows_sys::Win32::System::Pipes::ImpersonateNamedPipeClient;
+use windows_sys::Win32::System::Services::{
+    RegisterServiceCtrlHandlerExW, SetServiceStatus, StartServiceCtrlDispatcherW,
+    SERVICE_ACCEPT_STOP, SERVICE_CONTROL_STOP, SERVICE_RUNNING, SERVICE_STATUS,
+    SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
+};
 use windows_sys::Win32::System::Threading::{GetProcessId, OpenThreadToken, WaitForSingleObject};
 
 use crate::pipe::{anon, create_named, disconnect, recv_line, send_line, wait_client};
-use crate::proc::{spawn, Spawn, BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON, IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON, IMAGE_LOAD_NO_REMOTE_ALWAYS_ON};
-use crate::sd::{deny_admins, medium_restricted, set_integrity, to_primary, user_sid_string, HIGH_RID};
+use crate::proc::{
+    spawn, Spawn, BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON, IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON,
+    IMAGE_LOAD_NO_REMOTE_ALWAYS_ON,
+};
+use crate::sd::{
+    deny_admins, medium_restricted, set_integrity, to_primary, user_sid_string, HIGH_RID,
+};
 use crate::util::{install_exe, report, secrets_dir, SendHandle, SERVICE_NAME, SVC_PIPE};
 
 const SVC_PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;0x12008b;;;AU)";
 const CORE_MITIGATION: u64 = IMAGE_LOAD_NO_REMOTE_ALWAYS_ON | IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON;
-const APP_MITIGATION: u64 =
-    BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON | IMAGE_LOAD_NO_REMOTE_ALWAYS_ON | IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON;
+const APP_MITIGATION: u64 = BLOCK_NON_MICROSOFT_BINARIES_ALWAYS_ON
+    | IMAGE_LOAD_NO_REMOTE_ALWAYS_ON
+    | IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON;
 
 static STATUS_HANDLE: AtomicIsize = AtomicIsize::new(0);
 
@@ -76,7 +84,11 @@ fn set_state(state: u32) {
     let mut status = SERVICE_STATUS {
         dwServiceType: SERVICE_WIN32_OWN_PROCESS,
         dwCurrentState: state,
-        dwControlsAccepted: if state == SERVICE_RUNNING { SERVICE_ACCEPT_STOP } else { 0 },
+        dwControlsAccepted: if state == SERVICE_RUNNING {
+            SERVICE_ACCEPT_STOP
+        } else {
+            0
+        },
         dwWin32ExitCode: 0,
         dwServiceSpecificExitCode: 0,
         dwCheckPoint: 0,
@@ -138,7 +150,12 @@ fn handle(pipe: HANDLE, req: &str) {
             let reg = REGISTRY.lock().unwrap();
             let line = format!(
                 "core={};core2={};app_high={};app_medium={};hwnd_high={};hwnd_medium={}",
-                reg.core_pid, reg.core2_pid, reg.app_high_pid, reg.app_medium_pid, reg.hwnd_high, reg.hwnd_medium
+                reg.core_pid,
+                reg.core2_pid,
+                reg.app_high_pid,
+                reg.app_medium_pid,
+                reg.hwnd_high,
+                reg.hwnd_medium
             );
             send_line(pipe, &line);
         }
@@ -195,7 +212,12 @@ fn make_secret_dir(sid: &str) -> std::path::PathBuf {
     let mut sd: *mut c_void = null_mut();
     let sddl = crate::util::wide("O:SYG:SYD:P(A;OICI;GA;;;SY)");
     unsafe {
-        ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, null_mut());
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut sd,
+            null_mut(),
+        );
         let sa = SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: sd,
@@ -236,8 +258,16 @@ fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
     let (s2c_r, s2c_w) = anon().unwrap();
     let proc_sd = format!("O:SYG:SYD:P(A;;GA;;;SY)(A;;0x101001;;;{sid})");
 
-    let (apphi_r, apphi_w) = if with_apps { anon().unwrap() } else { (null_mut(), null_mut()) };
-    let (appmed_r, appmed_w) = if with_apps { anon().unwrap() } else { (null_mut(), null_mut()) };
+    let (apphi_r, apphi_w) = if with_apps {
+        anon().unwrap()
+    } else {
+        (null_mut(), null_mut())
+    };
+    let (appmed_r, appmed_w) = if with_apps {
+        anon().unwrap()
+    } else {
+        (null_mut(), null_mut())
+    };
 
     let mut cmdline = format!(
         "\"{}\" core --gen {gen} --sid {sid} --secret-w {} --secret-r {}",
@@ -247,7 +277,10 @@ fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
     );
     let mut inherit = vec![c2s_w, s2c_r];
     if with_apps {
-        cmdline.push_str(&format!(" --app-hi {} --app-med {}", apphi_r as usize, appmed_r as usize));
+        cmdline.push_str(&format!(
+            " --app-hi {} --app-med {}",
+            apphi_r as usize, appmed_r as usize
+        ));
         inherit.push(apphi_r);
         inherit.push(appmed_r);
     }
@@ -309,7 +342,11 @@ fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
 }
 
 fn launch_app(core_token: SendHandle, tag: &str, token: HANDLE, link_w: HANDLE, proc_sd: &str) {
-    let cmdline = format!("\"{}\" app {tag} --link {}", install_exe().display(), link_w as usize);
+    let cmdline = format!(
+        "\"{}\" app {tag} --link {}",
+        install_exe().display(),
+        link_w as usize
+    );
     let info = spawn(&Spawn {
         token,
         cmdline,

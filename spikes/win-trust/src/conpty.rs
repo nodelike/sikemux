@@ -23,7 +23,8 @@ pub fn run(medium_token: HANDLE) -> Result<String, String> {
     let (out_read, out_write) = anon().ok_or("stdout pipe")?;
 
     let mut hpc: HPCON = 0;
-    let hr = unsafe { CreatePseudoConsole(COORD { X: 100, Y: 40 }, in_read, out_write, 0, &mut hpc) };
+    let hr =
+        unsafe { CreatePseudoConsole(COORD { X: 100, Y: 40 }, in_read, out_write, 0, &mut hpc) };
     if hr != 0 {
         return Err(format!("CreatePseudoConsole hr={hr:#x}"));
     }
@@ -79,16 +80,36 @@ pub fn run(medium_token: HANDLE) -> Result<String, String> {
         return Err(format!("launch cmd ({})", crate::util::errno()));
     }
 
-    for line in ["whoami /groups | findstr Mandatory\r\n", "echo conpty-ok\r\n", "exit\r\n"] {
+    for line in [
+        "whoami /groups | findstr Mandatory\r\n",
+        "echo conpty-ok\r\n",
+        "exit\r\n",
+    ] {
         let mut written = 0u32;
-        unsafe { WriteFile(in_write, line.as_ptr(), line.len() as u32, &mut written, null_mut()) };
+        unsafe {
+            WriteFile(
+                in_write,
+                line.as_ptr(),
+                line.len() as u32,
+                &mut written,
+                null_mut(),
+            )
+        };
     }
 
     let mut output = Vec::new();
     let mut buf = [0u8; 4096];
     loop {
         let mut got = 0u32;
-        let ok = unsafe { ReadFile(out_read, buf.as_mut_ptr(), buf.len() as u32, &mut got, null_mut()) };
+        let ok = unsafe {
+            ReadFile(
+                out_read,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                &mut got,
+                null_mut(),
+            )
+        };
         if ok == 0 || got == 0 {
             break;
         }

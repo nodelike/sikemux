@@ -3,7 +3,9 @@ use std::ffi::c_void;
 use std::ptr::null_mut;
 
 use windows_sys::Win32::Foundation::CloseHandle;
-use windows_sys::Win32::Security::{TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY};
+use windows_sys::Win32::Security::{
+    TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY,
+};
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcessId, GetProcessMitigationPolicy, OpenProcess, ProcessSignaturePolicy,
     PROCESS_VM_READ,
@@ -49,21 +51,37 @@ pub fn run(args: &[String]) {
     };
     let secret_r = handle_arg(&map, "--secret-r").unwrap_or(null_mut());
 
-    report("core", "core_gen", map.get("--gen").map(String::as_str).unwrap_or("?"));
+    report(
+        "core",
+        "core_gen",
+        map.get("--gen").map(String::as_str).unwrap_or("?"),
+    );
     report("core", "core_il", il_name(current_integrity().unwrap_or(0)));
 
     send_line(secret_w, "put hunter2");
     let _ = recv_line(secret_r);
     send_line(secret_w, "get");
     let got = recv_line(secret_r).unwrap_or_default();
-    report("core", "secret", if got == "ok hunter2" { "ok" } else { "mismatch" });
+    report(
+        "core",
+        "secret",
+        if got == "ok hunter2" {
+            "ok"
+        } else {
+            "mismatch"
+        },
+    );
 
     let pid = unsafe { GetCurrentProcessId() };
     let self_by_id = unsafe { OpenProcess(PROCESS_VM_READ, 0, pid) };
     report(
         "core",
         "self_open_byid",
-        if self_by_id.is_null() { "denied" } else { "allowed" },
+        if self_by_id.is_null() {
+            "denied"
+        } else {
+            "allowed"
+        },
     );
 
     for _ in 0..3 {
@@ -72,7 +90,8 @@ pub fn run(args: &[String]) {
         });
     }
 
-    let tok = self_token(TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT);
+    let tok =
+        self_token(TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT);
     let med = medium_restricted(tok);
     if !med.is_null() {
         let child = Spawn {
@@ -83,7 +102,15 @@ pub fn run(args: &[String]) {
             visible_desktop: false,
             process_sddl: None,
         };
-        report("core", "child_spawn", if spawn(&child).is_some() { "started" } else { "failed" });
+        report(
+            "core",
+            "child_spawn",
+            if spawn(&child).is_some() {
+                "started"
+            } else {
+                "failed"
+            },
+        );
     }
 
     let med2 = medium_restricted(tok);
@@ -111,7 +138,11 @@ pub fn run(args: &[String]) {
         )
     };
     let signed_only = got != 0 && (buf[0] & 1) == 1;
-    report("core", "sig_mitigation", if signed_only { "ms-signed-only" } else { "off" });
+    report(
+        "core",
+        "sig_mitigation",
+        if signed_only { "ms-signed-only" } else { "off" },
+    );
 
     if let Some(app_hi) = handle_arg(&map, "--app-hi") {
         let app_med = handle_arg(&map, "--app-med").unwrap_or(null_mut());
@@ -140,7 +171,15 @@ fn orphan() {
     if !h.is_null() {
         send_line(h, "secret");
         let reply = recv_line(h).unwrap_or_default();
-        report("core", "agent_core_secret", if reply.is_empty() { "no-reply" } else { reply.as_str() });
+        report(
+            "core",
+            "agent_core_secret",
+            if reply.is_empty() {
+                "no-reply"
+            } else {
+                reply.as_str()
+            },
+        );
         unsafe { CloseHandle(h) };
     } else {
         report("core", "agent_core_secret", "no-pipe");

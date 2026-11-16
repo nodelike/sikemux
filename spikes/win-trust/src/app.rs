@@ -8,17 +8,19 @@ use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
 use windows_sys::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
-use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
-use windows_sys::Win32::System::Memory::GlobalLock;
-use windows_sys::Win32::System::Threading::{GetCurrentProcessId, OpenProcess, PROCESS_VM_READ, PROCESS_VM_WRITE};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, EndPaint, FillRect, UpdateWindow, COLOR_WINDOW, PAINTSTRUCT,
 };
+use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
+use windows_sys::Win32::System::Memory::GlobalLock;
+use windows_sys::Win32::System::Threading::{
+    GetCurrentProcessId, OpenProcess, PROCESS_VM_READ, PROCESS_VM_WRITE,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostQuitMessage, RegisterClassW,
-    SetForegroundWindow, ShowWindow, TranslateMessage, CW_USEDEFAULT, MSG, SW_SHOW, WM_CHAR,
-    WM_DESTROY, WM_PAINT, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostQuitMessage,
+    RegisterClassW, SetForegroundWindow, ShowWindow, TranslateMessage, CW_USEDEFAULT, MSG, SW_SHOW,
+    WM_CHAR, WM_DESTROY, WM_PAINT, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use wry::{WebContext, WebViewBuilder};
 
@@ -43,7 +45,8 @@ struct Win {
 }
 impl HasWindowHandle for Win {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let mut h = Win32WindowHandle::new(NonZeroIsize::new(self.hwnd).ok_or(HandleError::Unavailable)?);
+        let mut h =
+            Win32WindowHandle::new(NonZeroIsize::new(self.hwnd).ok_or(HandleError::Unavailable)?);
         h.hinstance = NonZeroIsize::new(self.hinstance);
         Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::Win32(h)) })
     }
@@ -160,7 +163,18 @@ fn try_d3d() -> String {
         let mut ctx: *mut c_void = null_mut();
         let mut level = 0u32;
         // driver type 5 = WARP (software, Microsoft-signed).
-        let hr = create(null_mut(), 5, 0, 0, null_mut(), 0, 7, &mut device, &mut level, &mut ctx);
+        let hr = create(
+            null_mut(),
+            5,
+            0,
+            0,
+            null_mut(),
+            0,
+            7,
+            &mut device,
+            &mut level,
+            &mut ctx,
+        );
         if hr == 0 {
             "warp-ok".into()
         } else {
@@ -186,7 +200,11 @@ pub fn run(args: &[String]) {
         send_line(link, &format!("hello-{}", tag()));
     }
 
-    report(tag(), &key("il"), crate::core::il_name(current_integrity().unwrap_or(0)));
+    report(
+        tag(),
+        &key("il"),
+        crate::core::il_name(current_integrity().unwrap_or(0)),
+    );
 
     let hwnd = create_window();
     report(tag(), &key("hwnd"), &(hwnd as isize).to_string());
@@ -195,7 +213,15 @@ pub fn run(args: &[String]) {
 
     let pid = unsafe { GetCurrentProcessId() };
     let self_open = unsafe { OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE, 0, pid) };
-    report(tag(), &key("self_open"), if self_open.is_null() { "denied" } else { "allowed" });
+    report(
+        tag(),
+        &key("self_open"),
+        if self_open.is_null() {
+            "denied"
+        } else {
+            "allowed"
+        },
+    );
 
     let data_dir = std::env::var("LOCALAPPDATA")
         .map(|l| std::path::Path::new(&l).join(format!("SikemuxSpike/webview-{}", tag())))
@@ -228,7 +254,11 @@ pub fn run(args: &[String]) {
     std::thread::spawn(|| {
         for _ in 0..40 {
             std::thread::sleep(std::time::Duration::from_millis(250));
-            report(tag(), &key("chars"), &CHARS.load(Ordering::SeqCst).to_string());
+            report(
+                tag(),
+                &key("chars"),
+                &CHARS.load(Ordering::SeqCst).to_string(),
+            );
         }
     });
 

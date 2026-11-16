@@ -1,16 +1,16 @@
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{HANDLE, LocalFree};
+use windows_sys::Win32::Foundation::{LocalFree, HANDLE};
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
-use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
 use windows_sys::Win32::Security::{
     AllocateAndInitializeSid, CreateRestrictedToken, CreateWellKnownSid, DuplicateTokenEx,
-    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, SetTokenInformation,
+    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, SecurityImpersonation,
+    SetTokenInformation, TokenIntegrityLevel, TokenPrimary, TokenUser, WinBuiltinAdministratorsSid,
     DISABLE_MAX_PRIVILEGE, SECURITY_MANDATORY_LABEL_AUTHORITY, SID_AND_ATTRIBUTES,
     TOKEN_ACCESS_MASK, TOKEN_ALL_ACCESS, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
-    TokenIntegrityLevel, TokenPrimary, TokenUser, WinBuiltinAdministratorsSid, SecurityImpersonation,
 };
+use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 use crate::util::{errno, from_wide_ptr};

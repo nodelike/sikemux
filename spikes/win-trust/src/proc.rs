@@ -30,7 +30,13 @@ pub struct Spawn<'a> {
 }
 
 pub fn make_inheritable(handle: HANDLE) {
-    unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT as u32, HANDLE_FLAG_INHERIT as u32) };
+    unsafe {
+        SetHandleInformation(
+            handle,
+            HANDLE_FLAG_INHERIT as u32,
+            HANDLE_FLAG_INHERIT as u32,
+        )
+    };
 }
 
 /// Launch a process with the given token, restricting inherited handles to the

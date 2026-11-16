@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows_sys::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
 };
@@ -13,16 +15,22 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_INFORMATION, PROCESS_TERMINATE, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VK_CONTROL,
-    VK_V,
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    VK_CONTROL, VK_V,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_CHAR};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    PostMessageW, SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_CHAR,
+};
 
 use crate::pipe::{client, create_named, recv_line, send_line};
 use crate::util::{install_dir, report, SVC_PIPE};
 
-const PROBE: u32 =
-    PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_DUP_HANDLE | 0x40000 | PROCESS_QUERY_INFORMATION;
+const PROBE: u32 = PROCESS_VM_READ
+    | PROCESS_VM_WRITE
+    | PROCESS_CREATE_THREAD
+    | PROCESS_DUP_HANDLE
+    | 0x40000
+    | PROCESS_QUERY_INFORMATION;
 
 fn status() -> HashMap<String, String> {
     let mut map = HashMap::new();
@@ -47,12 +55,20 @@ fn probe_process(tag: &str, pid: u32) {
         return;
     }
     let h = unsafe { OpenProcess(PROBE, 0, pid) };
-    report("agent", &format!("open_{tag}"), if h.is_null() { "denied" } else { "allowed" });
+    report(
+        "agent",
+        &format!("open_{tag}"),
+        if h.is_null() { "denied" } else { "allowed" },
+    );
     if !h.is_null() {
         unsafe { CloseHandle(h) };
     }
     let t = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
-    report("agent", &format!("terminate_{tag}"), if t.is_null() { "denied" } else { "allowed" });
+    report(
+        "agent",
+        &format!("terminate_{tag}"),
+        if t.is_null() { "denied" } else { "allowed" },
+    );
     if !t.is_null() {
         unsafe { CloseHandle(t) };
     }
@@ -77,7 +93,11 @@ fn probe_threads(core_pid: u32) {
         ok = unsafe { Thread32Next(snap, &mut entry) };
     }
     unsafe { CloseHandle(snap) };
-    report("agent", "thread_open", &format!("allowed={allowed},denied={denied}"));
+    report(
+        "agent",
+        "thread_open",
+        &format!("allowed={allowed},denied={denied}"),
+    );
 }
 
 fn set_clipboard(text: &str) {
@@ -122,7 +142,13 @@ fn send_input_burst() {
     inputs.push(key_event(VK_V, 0, 0));
     inputs.push(key_event(VK_V, 0, KEYEVENTF_KEYUP));
     inputs.push(key_event(VK_CONTROL, 0, KEYEVENTF_KEYUP));
-    let sent = unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) };
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
     report("agent", "sendinput", &format!("sent={sent}"));
 }
 
@@ -152,7 +178,11 @@ pub fn run() {
                 .any(|d| std::fs::read_to_string(d.path().join("secret.txt")).is_ok())
         })
         .unwrap_or(false);
-    report("agent", "read_secret_file", if secret_read { "allowed" } else { "denied" });
+    report(
+        "agent",
+        "read_secret_file",
+        if secret_read { "allowed" } else { "denied" },
+    );
 
     probe_process("core", core_pid);
     probe_process("app_high", pid("app_high"));
@@ -174,7 +204,11 @@ pub fn run() {
 
     // Try to squat a new instance of the service pipe: no create-instance right.
     let squat = create_named(SVC_PIPE, "D:P(A;;GA;;;WD)");
-    report("agent", "squat_service_pipe", if squat.is_null() { "denied" } else { "allowed" });
+    report(
+        "agent",
+        "squat_service_pipe",
+        if squat.is_null() { "denied" } else { "allowed" },
+    );
 
     // Try to stop the service.
     let scm = unsafe { OpenSCManagerW(null(), null(), 0x0001) }; // SC_MANAGER_CONNECT
@@ -184,19 +218,33 @@ pub fn run() {
         let name = crate::util::wide(crate::util::SERVICE_NAME);
         unsafe { OpenServiceW(scm, name.as_ptr(), SERVICE_STOP) }
     };
-    report("agent", "service_stop", if svc.is_null() { "denied" } else { "allowed" });
+    report(
+        "agent",
+        "service_stop",
+        if svc.is_null() { "denied" } else { "allowed" },
+    );
 
     // Program Files is out of reach; the person's own LOCALAPPDATA is not.
     let pf = std::fs::write(install_dir().join("agent.txt"), "x");
-    report("agent", "write_progfiles", if pf.is_ok() { "allowed" } else { "denied" });
+    report(
+        "agent",
+        "write_progfiles",
+        if pf.is_ok() { "allowed" } else { "denied" },
+    );
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         let f = std::path::Path::new(&local).join("SikemuxSpike/core-file.txt");
         let w = std::fs::write(f, "agent-wrote");
-        report("agent", "write_user_file", if w.is_ok() { "allowed" } else { "denied" });
+        report(
+            "agent",
+            "write_user_file",
+            if w.is_ok() { "allowed" } else { "denied" },
+        );
     }
 
     // Start the installed core ourselves: with no brokered channel it is refused.
-    let orphan = std::process::Command::new(crate::util::install_exe()).arg("core").spawn();
+    let orphan = std::process::Command::new(crate::util::install_exe())
+        .arg("core")
+        .spawn();
     if let Ok(mut child) = orphan {
         let _ = child.wait();
         report("agent", "launched_core", "done");
