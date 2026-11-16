@@ -72,6 +72,8 @@ pub struct RepoAbove {
     pub messages_tell_lead: fn(&Arc<Core>, &str, String, bool),
     /// Whether a note can reach the agent now.
     pub messages_reachable: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, bool>,
+    /// The id a note reaches the agent by now, reopening it as it was when it had closed here.
+    pub messages_reopened: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Option<String>>,
     /// The status of an agent that runs on a linked host, as that host last said it.
     pub foreign_status: fn(&Core, &str) -> Option<AgentStatus>,
     /// The watch credited the agent with files it wrote outside an edit tool, which can come to

@@ -385,6 +385,7 @@ pub(super) fn repo_above() -> RepoAbove {
         },
         messages_tell_lead: messages::report_land,
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
+        messages_reopened: |core, to| Box::pin(messages::reopened(core, to)),
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
         turn_state_wrote: turn_state::wrote,
         pushed: finished::moved,

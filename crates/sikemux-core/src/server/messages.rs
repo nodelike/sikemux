@@ -1554,6 +1554,23 @@ pub(crate) async fn reachable(core: &Arc<Core>, to: &str) -> bool {
     running(core, to.to_owned()).await.is_ok()
 }
 
+/// The id a message reaches `to` by now, reopening it as it was when it had closed here.
+pub(crate) async fn reopened(core: &Arc<Core>, to: &str) -> Option<String> {
+    if reachable(core, to).await {
+        return Some(to.to_owned());
+    }
+    core.workspaces().closed_agent(to)?;
+    match super::launching::reopen_agent(core, to.to_owned()).await {
+        Ok(taken) => reachable(core, &taken.agent_id)
+            .await
+            .then_some(taken.agent_id),
+        Err(error) => {
+            eprintln!("sikemux core: {to} had closed and did not reopen: {error}");
+            None
+        }
+    }
+}
+
 /// Hands an agent a note from Sikemux's board about its cards. Fails when the
 /// agent has stopped or is gone.
 pub(crate) async fn from_board(

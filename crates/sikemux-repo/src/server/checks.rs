@@ -1107,8 +1107,9 @@ fn someone(core: &Core, agent: &str) -> String {
     format!("@{}", crate::server::names::called_now(core, agent))
 }
 
-/// Tells who should mend a failing check: the agent whose commit broke it when that is known,
-/// else one agent of those it failed after, and the others one line saying who has it.
+/// Tells who should mend a failing check: the agent holding its CI card, else the one already
+/// mending it, else the agent whose commit broke it when that is known, else one agent of those
+/// it failed after, reopened when it had closed; and the others one line saying who has it.
 async fn blame(
     core: &Arc<Core>,
     project: &str,
@@ -1130,13 +1131,14 @@ async fn blame(
         "The project's check, {command}, failed on {}.",
         crate::git::short(newest)
     );
-    if let Some(card) = (core.repo_above().board_ci_card)(core, project) {
-        let holder = card.owner.as_deref().map(|owner| someone(core, owner));
-        let who = holder.unwrap_or_else(|| format!("card {}", card.label));
-        for agent in authors
-            .iter()
-            .filter(|agent| card.owner.as_ref() != Some(agent))
-        {
+    let card = (core.repo_above().board_ci_card)(core, project);
+    let holder = match card.as_ref().and_then(|card| card.owner.clone()) {
+        Some(holder) if (core.repo_above().messages_reachable)(core, &holder).await => Some(holder),
+        _ => None,
+    };
+    if let (Some(card), Some(holder)) = (&card, holder) {
+        let who = someone(core, &holder);
+        for agent in authors.iter().filter(|agent| **agent != holder) {
             if newly_told(core, project, agent) {
                 let text = format!(
                     "{failed} {who} owns mending it, on card {}; leave it to them.",
@@ -1147,6 +1149,12 @@ async fn blame(
         }
         return;
     }
+    let claim = card.map_or_else(String::new, |card| {
+        format!(
+            "\nClaim card {} with board_claim while you mend it.",
+            card.label
+        )
+    });
     let owner = core
         .checks()
         .state
@@ -1155,13 +1163,13 @@ async fn blame(
         .get(project)
         .and_then(|failing| failing.owner.clone());
     let owner = match owner {
-        Some(owner) if (core.repo_above().messages_reachable)(core, &owner).await => Some(owner),
-        _ => None,
+        Some(owner) => (core.repo_above().messages_reopened)(core, &owner).await,
+        None => None,
     };
     if let Some(owner) = owner {
         if authors.contains(&owner) {
             let text = format!(
-                "{failed} It is still yours to mend, as your commit did not fix it.\n{digest}"
+                "{failed} It is still yours to mend, as your commit did not fix it.{claim}\n{digest}"
             );
             send_work(core, owner.clone(), text).await;
         }
@@ -1180,12 +1188,12 @@ async fn blame(
     );
     let mut elected = None;
     for candidate in candidates {
-        if (core.repo_above().messages_reachable)(core, candidate).await {
-            elected = Some(candidate.clone());
+        if let Some(reached) = (core.repo_above().messages_reopened)(core, candidate).await {
+            elected = Some((candidate.clone(), reached));
             break;
         }
     }
-    let Some(owner) = elected else {
+    let Some((author, owner)) = elected else {
         return;
     };
     {
@@ -1196,7 +1204,7 @@ async fn blame(
         }
     }
     let why = match hunted {
-        Hunted::Found { sha, subject, agents, .. } if agents.contains(&owner) => format!(
+        Hunted::Found { sha, subject, agents, .. } if agents.contains(&author) => format!(
             "Your commit {} ({subject}) broke it: the commit before it passes. Mend it with a commit.",
             crate::git::short(sha)
         ),
@@ -1209,9 +1217,9 @@ async fn blame(
         ),
         Hunted::NotTried => "It came after your commits, so it is yours to mend with a commit.".to_owned(),
     };
-    let text = format!("{failed} {why}\n{digest}");
+    let text = format!("{failed} {why}{claim}\n{digest}");
     send_work(core, owner.clone(), text).await;
-    if !matches!(hunted, Hunted::Found { agents, .. } if agents.contains(&owner)) {
+    if !matches!(hunted, Hunted::Found { agents, .. } if agents.contains(&author)) {
         tell_others(core, project, &failed, &owner, &authors).await;
     }
 }
