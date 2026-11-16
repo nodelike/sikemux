@@ -117,6 +117,8 @@ Start-Sleep -Seconds 10
 Drive 'open a terminal' "activate`nkey ctrl+t`nwait 3"
 Start-Sleep -Seconds 5
 Picture 'terminal'
+$folder = Join-Path $Out 'terminal-folder.txt'
+Drive 'the terminal says its folder' "text `$pwd.Path | Set-Content $folder`nkey enter`nwait 3"
 
 $env:FAKE_PROVIDER = 'claude'
 $env:FAKE_PROJECT = $project
@@ -135,4 +137,13 @@ Picture 'window'
 Stop-Process -Id $proc.Id
 Get-Process sikemux-host, sikemux-fake-claude -ErrorAction SilentlyContinue | Stop-Process
 Get-Content (Join-Path $Out 'stdout.txt'), (Join-Path $Out 'stderr.txt')
+
+# The prompt shows the shell's folder, and Windows' \\?\ prefix must reach neither it nor the
+# project's path the core stores.
+$verbatim = '\\?\'
+if (-not (Test-Path $folder)) { $failed += 'the terminal says its folder' }
+elseif ((Get-Content $folder -Raw).Contains($verbatim)) { $failed += "the terminal's folder is $(Get-Content $folder -Raw)" }
+$stored = Get-ChildItem -Recurse -File (Join-Path $env:LOCALAPPDATA 'Sikemux'), $data.FullName -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -ne '.log' -and "$(Get-Content -Raw $_.FullName -ErrorAction SilentlyContinue)".Contains($verbatim) }
+if ($stored) { $failed += "the core stored \\?\ paths in $($stored.Name -join ', ')" }
 if ($failed.Count -gt 0) { throw "these steps failed: $($failed -join ', ')" }
