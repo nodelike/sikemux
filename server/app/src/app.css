@@ -20,6 +20,8 @@
   --ink: #e7e5ef;
   --acc: #a277ff;
   --danger: #ff6767;
+  --live: #61ffca;
+  --warn: #ffca85;
   --on-danger: var(--bg);
 
   --gray-100: color-mix(in oklab, var(--ink) 4%, var(--bg));
@@ -32,6 +34,7 @@
   --surface-sunken: var(--bg-dim);
   --surface-glass: color-mix(in oklab, var(--bg) 82%, transparent);
   --surface-hover: color-mix(in oklab, var(--ink) 6%, transparent);
+  --surface-chosen: color-mix(in oklab, var(--ink) 9%, transparent);
   --text-primary: var(--ink);
   --text-secondary: var(--gray-900);
   --text-tertiary: var(--gray-800);
@@ -1041,4 +1044,374 @@ a.button {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 8px;
+}
+
+.row.setting > .confirm,
+.row.setting > .problem {
+  grid-column: 1 / -1;
+}
+
+.row > .problem {
+  grid-column: 2 / -1;
+  margin-top: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--gray-200);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip.accent {
+  background: color-mix(in oklab, var(--acc) 18%, transparent);
+  color: color-mix(in oklab, var(--acc) 55%, var(--ink));
+}
+
+.testmode {
+  padding: 1px 5px;
+  border: 1px dashed color-mix(in oklab, var(--warn) 45%, transparent);
+  border-radius: 4px;
+  color: var(--warn);
+  font: 500 10px var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+}
+
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-tertiary);
+  font: 500 12px var(--ui);
+  cursor: pointer;
+  transition:
+    background var(--dur-2),
+    color var(--dur-2);
+}
+
+.segmented button:hover {
+  color: var(--text-primary);
+}
+
+.segmented button[aria-checked="true"] {
+  background: var(--surface-chosen);
+  color: var(--text-primary);
+}
+
+.segmented .save {
+  color: var(--live);
+  font-size: 11px;
+  font-style: normal;
+}
+
+[data-busy] > .segmented {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.payer {
+  margin: -8px 0 22px;
+}
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.banner > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.banner .grow {
+  flex: 1;
+}
+
+.banner b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.banner.warn {
+  border: 1px solid color-mix(in oklab, var(--warn) 32%, transparent);
+  background: color-mix(in oklab, var(--warn) 7%, var(--bg));
+}
+
+.banner.warn > svg {
+  color: var(--warn);
+}
+
+.plan-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-glass);
+}
+
+.plan-card h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.price {
+  color: var(--text-primary);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.price small {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.plus {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.features {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.features li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+}
+
+.features svg {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+}
+
+.plan-card-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.new-team {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.new-team .field {
+  height: 34px;
+  font-size: 13px;
+}
+
+.stepper-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-sunken);
+}
+
+.stepper button {
+  width: 26px;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: var(--text-tertiary);
+  font: 500 14px var(--ui);
+  cursor: pointer;
+}
+
+.stepper button:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.stepper button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stepper input {
+  width: 38px;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: 500 13px var(--mono);
+  text-align: center;
+  outline: none;
+}
+
+.amount {
+  color: var(--text-primary);
+  font: 500 13px var(--mono);
+  letter-spacing: 0;
+}
+
+.amount.big {
+  font-size: 15px;
+}
+
+.row.invoice {
+  grid-template-columns: 110px minmax(0, 1fr) 90px 70px 28px;
+  column-gap: 12px;
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.row.invoice .amount {
+  text-align: right;
+}
+
+.status {
+  color: var(--live);
+  font-size: 12px;
+}
+
+.status[data-status="failed"] {
+  color: var(--danger);
+}
+
+.status[data-status="refunded"] {
+  color: var(--text-tertiary);
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.icon-button[data-busy] {
+  opacity: 0.5;
+}
+
+.notice {
+  position: fixed;
+  z-index: 5;
+  bottom: 28px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--gray-200);
+  color: var(--text-primary);
+  font-size: 13px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 18px 48px -12px rgb(0 0 0 / 0.7);
+  transform: translateX(-50%);
+  animation: notice-in var(--dur-4) var(--ease-out);
+}
+
+.notice > svg {
+  color: var(--live);
+}
+
+.notice .undo {
+  margin-left: 6px;
+  border: 0;
+  background: none;
+  color: var(--text-tertiary);
+  font: 500 13px var(--ui);
+  cursor: pointer;
+}
+
+.notice .undo:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+@media (max-width: 720px) {
+  .plan-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .row.invoice {
+    grid-template-columns: minmax(0, 1fr) auto 28px;
+  }
+
+  .row.invoice > .quiet,
+  .row.invoice > .status {
+    display: none;
+  }
+
+  .notice {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    transform: none;
+    animation-name: none;
+  }
 }

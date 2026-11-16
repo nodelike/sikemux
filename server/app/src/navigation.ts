@@ -6,9 +6,10 @@ export const DELETE_ACCOUNT = "/delete-account";
 export const CONSENT = "/oauth-consent";
 export const HOST = "/host";
 export const HOSTS = "/hosts";
+export const BILLING = "/billing";
 
 /** The signed-in pages a sign-in can come back to. */
-const PAGES = new Set(["/", HOSTS, DELETE_ACCOUNT]);
+const PAGES = new Set(["/", HOSTS, BILLING, DELETE_ACCOUNT]);
 
 const RETURN_KEY = "sikemux.returnTo";
 

@@ -1,18 +1,12 @@
 import { useAuth } from "@clerk/react";
 import { platformName } from "@shared/remote/access";
 import type { AccountEvent, Device } from "@sikemux/protocol";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import { IconLaptop, IconPhone } from "@shared/ui/Icons";
-import { ItemRow, Rows, Section } from "./ui.tsx";
+import { Confirm, ItemRow, Rows, Section } from "./ui.tsx";
 
 export type Load =
   | { state: "loading" }
@@ -175,10 +169,6 @@ function DeviceRow({
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape" && !busy) cancel();
-  };
-
   return (
     <ItemRow
       glyph={
@@ -214,37 +204,20 @@ function DeviceRow({
       }
     >
       {confirming ? (
-        <div className="confirm" id={confirmId} onKeyDown={onKeyDown}>
+        <Confirm
+          id={confirmId}
+          problem={problem}
+          busy={busy}
+          label="Remove"
+          danger
+          onCancel={cancel}
+          onConfirm={() => void confirm()}
+        >
           <p>
             Remove <span className="ink">{device.name}</span>?{" "}
             {CONSEQUENCE[device.role]}
           </p>
-          {problem ? (
-            <p className="problem" role="alert">
-              {problem}
-            </p>
-          ) : null}
-          <div className="actions">
-            <button
-              type="button"
-              className="button small"
-              onClick={cancel}
-              disabled={busy}
-              autoFocus
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button small danger"
-              onClick={() => void confirm()}
-              disabled={busy}
-              data-busy={busy || undefined}
-            >
-              Remove
-            </button>
-          </div>
-        </div>
+        </Confirm>
       ) : null}
     </ItemRow>
   );

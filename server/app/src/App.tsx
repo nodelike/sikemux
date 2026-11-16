@@ -7,10 +7,11 @@ import {
   type MouseEvent,
 } from "react";
 
-import { IconServer, IconUser } from "@shared/ui/Icons";
+import { IconCreditCard, IconServer, IconUser } from "@shared/ui/Icons";
 
 import { AccountPage } from "./AccountPage.tsx";
 import { Backdrop } from "./Backdrop.tsx";
+import { BillingPage, useBillingShown } from "./Billing.tsx";
 import { Consent, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
 import {
   AccountDeleted,
@@ -23,6 +24,7 @@ import { useLive } from "./live.ts";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
+  BILLING,
   CONSENT,
   DELETE_ACCOUNT,
   HOST,
@@ -179,6 +181,7 @@ export function App() {
 
 const PAGE_TITLES: Record<string, string> = {
   [HOSTS]: "Hosts",
+  [BILLING]: "Plan and billing",
   [DELETE_ACCOUNT]: "Delete your account",
 };
 
@@ -206,7 +209,10 @@ function Account({
     devices.load.state === "loaded"
       ? devices.load.devices.filter((device) => device.role === "host").length
       : undefined;
-  const page = path in PAGE_TITLES ? path : "/";
+  const billingShown = useBillingShown(ready && active);
+  const [planVersion, setPlanVersion] = useState(0);
+  const page =
+    path in PAGE_TITLES && (path !== BILLING || billingShown) ? path : "/";
 
   useEffect(() => {
     document.title = `${PAGE_TITLES[page] ?? "Account"} · Sikemux`;
@@ -216,10 +222,13 @@ function Account({
     onEvents: (events) => {
       devices.apply(events);
       signIns.apply(events);
+      if (events.some((event) => event.type === "plan.changed"))
+        setPlanVersion((version) => version + 1);
     },
     onResync: () => {
       devices.reload();
       signIns.reload();
+      setPlanVersion((version) => version + 1);
     },
     onAccountDeleted: () => onDeleted(),
   });
@@ -236,6 +245,20 @@ function Account({
         },
       ],
     },
+    ...(billingShown
+      ? [
+          {
+            label: "Billing",
+            items: [
+              {
+                path: BILLING,
+                name: "Plan and billing",
+                icon: <IconCreditCard size={15} />,
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -256,6 +279,8 @@ function Account({
           onBack={() => go("/")}
           onDeleted={onDeleted}
         />
+      ) : page === BILLING ? (
+        <BillingPage version={planVersion} />
       ) : page === HOSTS ? (
         <>
           <PageHead title="Hosts">
