@@ -849,6 +849,16 @@ button:focus-visible,
   color: var(--text-secondary);
 }
 
+.plugin-mark {
+  display: grid;
+  color: var(--text-primary);
+}
+
+.plugin-mark > svg {
+  width: 100%;
+  height: 100%;
+}
+
 .name {
   font-size: 13.5px;
   overflow: hidden;

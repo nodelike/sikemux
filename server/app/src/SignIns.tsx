@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { formatAgo } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import { IconKey } from "@shared/ui/Icons";
+import { PluginMark } from "./PluginMark.tsx";
 import { ItemRow, Rows, Section } from "./ui.tsx";
 
 const SERVICE_NAMES: Record<string, string> = {
@@ -141,7 +142,13 @@ function SignInRow({ signIn }: { signIn: SignIn }) {
   const hosts = [...new Set(signIn.uses.map(hostOf))];
   return (
     <ItemRow
-      glyph={<IconKey size={18} />}
+      glyph={
+        <PluginMark
+          plugin={signIn.plugin}
+          size={18}
+          fallback={<IconKey size={18} />}
+        />
+      }
       name={SERVICE_NAMES[signIn.plugin] ?? signIn.plugin}
       detail={`used ${times(signIn.count)} by ${listed(by)} on ${listed(hosts)} · ${formatAgo(signIn.lastAt)}`}
       end={
