@@ -16,10 +16,32 @@ pub const MAX_TOGETHER: usize = 8;
 /// How long a base that fails its own check goes before the queue looks whether it moved.
 const RED_BASE_LOOK_MS: u64 = 5 * 60_000;
 
-/// Waits for the queues' checkout, which one check uses at a time.
-pub async fn checkout_turn() -> tokio::sync::MutexGuard<'static, ()> {
+/// Waits for the queues' checkout, which one check uses at a time. A check of
+/// commits bound for the remote goes before any check that only lands on a
+/// local branch, such as a teammate's land into its lead's checkout.
+pub async fn checkout_turn(pushes: bool) -> tokio::sync::MutexGuard<'static, ()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     static CHECKOUT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    CHECKOUT.lock().await
+    static PUSHING: AtomicUsize = AtomicUsize::new(0);
+    static PUSHED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+    if pushes {
+        PUSHING.fetch_add(1, Ordering::SeqCst);
+        let turn = CHECKOUT.lock().await;
+        PUSHING.fetch_sub(1, Ordering::SeqCst);
+        PUSHED.notify_waiters();
+        return turn;
+    }
+    loop {
+        let pushed = PUSHED.notified();
+        if PUSHING.load(Ordering::SeqCst) > 0 {
+            pushed.await;
+            continue;
+        }
+        let turn = CHECKOUT.lock().await;
+        if PUSHING.load(Ordering::SeqCst) == 0 {
+            return turn;
+        }
+    }
 }
 
 /// What a queue keeps about one base while the core runs.

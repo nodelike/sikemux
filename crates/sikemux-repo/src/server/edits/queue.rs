@@ -624,7 +624,8 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     if stacked.laid.is_empty() {
         return;
     }
-    let _turn = merge_queue::checkout_turn().await;
+    let pushes = stacked.laid.iter().any(|laid| laid.waiting.push);
+    let _turn = merge_queue::checkout_turn(pushes).await;
     let stacked = tidy(core, key, stacked).await;
     if stacked.laid.is_empty() {
         return;
@@ -974,7 +975,7 @@ pub async fn check_before_push(
     if from == head {
         return Ok(());
     }
-    let _turn = merge_queue::checkout_turn().await;
+    let _turn = merge_queue::checkout_turn(true).await;
     let due = {
         let (repo, from, head) = (repo.to_owned(), from.clone(), head.to_owned());
         blocking(move || Ok(land_checks_due(&repo, &from, &head)))
