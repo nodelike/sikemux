@@ -1,3 +1,4 @@
+import type { InvoiceStatus } from "@sikemux/protocol";
 import { sql, type Kysely, type Transaction } from "kysely";
 
 import type { Tables } from "../db.ts";
@@ -252,6 +253,17 @@ async function isSurplus(
 const neverHeld = (rows: readonly Row[]) =>
   rows.every((row) => row.ended_at?.getTime() === row.started_at.getTime());
 
+/** Whether a payment bought nothing: the plan had ended, or ended while this payment was failing. */
+function paidForNothing(
+  rows: readonly Row[],
+  at: Date,
+  before: InvoiceStatus | undefined,
+) {
+  if (!rows.every((row) => row.status === "ended")) return false;
+  if (before === "failed" || neverHeld(rows)) return true;
+  return rows.every((row) => row.ended_at && row.ended_at <= at);
+}
+
 /**
  * A deleted account can still finish a checkout it opened before deleting. Its payer, the person
  * or the solo org it is the last member of, then gets the sweeper's turn to end the new plan.
@@ -379,6 +391,12 @@ async function apply(
         return STRAY;
       }
       const { rows, customerId } = held;
+      const before = await trx
+        .selectFrom("invoices")
+        .select("status")
+        .where("provider_payment_id", "=", event.providerPaymentId)
+        .forUpdate()
+        .executeTakeFirst();
       await trx
         .insertInto("invoices")
         .values({
@@ -417,7 +435,8 @@ async function apply(
           .set({ status: "active", provider_updated_at: at })
           .where("id", "in", lapsed)
           .execute();
-      if (paid && neverHeld(rows))
+      const fresh = !before || before.status === "failed";
+      if (paid && fresh && paidForNothing(rows, at, before?.status))
         await callLater(trx, provider, [
           { action: "refund", providerPaymentId: event.providerPaymentId },
         ]);

@@ -258,7 +258,7 @@ describe("deleting an account", () => {
     ]);
   });
 
-  it("cancels a lapsed plan at once, so the provider's retry of its payment charges nobody", async () => {
+  it("cancels a lapsed plan at once, and refunds a retry of its payment that the cancel came too late for", async () => {
     await buy(MEMBER, "pro");
     const { rows } = await database.pool.query<{ id: string }>(
       "select provider_subscription_id as id from subscriptions",
@@ -294,6 +294,28 @@ describe("deleting an account", () => {
     const cancel = vi.spyOn(provider, "cancel");
     expect((await deleteAccount(MEMBER)).status).toBe(202);
     expect(cancel.mock.calls.map(([, when]) => when)).toEqual(["now"]);
+    expect((await subscriptions())[0]?.status).toBe("ended");
+
+    const refund = vi.spyOn(provider, "refund");
+    await applyProviderEvents(
+      database.db,
+      provider,
+      [
+        {
+          eventId: "evt_retried",
+          at: new Date(failedAt.getTime() + 60_000),
+          type: "payment.made",
+          providerPaymentId: "pay_try_1",
+          ...payment,
+        },
+      ],
+      log,
+    );
+    expect(refund.mock.calls).toEqual([["pay_try_1"]]);
+    const { rows: invoices } = await database.pool.query<{ status: string }>(
+      "select status from invoices where provider_payment_id = 'pay_try_1'",
+    );
+    expect(invoices).toEqual([{ status: "paid" }]);
     expect((await subscriptions())[0]?.status).toBe("ended");
   });
 
