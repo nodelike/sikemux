@@ -12,6 +12,7 @@ pub const MOST_STRENGTH: f64 = 2.;
 const LETTER: f64 = 8.;
 /// How solid a waiting pane's edge is at its brightest, where text beside it allows.
 const GLOW_MOST: f64 = 0.8;
+const SPARK_MOST: f64 = 0.9;
 
 /// `backdrop` with every number in range and every ink a colour or a token's name, with what
 /// was changed to fit; or why it cannot be a backdrop.
@@ -120,17 +121,41 @@ pub fn readable(mut backdrop: ThemeBackdrop, tokens: &UiTokens) -> (ThemeBackdro
     (backdrop, vec![note])
 }
 
-/// The backdrop as clients draw it under the theme's `tokens`.
-pub fn worn(backdrop: &ThemeBackdrop, tokens: &UiTokens) -> WornBackdrop {
+/// The backdrop as clients draw it under the theme's `tokens` and its terminal's `magenta`.
+pub fn worn(backdrop: &ThemeBackdrop, tokens: &UiTokens, magenta: &str) -> WornBackdrop {
     let inks = inks(backdrop, tokens);
     let warn = hex(&tokens.warn).map(css).unwrap_or_default();
+    let sparks = match backdrop.kind {
+        BackdropKind::Gradient | BackdropKind::Stars => inks.clone(),
+        BackdropKind::Grain | BackdropKind::Grid => [&tokens.accent, &tokens.ink, magenta]
+            .into_iter()
+            .filter_map(|ink| hex(ink).map(css))
+            .collect(),
+    };
     WornBackdrop {
         most: most(backdrop, &inks, tokens),
         glow: glow(&warn, tokens),
+        spark: spark(&sparks, tokens),
         look: backdrop.clone(),
         inks,
         warn,
+        sparks,
     }
+}
+
+/// How solid a burst's sparks may be with the dim ink beside the brightest still at 1.5:1, or
+/// nine tenths of what the plain ground gives where that is less.
+fn spark(sparks: &[String], tokens: &UiTokens) -> f64 {
+    let (Some(ground), Some(dim)) = (hex(&tokens.sunken), hex(&tokens.ink_dim)) else {
+        return 0.;
+    };
+    let sparks: Vec<[u8; 3]> = sparks.iter().filter_map(|ink| hex(ink)).collect();
+    let needs = 1.5_f64.min(0.9 * contrast(dim, ground));
+    highest(SPARK_MOST, |alpha| {
+        sparks
+            .iter()
+            .all(|&spark| contrast(dim, mix(ground, spark, alpha)) >= needs)
+    })
 }
 
 /// How solid a waiting pane's warn edge may be with the dim ink beside it still at 1.5:1, or

@@ -14,6 +14,7 @@ impl crate::server::part::Part for Notifier {
     }
 }
 
+use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
@@ -47,6 +48,7 @@ pub use goals::GoalMoved;
 pub use presence::{Presence, SystemPresence};
 
 use super::access::{self, Needs, Peer};
+use super::changed::What;
 use super::remote::NotifyTarget;
 use super::Core;
 
@@ -142,6 +144,26 @@ pub enum Signal {
     PairingSettled {
         id: String,
     },
+    /// An agent's work landed on its project's main line.
+    Landed {
+        agent_id: String,
+    },
+}
+
+/// A moment of an agent's work a theme may celebrate in its pane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Feat {
+    Landed,
+    ChecksPassed,
+}
+
+/// The latest feat on this host, and how many there have been since the core started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Achieved {
+    pub agent_id: String,
+    pub feat: Feat,
+    pub at: u64,
+    pub count: u64,
 }
 
 /// A question waiting on the person, as a phone is told of it.
@@ -189,6 +211,7 @@ struct State {
     goals: goals::Gathered,
     /// What each phone's Live Activity was last sent, by phone.
     activities: HashMap<String, activity::Sent>,
+    achieved: Option<Achieved>,
 }
 
 impl Notifier {
@@ -222,6 +245,10 @@ impl Notifier {
     pub fn absence(&self) -> (Option<u64>, Option<u64>, bool) {
         let state = self.state.locked();
         (state.left_at, state.back_at, state.away)
+    }
+
+    pub fn achieved(&self) -> Option<Achieved> {
+        self.state.locked().achieved.clone()
     }
 
     pub fn host_name(&self) -> String {
@@ -557,10 +584,14 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             what,
             how,
         } => {
+            if how == CiEnded::Passed {
+                achieve(core, &agent_id, Feat::ChecksPassed, now);
+            }
             if let Some(draft) = ci_ended(core, &agent_id, &run, &what, how, now) {
                 alert_all(core, &draft, now);
             }
         }
+        Signal::Landed { agent_id } => achieve(core, &agent_id, Feat::Landed, now),
         Signal::Problem { agent_id, message } => {
             if core
                 .notify()
@@ -576,6 +607,20 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             }
         }
     }
+}
+
+fn achieve(core: &Core, agent_id: &str, feat: Feat, now: u64) {
+    {
+        let mut state = core.notify().state.locked();
+        let count = state.achieved.as_ref().map_or(0, |last| last.count) + 1;
+        state.achieved = Some(Achieved {
+            agent_id: agent_id.to_owned(),
+            feat,
+            at: now,
+            count,
+        });
+    }
+    core.changed(What::View);
 }
 
 fn permission_card(agent_id: &str, request_id: &str) -> String {

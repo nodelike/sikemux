@@ -466,6 +466,10 @@ impl World {
     }
 
     /// Does `step` when it is the core's to do.
+    pub(super) fn chat_named(&self, name: &str) -> anyhow::Result<String> {
+        (self.named.get(name).cloned()).ok_or_else(|| anyhow!("no chat named {name}"))
+    }
+
     pub(super) fn take(&mut self, step: &Step) -> anyhow::Result<bool> {
         match step.verb.as_str() {
             "project" => {

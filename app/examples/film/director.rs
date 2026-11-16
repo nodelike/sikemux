@@ -98,6 +98,7 @@ pub(super) struct Director {
     pub(super) grid: bool,
     pub(super) events: Vec<Value>,
     pub(super) seed: u32,
+    pub(super) moments: u64,
     pub(super) began: Instant,
     /// Time spent drawing the app, reading its pictures back, framing them and encoding, for
     /// the progress line.
@@ -743,6 +744,20 @@ impl Director {
                 .map_err(|error| anyhow!("{error}"))?;
         }
         Ok(())
+    }
+
+    pub(super) fn moment(&mut self, agent_id: String) -> anyhow::Result<()> {
+        self.moments += 1;
+        let moment = sikemux_view::inbox::Moment {
+            agent_id,
+            at: sikemux_process::clock::epoch_ms(),
+            count: self.moments,
+        };
+        self.cx
+            .update_window(self.window, |_, _, cx| {
+                sikemux_gpui::ui::grain::celebrate(Some(&moment), cx)
+            })
+            .map_err(|error| anyhow!("{error}"))
     }
 
     pub(super) fn run(&mut self, step: &Step) -> anyhow::Result<()> {

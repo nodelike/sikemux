@@ -372,6 +372,20 @@ pub struct Inbox {
     /// The agents here at a glance, as a phone's Live Activity and widgets show them.
     #[serde(default)]
     pub glance: crate::push::ActivityGlance,
+    /// The latest moment of an agent's work a pane celebrates, as the theme sizes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moment: Option<Moment>,
+}
+
+/// One moment of an agent's work worth a burst of sparks at the top right of its pane. A
+/// client plays it once, when its count is new and it happened under 10 s ago.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Moment {
+    pub agent_id: String,
+    /// When it happened, in milliseconds since the Unix epoch.
+    pub at: u64,
+    pub count: u64,
 }
 
 /// How devices show an open agent here.

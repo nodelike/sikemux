@@ -1,0 +1,10 @@
+[
+  {
+    "when": "cache the product pages",
+    "steps": [
+      {
+        "say": "Done. Product pages now come from Redis for five minutes, and a price change clears its page."
+      }
+    ]
+  }
+]

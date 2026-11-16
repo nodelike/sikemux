@@ -198,6 +198,8 @@ impl Workbench {
             .collect();
         let any = self.shown().is_some_and(|view| view.inbox.working > 0);
         crate::ui::grain::working(any, &agents, cx);
+        let moment = self.shown().and_then(|view| view.inbox.moment.clone());
+        crate::ui::grain::celebrate(moment.as_ref(), cx);
         self.keep_cards(cx);
         // The chat's call cards draw inside the cached stage, which a new view alone leaves as it was.
         if calls_moved {

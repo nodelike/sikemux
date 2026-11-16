@@ -36,13 +36,15 @@ use super::connection::blocking;
 use super::display;
 use super::hosts::team::{Foreign, Role};
 use super::kept::Kept;
-use super::notify::provider_name;
+use super::notify::{provider_name, Feat};
 use super::roster;
 use super::turn_state;
 use super::{Core, CoreResult};
 use sikemux_fold::AgentNeed;
+use sikemux_view::backdrop::Moments;
 use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
+use sikemux_view::inbox::Moment;
 use sikemux_view::push::ActivityGlance;
 use sikemux_view::turn::{TurnState, WorkAt};
 
@@ -1690,7 +1692,22 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
         needed: 0,
         rollup: None,
         glance: ActivityGlance::default(),
+        moment: moment(core),
     }
+}
+
+/// The latest feat here when the theme celebrates it.
+fn moment(core: &Core) -> Option<Moment> {
+    let achieved = core.notify().achieved()?;
+    match (core.look().palette().backdrop.look.moments, achieved.feat) {
+        (Moments::Full, Feat::Landed | Feat::ChecksPassed) => {}
+        (Moments::Quiet | Moments::Off, Feat::Landed | Feat::ChecksPassed) => return None,
+    }
+    Some(Moment {
+        agent_id: achieved.agent_id,
+        at: achieved.at,
+        count: achieved.count,
+    })
 }
 
 /// What finished, failed and waits since the person last left, or since

@@ -330,6 +330,7 @@ fn main() -> anyhow::Result<()> {
         grid: args.grid,
         events: Vec::new(),
         seed: 7,
+        moments: 0,
         began: Instant::now(),
         spent: [Duration::ZERO; 4],
     };
@@ -345,7 +346,14 @@ fn main() -> anyhow::Result<()> {
         if taken {
             continue;
         }
-        if let Err(error) = director.run(step) {
+        let ran = match step.verb.as_str() {
+            "moment" => step
+                .text(0)
+                .and_then(|name| world.chat_named(name))
+                .and_then(|agent| director.moment(agent)),
+            _ => director.run(step),
+        };
+        if let Err(error) = ran {
             played = Err(error);
             break;
         }

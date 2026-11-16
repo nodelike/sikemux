@@ -189,7 +189,9 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
         gpui_kit::init(cx);
         theme::install(cx);
     });
-    let tokens = sikemux_corekit::themes::default_palette().tokens;
+    let palette = sikemux_corekit::themes::default_palette();
+    let tokens = palette.tokens;
+    let magenta = palette.theme.terminal.magenta;
     let kinds = [
         ("none", None),
         ("grain", Some(BackdropKind::Grain)),
@@ -210,7 +212,7 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
             kind: kind.unwrap_or_default(),
             ..ThemeBackdrop::default()
         };
-        let worn = sikemux_corekit::themes::backdrop::worn(&look, &tokens);
+        let worn = sikemux_corekit::themes::backdrop::worn(&look, &tokens, &magenta);
         cx.update(|cx| {
             grain::set(&preferences, cx);
             grain::wear(&worn, cx);
@@ -285,9 +287,11 @@ fn main() {
         kind,
         ..ThemeBackdrop::default()
     };
+    let palette = sikemux_corekit::themes::default_palette();
     let worn = sikemux_corekit::themes::backdrop::worn(
         &look,
-        &sikemux_corekit::themes::default_palette().tokens,
+        &palette.tokens,
+        &palette.theme.terminal.magenta,
     );
     let stats = std::env::var_os(gpui::frame_stats::ENV_VAR)
         .map(PathBuf::from)

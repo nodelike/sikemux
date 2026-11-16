@@ -146,11 +146,18 @@
       "shape": "dots",
       "cell": 24.0,
       "weight": 1.0,
-      "mood": false
+      "mood": false,
+      "moments": "off"
     },
     "inks": [],
     "most": 2.0,
     "warn": "#e9ba6c",
-    "glow": 0.54
+    "glow": 0.54,
+    "sparks": [
+      "#a277ff",
+      "#e7e5ef",
+      "#ff6ac1"
+    ],
+    "spark": 0.45
   }
 }

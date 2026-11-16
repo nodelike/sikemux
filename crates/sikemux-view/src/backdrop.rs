@@ -36,6 +36,18 @@ pub enum GridShape {
     Dots,
 }
 
+/// Which moments of an agent's work a pane celebrates with bursts of sparks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Moments {
+    #[default]
+    Off,
+    /// Only the big ones, each with one burst.
+    Quiet,
+    /// One burst for a land or passing checks, a show of six for the big ones.
+    Full,
+}
+
 theme_parts! {
 /// A theme's backdrop. Each number applies to the kinds its comment names and is clamped to
 /// its range when the theme is checked.
@@ -76,6 +88,7 @@ pub struct ThemeBackdrop / ThemeBackdropChanges {
     /// Each pane moves only while its own agent works, and its edge glows in the theme's warn
     /// colour while its agent waits on the person.
     pub mood: bool,
+    pub moments: Moments,
 }
 }
 
@@ -101,6 +114,7 @@ impl Default for ThemeBackdrop {
             cell: 24.,
             weight: 1.,
             mood: false,
+            moments: Moments::Off,
         }
     }
 }
@@ -124,6 +138,9 @@ pub struct WornBackdrop {
     /// how solid it is at its brightest.
     pub warn: String,
     pub glow: f64,
+    /// The inks of a burst's sparks, as `#rrggbb`, and how solid they are at their brightest.
+    pub sparks: Vec<String>,
+    pub spark: f64,
 }
 
 impl Eq for WornBackdrop {}
@@ -136,6 +153,8 @@ impl Default for WornBackdrop {
             most: 2.,
             warn: String::new(),
             glow: 0.,
+            sparks: Vec::new(),
+            spark: 0.,
         }
     }
 }

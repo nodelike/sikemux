@@ -13,6 +13,8 @@
 //! one being checked rather than taking its place.
 
 use crate::server::changed::{ChangedCore, What};
+use crate::server::notify::Signal;
+use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap};
@@ -773,6 +775,9 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
             .unwrap_or_default();
         let on = format!("{} is on {} as {}", waiting.short(), key.1, shorts(commits));
         tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
+        core.notify().send(Signal::Landed {
+            agent_id: waiting.agent.clone(),
+        });
         if waiting.push {
             pushers.push((waiting.agent.clone(), on));
         } else {

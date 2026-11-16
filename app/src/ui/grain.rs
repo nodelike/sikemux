@@ -13,10 +13,12 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, relative, AnyElement, App, AppContext, Context, Global, Hsla, IntoElement,
-    ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
+    canvas, div, point, px, relative, size, AnyElement, App, AppContext, Bounds, Context, Global,
+    Hsla, IntoElement, ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
 };
+use sikemux_process::clock::epoch_ms;
 use sikemux_view::backdrop::{BackdropKind, GridShape, WornBackdrop};
+use sikemux_view::inbox::Moment;
 use sikemux_view::prefs::{
     Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern, Preferences,
 };
@@ -42,6 +44,7 @@ static POSTER_MARK: RawShaderProgram = program!("poster_mark");
 static TILE: RawShaderProgram = program!("tile");
 static GLOW: RawShaderProgram = program!("glow");
 static EDGE: RawShaderProgram = program!("edge");
+static BURST: RawShaderProgram = program!("burst");
 
 static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png");
 /// How much of the distance between dots each dot fills, and how solid they are.
@@ -86,6 +89,15 @@ const EASE_STEPS: u32 = 8;
 /// How long a waiting pane's edge breathes before it holds still at its brightest.
 const BREATHING: Duration = Duration::from_secs(20);
 
+/// A burst of sparks: how long it plays, how far its sparks reach, and where its middle is
+/// from the pane's top right corner, in points.
+const BURST_LASTS: Duration = Duration::from_millis(950);
+const SPARK_REACH: f32 = 18.;
+const SPARK_FROM_RIGHT: f32 = 34.;
+const SPARK_FROM_TOP: f32 = 30.;
+/// A moment older than this when it arrives has passed, so it plays nothing.
+const MOMENT_FRESH: Duration = Duration::from_secs(10);
+
 /// How fast a backdrop runs: at its own speed while an agent works, held still at rest, so
 /// movement behind the panes always means work and an idle window draws nothing.
 #[derive(Clone, Copy, Default)]
@@ -127,6 +139,18 @@ struct Paces {
     waiting: HashSet<String>,
     /// The shader time the waiting panes' edges stop breathing.
     breathing_until: f32,
+    burst: Option<Burst>,
+    /// The count of the latest moment taken, so each plays once.
+    celebrated: u64,
+}
+
+/// A burst playing in the pane of `agent` from the shader time `started`.
+#[derive(Clone)]
+struct Burst {
+    agent: String,
+    started: f32,
+    /// Varies where its sparks fly from one burst to the next.
+    seed: f32,
 }
 
 impl Default for Paces {
@@ -137,6 +161,8 @@ impl Default for Paces {
             agents: HashMap::new(),
             waiting: HashSet::new(),
             breathing_until: 0.,
+            burst: None,
+            celebrated: 0,
         }
     }
 }
@@ -164,6 +190,50 @@ impl Paces {
     fn breathing(&self) -> bool {
         !self.waiting.is_empty() && self.time() < self.breathing_until
     }
+
+    fn bursting(&self) -> Option<&Burst> {
+        (self.burst.as_ref())
+            .filter(|burst| self.time() < burst.started + BURST_LASTS.as_secs_f32())
+    }
+}
+
+/// Plays the latest moment the core says the theme celebrates in its agent's pane, once: when
+/// its count is new and it happened under 10 s ago. Less motion plays none.
+pub fn celebrate(moment: Option<&Moment>, cx: &mut App) {
+    let Some(moment) = moment else {
+        return;
+    };
+    let mut paces = cx.try_global::<Paces>().cloned().unwrap_or_default();
+    if paces.celebrated == moment.count {
+        return;
+    }
+    paces.celebrated = moment.count;
+    let fresh = epoch_ms().saturating_sub(moment.at) < MOMENT_FRESH.as_millis() as u64;
+    let drawn = (cx.try_global::<Grain>())
+        .is_some_and(|grain| grain.worn.spark > 0. && !grain.worn.sparks.is_empty());
+    let plays = fresh && drawn && !cx.reduce_motion();
+    if plays {
+        paces.burst = Some(Burst {
+            agent: moment.agent_id.clone(),
+            started: paces.time(),
+            seed: (moment.count % 997) as f32,
+        });
+    }
+    cx.set_global(paces);
+    if !plays {
+        return;
+    }
+    cx.refresh_windows();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(BURST_LASTS).await;
+        cx.update(|cx| {
+            if let Some(paces) = cx.try_global::<Paces>().cloned() {
+                cx.set_global(paces);
+                cx.refresh_windows();
+            }
+        });
+    })
+    .detach();
 }
 
 /// Takes whether any agent on the host in front works, and which of its open agents work and
@@ -585,6 +655,7 @@ pub fn field(cx: &App) -> Option<AnyElement> {
 pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
     let field = field_at(agent, cx);
     let edge = agent.and_then(|agent| waiting_edge(agent, cx));
+    let burst = agent.and_then(|agent| burst_in(agent, cx));
     let welcome_picture = welcome_picture(cx);
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
@@ -623,6 +694,7 @@ pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement 
                 .inset_0()
             }))
             .children(edge.as_ref().map(|draw| draw()))
+            .children(burst.as_ref().map(|draw| draw()))
             .into_any_element()
     }
 }
@@ -657,6 +729,43 @@ fn waiting_edge(agent: &str, cx: &App) -> Option<impl Fn() -> AnyElement + 'stat
                     alpha,
                 ]);
                 let _ = window.paint_ground_shader(bounds, &EDGE, params, None);
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
+    })
+}
+
+/// The burst of sparks at the top right of the pane of `agent` while one plays there.
+fn burst_in(agent: &str, cx: &App) -> Option<impl Fn() -> AnyElement + 'static> {
+    let burst = cx.try_global::<Paces>()?.bursting()?;
+    if burst.agent != agent {
+        return None;
+    }
+    let worn = &cx.try_global::<Grain>()?.worn;
+    let inks: Vec<Rgba> = (worn.sparks.iter())
+        .map(|ink| theme::color(ink).to_rgb())
+        .collect();
+    let mut params = [0.; gpui::RAW_SHADER_PARAMS];
+    params[..4].copy_from_slice(&[burst.started, 0., burst.seed, worn.spark as f32]);
+    for (at, ink) in inks.iter().cycle().take(3).enumerate() {
+        params[4 + 4 * at..7 + 4 * at].copy_from_slice(&[ink.r, ink.g, ink.b]);
+    }
+    params[7] = SPARK_REACH;
+    Some(move || {
+        canvas(
+            |_, _, _| {},
+            move |bounds, (), window, _| {
+                let mut params = params;
+                params[1] = window.ground_scale();
+                let middle = point(
+                    bounds.right() - px(SPARK_FROM_RIGHT),
+                    bounds.top() + px(SPARK_FROM_TOP),
+                );
+                let side = px(2.4 * SPARK_REACH);
+                let square = Bounds::centered_at(middle, size(side, side));
+                let _ = window.paint_ground_shader(square, &BURST, params, None);
             },
         )
         .absolute()
@@ -1092,6 +1201,7 @@ fn tick<V: 'static>(
             let paces = cx.try_global::<Paces>();
             grain.moving(paces.is_some_and(Paces::moving))
                 || (grain.worn.look.mood && paces.is_some_and(Paces::breathing))
+                || paces.is_some_and(|paces| paces.bursting().is_some())
         });
     moving.then(|| {
         cx.spawn_in(window, async move |bench, cx| loop {

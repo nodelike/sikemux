@@ -67,9 +67,10 @@ pub fn palette(shelf: &Shelf, preferences: &Preferences) -> Palette {
         let own = ThemeBackdrop {
             kind,
             mood: palette.backdrop.look.mood,
+            moments: palette.backdrop.look.moments,
             ..ThemeBackdrop::default()
         };
-        palette.backdrop = backdrop::worn(&own, &palette.tokens);
+        palette.backdrop = backdrop::worn(&own, &palette.tokens, &palette.theme.terminal.magenta);
     }
     palette
 }
@@ -336,7 +337,7 @@ pub fn by_name(palette: &Palette) -> std::collections::BTreeMap<String, String> 
 pub fn palette_of(theme: Theme, contrast: Contrast) -> Palette {
     let tokens = tokens(&theme, contrast);
     Palette {
-        backdrop: backdrop::worn(&theme.backdrop, &tokens),
+        backdrop: backdrop::worn(&theme.backdrop, &tokens, &theme.terminal.magenta),
         style: style(&theme),
         tokens,
         theme,
