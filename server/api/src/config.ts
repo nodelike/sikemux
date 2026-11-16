@@ -4,6 +4,7 @@ import type { Network } from "@sikemux/protocol";
 import type { Level } from "pino";
 
 import { readAppleSignIn } from "./account/apple.ts";
+import { isSandboxKey, PADDLE_KEY } from "./billing/paddle-api.ts";
 import type { AppleKey } from "./apple-key.ts";
 import { settingsFrom } from "./env.ts";
 import { readJoinSigner, type JoinSigner } from "./join/signer.ts";
@@ -59,11 +60,26 @@ export interface Config extends MigrationConfig {
 }
 
 /** Which payment provider billing goes through, and whether plans are on sale to everyone. */
-interface BillingSettings {
-  /** Null leaves billing answering that it is not set up. The stand-in never runs in a release. */
-  provider: "stand-in" | null;
+type BillingSettings = {
   /** Off, billing answers only staff and nothing a plan pays for is held back from anyone. */
   live: boolean;
+} &
+  /** Null leaves billing answering that it is not set up. The stand-in never runs in a release. */
+  (
+    | { provider: "stand-in" | null }
+    /** Paddle's sandbox or live account, whichever the key is for. */
+    | { provider: "paddle"; paddleKey: string }
+  );
+
+function readPaddleKey(env: NodeJS.ProcessEnv, problems: string[]) {
+  const key = env.PADDLE_API_KEY?.trim() ?? "";
+  if (PADDLE_KEY.test(key)) return key;
+  problems.push(
+    key
+      ? "PADDLE_API_KEY is not a Paddle API key like pdl_sdbx_apikey_…"
+      : "BILLING_PROVIDER=paddle needs PADDLE_API_KEY",
+  );
+  return null;
 }
 
 const LEVELS: readonly Level[] = [
@@ -112,6 +128,16 @@ export function loadPurgeConfig(env: NodeJS.ProcessEnv): PurgeConfig {
     logLevel: readLogLevel(),
     stashDir: readStashDir(),
   });
+}
+
+/** What the paddle-setup command needs: the key, and the API's origin its webhook is under. */
+export function loadPaddleSetupConfig(env: NodeJS.ProcessEnv) {
+  const { problems, text, readLogLevel, finish } = reader(env);
+  const apiOrigin = text("API_ORIGIN");
+  if (apiOrigin && URL.parse(apiOrigin)?.origin !== apiOrigin)
+    problems.push("API_ORIGIN is not an origin like https://api.sikemux.com");
+  const paddleKey = readPaddleKey(env, problems) ?? "";
+  return finish({ apiOrigin, paddleKey, logLevel: readLogLevel() });
 }
 
 /**
@@ -193,13 +219,23 @@ export function loadConfig(
       ? { dir: stashDir, key: Buffer.from(stashKey, "hex") }
       : null;
 
-  const provider = oneOf("BILLING_PROVIDER", ["none", "stand-in"], "none");
+  const provider = oneOf(
+    "BILLING_PROVIDER",
+    ["none", "stand-in", "paddle"],
+    "none",
+  );
   if (provider === "stand-in" && release)
     problems.push("BILLING_PROVIDER=stand-in is for development only");
-  const billing: BillingSettings = {
-    provider: provider === "none" ? null : provider,
-    live: flag("BILLING_LIVE", false),
-  };
+  const live = flag("BILLING_LIVE", false);
+  const paddleKey = provider === "paddle" ? readPaddleKey(env, problems) : null;
+  if (live && paddleKey && isSandboxKey(paddleKey))
+    problems.push(
+      "BILLING_LIVE=true needs a live Paddle key, not a sandbox one",
+    );
+  const billing: BillingSettings =
+    provider === "paddle"
+      ? { provider, live, paddleKey: paddleKey ?? "" }
+      : { provider: provider === "none" ? null : provider, live };
 
   return finish({
     host,

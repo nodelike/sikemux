@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import type { Level } from "pino";
 
 import { purgeAccounts, pruneHistory } from "./account/purge.ts";
-import { loadConfig, loadMigrationConfig, loadPurgeConfig } from "./config.ts";
+import { PaddleApi } from "./billing/paddle-api.ts";
+import { setUpPaddle } from "./billing/paddle-setup.ts";
+import {
+  loadConfig,
+  loadMigrationConfig,
+  loadPaddleSetupConfig,
+  loadPurgeConfig,
+} from "./config.ts";
 import { openDatabase, type Database } from "./db.ts";
 import { createLogger } from "./log.ts";
 import { migrate, readMigrations } from "./migrations.ts";
@@ -189,6 +196,20 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
       );
     },
   ),
+  async "paddle-setup"() {
+    const config = loadPaddleSetupConfig(process.env);
+    const log = startLogging(config.logLevel);
+    try {
+      await setUpPaddle(
+        new PaddleApi(config.paddleKey, log),
+        config.apiOrigin,
+        log,
+      );
+    } catch (error) {
+      log.fatal({ err: error }, "setting up Paddle failed");
+      process.exitCode = 1;
+    }
+  },
   async "check-stash"() {
     const log = startLogging("info");
     const [dir, ...ids] = process.argv.slice(3);

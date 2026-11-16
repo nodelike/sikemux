@@ -993,6 +993,18 @@ export interface OrgSeats {
 /** A member's account, by its Clerk user id. */
 export type OrgUserId = string;
 
+/** Paddle.js opens its checkout with a client token, which Paddle makes public by design. */
+export interface PaddleCheckout {
+  clientToken: string;
+  environment: PaddleEnvironment;
+}
+
+export type PaddleEnvironment = "sandbox" | "production";
+export const paddleEnvironmentValues: readonly PaddleEnvironment[] = [
+  "sandbox",
+  "production",
+];
+
 /** The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept. */
 export interface PaymentCard {
   /** The provider's name for the card's network, such as visa. */
@@ -1826,6 +1838,8 @@ export interface Definitions {
   OrgRoleChange: OrgRoleChange;
   OrgSeats: OrgSeats;
   OrgUserId: OrgUserId;
+  PaddleCheckout: PaddleCheckout;
+  PaddleEnvironment: PaddleEnvironment;
   PaymentCard: PaymentCard;
   PendingHost: PendingHost;
   PlanFeature: PlanFeature;

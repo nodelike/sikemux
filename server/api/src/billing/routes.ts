@@ -3,6 +3,7 @@ import type {
   BillingOverview,
   Invoice,
   InvoiceList,
+  PaddleCheckout,
   Subscription,
 } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
@@ -33,6 +34,7 @@ import {
   type BillingProvider,
   type ProviderRequest,
 } from "./provider.ts";
+import { PaddleProvider } from "./paddle.ts";
 import { StandInProvider } from "./stand-in.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -149,6 +151,16 @@ export function billingRoutes({
       return c.redirect(back, 303);
     });
   }
+
+  app.get("/paddle", async (c) => {
+    if (!(provider instanceof PaddleProvider))
+      throw notFound("Billing does not go through Paddle.");
+    const page = await provider.checkoutPage();
+    return c.json({
+      clientToken: page.clientToken,
+      environment: page.sandbox ? "sandbox" : "production",
+    } satisfies PaddleCheckout);
+  });
 
   app.use(requireIdentity(verifier, db), requireBillingAccess(db, live));
 

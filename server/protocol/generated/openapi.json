@@ -3568,6 +3568,47 @@
         }
       }
     },
+    "/v1/billing/paddle": {
+      "get": {
+        "operationId": "getPaddleCheckout",
+        "summary": "What the checkout page opens Paddle's checkout with",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Paddle's public client token and which of its environments it is for.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaddleCheckout" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing does not go through Paddle.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "Paddle is not set up yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/billing/provider": {
       "post": {
         "operationId": "receiveBillingEvent",
@@ -5327,6 +5368,20 @@
         "description": "A member's account, by its Clerk user id.",
         "type": "string",
         "pattern": "^user_[A-Za-z0-9]+$"
+      },
+      "PaddleCheckout": {
+        "description": "Paddle.js opens its checkout with a client token, which Paddle makes public by design.",
+        "type": "object",
+        "properties": {
+          "clientToken": { "type": "string" },
+          "environment": { "$ref": "#/components/schemas/PaddleEnvironment" }
+        },
+        "required": ["clientToken", "environment"],
+        "additionalProperties": false
+      },
+      "PaddleEnvironment": {
+        "type": "string",
+        "enum": ["sandbox", "production"]
       },
       "PaymentCard": {
         "description": "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",

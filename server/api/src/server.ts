@@ -6,6 +6,8 @@ import { appleSignIn } from "./account/apple.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
 import { sweepDeletedBilling } from "./billing/deleted.ts";
+import { PaddleProvider } from "./billing/paddle.ts";
+import { PaddleApi } from "./billing/paddle-api.ts";
 import { createApp } from "./app.ts";
 import { clerkVerifier } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -112,10 +114,25 @@ export function startServer(config: Config, log: Logger) {
     );
   const relayAccess = new RelayAccess(database.db);
   const hookHosts = new HookHosts();
+  const billing = config.billing;
   const provider =
-    config.billing.provider === "stand-in"
+    billing.provider === "stand-in"
       ? new StandInProvider(config.apiOrigin)
-      : null;
+      : billing.provider === "paddle"
+        ? new PaddleProvider({
+            api: new PaddleApi(billing.paddleKey, log),
+            apiOrigin: config.apiOrigin,
+            appOrigin: config.appOrigin,
+            log,
+          })
+        : null;
+  if (provider instanceof PaddleProvider)
+    log.info(
+      { sandbox: provider.sandbox },
+      provider.sandbox
+        ? "billing goes through Paddle's sandbox"
+        : "billing goes through Paddle's live account",
+    );
   const app = createApp({
     database,
     log,

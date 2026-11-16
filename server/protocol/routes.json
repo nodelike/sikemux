@@ -1578,6 +1578,27 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/billing/paddle",
+      "operationId": "getPaddleCheckout",
+      "summary": "What the checkout page opens Paddle's checkout with",
+      "auth": "none",
+      "responses": {
+        "200": {
+          "description": "Paddle's public client token and which of its environments it is for.",
+          "body": "PaddleCheckout"
+        },
+        "404": {
+          "description": "Billing does not go through Paddle.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "Paddle is not set up yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/billing/provider",
       "operationId": "receiveBillingEvent",

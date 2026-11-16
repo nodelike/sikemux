@@ -962,6 +962,25 @@ pub struct OrgSeats {
 /// A member's account, by its Clerk user id.
 pub type OrgUserId = String;
 
+/// Paddle.js opens its checkout with a client token, which Paddle makes public by design.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaddleCheckout {
+    pub client_token: String,
+    pub environment: PaddleEnvironment,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PaddleEnvironment {
+    #[serde(rename = "sandbox")]
+    Sandbox,
+    #[serde(rename = "production")]
+    Production,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 /// The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1481,6 +1500,8 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgRoleChange" => through::<OrgRoleChange>(json),
         "OrgSeats" => through::<OrgSeats>(json),
         "OrgUserId" => through::<OrgUserId>(json),
+        "PaddleCheckout" => through::<PaddleCheckout>(json),
+        "PaddleEnvironment" => through::<PaddleEnvironment>(json),
         "PaymentCard" => through::<PaymentCard>(json),
         "PlanFeature" => through::<PlanFeature>(json),
         "PlanId" => through::<PlanId>(json),

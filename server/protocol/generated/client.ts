@@ -48,6 +48,7 @@ import type {
   OrgMemberList,
   OrgRename,
   OrgRoleChange,
+  PaddleCheckout,
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
@@ -339,6 +340,8 @@ export function apiClient(send: Send) {
     /** The provider's own page for payment methods and receipts. */
     getBillingPortal: (query: { org?: OrgId } = {}) =>
       send<BillingLink>("GET", `/v1/billing/portal${search(query)}`),
+    /** What the checkout page opens Paddle's checkout with. */
+    getPaddleCheckout: () => send<PaddleCheckout>("GET", `/v1/billing/paddle`),
   };
 }
 

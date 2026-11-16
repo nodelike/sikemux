@@ -417,7 +417,6 @@ Table billing_customers {
 
   indexes {
     (org_id, provider) [name: 'billing_customers_by_org', unique, note: 'where (org_id IS NOT NULL)']
-    (provider, provider_customer_id) [name: 'billing_customers_by_provider', unique, note: 'where (provider_customer_id IS NOT NULL)']
     (user_id, provider) [name: 'billing_customers_by_user', unique, note: 'where (user_id IS NOT NULL)']
   }
 

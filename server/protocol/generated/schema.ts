@@ -1782,6 +1782,18 @@ export const schema = {
       type: "string",
       pattern: "^user_[A-Za-z0-9]+$",
     },
+    PaddleCheckout: {
+      description:
+        "Paddle.js opens its checkout with a client token, which Paddle makes public by design.",
+      type: "object",
+      properties: {
+        clientToken: { type: "string" },
+        environment: { $ref: "#/$defs/PaddleEnvironment" },
+      },
+      required: ["clientToken", "environment"],
+      additionalProperties: false,
+    },
+    PaddleEnvironment: { type: "string", enum: ["sandbox", "production"] },
     PaymentCard: {
       description:
         "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",
