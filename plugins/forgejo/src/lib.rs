@@ -153,7 +153,7 @@ impl CodeHost for Forgejo {
         pull_files(dir, ask: FilesQuery) -> Vec<ChangedFile> = pulls::files(dir, ask);
         pull_commits(dir, ask: PullRef) -> Vec<PullCommit> = pulls::commits(dir, ask);
         pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
-        merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
+        merge_pull(dir, ask: Merge) -> Pull = pulls::merge(dir, ask);
         create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
         edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
         set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);

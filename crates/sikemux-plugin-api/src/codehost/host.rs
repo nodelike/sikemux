@@ -124,7 +124,7 @@ code_host! {
     /// The pull requests a commit came in through, the merged one first.
     commit_pulls "commitPulls" read (CommitRef) -> Vec<Pull>;
     commit_authors "commitAuthors" read (CommitsQuery) -> Vec<CommitAuthor>;
-    merge_pull "mergePull" (Merge) -> ();
+    merge_pull "mergePull" (Merge) -> Pull;
     create_pull "createPull" (NewPull) -> Pull;
     edit_pull "editPull" (PullEdit) -> Pull;
     /// Keeps a picture beside the repository's pull requests, for a description to show.

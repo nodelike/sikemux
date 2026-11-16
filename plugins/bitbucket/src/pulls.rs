@@ -3,8 +3,9 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost::answers;
@@ -15,9 +16,11 @@ use sikemux_plugin_api::codehost::asks::{
 use sikemux_plugin_api::codehost::{
     ChangedFile, Comment, CommitAuthor, Pull, PullCommit, PullStage, Review, TimelineItem,
 };
+use sikemux_plugin_api::http::Read;
+use sikemux_plugin_api::Service;
 
 use crate::client;
-use crate::error::{BitbucketError, BitbucketResult};
+use crate::error::{Bitbucket, BitbucketError, BitbucketResult};
 use crate::repo::{self, avatar_of, login_of, Links, Place, User};
 
 #[derive(Deserialize, Default)]
@@ -741,16 +744,84 @@ fn merge_body(input: &Merge) -> BitbucketResult<Value> {
     Ok(Value::Object(body))
 }
 
+/// How long a queued merge is followed. With a 30-second request on top it
+/// stays inside the plugin's two-minute call.
+const MERGE_WAIT: Duration = Duration::from_secs(60);
+const MERGE_POLL: Duration = Duration::from_secs(2);
+
+/// What one answer about a merge says.
+enum Merging {
+    Done(Box<PullRow>),
+    /// Bitbucket took the merge on and gave the address to follow it at.
+    Queued(String),
+    Pending,
+}
+
+#[derive(Deserialize)]
+struct MergeTask {
+    task_status: String,
+    merge_result: Option<PullRow>,
+}
+
+/// Reads the merge's own answer and the task-status answers that follow a
+/// queued one: a refusal is Bitbucket's error, never an empty success.
+fn merging(status: StatusCode, location: Option<&str>, body: &[u8]) -> BitbucketResult<Merging> {
+    if !status.is_success() {
+        return Err(Bitbucket::refused(status, body, None));
+    }
+    if status == StatusCode::ACCEPTED {
+        return match location.filter(|task| task.starts_with(client::BASE)) {
+            Some(task) => Ok(Merging::Queued(task.to_string())),
+            None => Err(BitbucketError::Response(
+                "Bitbucket took the merge on without saying where to follow it".into(),
+            )),
+        };
+    }
+    let answer: Value = serde_json::from_slice(body)?;
+    if answer.get("task_status").is_none() {
+        return Ok(Merging::Done(Box::new(serde_json::from_value(answer)?)));
+    }
+    let task: MergeTask = serde_json::from_value(answer)?;
+    match (task.task_status.as_str(), task.merge_result) {
+        ("PENDING", _) => Ok(Merging::Pending),
+        ("SUCCESS", Some(row)) => Ok(Merging::Done(Box::new(row))),
+        (other, _) => Err(BitbucketError::Api(format!(
+            "Bitbucket's merge ended {other}: {}",
+            client::error_message(body).unwrap_or_else(|| String::from_utf8_lossy(body).into())
+        ))),
+    }
+}
+
+async fn merge_answer(
+    data_dir: &Path,
+    method: Method,
+    path: &str,
+    query: &[(&str, String)],
+    body: Option<&Value>,
+) -> BitbucketResult<Merging> {
+    let answer = client::API
+        .send(data_dir, method, path, query, body, Read::ALL)
+        .await?;
+    let location = answer
+        .headers
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok());
+    merging(answer.status, location, &answer.bytes)
+}
+
 /// Bitbucket's merge takes no expected head, so the head is checked first.
 /// That leaves a moment in which a push can still slip in, which is the most
-/// its API allows.
-pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
+/// its API allows. The merge runs in Bitbucket's background and is followed
+/// until it lands, so the answer is the merged pull request or why it failed.
+pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<Pull> {
     let sha = input
         .sha
         .as_deref()
         .ok_or_else(|| BitbucketError::BadArg("missing field `sha`".into()))?;
     let body = merge_body(&input)?;
-    let current = row(data_dir, &input.pull.repo, input.pull.number).await?;
+    let repo = &input.pull.repo;
+    let number = input.pull.number;
+    let current = row(data_dir, repo, number).await?;
     let head = current.source.commit.hash.unwrap_or_default();
     if head.is_empty() || !sha.starts_with(&head) {
         return Err(BitbucketError::Http {
@@ -758,18 +829,44 @@ pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
             message: "the branch has moved since you looked; read the new commits first".into(),
         });
     }
-    let path = pull_path(&input.pull.repo, input.pull.number, "/merge")?;
-    match client::API
-        .write(data_dir, Method::POST, &path, Some(&body))
-        .await
-    {
+    let path = pull_path(repo, number, "/merge")?;
+    let asked = merge_answer(
+        data_dir,
+        Method::POST,
+        &path,
+        &[("async", "true".into())],
+        Some(&body),
+    )
+    .await;
+    let mut task = match asked {
         Err(BitbucketError::Http {
             status: 400,
             message,
         }) if message.to_ascii_lowercase().contains("strategy") => {
-            Err(BitbucketError::MergeMethod(message))
+            return Err(BitbucketError::MergeMethod(message))
         }
-        outcome => outcome,
+        Err(error) => return Err(error),
+        Ok(Merging::Done(row)) => return Ok(pull_of(repo, *row)),
+        Ok(Merging::Queued(task)) => task,
+        Ok(Merging::Pending) => {
+            return Err(BitbucketError::Response(
+                "Bitbucket answered the merge with a task status but no task".into(),
+            ))
+        }
+    };
+    let deadline = Instant::now() + MERGE_WAIT;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(BitbucketError::Api(format!(
+                "Bitbucket queued the merge of #{number} and it has not finished; read the pull request before merging again"
+            )));
+        }
+        tokio::time::sleep(MERGE_POLL).await;
+        match merge_answer(data_dir, Method::GET, &task, &[], None).await? {
+            Merging::Done(row) => return Ok(pull_of(repo, *row)),
+            Merging::Queued(next) => task = next,
+            Merging::Pending => {}
+        }
     }
 }
 
@@ -899,6 +996,50 @@ mod tests {
 
     fn row(value: Value) -> PullRow {
         serde_json::from_value(value).expect("a pull request row")
+    }
+
+    #[test]
+    fn a_merge_answers_the_merged_pull_request_or_bitbucket_s_error_never_nothing() {
+        let merged = br#"{"type":"pullrequest","id":2712,"title":"t","state":"MERGED",
+            "created_on":"2026-11-16T10:00:00Z","updated_on":"2026-11-16T11:22:00Z",
+            "merge_commit":{"hash":"9f1c2b3"},"closed_by":{"nickname":"ada"}}"#;
+        let Ok(Merging::Done(row)) = merging(StatusCode::OK, None, merged) else {
+            panic!("a 200 is the merged pull request");
+        };
+        assert_eq!(pull_of(&repo(), *row).state, PullStage::Merged);
+
+        let task = "https://api.bitbucket.org/2.0/repositories/ws/web/pullrequests/2712/merge/task-status/8a1e2c3d";
+        assert!(matches!(
+            merging(StatusCode::ACCEPTED, Some(task), b""),
+            Ok(Merging::Queued(queued)) if queued == task
+        ));
+        assert!(merging(StatusCode::ACCEPTED, None, b"").is_err());
+        assert!(merging(StatusCode::ACCEPTED, Some("https://evil.example/task"), b"").is_err());
+
+        let pending = br#"{"task_status":"PENDING","links":{"self":{"href":"x"}}}"#;
+        assert!(matches!(
+            merging(StatusCode::OK, None, pending),
+            Ok(Merging::Pending)
+        ));
+        let done = format!(
+            r#"{{"task_status":"SUCCESS","merge_result":{}}}"#,
+            String::from_utf8_lossy(merged)
+        );
+        assert!(matches!(
+            merging(StatusCode::OK, None, done.as_bytes()),
+            Ok(Merging::Done(_))
+        ));
+
+        let refused = br#"{"type":"error","error":{"message":"You can't merge until you resolve all merge checks.","fields":{"merge_checks":["Requires 2 approvals"]}}}"#;
+        let Err(error) = merging(StatusCode::BAD_REQUEST, None, refused) else {
+            panic!("a refusal is an error");
+        };
+        assert!(
+            error.to_string().contains("Requires 2 approvals"),
+            "{error}"
+        );
+        let failed = br#"{"task_status":"FAILED"}"#;
+        assert!(merging(StatusCode::OK, None, failed).is_err());
     }
 
     #[test]

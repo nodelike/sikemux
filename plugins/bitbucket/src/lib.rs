@@ -208,7 +208,7 @@ impl CodeHost for Bitbucket {
         pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
         commit_pulls(dir, ask: CommitRef) -> Vec<Pull> = pulls::of_commit(dir, ask);
         commit_authors(dir, ask: CommitsQuery) -> Vec<CommitAuthor> = pulls::commit_authors(dir, ask);
-        merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
+        merge_pull(dir, ask: Merge) -> Pull = pulls::merge(dir, ask);
         create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
         edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
         attach_picture(dir, ask: PictureFile) -> Attached = pictures::attach(dir, ask);

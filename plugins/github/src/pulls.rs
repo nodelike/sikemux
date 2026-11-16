@@ -415,7 +415,7 @@ fn is_commit(sha: &str) -> bool {
 
 /// The merge is pinned to the head commit the person was looking at. GitHub
 /// refuses it if the branch has moved since, so nothing unseen lands.
-pub async fn merge(data_dir: &Path, input: Merge) -> GithubResult<()> {
+pub async fn merge(data_dir: &Path, input: Merge) -> GithubResult<Pull> {
     let method = required(input.method, "method")?;
     let sha = required(input.sha, "sha")?;
     if !MERGE_METHODS.contains(&method.as_str()) {
@@ -452,7 +452,8 @@ pub async fn merge(data_dir: &Path, input: Merge) -> GithubResult<()> {
             Err(GithubError::MergeMethod(message))
         }
         outcome => outcome,
-    }
+    }?;
+    get(data_dir, input.pull).await
 }
 
 pub async fn create(data_dir: &Path, input: NewPull) -> GithubResult<Pull> {

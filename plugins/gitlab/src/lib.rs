@@ -161,7 +161,7 @@ impl CodeHost for Gitlab {
         pull_files(dir, ask: FilesQuery) -> Vec<ChangedFile> = pulls::files(dir, ask);
         pull_commits(dir, ask: PullRef) -> Vec<PullCommit> = pulls::commits(dir, ask);
         pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
-        merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
+        merge_pull(dir, ask: Merge) -> Pull = pulls::merge(dir, ask);
         create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
         edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
         attach_picture(dir, ask: PictureFile) -> Attached = pictures::attach(dir, ask);

@@ -439,7 +439,7 @@ pub fn merge_body(method: &str, sha: Option<&str>, message: Option<&str>) -> For
     Ok(Value::Object(body))
 }
 
-pub async fn merge(data_dir: &Path, input: Merge) -> ForgejoResult<()> {
+pub async fn merge(data_dir: &Path, input: Merge) -> ForgejoResult<Pull> {
     let method = input.method.as_deref().unwrap_or("merge");
     let body = merge_body(method, input.sha.as_deref(), input.message.as_deref())?;
     client::API
@@ -449,7 +449,8 @@ pub async fn merge(data_dir: &Path, input: Merge) -> ForgejoResult<()> {
             &input.pull.path("/merge")?,
             Some(&body),
         )
-        .await
+        .await?;
+    get(data_dir, input.pull).await
 }
 
 /// A draft is marked by its title, as the server's own pages mark one.

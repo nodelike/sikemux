@@ -348,19 +348,15 @@ pub fn merge_body(method: &str, sha: Option<&str>) -> GitlabResult<Value> {
     Ok(body)
 }
 
-pub async fn merge(data_dir: &Path, input: Merge) -> GitlabResult<()> {
+pub async fn merge(data_dir: &Path, input: Merge) -> GitlabResult<Pull> {
     let method = input
         .method
         .ok_or_else(|| GitlabError::BadArg("missing field `method`".into()))?;
     let body = merge_body(&method, input.sha.as_deref())?;
-    client::API
-        .write(
-            data_dir,
-            Method::PUT,
-            &input.pull.path("/merge")?,
-            Some(&body),
-        )
-        .await
+    let row: MergeRequestRow = client::API
+        .send_json(data_dir, Method::PUT, &input.pull.path("/merge")?, &body)
+        .await?;
+    Ok(pull_of(row))
 }
 
 /// GitLab marks a draft by its title.
