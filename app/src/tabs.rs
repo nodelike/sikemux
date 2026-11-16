@@ -49,7 +49,7 @@ const ROOMY_BAR: f32 = 1360.;
 /// past `FLOOR` the strip scrolls.
 const TITLE_WIDTH: f32 = 96.;
 const TAB_GAP: f32 = 4.;
-const FLOOR: f32 = 76.;
+const FLOOR: f32 = 84.;
 /// Under this shared width the tabs drop their agents' @names.
 const NAMED_FROM: f32 = 170.;
 const FADE: f32 = 32.;
@@ -72,7 +72,9 @@ pub(crate) struct StripFit {
 }
 
 impl StripFit {
-    /// The width every tab of `tabs` is held to, none while they all fit as they are.
+    /// The width every tab of `tabs` is held to, none while they all fit as they are. It is a
+    /// whole number of points, so tabs rounded to the screen's pixels never add up to more
+    /// than the room.
     fn shared(&self, tabs: &[String]) -> Option<f32> {
         let room = self.room.get();
         if tabs.is_empty() || room <= 0. {
@@ -92,7 +94,7 @@ impl StripFit {
             left -= width;
             wanting -= 1;
         }
-        (wanting > 0).then(|| (left / wanting as f32).max(FLOOR))
+        (wanting > 0).then(|| (left / wanting as f32).floor().max(FLOOR))
     }
 }
 

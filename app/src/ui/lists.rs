@@ -611,29 +611,35 @@ impl RenderOnce for Tab {
                 .when(hidden, |way| way.opacity(0.))
                 .child(element)
         };
-        let room = self.note.is_none()
+        let closable = self.note.is_none()
             && self.counts.is_none()
             && self.tail.is_none()
             && self.on_close.is_some();
-        let end = match (self.tail.is_some(), room) {
+        let beside = |shown: bool, wide: f32| if shown { wide + 8. } else { 0. };
+        let marks = beside(self.mark.is_some(), 22.)
+            + beside(self.tail.is_some(), 20.)
+            + beside(self.counts.is_some(), 22.);
+        let tight = (self.width).is_some_and(|width| width - 8. - 26. - marks < self.label_width);
+        let end_with = |room: bool| match (self.tail.is_some(), room) {
             (true, _) => 3.,
             (false, true) => 26.,
             (false, false) => 8.,
         };
-        let beside = |shown: bool, wide: f32| if shown { wide + 8. } else { 0. };
-        let around = 8.
-            + end
-            + beside(self.mark.is_some(), 22.)
-            + beside(self.tail.is_some(), 20.)
-            + beside(self.counts.is_some(), 22.);
-        let titled = self.width.is_none_or(|width| width - around >= LEAST_LABEL);
+        // A tab too narrow for its whole label gives the close button room only under the pointer.
+        let end = end_with(closable && (!tight || closing.is_some()));
+        let resting = 8. + end_with(closable && !tight) + marks;
+        let titled = self
+            .width
+            .is_none_or(|width| width - resting >= LEAST_LABEL);
         div()
             .id(wrap_id)
             .relative()
             .flex_none()
             .h(px(crate::theme::dense(26.)))
             .min_w(px(self.width.map_or(120., |width| width.min(120.))))
-            .when_some(self.width, |tab, width| tab.max_w(px(width)))
+            .when_some(self.width.filter(|_| titled), |tab, width| {
+                tab.max_w(px(width))
+            })
             .flex()
             .items_center()
             .gap(SPACE_1)
@@ -701,7 +707,7 @@ impl RenderOnce for Tab {
 }
 
 /// The least of a tab's label worth drawing; under it the tab shows only its marks.
-const LEAST_LABEL: f32 = 24.;
+const LEAST_LABEL: f32 = 36.;
 
 /// The hover group a close button puts its glyph in, so the glyph reddens with it.
 const CLOSE: &str = "tab-close";
