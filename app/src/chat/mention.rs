@@ -109,7 +109,6 @@ enum Choice {
         title: Option<String>,
         project: String,
         /// The project is the one this chat is in.
-        here: bool,
         provider: String,
     },
     Entry {
@@ -544,7 +543,6 @@ impl Workbench {
         projects
             .into_iter()
             .flat_map(|project| {
-                let here = Some(&project.id) == own.as_ref();
                 self.agents_of(&project.id)
                     .into_iter()
                     .filter_map(move |row| {
@@ -556,7 +554,6 @@ impl Workbench {
                             name: mate,
                             title: row.titled.then_some(row.title),
                             project: project.name.clone(),
-                            here,
                             provider: row.provider,
                         })
                     })
@@ -1109,7 +1106,6 @@ pub fn dock(
                 name,
                 title,
                 project,
-                here,
                 provider,
             } => {
                 let row = bench.agent_by_id(id);
@@ -1121,7 +1117,7 @@ pub fn dock(
                     Some(title) => shown.detail(title.clone()),
                     None => shown,
                 }
-                .place(project.clone(), *here)
+                .place(project.clone())
                 .state(row.and_then(|agent| ui::turn_mark(&agent.id, agent.turn.as_ref())))
             }
             Choice::Entry { path, folder } => {

@@ -26,8 +26,8 @@ pub struct DockRow {
     name: SharedString,
     mark: Option<AnyElement>,
     detail: Option<SharedString>,
-    /// The project it lives in, and whether that is the one the menu was opened in.
-    place: Option<(SharedString, bool)>,
+    /// The project it lives in.
+    place: Option<SharedString>,
     /// How the thing stands, such as an agent at work, drawn at the row's far end.
     state: Option<AnyElement>,
     aside: Option<SharedString>,
@@ -73,8 +73,8 @@ impl DockRow {
         self
     }
 
-    pub fn place(mut self, project: impl Into<SharedString>, here: bool) -> Self {
-        self.place = Some((project.into(), here));
+    pub fn place(mut self, project: impl Into<SharedString>) -> Self {
+        self.place = Some(project.into());
         self
     }
 
@@ -218,19 +218,28 @@ impl RenderOnce for DockMenu {
                         .text_color(t.text_primary)
                         .child(super::found_with(row.name, &query, mark)),
                 )
-                .child(
+                .children(row.detail.map(|detail| {
                     div()
-                        .flex_1()
                         .min_w_0()
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
                         .text_color(t.text_tertiary)
-                        .children(
-                            row.detail
-                                .map(|detail| super::found_with(detail, &query, mark)),
-                        ),
-                )
+                        .child(super::found_with(detail, &query, mark))
+                }))
+                .children(row.place.map(|project| {
+                    div()
+                        .flex_none()
+                        .max_w(px(140.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .text_size(crate::theme::ui_text(TEXT_2XS))
+                        .text_color(t.text_tertiary)
+                        .child(crate::rail::project_glyph(11., cx))
+                        .child(div().min_w_0().truncate().child(project))
+                }))
+                .child(div().flex_1())
                 .children(row.aside.map(|aside| {
                     div()
                         .flex_shrink(1.)
@@ -242,29 +251,6 @@ impl RenderOnce for DockMenu {
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.text_tertiary)
                         .child(aside)
-                }))
-                .children(row.place.map(|(project, here)| {
-                    div()
-                        .w(px(96.))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(5.))
-                        .text_size(crate::theme::ui_text(TEXT_2XS))
-                        .text_color(t.text_tertiary)
-                        .child(ui_icon(Icon::Folder, 11.).text_color(if here {
-                            t.live
-                        } else {
-                            t.text_tertiary
-                        }))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
-                                .child(project),
-                        )
                 }))
                 .when(aligned, |line| {
                     line.child(
