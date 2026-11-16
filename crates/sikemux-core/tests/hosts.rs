@@ -351,4 +351,29 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         .await
         .expect("prompt the lead");
     said.until_said("second-task").await;
+
+    let inbox = lead_app.call("inbox", Value::Null).await.expect("inbox");
+    let worker = inbox["remoteAgents"][0]["agentId"]
+        .as_str()
+        .expect("the worker's row")
+        .to_owned();
+    lead_app
+        .call("closeAgents", json!({ "agentIds": [lead] }))
+        .await
+        .expect("the person closes the lead");
+    lead_app
+        .call("closeAgents", json!({ "agentIds": [worker] }))
+        .await
+        .expect("the person closes the worker its lead left");
+    let inbox = lead_app.call("inbox", Value::Null).await.expect("inbox");
+    assert_eq!(inbox["remoteAgents"], json!([]), "the worker's row stayed");
+    let studio = studio_app
+        .call("workspace", Value::Null)
+        .await
+        .expect("studio's workspace");
+    let open = studio["agents"].as_array().expect("studio's agents");
+    assert!(
+        open.iter().all(|agent| agent["id"] != worker.as_str()),
+        "the worker still runs on studio"
+    );
 }

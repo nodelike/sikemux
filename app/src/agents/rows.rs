@@ -83,11 +83,19 @@ impl AgentRow {
 }
 
 impl Workbench {
-    /// Where calls about `row`'s agent go: the host it runs on while this window holds that
-    /// host's view, else this host's core, which passes them on for a worker of its agents.
+    /// Where calls about `row`'s agent go: the core that lists it as a worker of its agents,
+    /// which keeps that row and passes the call on, else the host it runs on while this window
+    /// holds that host's view, else this host's core.
     pub fn asked_at(&self, row: &AgentRow) -> Place {
-        match self.view_at(&row.place) {
-            Some(_) => row.place.clone(),
+        let lists = |view: &DeviceView| {
+            (view.inbox.remote_agents.iter()).any(|worker| worker.shown.agent_id == row.id)
+        };
+        let leads = std::iter::once((Place::This, &self.feeds.this))
+            .chain((self.feeds.hosts()).map(|(host, feed)| (Place::Account(host.clone()), feed)))
+            .find(|(_, feed)| feed.view.as_ref().is_some_and(lists));
+        match leads {
+            Some((place, _)) => place,
+            None if self.view_at(&row.place).is_some() => row.place.clone(),
             None => Place::This,
         }
     }

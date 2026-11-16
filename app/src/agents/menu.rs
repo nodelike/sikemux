@@ -147,7 +147,7 @@ impl AgentMenu {
             return Self::new(bench, &row.id, cx);
         }
         let place = bench.asked_at(row);
-        let in_use = (bench.view_at(&place).into_iter())
+        let in_use = (bench.view_at(&row.place).into_iter())
             .flat_map(|view| &view.workspace.agents)
             .flat_map(|agent| agent.tags.iter().cloned());
         Some(Self {
