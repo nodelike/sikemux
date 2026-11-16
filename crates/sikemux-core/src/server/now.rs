@@ -218,7 +218,7 @@ pub(crate) fn of_path(core: &Core, path: &str) -> Option<ProjectNow> {
 }
 
 /// Which group a turn puts its agent in, with its one fact and since when. None for an agent
-/// with nothing to show: before its first turn, or done with nothing changed and seen.
+/// with nothing to show: before its first turn, or done and seen with nothing left unlanded.
 fn row_of(turn: &TurnState) -> Option<(NowGroup, NowFact, u64)> {
     let since = turn.since;
     Some(match turn.state {
@@ -261,6 +261,7 @@ fn row_of(turn: &TurnState) -> Option<(NowGroup, NowFact, u64)> {
             let checks = (turn.done.as_ref()).map_or(ChecksStand::NotChecked, |done| done.checks);
             let group = match at {
                 FixAt::Uncommitted | FixAt::Committed => NowGroup::NotSure,
+                _ if turn.seen => return None,
                 _ => NowGroup::ReadyToLook,
             };
             let fact = NowFact::Work {
