@@ -465,8 +465,7 @@ pub fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<Pen
     .map_err(CoreError::pty)?;
     let shell_metadata_enabled = shell_integration.is_some() || ssh;
 
-    let child = sikemux_process::spawn_hearing_ctrl_c(|| pair.slave.spawn_command(command))
-        .map_err(CoreError::pty)?;
+    let child = pair.slave.spawn_command(command).map_err(CoreError::pty)?;
     let pid = child.process_id();
     if let Some(pid) = pid {
         sikemux_process::cgroups::move_into_own_cgroup(pid);

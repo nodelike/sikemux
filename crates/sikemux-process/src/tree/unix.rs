@@ -1,4 +1,8 @@
-pub(super) fn own_tree(_pid: u32) {}
+pub(super) fn spawn_tree(
+    command: &mut crate::command::Command,
+) -> std::io::Result<crate::command::Child> {
+    command.spawn()
+}
 
 pub(super) fn terminate_tree(pid: u32, force: bool) {
     let Ok(pid) = i32::try_from(pid) else {

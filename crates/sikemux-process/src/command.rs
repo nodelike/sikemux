@@ -209,6 +209,13 @@ impl Command {
         self
     }
 
+    /// Starts the program inside `job`, so nothing it starts can leave before it is in there.
+    #[cfg(windows)]
+    pub(crate) fn job(&mut self, job: windows_sys::Win32::Foundation::HANDLE) -> &mut Self {
+        self.inner.job(job);
+        self
+    }
+
     /// Replaces this process with the program, returning only if that fails.
     #[cfg(unix)]
     pub fn exec(&mut self) -> io::Error {

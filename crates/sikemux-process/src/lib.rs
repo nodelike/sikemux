@@ -26,7 +26,7 @@ mod tree;
 pub mod user_environment;
 pub mod vars;
 
-pub use tree::{own_tree, spawn_hearing_ctrl_c, spawn_tree, terminate_tree};
+pub use tree::{spawn_tree, terminate_tree};
 
 #[derive(Debug)]
 pub enum ProcessRunError {
