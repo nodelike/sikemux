@@ -4,6 +4,7 @@ import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import { retryLater } from "../retry.ts";
+import { makeDueCalls } from "./calls.ts";
 import { heldSubscription, type BillingProvider } from "./provider.ts";
 
 const BATCH = 20;
@@ -69,6 +70,7 @@ export async function endDeletedBilling(
   log: Logger,
   userId: string,
 ): Promise<void> {
+  if (provider) await makeDueCalls(db, provider, log);
   const user = await db
     .selectFrom("users")
     .select(["deleted_at", "purge_after", "billing_attempts"])

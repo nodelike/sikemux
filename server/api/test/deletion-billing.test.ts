@@ -333,7 +333,7 @@ describe("deleting an account", () => {
     expect(promoted.status).toBe(200);
     expect((await deleteAccount(OWNER)).status).toBe(202);
     expect(await members(orgId)).toEqual([{ user_id: ADMIN, role: "owner" }]);
-    expect((await subscriptions())[0]?.cancel_at_period_end).toBe(false);
+    expect((await subscriptions())[0]?.cancel_at_period_end).toBe(true);
   });
 
   it("passes the org to its longest-standing admin when Clerk deletes its only owner", async () => {
@@ -352,8 +352,8 @@ describe("deleting an account", () => {
         "select count(*)::int as n from events where type = 'plan.changed' and user_id = $1",
         [ADMIN],
       ),
-    ).toBe(0);
-    expect((await subscriptions())[0]?.cancel_at_period_end).toBe(false);
+    ).toBe(1);
+    expect((await subscriptions())[0]?.cancel_at_period_end).toBe(true);
     const { rows } = await database.pool.query(
       "select user_id, action, subject, detail from audit where action like 'org.%' and detail->>'why' = 'account_deleted' order by id",
     );
@@ -371,6 +371,41 @@ describe("deleting an account", () => {
         detail: { role: "owner", why: "account_deleted" },
       },
     ]);
+  });
+
+  it("stops charging an owner whose sign-in was deleted for the org that passed on", async () => {
+    const orgId = await createOrg(2);
+    await addMember(orgId, ADMIN, "admin");
+    expect((await clerkDeleted(OWNER)).status).toBe(204);
+    const paid = async () =>
+      (
+        await body(
+          await as(ADMIN, `/v1/billing/invoices?org=${orgId}`),
+          "InvoiceList",
+        )
+      ).invoices.length;
+    const before = await paid();
+
+    const heir = await body(
+      await as(ADMIN, `/v1/billing?org=${orgId}`),
+      "BillingOverview",
+    );
+    const [held] = heir.subscriptions;
+    const more = await as(ADMIN, `/v1/billing/subscriptions/${held?.id}`, {
+      method: "PATCH",
+      json: { quantity: 50 },
+    });
+    expect({
+      card: heir.card,
+      cancelAtPeriodEnd: held?.cancelAtPeriodEnd,
+      addsSeats: more.status,
+      charged: (await paid()) - before,
+    }).toEqual({
+      card: undefined,
+      cancelAtPeriodEnd: true,
+      addsSeats: 409,
+      charged: 0,
+    });
   });
 
   it("passes the org to its longest-standing member when it has no admin", async () => {

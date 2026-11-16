@@ -35,7 +35,7 @@ import {
   type ProviderRequest,
 } from "./provider.ts";
 import { PaddleProvider } from "./paddle.ts";
-import { lockSeats } from "./seats.ts";
+import { hasOpenSubscriptions, lockSeats } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -194,6 +194,7 @@ export function billingRoutes({
             "billing_customers.user_id",
             "billing_customers.org_id",
             "billing_customers.provider_customer_id",
+            "billing_customers.paid_by",
           ])
           .where("subscriptions.id", "=", id)
           .executeTakeFirst()
@@ -210,6 +211,19 @@ export function billingRoutes({
     return row;
   };
 
+  /** Refuses acting on an org's plan with the payment method of someone who no longer owns it. */
+  const requirePayer = (
+    c: Context<AuthEnv>,
+    row: { org_id: string | null; paid_by: string | null },
+  ) => {
+    if (row.org_id !== null && row.paid_by !== c.get("identity").userId)
+      throw new ApiFailure(
+        409,
+        "conflict",
+        "This plan was paid for by someone who no longer owns the org, so it ends at the period's end. Buy Team for the org once it has ended.",
+      );
+  };
+
   const reread = async (id: string) =>
     subscriptionBody(
       await db
@@ -220,8 +234,15 @@ export function billingRoutes({
     );
 
   /** The payer's plan that has not ended, Pro or Team, as the provider acts on it. */
-  const openPlanOf = async (payer: Payer, ready: BillingProvider) => {
-    const row = await customersOf(db, payer)
+  const openPlanOf = async (
+    payer: Payer,
+    userId: string,
+    ready: BillingProvider,
+  ) => {
+    let query = customersOf(db, payer);
+    if ("orgId" in payer)
+      query = query.where("billing_customers.paid_by", "=", userId);
+    const row = await query
       .innerJoin(
         "subscriptions",
         "subscriptions.customer_id",
@@ -238,9 +259,9 @@ export function billingRoutes({
   };
 
   /** The card the payer's plan pays with, as the provider shows it; a provider that cannot answer leaves it out. */
-  const cardOf = async (payer: Payer) => {
+  const cardOf = async (payer: Payer, userId: string) => {
     if (!provider) return null;
-    const plan = await openPlanOf(payer, provider);
+    const plan = await openPlanOf(payer, userId, provider);
     if (!plan) return null;
     try {
       return await provider.card(plan);
@@ -294,7 +315,7 @@ export function billingRoutes({
           .orderBy("started_at", "desc")
           .execute()
       : [];
-    const card = await cardOf(payer);
+    const card = await cardOf(payer, c.get("identity").userId);
     const body: BillingOverview = {
       allowance: await allowance(db, payer, { live }),
       subscriptions: rows.map(subscriptionBody),
@@ -346,10 +367,22 @@ export function billingRoutes({
         .onConflict((oc) => oc.doNothing())
         .execute();
       const found = await customersOf(trx, payer)
-        .select(["id", "provider_customer_id"])
+        .select(["id", "provider_customer_id", "paid_by"])
         .where("provider", "=", ready.name)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (
+        "orgId" in payer &&
+        found.paid_by !== userId &&
+        (await hasOpenSubscriptions(trx, payer.orgId))
+      )
+        throw new ApiFailure(
+          409,
+          "conflict",
+          found.paid_by
+            ? "Another owner pays for this org's plans; they buy for it."
+            : "The org's plans were paid for by someone who no longer owns it. Buy once they have ended.",
+        );
       if (sold.id === "team" && "orgId" in payer) {
         const held = await lockSeats(trx, payer.orgId);
         if (request.quantity < held)
@@ -374,7 +407,13 @@ export function billingRoutes({
             `This already holds ${sold.name}; change that subscription instead.`,
           );
       }
-      return found;
+      if ("userId" in payer || found.paid_by === userId) return found;
+      await trx
+        .updateTable("billing_customers")
+        .set({ paid_by: userId })
+        .where("id", "=", found.id)
+        .execute();
+      return { ...found, provider_customer_id: null };
     });
 
     const checkout = await ready.checkout({
@@ -406,6 +445,7 @@ export function billingRoutes({
     async (c) => {
       const ready = needProvider(provider);
       const row = await subscriptionFor(c);
+      requirePayer(c, row);
       const change = await readBody(c, "SubscriptionChange");
       const next = {
         product: change.product ?? row.product,
@@ -485,6 +525,7 @@ export function billingRoutes({
       async (c) => {
         const ready = needProvider(provider);
         const row = await subscriptionFor(c);
+        if (!cancel) requirePayer(c, row);
         if (row.cancel_at_period_end !== cancel) {
           const subscription = heldSubscription(row, row.provider_customer_id);
           await (cancel
@@ -594,7 +635,7 @@ export function billingRoutes({
   app.get("/portal", async (c) => {
     const ready = needProvider(provider);
     const payer = await payerOf(c, c.req.query("org"));
-    const plan = await openPlanOf(payer, ready);
+    const plan = await openPlanOf(payer, c.get("identity").userId, ready);
     const portal = plan ? await ready.portal(plan) : null;
     if (!portal)
       throw notFound("The provider has no page for this payer to manage.");

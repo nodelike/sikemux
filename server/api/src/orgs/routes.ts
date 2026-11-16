@@ -18,6 +18,8 @@ import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
 import { accountDeleted, requireIdentity, type AuthEnv } from "../auth.ts";
 import { requireBillingAccess } from "../billing/access.ts";
+import { makeDueCalls } from "../billing/calls.ts";
+import { payerLeft } from "../billing/payer.ts";
 import {
   hasOpenSubscriptions,
   memberCount,
@@ -153,11 +155,15 @@ export function orgRoutes({
   limiter,
   clerk,
   appOrigin,
-  billing: { live },
+  billing: { live, provider },
 }: Pick<
   Services,
   "database" | "verifier" | "limiter" | "clerk" | "appOrigin" | "billing"
 >) {
+  /** Makes at once what a departing payer left for the provider, rather than at the next sweep. */
+  const callProvider = (c: Context<AuthEnv>) =>
+    provider ? makeDueCalls(db, provider, c.get("log")) : Promise.resolve();
+
   const people = async (
     c: Context<AuthEnv>,
     userIds: string[],
@@ -396,13 +402,15 @@ export function orgRoutes({
                 ? "Only an org's owner or admin may change roles."
                 : "Only an owner may make or unmake an owner.",
             );
-          if (next !== "owner")
+          if (next !== "owner") {
             await keepAnOwner(
               trx,
               orgId,
               current,
               "That would leave the org with no owner.",
             );
+            await payerLeft(trx, orgId, target);
+          }
           await audit(trx, {
             userId: target,
             actor: `user:${userId}`,
@@ -418,6 +426,7 @@ export function orgRoutes({
             .returning(["user_id", "role", "joined_at"])
             .executeTakeFirstOrThrow();
         });
+        await callProvider(c);
         const person = (await people(c, [changed.user_id])).get(
           changed.user_id,
         );
@@ -460,6 +469,7 @@ export function orgRoutes({
             .where("org_id", "=", orgId)
             .where("user_id", "=", target)
             .execute();
+          await payerLeft(trx, orgId, target);
           await audit(trx, {
             userId: target,
             actor: `user:${userId}`,
@@ -469,6 +479,7 @@ export function orgRoutes({
           });
           await seatsChanged(trx, [target]);
         });
+        await callProvider(c);
         c.get("log").info({ orgId }, "removed an org member");
         return c.body(null, 204);
       },
@@ -489,6 +500,7 @@ export function orgRoutes({
           .where("org_id", "=", orgId)
           .where("user_id", "=", userId)
           .execute();
+        await payerLeft(trx, orgId, userId);
         await audit(trx, {
           userId,
           actor: `user:${userId}`,
@@ -498,6 +510,7 @@ export function orgRoutes({
         });
         await seatsChanged(trx, [userId]);
       });
+      await callProvider(c);
       c.get("log").info({ orgId }, "left an org");
       return c.body(null, 204);
     })

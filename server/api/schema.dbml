@@ -414,13 +414,14 @@ Table billing_customers {
   provider text [not null, note: 'provider ~ \'^[a-z][a-z_-]*$\'']
   provider_customer_id text
   created_at timestamptz [not null, default: `now()`]
+  paid_by text
 
   indexes {
     (org_id, provider) [name: 'billing_customers_by_org', unique, note: 'where (org_id IS NOT NULL)']
     (user_id, provider) [name: 'billing_customers_by_user', unique, note: 'where (user_id IS NOT NULL)']
   }
 
-  Note: '(user_id IS NULL) <> (org_id IS NULL)'
+  Note: '(user_id IS NULL) <> (org_id IS NULL); (org_id IS NOT NULL) OR (paid_by IS NULL)'
 }
 
 Table subscriptions {
@@ -535,6 +536,7 @@ Ref: org_users.org_id > orgs.id [delete: cascade]
 Ref: org_users.user_id > users.id [delete: cascade]
 Ref: org_invites.org_id > orgs.id [delete: cascade]
 Ref: billing_customers.org_id > orgs.id [delete: cascade]
+Ref: billing_customers.paid_by > users.id [delete: set null]
 Ref: billing_customers.user_id > users.id [delete: cascade]
 Ref: subscriptions.customer_id > billing_customers.id [delete: cascade]
 Ref: invoices.customer_id > billing_customers.id [delete: cascade]

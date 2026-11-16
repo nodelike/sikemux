@@ -5,6 +5,7 @@ import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { removeDevice } from "../devices/removal.ts";
 import { holdsOpenSubscriptions } from "../billing/deleted.ts";
+import { payerLeft } from "../billing/payer.ts";
 import { appendEvent } from "../events/log.ts";
 import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
@@ -201,6 +202,7 @@ async function leaveOrgs(
       .where("org_id", "=", orgId)
       .where("user_id", "=", userId)
       .execute();
+    await payerLeft(trx, orgId, userId);
     await audit(trx, {
       userId,
       actor,

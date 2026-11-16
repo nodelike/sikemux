@@ -319,6 +319,7 @@ export interface Tables {
     org_id: string | null;
     provider: string;
     provider_customer_id: string | null;
+    paid_by: ColumnType<string | null, never, string | null>;
     created_at: CreatedAt;
   };
   subscriptions: {
