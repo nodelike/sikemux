@@ -431,6 +431,13 @@ struct Status {
 }
 
 fn status(json: bool) -> i32 {
+    // Rust ignores SIGPIPE, so `sikemux status | head` panicked on the closed pipe instead of
+    // stopping as other commands do.
+    #[cfg(unix)]
+    // SAFETY: restoring the default action of a signal has no other effect.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let Some(status) = gather_status() else {
         eprintln!("sikemux status: HOME is not set");
         return 1;
