@@ -37,6 +37,7 @@
   ],
   "live": false,
   "canBuy": true,
+  "payer": "you",
   "card": {
     "brand": "visa",
     "last4": "4242",

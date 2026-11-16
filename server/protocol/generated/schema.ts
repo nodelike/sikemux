@@ -259,8 +259,13 @@ export const schema = {
         },
         canBuy: {
           description:
-            "Whether a payment provider is set up, so checkouts and changes can be made.",
+            "Whether checkouts and changes can be made: a payment provider is set up, and for an org, payer is absent or you.",
           type: "boolean",
+        },
+        payer: {
+          description:
+            "For an org whose plans have not all ended: who pays for them. Left out for a person, and for an org with nothing open.",
+          $ref: "#/$defs/PlanPayer",
         },
         card: {
           description:
@@ -1891,6 +1896,12 @@ export const schema = {
         "A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.",
       type: "string",
       enum: ["free", "pro", "team"],
+    },
+    PlanPayer: {
+      description:
+        "you: the person asking pays, and may change seats, resume, see the card and open the payment page. another_owner: another of the org's owners pays, and only they may. departed: whoever paid no longer owns the org, so its plans end at the period's end and can be bought again once ended.",
+      type: "string",
+      enum: ["you", "another_owner", "departed"],
     },
     Platform: { type: "string", enum: ["macos", "linux", "ios", "android"] },
     PluginId: {

@@ -158,8 +158,10 @@ export interface BillingOverview {
   subscriptions: Subscription[];
   /** Whether plans are enforced and sold to everyone. Until then billing answers only staff. */
   live: boolean;
-  /** Whether a payment provider is set up, so checkouts and changes can be made. */
+  /** Whether checkouts and changes can be made: a payment provider is set up, and for an org, payer is absent or you. */
   canBuy: boolean;
+  /** For an org whose plans have not all ended: who pays for them. Left out for a person, and for an org with nothing open. */
+  payer?: PlanPayer;
   /** Left out when the provider holds no card for this payer, or could not be asked. */
   card?: PaymentCard;
 }
@@ -1067,6 +1069,14 @@ export const planFeatureValues: readonly PlanFeature[] = [
 export type PlanId = "free" | "pro" | "team";
 export const planIdValues: readonly PlanId[] = ["free", "pro", "team"];
 
+/** you: the person asking pays, and may change seats, resume, see the card and open the payment page. another_owner: another of the org's owners pays, and only they may. departed: whoever paid no longer owns the org, so its plans end at the period's end and can be bought again once ended. */
+export type PlanPayer = "you" | "another_owner" | "departed";
+export const planPayerValues: readonly PlanPayer[] = [
+  "you",
+  "another_owner",
+  "departed",
+];
+
 export type Platform = "macos" | "linux" | "ios" | "android";
 export const platformValues: readonly Platform[] = [
   "macos",
@@ -1853,6 +1863,7 @@ export interface Definitions {
   PendingHost: PendingHost;
   PlanFeature: PlanFeature;
   PlanId: PlanId;
+  PlanPayer: PlanPayer;
   Platform: Platform;
   PluginId: PluginId;
   PushApp: PushApp;

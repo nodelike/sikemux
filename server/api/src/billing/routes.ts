@@ -1,6 +1,7 @@
 import type { Services } from "../app.ts";
 import type {
   BillingOverview,
+  PlanPayer,
   Invoice,
   InvoiceList,
   PaddleCheckout,
@@ -359,7 +360,10 @@ export function billingRoutes({
 
   app.get("/", async (c) => {
     const payer = await payerOf(c, c.req.query("org"));
-    const customers = await customersOf(db, payer).select("id").execute();
+    const { userId } = c.get("identity");
+    const customers = await customersOf(db, payer)
+      .select(["id", "provider", "paid_by"])
+      .execute();
     const rows = customers.length
       ? await db
           .selectFrom("subscriptions")
@@ -373,14 +377,25 @@ export function billingRoutes({
           .orderBy("started_at", "desc")
           .execute()
       : [];
-    const card = await cardOf(payer, c.get("identity").userId);
+    const card = await cardOf(payer, userId);
+    const planPayer = (): PlanPayer | null => {
+      if ("userId" in payer || rows.every((row) => row.status === "ended"))
+        return null;
+      const customer =
+        customers.find((each) => each.provider === provider?.name) ??
+        customers[0];
+      if (customer?.paid_by === userId) return "you";
+      return customer?.paid_by ? "another_owner" : "departed";
+    };
+    const paidBy = planPayer();
     const body: BillingOverview = {
       allowance: await allowance(db, payer, { live }),
       subscriptions: await Promise.all(
         rows.map((row) => subscriptionWithRefund(db, row)),
       ),
       live,
-      canBuy: provider !== null,
+      canBuy: provider !== null && (paidBy === null || paidBy === "you"),
+      ...(paidBy ? { payer: paidBy } : {}),
       ...(card ? { card } : {}),
     };
     return c.json(body);

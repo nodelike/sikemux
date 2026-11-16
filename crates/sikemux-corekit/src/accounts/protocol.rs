@@ -204,8 +204,11 @@ pub struct BillingOverview {
     pub subscriptions: Vec<Subscription>,
     /// Whether plans are enforced and sold to everyone. Until then billing answers only staff.
     pub live: bool,
-    /// Whether a payment provider is set up, so checkouts and changes can be made.
+    /// Whether checkouts and changes can be made: a payment provider is set up, and for an org, payer is absent or you.
     pub can_buy: bool,
+    /// For an org whose plans have not all ended: who pays for them. Left out for a person, and for an org with nothing open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payer: Option<PlanPayer>,
     /// Left out when the provider holds no card for this payer, or could not be asked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card: Option<PaymentCard>,
@@ -1041,6 +1044,20 @@ pub enum PlanId {
     Unknown,
 }
 
+/// you: the person asking pays, and may change seats, resume, see the card and open the payment page. another_owner: another of the org's owners pays, and only they may. departed: whoever paid no longer owns the org, so its plans end at the period's end and can be bought again once ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PlanPayer {
+    #[serde(rename = "you")]
+    You,
+    #[serde(rename = "another_owner")]
+    AnotherOwner,
+    #[serde(rename = "departed")]
+    Departed,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {
     #[serde(rename = "macos")]
@@ -1517,6 +1534,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PaymentCard" => through::<PaymentCard>(json),
         "PlanFeature" => through::<PlanFeature>(json),
         "PlanId" => through::<PlanId>(json),
+        "PlanPayer" => through::<PlanPayer>(json),
         "Platform" => through::<Platform>(json),
         "PushApp" => through::<PushApp>(json),
         "PushKind" => through::<PushKind>(json),
