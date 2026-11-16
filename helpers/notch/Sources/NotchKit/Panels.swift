@@ -39,7 +39,8 @@ final class Panels {
     private var dragCount = 0
     private var pointerScreen: CGDirectDisplayID?
     private var devRunning = false
-    private var lookingForDev = false
+    private var fullScreen: Set<CGDirectDisplayID> = []
+    private var looking = false
 
     init(store: NotchStore) {
         self.store = store
@@ -159,10 +160,10 @@ final class Panels {
             let current = wantedScreens().first.flatMap(Self.displayId)
             if current != pointerScreen { rebuild() }
         }
-        let yielding = !store.options.dev && store.settings.yieldToDev && devRunning
-        if !store.options.dev && store.settings.yieldToDev { lookForDev() }
+        let watchingDev = !store.options.dev && store.settings.yieldToDev
+        let yielding = watchingDev && devRunning
+        lookAround(watchingDev: watchingDev)
         let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty
-        let fullScreen = FullScreen.displays()
         for (_, entry) in panels {
             entry.island.checkPointer()
         }
@@ -180,17 +181,21 @@ final class Panels {
         }
     }
 
-    /// Opening the lock file has stalled the main thread for seconds on some Macs, so it is
-    /// opened off it and the next tick reads the answer.
-    private func lookForDev() {
-        guard !lookingForDev else { return }
-        lookingForDev = true
+    /// Opening Dev's lock file and listing the windows have each stalled the main thread for
+    /// seconds on some Macs, so both run off it and the next tick reads the answers.
+    private func lookAround(watchingDev: Bool) {
+        guard !looking else { return }
+        looking = true
         let stateDir = store.options.stateDir
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let running = Handover.devIsRunning(stateDir: stateDir)
+            let running = watchingDev && Handover.devIsRunning(stateDir: stateDir)
+            let filled = FullScreen.displays(filledBy: front)
             DispatchQueue.main.async {
-                self?.devRunning = running
-                self?.lookingForDev = false
+                guard let self else { return }
+                self.devRunning = running
+                self.fullScreen = filled
+                self.looking = false
             }
         }
     }
@@ -248,8 +253,8 @@ final class Panels {
 
 /// Which displays the frontmost app fills, as a full-screen app does.
 enum FullScreen {
-    static func displays() -> Set<CGDirectDisplayID> {
-        guard let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+    static func displays(filledBy front: pid_t?) -> Set<CGDirectDisplayID> {
+        guard let front,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else { return [] }
         var filled: Set<CGDirectDisplayID> = []
