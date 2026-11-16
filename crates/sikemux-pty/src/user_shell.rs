@@ -273,11 +273,11 @@ fn login_shell_records(stdout: &[u8]) -> impl Iterator<Item = (&str, &str)> {
 #[cfg(unix)]
 fn login_shell_payload(stdout: &[u8]) -> Option<&[u8]> {
     let start = rfind_bytes(stdout, LOGIN_ENV_SENTINEL.as_bytes())? + LOGIN_ENV_SENTINEL.len();
-    let payload = &stdout[start..];
+    let payload = stdout.get(start..)?;
     // Without the closing fence we cannot tell the payload from whatever an
     // exit hook printed after it, so refuse rather than guess.
     let end = rfind_bytes(payload, LOGIN_ENV_SENTINEL_END.as_bytes())?;
-    Some(&payload[..end])
+    payload.get(..end)
 }
 
 #[cfg(unix)]

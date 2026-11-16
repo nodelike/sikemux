@@ -42,7 +42,8 @@ impl OutputLog {
         self.end += bytes.len() as u64;
         if bytes.len() >= MAX_OUTPUT {
             self.bytes.clear();
-            self.bytes.extend(&bytes[bytes.len() - MAX_OUTPUT..]);
+            self.bytes
+                .extend(bytes.get(bytes.len() - MAX_OUTPUT..).unwrap_or_default());
         } else {
             let overflow = (self.bytes.len() + bytes.len()).saturating_sub(MAX_OUTPUT);
             self.bytes.drain(..overflow);
@@ -164,7 +165,12 @@ impl OutputLog {
     fn raw_tail(&self, lines: usize, limit: usize) -> OutputPage {
         let wanted = self.tail_start(lines);
         let mut from = wanted.max(self.end.saturating_sub(limit as u64));
-        while from < self.end && self.bytes[(from - self.start()) as usize] & 0xc0 == 0x80 {
+        while from < self.end
+            && self
+                .bytes
+                .get((from - self.start()) as usize)
+                .is_some_and(|byte| byte & 0xc0 == 0x80)
+        {
             from += 1;
         }
         OutputPage {
@@ -191,7 +197,7 @@ impl OutputLog {
         let next = match taken {
             all if all == lines.len() && reaches_end => self.end,
             0 => to,
-            some => lines[some - 1].end,
+            some => lines.get(some - 1).map_or(to, |line| line.end),
         };
         OutputPage {
             bytes: text.into_bytes(),
@@ -207,7 +213,9 @@ impl OutputLog {
         let from = self.start().max(self.end.saturating_sub(PLAIN_WINDOW));
         let rendered =
             terminal_text::collapse(terminal_text::render(&self.slice(from, self.end), from));
-        let wanted = &rendered[rendered.len().saturating_sub(lines)..];
+        let wanted = rendered
+            .get(rendered.len().saturating_sub(lines)..)
+            .unwrap_or_default();
         let (text, taken) = fit_from_end(wanted, limit);
         OutputPage {
             bytes: text.into_bytes(),
@@ -234,7 +242,9 @@ impl OutputLog {
             .map(|(index, _)| index)
             .collect();
         let chosen = match query.tail {
-            Some(count) => &hits[hits.len().saturating_sub(count)..],
+            Some(count) => hits
+                .get(hits.len().saturating_sub(count)..)
+                .unwrap_or_default(),
             None => &hits[..],
         };
         let mut groups: Vec<(usize, usize)> = Vec::new();
@@ -254,7 +264,7 @@ impl OutputLog {
                     end: previous.end,
                 });
             }
-            shown.extend_from_slice(&lines[low..high]);
+            shown.extend_from_slice(lines.get(low..high).unwrap_or_default());
         }
         let page = if query.tail.is_some() {
             let (text, taken) = fit_from_end(&shown, query.limit);
@@ -268,10 +278,9 @@ impl OutputLog {
             }
         } else {
             let (text, taken) = fit_from_start(&shown, query.limit);
-            let next = if taken == shown.len() {
-                self.end
-            } else {
-                shown[taken - 1].end
+            let next = match taken.checked_sub(1).and_then(|last| shown.get(last)) {
+                Some(line) if taken < shown.len() => line.end,
+                _ => self.end,
             };
             OutputPage {
                 bytes: text.into_bytes(),
@@ -303,7 +312,7 @@ fn fit_from_start(lines: &[terminal_text::Line], limit: usize) -> (String, usize
             while !line.text.is_char_boundary(cut) {
                 cut -= 1;
             }
-            text.push_str(&line.text[..cut]);
+            text.push_str(line.text.get(..cut).unwrap_or_default());
             taken = 1;
         }
     }
@@ -326,7 +335,7 @@ fn fit_from_end(lines: &[terminal_text::Line], limit: usize) -> (String, usize) 
             while !line.text.is_char_boundary(cut) {
                 cut += 1;
             }
-            return (line.text[cut..].to_string(), 1);
+            return (line.text.get(cut..).unwrap_or_default().to_string(), 1);
         }
     }
     let taken = kept.len();

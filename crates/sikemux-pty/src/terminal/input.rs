@@ -66,7 +66,9 @@ fn function_key(out: &mut Vec<u8>, number: u8, mods: Mods) {
         }
         5..=12 => {
             const CODES: [u8; 8] = [15, 17, 18, 19, 20, 21, 23, 24];
-            tilde_key(out, CODES[usize::from(number - 5)], mods);
+            if let Some(&code) = CODES.get(usize::from(number - 5)) {
+                tilde_key(out, code, mods);
+            }
         }
         _ => {}
     }

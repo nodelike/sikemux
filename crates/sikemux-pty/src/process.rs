@@ -80,6 +80,10 @@ impl SpawnedChildGuard {
         Self(Some(child))
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "only into_inner and drop take the child, and both consume the guard"
+    )]
     pub fn into_inner(mut self) -> Box<dyn Child + Send + Sync> {
         self.0.take().expect("spawned child guard already empty")
     }
@@ -150,7 +154,7 @@ fn process_group_members(group: u32) -> Option<usize> {
         return None;
     }
     let listed = bytes as usize / std::mem::size_of::<libc::pid_t>();
-    Some(pids[..listed].iter().filter(|&&pid| pid > 0).count())
+    Some(pids.iter().take(listed).filter(|&&pid| pid > 0).count())
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

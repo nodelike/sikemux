@@ -178,7 +178,7 @@ impl ShellProtocolParser {
                         break;
                     };
                     self.scan_state = ShellScanState::Escape;
-                    rest = &rest[escape + 1..];
+                    rest = rest.get(escape + 1..).unwrap_or_default();
                     continue;
                 }
                 ShellScanState::Escape => {
@@ -191,17 +191,19 @@ impl ShellProtocolParser {
                     }
                 }
                 ShellScanState::Osc => {
-                    let Some(end) = memchr::memchr2(b'\x07', b'\x1b', rest) else {
+                    let found = memchr::memchr2(b'\x07', b'\x1b', rest)
+                        .and_then(|end| rest.split_at_checked(end));
+                    let Some((body, [terminator, after @ ..])) = found else {
                         self.push_osc_bytes(rest);
                         break;
                     };
-                    self.push_osc_bytes(&rest[..end]);
-                    if rest[end] == b'\x07' {
+                    self.push_osc_bytes(body);
+                    if *terminator == b'\x07' {
                         self.finish_osc(&mut batch);
                     } else {
                         self.scan_state = ShellScanState::OscEscape;
                     }
-                    rest = &rest[end + 1..];
+                    rest = after;
                     continue;
                 }
                 ShellScanState::OscEscape => match byte {
@@ -250,7 +252,8 @@ impl ShellProtocolParser {
         if bytes.len() > room {
             self.osc_overflowed = true;
         }
-        self.osc.extend_from_slice(&bytes[..bytes.len().min(room)]);
+        self.osc
+            .extend_from_slice(bytes.get(..bytes.len().min(room)).unwrap_or(bytes));
     }
 
     fn finish_osc(&mut self, batch: &mut ShellProtocolBatch) {
