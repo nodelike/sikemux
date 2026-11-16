@@ -167,7 +167,7 @@ fn fake_agent() -> Result<std::path::PathBuf, Failure> {
         .parent()
         .and_then(Path::parent)
         .ok_or("the example is not inside a target directory")?;
-    Ok(debug.join("sikemux-fake-acp-agent"))
+    Ok(debug.join("sikemux-fake-opencode"))
 }
 
 async fn publish(socket: &Path) -> Result<(), Failure> {
