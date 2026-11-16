@@ -153,12 +153,32 @@ jobs:
           name: windows-install-logs-${{ matrix.arch }}
           path: ${{ runner.temp }}/proof
 
-  publish:
-    name: Add the installers to the nightly
-    needs: installer
+  release:
+    name: Wait for Release to publish the nightly
     if: ${{ inputs.release_run != '' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
+    permissions:
+      actions: write
+    steps:
+      - name: Stop this run unless the nightly is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN: ${{ inputs.release_run }}
+        run: |
+          gh run watch "$RELEASE_RUN" -R "$GITHUB_REPOSITORY" --interval 30 >/dev/null || true
+          conclusion="$(gh run view "$RELEASE_RUN" -R "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)"
+          [ "$conclusion" = success ] && exit 0
+          echo "Release ended $conclusion, so this nightly gets no Windows installers." >>"$GITHUB_STEP_SUMMARY"
+          gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+          sleep 300
+
+  # Publishing builds nothing, so it runs the scripts of this workflow's commit, not the release's.
+  publish:
+    name: Add the installers to the nightly
+    needs: [installer, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: release
     permissions:
       actions: write
@@ -167,19 +187,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-
-      - name: Wait for Release to publish the nightly
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_RUN: ${{ inputs.release_run }}
-        run: gh run watch "$RELEASE_RUN" -R "$GITHUB_REPOSITORY" --exit-status --interval 30 >/dev/null
 
       - name: Fetch the installers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
