@@ -636,7 +636,7 @@ fn save(
     last: &[u8],
     params: &FileWriteParams,
 ) -> Result<FileWritten> {
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let target = sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     let parent = target
         .parent()
         .ok_or_else(|| Error::from("invalid argument: that path has no folder"))?;
@@ -677,7 +677,7 @@ fn finish(
             })?;
         return Ok(());
     }
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let target = sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     if let Some(expected) = expected {
         let gone = || {
             conflict(format!(
@@ -705,7 +705,7 @@ fn finish(
 /// Two saves of one file, from any clients, take turns.
 fn write_lock_for(path: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
-    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let key = sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     let mut locks = LOCKS.get_or_init(Default::default).locked();
     locks.retain(|_, lock| lock.strong_count() > 0);
     if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {

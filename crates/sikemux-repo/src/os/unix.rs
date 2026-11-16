@@ -3,7 +3,7 @@ use std::fs::{File, Metadata, OpenOptions};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// A link's target in the bytes a commit holds it as.
 pub fn link_target_bytes(target: &Path) -> Vec<u8> {
@@ -43,8 +43,4 @@ pub fn open_private_append(path: &Path) -> io::Result<File> {
 pub fn login_shell() -> Result<std::process::Command, String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     Ok(sikemux_process::user_environment::agent_command_in_own_cgroup(shell))
-}
-
-pub fn real_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
-    std::fs::canonicalize(path)
 }

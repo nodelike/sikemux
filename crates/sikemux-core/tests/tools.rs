@@ -200,7 +200,7 @@ fn window_open(endpoint: &Path) -> bool {
 
 fn project_dir() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().expect("project");
-    let path = std::fs::canonicalize(dir.path()).expect("canonical");
+    let path = sikemux_process::files::real_path(dir.path()).expect("canonical");
     (dir, path)
 }
 

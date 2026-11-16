@@ -33,7 +33,7 @@ pub fn gather(
             .ok_or("the session's folder is missing")?
             .to_path_buf()
     } else {
-        fs::canonicalize(&root).map_err(|error| error.to_string())?
+        sikemux_process::files::real_path(&root).map_err(|error| error.to_string())?
     };
     let mut paths = vec![transcript];
     if by_project {

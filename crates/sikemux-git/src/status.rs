@@ -403,7 +403,7 @@ pub fn moved_since(repo: &Repository, key: &str, since: u64) -> Option<Vec<Strin
 fn is_plain_checkout(repo: &Repository, key: &str) -> bool {
     let root = Path::new(key);
     let same = |path: Option<&Path>| {
-        path.and_then(|path| path.canonicalize().ok())
+        path.and_then(|path| sikemux_process::files::real_path(path).ok())
             .is_some_and(|path| path == root)
     };
     same(repo.workdir())

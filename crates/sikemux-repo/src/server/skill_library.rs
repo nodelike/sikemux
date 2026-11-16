@@ -45,7 +45,7 @@ fn global_folders() -> Vec<(&'static str, PathBuf)> {
     folders.push(("Codex and other agents", home.join(".agents/skills")));
     let mut seen = Vec::new();
     folders.retain(|(_, folder)| {
-        let real = crate::os::real_path(folder).unwrap_or_else(|_| folder.clone());
+        let real = sikemux_process::files::real_path(folder).unwrap_or_else(|_| folder.clone());
         let fresh = !seen.contains(&real);
         seen.push(real);
         fresh
@@ -210,7 +210,7 @@ pub fn resolved(folder: &Path) -> PathBuf {
         return folder.to_path_buf();
     };
     let rest = folder.strip_prefix(existing).unwrap_or(Path::new(""));
-    crate::os::real_path(existing)
+    sikemux_process::files::real_path(existing)
         .unwrap_or_else(|_| existing.to_path_buf())
         .join(rest)
 }
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn a_skills_folder_not_made_yet_is_watched_from_the_folder_above() {
         let root = tempfile::tempdir().unwrap();
-        let real = crate::os::real_path(root.path()).unwrap();
+        let real = sikemux_process::files::real_path(root.path()).unwrap();
         let skills = root.path().join(".claude/skills");
         assert_eq!(resolved(&skills), real.join(".claude/skills"));
         assert_eq!(watch_target(&skills), real);

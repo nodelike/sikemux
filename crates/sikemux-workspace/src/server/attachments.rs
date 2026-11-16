@@ -71,7 +71,10 @@ pub fn save_bytes(dir: &Path, name: &str, mime: &str, bytes: &[u8]) -> CoreResul
 
 /// Whether `path` is in `dir`, however it is spelled or linked.
 pub fn is_kept(dir: &Path, path: &Path) -> bool {
-    match (fs::canonicalize(dir), fs::canonicalize(path)) {
+    match (
+        sikemux_process::files::real_path(dir),
+        sikemux_process::files::real_path(path),
+    ) {
         (Ok(dir), Ok(path)) => path.starts_with(dir),
         _ => false,
     }

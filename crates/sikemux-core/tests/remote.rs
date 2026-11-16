@@ -1057,7 +1057,7 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
     assert_eq!(chat.started_by, Some(phone.id()));
     assert_eq!(
         chat.cwd,
-        std::fs::canonicalize(std::env::temp_dir()).expect("the temp folder")
+        sikemux_process::files::real_path(std::env::temp_dir()).expect("the temp folder")
     );
 }
 

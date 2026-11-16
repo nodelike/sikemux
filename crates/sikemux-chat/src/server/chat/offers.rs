@@ -144,7 +144,8 @@ fn account_env(launch: &ChatLaunch) -> std::collections::BTreeMap<String, String
 
 /// The program `launch` runs and the account it is signed in to, as they stand now.
 fn asked_of(launch: &ChatLaunch) -> String {
-    let program = std::fs::canonicalize(&launch.program).unwrap_or_else(|_| launch.program.clone());
+    let program = sikemux_process::files::real_path(&launch.program)
+        .unwrap_or_else(|_| launch.program.clone());
     let changed = std::fs::metadata(&program)
         .and_then(|file| file.modified())
         .ok();

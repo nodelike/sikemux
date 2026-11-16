@@ -46,7 +46,7 @@ fn is_repo(dir: &Path) -> bool {
 
 pub fn resolve(params: ResolveParams) -> Resolved {
     let typed = expand_home(&params.path);
-    let path = fs::canonicalize(&typed).unwrap_or(typed);
+    let path = sikemux_process::files::real_path(&typed).unwrap_or(typed);
     let kind = match fs::metadata(&path) {
         Ok(meta) if meta.is_dir() => Some("dir"),
         Ok(_) => Some("file"),
@@ -75,7 +75,7 @@ fn walk(
         if remaining <= 0 {
             continue;
         }
-        let Ok(canonical) = fs::canonicalize(&dir) else {
+        let Ok(canonical) = sikemux_process::files::real_path(&dir) else {
             continue;
         };
         if !visited.insert(canonical) {
@@ -101,7 +101,7 @@ fn walk(
             if name.starts_with('.') {
                 continue;
             }
-            let Ok(canonical) = fs::canonicalize(&p) else {
+            let Ok(canonical) = sikemux_process::files::real_path(&p) else {
                 continue;
             };
             if !canonical.is_dir() {

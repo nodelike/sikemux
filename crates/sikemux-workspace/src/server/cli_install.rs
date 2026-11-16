@@ -165,10 +165,9 @@ fn destination_state(destination: &Path, executable: &Path) -> DestinationState 
 #[cfg(unix)]
 fn paths_match(left: &Path, right: &Path) -> bool {
     left == right
-        || left
-            .canonicalize()
+        || sikemux_process::files::real_path(left)
             .ok()
-            .zip(right.canonicalize().ok())
+            .zip(sikemux_process::files::real_path(right).ok())
             .is_some_and(|(left, right)| left == right)
 }
 

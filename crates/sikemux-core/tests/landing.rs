@@ -185,7 +185,7 @@ fn owners(answer: &Value) -> Vec<(String, String)> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
     let root = tempfile::tempdir().expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     let origin = root.join("origin.git");
     std::fs::create_dir_all(root.join("home")).expect("home");
@@ -344,7 +344,7 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_the_person_set_going_again_wakes_one_held_by_stopping_everything() {
     let root = tempfile::tempdir().expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -392,7 +392,7 @@ async fn an_agent_the_person_set_going_again_wakes_one_held_by_stopping_everythi
 #[tokio::test(flavor = "multi_thread")]
 async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_told() {
     let root = tempfile::tempdir().expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -451,7 +451,7 @@ async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_tol
 #[tokio::test(flavor = "multi_thread")]
 async fn a_turn_whose_shell_command_wrote_a_file_reads_uncommitted() {
     let root = tempfile::tempdir().expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");

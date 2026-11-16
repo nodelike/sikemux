@@ -17,6 +17,7 @@ fn frame(text: &str) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::disallowed_methods)]
 async fn a_frame_each_way_with_the_peer_known() {
     let path = unused_path("local");
     let mut listener = Listener::bind(&path).unwrap();

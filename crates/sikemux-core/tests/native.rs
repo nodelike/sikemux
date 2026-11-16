@@ -833,7 +833,7 @@ async fn live_claude_streams_edits_and_resumes() {
     let launch = ChatLaunch {
         agent_id: "live".into(),
         provider: "claude".into(),
-        cwd: folder.path().canonicalize().expect("folder"),
+        cwd: sikemux_process::files::real_path(folder.path()).expect("folder"),
         program: PathBuf::from(program),
         args: Vec::new(),
         env: persons_account()

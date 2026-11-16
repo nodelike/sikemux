@@ -38,7 +38,7 @@ impl Sandbox {
             .tempdir_in("/tmp")
             .expect("temp dir")
             .keep();
-        let root = std::fs::canonicalize(root).expect("canonical");
+        let root = sikemux_process::files::real_path(root).expect("canonical");
         let claude = root.join("claude");
         let bin = root.join("bin");
         for dir in [

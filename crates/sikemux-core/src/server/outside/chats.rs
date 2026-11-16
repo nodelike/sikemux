@@ -138,7 +138,7 @@ fn project(core: &Core, named: &str) -> Result<String, String> {
     {
         return Ok(project.id.clone());
     }
-    let path = std::fs::canonicalize(named).ok();
+    let path = sikemux_process::files::real_path(named).ok();
     path.map(|path| core.workspaces().project_of(&path))
         .filter(|id| !id.is_empty())
         .ok_or_else(|| format!("No project in Sikemux is named {named}; chat_list lists them"))

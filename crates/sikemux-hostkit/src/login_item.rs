@@ -99,7 +99,7 @@ fn real_exe() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     match cfg!(windows) {
         true => Some(exe),
-        false => exe.canonicalize().ok(),
+        false => sikemux_process::files::real_path(exe).ok(),
     }
 }
 

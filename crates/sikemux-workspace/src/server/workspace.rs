@@ -312,7 +312,8 @@ pub fn new_agent(
 /// holds it, else `cwd` itself. A folder in a git worktree counts as the same
 /// folder in the main checkout.
 pub fn project_of(cwd: &Path, projects: &[PathBuf]) -> String {
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     let cwd = canonical(cwd);
     let path = in_main_checkout(&cwd).unwrap_or(cwd);
     projects
@@ -328,7 +329,8 @@ pub fn project_of(cwd: &Path, projects: &[PathBuf]) -> String {
 /// The open project that is `cwd`'s own repository or a folder in it, never a parent
 /// such as the home folder that merely holds the repository.
 pub fn repo_project_of(cwd: &Path, projects: &[PathBuf]) -> Option<String> {
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     let cwd = canonical(cwd);
     let path = in_main_checkout(&cwd).unwrap_or(cwd);
     let repo = sikemux_process::files::repo_root(&path).unwrap_or(&path);
@@ -495,7 +497,12 @@ fn home_of(folder: &Path, projects: &[PathBuf]) -> Option<PathBuf> {
     let home = PathBuf::from(project_of(folder, projects));
     projects
         .iter()
-        .find(|project| std::fs::canonicalize(project).as_deref().unwrap_or(project) == home)
+        .find(|project| {
+            sikemux_process::files::real_path(project)
+                .as_deref()
+                .unwrap_or(project)
+                == home
+        })
         .cloned()
 }
 
@@ -1495,7 +1502,7 @@ pub async fn add_project(core: &Arc<Core>, params: AddProjectParams) -> CoreResu
     }
     let path = params.path;
     let path = blocking(move || {
-        let path = std::fs::canonicalize(&path)
+        let path = sikemux_process::files::real_path(&path)
             .map_err(|error| CoreError::from(format!("{}: {error}", path.display())))?;
         if path.is_dir() {
             Ok(path)

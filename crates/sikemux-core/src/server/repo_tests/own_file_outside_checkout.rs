@@ -28,7 +28,7 @@ async fn an_agent_editing_its_own_file_outside_its_checkout_is_its_writer() {
     let own = tempfile::tempdir().unwrap();
     git_init(main.path());
     git_init(own.path());
-    let main_top = main.path().canonicalize().unwrap();
+    let main_top = sikemux_process::files::real_path(main.path()).unwrap();
     let project = main_top.to_string_lossy().into_owned();
     for agent_id in ["rolo", "kaede"] {
         let starting = Starting {

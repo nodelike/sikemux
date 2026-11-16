@@ -1,5 +1,4 @@
 use std::io::{self, Read, Write};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -368,8 +367,7 @@ fn run_codex_app_server_candidate(
     prompt: &str,
     account: Option<&str>,
 ) -> Result<String, String> {
-    let repo = Path::new(repo)
-        .canonicalize()
+    let repo = sikemux_process::files::real_path(repo)
         .map_err(|error| format!("Could not resolve repository path: {error}"))?;
     let repo = repo.to_string_lossy().into_owned();
     let mut command = sikemux_process::user_environment::agent_command(bin);

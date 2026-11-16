@@ -58,7 +58,7 @@ impl CoreProcess {
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
         let endpoint = dir.path().join("cli.json");
-        let project = std::fs::canonicalize(dir.path())
+        let project = sikemux_process::files::real_path(dir.path())
             .expect("canonical")
             .join("project");
         std::fs::create_dir(&project).expect("project");

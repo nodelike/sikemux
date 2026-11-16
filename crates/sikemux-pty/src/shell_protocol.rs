@@ -645,8 +645,8 @@ mod tests {
             .unwrap_or_else(|| panic!("no folder reported: {:?}", String::from_utf8_lossy(&seen)));
         // The temporary folder may be named by its short 8.3 form, which the shell spells out.
         assert_eq!(
-            std::fs::canonicalize(&reported).expect("reported folder exists"),
-            std::fs::canonicalize(&cwd).expect("shell cwd exists"),
+            sikemux_process::files::real_path(&reported).expect("reported folder exists"),
+            sikemux_process::files::real_path(&cwd).expect("shell cwd exists"),
         );
     }
 }

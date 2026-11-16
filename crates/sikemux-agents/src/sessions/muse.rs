@@ -33,7 +33,7 @@ fn folders<'a>(projects: &[&'a str]) -> HashMap<String, &'a str> {
     let mut folders = HashMap::new();
     for project in projects {
         folders.insert((*project).to_owned(), *project);
-        if let Ok(resolved) = std::fs::canonicalize(project) {
+        if let Ok(resolved) = sikemux_process::files::real_path(project) {
             folders
                 .entry(resolved.to_string_lossy().into_owned())
                 .or_insert(*project);

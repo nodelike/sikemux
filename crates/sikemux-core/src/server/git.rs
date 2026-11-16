@@ -188,13 +188,13 @@ methods!(
 /// Whether `asked` lies inside one of the projects, or is a worktree of one
 /// of their repositories.
 fn of_a_project(asked: &Path, projects: &[PathBuf]) -> bool {
-    let Ok(asked) = asked.canonicalize() else {
+    let Ok(asked) = sikemux_process::files::real_path(asked) else {
         return false;
     };
     let shared = |path: &Path| crate::git::main_checkout(path);
     let asked_shared = shared(&asked);
     projects.iter().any(|project| {
-        let Ok(project) = project.canonicalize() else {
+        let Ok(project) = sikemux_process::files::real_path(project) else {
             return false;
         };
         asked.starts_with(&project)

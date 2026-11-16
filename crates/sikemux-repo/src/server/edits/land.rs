@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn landing_merges_into_files_others_changed_and_refuses_a_clash() {
         let root = tempfile::tempdir().unwrap();
-        let root = crate::os::real_path(root.path()).unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
         let main = root.join("project");
         std::fs::create_dir(&main).unwrap();
         git_in(&main, &["init", "-q", "-b", "main"]);
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn landing_a_commit_a_push_already_made_again_adds_no_empty_copy() {
         let root = tempfile::tempdir().unwrap();
-        let root = crate::os::real_path(root.path()).unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
         let main = root.join("project");
         std::fs::create_dir(&main).unwrap();
         git_in(&main, &["init", "-q", "-b", "main"]);
@@ -653,7 +653,7 @@ mod tests {
     fn landing_gives_each_file_the_mode_its_commit_holds() {
         use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
-        let root = crate::os::real_path(root.path()).unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
         let main = root.join("project");
         std::fs::create_dir(&main).unwrap();
         git_in(&main, &["init", "-q", "-b", "main"]);

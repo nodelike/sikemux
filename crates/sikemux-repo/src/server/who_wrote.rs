@@ -290,7 +290,7 @@ fn file_in(top: &Path, dir: &Path, path: &str) -> Option<String> {
     } else {
         dir.join(path)
     };
-    let full = crate::os::real_path(full).ok()?;
+    let full = sikemux_process::files::real_path(full).ok()?;
     if !full.is_file() {
         return None;
     }

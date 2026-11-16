@@ -82,7 +82,9 @@ pub(crate) async fn stop_runs(core: &Arc<Core>, selector: RunSelector) {
 
 /// An absolute `cwd` inside the project, as the relative one tasks take.
 pub(super) fn within_project(project: &str, cwd: &str) -> String {
-    let real = |path: &str| std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    let real = |path: &str| {
+        sikemux_process::files::real_path(path).unwrap_or_else(|_| PathBuf::from(path))
+    };
     match real(cwd).strip_prefix(real(project)) {
         Ok(inside) if Path::new(cwd).is_absolute() => match inside.to_string_lossy() {
             inside if inside.is_empty() => ".".to_owned(),

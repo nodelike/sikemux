@@ -160,12 +160,12 @@ pub fn validate_task_request(request: &TaskSpawnRequest) -> PtyResult<ValidatedT
     }
     validate_pty_dimensions(request.cols, request.rows)?;
     validate_task_environment(&request.env, cfg!(windows))?;
-    let project = std::fs::canonicalize(&request.project)
+    let project = sikemux_process::files::real_path(&request.project)
         .map_err(|_| PtyError::BadArg("invalid task project"))?;
     if !project.is_dir() {
         return Err(PtyError::BadArg("invalid task project"));
     }
-    let cwd = std::fs::canonicalize(&request.cwd)
+    let cwd = sikemux_process::files::real_path(&request.cwd)
         .map_err(|_| PtyError::BadArg("invalid task working directory"))?;
     if !cwd.is_dir() || !cwd.starts_with(&project) {
         return Err(PtyError::BadArg(
@@ -388,9 +388,12 @@ mod tests {
         let paths = validate_task_request(&request).expect("nested cwd is valid");
         assert_eq!(
             paths.project,
-            project.canonicalize().expect("canonical project")
+            sikemux_process::files::real_path(&project).expect("canonical project")
         );
-        assert_eq!(paths.cwd, nested.canonicalize().expect("canonical cwd"));
+        assert_eq!(
+            paths.cwd,
+            sikemux_process::files::real_path(&nested).expect("canonical cwd")
+        );
 
         request.cwd = outside.to_string_lossy().into_owned();
         assert!(validate_task_request(&request).is_err());
