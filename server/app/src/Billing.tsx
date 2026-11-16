@@ -29,6 +29,7 @@ import {
 } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
+import { BilledSwitch } from "./BilledSwitch.tsx";
 import { PlanCard } from "./PlanCard.tsx";
 import { ShedOffer } from "./Shed.tsx";
 import {
@@ -973,34 +974,12 @@ function Upgrade({
   const [naming, setNaming] = useState(false);
   const proMonth = priceOf(pro, "month");
   const proYear = priceOf(pro, "year");
-  const monthsFree =
-    proMonth && proYear
-      ? Math.round((proMonth.amount * 12 - proYear.amount) / proMonth.amount)
-      : 0;
 
   return (
     <Section
       label="Upgrade"
       aside={
-        <Segmented
-          label="Billed"
-          value={interval}
-          onChange={setInterval}
-          options={[
-            { value: "month", name: "Monthly" },
-            {
-              value: "year",
-              name: (
-                <>
-                  Yearly
-                  {monthsFree > 0 ? (
-                    <em className="save">{monthsFree} months free</em>
-                  ) : null}
-                </>
-              ),
-            },
-          ]}
-        />
+        <BilledSwitch interval={interval} onChange={setInterval} saving={pro} />
       }
     >
       <div className="plan-cards">

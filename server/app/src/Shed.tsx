@@ -10,6 +10,7 @@ import { IconCube, IconInfo, IconLock } from "@shared/ui/Icons";
 import { useEffect, useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
+import { BilledSwitch } from "./BilledSwitch.tsx";
 import {
   NOT_OPEN,
   Refunds,
@@ -26,14 +27,7 @@ import {
   times,
 } from "./money.ts";
 import { SHED } from "./navigation.ts";
-import {
-  ItemRow,
-  PageHead,
-  Rows,
-  Section,
-  Segmented,
-  useNotice,
-} from "./ui.tsx";
+import { ItemRow, PageHead, Rows, Section, useNotice } from "./ui.tsx";
 
 type Loaded = {
   catalog: BillingCatalog;
@@ -180,31 +174,16 @@ function Buy({
   }>();
   const boxes = catalog.products.filter((product) => product.kind === "shed");
   if (boxes.length === 0) return null;
-  const monthsPaid = monthsForAYear(boxes[0]);
   const unit = picked ? priceOf(picked.product, interval) : undefined;
 
   return (
     <Section
       label="Buy boxes"
       aside={
-        <Segmented
-          label="Billed"
-          value={interval}
+        <BilledSwitch
+          interval={interval}
           onChange={setInterval}
-          options={[
-            { value: "month", name: "Monthly" },
-            {
-              value: "year",
-              name: (
-                <>
-                  Yearly
-                  {monthsPaid ? (
-                    <em className="save">{monthsPaid} months' price</em>
-                  ) : null}
-                </>
-              ),
-            },
-          ]}
+          saving={boxes[0]}
         />
       }
     >
@@ -287,12 +266,6 @@ function Buy({
       </Rows>
     </Section>
   );
-}
-
-function monthsForAYear(product?: BillingProduct): number {
-  const month = priceOf(product, "month");
-  const year = priceOf(product, "year");
-  return month && year ? Math.round(year.amount / month.amount) : 0;
 }
 
 /** On Free's plan page: where a Shed box can be bought. */

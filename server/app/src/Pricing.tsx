@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 
 import { problemText } from "./api.ts";
 import { useClient } from "./Billing.tsx";
+import { BilledSwitch } from "./BilledSwitch.tsx";
 import {
   FEATURE_WORDS,
   featuresAdded,
@@ -19,7 +20,7 @@ import {
   UNIT_WORD,
 } from "./money.ts";
 import { PlanCard, type CardLine } from "./PlanCard.tsx";
-import { PageHead, Section, Segmented } from "./ui.tsx";
+import { PageHead, Section } from "./ui.tsx";
 
 type Built = "" | "partly" | "not built" | "later";
 
@@ -139,17 +140,7 @@ function Plans({
   return (
     <Section
       label="Plans"
-      aside={
-        <Segmented
-          label="Billed"
-          value={interval}
-          onChange={setInterval}
-          options={[
-            { value: "month", name: "Monthly" },
-            { value: "year", name: "Yearly" },
-          ]}
-        />
-      }
+      aside={<BilledSwitch interval={interval} onChange={setInterval} />}
     >
       <div className="plan-cards three">
         {catalog.plans.map((plan) => {
