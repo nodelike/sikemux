@@ -211,11 +211,25 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
 /// The core outlives the app, so it leaves any job the app runs in when the job lets it.
 #[cfg(windows)]
 pub fn spawn_detached(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
     use windows_sys::Win32::System::Threading::{
         CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,
     };
 
+    // Windows hands a child every inheritable handle, so a core would otherwise keep
+    // the caller's stdout pipe open and whoever reads it would wait for the core to exit.
+    let own = [
+        io::stdin().as_raw_handle(),
+        io::stdout().as_raw_handle(),
+        io::stderr().as_raw_handle(),
+    ];
+    for handle in own.into_iter().filter(|handle| !handle.is_null()) {
+        // SAFETY: the handle is this process's own standard handle, open for its life;
+        // clearing its inherit flag changes nothing else about it.
+        unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+    }
     command
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
