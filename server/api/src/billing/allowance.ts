@@ -4,7 +4,7 @@ import type {
   PlanId,
   ShedBoxes,
 } from "@sikemux/protocol";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 
 import type { Tables } from "../db.ts";
 import { ALL_FEATURES, featuresOf, product } from "./catalog.ts";
@@ -65,10 +65,21 @@ async function seatOrgs(db: Kysely<Tables>, userId: string): Promise<string[]> {
   return rows.map((row) => row.org_id);
 }
 
+/** When the Pro a person was given free ends, while it has not. */
+async function giftEnds(db: Kysely<Tables>, userId: string) {
+  const gift = await db
+    .selectFrom("plan_gifts")
+    .select("ends_at")
+    .where("user_id", "=", userId)
+    .where("ends_at", ">", sql<Date>`now()`)
+    .executeTakeFirst();
+  return gift?.ends_at;
+}
+
 /**
- * A person's or an org's plan and what it may use: Pro's features for Pro, Team's through a seat
- * in a paid org (a seat includes Pro), and the Shed boxes it bought. Until billing is live,
- * everyone may use everything; the plan still says what was bought.
+ * A person's or an org's plan and what it may use: Pro's features for Pro, paid or given free
+ * until a date, Team's through a seat in a paid org (a seat includes Pro), and the Shed boxes it
+ * bought. Until billing is live, everyone may use everything; the plan still says what was bought.
  */
 export async function allowance(
   db: Kysely<Tables>,
@@ -78,13 +89,19 @@ export async function allowance(
   const rows = await paidFor(db, payer);
   const orgs = "userId" in payer ? await seatOrgs(db, payer.userId) : [];
   const owns = (id: BillingProductId) => rows.some((row) => row.product === id);
-  const plan: PlanId =
+  const paid: PlanId =
     owns("team") || orgs.length > 0 ? "team" : owns("pro") ? "pro" : "free";
+  const gift =
+    paid === "free" && "userId" in payer
+      ? await giftEnds(db, payer.userId)
+      : undefined;
+  const plan = gift ? "pro" : paid;
   return {
     plan,
     features: [...(live ? featuresOf(plan) : ALL_FEATURES)],
     boxes: boxesOf(rows),
     ...("userId" in payer ? { seatOrgs: orgs } : {}),
+    ...(gift ? { giftEnds: gift.toISOString() } : {}),
   };
 }
 

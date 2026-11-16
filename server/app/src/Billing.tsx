@@ -248,6 +248,10 @@ function Bill({
   const pays =
     overview.payer !== "another_owner" && overview.payer !== "departed";
   const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
+  const giftEnds =
+    !org && !planSub && allowance.giftEnds
+      ? formatDay(allowance.giftEnds, "long")
+      : "";
 
   const lede = org
     ? planSub
@@ -261,7 +265,9 @@ function Bill({
       ? "You're on Free. It has no cap on hosts and never runs out."
       : !planSub && seatIn.length > 0
         ? `You have ${planName} through a seat in ${seatIn.join(", ")}.`
-        : `You're on ${planName}.`;
+        : giftEnds
+          ? `${planName} is yours free until ${giftEnds}. After that you're on Free, and nothing you have is deleted.`
+          : `You're on ${planName}.`;
 
   const pro = productOf(catalog, "pro");
   const boxes = catalog.products.filter((product) => product.kind === "shed");
@@ -310,7 +316,9 @@ function Bill({
                     ? "The whole app, on every host you own"
                     : seatIn.length > 0 && !org
                       ? `Through a seat in ${seatIn.join(", ")}`
-                      : undefined
+                      : giftEnds
+                        ? `Free until ${giftEnds}`
+                        : undefined
                 }
                 price={free ? "$0" : undefined}
                 per={free ? PER.month : undefined}

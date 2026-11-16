@@ -23,6 +23,7 @@ import { purgeHookDeliveries } from "./hooks/purge.ts";
 import { purgeStash } from "./stash/purge.ts";
 import { purgeVaultUses } from "./vault/purge.ts";
 import { purgeModRemovals } from "./mods/purge.ts";
+import { endPlanGifts, givePro } from "./billing/gifts.ts";
 import {
   promoteUpdate,
   publishUpdate,
@@ -133,7 +134,23 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
       await purgeHookDeliveries(database.db, log);
       await purgeVaultUses(database.db, log);
       await purgeModRemovals(database.db, log);
+      await endPlanGifts(database.db, log);
     });
+  },
+  "give-pro"() {
+    const days = Number(process.argv[3]);
+    if (!Number.isInteger(days) || days < 1) {
+      startLogging("info").fatal("usage: give-pro <days>");
+      process.exitCode = 2;
+      return;
+    }
+    return withDatabase(
+      loadMigrationConfig(process.env),
+      "giving Pro failed",
+      async (database, log) => {
+        await givePro(database.db, days, log);
+      },
+    );
   },
   "publish-update": updateCommand(
     "publish-update",

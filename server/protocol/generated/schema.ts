@@ -153,6 +153,12 @@ export const schema = {
           type: "array",
           items: { $ref: "#/$defs/OrgId" },
         },
+        giftEnds: {
+          description:
+            "For a person holding the plan as a gift, with nothing paid: when it ends.",
+          type: "string",
+          format: "date-time",
+        },
       },
       required: ["plan", "features", "boxes"],
       additionalProperties: false,

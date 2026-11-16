@@ -555,6 +555,17 @@ Table billing_held_sales {
   }
 }
 
+Table plan_gifts {
+  user_id text [pk]
+  plan text [not null, note: 'plan = \'pro\'']
+  given_at timestamptz [not null, default: `now()`]
+  ends_at timestamptz [not null]
+
+  indexes {
+    ends_at [name: 'plan_gifts_by_end']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -586,3 +597,4 @@ Ref: invoices.customer_id > billing_customers.id [delete: cascade]
 Ref: billing_checkouts.customer_id > billing_customers.id [delete: cascade]
 Ref: billing_checkouts.opened_by > users.id [delete: cascade]
 Ref: billing_people.user_id > users.id [delete: cascade]
+Ref: plan_gifts.user_id - users.id [delete: cascade]

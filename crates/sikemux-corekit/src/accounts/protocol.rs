@@ -134,6 +134,9 @@ pub struct Allowance {
     /// For a person: the orgs whose paid Team plan they hold a seat in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seat_orgs: Option<Vec<OrgId>>,
+    /// For a person holding the plan as a gift, with nothing paid: when it ends.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gift_ends: Option<String>,
 }
 
 /// The body of every response that is not a success.

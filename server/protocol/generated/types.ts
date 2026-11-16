@@ -98,6 +98,8 @@ export interface Allowance {
   boxes: ShedBoxes[];
   /** For a person: the orgs whose paid Team plan they hold a seat in. */
   seatOrgs?: OrgId[];
+  /** For a person holding the plan as a gift, with nothing paid: when it ends. */
+  giftEnds?: string;
 }
 
 /** The body of every response that is not a success. */

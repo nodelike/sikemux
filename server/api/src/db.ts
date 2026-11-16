@@ -386,6 +386,12 @@ export interface Tables {
     provider_id: string;
     created_at: CreatedAt;
   };
+  plan_gifts: {
+    user_id: string;
+    plan: "pro";
+    given_at: CreatedAt;
+    ends_at: Date;
+  };
   billing_held_sales: {
     provider: string;
     provider_subscription_id: string;

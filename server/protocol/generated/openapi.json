@@ -3962,6 +3962,11 @@
             "description": "For a person: the orgs whose paid Team plan they hold a seat in.",
             "type": "array",
             "items": { "$ref": "#/components/schemas/OrgId" }
+          },
+          "giftEnds": {
+            "description": "For a person holding the plan as a gift, with nothing paid: when it ends.",
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": ["plan", "features", "boxes"],
