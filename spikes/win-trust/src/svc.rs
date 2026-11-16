@@ -18,8 +18,7 @@ use windows_sys::Win32::System::Services::{
     SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, GetProcessId, OpenProcess, OpenThreadToken, TerminateProcess,
-    WaitForSingleObject, PROCESS_TERMINATE,
+    GetExitCodeProcess, GetProcessId, OpenThreadToken, WaitForSingleObject,
 };
 
 use crate::pipe::{anon, create_named, disconnect, recv_line, send_line, wait_client};
@@ -171,15 +170,6 @@ fn handle(pipe: HANDLE, req: &str) {
             );
             send_line(pipe, &line);
         }
-        Some("crash") => {
-            let pid = REGISTRY.lock().unwrap().core_pid;
-            let process = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
-            let killed = !process.is_null() && unsafe { TerminateProcess(process, 9) } != 0;
-            if !process.is_null() {
-                unsafe { CloseHandle(process) };
-            }
-            send_line(pipe, if killed { "ok" } else { "fail" });
-        }
         Some("secret") => {
             send_line(pipe, "refused");
         }
@@ -320,7 +310,7 @@ fn secret_handler(c2s_read: SendHandle, s2c_write: SendHandle, sid: String) {
 fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
     let (c2s_r, c2s_w) = anon().unwrap();
     let (s2c_r, s2c_w) = anon().unwrap();
-    let proc_sd = format!("O:SYG:SYD:P(A;;GA;;;SY)(A;;0x101000;;;{sid})");
+    let proc_sd = format!("O:SYG:SYD:P(A;;GA;;;SY)(A;;0x101001;;;{sid})");
 
     let (apphi_r, apphi_w) = if with_apps {
         anon().unwrap()

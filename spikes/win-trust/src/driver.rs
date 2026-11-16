@@ -210,19 +210,9 @@ fn read_log() -> String {
 
 fn wait_for_outcome() -> String {
     let deadline = Instant::now() + Duration::from_secs(90);
-    let mut crashed = false;
     loop {
         let log = read_log();
-        if !crashed && log.contains("agent_exit=") {
-            crashed = true;
-            let h = client(SVC_PIPE);
-            if !h.is_null() {
-                send_line(h, "crash");
-                report("driver", "crash_core", &recv_line(h).unwrap_or_default());
-                unsafe { CloseHandle(h) };
-            }
-        }
-        let done = crashed && log.contains("core_gen=2");
+        let done = log.contains("agent_exit=") && log.contains("core_gen=2");
         if done || Instant::now() >= deadline {
             return log;
         }
@@ -252,7 +242,7 @@ fn summarize(log: &str) -> bool {
     c.want_present(log, "app_medium_window");
     c.want(log, "app_link", "ok");
     c.want(log, "child_il", "medium");
-    c.want(log, "crash_core", "ok");
+    c.want(log, "kill_core", "done");
     c.want(log, "core_gen", "2");
     // Signed-in counts and two-person isolation.
     c.want(log, "idle_users", "0");
