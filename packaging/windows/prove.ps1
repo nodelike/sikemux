@@ -1,9 +1,11 @@
 # Proves an installer on a clean runner, which runs as an administrator: a silent install, the app opening from where it was
-# installed, a silent reinstall over the running app as the service runs an update, and an
-# uninstall that leaves only the person's data.
+# installed, the service's core starting children at Medium, a silent reinstall over the running
+# app as the service runs an update, and an uninstall that leaves only the person's data.
 param(
   [Parameter(Mandatory)][string]$Installer,
   [Parameter(Mandatory)][string]$Version,
+  [Parameter(Mandatory)][string]$Probe,
+  [Parameter(Mandatory)][string]$Remote,
   [Parameter(Mandatory)][string]$Out
 )
 $ErrorActionPreference = "Stop"
@@ -104,6 +106,29 @@ Check (Wait-Core 30) "the sign-in command starts a core that answers"
 Start-Process $App
 $Window = Wait-Window 60
 Check $Window "the app opens again beside the core"
+
+$Status = & $Core status --json | ConvertFrom-Json
+$Parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $($Status.pid)").ParentProcessId
+Check ($Parent -eq (Get-CimInstance Win32_Service -Filter "Name = '$Service'").ProcessId) "the $Service service started the running core"
+# A release core takes only the program at the app's path for its app, so the remote example
+# stands there while it asks the core to start children.
+$Installed = (Get-FileHash $App).Hash
+$Aside = "$env:TEMP\sikemux-installed.exe"
+$Running = Installed-Running
+$Running | Stop-Process -Force
+$Running | Wait-Process -Timeout 30
+Move-Item -Force $App $Aside
+try {
+  Copy-Item $Remote $App
+  & "$PSScriptRoot\..\..\app\ci\windows-children.ps1" -Socket $Status.socket -Probe $Probe -App $App -Out "$Out\children"
+  $Children = $LASTEXITCODE
+} finally {
+  Move-Item -Force $Aside $App
+}
+Check ((Get-FileHash $App).Hash -eq $Installed) "the installed app is back in place"
+Check ($Children -eq 0) "a git hook, an agent and a terminal's child of the service's core run at Medium"
+Start-Process $App
+Check (Wait-Window 60) "the app opens again after the children's check"
 
 Run-Setup $Silent "update.log"
 Check ((Installed-Running).Count -eq 0) "a silent reinstall closes the running app"
