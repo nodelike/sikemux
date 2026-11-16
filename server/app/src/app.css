@@ -16,6 +16,7 @@
 /* Aura Noir, the desktop app's default theme, with its ramp mixed the same way (see DESIGN.md). */
 :root {
   --bg: #0f0f13;
+  --rail-width: 232px;
   --bg-dim: #09090b;
   --ink: #e7e5ef;
   --acc: #a277ff;
@@ -112,6 +113,10 @@ input {
 
 .backdrop[data-ready] canvas {
   opacity: 1;
+}
+
+.backdrop:has(~ .page .shell) {
+  left: var(--rail-width);
 }
 
 .page {
@@ -471,7 +476,7 @@ button:focus-visible,
 
 .shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
   min-height: 100dvh;
 }
 
@@ -483,7 +488,7 @@ button:focus-visible,
   flex-direction: column;
   padding: 18px 12px 14px;
   border-right: 1px solid var(--border);
-  background: color-mix(in oklab, var(--bg) 70%, transparent);
+  background: var(--bg);
 }
 
 .rail > .brand {
@@ -672,6 +677,10 @@ button:focus-visible,
 @media (max-width: 720px) {
   .shell {
     display: block;
+  }
+
+  .backdrop:has(~ .page .shell) {
+    left: 0;
   }
 
   .rail {

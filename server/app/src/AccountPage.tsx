@@ -19,6 +19,7 @@ export function AccountPage({
   onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const { user } = useUser();
+  const email = user?.primaryEmailAddress?.emailAddress;
   const providers = (user?.externalAccounts ?? []).flatMap((account) => {
     const provider = PROVIDERS[account.provider];
     return provider ? [provider] : [];
@@ -40,6 +41,7 @@ export function AccountPage({
               <Avatar size={28} />
               <span>{user?.fullName || user?.username || "No name yet"}</span>
             </Row>
+            {email ? <Row label="Email">{email}</Row> : null}
             <Row label="Signs in with">
               {ways.map((way, index) => (
                 <span className="way" key={way.name}>
