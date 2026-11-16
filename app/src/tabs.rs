@@ -21,9 +21,9 @@ use gpui_kit::component::WindowExt;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, px, AnyElement, App, ClickEvent, ClipboardItem, Context, FontWeight, Hsla,
-    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, WeakEntity, Window, WindowControlArea,
+    canvas, div, point, px, AnyElement, App, ClickEvent, ClipboardItem, Context, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Point, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, WindowControlArea,
 };
 use sikemux_view::layout::{Pane, PaneKind, Tab as LayoutTab};
 use sikemux_wire::pty::shell_protocol::SshLink;
@@ -38,18 +38,35 @@ use crate::toast;
 use crate::ui::{self, IconButton, Tab};
 use crate::workbench::{Strip, StripRef, Workbench};
 
-/// How far down the window the middle of its macOS window buttons sits; the tabs share it.
-const BUTTONS_MIDDLE: f32 = 18.;
-
-/// Where the bar's tabs start, level with the window buttons.
+/// Where the bar's tabs start: one pane gap down, the same room as the panes leave under them.
 fn tabs_top() -> f32 {
-    BUTTONS_MIDDLE - crate::ui::tab_height() / 2.
+    crate::theme::gap()
 }
 
 /// The bar across the window's top: the window buttons, the tabs and the chips on one row. It
 /// ends where the tabs do, so the gap under it is the panes' own gap.
 pub fn bar_height() -> f32 {
     tabs_top() + crate::ui::tab_height()
+}
+
+/// How tall macOS draws its window buttons.
+const WINDOW_BUTTON_SIZE: f32 = 14.;
+
+/// Where the macOS window buttons go, level with the tabs.
+pub fn window_buttons_at() -> Point<Pixels> {
+    let top = tabs_top() + (crate::ui::tab_height() - WINDOW_BUTTON_SIZE) / 2.;
+    point(px(16.), px(top))
+}
+
+thread_local! {
+    static WINDOW_BUTTONS: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
+}
+
+fn keep_window_buttons_level(window: &Window) {
+    let at = window_buttons_at();
+    if WINDOW_BUTTONS.with(|placed| placed.replace(Some(at))) != Some(at) {
+        window.set_traffic_light_position(at);
+    }
 }
 
 /// How wide the window is, in points, before the overload chip keeps its words.
@@ -126,6 +143,7 @@ pub(crate) fn strip_layout<'a>(layout: &'a Layout, strip: &Strip) -> Option<&'a 
 /// The bar: the window buttons, the way back and forward, the tabs of the place in front, then
 /// the chips.
 pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> impl IntoElement {
+    keep_window_buttons_level(window);
     let roomy = window.viewport_size().width >= px(ROOMY_BAR);
     let t = Tokens::get(cx).clone();
     let tabs = strip_with_tabs(bench).map(|strip| strip_area(bench, &strip, cx));
@@ -1178,11 +1196,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn panes_sit_one_pane_gap_under_the_tabs() {
-        let under_tabs = bar_height() - (tabs_top() + crate::ui::tab_height());
-        assert_eq!(
-            under_tabs + crate::skeleton::room_beside_bar(),
-            crate::theme::gap()
-        );
+    fn tabs_sit_one_pane_gap_from_the_top_and_from_the_panes() {
+        for (density, gap) in [(0.85, 6.), (1., 10.), (1.15, 14.)] {
+            crate::theme::wear_spacing(density, gap);
+            let under_tabs = bar_height() - (tabs_top() + crate::ui::tab_height());
+            assert_eq!(tabs_top(), crate::theme::gap());
+            assert_eq!(
+                under_tabs + crate::skeleton::room_beside_bar(),
+                crate::theme::gap()
+            );
+            let buttons_middle = window_buttons_at().y.as_f32() + WINDOW_BUTTON_SIZE / 2.;
+            assert_eq!(buttons_middle, tabs_top() + crate::ui::tab_height() / 2.);
+        }
     }
 }

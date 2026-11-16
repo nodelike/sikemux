@@ -256,6 +256,12 @@ fn wear_style(style: &UiStyle) {
     SPACING.with(|spacing| spacing.set((style.gap as f32, style.inset as f32)));
 }
 
+#[cfg(test)]
+pub(crate) fn wear_spacing(density: f32, gap: f32) {
+    DENSITY.with(|worn| worn.set(density));
+    SPACING.with(|spacing| spacing.set((gap, inset())));
+}
+
 /// What a find in a terminal tints its matches with, the current one brighter, in every theme.
 const FIND_MATCH: u32 = 0x433866;
 const FIND_CURRENT: u32 = 0xa277ff;

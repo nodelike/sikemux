@@ -1,10 +1,12 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use gpui_kit::{
-    point, px, size, AppContext, Bounds, Styled, TitlebarOptions, WindowBounds, WindowDecorations,
+    px, size, AppContext, Bounds, Styled, TitlebarOptions, WindowBounds, WindowDecorations,
     WindowOptions,
 };
-use sikemux_gpui::{console, core, icons, memory, theme, workbench, WINDOW_SIZE};
+use sikemux_gpui::{
+    console, core, icons, memory, theme, window_buttons_at, workbench, WINDOW_SIZE,
+};
 use sikemux_hostkit::crash_reports::{self, Process};
 
 fn main() {
@@ -52,8 +54,7 @@ fn main() {
             titlebar: Some(TitlebarOptions {
                 title: Some("Sikemux".into()),
                 appears_transparent: cfg!(target_os = "macos"),
-                // The top of the 14 pt lights, which centres them in the 36 pt top bar.
-                traffic_light_position: cfg!(target_os = "macos").then(|| point(px(16.), px(11.))),
+                traffic_light_position: cfg!(target_os = "macos").then(window_buttons_at),
             }),
             window_decorations: Some(WindowDecorations::Server),
             app_id: Some(core::IDENTIFIER.into()),
