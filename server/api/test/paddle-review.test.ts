@@ -1351,3 +1351,79 @@ describe("1. a change for renewal writes what is paid from our row, not Paddle's
     }).toEqual({ writtenAsPaid: 10, seats: 10 });
   });
 });
+
+describe("2. a failed renewal paid late drops the change held for it", () => {
+  /** The renewal's payment fails, then is paid; the payment is delivered before the older snapshot. */
+  async function curedOutOfOrder(
+    sub: PaddleSub,
+    paidEnd: Date,
+    { snapshot = true } = {},
+  ) {
+    const renewal = renewed(sub, paidEnd);
+    expect(
+      await deliver(
+        "subscription.past_due",
+        { ...renewal, status: "past_due" },
+        justAfter(paidEnd),
+      ),
+    ).toBe(204);
+    const paidAt = clockNow();
+    expect(
+      await deliver(
+        "transaction.completed",
+        { ...paddleTxn(renewal), origin: "subscription_recurring" },
+        paidAt,
+      ),
+    ).toBe(204);
+    if (!snapshot) return;
+    expect(
+      await deliver(
+        "subscription.updated",
+        renewal,
+        new Date(paidAt.getTime() - 1000),
+      ),
+    ).toBe(204);
+  }
+
+  it("N2a: 10 seats billed, 5 held, and the payer cannot put it right", async () => {
+    const { orgId, sub, id, paidEnd } = await teamHolding(5, 10);
+    await curedOutOfOrder(sub, paidEnd);
+
+    const [plan] = (await overview(OWNER, orgId)).subscriptions;
+    const now = await change(OWNER, id, { quantity: 10 });
+    expect({
+      status: plan?.status,
+      billedByPaddle: sub.items[0]?.quantity,
+      seats: await seatLimit(database.db, orgId),
+      askingForThemNow: now.status,
+    }).toEqual({
+      status: "active",
+      billedByPaddle: 10,
+      seats: 10,
+      askingForThemNow: 200,
+    });
+  });
+
+  it("N2b: 1 seat billed, its snapshot on the way, and asking for that 1 seat gives 10", async () => {
+    const { orgId, sub, id, paidEnd } = await teamHolding(10, 1);
+    await curedOutOfOrder(sub, paidEnd, { snapshot: false });
+    const before = await seatLimit(database.db, orgId);
+    const calls = paddle.patches.length;
+
+    const takenBack = await change(OWNER, id, { quantity: 1 });
+
+    expect({
+      before,
+      takenBack: takenBack.status,
+      askedOfPaddle: paddle.patches.length - calls,
+      billedByPaddle: sub.items[0]?.quantity,
+      seats: await seatLimit(database.db, orgId),
+    }).toEqual({
+      before: 1,
+      takenBack: 200,
+      askedOfPaddle: 0,
+      billedByPaddle: 1,
+      seats: 1,
+    });
+  });
+});

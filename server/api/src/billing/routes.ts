@@ -653,8 +653,8 @@ export function billingRoutes({
           trx,
         );
         if (same) {
-          await ready.takeBack(subscription, { ...next, unit });
-          if (orgId)
+          const dropped = await ready.takeBack(subscription, { ...next, unit });
+          if (orgId && dropped)
             await trx
               .updateTable("subscriptions")
               .set({ seats_cut_to: null })

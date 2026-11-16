@@ -491,7 +491,7 @@ async function apply(
       if (paid && lapsed.length && isNewer(rows, at)) {
         await trx
           .updateTable("subscriptions")
-          .set({ status: "active", provider_updated_at: at })
+          .set({ status: "active" })
           .where("id", "in", lapsed)
           .execute();
         if (event.periodEnd)

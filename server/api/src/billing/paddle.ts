@@ -663,7 +663,7 @@ export class PaddleProvider implements BillingProvider {
     const price = await this.priceFor(paid.product, paid.interval, paid.unit);
     const sub = await this.subscription(held.providerSubscriptionId);
     const at = new Date(this.now());
-    if (!heldOf(sub, at)) return;
+    if (!heldOf(sub, at)) return false;
     const { held: _, bill_on: __, ...custom } = sub.custom_data ?? {};
     const billOn = owedOf(sub, at) ?? periodEndOf(sub);
     this.refuseLateIntervalChange(sub, paid.interval, billOn);
@@ -673,6 +673,7 @@ export class PaddleProvider implements BillingProvider {
       custom_data: { ...custom, subscription: sub.id, bill_on: billOn },
     });
     await this.billOnOwedDate(sub.id);
+    return true;
   }
 
   async change(
