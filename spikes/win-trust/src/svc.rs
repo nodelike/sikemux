@@ -27,7 +27,9 @@ use crate::proc::{
 use crate::sd::{
     deny_admins, medium_restricted, set_integrity, to_primary, user_sid_string, HIGH_RID,
 };
-use crate::util::{install_exe, report, secrets_dir, SendHandle, SERVICE_NAME, SVC_PIPE};
+use crate::util::{
+    install_exe, report, report_err, secrets_dir, SendHandle, SERVICE_NAME, SVC_PIPE,
+};
 
 const SVC_PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;0x12008b;;;AU)";
 const CORE_MITIGATION: u64 = IMAGE_LOAD_NO_REMOTE_ALWAYS_ON | IMAGE_LOAD_NO_LOW_LABEL_ALWAYS_ON;
@@ -170,6 +172,7 @@ fn handle(pipe: HANDLE, req: &str) {
 
 fn start(pipe: HANDLE) -> bool {
     if unsafe { ImpersonateNamedPipeClient(pipe) } == 0 {
+        report_err("svc", "start", "impersonate");
         return false;
     }
     let mut thread_token: HANDLE = null_mut();
@@ -183,18 +186,24 @@ fn start(pipe: HANDLE) -> bool {
     };
     unsafe { RevertToSelf() };
     if got == 0 {
+        report_err("svc", "start", "open_thread_token");
         return false;
     }
 
     let primary = to_primary(thread_token);
     let locked = deny_admins(primary);
     if locked.is_null() {
+        report_err("svc", "start", "deny_admins");
         return false;
     }
-    set_integrity(locked, HIGH_RID);
+    if !set_integrity(locked, HIGH_RID) {
+        report_err("svc", "start", "set_integrity");
+    }
     let Some(sid) = user_sid_string(locked) else {
+        report_err("svc", "start", "user_sid");
         return false;
     };
+    report("svc", "start_sid", &sid);
 
     let first = {
         let mut reg = REGISTRY.lock().unwrap();
@@ -294,7 +303,7 @@ fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
         process_sddl: Some(&proc_sd),
     });
     let Some(core) = core else {
-        report("svc", "core_launch", "failed");
+        report_err("svc", "core_launch", "create_process");
         return;
     };
     let pid = unsafe { GetProcessId(core.hProcess) };
@@ -364,7 +373,7 @@ fn launch_app(core_token: SendHandle, tag: &str, token: HANDLE, link_w: HANDLE, 
             reg.app_medium_pid = pid;
         }
     } else {
-        report("svc", &format!("app_{tag}_launch"), "failed");
+        report_err("svc", &format!("app_{tag}_launch"), "create_process");
     }
     let _ = core_token;
     unsafe { CloseHandle(link_w) };

@@ -159,15 +159,11 @@ fn launch_agent() {
         visible_desktop: true,
         process_sddl: None,
     });
-    report(
-        "driver",
-        "agent_launch",
-        if spawned.is_some() {
-            "started"
-        } else {
-            "failed"
-        },
-    );
+    if spawned.is_some() {
+        report("driver", "agent_launch", "started");
+    } else {
+        crate::util::report_err("driver", "agent_launch", "create_process");
+    }
 }
 
 fn second_user() {

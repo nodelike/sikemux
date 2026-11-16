@@ -42,7 +42,8 @@ pub fn make_inheritable(handle: HANDLE) {
 /// Launch a process with the given token, restricting inherited handles to the
 /// listed ones and optionally stamping a process-creation mitigation policy.
 pub fn spawn(s: &Spawn) -> Option<PROCESS_INFORMATION> {
-    let attr_count = 1 + u32::from(s.mitigation.is_some());
+    let has_list = !s.inherit.is_empty();
+    let attr_count = u32::from(has_list) + u32::from(s.mitigation.is_some());
     let mut size: usize = 0;
     unsafe { InitializeProcThreadAttributeList(null_mut(), attr_count, 0, &mut size) };
     let mut attr_buf = vec![0u8; size];
@@ -51,17 +52,18 @@ pub fn spawn(s: &Spawn) -> Option<PROCESS_INFORMATION> {
         return None;
     }
 
-    if unsafe {
-        UpdateProcThreadAttribute(
-            attr_list,
-            0,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-            s.inherit.as_ptr() as *const c_void,
-            std::mem::size_of_val(s.inherit),
-            null_mut(),
-            null(),
-        )
-    } == 0
+    if has_list
+        && unsafe {
+            UpdateProcThreadAttribute(
+                attr_list,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                s.inherit.as_ptr() as *const c_void,
+                std::mem::size_of_val(s.inherit),
+                null_mut(),
+                null(),
+            )
+        } == 0
     {
         unsafe { DeleteProcThreadAttributeList(attr_list) };
         return None;
@@ -127,7 +129,7 @@ pub fn spawn(s: &Spawn) -> Option<PROCESS_INFORMATION> {
             cmd.as_mut_ptr(),
             proc_attr_ptr,
             null(),
-            1,
+            i32::from(has_list),
             CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
             env,
             null(),

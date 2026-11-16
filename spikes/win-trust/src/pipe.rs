@@ -7,8 +7,8 @@ use windows_sys::Win32::Security::Authorization::{
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, WriteFile, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-    PIPE_ACCESS_DUPLEX,
+    CreateFileW, FlushFileBuffers, ReadFile, WriteFile, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, CreatePipe, DisconnectNamedPipe, PIPE_READMODE_BYTE,
@@ -57,7 +57,10 @@ pub fn wait_client(pipe: HANDLE) -> bool {
 }
 
 pub fn disconnect(pipe: HANDLE) {
-    unsafe { DisconnectNamedPipe(pipe) };
+    unsafe {
+        FlushFileBuffers(pipe);
+        DisconnectNamedPipe(pipe);
+    }
 }
 
 pub fn client(name: &str) -> HANDLE {
