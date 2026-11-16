@@ -283,6 +283,10 @@ const KIT_ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/chevron.svg"),
     ),
     (
+        "icons/loader.svg",
+        include_bytes!("../assets/icons/loader.svg"),
+    ),
+    (
         "icons/chevron-down.svg",
         include_bytes!("../assets/icons/chevron-down.svg"),
     ),

@@ -592,12 +592,14 @@ fn work_row(
                 .min_w_0()
                 .truncate()
                 .text_color(t.text_primary)
-                .when(detail.is_some(), |name| {
-                    name.flex_shrink_0().max_w(gpui_kit::relative(0.5))
+                .map(|name| match detail.is_some() {
+                    true => name.flex_shrink_0().max_w(gpui_kit::relative(0.5)),
+                    false => name.flex_1(),
                 }),
         )
         .children(detail.is_some().then(|| {
             div()
+                .flex_1()
                 .min_w_0()
                 .truncate()
                 .text_size(theme::ui_text(TEXT_2XS))
@@ -619,7 +621,6 @@ fn work_row(
         }))
         .child(
             div()
-                .ml_auto()
                 .min_w(px(18.))
                 .flex_none()
                 .flex()
