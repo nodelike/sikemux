@@ -132,7 +132,7 @@ pub(crate) fn asked(
     if filed.is_some() {
         return filed;
     }
-    let title = clipped_line(text, TITLE_CHARS);
+    let title = clipped_line(&sikemux_fold::person_wrote(text, paths), TITLE_CHARS);
     let images: Vec<String> = (paths.iter())
         .filter(|path| is_image_path(path))
         .cloned()

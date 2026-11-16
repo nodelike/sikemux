@@ -235,11 +235,8 @@ fn card(
                 .px(SPACE_3)
                 .pt(px(11.))
                 .pb(SPACE_2)
-                .text_size(theme::ui_text(13.5))
                 .font_weight(FontWeight::MEDIUM)
-                .line_height(px(19.))
-                .text_color(t.text_primary)
-                .child(div().line_clamp(2).child(ask.title.clone())),
+                .child(title(ask, bench, &t, cx)),
         )
         .children(thumbnail(ask, &t))
         .children(links(bench, ask, chief, handle, cx))
@@ -424,4 +421,12 @@ fn stand(ask: &NowAsk, lane: Lane, t: &Tokens) -> Option<Div> {
             .children(icon)
             .child(ui::text(words, TEXT_XS, weight).text_color(tint)),
     )
+}
+
+/// What the person wrote, with the files and agents it names as the chat's chips.
+fn title(ask: &NowAsk, bench: &Workbench, t: &Tokens, cx: &App) -> AnyElement {
+    let agents = crate::chat::named_agents(bench, &ask.to);
+    let named = crate::chat::named(&ask.title, &ask.images, &[], &agents);
+    let pieces = crate::stash::pieces(&ask.title, &named, &[]);
+    crate::stash::sentence(Some(&format!("ask-{}", ask.id)), &pieces, bench, t, cx)
 }

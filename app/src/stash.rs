@@ -568,7 +568,7 @@ pub fn tray(
 /// A page an item links to, what the server read of it, and for a pull request or issue the
 /// state the core knows it in.
 #[derive(Clone, Copy)]
-struct Page<'a> {
+pub(crate) struct Page<'a> {
     url: &'a str,
     preview: Option<&'a StashPreview>,
     state: Option<&'a str>,
@@ -598,7 +598,7 @@ fn bare_url(url: &str) -> String {
 
 /// A word of an item's text, or something it names, drawn as the chat draws its chip; a pull
 /// request or issue in the colour of its state, when the core knows it.
-enum Piece {
+pub(crate) enum Piece {
     Word(String),
     Pill {
         id: String,
@@ -676,7 +676,7 @@ fn said<'a>(shown: &'a ShownStashItem, agents: &[(String, String)]) -> Said<'a> 
 /// The words the core made of an item's text, with what `named` names in them as pills. The
 /// core leaves in only links to pull requests and issues: one a mention names goes, and any
 /// other reads as GitHub writes it.
-fn pieces(text: &str, named: &[crate::chat::Mention], pages: &[Page]) -> Vec<Piece> {
+pub(crate) fn pieces(text: &str, named: &[crate::chat::Mention], pages: &[Page]) -> Vec<Piece> {
     let state_of = |url: &str| {
         (pages.iter())
             .find(|page| page.url == url)
@@ -881,7 +881,7 @@ const MORE: f32 = 32.;
 
 /// Up to two lines of words, with what they name as the chat's chips. Words of the item `key` whose
 /// pills run past the two lines end on a count of them, worked out once they are laid out.
-fn sentence(
+pub(crate) fn sentence(
     key: Option<&str>,
     pieces: &[Piece],
     bench: &Workbench,
