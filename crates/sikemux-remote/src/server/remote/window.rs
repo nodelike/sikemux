@@ -1,15 +1,14 @@
 use super::CoreResult;
 
 /// Whether the person answers this core's signing requests in its own window: on Windows
-/// when the core runs at High, so none of the person's other programs can answer for them.
+/// when the service started this core at High, so none of the person's other programs can
+/// answer for them.
 #[cfg(windows)]
 pub fn asks_in_window() -> bool {
     use std::sync::OnceLock;
 
-    use sikemux_trust::{Integrity, Token};
-
-    static HIGH: OnceLock<bool> = OnceLock::new();
-    *HIGH.get_or_init(|| matches!(Token::own_integrity(), Ok(Integrity::High)))
+    static FROM_SERVICE: OnceLock<bool> = OnceLock::new();
+    *FROM_SERVICE.get_or_init(sikemux_trust::service::started_this_core)
 }
 
 #[cfg(not(windows))]

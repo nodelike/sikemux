@@ -50,6 +50,16 @@ const DISPLAY_NAME: &str = if cfg!(debug_assertions) {
     "Sikemux"
 };
 
+/// Set only in the environment of a core this service starts.
+const STARTED_HERE: &str = "SIKEMUX_STARTED_BY_SERVICE";
+
+/// Whether this process is a core the service started, as opposed to one an administrator's
+/// shell or a test started at High.
+pub fn started_this_core() -> bool {
+    std::env::var_os(STARTED_HERE).is_some()
+        && matches!(Token::own_integrity(), Ok(Integrity::High))
+}
+
 /// A core that ends sooner than this after starting counts as failing to start.
 const SHORT_RUN: Duration = Duration::from_secs(60);
 /// After this many short runs in a row the core is left down.
@@ -571,6 +581,7 @@ impl Service {
         let installed = self.program.parent().unwrap_or(&self.program).to_owned();
         let path = std::env::join_paths([system, windows, installed]).map_err(io::Error::other)?;
         environment.push(("PATH".into(), path));
+        environment.push((STARTED_HERE.into(), "1".into()));
         Ok(environment)
     }
 
