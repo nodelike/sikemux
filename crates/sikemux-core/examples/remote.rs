@@ -92,7 +92,10 @@ async fn login(socket: &Path) -> Result<(), Failure> {
     let code = client
         .call("accountSignInByCode", serde_json::json!({}))
         .await?;
-    println!("enter {} on the phone", code["code"]);
+    println!(
+        "enter {} on the phone",
+        code.get("code").unwrap_or(&serde_json::Value::Null)
+    );
     client
         .call("accountSignInFinish", serde_json::json!({}))
         .await?;

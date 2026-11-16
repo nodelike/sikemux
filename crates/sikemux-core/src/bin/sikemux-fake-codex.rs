@@ -172,14 +172,19 @@ impl Codex {
                     json!({ "threadId": thread_id, "turnId": turn_id, "itemId": id, "command": "echo hi", "cwd": "/tmp", "reason": null }),
                 );
                 let allowed = matches!(
-                    answer["decision"].as_str(),
+                    answer.get("decision").and_then(Value::as_str),
                     Some("accept" | "acceptForSession")
                 );
                 let mut done = command;
-                done["status"] = json!(if allowed { "completed" } else { "declined" });
-                if allowed {
-                    done["aggregatedOutput"] = json!("hi\n");
-                    done["exitCode"] = json!(0);
+                if let Some(fields) = done.as_object_mut() {
+                    fields.insert(
+                        "status".into(),
+                        json!(if allowed { "completed" } else { "declined" }),
+                    );
+                    if allowed {
+                        fields.insert("aggregatedOutput".into(), json!("hi\n"));
+                        fields.insert("exitCode".into(), json!(0));
+                    }
                 }
                 self.notify(
                     "item/completed",
@@ -297,7 +302,7 @@ impl Codex {
                 self.save(&thread_id, &[]);
                 let thread = self.thread(&thread_id, Vec::new());
                 self.reply(id, thread.clone());
-                self.notify("thread/started", json!({ "thread": thread["thread"] }));
+                self.notify("thread/started", json!({ "thread": thread.get("thread") }));
             }
             "thread/resume" | "thread/read" => match self.turns(&thread_id) {
                 Some(turns) => {
@@ -378,15 +383,20 @@ fn main() {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        let method = message["method"].as_str().map(str::to_owned);
+        let method = message
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         match (message.get("id"), method) {
-            (Some(id), Some(method)) => codex.request(id, &method, &message["params"]),
+            (Some(id), Some(method)) => {
+                codex.request(id, &method, message.get("params").unwrap_or(&Value::Null))
+            }
             (Some(id), None) => {
                 let answer = id
                     .as_u64()
                     .and_then(|id| codex.waiting.locked().remove(&id));
                 if let Some(answer) = answer {
-                    let _ = answer.send(message["result"].clone());
+                    let _ = answer.send(message.get("result").cloned().unwrap_or(Value::Null));
                 }
             }
             _ => {}

@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! A core replacing itself with another binary in the same process. These run
 //! the standalone core binary, since the core under test has to `exec`.

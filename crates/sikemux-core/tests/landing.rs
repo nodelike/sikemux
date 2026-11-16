@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! A real core, git shim and fake agent: an agent's commits stay its own after
 //! a rebase by hand, a landing and a push, a footer copied onto another commit

@@ -140,6 +140,12 @@ fn answer(mut stream: &TcpStream, status: u16, body: Value) {
     );
 }
 
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = object.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
+}
+
 impl Fake {
     fn emit(&self, kind: &str, data: Value) {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
@@ -176,7 +182,7 @@ impl Fake {
             }
             ("GET", ["api", "model"]) => answer(&stream, 200, json!({ "data": models() })),
             ("GET", ["api", "model", "default"]) => {
-                answer(&stream, 200, json!({ "data": models()[0] }))
+                answer(&stream, 200, json!({ "data": models().get(0) }))
             }
             ("GET", ["api", "agent"]) => answer(
                 &stream,
@@ -198,9 +204,9 @@ impl Fake {
                 let session = json!({
                     "id": id,
                     "title": "",
-                    "model": request.body["model"],
-                    "agent": request.body["agent"],
-                    "permissions": request.body["permissions"],
+                    "model": request.body.get("model"),
+                    "agent": request.body.get("agent"),
+                    "permissions": request.body.get("permissions"),
                     "messages": [],
                 });
                 self.sessions.locked().insert(id, session.clone());
@@ -213,25 +219,35 @@ impl Fake {
             ("PATCH", ["api", "session", id]) => {
                 if let Some(session) = self.sessions.locked().get_mut(*id) {
                     if let Some(permissions) = request.body.get("permissions") {
-                        session["permissions"] = permissions.clone();
+                        set(session, "permissions", permissions.clone());
                     }
                 }
                 answer(&stream, 200, json!({}));
             }
             ("POST", ["api", "session", id, "revert", "stage"]) => {
                 if let Some(session) = self.sessions.locked().get_mut(*id) {
-                    session["revert"] = request.body["messageID"].clone();
+                    let revert = request
+                        .body
+                        .get("messageID")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    set(session, "revert", revert);
                 }
                 answer(
                     &stream,
                     200,
-                    json!({ "data": { "messageID": request.body["messageID"] } }),
+                    json!({ "data": { "messageID": request.body.get("messageID") } }),
                 );
             }
             ("POST", ["api", "session", id, "revert", "commit"]) => {
                 if let Some(session) = self.sessions.locked().get_mut(*id) {
-                    let revert = session["revert"].take();
-                    if let Some(messages) = session["messages"].as_array_mut() {
+                    let revert = session
+                        .get_mut("revert")
+                        .map(Value::take)
+                        .unwrap_or(Value::Null);
+                    if let Some(messages) =
+                        session.get_mut("messages").and_then(Value::as_array_mut)
+                    {
                         if let Some(at) = messages.iter().position(|message| *message == revert) {
                             messages.truncate(at);
                         }
@@ -241,7 +257,8 @@ impl Fake {
             }
             ("POST", ["api", "session", id, "model"]) => {
                 if let Some(session) = self.sessions.locked().get_mut(*id) {
-                    session["model"] = request.body["model"].clone();
+                    let model = request.body.get("model").cloned().unwrap_or(Value::Null);
+                    set(session, "model", model);
                 }
                 answer(&stream, 200, json!({}));
                 self.emit("session.model.selected", json!({ "sessionID": id }));
@@ -256,7 +273,11 @@ impl Fake {
             }
             ("POST", ["api", "session", _, "permission", id, "reply"]) => {
                 answer(&stream, 200, json!({}));
-                let decision = request.body["decision"].as_str().unwrap_or_default();
+                let decision = request
+                    .body
+                    .get("decision")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 if let Some(waiting) = self.answers.locked().remove(*id) {
                     let _ = waiting.send(decision.to_owned());
                 }
@@ -264,7 +285,9 @@ impl Fake {
             ("POST", ["api", "session", id, "prompt"]) => {
                 let message = format!("msg_{}", uuid());
                 if let Some(session) = self.sessions.locked().get_mut(*id) {
-                    if let Some(messages) = session["messages"].as_array_mut() {
+                    if let Some(messages) =
+                        session.get_mut("messages").and_then(Value::as_array_mut)
+                    {
                         messages.push(json!(message));
                     }
                 }
@@ -275,7 +298,12 @@ impl Fake {
                 );
                 let fake = self.clone();
                 let session = (*id).to_owned();
-                let text = request.body["text"].as_str().unwrap_or_default().to_owned();
+                let text = request
+                    .body
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
                 std::thread::spawn(move || fake.turn(&session, &text));
             }
             ("POST", ["api", "session", id, "compact"]) => {
@@ -302,7 +330,12 @@ impl Fake {
                 answer(&stream, 200, json!({}));
                 let fake = self.clone();
                 let session = (*id).to_owned();
-                let text = format!("ran {}", request.body["name"].as_str().unwrap_or_default());
+                let name = request
+                    .body
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let text = format!("ran {name}");
                 std::thread::spawn(move || fake.turn(&session, &text));
             }
             ("GET", ["api", "experimental", "session", id, "log"]) => {
@@ -315,8 +348,12 @@ impl Fake {
                     .log
                     .locked()
                     .iter()
-                    .filter(|event| event["durable"]["seq"].as_u64() > Some(after))
-                    .filter(|event| event["data"]["sessionID"] == *id)
+                    .filter(|event| {
+                        event.pointer("/durable/seq").and_then(Value::as_u64) > Some(after)
+                    })
+                    .filter(|event| {
+                        event.pointer("/data/sessionID").and_then(Value::as_str) == Some(*id)
+                    })
                     .cloned()
                     .collect();
                 answer(&stream, 200, json!({ "data": missed }))
@@ -334,7 +371,7 @@ impl Fake {
         let reason = json!({ "sessionID": session, "reason": "manual" });
         self.emit("session.compaction.started", reason.clone());
         let mut ended = reason;
-        ended["text"] = json!("summary");
+        set(&mut ended, "text", json!("summary"));
         self.emit("session.compaction.ended", ended);
         self.emit(
             "session.execution.succeeded",
@@ -349,10 +386,10 @@ impl Fake {
             "sessionID": child, "assistantMessageID": format!("msg_{}", uuid()), "ordinal": 0,
         });
         let mut delta = data.clone();
-        delta["delta"] = json!("found it");
+        set(&mut delta, "delta", json!("found it"));
         self.emit("session.text.delta", delta);
         let mut ended = data;
-        ended["text"] = json!("found it");
+        set(&mut ended, "text", json!("found it"));
         self.emit("session.text.ended", ended);
         self.emit(
             "session.step.ended",
@@ -368,8 +405,10 @@ impl Fake {
     /// the last match winning.
     fn effect(&self, session: &str, command: &str) -> String {
         let sessions = self.sessions.locked();
-        let session_rules = sessions[session]["permissions"]
-            .as_array()
+        let session_rules = sessions
+            .get(session)
+            .and_then(|session| session.get("permissions"))
+            .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
         let matches = |pattern: &str| {
@@ -383,9 +422,20 @@ impl Fake {
         agent_rules
             .into_iter()
             .chain(session_rules)
-            .filter(|rule| rule["action"] == "*" || rule["action"] == "shell")
-            .rfind(|rule| matches(rule["resource"].as_str().unwrap_or_default()))
-            .and_then(|rule| rule["effect"].as_str().map(str::to_owned))
+            .filter(|rule| {
+                matches!(
+                    rule.get("action").and_then(Value::as_str),
+                    Some("*" | "shell")
+                )
+            })
+            .rfind(|rule| {
+                matches(
+                    rule.get("resource")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                )
+            })
+            .and_then(|rule| rule.get("effect")?.as_str().map(str::to_owned))
             .unwrap_or_default()
     }
 
@@ -415,7 +465,7 @@ impl Fake {
         let with = |extra: Value| {
             let mut data = base.clone();
             for (key, value) in extra.as_object().into_iter().flatten() {
-                data[key] = value.clone();
+                set(&mut data, key, value.clone());
             }
             data
         };
@@ -433,7 +483,11 @@ impl Fake {
             "stream" => (0..rest.parse().unwrap_or(1)).for_each(|n| say(&format!("w{n} "))),
             "count" => {
                 let sessions = self.sessions.locked();
-                let sent = sessions[session]["messages"].as_array().map_or(0, Vec::len);
+                let sent = sessions
+                    .get(session)
+                    .and_then(|session| session.get("messages"))
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
                 drop(sessions);
                 say(&format!("{} earlier", sent.saturating_sub(1)));
             }
@@ -564,15 +618,15 @@ impl Fake {
     }
 }
 
-fn main() {
+fn main() -> std::io::Result<()> {
     let password = std::env::var("OPENCODE_PASSWORD").unwrap_or_default();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) != Some("serve") {
         eprintln!("the fake OpenCode only serves");
         std::process::exit(2);
     }
-    let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
-    let port = listener.local_addr().expect("an address").port();
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
     println!("{}", json!({ "url": format!("http://127.0.0.1:{port}") }));
     let _ = std::io::stdout().flush();
     let fake = Arc::new(Fake {
@@ -592,4 +646,5 @@ fn main() {
     {
         input.clear();
     }
+    Ok(())
 }

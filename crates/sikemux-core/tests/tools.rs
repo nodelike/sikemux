@@ -1,4 +1,12 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    clippy::unwrap_used,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! The agents' tool endpoint the core serves over loopback TCP, driven the way
 //! the `sikemux` CLI drives it.

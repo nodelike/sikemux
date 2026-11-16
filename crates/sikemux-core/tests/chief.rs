@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! A real core and fake agents: what the person types to answer an access call, or types while
 //! one is open, never reaches the project's chief; and only the chief retires a rule of the

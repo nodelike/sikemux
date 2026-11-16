@@ -116,6 +116,12 @@ fn context() -> u64 {
         .unwrap_or(10)
 }
 
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = object.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
+}
+
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .find_map(|arg| arg.strip_prefix(&format!("--{name}=")).map(str::to_owned))
@@ -129,10 +135,18 @@ impl Claude {
     }
 
     fn record(&self, mut record: Value) {
-        let uuid = record["uuid"].as_str().unwrap_or_default().to_owned();
-        record["parentUuid"] = json!(self.leaf.locked().replace(uuid));
-        record["sessionId"] = json!(self.session_id);
-        record["isSidechain"] = json!(false);
+        let uuid = record
+            .get("uuid")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        set(
+            &mut record,
+            "parentUuid",
+            json!(self.leaf.locked().replace(uuid)),
+        );
+        set(&mut record, "sessionId", json!(self.session_id));
+        set(&mut record, "isSidechain", json!(false));
         if let Some(parent) = self.transcript.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -215,7 +229,7 @@ impl Claude {
             "modelUsage": { model(): { "contextWindow": 200000 } },
         });
         if let Some(error) = error {
-            result["result"] = json!(error);
+            set(&mut result, "result", json!(error));
         }
         self.send(result);
         self.send(json!({ "type": "system", "subtype": "session_state_changed", "state": "idle" }));
@@ -224,19 +238,23 @@ impl Claude {
     /// Goes back to before the message `target`, as Claude Code does in place.
     fn rewind(&self, target: Option<&str>) -> Value {
         let found = self.records().into_iter().find(|record| {
-            record["uuid"]
-                .as_str()
+            record
+                .get("uuid")
+                .and_then(Value::as_str)
                 .is_some_and(|uuid| Some(uuid) == target)
         });
         let Some(found) = found else {
             return json!({ "rewound": false, "error": "target not found", "reason": "target_not_found" });
         };
-        let parent = found["parentUuid"].as_str().map(str::to_owned);
+        let parent = found
+            .get("parentUuid")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         *self.leaf.locked() = parent.clone();
         json!({
             "rewound": true,
-            "targetMessageUuid": found["uuid"],
-            "prefillText": found["message"]["content"][0]["text"],
+            "targetMessageUuid": found.get("uuid"),
+            "prefillText": found.pointer("/message/content/0/text"),
             "precedingAssistantUuid": parent,
         })
     }
@@ -335,7 +353,13 @@ impl Claude {
                 // It runs as an agent does, on the PATH the core gave it, shim first.
                 #[allow(clippy::disallowed_methods)]
                 let ran = std::process::Command::new("sh")
-                    .args(["-c", text.trim_start()["shell".len()..].trim()])
+                    .args([
+                        "-c",
+                        text.trim_start()
+                            .strip_prefix("shell")
+                            .unwrap_or_default()
+                            .trim(),
+                    ])
                     .output();
                 let said = match ran {
                     Ok(ran) => format!(
@@ -358,12 +382,16 @@ impl Claude {
                     "tool_use_id": tool_id,
                     "permission_suggestions": [],
                 }));
-                let allowed = answer["behavior"] == "allow";
+                let allowed = answer.get("behavior").and_then(Value::as_str) == Some("allow");
                 self.say(&message_id, if allowed { "allowed" } else { "denied" });
                 self.finish(uuid, None);
             }
             "question" => {
-                let given = text.trim_start()["question".len()..].trim();
+                let given = text
+                    .trim_start()
+                    .strip_prefix("question")
+                    .unwrap_or_default()
+                    .trim();
                 let input = serde_json::from_str(given).unwrap_or_else(|_| json!({ "questions": [
                     { "question": "Which database should the cache use?", "header": "Cache store", "options": [
                         { "label": "Redis (recommended)", "description": "Fast, and already running here" },
@@ -769,7 +797,10 @@ fn models() -> Value {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args[1..] == ["auth", "status", "--json"] {
+    if args
+        .get(1..)
+        .is_some_and(|rest| *rest == ["auth", "status", "--json"])
+    {
         let status =
             account_file("fake-account.json").unwrap_or_else(|| json!({ "loggedIn": false }));
         println!("{status}");
@@ -781,9 +812,11 @@ fn main() {
         let initialize = asked
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .find(|line| line["request"]["subtype"] == "initialize");
+            .find(|line| {
+                line.pointer("/request/subtype").and_then(Value::as_str) == Some("initialize")
+            });
         if let Some(asked) = initialize {
-            let answer = json!({ "subtype": "success", "request_id": asked["request_id"], "response": { "models": models() } });
+            let answer = json!({ "subtype": "success", "request_id": asked.get("request_id"), "response": { "models": models() } });
             println!(
                 "{}",
                 json!({ "type": "control_response", "response": answer })
@@ -847,27 +880,41 @@ fn main() {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        match message["type"].as_str() {
+        match message.get("type").and_then(Value::as_str) {
             Some("control_request") => {
-                let id = message["request_id"].as_str().unwrap_or_default();
-                claude.control(id, &message["request"]);
+                let id = message
+                    .get("request_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                claude.control(id, message.get("request").unwrap_or(&Value::Null));
             }
             Some("control_response") => {
-                let id = message["response"]["request_id"]
-                    .as_str()
+                let id = message
+                    .pointer("/response/request_id")
+                    .and_then(Value::as_str)
                     .unwrap_or_default();
                 let answer = claude.waiting.locked().remove(id);
                 if let Some(answer) = answer {
-                    let _ = answer.send(message["response"]["response"].clone());
+                    let response = message.pointer("/response/response").cloned();
+                    let _ = answer.send(response.unwrap_or(Value::Null));
                 }
             }
             Some("user") => {
-                let uuid = message["uuid"].as_str().unwrap_or_default().to_owned();
-                if claude.records().iter().any(|record| record["uuid"] == uuid) {
+                let uuid = message
+                    .get("uuid")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                if claude
+                    .records()
+                    .iter()
+                    .any(|record| record.get("uuid").and_then(Value::as_str) == Some(uuid.as_str()))
+                {
                     continue;
                 }
-                let text: String = message["message"]["content"]
-                    .as_array()
+                let text: String = message
+                    .pointer("/message/content")
+                    .and_then(Value::as_array)
                     .map(|blocks| {
                         blocks
                             .iter()
@@ -883,7 +930,8 @@ fn main() {
                 });
                 claude.record(record);
                 let mut echo = message.clone();
-                echo["isReplay"] = json!(true);
+                set(&mut echo, "isReplay", json!(true));
+
                 claude.send(echo);
                 let _ = turns.send((uuid, text));
             }

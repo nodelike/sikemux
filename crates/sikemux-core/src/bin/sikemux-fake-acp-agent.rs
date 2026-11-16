@@ -146,12 +146,19 @@ fn replay_history(agent: &Agent, session_id: &str) {
         let Ok(entry) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        let kind = if entry["role"] == "user" {
+        let kind = if entry.get("role").and_then(Value::as_str) == Some("user") {
             "user_message_chunk"
         } else {
             "agent_message_chunk"
         };
-        agent.say(session_id, kind, entry["text"].as_str().unwrap_or_default());
+        agent.say(
+            session_id,
+            kind,
+            entry
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        );
     }
 }
 
@@ -169,7 +176,7 @@ fn prompt_all(params: &Value) -> String {
         .map(|block| {
             block["text"]
                 .as_str()
-                .or_else(|| block["resource"]["text"].as_str())
+                .or_else(|| block.pointer("/resource/text").and_then(Value::as_str))
                 .map_or_else(|| block.to_string(), str::to_owned)
         })
         .collect::<Vec<_>>()
@@ -301,8 +308,9 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
                     { "optionId": "deny", "name": "Deny", "kind": "reject_once" },
                 ],
             }));
-            let outcome = answer["outcome"]["optionId"]
-                .as_str()
+            let outcome = answer
+                .pointer("/outcome/optionId")
+                .and_then(Value::as_str)
                 .unwrap_or("cancelled")
                 .to_owned();
             say(&format!("answered {outcome}"));
@@ -509,12 +517,15 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                     "promptCapabilities": { "embeddedContext": true },
                 },
             });
-            if params["clientCapabilities"]["auth"]["terminal"] == true {
-                answer["authMethods"] = json!([
+            let terminal_auth = params
+                .pointer("/clientCapabilities/auth/terminal")
+                .and_then(Value::as_bool);
+            if let (Some(true), Some(answer)) = (terminal_auth, answer.as_object_mut()) {
+                answer.insert("authMethods".into(), json!([
                     { "type": "terminal", "id": "fake-login", "name": "Log in", "args": ["login"] },
                     { "id": "fake-key", "name": "API key", "description": "Use a key from the environment" },
                     { "id": "elsewhere", "name": "Elsewhere", "_meta": { "terminal-auth": { "command": "/bin/elsewhere", "args": [] } } },
-                ]);
+                ]));
             }
             agent.reply(&id, answer);
         }
@@ -524,17 +535,18 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                 std::process::id(),
                 sessions.fetch_add(1, Ordering::Relaxed)
             );
-            let endpoint = params["mcpServers"]
-                .as_array()
+            let endpoint = params
+                .get("mcpServers")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .flat_map(|server| server["env"].as_array().cloned().unwrap_or_default())
                 .find(|variable| variable["name"] == "SIKEMUX_CLI_ENDPOINT")
-                .and_then(|variable| variable["value"].as_str().map(PathBuf::from));
+                .and_then(|variable| variable.get("value")?.as_str().map(PathBuf::from));
             agent.sessions.locked().insert(
                 session_id.clone(),
                 Session {
-                    cwd: params["cwd"].as_str().map(PathBuf::from),
+                    cwd: params.get("cwd").and_then(Value::as_str).map(PathBuf::from),
                     endpoint,
                 },
             );
@@ -545,21 +557,32 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
         }
         ("session/load", Some(id))
             if std::env::var_os("FAKE_ACP_STRICT_LOAD").is_some()
-                && !history_file(params["sessionId"].as_str().unwrap_or_default())
-                    .is_some_and(|path| path.exists()) =>
+                && !history_file(
+                    params
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                )
+                .is_some_and(|path| path.exists()) =>
         {
             agent.send(json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "error": { "code": -32002, "message": "Resource not found", "data": { "uri": params["sessionId"] } },
+                "error": { "code": -32002, "message": "Resource not found", "data": { "uri": params.get("sessionId") } },
             }));
         }
         ("session/load", Some(id)) => {
-            let session_id = params["sessionId"].as_str().unwrap_or_default().to_owned();
+            let session_id = params
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             replay_history(agent, &session_id);
             agent.reply(&id, json!({ "configOptions": agent.config() }));
         }
-        ("authenticate", Some(id)) if params["methodId"] == "fake-key" => {
+        ("authenticate", Some(id))
+            if params.get("methodId").and_then(Value::as_str) == Some("fake-key") =>
+        {
             agent.signed_in.store(true, Ordering::Relaxed);
             agent.reply(&id, json!({}));
         }
@@ -571,7 +594,11 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
             }))
         }
         ("session/prompt", Some(id)) if limited(&agent.account) => {
-            let session_id = params["sessionId"].as_str().unwrap_or_default().to_owned();
+            let session_id = params
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             record(&session_id, "user", &prompt_text(&params));
             agent.reply(
                 &id,
@@ -592,7 +619,11 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
         ("session/prompt", Some(id)) => {
             let agent = agent.clone();
             std::thread::spawn(move || {
-                let session_id = params["sessionId"].as_str().unwrap_or_default().to_owned();
+                let session_id = params
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
                 agent.cancelled.store(false, Ordering::Release);
                 let text = prompt_text(&params);
                 let stop_reason = match text.trim() {
@@ -607,11 +638,12 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
         }
         ("session/cancel", None) => agent.cancelled.store(true, Ordering::Release),
         ("session/set_config_option", Some(id)) => {
-            if params["configId"] == "model" {
-                if let Some(value) = params["value"].as_str() {
+            if params.get("configId").and_then(Value::as_str) == Some("model") {
+                if let Some(value) = params.get("value").and_then(Value::as_str) {
                     *agent.model.locked() = value.to_owned();
                 }
             }
+
             agent.reply(&id, json!({ "configOptions": agent.config() }));
         }
         ("session/set_mode", Some(id)) => agent.reply(&id, json!({})),

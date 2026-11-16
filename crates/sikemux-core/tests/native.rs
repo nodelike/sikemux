@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! Chat agents the core drives in their own protocol, through stand-ins for
 //! their binaries.

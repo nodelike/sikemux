@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! Two cores on this machine standing in for two hosts on one account: they
 //! link with a join ticket and the second host's approval, an agent on the

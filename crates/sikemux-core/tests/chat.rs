@@ -1,4 +1,12 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    clippy::unwrap_used,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! Chat agents in the core, driven through a stand-in agent that speaks just
 //! enough ACP.
