@@ -386,6 +386,12 @@ export interface Tables {
     provider_id: string;
     created_at: CreatedAt;
   };
+  billing_held_sales: {
+    provider: string;
+    provider_subscription_id: string;
+    provider_checkout_id: string;
+    created_at: CreatedAt;
+  };
   billing_calls: {
     id: Generated<string>;
     provider: string;

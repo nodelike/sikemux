@@ -543,6 +543,17 @@ Table billing_people {
   }
 }
 
+Table billing_held_sales {
+  provider text [not null]
+  provider_subscription_id text [not null]
+  provider_checkout_id text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, provider_subscription_id) [pk]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]

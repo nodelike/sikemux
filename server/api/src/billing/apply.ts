@@ -30,8 +30,12 @@ const STRAY = { customerId: null };
 
 /** A checkout the API opened with its own key and was paid, which it has no record of. */
 class UnknownSale extends ApiFailure {
-  constructor() {
+  readonly providerSubscriptionId: string;
+  readonly providerCheckoutId: string;
+  constructor(providerSubscriptionId: string, providerCheckoutId: string) {
     super(503, "unavailable", "This checkout is not known yet.");
+    this.providerSubscriptionId = providerSubscriptionId;
+    this.providerCheckoutId = providerCheckoutId;
   }
 }
 
@@ -86,6 +90,14 @@ async function rowsOf(
   const [first] = rows;
   if (first) return { rows, customerId: first.customer_id };
   if (await isStray(trx, from, providerSubscriptionId)) return null;
+  const sale = await trx
+    .selectFrom("billing_held_sales")
+    .select("provider_checkout_id")
+    .where("provider", "=", from.name)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .executeTakeFirst();
+  if (sale)
+    throw new UnknownSale(providerSubscriptionId, sale.provider_checkout_id);
   throw unknown(from, "The subscription", at);
 }
 
@@ -342,7 +354,10 @@ async function paidCheckout(
     !event.openedByBuyer &&
     !(await isStray(trx, from, event.providerCheckoutId))
   )
-    throw new UnknownSale();
+    throw new UnknownSale(
+      event.subscription.providerSubscriptionId,
+      event.providerCheckoutId,
+    );
   const sub = event.subscription;
   const [item, ...more] = sub.items;
   if (
@@ -705,15 +720,28 @@ async function applyOnce(
       );
     });
   } catch (error) {
-    if (error instanceof UnknownSale && event.type === "subscription.started")
+    if (error instanceof UnknownSale) {
+      await db
+        .insertInto("billing_held_sales")
+        .values({
+          provider: name,
+          provider_subscription_id: error.providerSubscriptionId,
+          provider_checkout_id: error.providerCheckoutId,
+        })
+        .onConflict((oc) =>
+          oc.columns(["provider", "provider_subscription_id"]).doNothing(),
+        )
+        .execute();
       log.error(
         {
           provider: name,
-          checkout: event.providerCheckoutId,
-          subscription: event.subscription.providerSubscriptionId,
+          type: event.type,
+          checkout: error.providerCheckoutId,
+          subscription: error.providerSubscriptionId,
         },
         "a checkout the API opened was paid but has no record here: its subscription and payment are left alone, and its events refused until someone looks",
       );
+    }
     if (!(error instanceof Gone)) throw error;
     log.info(
       { provider: name, type: event.type, gone: error.message },

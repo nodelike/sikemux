@@ -1,6 +1,14 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { BillingInterval, BillingProductId } from "@sikemux/protocol";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { PRODUCTS } from "../src/billing/catalog.ts";
 import { PaddleProvider } from "../src/billing/paddle.ts";
@@ -1652,6 +1660,45 @@ describe("the claim, sixth read", () => {
       asked: 200,
       afterAsking: 10,
       afterAnEvent: 10,
+    });
+  });
+});
+
+describe("a sale paid on a checkout the API has no record of, sixth read", () => {
+  it("H1: refuses every later event of it too, with an error each time", async () => {
+    const errors = vi.spyOn(log, "error");
+    const sub = paddleSub(ctmOf(OWNER), "pro", 1);
+    paddle.subscriptions.set(sub.id, sub);
+    const first = await deliver("transaction.completed", paddleTxn(sub));
+    const errorsAtFirst = errors.mock.calls.length;
+
+    const changed = await deliver("subscription.updated", sub);
+    const renewal = await deliver("transaction.completed", {
+      ...paddleTxn(sub),
+      origin: "subscription_recurring",
+    });
+    const errorsForLater = errors.mock.calls.length - errorsAtFirst;
+    const renewalPastRetries = await deliver(
+      "transaction.completed",
+      { ...paddleTxn(sub), origin: "subscription_recurring" },
+      ago(20),
+    );
+    errors.mockRestore();
+
+    expect({
+      first,
+      errorsAtFirst,
+      changed,
+      renewal,
+      errorsForLater,
+      renewalPastRetries,
+    }).toEqual({
+      first: 503,
+      errorsAtFirst: 1,
+      changed: 503,
+      renewal: 503,
+      errorsForLater: 2,
+      renewalPastRetries: 503,
     });
   });
 });
