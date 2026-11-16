@@ -161,6 +161,19 @@ class FakePaddle {
       const items = body.items as
         { price_id: string; quantity: number }[] | undefined;
       const [first] = items ?? [];
+      const billsOn = body.next_billed_at as string | undefined;
+      if (first && billsOn && billsOn !== sub.next_billed_at)
+        return Promise.reject(
+          new PaddleError(
+            400,
+            "bad_request",
+            "not possible to change items and billing date in the same request",
+          ),
+        );
+      if (billsOn && !first) {
+        sub.next_billed_at = billsOn;
+        sub.current_billing_period.ends_at = billsOn;
+      }
       if (first) {
         this.patches.push({
           heldByPaddleBefore: sub.items[0]?.quantity ?? 0,
@@ -173,10 +186,19 @@ class FakePaddle {
         const price = this.prices.find((each) => each.id === first.price_id);
         if (!price) throw new Error(`no price ${first.price_id}`);
         sub.items = [{ status: "active", quantity: first.quantity, price }];
-        sub.billing_cycle = {
-          interval: price.billing_cycle?.interval ?? "month",
-          frequency: 1,
-        };
+        const interval = price.billing_cycle?.interval ?? "month";
+        if (interval !== sub.billing_cycle.interval) {
+          // Paddle starts a new period at a change of interval, as the sandbox showed.
+          const ends = new Date(
+            Date.now() + (interval === "year" ? 365 : 30) * DAY_MS,
+          ).toISOString();
+          sub.current_billing_period = {
+            starts_at: new Date().toISOString(),
+            ends_at: ends,
+          };
+          sub.next_billed_at = ends;
+        }
+        sub.billing_cycle = { interval, frequency: 1 };
       }
       if ("custom_data" in body)
         sub.custom_data = body.custom_data as Record<string, unknown>;
@@ -731,6 +753,39 @@ describe("a checkout changed after the API opened it", () => {
     }).toEqual({
       endedAndRefunded: [1, 1],
       victimsNextCheckoutIsFor: ctmOf(OTHER),
+    });
+  });
+});
+
+describe("a change of interval at renewal", () => {
+  it("R7: month to year and back leave Paddle's next bill on the paid month's end", async () => {
+    const { sub } = await pay(OWNER, "pro");
+    const paidEnd = sub.current_billing_period.ends_at;
+    const [held] = (await overview(OWNER)).subscriptions;
+
+    const toYear = await change(OWNER, held?.id, {
+      interval: "year",
+      when: "renewal",
+    });
+    expect(await deliver("subscription.updated", sub, ago(5))).toBe(204);
+    const yearlyBillsOn = sub.next_billed_at;
+    const [shown] = (await overview(OWNER)).subscriptions;
+
+    const back = await change(OWNER, held?.id, { interval: "month" });
+    expect(await deliver("subscription.updated", sub, ago(4))).toBe(204);
+    const [after] = (await overview(OWNER)).subscriptions;
+    expect({
+      answers: [toYear.status, back.status],
+      yearlyBillsOn,
+      shown: shown?.currentPeriodEnd,
+      monthlyBillsOn: sub.next_billed_at,
+      after: after?.currentPeriodEnd,
+    }).toEqual({
+      answers: [200, 200],
+      yearlyBillsOn: paidEnd,
+      shown: paidEnd,
+      monthlyBillsOn: paidEnd,
+      after: paidEnd,
     });
   });
 });

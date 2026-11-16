@@ -46,6 +46,8 @@ interface Held {
 
 interface CustomData {
   held?: Held;
+  /** Where a change taken back leaves the next bill: the end of the period paid for. */
+  bill_on?: string;
 }
 
 interface PaddleItem {
@@ -189,6 +191,25 @@ function periodEndOf(sub: PaddleSubscription): string {
   return ends;
 }
 
+/**
+ * The day the next bill is owed, while it is ahead. Changing the interval restarts Paddle's period
+ * at the change, so the paid period's end rides in custom data until Paddle bills on it again.
+ */
+function owedOf(sub: PaddleSubscription, at: Date): string | null {
+  const owed = sub.custom_data?.held?.until ?? sub.custom_data?.bill_on;
+  return owed && new Date(owed) > at ? owed : null;
+}
+
+function billedOnOwedDate(sub: PaddleSubscription, at: Date) {
+  const owed = owedOf(sub, at);
+  return (
+    !owed ||
+    sub.status !== "active" ||
+    (!!sub.next_billed_at &&
+      new Date(sub.next_billed_at).getTime() === new Date(owed).getTime())
+  );
+}
+
 function subscriptionOf(
   sub: PaddleSubscription,
   at: Date,
@@ -202,7 +223,7 @@ function subscriptionOf(
     providerSubscriptionId: sub.id,
     items,
     interval,
-    currentPeriodEnd: new Date(periodEndOf(sub)),
+    currentPeriodEnd: new Date(owedOf(sub, at) ?? periodEndOf(sub)),
     cancelAtPeriodEnd: sub.scheduled_change?.action === "cancel",
   };
   const held = sub.custom_data?.held;
@@ -469,9 +490,10 @@ export class PaddleProvider implements BillingProvider {
     const sub = await this.subscription(held.providerSubscriptionId);
     const items = [{ price_id: price.id, quantity: update.quantity }];
     if (when === "renewal") {
-      const until = periodEndOf(sub);
+      const until = owedOf(sub, new Date(this.now())) ?? periodEndOf(sub);
       return {
         sub,
+        until,
         body: {
           items,
           proration_billing_mode: "do_not_bill",
@@ -483,9 +505,6 @@ export class PaddleProvider implements BillingProvider {
               until,
             } satisfies Held,
           },
-          ...(update.interval === held.interval
-            ? {}
-            : { next_billed_at: until }),
         },
       };
     }
@@ -500,15 +519,30 @@ export class PaddleProvider implements BillingProvider {
     };
   }
 
+  /** Paddle refuses items and a bill date in one request, so the date is put right after. */
+  private async billOnOwedDate(subscriptionId: string) {
+    const sub = await this.subscription(subscriptionId);
+    const at = new Date(this.now());
+    if (billedOnOwedDate(sub, at)) return;
+    await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
+      proration_billing_mode: "do_not_bill",
+      next_billed_at: owedOf(sub, at),
+    });
+  }
+
   async takeBack(held: HeldSubscription, paid: SubscriptionUpdate) {
     const price = await this.priceFor(paid.product, paid.interval, paid.unit);
     const sub = await this.subscription(held.providerSubscriptionId);
-    const { held: _, ...custom } = sub.custom_data ?? {};
+    const { held: _, bill_on: __, ...custom } = sub.custom_data ?? {};
     await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
       items: [{ price_id: price.id, quantity: paid.quantity }],
       proration_billing_mode: "do_not_bill",
-      custom_data: custom,
+      custom_data: {
+        ...custom,
+        bill_on: owedOf(sub, new Date(this.now())) ?? periodEndOf(sub),
+      },
     });
+    await this.billOnOwedDate(sub.id);
   }
 
   async change(
@@ -529,6 +563,7 @@ export class PaddleProvider implements BillingProvider {
         return { taken: false, why: "payment_failed" };
       throw err;
     }
+    if (when === "renewal") await this.billOnOwedDate(sub.id);
     return { taken: true };
   }
 
@@ -537,7 +572,7 @@ export class PaddleProvider implements BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangePreview> {
-    const { sub, body } = await this.updateFor(held, update, when);
+    const { sub, body, until } = await this.updateFor(held, update, when);
     if (when === "now" && (await this.paysByUpi(sub.id)))
       return { refused: "needs_renewal" };
     const preview = await this.api.request<PaddlePreview>(
@@ -555,7 +590,7 @@ export class PaddleProvider implements BillingProvider {
       ),
       renewal: next
         ? {
-            at: new Date(next.billing_period.starts_at),
+            at: new Date(until ?? next.billing_period.starts_at),
             amount: moneyOf(next.details.totals),
           }
         : null,
@@ -667,7 +702,13 @@ export class PaddleProvider implements BillingProvider {
       )
         return null;
     }
-    return eventsOf(JSON.parse(request.body) as PaddleEvent);
+    const event = JSON.parse(request.body) as PaddleEvent;
+    if (
+      event.event_type.startsWith("subscription.") &&
+      !billedOnOwedDate(event.data as PaddleSubscription, new Date(this.now()))
+    )
+      await this.billOnOwedDate((event.data as PaddleSubscription).id);
+    return eventsOf(event);
   }
 }
 
