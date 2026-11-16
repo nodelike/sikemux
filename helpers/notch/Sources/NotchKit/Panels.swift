@@ -38,6 +38,8 @@ final class Panels {
     private var monitors: [Any] = []
     private var dragCount = 0
     private var pointerScreen: CGDirectDisplayID?
+    private var devRunning = false
+    private var lookingForDev = false
 
     init(store: NotchStore) {
         self.store = store
@@ -157,7 +159,8 @@ final class Panels {
             let current = wantedScreens().first.flatMap(Self.displayId)
             if current != pointerScreen { rebuild() }
         }
-        let yielding = !store.options.dev && store.settings.yieldToDev && Handover.devIsRunning(stateDir: store.options.stateDir)
+        let yielding = !store.options.dev && store.settings.yieldToDev && devRunning
+        if !store.options.dev && store.settings.yieldToDev { lookForDev() }
         let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty
         let fullScreen = FullScreen.displays()
         for (_, entry) in panels {
@@ -173,6 +176,21 @@ final class Panels {
             let hidden = yielding || covered
             if entry.island.hidden != hidden {
                 withAnimation(.smooth(duration: 0.2)) { entry.island.hidden = hidden }
+            }
+        }
+    }
+
+    /// Opening the lock file has stalled the main thread for seconds on some Macs, so it is
+    /// opened off it and the next tick reads the answer.
+    private func lookForDev() {
+        guard !lookingForDev else { return }
+        lookingForDev = true
+        let stateDir = store.options.stateDir
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let running = Handover.devIsRunning(stateDir: stateDir)
+            DispatchQueue.main.async {
+                self?.devRunning = running
+                self?.lookingForDev = false
             }
         }
     }
