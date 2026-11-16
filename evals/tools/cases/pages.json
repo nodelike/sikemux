@@ -124,39 +124,6 @@
     "maxTurns": 12
   },
   {
-    "id": "page-06",
-    "from": ["err_tools_sikemux-025"],
-    "category": "malformed_call",
-    "severity": "low",
-    "tools": ["page_show"],
-    "prompt": "Show me the onboarding prototype you wrote in scratch/prototype.html, the whole flow top to bottom, here in the chat.",
-    "fixture": {
-      "files": {
-        "scratch/prototype.html": "<!doctype html>\n<html>\n<head>\n<style>\n  .step { height: 1000px; border-bottom: 1px solid var(--border); padding-top: 24px; }\n  h2 { margin: 0 0 8px; }\n</style>\n</head>\n<body>\n  <section class=\"step\"><h2>1. Welcome</h2><p>Sign in with your account.</p></section>\n  <section class=\"step\"><h2>2. Pick a project</h2><p>Choose a folder to open.</p></section>\n  <section class=\"step\"><h2>3. Start an agent</h2><p>Pick Claude, Codex or OpenCode.</p></section>\n  <section class=\"step\"><h2>4. Link your phone</h2><p>Scan the code from the app.</p></section>\n  <section class=\"step\"><h2>5. Done</h2><p>You are ready.</p></section>\n</body>\n</html>\n"
-      },
-      "answers": [
-        {
-          "tool": "page_preview",
-          "args": { "path": "/scratch\\/prototype\\.html$/" },
-          "reply": {
-            "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAoCAIAAADBrGu+AAAAOUlEQVR42u3PMQ0AAAwDoEqv9GrYuQQckD4XAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYGLAV9/AOLIIj9iAAAAAElFTkSuQmCC",
-            "mimeType": "image/png",
-            "width": 756,
-            "contentHeight": 5124,
-            "console": { "recorded": 0, "matched": 0, "messages": [] }
-          }
-        }
-      ]
-    },
-    "grade": {
-      "expect": [
-        { "tool": "page_show", "args": { "path": "/\\.html$/", "height": { "$any": [{ "$present": false }, "/^([1-9]\\d{0,2}|[1-3]\\d{3}|4000)$/"] } } }
-      ],
-      "limit": [{ "tool": "page_show", "max": 1 }]
-    },
-    "maxTurns": 10
-  },
-  {
     "id": "page-08",
     "from": ["human_sikemux_b-003"],
     "category": "rage",
@@ -169,7 +136,7 @@
       }
     },
     "grade": {
-      "expect": [{ "tool": "browser_navigate", "args": { "url": "/plans\\.html/" } }]
+      "expect": [{ "tool": "page_show", "args": { "path": "/plans\\.html$/" } }]
     },
     "maxTurns": 10
   },
@@ -196,7 +163,7 @@
         { "tool": "Bash", "args": { "command": "/(^|[;&|\\s])open\\s/" }, "why": "opened Preview or Finder on the person's screen to show its output" }
       ]
     },
-    "judge": "Pass if the person is actually shown the graphics: a page in the reply (page_show of a gallery holding the images) or a desk tab opened on the folder or the images. Fail if the agent only reads the images itself and then says something like 'here they are' as if the person could see them, or opens Preview or Finder on the person's screen.",
+    "judge": "Pass if the person is actually shown the graphics: a page shown with page_show (a gallery holding the images) or a desk tab opened on the folder or the images. Fail if the agent only reads the images itself and then says something like 'here they are' as if the person could see them, or opens Preview or Finder on the person's screen.",
     "maxTurns": 12
   },
   {

@@ -1,5 +1,5 @@
-//! A web page in a view of its own, placed where its element is laid out: an agent's page in
-//! its reply, or an HTML file as it reads.
+//! A web page in a view of its own, placed where its element is laid out: an MCP app in a
+//! reply, a mod's panel, or an HTML file as it reads.
 
 use gpui_kit::{App, Window};
 use gpui_native_view::NativeSurface;
@@ -79,7 +79,7 @@ pub(crate) fn open(
 ) -> Option<View> {
     let parent = gpui_native_view::window_x11(window)?;
     let ground = match room {
-        Room::Grows | Room::App | Room::Panel => {
+        Room::App | Room::Panel => {
             crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx))
         }
         Room::Fills(_) => [255; 3],

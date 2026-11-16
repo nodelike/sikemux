@@ -1548,7 +1548,7 @@
       "row": {"verb": "preview", "kind": "read", "icon": "eye", "target": ["{path}"]},
       "method": "browser.page",
       "answer": "image",
-      "description": "Check a page as the chat shows it.",
+      "description": "Check a page before you show it.",
       "properties": {
         "path": {
           "description": "Absolute path of your HTML",
@@ -1583,7 +1583,7 @@
       "name": "page_show",
       "row": {"verb": "show", "kind": "read", "icon": "image", "target": ["{title}"]},
       "method": "page.show",
-      "description": "Show a page in your reply.",
+      "description": "Open a page in a tab on your desk, with a card for it in your reply.",
       "properties": {
         "path": {
           "description": "Absolute path of your HTML",
@@ -1595,15 +1595,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 120
-        },
-        "height": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4000
-        },
-        "tab": {
-          "description": "Open it in a desk tab, with a card in your reply: for a whole screen, app or site",
-          "type": "boolean"
         }
       },
       "required": [

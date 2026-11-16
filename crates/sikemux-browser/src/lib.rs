@@ -57,7 +57,7 @@ pub use windows::{run_pages_on_this_thread, runtime_version};
 pub(crate) use sikemux_base::runtime::spawn;
 
 pub const BLANK_URL: &str = "about:blank";
-/// The width of a chat's reply column, which a page shown in a reply is laid out for.
+/// The width of a chat's reply column, also the width `page_preview` lays a page out at by default.
 pub const REPLY_COLUMN_WIDTH: f32 = 756.0;
 /// Past this many dialogs in `DIALOG_WINDOW`, a page's dialogs are answered
 /// with Cancel unseen, the way browsers offer to stop a page's dialogs.

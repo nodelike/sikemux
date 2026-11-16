@@ -18,8 +18,6 @@ const MAX_IMAGE_BYTES: u64 = 10 * MIB;
 /// Under the 16 MiB a connection to the core carries, so a reply can always fetch the page.
 const MAX_PAGE_BYTES: usize = 15 * MIB as usize;
 const MAX_TITLE_CHARS: usize = 120;
-/// The most of a page a reply draws, in points.
-pub const MAX_HEIGHT: u32 = 4000;
 
 /// A path names no scheme, so it holds no `:`, except after a Windows drive letter.
 const DRIVE: &str = if cfg!(windows) {
@@ -39,11 +37,6 @@ static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
 pub struct PageRef {
     pub id: String,
     pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub height: Option<u32>,
-    /// Shown in a tab on the agent's desk, with a card for it in the reply.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub tab: bool,
 }
 
 pub fn is_page_id(id: &str) -> bool {
@@ -186,18 +179,10 @@ fn content_type(path: &Path) -> &'static str {
 
 /// Keeps the page an agent wrote at `source` in `dir` and names it for the
 /// chat.
-pub fn publish(
-    dir: &Path,
-    source: &Path,
-    title: &str,
-    height: Option<u32>,
-) -> Result<PageRef, String> {
+pub fn publish(dir: &Path, source: &Path, title: &str) -> Result<PageRef, String> {
     let title: String = title.trim().chars().take(MAX_TITLE_CHARS).collect();
     if title.is_empty() {
         return Err("title must be nonempty".into());
-    }
-    if height.is_some_and(|height| height == 0 || height > MAX_HEIGHT) {
-        return Err(format!("height must be between 1 and {MAX_HEIGHT}"));
     }
     let mut page = build(source)?;
     if !page.to_ascii_lowercase().contains("<title") {
@@ -207,12 +192,7 @@ pub fn publish(
     let id = uuid::Uuid::new_v4().simple().to_string();
     std::fs::write(dir.join(format!("{id}.html")), page)
         .map_err(|error| format!("could not keep the page: {error}"))?;
-    Ok(PageRef {
-        id,
-        title,
-        height,
-        tab: false,
-    })
+    Ok(PageRef { id, title })
 }
 
 /// The title of page `id` kept in `dir`, as its `<title>` names it; none when no such page is kept.

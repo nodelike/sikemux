@@ -34,7 +34,7 @@ For one area in depth, call `guide` with one of these as `topic`:
 - `processes` — starting, trust prompts, `readyWhen`, restarting, stopping
 - `output` — `process_read` paging, `plain`, `tail`, `search`, `events_wait`
 - `ui` — `ui_open` for files, diffs, terminals and the preview
-- `pages` — charts, tables, diagrams and mockups in your reply
+- `pages` — charts, tables, diagrams and mockups shown to the person
 - `theme` — restyling Sikemux
 - `browser-reading` — page state, report modes, element numbers, `browser_find`, frames
 - `browser-input` — clicking, typing, `browser_act`, keys, drag, upload, dialogs
@@ -283,33 +283,28 @@ person sees a note naming you, with Undo. The answer's `undo` is the
 `theme_set` call that puts back what was there before. Change a little at a
 time and check with the person before going further.
 
-## pages: Showing a page in your reply
+## pages: Showing a page
 
 A page is one self-contained HTML file. Local pictures and fonts (relative,
 absolute or `~/` paths in `src`, CSS `url()` or a script string) are inlined
 when shown; remote `https` scripts load as they are. Pass absolute paths.
 
 1. Write the file, such as in the system temp folder.
-2. `page_preview` draws it off screen at the reply's width (756 px; `width: 390`
-   for a phone) and returns a screenshot, `contentHeight` and the console. Test
-   your page this way, never in a tab. Edit and preview again until right.
-3. `page_show` with `height` set to the last `contentHeight`. Your following
-   text should add only what the page does not say.
+2. `page_preview` draws it off screen (756 px wide; `width: 390` for a phone)
+   and returns a screenshot, `contentHeight` and the console. Test your page
+   this way, never in a tab. Edit and preview again until right.
+3. `page_show` opens it in a tab on your desk and puts a card for it in your
+   reply. Your following text should add only what the page does not say.
 
 Never hand the person a page as a path, yours or one a teammate's report
-names: `page_show` it, with `tab: true` for a long report.
+names: `page_show` it.
 
-A mockup of a whole screen, app or site takes `tab: true`. Charts, tables,
-diagrams and comparisons stay in the reply. A reply draws only the top 4,000 px
-(`tooTall`): split the page or use a tab.
-
-Layout: the page sits frameless in the reply column, left edge on your text. No
-outer padding, card, border or title banner. Never use `100vh` or
-`height: 100%` on `html` or `body`. Give charts fixed pixel heights.
+Layout: the page fills its tab and scrolls itself, so let it reflow to the
+tab's width.
 
 Theme variables on `:root`, live with the person's theme, for your own answers:
 
-- `--background` (the page itself is transparent), `--foreground`,
+- `--background` (the page's own ground), `--foreground`,
   `--muted-foreground`, `--faint-foreground`
 - `--card`, `--border`
 - `--accent`, `--accent-foreground`, `--accent-surface`

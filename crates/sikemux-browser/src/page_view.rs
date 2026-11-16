@@ -1,4 +1,4 @@
-//! A page an agent showed, drawn inline in its chat reply, an HTML file shown as it reads, or a
+//! An MCP app drawn inline in a chat reply, an HTML file shown as it reads, or a
 //! mod: a web view of its own that keeps no storage and never navigates. Its script can only
 //! report the page's height, a link the person clicked, a scroll the page had no use for, the
 //! pointer coming over it and, from a mod, what it asks of its bridge; the app decides what each
@@ -39,9 +39,8 @@ pub(crate) const PERSON_LINKS_WORLD: &str = "sikemux-person-links";
 /// Where a page is drawn.
 #[derive(Clone, Copy)]
 pub enum Room<'a> {
-    /// In a reply, at its full height on the app's ground, scrolled with what holds it.
-    Grows,
-    /// As a reply's page, but an MCP app the person uses, so a click in it takes the keyboard.
+    /// An MCP app in a reply, at its full height on the app's ground, scrolled with what holds
+    /// it. A click in it takes the keyboard.
     App,
     /// Filling a file's pane on a page's usual white and scrolling itself. With the file's
     /// path on this disk, what it links to beside it, such as its styles and pictures, loads too.

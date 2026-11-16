@@ -649,8 +649,7 @@ mod reducer {
 
     #[test]
     fn keeps_the_page_a_finished_page_show_showed_in_place_of_what_it_printed() {
-        let page =
-            json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue", "height": 300 });
+        let page = json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue" });
         let mut chat = Chat::new();
         chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "page-1", "title": "mcp__sikemux-tools__page_show", "status": "in_progress" }))
             .update(json!({
@@ -665,8 +664,6 @@ mod reducer {
             Some(PageRef {
                 id: "0123456789abcdef0123456789abcdef".into(),
                 title: "Revenue".into(),
-                height: Some(300.0),
-                tab: false,
             })
         );
         assert_eq!(part.output, None);
@@ -2459,8 +2456,7 @@ mod pages {
 
     fn printed() -> Option<Value> {
         Some(json!(
-            json!({ "page": { "id": ID, "title": "Revenue", "height": 412 }, "note": "shown" })
-                .to_string()
+            json!({ "page": { "id": ID, "title": "Revenue" }, "note": "shown" }).to_string()
         ))
     }
 
@@ -2473,8 +2469,6 @@ mod pages {
             Some(PageRef {
                 id: ID.into(),
                 title: "Revenue".into(),
-                height: Some(412.0),
-                tab: false,
             })
         );
     }
@@ -2485,8 +2479,6 @@ mod pages {
         let page = Some(PageRef {
             id: ID.into(),
             title: "Revenue".into(),
-            height: None,
-            tab: false,
         });
         assert_eq!(
             shown(

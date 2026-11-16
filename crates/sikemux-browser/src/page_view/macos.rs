@@ -207,7 +207,7 @@ impl PageView {
     ) -> Self {
         let events: Rc<dyn Fn(PageEvent)> = Rc::new(events);
         let (fills, clear, base) = match room {
-            Room::Grows | Room::App => (false, true, None),
+            Room::App => (false, true, None),
             Room::Panel => (true, true, None),
             Room::Fills(path) => (
                 true,

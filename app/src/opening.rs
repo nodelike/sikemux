@@ -509,8 +509,8 @@ impl Workbench {
         }
     }
 
-    /// A page an agent kept, which an agent in a terminal, or one that asked for a tab, sees on
-    /// its desk. A chat's card for the page gets a picture of the tab.
+    /// Opens a page an agent kept in a tab on its desk. A chat's card for the page gets a
+    /// picture of the tab.
     pub(crate) fn show_page(
         &self,
         request: HarnessRequest,
@@ -524,18 +524,13 @@ impl Workbench {
         if !sikemux_base::pages::is_page_id(&id) {
             return answer(Err("that is not a page the core keeps".into()));
         }
-        let page = (request.params["desk"] == true).then(|| {
-            Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() })
-        });
+        let page =
+            Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
         let picture = request.params["picture"] == true;
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
-            let Some(page) = page else {
-                return answer(Ok(json!({})));
-            };
             let shown = async {
-                let page = page.await?;
-                let html = page.html;
+                let html = page.await?.html;
                 let url = files.url(&id, &html)?;
                 let engine = files.engine()?;
                 engine

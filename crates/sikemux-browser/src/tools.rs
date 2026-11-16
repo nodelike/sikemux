@@ -871,15 +871,6 @@ async fn run(
             if let Some(ran) = ran {
                 result["script"] = ran;
             }
-            if content_height
-                .as_f64()
-                .is_some_and(|height| height > f64::from(sikemux_base::pages::MAX_HEIGHT))
-            {
-                result["tooTall"] = json!(format!(
-                    "a reply shows only the top {} px of a page; split it into pages, or show it with page_show and tab: true",
-                    sikemux_base::pages::MAX_HEIGHT
-                ));
-            }
             if params.get("picture").and_then(Value::as_bool) == Some(false) {
                 return Ok(result);
             }

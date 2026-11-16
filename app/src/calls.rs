@@ -552,8 +552,6 @@ fn card(
         let page = sikemux_view::chat::PageRef {
             id: page.id.clone(),
             title: page.title.clone(),
-            height: None,
-            tab: false,
         };
         let row =
             crate::chat::page::tab_row(&page, picture, place, false, (&owner.agent_id, bench), cx);

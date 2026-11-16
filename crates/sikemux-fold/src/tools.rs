@@ -528,7 +528,7 @@ pub(super) fn started_run(raw: &Map<String, Value>) -> Option<(String, String)> 
     (!name.is_empty()).then(|| (file.to_owned(), name.to_owned()))
 }
 
-/// The page a finished `page_show` call put in the reply, read from what it printed.
+/// The page a finished `page_show` call opened, read from what it printed.
 pub(super) fn tool_page(
     title: &str,
     status: Option<&str>,
@@ -551,11 +551,6 @@ pub(super) fn tool_page(
     Some(PageRef {
         id: id.to_owned(),
         title: title.to_owned(),
-        height: page
-            .get("height")
-            .and_then(Value::as_f64)
-            .filter(|height| height.is_finite()),
-        tab: page.get("tab").and_then(Value::as_bool) == Some(true),
     })
 }
 

@@ -690,8 +690,8 @@ pub(super) enum Shown<'a> {
     Tabs(Vec<&'a PageRef>),
 }
 
-/// A message's parts with each run of tool calls together, and pages shown in desk tabs one after
-/// another in one frame; a page drawn in the reply stands on its own.
+/// A message's parts with each run of tool calls together, and pages shown one after another in
+/// one frame.
 pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'a>> {
     let mut shown = Vec::new();
     for part in parts {
@@ -701,13 +701,13 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
                     page: Some(page), ..
                 },
                 Some(Shown::Tabs(pages)),
-            ) if page.tab => pages.push(page),
+            ) => pages.push(page),
             (
                 ChatPart::Tool {
                     page: Some(page), ..
                 },
                 _,
-            ) if page.tab => shown.push(Shown::Tabs(vec![page])),
+            ) => shown.push(Shown::Tabs(vec![page])),
             (
                 ChatPart::Tool {
                     page: None,
@@ -1621,9 +1621,6 @@ pub(super) fn part(
                 .child(div().flex().child(more))
                 .into_any_element()
         }
-        ChatPart::Tool {
-            page: Some(page), ..
-        } => self::page::page(page, looks, window, cx),
         ChatPart::Tool {
             app: Some(app),
             tool,
