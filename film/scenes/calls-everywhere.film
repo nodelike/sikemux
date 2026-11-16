@@ -14,4 +14,9 @@ say "question {\"questions\":[{\"question\":\"Post the launch on Tuesday or Thur
 settle 8
 front Wren
 settle 2
-snap calls-everywhere-bar
+click 971,23
+move 700,820 0.3
+settle 2
+zoom 500,30,530,640
+settle 1
+snap calls-everywhere
