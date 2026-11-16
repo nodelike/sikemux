@@ -812,7 +812,7 @@ fn tasks(
         t!("Your processes"),
         None,
         Some(add.into_any_element()),
-        Some(t!("Commands the run button and agents start. For the team goes in sikemux.json, which you commit; Only me stays in .sikemux/, which Git ignores.").into()),
+        Some(t!("Commands you and agents start. For the team goes in sikemux.json, which you commit; Only me stays in .sikemux/, which Git ignores.").into()),
         false,
         mine_body,
         cx,
