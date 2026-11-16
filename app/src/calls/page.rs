@@ -16,7 +16,6 @@ const SIDE: f32 = 24.;
 const PROSE: f32 = 620.;
 const ATTACHMENT_HEIGHT: f32 = 240.;
 const OPTION_PICTURE_HEIGHT: f32 = 176.;
-const TILE_MIN: f32 = 200.;
 /// The hover group of a call's row in a chat, which offers Open in Calls while hovered.
 const CHAT_ROW: &str = "call-chat-row";
 
@@ -314,7 +313,7 @@ fn changes(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
     )
 }
 
-/// The call's choices as tiles, two to a row and one to a row where the page is narrow.
+/// The call's choices as tiles, each a full-width row.
 fn tiles(
     call: &PersonCall,
     chosen: &[String],
@@ -323,33 +322,16 @@ fn tiles(
     t: &Tokens,
 ) -> gpui_kit::Div {
     let pictured = !call.secret && call.options.iter().any(|option| option.picture.is_some());
-    let rows = call.options.chunks(2).enumerate().map(|(row, pair)| {
-        let tiles = pair.iter().enumerate().map(|(at, option)| {
-            let on = chosen.contains(&option.id);
-            tile(
-                call,
-                (row * 2 + at, option),
-                (on, pictured),
-                sending,
-                through,
-                t,
-            )
-        });
-        div()
-            .flex()
-            .flex_wrap()
-            .gap(px(10.))
-            .children(tiles)
-            .when(pair.len() == 1 && call.options.len() > 1, |row| {
-                row.child(div().flex_1().min_w(px(TILE_MIN)))
-            })
+    let tiles = call.options.iter().enumerate().map(|(ix, option)| {
+        let on = chosen.contains(&option.id);
+        tile(call, (ix, option), (on, pictured), sending, through, t)
     });
     div()
         .mt(px(18.))
         .flex()
         .flex_col()
         .gap(px(10.))
-        .children(rows)
+        .children(tiles)
 }
 
 /// One choice of `call`, its picture over its words when the call's choices have pictures. A
@@ -428,8 +410,7 @@ fn tile(
     let (cards, held, id) = (cards.clone(), call.clone(), option.id.clone());
     let hover = t.surface_hover;
     BaseButton::new(SharedString::from(format!("call-option-{}-{ix}", call.id)))
-        .flex_1()
-        .min_w(px(TILE_MIN))
+        .w_full()
         .flex()
         .flex_col()
         .justify_start()
