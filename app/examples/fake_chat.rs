@@ -60,7 +60,11 @@ async fn run() -> anyhow::Result<()> {
         .file_name()
         .map_or("tmp".into(), |name| name.to_string_lossy().into_owned());
     let project = json!({ "id": name, "name": name, "path": folder });
-    client.call("addProject", project).await?;
+    let added = client.call("addProject", project).await?;
+    let name = added["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("the core named no project"))?
+        .to_owned();
     let (chat, _) = client
         .start_chat(format!("{provider}:fake"), name.clone(), None)
         .await?;
