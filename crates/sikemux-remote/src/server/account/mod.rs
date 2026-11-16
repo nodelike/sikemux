@@ -8,6 +8,7 @@
 //! with no browser signs in by a code approved elsewhere, and keeps no record.
 
 pub mod api;
+mod code;
 pub mod devices;
 mod flags;
 mod profile;
@@ -16,8 +17,10 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
+pub use code::sign_in_by_code;
 pub use sikemux_calls::account::AccountPictureParams;
-pub use sikemux_calls::account::SignInPage;
+pub use sikemux_calls::account::{SignInCode, SignInPage};
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -83,7 +86,7 @@ struct Saved {
     email: Option<String>,
 }
 
-/// A browser sign-in under way.
+/// A sign-in under way.
 struct Flight {
     cancel: oneshot::Sender<()>,
     done: watch::Receiver<Option<Result<AccountInfo, String>>>,
@@ -338,6 +341,19 @@ pub async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<SignInPage> {
     let state = sikemux_loopback::new_state().map_err(refused)?;
     let verifier = sikemux_loopback::new_verifier().map_err(refused)?;
     let url = authorize_url(callback.redirect_uri(), &state, &challenge(&verifier));
+    let signing = core.clone();
+    take_off(core, async move {
+        finish(&signing, &peer, &callback, &state, &verifier).await
+    });
+    Ok(SignInPage { url })
+}
+
+/// Runs `signing` as the sign-in under way, in place of any other, until it ends, is
+/// cancelled or runs out of time.
+fn take_off(
+    core: &Arc<Core>,
+    signing: impl Future<Output = Result<AccountInfo, String>> + Send + 'static,
+) {
     let (cancel, cancelled) = oneshot::channel();
     let (done, finished) = watch::channel(None);
     if let Some(previous) = core.account().flight.locked().replace(Flight {
@@ -346,20 +362,17 @@ pub async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<SignInPage> {
     }) {
         let _ = previous.cancel.send(());
     }
-    let core = core.clone();
     tokio::spawn(async move {
         let result = tokio::select! {
-            result = finish(&core, &peer, &callback, &state, &verifier) => result,
+            result = signing => result,
             _ = cancelled => Err("sign-in was cancelled".to_owned()),
             () = tokio::time::sleep(SIGN_IN_TIMEOUT) => Err("sign-in took too long; try again".to_owned()),
         };
         let _ = done.send(Some(result));
     });
-    Ok(SignInPage { url })
 }
 
-/// Waits for the browser sign-in under way, and answers with the account it
-/// signed in to.
+/// Waits for the sign-in under way, and answers with the account it signed in to.
 pub async fn sign_in_finished(core: &Core) -> CoreResult<AccountInfo> {
     let mut done = core
         .account()
@@ -442,29 +455,34 @@ async fn finish(
         let _ = keep_saved(core, None).await;
         return Err(error.to_string());
     }
+    if let Some(email) = fetch_profile(core, &user_id).await {
+        keep_saved(core, Some(Saved { user_id, email }))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    signed_in(core).await
+}
+
+/// Reads the name and picture of the account this host just signed in to, and answers
+/// with its email once the account answers.
+async fn fetch_profile(core: &Core, user_id: &str) -> Option<Option<String>> {
     let folder = folder(core);
     if let Some(folder) = &folder {
         let _ = profile::forget(folder).await;
     }
-    if let Ok(account) =
-        as_host::<AccountProfile>(core, Method::GET, "/v1/account/profile", None).await
-    {
-        let email = account.email.clone();
-        keep_saved(
-            core,
-            Some(Saved {
-                user_id: user_id.clone(),
-                email,
-            }),
-        )
+    let account = as_host::<AccountProfile>(core, Method::GET, "/v1/account/profile", None)
         .await
-        .map_err(|error| error.to_string())?;
-        if let Some(folder) = &folder {
-            let fresh = profile::from_account(account, user_id, profile::now());
-            let _ = profile::save(folder, &fresh).await;
-        }
-        *core.account().profile_tried.locked() = Some(Instant::now());
+        .ok()?;
+    let email = account.email.clone();
+    if let Some(folder) = &folder {
+        let fresh = profile::from_account(account, user_id.to_owned(), profile::now());
+        let _ = profile::save(folder, &fresh).await;
     }
+    *core.account().profile_tried.locked() = Some(Instant::now());
+    Some(email)
+}
+
+async fn signed_in(core: &Core) -> Result<AccountInfo, String> {
     show(core).await;
     core.account()
         .shown()

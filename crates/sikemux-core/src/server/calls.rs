@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_wire::protocol::DeviceAccess;
 
-use super::access::{Needs, Program};
+use super::access::{Needs, Program, Setup};
 use super::activity_log::Counted;
 use super::chat::calls as chat_calls;
 use super::connection::{blocking, ClientConn};
@@ -24,6 +24,11 @@ use super::{
     memory, messages, model_providers, names, person_calls, plugins, questions, remote, saved,
     saved_sessions, share, ship, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
+
+/// The app is there to sign this host in, or an account already owns it.
+fn signed(setup: Setup) -> bool {
+    setup.app_signed || setup.signed_in
+}
 
 /// What one row of the table says about its method: what a paired device needs, which
 /// programs on this host may call it, whether it signs for the person, and whether its use
@@ -59,6 +64,15 @@ impl Row {
     pub(super) const fn any_program(self) -> Self {
         Self {
             program: Program::Anyone,
+            ..self
+        }
+    }
+
+    /// A program other than the app may call it until this host is set up as far as
+    /// `done` asks, as `sikemux login` does on a host with no window.
+    pub(super) const fn until(self, done: fn(Setup) -> bool) -> Self {
+        Self {
+            program: Program::AppWhen(done),
             ..self
         }
     }
@@ -332,7 +346,8 @@ calls! { core, client, method, params;
     "remoteImage" = RemoteImage: Watch => super::remote_image::fetch(core.remote_images(), params).await?,
     "accountPicture" = AccountPicture: Watch => super::account::picture(&core, &params.hash).await,
     "accountSignIn" = AccountSignIn: Owner, signs("Sign this computer in to your Sikemux account.") => super::account::sign_in(&core, client.peer.clone()).await?,
-    "accountSignInFinish" = AccountSignInFinish: Owner => super::account::sign_in_finished(&core).await?,
+    "accountSignInByCode" = AccountSignInByCode: NoDevice, until(signed), signs("Sign this computer in to your Sikemux account.") => super::account::sign_in_by_code(&core, client.peer.clone()).await?,
+    "accountSignInFinish" = AccountSignInFinish: Owner, until(signed) => super::account::sign_in_finished(&core).await?,
     "accountSignInCancel" = AccountSignInCancel: Owner => super::account::cancel_sign_in(&core),
     "accountSignOut" = AccountSignOut: Owner => super::account::sign_out(&core, &client.peer).await?,
     "sshHosts" = SshHosts: Watch, any_program => {

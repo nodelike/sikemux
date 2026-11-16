@@ -173,6 +173,7 @@ crate::calls! {
     "separatePane" SeparatePane (crate::layout::PaneParams) -> String;
     "resizeSplit" ResizeSplit (crate::layout::ResizeSplit) -> ();
     "accountSignIn" AccountSignIn (crate::params::NoParams) -> crate::account::SignInPage;
+    "accountSignInByCode" AccountSignInByCode (crate::params::NoParams) -> crate::account::SignInCode;
     "accountSignInFinish" AccountSignInFinish (crate::params::NoParams) -> sikemux_view::device::AccountInfo;
     "accountSignInCancel" AccountSignInCancel (crate::params::NoParams) -> ();
     "accountSignOut" AccountSignOut (crate::params::NoParams) -> ();
