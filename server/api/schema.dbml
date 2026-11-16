@@ -92,7 +92,7 @@ Table update_channels {
 Table events {
   id bigint [pk, increment]
   user_id text [not null]
-  type text [not null, note: 'type = ANY (ARRAY[\'device.added\', \'device.changed\', \'device.revoked\', \'account.deleted\', \'stash.added\', \'stash.changed\', \'stash.removed\', \'stash.seen\', \'vault.changed\', \'mods.changed\'])']
+  type text [not null, note: 'type = ANY (ARRAY[\'device.added\', \'device.changed\', \'device.revoked\', \'account.deleted\', \'stash.added\', \'stash.changed\', \'stash.removed\', \'stash.seen\', \'vault.changed\', \'mods.changed\', \'plan.changed\'])']
   subject text
   subject_role text [note: 'subject_role = ANY (ARRAY[\'host\', \'client\'])']
   reason text [note: 'reason = ANY (ARRAY[\'removed\', \'signed_out\', \'account_deleted\'])']
@@ -404,6 +404,81 @@ Table org_invites {
   Note: '(accepted_at IS NULL) = (accepted_by IS NULL)'
 }
 
+Table billing_customers {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id text
+  org_id uuid
+  provider text [not null, note: 'provider ~ \'^[a-z][a-z_-]*$\'']
+  provider_customer_id text
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (org_id, provider) [name: 'billing_customers_by_org', unique, note: 'where (org_id IS NOT NULL)']
+    (provider, provider_customer_id) [name: 'billing_customers_by_provider', unique, note: 'where (provider_customer_id IS NOT NULL)']
+    (user_id, provider) [name: 'billing_customers_by_user', unique, note: 'where (user_id IS NOT NULL)']
+  }
+
+  Note: '(user_id IS NULL) <> (org_id IS NULL)'
+}
+
+Table subscriptions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  customer_id uuid [not null]
+  provider_subscription_id text [not null]
+  product text [not null, note: 'product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
+  interval text [not null, note: '"interval" = ANY (ARRAY[\'month\', \'year\'])']
+  quantity integer [not null, note: 'quantity > 0']
+  status text [not null, note: 'status = ANY (ARRAY[\'active\', \'lapsed\', \'ended\'])']
+  current_period_end timestamptz [not null]
+  cancel_at_period_end boolean [not null, default: `false`]
+  started_at timestamptz [not null]
+  ended_at timestamptz
+  provider_updated_at timestamptz [not null]
+
+  indexes {
+    customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
+    provider_subscription_id [name: 'subscriptions_by_provider', unique]
+    customer_id [name: 'subscriptions_one_plan', unique, note: 'where ((status <> \'ended\') AND (product = ANY (ARRAY[\'pro\', \'team\'])))']
+  }
+
+  Note: '(status = \'ended\') = (ended_at IS NOT NULL)'
+}
+
+Table invoices {
+  id uuid [pk, default: `gen_random_uuid()`]
+  customer_id uuid [not null]
+  subscription_id uuid
+  provider_payment_id text [not null]
+  product text [not null, note: 'product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
+  quantity integer [not null, note: 'quantity > 0']
+  reason text [not null, note: 'reason = ANY (ARRAY[\'first_payment\', \'renewal\', \'change\'])']
+  amount bigint [not null, note: 'amount >= 0']
+  currency text [not null, note: 'currency ~ \'^[a-z]{3}$\'']
+  status text [not null, note: 'status = ANY (ARRAY[\'paid\', \'failed\', \'refunded\'])']
+  at timestamptz [not null]
+  refunded_at timestamptz
+
+  indexes {
+    (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
+    provider_payment_id [name: 'invoices_by_provider', unique]
+    (subscription_id, at) [name: 'invoices_by_subscription']
+  }
+
+  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL)'
+}
+
+Table billing_events {
+  provider text [not null]
+  event_id text [not null]
+  type text [not null]
+  received_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, event_id) [pk]
+    received_at [name: 'billing_events_by_age']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -427,3 +502,8 @@ Ref: mod_files.user_id > mod_counters.user_id [delete: cascade]
 Ref: org_users.org_id > orgs.id [delete: cascade]
 Ref: org_users.user_id > users.id [delete: cascade]
 Ref: org_invites.org_id > orgs.id [delete: cascade]
+Ref: billing_customers.org_id > orgs.id [delete: cascade]
+Ref: billing_customers.user_id > users.id [delete: cascade]
+Ref: subscriptions.customer_id > billing_customers.id [delete: cascade]
+Ref: invoices.customer_id > billing_customers.id [delete: cascade]
+Ref: invoices.subscription_id > subscriptions.id [delete: set null]

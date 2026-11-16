@@ -7,6 +7,11 @@ import {
 } from "kysely";
 import type {
   AccountEventType,
+  BillingInterval,
+  BillingProductId,
+  InvoiceReason,
+  InvoiceStatus,
+  SubscriptionStatus,
   ApnsEnvironment,
   Channel,
   DeviceRole,
@@ -304,6 +309,48 @@ export interface Tables {
     accepted_by: ColumnType<string | null, never, string>;
     accepted_at: ColumnType<Date | null, never, Date>;
     revoked_at: ColumnType<Date | null, never, Date>;
+  };
+  billing_customers: {
+    id: Generated<string>;
+    user_id: string | null;
+    org_id: string | null;
+    provider: string;
+    provider_customer_id: string | null;
+    created_at: CreatedAt;
+  };
+  subscriptions: {
+    id: Generated<string>;
+    customer_id: string;
+    provider_subscription_id: string;
+    product: BillingProductId;
+    interval: BillingInterval;
+    quantity: number;
+    status: SubscriptionStatus;
+    current_period_end: Date;
+    cancel_at_period_end: boolean;
+    started_at: Date;
+    ended_at: Date | null;
+    provider_updated_at: Date;
+  };
+  invoices: {
+    id: Generated<string>;
+    customer_id: string;
+    subscription_id: string | null;
+    provider_payment_id: string;
+    product: BillingProductId;
+    quantity: number;
+    reason: InvoiceReason;
+    amount: ColumnType<string, number, number>;
+    currency: string;
+    status: InvoiceStatus;
+    at: Date;
+    refunded_at: Date | null;
+  };
+  billing_events: {
+    provider: string;
+    event_id: string;
+    type: string;
+    received_at: CreatedAt;
   };
   audit: {
     id: Generated<string>;
