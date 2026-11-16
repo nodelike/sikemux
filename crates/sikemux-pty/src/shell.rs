@@ -449,19 +449,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn task_command_runs_noninteractive_with_exact_cwd_env_output_and_status() {
-        use portable_pty::{NativePtySystem, PtySize, PtySystem};
+        use portable_pty::PtySize;
 
         let root = tempfile::tempdir().expect("task root");
         let cwd = root.path().join("project with spaces");
         std::fs::create_dir(&cwd).expect("task cwd");
-        let pair = NativePtySystem::default()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .expect("open task pty");
+        let pair = crate::master::open_pty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open task pty");
         let mut command = CommandBuilder::new("/bin/sh");
         command.cwd(&cwd);
         command.env("TASK_TEST_VALUE", "value with spaces");
@@ -497,19 +496,18 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn task_command_runs_in_cmd_with_exact_cwd_env_output_and_status() {
-        use portable_pty::{NativePtySystem, PtySize, PtySystem};
+        use portable_pty::PtySize;
 
         let root = tempfile::tempdir().expect("task root");
         let cwd = root.path().join("project with spaces");
         std::fs::create_dir(&cwd).expect("task cwd");
-        let pair = NativePtySystem::default()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 500,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .expect("open task pty");
+        let pair = crate::master::open_pty(PtySize {
+            rows: 24,
+            cols: 500,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open task pty");
         let mut command = CommandBuilder::new("cmd.exe");
         command.cwd(&cwd);
         command.env("TASK_TEST_VALUE", "value with spaces");

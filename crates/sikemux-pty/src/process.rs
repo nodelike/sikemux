@@ -179,7 +179,7 @@ fn process_group_members(group: u32) -> Option<usize> {
 mod tests {
     use std::time::Duration;
 
-    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use portable_pty::{CommandBuilder, PtySize};
 
     #[cfg(unix)]
     const SHELL: &str = "/bin/sh";
@@ -188,9 +188,7 @@ mod tests {
 
     /// Whether `SHELL args` comes to read as `at_prompt`, however long the shell takes to start.
     fn comes_to_read_as(at_prompt: bool, args: &[&str]) -> bool {
-        let pair = native_pty_system()
-            .openpty(PtySize::default())
-            .expect("open pty");
+        let pair = crate::master::open_pty(PtySize::default()).expect("open pty");
         let mut command = CommandBuilder::new(SHELL);
         command.args(args);
         #[cfg(windows)]
