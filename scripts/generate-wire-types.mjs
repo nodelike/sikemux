@@ -970,9 +970,9 @@ function swiftDeclare(d, sent = new Set()) {
     .map((v) => {
       const name = swiftCase(v.name);
       const raw = name === v.name ? "" : ` = ${JSON.stringify(v.name)}`;
-      return `${swiftDocs(v.docs, "    ")}    case ${name}${raw}`;
+      return `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(name)}${raw}`;
     });
-  const unknown = fallback ? swiftCase(fallback.name) : "unknown";
+  const unknown = swiftIdent(fallback ? swiftCase(fallback.name) : "unknown");
   return `${swiftDocs(d.docs, "")}enum ${d.name}: String, Codable, Hashable {
 ${cases.join("\n")}
     /// One added after this build.

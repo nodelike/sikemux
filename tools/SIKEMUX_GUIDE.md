@@ -860,6 +860,10 @@ don't retry the ones it closed. `left` names commits, files and triggers a close
 Their chats stay in Recent, and `agent_send`
 or `agent_spawn` with `resume` reopens one.
 
+`agent_account` moves agents' chats to another account of their agent, named
+by its name or id, and each chat carries on there. It moves every one it may
+and lists the rest under `refused` with why.
+
 ### Standing roles
 
 `agent_hire`, for @Chief only, gives an open agent a standing role: `name` is
