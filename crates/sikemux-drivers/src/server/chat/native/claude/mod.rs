@@ -473,13 +473,9 @@ impl Claude {
         self.running.control.writer()
     }
 
-    /// Asks Claude for a short name for a new chat from its first message, as
-    /// Claude Code names its own, while the first turn runs.
-    fn name_chat(&self, first: &str) {
-        let description: String = first.chars().take(1_000).collect();
-        if description.trim().chars().count() < 10 {
-            return;
-        }
+    /// Asks Claude for a short name for a new chat from its first message with words enough to
+    /// name it by, as Claude Code names its own, while that turn runs.
+    fn name_chat(&self, description: String) {
         let _ = self.running.control.send_for(
             json!({ "subtype": "generate_session_title", "description": description, "persist": true }),
             Purpose::Title,
@@ -753,13 +749,14 @@ impl Backend for Claude {
                 cancelled: false,
                 failure: None,
             });
-            shared.untitled.take().is_some()
+            shared.untitled.is_some()
         };
         let sent = self.writer().send(&user_message(&uuid, content, None));
         if sent.is_err() {
             self.shared.locked().turn = None;
-        } else if first {
-            self.name_chat(&prompt.text);
+        } else if let Some(description) = first.then(|| title_description(&prompt.text)).flatten() {
+            self.shared.locked().untitled = None;
+            self.name_chat(description);
         }
         sent
     }
@@ -1115,6 +1112,14 @@ impl Backend for Claude {
     }
 }
 
+/// What Claude is asked to name a chat from: the words of a message without the tags that stand
+/// for its pictures, when there are enough of them.
+fn title_description(text: &str) -> Option<String> {
+    let words = super::super::feed::without_image_tags(text);
+    let description: String = words.trim().chars().take(1_000).collect();
+    (description.chars().count() >= 10).then_some(description)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1134,6 +1139,16 @@ mod tests {
         assert_eq!(config["mcpServers"]["sikemux-tools"]["env"]["K"], "v");
         assert_eq!(config["mcpServers"]["web"]["type"], "http");
         assert_eq!(mcp_config(&[]), None);
+    }
+
+    #[test]
+    fn a_picture_alone_leaves_the_chat_to_be_named_by_a_later_message() {
+        assert_eq!(title_description("[Image #1]"), None);
+        assert_eq!(title_description("  [Image #1] [Image #2] "), None);
+        assert_eq!(
+            title_description("[Image #1] why is this row untitled").as_deref(),
+            Some("why is this row untitled")
+        );
     }
 
     #[cfg(unix)]
