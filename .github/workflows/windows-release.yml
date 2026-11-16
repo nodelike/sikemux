@@ -32,18 +32,25 @@ env:
   DO_NOT_TRACK: "1"
 
 jobs:
-  installer:
-    name: Installer for Windows ${{ matrix.arch }}
+  build:
+    name: ${{ matrix.part.name }} for Windows ${{ matrix.target.arch }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        target:
           - runner: windows-latest
             arch: x64
           - runner: windows-11-arm
             arch: arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+        part:
+          - name: App
+            package: sikemux-app
+            bin: sikemux
+          - name: Core
+            package: sikemux-host
+            bin: sikemux-host
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -74,7 +81,6 @@ jobs:
             done
           fi
           echo "version=$VERSION" >>"$GITHUB_OUTPUT"
-          echo "Sikemux $VERSION for Windows ${{ matrix.arch }}" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -87,34 +93,69 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging\windows\resources.ps1 -Version $env:VERSION -Out "$env:RUNNER_TEMP\resources"
 
-      - name: Build the app
+      - name: Build ${{ matrix.part.bin }}.exe
         env:
           SIKEMUX_USAGE_REPORTING: app
-        run: cargo rustc --locked --release -p sikemux-app --bin sikemux -- -C "link-arg=$RUNNER_TEMP\resources\sikemux.res"
+        run: cargo rustc --locked --release -p ${{ matrix.part.package }} --bin ${{ matrix.part.bin }} -- -C "link-arg=$RUNNER_TEMP\resources\${{ matrix.part.bin }}.res"
 
-      # The core does not compile on Windows yet; the installer carries the app alone until it does.
-      - name: Build the core
-        id: core
-        continue-on-error: true
-        env:
-          SIKEMUX_USAGE_REPORTING: app
-        run: cargo rustc --locked --release -p sikemux-host --bin sikemux-host -- -C "link-arg=$RUNNER_TEMP\resources\sikemux-host.res"
+      - name: Keep it
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-${{ matrix.part.bin }}-${{ matrix.target.arch }}
+          if-no-files-found: error
+          path: target/release/${{ matrix.part.bin }}.exe
 
-      - name: Say whether the core is in
+  installer:
+    name: Installer for Windows ${{ matrix.arch }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x64
+          - runner: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set the version
+        id: version
+        shell: bash
         env:
-          OUTCOME: ${{ steps.core.outcome }}
+          VERSION: ${{ inputs.version }}
         run: |
-          if [ "$OUTCOME" = success ]; then
-            echo "The installer carries the app and its core." >>"$GITHUB_STEP_SUMMARY"
-          else
-            echo "The core did not build; the installer carries the app alone." >>"$GITHUB_STEP_SUMMARY"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(scripts/stamp-nightly.sh)"
           fi
+          echo "version=$VERSION" >>"$GITHUB_OUTPUT"
+          echo "Sikemux $VERSION for Windows ${{ matrix.arch }}" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Fetch the app and core
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: windows-sikemux*-${{ matrix.arch }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/binaries
+
+      - name: Write the icon
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging\windows\resources.ps1 -Version $env:VERSION -Out "$env:RUNNER_TEMP\resources"
 
       - name: Build the installer
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: packaging\windows\build.ps1 -Arch ${{ matrix.arch }} -Version $env:VERSION -Binaries target\release -Resources "$env:RUNNER_TEMP\resources" -Out "$env:RUNNER_TEMP\installer" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        run: packaging\windows\build.ps1 -Arch ${{ matrix.arch }} -Version $env:VERSION -Binaries "$env:RUNNER_TEMP\binaries" -Resources "$env:RUNNER_TEMP\resources" -Out "$env:RUNNER_TEMP\installer" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
 
       - name: Install, open, update and uninstall it
         shell: pwsh
@@ -124,20 +165,6 @@ jobs:
         run: |
           $installer = Get-ChildItem "$env:RUNNER_TEMP\installer\*-setup.exe" | Select-Object -First 1
           packaging\windows\prove.ps1 -Installer $installer.FullName -Version $env:VERSION -Out "$env:RUNNER_TEMP\proof"
-
-      # Both entries point at this one installer: the check is of the manifests' shape, not its hashes.
-      - name: Write and validate the winget and Scoop manifests
-        if: matrix.arch == 'x64'
-        shell: pwsh
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          $installer = (Get-ChildItem "$env:RUNNER_TEMP\installer\*-setup.exe" | Select-Object -First 1).FullName
-          $out = "$env:RUNNER_TEMP\proof\manifests"
-          packaging\windows\manifests.ps1 -Version $env:VERSION -X64 $installer -Arm64 $installer -Out $out
-          winget validate --manifest "$out\winget\manifests\n\Nodelike\Sikemux\$env:VERSION"
-          if ($LASTEXITCODE -ne 0) { throw "winget rejects the manifests" }
-          Get-Content "$out\scoop\sikemux.json" -Raw | ConvertFrom-Json | Out-Null
 
       - name: Keep the installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -152,6 +179,44 @@ jobs:
         with:
           name: windows-install-logs-${{ matrix.arch }}
           path: ${{ runner.temp }}/proof
+
+  # Apart from publish, so a manifest winget would refuse never keeps Windows out of a nightly.
+  manifests:
+    name: winget and Scoop manifests
+    needs: installer
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Fetch the installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: windows-installer-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/installer
+
+      - name: Write and validate them
+        shell: pwsh
+        run: |
+          $x64 = Get-Item "$env:RUNNER_TEMP\installer\*_x64-setup.exe"
+          $arm64 = Get-Item "$env:RUNNER_TEMP\installer\*_arm64-setup.exe"
+          $version = $x64.Name -replace '^Sikemux_(.+)_x64-setup\.exe$', '$1'
+          $out = "$env:RUNNER_TEMP\manifests"
+          packaging\windows\manifests.ps1 -Version $version -X64 $x64.FullName -Arm64 $arm64.FullName -Out $out
+          winget validate --manifest "$out\winget\manifests\n\Nodelike\Sikemux\$version"
+          if ($LASTEXITCODE -ne 0) { throw "winget refuses the manifests or warns about them" }
+          Get-Content "$out\scoop\sikemux.json" -Raw | ConvertFrom-Json | Out-Null
+
+      - name: Keep them
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-manifests
+          path: ${{ runner.temp }}/manifests
 
   release:
     name: Wait for Release to publish the nightly

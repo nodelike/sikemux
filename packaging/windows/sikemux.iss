@@ -44,7 +44,8 @@ UninstallDisplayIcon={app}\{#Exe}
 UninstallDisplayName={#Name}
 Compression=lzma2/ultra64
 SolidCompression=yes
-; Updates run this silently while the app and its core are open; they are closed, then started again.
+; The service runs this silently for an update while the app and its core are open: they are closed,
+; and the service opens the app again.
 CloseApplications=force
 RestartApplications=no
 
@@ -53,26 +54,19 @@ Name: shareusage; Description: "Share anonymous usage data and crash reports (re
 
 [Files]
 Source: "{#Exe}"; DestDir: "{app}"; Flags: ignoreversion
-#ifexist AddBackslash(Stage) + Core
 Source: "{#Core}"; DestDir: "{app}"; Flags: ignoreversion
-#endif
 
 [Icons]
 Name: "{autoprograms}\{#Name}"; Filename: "{app}\{#Exe}"; AppUserModelID: "com.nodelike.sikemux"
 
 [Run]
-#ifexist AddBackslash(Stage) + Core
 Filename: "{app}\{#Core}"; Parameters: "--service install"; StatusMsg: "Starting the Sikemux service..."; Flags: runhidden waituntilterminated
-#endif
 Filename: "{app}\{#Exe}"; Description: "Open {#Name}"; Flags: nowait postinstall skipifsilent runasoriginaluser
-Filename: "{app}\{#Exe}"; Flags: nowait runasoriginaluser; Check: Relaunching
 
 [UninstallRun]
-#ifexist AddBackslash(Stage) + Core
 Filename: "{app}\{#Core}"; Parameters: "--service remove"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
 Filename: "{app}\{#Core}"; Parameters: "disable"; Flags: runhidden waituntilterminated; RunOnceId: "ForgetSignIn"
 Filename: "{app}\{#Core}"; Parameters: "stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopCore"
-#endif
 Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-Process | Where-Object {{ $_.Path -like '{app}\*' } | Stop-Process -Force"""; Flags: runhidden waituntilterminated; RunOnceId: "StopSikemux"
 
 [UninstallDelete]
@@ -88,11 +82,6 @@ const
 
 var
   PrivacyPage: TOutputMsgWizardPage;
-
-function Relaunching(): Boolean;
-begin
-  Result := ExpandConstant('{param:relaunch|0}') = '1';
-end;
 
 function PresentVersion(Root: Integer; Key: String): Boolean;
 var
