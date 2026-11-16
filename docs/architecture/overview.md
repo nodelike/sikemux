@@ -56,7 +56,7 @@ own in `Contents/Helpers/Sikemux Core.app` (only an app can carry the provisioni
 lets it keep secrets in the keychain group it shares with the app) with a
 `Contents/MacOS/sikemux-host` link for installed `sikemux` commands, and the notch helper.
 `scripts/sign-mac.sh` signs it. On Linux, `scripts/build-linux.sh` builds the app with the core
-beside it as a deb, a tarball and, on x86_64, an AppImage. The voice and simulator helpers stay out of the
+beside it as a deb, a tarball and an AppImage. The voice and simulator helpers stay out of the
 app: each release publishes them, and their crates download the one their build was made with.
 
 ### The core

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Linux desktop packages for this machine's architecture: the GPUI app with its core beside it, as
-# a deb, the tarball the Arch package is made from and, on x86_64, an AppImage, named as
+# a deb, an AppImage and the tarball the Arch package is made from, named as
 # every release has named them, since the installer downloads them by name. They
 # carry no updater signature.
 set -euo pipefail
@@ -30,6 +30,9 @@ case "$(uname -m)" in
   aarch64)
     ARCH=aarch64
     DEB_ARCH=arm64
+    LINUXDEPLOY_SHA256=620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff
+    APPIMAGETOOL_SHA256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+    RUNTIME_SHA256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
     ;;
   *) fail "x86_64 or aarch64 is required, not $(uname -m)" ;;
 esac
@@ -176,19 +179,6 @@ install -m 755 "$POSTRM" "$DEB_ROOT/DEBIAN/postrm"
 chmod 755 "$DEB_ROOT/DEBIAN/postinst"
 dpkg-deb --root-owner-group -Zxz --build "$DEB_ROOT" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb" >/dev/null
 
-PACKAGES=("$BUNDLE/tar/Sikemux_${VERSION}_${DEB_ARCH}.tar.gz" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb")
-report() {
-  for package in "${PACKAGES[@]}"; do
-    [[ -s "$package" ]] || fail "missing $package"
-    echo "✓ $(basename "$package") ($(du -h "$package" | cut -f1))"
-  done
-}
-# The AppImage is built for x86_64 only, until arm64 downloads ask for it.
-if [[ "$ARCH" != x86_64 ]]; then
-  report
-  exit 0
-fi
-
 echo "→ Packing the AppImage"
 # The tools are AppImages themselves, and a build machine may have no FUSE to mount them.
 export APPIMAGE_EXTRACT_AND_RUN=1
@@ -257,5 +247,7 @@ chmod 755 "$APPDIR/AppRun"
     "$APPDIR" "$BUNDLE/appimage/Sikemux_${VERSION}_${DEB_ARCH}.AppImage"
 )
 
-PACKAGES+=("$BUNDLE/appimage/Sikemux_${VERSION}_${DEB_ARCH}.AppImage")
-report
+for package in "$BUNDLE/tar/Sikemux_${VERSION}_${DEB_ARCH}.tar.gz" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb" "$BUNDLE/appimage/Sikemux_${VERSION}_${DEB_ARCH}.AppImage"; do
+  [[ -s "$package" ]] || fail "missing $package"
+  echo "✓ $(basename "$package") ($(du -h "$package" | cut -f1))"
+done

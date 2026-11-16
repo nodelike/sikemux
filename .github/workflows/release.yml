@@ -857,7 +857,7 @@ jobs:
           path: target/host/*.tar.gz
 
   sign-host:
-    name: Sign the Linux host cores and the AppImage
+    name: Sign the Linux host cores and the AppImages
     needs: [plan, build-host, build-linux]
     if: ${{ !cancelled() && needs.build-host.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -904,7 +904,7 @@ jobs:
           if-no-files-found: error
           path: target/host/*.tar.gz.sig
 
-      - name: Keep the AppImage's signature on the run
+      - name: Keep the AppImages' signatures on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: appimage-signature-${{ github.ref_name }}
@@ -1059,7 +1059,7 @@ jobs:
           name: host-signatures-${{ github.ref_name }}
           path: target/host
 
-      - name: Fetch the AppImage's signature
+      - name: Fetch the AppImages' signatures
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: appimage-signature-${{ github.ref_name }}

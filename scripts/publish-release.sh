@@ -39,7 +39,7 @@ SYMBOLS=("$ROOT"/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
 [[ ${#DEBS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 debs, found ${#DEBS[@]}"
-[[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected the amd64 AppImage, found ${#APPIMAGES[@]}"
+[[ ${#APPIMAGES[@]} -eq 2 ]] || fail "expected the amd64 and arm64 AppImages, found ${#APPIMAGES[@]}"
 [[ ${#TARBALLS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 Linux tarballs, found ${#TARBALLS[@]}"
 [[ ${#PACMAN_PACKAGES[@]} -eq 1 ]] || fail "expected exactly one Arch package, found ${#PACMAN_PACKAGES[@]}"
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
@@ -58,7 +58,7 @@ done
 for signed in "${HOSTS[@]}" "${APPIMAGES[@]}"; do
   node scripts/verify-updater-signature.mjs "$signed" "$signed.sig" || fail "$signed is not signed by the updater key"
 done
-# The Linux app updates itself only as an AppImage, so only the AppImage joins the
+# The Linux app updates itself only as an AppImage, so only the AppImages join the
 # feed the macOS build wrote, beside each host core, which root installs on a host.
 RELEASE_URL="https://github.com/nodelike/sikemux/releases/download/v$VERSION" \
   MANIFEST="$MANIFEST" python3 - "${APPIMAGES[@]}" "${HOSTS[@]}" <<'PY'
@@ -75,7 +75,8 @@ def entry(file):
 
 for file in sys.argv[1:]:
     if file.endswith(".AppImage"):
-        manifest["platforms"]["linux-x86_64"] = entry(file)
+        arch = {"amd64": "x86_64", "arm64": "aarch64"}[re.search(r"_([a-z0-9]+)\.AppImage$", file).group(1)]
+        manifest["platforms"][f"linux-{arch}"] = entry(file)
     else:
         arch = re.search(r"-linux-([a-z0-9_]+)\.tar\.gz$", file).group(1)
         manifest["platforms"][f"host-linux-{arch}"] = entry(file)

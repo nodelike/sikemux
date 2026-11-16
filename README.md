@@ -36,7 +36,7 @@ On a headless server, install just the core:
 curl -fsSL https://sikemux.com/install | sh -s -- --host
 ```
 
-macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, Arch package and x86_64 AppImage are also on [Releases](https://github.com/nodelike/sikemux/releases/latest).
+macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, Arch package and AppImage are also on [Releases](https://github.com/nodelike/sikemux/releases/latest).
 
 ## Why Sikemux
 
