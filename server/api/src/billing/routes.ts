@@ -25,11 +25,11 @@ import {
 } from "../http.ts";
 import { perUser } from "../limits.ts";
 import type { Logger } from "../log.ts";
-import { isStaff } from "../account/staff.ts";
 import { orgRole } from "../orgs/roles.ts";
 import { requireBillingAccess } from "./access.ts";
 import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
+import { refusal } from "./checks.ts";
 import { makeDueCalls } from "./calls.ts";
 import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
@@ -44,7 +44,7 @@ import {
   refundPending,
   type PlanRefund,
 } from "./refunds.ts";
-import { hasOpenSubscriptions, lockSeats, seatsHeld } from "./seats.ts";
+import { lockSeats, seatsHeld } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -152,10 +152,17 @@ export function billingRoutes({
   limiter,
   appOrigin,
   log,
+  clerk,
   billing: { provider, live },
 }: Pick<
   Services,
-  "database" | "verifier" | "limiter" | "appOrigin" | "log" | "billing"
+  | "database"
+  | "verifier"
+  | "limiter"
+  | "appOrigin"
+  | "log"
+  | "clerk"
+  | "billing"
 >) {
   const app = new Hono<AuthEnv>();
 
@@ -419,20 +426,13 @@ export function billingRoutes({
       throw badRequest(
         `${sold.name} is sold up to ${sold.maxQuantity} at once.`,
       );
-    if (sold.kind === "shed" && !(await isStaff(db, userId)))
-      throw new ApiFailure(
-        409,
-        "conflict",
-        "The Shed is not on sale yet: no box can be provisioned.",
-      );
 
     const customer = await db.transaction().execute(async (trx) => {
-      if ("userId" in payer)
-        await trx
-          .insertInto("users")
-          .values({ id: payer.userId })
-          .onConflict((oc) => oc.column("id").doNothing())
-          .execute();
+      await trx
+        .insertInto("users")
+        .values({ id: userId })
+        .onConflict((oc) => oc.column("id").doNothing())
+        .execute();
       const values =
         "userId" in payer
           ? { user_id: payer.userId, provider: ready.name }
@@ -443,31 +443,19 @@ export function billingRoutes({
         .onConflict((oc) => oc.doNothing())
         .execute();
       const found = await customersOf(trx, payer)
-        .select(["id", "provider_customer_id", "paid_by"])
+        .select(["id", "paid_by"])
         .where("provider", "=", ready.name)
         .forUpdate()
         .executeTakeFirstOrThrow();
-      if (
-        "orgId" in payer &&
-        found.paid_by !== userId &&
-        (await hasOpenSubscriptions(trx, payer.orgId))
-      )
-        throw new ApiFailure(
-          409,
-          "conflict",
-          found.paid_by
-            ? "Another owner pays for this org's plans; they buy for it."
-            : "The org's plans were paid for by someone who no longer owns it. Buy once they have ended.",
-        );
-      if (sold.id === "team" && "orgId" in payer) {
-        const held = await lockSeats(trx, payer.orgId);
-        if (request.quantity < held)
-          throw new ApiFailure(
-            409,
-            "conflict",
-            `${held} seats are held by members and pending invites; buy at least that many.`,
-          );
-      }
+      const refused = await refusal(trx, {
+        customerId: found.id,
+        orgId: "orgId" in payer ? payer.orgId : null,
+        paidBy: found.paid_by,
+        openedBy: userId,
+        product: sold.id,
+        quantity: request.quantity,
+      });
+      if (refused) throw new ApiFailure(409, "conflict", refused);
       if (sold.kind === "plan") {
         const holding = await trx
           .selectFrom("subscriptions")
@@ -483,24 +471,40 @@ export function billingRoutes({
             `This already holds ${sold.name}; change that subscription instead.`,
           );
       }
-      if ("userId" in payer || found.paid_by === userId) return found;
-      await trx
-        .updateTable("billing_customers")
-        .set({ paid_by: userId })
-        .where("id", "=", found.id)
-        .execute();
-      return { ...found, provider_customer_id: null };
+      return found;
     });
 
+    const providerCustomerId = await ready.customerFor(
+      userId,
+      clerk ? await clerk.verifiedEmail(userId) : null,
+    );
+    if (!providerCustomerId)
+      throw new ApiFailure(
+        409,
+        "conflict",
+        "Verify the email you sign in with before buying.",
+      );
     const checkout = await ready.checkout({
-      customerRef: customer.id,
-      providerCustomerId: customer.provider_customer_id,
+      providerCustomerId,
       product: sold.id,
       interval: request.interval,
       quantity: request.quantity,
       unit,
       returnUrl: `${appOrigin}/billing`,
     });
+    await db
+      .insertInto("billing_checkouts")
+      .values({
+        provider: ready.name,
+        provider_checkout_id: checkout.providerCheckoutId,
+        customer_id: customer.id,
+        opened_by: userId,
+        provider_customer_id: providerCustomerId,
+        product: sold.id,
+        interval: request.interval,
+        quantity: request.quantity,
+      })
+      .execute();
     await audit(db, {
       userId,
       actor: `user:${userId}`,
@@ -512,7 +516,7 @@ export function billingRoutes({
         quantity: request.quantity,
       },
     });
-    return c.json(checkout);
+    return c.json({ url: checkout.url });
   });
 
   const heldForRenewal = () =>

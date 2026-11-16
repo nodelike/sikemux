@@ -92,6 +92,30 @@ async function person(userId: string, { staff = true } = {}) {
   return sessionToken(userId);
 }
 
+/** A checkout the API opened, as POST /checkout records it. */
+async function opened(
+  provider: string,
+  providerCheckoutId: string,
+  customerId: string,
+  openedBy: string,
+  providerCustomerId: string,
+  product: BillingProductId,
+) {
+  await database.db
+    .insertInto("billing_checkouts")
+    .values({
+      provider,
+      provider_checkout_id: providerCheckoutId,
+      customer_id: customerId,
+      opened_by: openedBy,
+      provider_customer_id: providerCustomerId,
+      product,
+      interval: "month",
+      quantity: 1,
+    })
+    .execute();
+}
+
 async function org(ownerId: string, members: string[] = []) {
   const { id } = await database.db
     .insertInto("orgs")
@@ -557,11 +581,19 @@ describe("the provider's events", () => {
 
   it("keeps a row for each product a provider holds under one subscription", async () => {
     await person("user_ada");
-    const { id: customerRef } = await database.db
+    const { id: customerId } = await database.db
       .insertInto("billing_customers")
       .values({ user_id: "user_ada", provider: "boxes" })
       .returning("id")
       .executeTakeFirstOrThrow();
+    await opened(
+      "boxes",
+      "chk_boxes",
+      customerId,
+      "user_ada",
+      "cus_boxes",
+      "shed",
+    );
     const at = new Date();
     const subscription = {
       providerSubscriptionId: "sub_boxes",
@@ -584,8 +616,17 @@ describe("the provider's events", () => {
           eventId: "evt_1",
           at,
           type: "subscription.started",
-          customerRef,
+          providerCheckoutId: "chk_boxes",
           providerCustomerId: "cus_boxes",
+          subscription: {
+            ...subscription,
+            items: [{ product: "shed", quantity: 1 }],
+          },
+        },
+        {
+          eventId: "evt_1b",
+          at: later(0.5),
+          type: "subscription.changed",
           subscription: {
             ...subscription,
             items: [
@@ -639,12 +680,20 @@ describe("the provider's events", () => {
       .selectFrom("billing_customers")
       .select(["id", "provider_customer_id"])
       .executeTakeFirstOrThrow();
+    await opened(
+      "stand-in",
+      "chk_second",
+      held.id,
+      "user_ada",
+      held.provider_customer_id ?? "",
+      "pro",
+    );
     const at = new Date();
     const second = {
       eventId: "evt_second_plan",
       at,
       type: "subscription.started" as const,
-      customerRef: held.id,
+      providerCheckoutId: "chk_second",
       providerCustomerId: held.provider_customer_id ?? "",
       subscription: {
         providerSubscriptionId: "sub_second",
@@ -694,6 +743,14 @@ describe("the provider's events", () => {
       .select(["id", "provider_customer_id"])
       .executeTakeFirstOrThrow();
     await database.pool.query("truncate subscriptions, invoices cascade");
+    await opened(
+      "stand-in",
+      "chk_late",
+      held.id,
+      "user_ada",
+      held.provider_customer_id ?? "",
+      "pro",
+    );
     const at = new Date(Date.now() - 25 * 60 * 60_000);
     const paid = {
       eventId: "evt_late_paid",
@@ -716,7 +773,7 @@ describe("the provider's events", () => {
           eventId: "evt_late_started",
           at,
           type: "subscription.started",
-          customerRef: held.id,
+          providerCheckoutId: "chk_late",
           providerCustomerId: held.provider_customer_id ?? "",
           subscription: {
             providerSubscriptionId: "sub_late",
@@ -738,7 +795,7 @@ describe("the provider's events", () => {
 
   it("ends a subscription that did not come from the app's checkout, and answers its event", async () => {
     const at = new Date();
-    const refs = [null, "", "not-a-uuid", randomUUID()];
+    const refs = ["", "not-a-checkout", randomUUID(), `chk_${randomUUID()}`];
     const cancel = vi.fn(() => Promise.resolve());
     const refund = vi.fn(() => Promise.resolve());
     await applyProviderEvents(
@@ -749,11 +806,11 @@ describe("the provider's events", () => {
         cancel,
         refund,
       },
-      refs.map((customerRef, index) => ({
+      refs.map((providerCheckoutId, index) => ({
         eventId: `evt_stray_${index}`,
         at,
         type: "subscription.started" as const,
-        customerRef,
+        providerCheckoutId,
         providerCustomerId: "cus_stray",
         providerPaymentId: `pay_stray_${index}`,
         subscription: {

@@ -45,7 +45,6 @@ interface Held {
 }
 
 interface CustomData {
-  customer_ref?: string;
   held?: Held;
 }
 
@@ -73,7 +72,6 @@ interface PaddleTransaction {
   origin: string;
   customer_id: string | null;
   subscription_id: string | null;
-  custom_data: CustomData | null;
   currency_code: string;
   billing_period: { starts_at: string; ends_at: string } | null;
   items: { quantity: number; price: PaddlePrice }[];
@@ -165,14 +163,6 @@ function linesOf(
       .filter((item) => item.quantity > 0)
       .map(({ product, quantity }) => ({ product, quantity }))
   );
-}
-
-/**
- * The customer a checkout of ours was opened for. Anyone holding the client token can open a
- * checkout with Paddle.js and any custom data, so only a transaction our API made is believed.
- */
-function ourCustomerRef(txn: PaddleTransaction): string | null {
-  return txn.origin === "api" ? (txn.custom_data?.customer_ref ?? null) : null;
 }
 
 function reasonOf(origin: string): InvoiceReason | null {
@@ -401,6 +391,28 @@ export class PaddleProvider implements BillingProvider {
     return { clientToken, sandbox: this.sandbox };
   }
 
+  async customerFor(_userId: string, email: string | null) {
+    if (!email) return null;
+    try {
+      return (
+        await this.api.request<{ id: string }>("POST", "/customers", { email })
+      ).id;
+    } catch (err) {
+      const existing =
+        err instanceof PaddleError && err.code === "customer_already_exists"
+          ? /ctm_[a-z0-9]+/.exec(err.message)?.[0]
+          : undefined;
+      if (!existing)
+        throw err instanceof PaddleError
+          ? new PaddleError(err.status, err.code, "no customer was made")
+          : err;
+      await this.api.request("PATCH", `/customers/${existing}`, {
+        status: "active",
+      });
+      return existing;
+    }
+  }
+
   async checkout(request: CheckoutRequest) {
     const price = await this.priceFor(
       request.product,
@@ -412,15 +424,15 @@ export class PaddleProvider implements BillingProvider {
       "/transactions",
       {
         items: [{ price_id: price.id, quantity: request.quantity }],
-        custom_data: { customer_ref: request.customerRef },
-        ...(request.providerCustomerId
-          ? { customer_id: request.providerCustomerId }
-          : {}),
+        customer_id: request.providerCustomerId,
       },
     );
     if (!transaction.checkout?.url)
       throw new Error("Paddle made a checkout with no page.");
-    return { url: transaction.checkout.url };
+    return {
+      url: transaction.checkout.url,
+      providerCheckoutId: transaction.id,
+    };
   }
 
   private subscription(id: string) {
@@ -456,8 +468,6 @@ export class PaddleProvider implements BillingProvider {
     );
     const sub = await this.subscription(held.providerSubscriptionId);
     const items = [{ price_id: price.id, quantity: update.quantity }];
-    const customerRef = sub.custom_data?.customer_ref;
-    const custom = customerRef ? { customer_ref: customerRef } : {};
     if (when === "renewal") {
       const until = periodEndOf(sub);
       return {
@@ -466,7 +476,6 @@ export class PaddleProvider implements BillingProvider {
           items,
           proration_billing_mode: "do_not_bill",
           custom_data: {
-            ...custom,
             held: {
               product: held.product,
               quantity: held.quantity,
@@ -486,7 +495,7 @@ export class PaddleProvider implements BillingProvider {
         items,
         proration_billing_mode: "prorated_immediately",
         on_payment_failure: "prevent_change",
-        custom_data: custom,
+        custom_data: {},
       },
     };
   }
@@ -605,6 +614,8 @@ export class PaddleProvider implements BillingProvider {
 
   async portal(held: HeldSubscription) {
     const sub = await this.subscription(held.providerSubscriptionId);
+    if (!held.providerCustomerId || sub.customer_id !== held.providerCustomerId)
+      return null;
     const url = sub.management_urls?.update_payment_method;
     return url ? { url } : null;
   }
@@ -726,7 +737,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           eventId: `${event.event_id}.started`,
           at,
           type: "subscription.started",
-          customerRef: ourCustomerRef(txn),
+          providerCheckoutId: txn.id,
           providerCustomerId: txn.customer_id,
           providerPaymentId: txn.id,
           subscription: {

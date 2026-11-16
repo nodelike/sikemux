@@ -76,11 +76,8 @@ export type ProviderEvent = {
 } & (
   | {
       type: "subscription.started";
-      /**
-       * The billing customer id the checkout passed, which the provider hands back. Null for a
-       * subscription that did not start from the app's checkout.
-       */
-      customerRef: string | null;
+      /** The provider's id for the checkout that was paid, as `checkout` answered it. */
+      providerCheckoutId: string;
       providerCustomerId: string;
       subscription: ProviderSubscription;
       /** The subscription's first payment, when the provider names it here. */
@@ -115,10 +112,8 @@ export type ProviderEvent = {
 );
 
 export interface CheckoutRequest {
-  /** The billing customer, handed back on subscription.started. */
-  customerRef: string;
-  /** Set once the provider has made a customer for this payer. */
-  providerCustomerId: string | null;
+  /** The person paying, as `customerFor` answered; their checkout cannot be moved to another. */
+  providerCustomerId: string;
   product: BillingProductId;
   interval: BillingInterval;
   quantity: number;
@@ -164,8 +159,15 @@ export interface BillingProvider {
    * erased.
    */
   readonly eventRetrySpanMs: number;
-  /** The provider's hosted page to buy a product. */
-  checkout(request: CheckoutRequest): Promise<{ url: string }>;
+  /**
+   * The person's own customer at the provider, found or made from their verified email, or null
+   * when the provider needs an email and there is none.
+   */
+  customerFor(userId: string, email: string | null): Promise<string | null>;
+  /** The provider's hosted page to buy a product, and its id, which its payment comes back under. */
+  checkout(
+    request: CheckoutRequest,
+  ): Promise<{ url: string; providerCheckoutId: string }>;
   /**
    * A new quantity, product or interval for one product of a subscription. `now` charges the
    * prorated difference and changes nothing unless that payment goes through; `renewal` takes
@@ -196,7 +198,10 @@ export interface BillingProvider {
   resume(subscription: HeldSubscription): Promise<void>;
   /** Asks for a payment to be refunded in full; payment.refunded says when it is. */
   refund(providerPaymentId: string): Promise<void>;
-  /** The provider's own page for one subscription's payment method, where it has one. */
+  /**
+   * The provider's own page for one subscription's payment method, where it has one, and only
+   * while the subscription is under the customer the API holds for it.
+   */
   portal(subscription: HeldSubscription): Promise<{ url: string } | null>;
   /** The provider's receipt for one payment, where it has one. */
   receipt(providerPaymentId: string): Promise<{ url: string } | null>;

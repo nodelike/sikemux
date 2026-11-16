@@ -17,6 +17,12 @@ export class FakeClerk implements ClerkBackend {
     return { email: null, name: null, imageUrl: null };
   }
 
+  /** Stands in for an address, so no email-shaped text is in the tests. */
+  async verifiedEmail(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return `verified address of ${userId}`;
+  }
+
   async people(userIds: string[]) {
     if (this.failing) throw new Error("Clerk answered 500");
     return new Map(

@@ -68,6 +68,7 @@ async function customers() {
     .insertInto("users")
     .values([{ id: "user_ines" }, { id: "user_tomas" }, { id: "user_priya" }])
     .execute();
+  await database.db.updateTable("users").set({ staff: true }).execute();
   const org = await database.db
     .insertInto("orgs")
     .values({ name: "Acme", created_by: "user_tomas" })
@@ -88,6 +89,52 @@ async function customers() {
       { id: INES, user_id: "user_ines", provider: "paddle" },
       { id: TOMAS, org_id: org.id, provider: "paddle" },
       { id: PRIYA, user_id: "user_priya", provider: "paddle" },
+    ])
+    .execute();
+  const opened = (
+    txn: string,
+    customer_id: string,
+    opened_by: string,
+    ctm: string,
+    product: "pro" | "team" | "shed",
+    quantity: number,
+  ) => ({
+    provider: "paddle",
+    provider_checkout_id: txn,
+    customer_id,
+    opened_by,
+    provider_customer_id: ctm,
+    product,
+    interval: "month" as const,
+    quantity,
+  });
+  await database.db
+    .insertInto("billing_checkouts")
+    .values([
+      opened(
+        "txn_01m7h6nmtb8zbrts58cf5ee3f0",
+        INES,
+        "user_ines",
+        "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+        "pro",
+        1,
+      ),
+      opened(
+        "txn_01m7h6s2e6se9w0p6659savtzx",
+        TOMAS,
+        "user_tomas",
+        "ctm_01m7h6sexycpcb50w5t1fafkgk",
+        "team",
+        4,
+      ),
+      opened(
+        "txn_01m7h6xs3emz5drgqj6vk0r7ht",
+        PRIYA,
+        "user_priya",
+        "ctm_01m7h6xz9ntz4k9jv790aj9rd9",
+        "shed",
+        1,
+      ),
     ])
     .execute();
 }
@@ -227,7 +274,8 @@ describe("Paddle's sandbox events", () => {
         (delivery) => delivery.event_type === "transaction.completed",
       ),
     );
-    await deliver([{ ...first, data: { ...first.data, origin: "web" } }]);
+    const outside = { ...first.data, id: "txn_opened_outside", origin: "web" };
+    await deliver([{ ...first, data: outside }]);
     expect(await plans(INES)).toEqual([]);
     expect(calls).toEqual([
       expect.objectContaining({
@@ -239,7 +287,7 @@ describe("Paddle's sandbox events", () => {
         path: "/adjustments",
         body: expect.objectContaining({
           action: "refund",
-          transaction_id: first.data.id,
+          transaction_id: outside.id,
         }),
       },
     ]);

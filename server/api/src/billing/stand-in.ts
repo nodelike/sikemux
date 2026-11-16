@@ -128,10 +128,17 @@ export class StandInProvider implements BillingProvider {
     return { eventId: `evt_${randomUUID()}`, at, type };
   }
 
+  customerFor(userId: string) {
+    return Promise.resolve(`cus_${userId}`);
+  }
+
   checkout(request: CheckoutRequest) {
     const token = randomBytes(16).toString("hex");
     this.checkouts.set(token, request);
-    return Promise.resolve({ url: this.checkoutBase + token });
+    return Promise.resolve({
+      url: this.checkoutBase + token,
+      providerCheckoutId: token,
+    });
   }
 
   /** The checkout page: pays for what it was opened for and answers where to send the person. */
@@ -141,13 +148,12 @@ export class StandInProvider implements BillingProvider {
     this.checkouts.delete(token);
     const at = new Date();
     const providerSubscriptionId = `sub_${randomUUID()}`;
-    const providerCustomerId =
-      request.providerCustomerId ?? `cus_${randomUUID()}`;
+    const { providerCustomerId } = request;
     this.paying.add(providerCustomerId);
     await this.send(
       {
         ...this.event("subscription.started", at),
-        customerRef: request.customerRef,
+        providerCheckoutId: token,
         providerCustomerId,
         subscription: {
           providerSubscriptionId,

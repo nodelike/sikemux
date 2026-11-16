@@ -6,6 +6,7 @@ import { PRODUCTS } from "../src/billing/catalog.ts";
 import { PaddleProvider } from "../src/billing/paddle.ts";
 import {
   CLIENT_TOKEN_NAME,
+  PaddleError,
   type PaddleApi,
   type PaddlePrice,
 } from "../src/billing/paddle-api.ts";
@@ -24,6 +25,9 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
 const OWNER = "user_owner";
 const OTHER = "user_b";
 const NOT_STAFF = "user_public";
+
+/** The Paddle customer a person's verified email finds or makes. */
+const ctmOf = (userId: string) => `ctm_${userId.replaceAll("_", "")}`;
 
 const ago = (minutes: number) => new Date(Date.now() - minutes * MINUTE_MS);
 
@@ -60,6 +64,8 @@ class FakePaddle {
   calls: Call[] = [];
   patches: Patch[] = [];
   subscriptions = new Map<string, PaddleSub>();
+  customers = new Set<string>();
+  lastCheckout: string | undefined;
   completed = new Map<string, unknown[]>();
   prices: PaddlePrice[] = PRODUCTS.flatMap((item) =>
     item.prices.map(({ interval, unit }) => ({
@@ -120,8 +126,24 @@ class FakePaddle {
     body?: Record<string, unknown>,
   ): Promise<unknown> {
     this.calls.push({ method, path, ...(body ? { body } : {}) });
+    if (method === "POST" && path === "/customers") {
+      const id = ctmOf(String(body?.email).replace("verified address of ", ""));
+      if (this.customers.has(id))
+        return Promise.reject(
+          new PaddleError(
+            409,
+            "customer_already_exists",
+            `Customer email conflicts with existing customer ID ${id}`,
+          ),
+        );
+      this.customers.add(id);
+      return Promise.resolve({ id });
+    }
+    if (method === "PATCH" && path.startsWith("/customers/"))
+      return Promise.resolve({});
     if (method === "POST" && path === "/transactions") {
       const id = `txn_${randomUUID()}`;
+      this.lastCheckout = id;
       return Promise.resolve({
         id,
         checkout: { url: `${APP_ORIGIN}/pay?_ptxn=${id}` },
@@ -245,7 +267,6 @@ async function deliver(type: string, data: unknown, at = new Date()) {
 
 function paddleSub(
   customerId: string,
-  customerRef: string | undefined,
   product: BillingProductId,
   quantity: number,
   ends = new Date(Date.now() + 29 * DAY_MS).toISOString(),
@@ -258,8 +279,7 @@ function paddleSub(
     },
     status: "active",
     customer_id: customerId,
-    custom_data:
-      customerRef === undefined ? null : { customer_ref: customerRef },
+    custom_data: null,
     billing_cycle: { interval: "month", frequency: 1 },
     current_billing_period: {
       starts_at: ago(DAY_MS / MINUTE_MS).toISOString(),
@@ -271,11 +291,14 @@ function paddleSub(
   };
 }
 
-function paddleTxn(sub: PaddleSub, origin: string, last4 = "0000") {
+function paddleTxn(
+  sub: PaddleSub,
+  { id = `txn_${randomUUID()}`, last4 = "0000" } = {},
+) {
   const [item] = sub.items;
   const txn = {
-    id: `txn_${randomUUID()}`,
-    origin,
+    id,
+    origin: "api",
     customer_id: sub.customer_id,
     subscription_id: sub.id,
     custom_data: sub.custom_data,
@@ -304,7 +327,7 @@ function paddleTxn(sub: PaddleSub, origin: string, last4 = "0000") {
   return txn;
 }
 
-/** The checkout the API opens at Paddle: what it sent, and the customer it names as ours. */
+/** The checkout the API opens at Paddle: what it sent, and Paddle's id for it. */
 async function openCheckout(
   userId: string,
   product: BillingProductId,
@@ -318,12 +341,10 @@ async function openCheckout(
   const opened = paddle.calls.findLast(
     (each) => each.method === "POST" && each.path === "/transactions",
   );
-  const custom = opened?.body?.custom_data as
-    { customer_ref: string } | undefined;
   return {
     status: response.status,
     sent: opened?.body,
-    ref: custom?.customer_ref ?? "",
+    txn: response.status === 200 ? paddle.lastCheckout : undefined,
   };
 }
 
@@ -337,7 +358,7 @@ async function pay(
   {
     quantity = 1,
     orgId,
-    paddleCustomer = `ctm_${userId}`,
+    paddleCustomer = ctmOf(userId),
     at = ago(60),
     ends,
     last4,
@@ -350,18 +371,17 @@ async function pay(
     last4?: string;
   } = {},
 ) {
-  const { status, sent, ref } = await openCheckout(
-    userId,
-    product,
-    quantity,
-    orgId,
-  );
+  const {
+    status,
+    sent,
+    txn: id,
+  } = await openCheckout(userId, product, quantity, orgId);
   expect(status).toBe(200);
-  const sub = paddleSub(paddleCustomer, ref, product, quantity, ends);
+  const sub = paddleSub(paddleCustomer, product, quantity, ends);
   paddle.subscriptions.set(sub.id, sub);
-  const txn = paddleTxn(sub, "api", last4);
+  const txn = paddleTxn(sub, { id, last4 });
   expect(await deliver("transaction.completed", txn, at)).toBe(204);
-  return { sub, txn, opened: sent, ref };
+  return { sub, txn, opened: sent };
 }
 
 async function overview(userId: string, orgId?: string) {
@@ -414,6 +434,19 @@ async function invoices(userId: string) {
   return (await body(await as(userId, "/v1/billing/invoices"), "InvoiceList"))
     .invoices;
 }
+
+async function paidBy(orgId: string) {
+  const { rows } = await database.pool.query<{ paid_by: string | null }>(
+    "select paid_by from billing_customers where org_id = $1",
+    [orgId],
+  );
+  return rows[0]?.paid_by ?? null;
+}
+
+const askedOfPaddle = (ending: string) =>
+  paddle.calls.filter(
+    (each) => each.method === "POST" && each.path.endsWith(ending),
+  ).length;
 
 const prorated = () =>
   paddle.patches.filter((each) => each.mode === "prorated_immediately");
@@ -580,6 +613,124 @@ describe("a chargeback", () => {
       invoice: "disputed",
       plan: "free",
       cancelsAskedOfPaddle: 1,
+    });
+  });
+});
+
+describe("who pays for an org", () => {
+  it("F2: of two owners' open checkouts, the one paid makes its opener the payer", async () => {
+    const orgId = await createOrg();
+    await database.pool.query(
+      "insert into org_users (org_id, user_id, role) values ($1, $2, 'owner')",
+      [orgId, OTHER],
+    );
+    const first = await openCheckout(OWNER, "team", 3, orgId);
+    const second = await openCheckout(OTHER, "team", 3, orgId);
+
+    const sub = paddleSub(ctmOf(OWNER), "team", 3);
+    paddle.subscriptions.set(sub.id, sub);
+    expect(
+      await deliver(
+        "transaction.completed",
+        paddleTxn(sub, { id: first.txn }),
+        ago(5),
+      ),
+    ).toBe(204);
+
+    const payer = await paidBy(orgId);
+    const [held] = (await overview(OTHER, orgId)).subscriptions;
+    const raised = await change(OTHER, held?.id, { quantity: 1000 });
+    const portal = await as(OTHER, `/v1/billing/portal?org=${orgId}`);
+    const left = await as(OWNER, `/v1/orgs/${orgId}/leave`, { method: "POST" });
+
+    expect({
+      checkouts: [first.status, second.status],
+      payer,
+      otherOwnerRaisesSeatsNow: raised.status,
+      otherOwnerOpensThePayersPortal: portal.status,
+      payerLeaves: left.status,
+      cancelsAskedOfPaddle: askedOfPaddle("/cancel"),
+    }).toEqual({
+      checkouts: [200, 200],
+      payer: OWNER,
+      otherOwnerRaisesSeatsNow: 409,
+      otherOwnerOpensThePayersPortal: 404,
+      payerLeaves: 204,
+      cancelsAskedOfPaddle: 1,
+    });
+  });
+});
+
+describe("who a Paddle customer is", () => {
+  it("F4: each person's checkout is for their own Paddle customer, and the portal is theirs", async () => {
+    await pay(OTHER, "pro", { last4: "4242" });
+    const mine = await pay(OWNER, "pro", { last4: "1111" });
+    const { rows } = await database.pool.query(
+      "select count(distinct id)::int as people from billing_customers where provider_customer_id = $1",
+      [ctmOf(OTHER)],
+    );
+    const portal = (await (await as(OWNER, "/v1/billing/portal")).json()) as {
+      url?: string;
+    };
+    const seen = await overview(OWNER);
+    expect({
+      checkoutFor: mine.opened?.customer_id,
+      peopleUnderOnePaddleCustomer: (rows[0] as { people: number }).people,
+      portalSignedInAs: portal.url?.split("signed_in_as=")[1],
+      card: seen.card?.last4,
+    }).toEqual({
+      checkoutFor: ctmOf(OWNER),
+      peopleUnderOnePaddleCustomer: 1,
+      portalSignedInAs: ctmOf(OWNER),
+      card: "1111",
+    });
+  });
+});
+
+describe("a checkout changed after the API opened it", () => {
+  it("F10a: a Pro checkout paid as Shed boxes is held as nothing", async () => {
+    const refused = await openCheckout(NOT_STAFF, "shed");
+    const { txn } = await openCheckout(NOT_STAFF, "pro");
+    const sub = paddleSub(ctmOf(NOT_STAFF), "shed", 20);
+    paddle.subscriptions.set(sub.id, sub);
+    const answer = await deliver(
+      "transaction.completed",
+      paddleTxn(sub, { id: txn }),
+      ago(5),
+    );
+    const held = (await overview(NOT_STAFF)).subscriptions
+      .filter((each) => each.status === "active")
+      .map((each) => `${each.product} x${each.quantity}`);
+    expect({ refused: refused.status, answer, held }).toEqual({
+      refused: 409,
+      answer: 204,
+      held: [],
+    });
+  });
+
+  it("F10b: a checkout paid under another Paddle customer is ended and refunded, and moves nobody", async () => {
+    await pay(OTHER, "pro");
+    const { txn } = await openCheckout(OWNER, "pro");
+    const sub = paddleSub("ctm_ofattacker", "pro", 1);
+    paddle.subscriptions.set(sub.id, sub);
+    expect(
+      await deliver(
+        "transaction.completed",
+        paddleTxn(sub, { id: txn }),
+        ago(5),
+      ),
+    ).toBe(204);
+
+    const next = await openCheckout(OTHER, "shed");
+    expect({
+      endedAndRefunded: [
+        askedOfPaddle("/cancel"),
+        askedOfPaddle("/adjustments"),
+      ],
+      victimsNextCheckoutIsFor: next.sent?.customer_id,
+    }).toEqual({
+      endedAndRefunded: [1, 1],
+      victimsNextCheckoutIsFor: ctmOf(OTHER),
     });
   });
 });

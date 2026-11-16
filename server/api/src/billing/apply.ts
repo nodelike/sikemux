@@ -12,6 +12,7 @@ import {
   type ProviderCall,
 } from "./calls.ts";
 import { PLAN_PRODUCTS, product } from "./catalog.ts";
+import { refusal } from "./checks.ts";
 import {
   heldSubscription,
   type ProviderEvent,
@@ -25,8 +26,6 @@ class Gone extends Error {}
 
 /** No payer, as for an event about a subscription that did not come from the app's checkout. */
 const STRAY = { customerId: null };
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The provider an event came from, as applying it needs. */
 interface From {
@@ -292,6 +291,74 @@ async function endingForDeletedPayer(trx: Kysely<Tables>, customerId: string) {
     .execute();
 }
 
+/**
+ * The customer a paid checkout of ours buys for, once what was paid passes the checks it passed
+ * when opened, under the provider's customer it was opened for. Null for any other payment.
+ */
+async function paidCheckout(
+  trx: Transaction<Tables>,
+  provider: string,
+  event: Extract<ProviderEvent, { type: "subscription.started" }>,
+) {
+  const checkout = await trx
+    .selectFrom("billing_checkouts")
+    .innerJoin(
+      "billing_customers",
+      "billing_customers.id",
+      "billing_checkouts.customer_id",
+    )
+    .select([
+      "billing_checkouts.customer_id",
+      "billing_checkouts.opened_by",
+      "billing_checkouts.provider_customer_id",
+      "billing_checkouts.product",
+      "billing_checkouts.interval",
+      "billing_customers.org_id",
+    ])
+    .where("billing_checkouts.provider", "=", provider)
+    .where(
+      "billing_checkouts.provider_checkout_id",
+      "=",
+      event.providerCheckoutId,
+    )
+    .executeTakeFirst();
+  const sub = event.subscription;
+  const [item, ...more] = sub.items;
+  if (
+    !checkout ||
+    !item ||
+    more.length ||
+    checkout.provider_customer_id !== event.providerCustomerId ||
+    checkout.product !== item.product ||
+    checkout.interval !== sub.interval
+  )
+    return null;
+  const customer = await trx
+    .selectFrom("billing_customers")
+    .select(["id", "paid_by"])
+    .where("id", "=", checkout.customer_id)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const refused = await refusal(trx, {
+    customerId: customer.id,
+    orgId: checkout.org_id,
+    paidBy: customer.paid_by,
+    openedBy: checkout.opened_by,
+    product: item.product,
+    quantity: item.quantity,
+  });
+  if (refused) return null;
+  await trx
+    .updateTable("billing_customers")
+    .set({
+      provider_customer_id: checkout.provider_customer_id,
+      ...(checkout.org_id === null ? {} : { paid_by: checkout.opened_by }),
+    })
+    .where("id", "=", customer.id)
+    .execute();
+  return customer;
+}
+
 /** Applies one event and answers which customer it changed. */
 async function apply(
   trx: Transaction<Tables>,
@@ -303,17 +370,7 @@ async function apply(
   switch (event.type) {
     case "subscription.started": {
       const sub = event.subscription;
-      const ref = event.customerRef;
-      const customer =
-        ref && UUID.test(ref)
-          ? await trx
-              .updateTable("billing_customers")
-              .set({ provider_customer_id: event.providerCustomerId })
-              .where("id", "=", ref)
-              .where("provider", "=", provider)
-              .returning("id")
-              .executeTakeFirst()
-          : undefined;
+      const customer = await paidCheckout(trx, provider, event);
       if (!customer) {
         const payment = event.providerPaymentId;
         await keepStrays(trx, from, [
