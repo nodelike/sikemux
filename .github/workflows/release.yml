@@ -10,7 +10,7 @@ on:
     tags: ["v*"]
   workflow_run:
     workflows: [CI]
-    types: [requested]
+    types: [in_progress]
     branches: [main]
 
 permissions:
@@ -92,7 +92,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
     steps:
-      # A re-run of CI asks for a Release of the same commit again; the earliest run keeps it.
+      # CI reports a run in progress more than once, and a re-run does again; the earliest Release keeps it.
       - name: Stop if this commit already has a nightly run
         if: github.event_name == 'workflow_run'
         env:
