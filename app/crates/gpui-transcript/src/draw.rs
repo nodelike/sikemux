@@ -1874,7 +1874,11 @@ fn highlights(
         .map(|(range, _)| range.clone())
         .chain(selected.clone())
         .chain(found.iter().map(|(range, _)| range.clone()));
-    let mut edges: Vec<usize> = ranges.flat_map(|range| [range.start, range.end]).collect();
+    // A selection or find hit keeps its offsets while a streaming reply rewrites the text.
+    let mut edges: Vec<usize> = ranges
+        .flat_map(|range| [range.start, range.end])
+        .map(|edge| rich.text.floor_char_boundary(edge))
+        .collect();
     edges.sort_unstable();
     edges.dedup();
     let inside = |outer: &Range<usize>, inner: &Range<usize>| {
