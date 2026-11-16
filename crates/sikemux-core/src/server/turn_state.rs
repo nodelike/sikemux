@@ -654,7 +654,8 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
         let worktree = agent.as_ref().and_then(|agent| agent.worktree.as_ref());
         match head.as_deref() {
             Some(head) if landed(core, &project, worktree, head) => WorkAt::Landed,
-            _ => WorkAt::Committed,
+            Some(_) => WorkAt::Committed,
+            None => work_in_checkouts(core, &project, agent_id, &cwd),
         }
     };
     let (own, shared) = match changes {
@@ -676,6 +677,26 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
     })
 }
 
+/// Where the work stands for an agent whose folder is not a git checkout: in the checkouts
+/// under it that hold the files it changed. Each lands by the rule the person chose for the
+/// project, else by its own history. Nothing when no such checkout with a commit is left.
+fn work_in_checkouts(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> WorkAt {
+    let chosen = super::landing::means_now(core, project).chosen;
+    let landed: Vec<bool> = (inbox::edited_checkouts(core, project, agent_id, cwd).iter())
+        .filter_map(|checkout| {
+            let head = Git::quick(checkout).trimmed(&["rev-parse", "HEAD"]).ok()?;
+            let own = checkout.to_string_lossy();
+            let rule = if chosen { project } else { &*own };
+            Some(landed_in(core, rule, checkout, &head))
+        })
+        .collect();
+    match landed.as_slice() {
+        [] => WorkAt::None,
+        all if all.iter().all(|landed| *landed) => WorkAt::Landed,
+        _ => WorkAt::Committed,
+    }
+}
+
 /// Whether `head` has landed on the project's branch, as the project counts landing: on that
 /// branch once committed, else on its remote. A side branch, pushed or not, has not landed,
 /// unless every one of its commits is on the branch as the same change, as a rebased land is.
@@ -686,6 +707,10 @@ pub(crate) fn landed(
     head: &str,
 ) -> bool {
     let repo = worktree.map_or(Path::new(project), |worktree| worktree.repo.as_path());
+    landed_in(core, project, repo, head)
+}
+
+fn landed_in(core: &Core, project: &str, repo: &Path, head: &str) -> bool {
     landing_tip(core, project, repo).is_some_and(|tip| {
         let on_tip = Git::quick(repo)
             .output(&["merge-base", "--is-ancestor", head, &tip])
