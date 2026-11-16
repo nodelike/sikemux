@@ -4,7 +4,7 @@ python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FA
 
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
 and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page with
-page_show, which must draw in a desk tab and leave a card in the chat, and L2 has it open a desk browser tab on a local page
+page_show, which must leave a card in the chat that brings its desk tab forward drawn, and L2 has it open a desk browser tab on a local page
 through the agent browser tool, whose answer must report the desktop viewport an agent's tab is held at; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
@@ -86,8 +86,12 @@ def shown_in_chat(run):
     asked = time.time()
     page = desk.until(lambda: (lambda page: page if page.get("title") == "Kit shown page" and not page.get("loading") else None)(desk.active_page(run.desk())), 40) or {}
     waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
-    drawn, seen = page_drawn(run, "L6") if page else (False, "")
     carded = desk.until(card, 10)
+    # The tab opens behind the chat, as a person reading it would; clicking the card brings it forward.
+    if carded:
+        x, y, width, height = carded
+        run.drive(f"click {x + width / 2:.0f} {y + height / 2:.0f}", "wait 1")
+    drawn, seen = page_drawn(run, "L6") if page and carded else (False, "")
     run.say("L6", "PASS" if said.startswith("tool answered") and drawn and carded else "FAIL",
             f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; {seen}")
 
