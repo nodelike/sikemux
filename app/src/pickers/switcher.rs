@@ -183,7 +183,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                 ),
                 None => (Icon::Folder, id.clone().into(), SharedString::default()),
             },
-            Strip::Host(alias) => (Icon::Server, alias.clone().into(), "SSH".into()),
+            Strip::Host(alias) => (Icon::Laptop, alias.clone().into(), "SSH".into()),
             Strip::Terminals => (Icon::Terminal, t!("Terminals").into(), "~".into()),
         };
         let chosen = place == switcher.at;

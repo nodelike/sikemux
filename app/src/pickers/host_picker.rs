@@ -155,10 +155,10 @@ impl HostPicker {
         let row = match choice {
             Choice::Has(copy) => {
                 let current = copy.place == self.here.place;
-                let glyph = match copy.place {
-                    Place::This => ui::icon(Icon::Laptop, 12.).text_color(t.text_tertiary),
-                    Place::Account(_) => ui::icon(Icon::Server, 12.).text_color(t.host),
-                };
+                let glyph = ui::icon(Icon::Laptop, 12.).text_color(match copy.place {
+                    Place::This => t.text_tertiary,
+                    Place::Account(_) => t.host,
+                });
                 row.when(copy.away, |row| row.opacity(0.45))
                     .child(glyph)
                     .child(list_picker::label(copy.host.clone(), current, cx))
@@ -208,7 +208,7 @@ impl HostPicker {
                 };
                 let lit = at == self.chosen;
                 row.when(!reached, |row| row.opacity(0.45))
-                    .child(ui::icon(Icon::Server, 12.).text_color(t.host))
+                    .child(ui::icon(Icon::Laptop, 12.).text_color(t.host))
                     .child(list_picker::label(name.clone(), false, cx))
                     .child(list_picker::detail(from, cx))
                     .child(match reached {

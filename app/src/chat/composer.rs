@@ -731,12 +731,14 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             .items_center()
             .gap(SPACE_1H)
             .rounded_full()
-            .child(match strip.host {
-                Some(_) => ui::icon(Icon::Server, 12.).flex_none().text_color(t.host),
-                None => ui::icon(Icon::Laptop, 12.)
+            .child(
+                ui::icon(Icon::Laptop, 12.)
                     .flex_none()
-                    .text_color(t.text_tertiary),
-            })
+                    .text_color(match strip.host {
+                        Some(_) => t.host,
+                        None => t.text_tertiary,
+                    }),
+            )
             .child(
                 ui::text(
                     strip.host.clone().unwrap_or_else(|| t!("This host").into()),

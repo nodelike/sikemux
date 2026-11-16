@@ -544,7 +544,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 })
                 .mark(
                     16.,
-                    ui::icon(Icon::Server, 14.).text_color(if linked { t.host } else { t.ssh }),
+                    ui::icon(Icon::Laptop, 14.).text_color(if linked { t.host } else { t.ssh }),
                 )
                 .quiet()
                 .when_some(

@@ -52,13 +52,6 @@ impl HostCopy {
     pub fn front_key(&self) -> String {
         format!("{}/{}", self.choice().key(), self.project)
     }
-
-    pub fn icon(&self) -> Icon {
-        match self.place {
-            Place::This => Icon::Laptop,
-            Place::Account(_) => Icon::Server,
-        }
-    }
 }
 
 /// A project the rail lists once, with this host's copy first when it holds one.
@@ -409,11 +402,10 @@ pub fn copy_menu(
                 (true, Some(folder)) => format!("{} · {hint}", folder.to_string_lossy()),
                 _ => hint,
             };
-            let glyph = copy.icon();
             let ink = t.host;
             popup = popup.item(
                 ui::MenuRow::new(copy.host.clone())
-                    .mark(move || ui::icon(glyph, 13.).text_color(ink))
+                    .mark(move || ui::icon(Icon::Laptop, 13.).text_color(ink))
                     .hint(hint)
                     .item(cx)
                     .checked(front.as_ref() == Some(copy))
@@ -490,7 +482,7 @@ pub fn copy_chip(
         .bg(t.surface_hover)
         .text_color(t.host)
         .hover(move |style| style.bg(t.surface_active))
-        .child(ui::icon(front.icon(), 11.).text_color(t.host))
+        .child(ui::icon(Icon::Laptop, 11.).text_color(t.host))
         .child(ui::text(
             t!("on {host}", host = front.host),
             TEXT_2XS,
@@ -688,7 +680,7 @@ pub fn where_held(folded: &Folded, cx: &App) -> Option<AnyElement> {
             .items_center()
             .gap(px(3.))
             .text_color(t.host)
-            .child(ui::icon(Icon::Server, 11.).text_color(t.host))
+            .child(ui::icon(Icon::Laptop, 11.).text_color(t.host))
             .child(ui::text(label, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
             .into_any_element(),
     )

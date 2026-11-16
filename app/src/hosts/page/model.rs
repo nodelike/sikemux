@@ -432,6 +432,6 @@ pub fn logo(mark: HostMark, t: &Tokens) -> (Icon, Hsla) {
         HostMark::Debian => (Icon::Debian, hex(0xA81D33)),
         HostMark::Omarchy => (Icon::Omarchy, hex(0x9ECE6A)),
         HostMark::Linux => (Icon::Linux, hex(0xFCC624)),
-        HostMark::Unknown => (Icon::Server, t.text_secondary),
+        HostMark::Unknown => (Icon::Laptop, t.text_secondary),
     }
 }

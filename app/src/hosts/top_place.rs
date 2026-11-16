@@ -39,8 +39,8 @@ pub fn view(bench: &Workbench, chips: Pixels, cx: &mut Context<Workbench>) -> An
     let t = Tokens::get(cx).clone();
     let host_mark = |choice: &HostChoice| match choice {
         HostChoice::This => (Icon::Laptop, t.text_primary),
-        HostChoice::Account(_) => (Icon::Server, t.host),
-        HostChoice::Ssh(_) => (Icon::Server, t.ssh),
+        HostChoice::Account(_) => (Icon::Laptop, t.host),
+        HostChoice::Ssh(_) => (Icon::Laptop, t.ssh),
     };
     let chosen = bench.chosen_host();
     let hosts: Vec<(HostChoice, Choice)> = bench

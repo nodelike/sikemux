@@ -379,7 +379,7 @@ impl Workbench {
                 rows.push(
                     Row::new(format!("{HOST}{alias}"), alias.to_owned())
                         .meta(line.clone())
-                        .mark(Mark::Icon(Icon::Server))
+                        .mark(Mark::Icon(Icon::Laptop))
                         .group(t!("SSH hosts"))
                         .also(&line),
                 );
