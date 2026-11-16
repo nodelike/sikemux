@@ -1198,13 +1198,15 @@ pub(crate) fn permit(core: &Core, worker: &Foreign, request_id: &str, option_id:
 }
 
 /// A linked host passes on its person's answer to a permission request of an agent here.
-pub(super) fn permit_here(core: &Core, params: PermitParams) -> CoreResult<Value> {
+pub(super) fn permit_here(core: &Core, host: &str, params: PermitParams) -> CoreResult<Value> {
     super::super::chat::reply_permission(
         core,
         &params.agent_id,
         &params.request_id,
         params.option_id,
-        &super::super::access::Peer::App,
+        &super::super::access::Peer::Device {
+            id: host.to_owned(),
+        },
     )?;
     Ok(Value::Null)
 }
