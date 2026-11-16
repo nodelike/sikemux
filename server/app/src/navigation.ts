@@ -5,6 +5,10 @@ import { config } from "./config.ts";
 export const DELETE_ACCOUNT = "/delete-account";
 export const CONSENT = "/oauth-consent";
 export const HOST = "/host";
+export const HOSTS = "/hosts";
+
+/** The signed-in pages a sign-in can come back to. */
+const PAGES = new Set(["/", HOSTS, DELETE_ACCOUNT]);
 
 const RETURN_KEY = "sikemux.returnTo";
 
@@ -57,7 +61,7 @@ export function takeReturn(): string | null {
   const [path = "/", query = ""] = saved.split("?", 2);
   if (path === "/" && appReturn(`?${query}`)) return saved;
   if (path === CONSENT || path === HOST) return saved;
-  return path === DELETE_ACCOUNT ? path : "/";
+  return PAGES.has(path) ? path : "/";
 }
 
 export function usePath() {

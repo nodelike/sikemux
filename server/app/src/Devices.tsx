@@ -12,6 +12,7 @@ import {
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import { IconLaptop, IconPhone } from "@shared/ui/Icons";
+import { ItemRow, Rows, Section } from "./ui.tsx";
 
 export type Load =
   | { state: "loading" }
@@ -122,25 +123,19 @@ function DeviceGroup({
   remove: (key: string) => Promise<void>;
 }) {
   return (
-    <section className="group">
-      <h2>
-        {title}
-        {devices ? <span className="count">{devices.length}</span> : null}
-      </h2>
+    <Section label={title} count={devices?.length}>
       {devices === null ? (
-        <ul className="rows" aria-busy="true">
-          <li className="row placeholder" />
-        </ul>
+        <Rows busy />
       ) : devices.length === 0 ? (
         <p className="empty">{empty}</p>
       ) : (
-        <ul className="rows">
+        <Rows>
           {devices.map((device) => (
             <DeviceRow key={device.key} device={device} remove={remove} />
           ))}
-        </ul>
+        </Rows>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -185,36 +180,39 @@ function DeviceRow({
   };
 
   return (
-    <li className="row" data-confirming={confirming || undefined}>
-      <span className="glyph">
-        {device.role === "host" ? (
+    <ItemRow
+      glyph={
+        device.role === "host" ? (
           <IconLaptop size={18} />
         ) : (
           <IconPhone size={18} />
-        )}
-      </span>
-      <span className="name">{device.name}</span>
-      <span className="detail">
-        {platformName(device.platform)}
-        {device.channel ? ` · ${device.channel}` : ""}
-        {` · added ${formatDay(device.createdAt, "short")}`}
-      </span>
-      <span className="end">
-        <code className="key" title={device.key}>
-          {device.key.slice(0, 8)}
-        </code>
-        <button
-          ref={removeButton}
-          type="button"
-          className="remove"
-          aria-expanded={confirming}
-          aria-controls={confirming ? confirmId : undefined}
-          onClick={() => (confirming ? cancel() : setConfirming(true))}
-          disabled={busy}
-        >
-          Remove
-        </button>
-      </span>
+        )
+      }
+      name={device.name}
+      detail={
+        platformName(device.platform) +
+        (device.channel ? ` · ${device.channel}` : "") +
+        ` · added ${formatDay(device.createdAt, "short")}`
+      }
+      end={
+        <>
+          <code className="key" title={device.key}>
+            {device.key.slice(0, 8)}
+          </code>
+          <button
+            ref={removeButton}
+            type="button"
+            className="remove"
+            aria-expanded={confirming}
+            aria-controls={confirming ? confirmId : undefined}
+            onClick={() => (confirming ? cancel() : setConfirming(true))}
+            disabled={busy}
+          >
+            Remove
+          </button>
+        </>
+      }
+    >
       {confirming ? (
         <div className="confirm" id={confirmId} onKeyDown={onKeyDown}>
           <p>
@@ -248,6 +246,6 @@ function DeviceRow({
           </div>
         </div>
       ) : null}
-    </li>
+    </ItemRow>
   );
 }

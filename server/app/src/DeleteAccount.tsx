@@ -72,7 +72,7 @@ export function DeleteAccount({
     <div className="deletion">
       <button type="button" className="back" onClick={onBack}>
         <IconBack />
-        Your devices
+        Account
       </button>
       <h1>Delete your account</h1>
       <p className="lede">

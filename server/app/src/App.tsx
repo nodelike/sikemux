@@ -7,7 +7,9 @@ import {
   type MouseEvent,
 } from "react";
 
-import { Avatar } from "./Avatar.tsx";
+import { IconServer, IconUser } from "@shared/ui/Icons";
+
+import { AccountPage } from "./AccountPage.tsx";
 import { Backdrop } from "./Backdrop.tsx";
 import { Consent, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
 import {
@@ -17,7 +19,6 @@ import {
 } from "./DeleteAccount.tsx";
 import { Devices, useDevices } from "./Devices.tsx";
 import { HostApproval } from "./HostApproval.tsx";
-import { Logo } from "./icons.tsx";
 import { useLive } from "./live.ts";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
@@ -25,12 +26,15 @@ import {
   CONSENT,
   DELETE_ACCOUNT,
   HOST,
+  HOSTS,
   isSharePath,
   takeReturn,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
-import { SignIns, useSignIns } from "./SignIns.tsx";
+import { Shell, type NavGroup } from "./Shell.tsx";
+import { useSignIns } from "./SignIns.tsx";
+import { PageHead } from "./ui.tsx";
 import "./app.css";
 
 /** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
@@ -61,7 +65,13 @@ export function App() {
       new URLSearchParams(location.search).has("deleted") &&
       !signedIn);
 
+  const shellShown =
+    signedIn &&
+    !showDeleted &&
+    ![SIGNED_IN, CONSENT, HOST, "/sso-callback"].includes(path);
+
   useEffect(() => {
+    if (shellShown) return;
     document.title = showDeleted
       ? "Account deleted · Sikemux"
       : path === "/sso-callback"
@@ -72,10 +82,8 @@ export function App() {
             ? "Sign in on your computer · Sikemux"
             : path === HOST
               ? "Add a host · Sikemux"
-              : signedIn
-                ? "Your devices · Sikemux"
-                : "Sign in · Sikemux";
-  }, [path, signedIn, showDeleted]);
+              : "Sign in · Sikemux";
+  }, [path, showDeleted, shellShown]);
 
   const returnTo = (to: string) => {
     if (isSharePath(to)) location.replace(to);
@@ -149,9 +157,9 @@ export function App() {
         ) : signedIn ? (
           <Account
             ready={isLoaded}
-            deleting={path === DELETE_ACCOUNT}
-            onDelete={follow(DELETE_ACCOUNT)}
-            onBack={() => go("/")}
+            path={path}
+            follow={follow}
+            go={go}
             onDeleted={onDeleted}
           />
         ) : (
@@ -169,27 +177,40 @@ export function App() {
   );
 }
 
+const PAGE_TITLES: Record<string, string> = {
+  [HOSTS]: "Hosts",
+  [DELETE_ACCOUNT]: "Delete your account",
+};
+
 function Account({
   ready,
-  deleting,
-  onDelete,
-  onBack,
+  path,
+  follow,
+  go,
   onDeleted,
 }: {
   ready: boolean;
-  deleting: boolean;
-  onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
-  onBack: () => void;
+  path: string;
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+  go: (to: string) => void;
   onDeleted: (deletesAt?: string) => void;
 }) {
   const { user } = useUser();
   const { isSignedIn } = useAuth();
-  const { signOut } = useClerk();
   const email = user?.primaryEmailAddress?.emailAddress;
   const { account, restored } = useAccountState(ready);
   const active = account.state === "active";
   const devices = useDevices(ready && active);
   const signIns = useSignIns(ready && active);
+  const hostCount =
+    devices.load.state === "loaded"
+      ? devices.load.devices.filter((device) => device.role === "host").length
+      : undefined;
+  const page = path in PAGE_TITLES ? path : "/";
+
+  useEffect(() => {
+    document.title = `${PAGE_TITLES[page] ?? "Account"} · Sikemux`;
+  }, [page]);
 
   useLive(ready && isSignedIn === true && active, {
     onEvents: (events) => {
@@ -203,56 +224,49 @@ function Account({
     onAccountDeleted: () => onDeleted(),
   });
 
+  const groups: NavGroup[] = [
+    {
+      items: [
+        { path: "/", name: "Account", icon: <IconUser size={15} /> },
+        {
+          path: HOSTS,
+          name: "Hosts",
+          icon: <IconServer size={15} />,
+          count: hostCount === undefined ? undefined : String(hostCount),
+        },
+      ],
+    },
+  ];
+
   return (
-    <div className="account">
-      <header className="top">
-        <div className="brand">
-          <Logo size={20} />
-          <span>Sikemux</span>
-        </div>
-        <div className="who">
-          <Avatar />
-          {email ? <span className="email">{email}</span> : null}
-          <button
-            type="button"
-            className="button small"
-            onClick={() => void signOut({ redirectUrl: "/" })}
-            disabled={!ready}
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-      <main>
-        {account.state === "deleting" ? (
-          <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
-        ) : deleting ? (
-          <DeleteAccount
-            email={email}
-            restorableDays={
-              account.state === "active" ? account.restorableDays : undefined
-            }
-            load={devices.load}
-            onBack={onBack}
-            onDeleted={onDeleted}
-          />
-        ) : (
-          <>
-            <h1>Your devices</h1>
-            <p className="lede">
-              Hosts and clients signed in to this account. A client still
-              connects to a host only after someone at the host allows it.
-            </p>
-            <Devices load={devices.load} remove={devices.remove} />
-            <SignIns load={signIns.load} />
-            <footer className="account-footer">
-              <a href={DELETE_ACCOUNT} onClick={onDelete}>
-                Delete account
-              </a>
-            </footer>
-          </>
-        )}
-      </main>
-    </div>
+    <Shell
+      path={page === DELETE_ACCOUNT ? "/" : page}
+      follow={follow}
+      groups={groups}
+    >
+      {account.state === "deleting" ? (
+        <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
+      ) : page === DELETE_ACCOUNT ? (
+        <DeleteAccount
+          email={email}
+          restorableDays={
+            account.state === "active" ? account.restorableDays : undefined
+          }
+          load={devices.load}
+          onBack={() => go("/")}
+          onDeleted={onDeleted}
+        />
+      ) : page === HOSTS ? (
+        <>
+          <PageHead title="Hosts">
+            Every host you own, linked on one account. No plan caps how many. A
+            client connects to a host only after someone at the host allows it.
+          </PageHead>
+          <Devices load={devices.load} remove={devices.remove} />
+        </>
+      ) : (
+        <AccountPage signIns={signIns.load} onDelete={follow(DELETE_ACCOUNT)} />
+      )}
+    </Shell>
   );
 }

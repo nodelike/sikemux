@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatAgo } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import { IconKey } from "@shared/ui/Icons";
+import { ItemRow, Rows, Section } from "./ui.tsx";
 
 const SERVICE_NAMES: Record<string, string> = {
   "sikemux.github": "GitHub",
@@ -21,7 +22,7 @@ const SERVICE_NAMES: Record<string, string> = {
   "sikemux.database": "Database",
 };
 
-type Load =
+export type Load =
   | { state: "loading" }
   | { state: "failed"; message: string }
   | { state: "loaded"; uses: VaultUseRow[] };
@@ -68,31 +69,25 @@ export function SignIns({ load }: { load: Load }) {
   const uses = load.state === "loaded" ? load.uses : null;
   return (
     <div className="groups">
-      <section className="group">
-        <h2>
-          Sign-ins
-          {uses ? <span className="count">{uses.length}</span> : null}
-        </h2>
+      <Section label="Sign-ins" count={uses?.length}>
         {uses === null ? (
-          <ul className="rows" aria-busy="true">
-            <li className="row placeholder" />
-          </ul>
+          <Rows busy />
         ) : uses.length === 0 ? (
           <p className="empty">
             No sign-in from your account's vault has been used in the last 30
             days.
           </p>
         ) : (
-          <ul className="rows">
+          <Rows>
             {uses.map((use) => (
               <SignInUse
                 key={`${use.entryId}-${use.hostKey}-${use.actor}-${use.lastAt}`}
                 use={use}
               />
             ))}
-          </ul>
+          </Rows>
         )}
-      </section>
+      </Section>
     </div>
   );
 }
@@ -101,14 +96,10 @@ function SignInUse({ use }: { use: VaultUseRow }) {
   const where = use.hostName ?? "a host that left";
   const times = use.count === 1 ? "once" : `${use.count} times`;
   return (
-    <li className="row">
-      <span className="glyph">
-        <IconKey size={18} />
-      </span>
-      <span className="name">{SERVICE_NAMES[use.plugin] ?? use.plugin}</span>
-      <span className="detail">
-        {`used by ${use.actor} on ${where} · ${times} · ${formatAgo(use.lastAt)}`}
-      </span>
-    </li>
+    <ItemRow
+      glyph={<IconKey size={18} />}
+      name={SERVICE_NAMES[use.plugin] ?? use.plugin}
+      detail={`used by ${use.actor} on ${where} · ${times} · ${formatAgo(use.lastAt)}`}
+    />
   );
 }

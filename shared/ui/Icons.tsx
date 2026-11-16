@@ -1161,3 +1161,30 @@ export const IconActions = makeSvgIcon(
         <circle cx="12" cy="12" r="10" />
     </>,
 );
+export const IconCreditCard = makeSvgIcon(
+    <>
+        <rect width="20" height="14" x="2" y="5" rx="2" />
+        <path d="M2 10h20" />
+        <path d="M6 14h2" />
+    </>,
+);
+export const IconUsers = makeSvgIcon(
+    <>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <path d="M16 3.128a4 4 0 0 1 0 7.744" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <circle cx="9" cy="7" r="4" />
+    </>,
+);
+export const IconUndo = makeSvgIcon(
+    <>
+        <path d="M9 14 4 9l5-5" />
+        <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
+    </>,
+);
+export const IconMail = makeSvgIcon(
+    <>
+        <path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" />
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+    </>,
+);
