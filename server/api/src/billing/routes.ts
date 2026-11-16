@@ -59,6 +59,7 @@ const changing = new Map<string, Promise<unknown>>();
 /**
  * Runs the changes of one subscription one after another. They wait here rather than on a
  * database lock, so a change waiting for its turn, or at the provider, holds no connection.
+ * The turns hold only while the API runs as one process.
  */
 async function inTurn<T>(key: string, work: () => Promise<T>): Promise<T> {
   const turn = (changing.get(key) ?? Promise.resolve()).then(work);
