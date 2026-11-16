@@ -83,21 +83,19 @@ impl AgentRow {
 }
 
 impl Workbench {
-    /// Where calls about `row`'s agent go: the core that lists it as a worker of its agents,
-    /// which keeps that row and passes the call on, else the host it runs on while this window
-    /// holds that host's view, else this host's core.
+    /// Where calls about `row`'s agent go, as [`asked_place`] picks.
     pub fn asked_at(&self, row: &AgentRow) -> Place {
+        let views = std::iter::once((Place::This, &self.feeds.this))
+            .chain((self.feeds.hosts()).map(|(host, feed)| (Place::Account(host.clone()), feed)))
+            .filter_map(|(place, feed)| Some((place, feed.view.as_ref()?)));
         let lists = |view: &DeviceView| {
             (view.inbox.remote_agents.iter()).any(|worker| worker.shown.agent_id == row.id)
         };
-        let leads = std::iter::once((Place::This, &self.feeds.this))
-            .chain((self.feeds.hosts()).map(|(host, feed)| (Place::Account(host.clone()), feed)))
-            .find(|(_, feed)| feed.view.as_ref().is_some_and(lists));
-        match leads {
-            Some((place, _)) => place,
-            None if self.view_at(&row.place).is_some() => row.place.clone(),
-            None => Place::This,
-        }
+        asked_place(
+            &row.place,
+            self.view_at(&row.place).is_some(),
+            views.map(|(place, view)| (place, lists(view))),
+        )
     }
 
     /// The worker on a linked host this host's core lists under `id`, as its row.
@@ -358,6 +356,22 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
 
 /// A worker on a linked host as its lead's host lists it, for when the feed of the host it runs
 /// on does not list it here.
+/// Which core a row's calls go to: the first that lists its agent as a worker of its own
+/// agents, as that core keeps the row and passes calls on; else the host the agent runs on
+/// while this window `holds` its view; else this host's core. `cores` says, for each core
+/// this window holds a view of, whether it lists the agent as a worker.
+pub fn asked_place(
+    runs_on: &Place,
+    holds: bool,
+    cores: impl IntoIterator<Item = (Place, bool)>,
+) -> Place {
+    match cores.into_iter().find(|(_, lists)| *lists) {
+        Some((place, _)) => place,
+        None if holds => runs_on.clone(),
+        None => Place::This,
+    }
+}
+
 pub fn worker(worker: &RemoteAgent) -> Option<AgentRow> {
     let mut row = agent_row(&worker.shown, &Place::Account(worker.host_id.clone()))?;
     row.reachable = worker.reachable;
@@ -385,4 +399,41 @@ pub const CHIEF: &str = "@Chief";
 /// The chief's role, drawn after its title.
 pub fn chief_role() -> String {
     t!("Chief of staff").into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_worker_row_seen_through_its_hosts_view_asks_the_core_that_lists_it() {
+        let nexus = Place::Account("nexus".into());
+        let cores = [(Place::This, true), (nexus.clone(), false)];
+        assert_eq!(asked_place(&nexus, true, cores), Place::This);
+    }
+
+    #[test]
+    fn a_worker_another_host_lists_is_asked_through_that_host() {
+        let (nexus, temple) = (
+            Place::Account("nexus".into()),
+            Place::Account("temple".into()),
+        );
+        let cores = [
+            (Place::This, false),
+            (nexus.clone(), true),
+            (temple.clone(), false),
+        ];
+        assert_eq!(asked_place(&temple, true, cores), nexus);
+    }
+
+    #[test]
+    fn an_agent_no_core_lists_as_a_worker_is_asked_where_it_runs() {
+        let nexus = Place::Account("nexus".into());
+        let cores = [(Place::This, false), (nexus.clone(), false)];
+        assert_eq!(asked_place(&nexus, true, cores), nexus);
+        assert_eq!(
+            asked_place(&nexus, false, [(Place::This, false)]),
+            Place::This
+        );
+    }
 }
