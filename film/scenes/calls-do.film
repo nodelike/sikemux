@@ -1,0 +1,16 @@
+# A do call on the desk's Calls page: its title, what to do, where, and Done or Not doing.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies calls-do.json
+project storefront shop
+chat Wren
+title "Take card payments"
+say "Wire card payments into checkout"
+settle 8
+front Wren
+settle 2
+click 709,612
+settle 2
+snap calls-do
