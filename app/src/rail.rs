@@ -1627,10 +1627,10 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     };
     let items = [
         (
-            n!("Your account"),
+            n!("Manage account"),
             Icon::User,
             None,
-            act(|bench, window, cx| bench.open_settings(Page::Account, window, cx)),
+            act(|_, _, cx| cx.open_url(&sikemux_corekit::accounts::app_base())),
         ),
         (
             n!("Devices"),
