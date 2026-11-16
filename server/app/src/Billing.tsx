@@ -224,10 +224,17 @@ function Bill({
     .map((each) => each.name);
   const free = !org && allowance.plan === "free";
   const query = org ? { org: org.id } : {};
+  const pays =
+    overview.payer !== "another_owner" && overview.payer !== "departed";
+  const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
 
   const lede = org
     ? planSub
-      ? `${org.name} is on ${planName}. You own the bill.`
+      ? overview.payer === "another_owner"
+        ? `${org.name} is on ${planName}. Another owner pays for it, so only they can change it.`
+        : overview.payer === "departed"
+          ? `${org.name} is on ${planName} until ${ends}. Whoever paid for it no longer owns the org, so it ends then and can be bought again once it has.`
+          : `${org.name} is on ${planName}. You own the bill.`
       : `${org.name} has no Team plan, so nobody can be invited to it.`
     : free
       ? "You're on Free. It has no cap on hosts and never runs out."
@@ -241,7 +248,7 @@ function Bill({
       {switcher}
       <div className="groups">
         {planSub?.status === "lapsed" ? (
-          <Lapsed sub={planSub} catalog={catalog} query={query} />
+          <Lapsed sub={planSub} catalog={catalog} query={query} pays={pays} />
         ) : null}
         <Section
           label="Plan"
@@ -253,6 +260,7 @@ function Bill({
                 sub={planSub}
                 catalog={catalog}
                 canBuy={canBuy}
+                pays={pays}
                 reload={reload}
                 show={show}
               />
@@ -323,7 +331,7 @@ function Bill({
           </Section>
         ) : (
           <>
-            <PaymentMethod card={overview.card} query={query} />
+            {pays ? <PaymentMethod card={overview.card} query={query} /> : null}
             <Invoices invoices={invoices} catalog={catalog} />
           </>
         )}
@@ -352,10 +360,12 @@ function Lapsed({
   sub,
   catalog,
   query,
+  pays,
 }: {
   sub: Subscription;
   catalog: BillingCatalog;
   query: { org?: string };
+  pays: boolean;
 }) {
   const portal = usePortal(query);
   const name = productOf(catalog, sub.product)?.name ?? sub.product;
@@ -368,17 +378,20 @@ function Lapsed({
         {sub.product === "team"
           ? "Invites and org features are frozen until it's paid. Everyone keeps their own hosts."
           : "Its features are off until it's paid. Your hosts keep working."}
+        {pays ? null : " Only whoever pays for it can update the card."}
         {portal.problem ? <p className="problem">{portal.problem}</p> : null}
       </div>
-      <button
-        type="button"
-        className="button small primary"
-        onClick={() => void portal.open()}
-        disabled={portal.busy}
-        data-busy={portal.busy || undefined}
-      >
-        Update card
-      </button>
+      {pays ? (
+        <button
+          type="button"
+          className="button small primary"
+          onClick={() => void portal.open()}
+          disabled={portal.busy}
+          data-busy={portal.busy || undefined}
+        >
+          Update card
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -391,12 +404,14 @@ function PlanRows({
   sub,
   catalog,
   canBuy,
+  pays,
   reload,
   show,
 }: {
   sub: Subscription;
   catalog: BillingCatalog;
   canBuy: boolean;
+  pays: boolean;
   reload: () => void;
   show: Show;
 }) {
@@ -430,7 +445,7 @@ function PlanRows({
       <Row
         label="Plan"
         action={
-          seats && !refunding ? (
+          seats && !refunding && pays ? (
             <button
               type="button"
               className="button small"
@@ -502,23 +517,26 @@ function PlanRows({
         <Row
           label="Ends"
           action={
-            <button
-              type="button"
-              className="button small primary"
-              onClick={() =>
-                void action.run(
-                  async () => {
-                    await resume();
-                    show(`${name} renews on ${ends}.`);
-                  },
-                  (error) => `${problemText(error)} It still ends on ${ends}.`,
-                )
-              }
-              disabled={action.busy}
-              data-busy={action.busy || undefined}
-            >
-              Keep {name}
-            </button>
+            pays ? (
+              <button
+                type="button"
+                className="button small primary"
+                onClick={() =>
+                  void action.run(
+                    async () => {
+                      await resume();
+                      show(`${name} renews on ${ends}.`);
+                    },
+                    (error) =>
+                      `${problemText(error)} It still ends on ${ends}.`,
+                  )
+                }
+                disabled={action.busy}
+                data-busy={action.busy || undefined}
+              >
+                Keep {name}
+              </button>
+            ) : null
           }
           below={
             action.problem && !asking ? (
