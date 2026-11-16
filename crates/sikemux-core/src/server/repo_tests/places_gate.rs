@@ -677,10 +677,29 @@ fn a_relative_kube_config_is_read_where_it_runs() {
 }
 
 fn closed_after_restart(data: &Path, id: &str) -> Option<CallResult> {
-    let again = Core::new(Default::default(), Some(data)).unwrap();
-    let call = crate::server::person_calls::shown(&again)
-        .into_iter()
-        .find(|call| call.id == id)?;
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "STEP restart Core::new");
+    let again = match Core::new(Default::default(), Some(data)) {
+        Ok(core) => core,
+        Err(error) => {
+            let _ = writeln!(std::io::stderr(), "STEP restart failed: {error:?}");
+            panic!("{error:?}")
+        }
+    };
+    let calls = crate::server::person_calls::shown(&again);
+    let _ = writeln!(
+        std::io::stderr(),
+        "STEP restart calls: {:?}",
+        calls
+            .iter()
+            .map(|call| (
+                call.id.clone(),
+                call.state.clone(),
+                call.outcome.as_ref().map(|o| o.result)
+            ))
+            .collect::<Vec<_>>()
+    );
+    let call = calls.into_iter().find(|call| call.id == id)?;
     call.outcome.map(|outcome| outcome.result)
 }
 
@@ -724,18 +743,42 @@ async fn a_tap_on_the_card_starts_nothing_until_the_agent_runs_it() {
 /// restart, and the agent heard nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_retry_that_started_after_an_end_may_have_run() {
+    fn step(what: &str) {
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr(), "STEP {what}");
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(90));
+        step("watchdog fired");
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List | Out-String -Width 400"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+        std::process::exit(9);
+    });
+    step("repo");
     let dir = repo();
     let data = tempfile::tempdir().unwrap();
     let (cwd, project) = work_of(&dir);
+    step("core_at");
     let core = core_at(Some(data.path()), &project, vec![vercel_place()]);
+    step("run 1");
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+    step("open_calls");
     let id = open_calls(&core).remove(0).id;
+    step("answer");
     answer_on_the_card(&core, &id).await;
+    step("run 2");
     let first = run(&core, deploy("vercel --prod"), &cwd).unwrap().unwrap();
+    step("ended");
     ship::ended(core.clone(), first, Some(Verdict::Failed)).await;
+    step("run 3");
     std::thread::sleep(std::time::Duration::from_millis(2));
     assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
+    step("drop");
     drop(core);
+    step("restart");
     assert_eq!(
         closed_after_restart(data.path(), &id),
         Some(CallResult::MayHaveRun)
