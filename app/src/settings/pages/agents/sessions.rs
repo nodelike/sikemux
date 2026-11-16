@@ -140,9 +140,11 @@ pub fn read_names(bench: &Workbench, window: &mut Window, cx: &mut Context<Workb
                     .collect(),
                 chosen,
                 |bench, at, _| {
-                    Target::here(&bench.asks).call_typed::<call::SetAgentNameTheme>(
-                        NameThemeParams { theme: NAMES[at].0 },
-                    );
+                    let Some(&(theme, _)) = NAMES.get(at) else {
+                        return;
+                    };
+                    Target::here(&bench.asks)
+                        .call_typed::<call::SetAgentNameTheme>(NameThemeParams { theme });
                 },
                 window,
                 cx,
@@ -166,10 +168,9 @@ impl Fields {
                 MidTurnSend::Queue => 1,
             },
             |bench, at, _| {
-                crate::settings::set(
-                    bench,
-                    PreferenceChange::MidTurnSend([MidTurnSend::Steer, MidTurnSend::Queue][at]),
-                )
+                if let Some(&send) = [MidTurnSend::Steer, MidTurnSend::Queue].get(at) {
+                    crate::settings::set(bench, PreferenceChange::MidTurnSend(send))
+                }
             },
             window,
             cx,
@@ -181,12 +182,9 @@ impl Fields {
                 RailDensity::Compact => 1,
             },
             |bench, at, _| {
-                crate::settings::set(
-                    bench,
-                    PreferenceChange::RailDensity(
-                        [RailDensity::Comfortable, RailDensity::Compact][at],
-                    ),
-                )
+                if let Some(&density) = [RailDensity::Comfortable, RailDensity::Compact].get(at) {
+                    crate::settings::set(bench, PreferenceChange::RailDensity(density))
+                }
             },
             window,
             cx,
@@ -202,7 +200,9 @@ impl Fields {
                 .position(|reading| *reading == preferences.screen_reader)
                 .unwrap_or(0),
             |bench, at, _| {
-                crate::settings::set(bench, PreferenceChange::ScreenReader(READINGS[at]))
+                if let Some(&reading) = READINGS.get(at) {
+                    crate::settings::set(bench, PreferenceChange::ScreenReader(reading))
+                }
             },
             window,
             cx,
@@ -219,7 +219,11 @@ impl Fields {
                 .iter()
                 .position(|runs| *runs == preferences.build_runs)
                 .unwrap_or(0),
-            |bench, at, _| crate::settings::set(bench, PreferenceChange::BuildRuns(BUILD_RUNS[at])),
+            |bench, at, _| {
+                if let Some(&runs) = BUILD_RUNS.get(at) {
+                    crate::settings::set(bench, PreferenceChange::BuildRuns(runs))
+                }
+            },
             window,
             cx,
         );

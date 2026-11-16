@@ -101,7 +101,10 @@ fn edit(
                         Some(price.output),
                         price.cache_read,
                         price.cache_write,
-                    ][at]
+                    ]
+                    .get(at)
+                    .copied()
+                    .flatten()
                 })
                 .map(|value| value.to_string())
                 .unwrap_or_default();
@@ -606,7 +609,7 @@ pub fn render(
         .unwrap_or_else(|| div().into_any_element());
     let by_project = div()
         .children(summary.map(|summary| {
-            let shown = &summary.projects[..summary.projects.len().min(8)];
+            let shown = summary.projects.get(..8).unwrap_or(&summary.projects);
             shares(bench, shown, false, measure, cx)
         }))
         .children(summary.map(|summary| pricing_note(summary, cx)));

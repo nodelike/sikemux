@@ -266,7 +266,9 @@ pub fn render(
             chosen,
         )
         .on_select(move |chosen, _, cx| {
-            let placement = PLACEMENTS[*chosen].0;
+            let Some(&(placement, ..)) = PLACEMENTS.get(*chosen) else {
+                return;
+            };
             this.update(cx, |bench, cx| {
                 change_fields(bench, cx, |fields, _| fields.placement = placement)
             });

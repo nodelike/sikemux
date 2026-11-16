@@ -201,8 +201,11 @@ pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
                 account: status
                     .await
                     .ok()
-                    .and_then(|status| text(&status["profile"])),
-                agents: picks.await.ok().and_then(|picks| text(&picks["default"])),
+                    .and_then(|status| status.get("profile").and_then(text)),
+                agents: picks
+                    .await
+                    .ok()
+                    .and_then(|picks| picks.get("default").and_then(text)),
             };
             let _ = bench.update(cx, |bench, cx| {
                 change_fields(bench, cx, |fields, _| fields.aws = Some(aws));
@@ -728,12 +731,15 @@ fn make_app(bench: &mut Workbench, organization: Option<String>, cx: &mut Contex
         let mut failed = None;
         while let Some(part) = streaming.parts.recv().await {
             for item in part.items {
-                if let Some(url) = item["url"].as_str() {
+                if let Some(url) = item.get("url").and_then(Value::as_str) {
                     cx.update(|cx| cx.open_url(url));
                 }
             }
             if let Some(error) = part.error {
-                let message = error["message"].as_str().map(str::to_owned);
+                let message = error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 failed = Some(message.unwrap_or_else(|| error.to_string()));
             }
             if part.done {
@@ -1128,12 +1134,15 @@ fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         let mut failed = None;
         while let Some(part) = streaming.parts.recv().await {
             for item in part.items {
-                if let Some(url) = item["url"].as_str() {
+                if let Some(url) = item.get("url").and_then(Value::as_str) {
                     cx.update(|cx| cx.open_url(url));
                 }
             }
             if let Some(error) = part.error {
-                let message = error["message"].as_str().map(str::to_owned);
+                let message = error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 failed = Some(message.unwrap_or_else(|| error.to_string()));
             }
             if part.done {

@@ -81,6 +81,7 @@ pub fn capture() -> Result<Shot, Missed> {
     }
     // SAFETY: both take nothing; the request only shows macOS's prompt the first time.
     if !unsafe { CGPreflightScreenCaptureAccess() } {
+        // SAFETY: takes nothing; macOS shows its prompt only the first time.
         unsafe { CGRequestScreenCaptureAccess() };
         return Err(Missed::NotAllowed);
     }
@@ -214,16 +215,20 @@ pub fn follow_apps() {
         let Some(note) = (unsafe { note.as_ref() }) else {
             return;
         };
+        // SAFETY: `note` is a live NSNotification, and userInfo returns a dictionary or nil.
         let info: Option<Retained<AnyObject>> = unsafe { msg_send![note, userInfo] };
         let Some(info) = info else {
             return;
         };
         let key = ns_string!("NSWorkspaceApplicationKey");
+        // SAFETY: `info` is a dictionary, and the key is AppKit's own.
         let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*info, objectForKey: key] };
         let Some(app) = app else {
             return;
         };
+        // SAFETY: `app` is the NSRunningApplication the notification names.
         let pid: i32 = unsafe { msg_send![&*app, processIdentifier] };
+        // SAFETY: as above; localizedName returns a string or nil.
         let name: Option<Retained<NSString>> = unsafe { msg_send![&*app, localizedName] };
         if pid != ours {
             set_last_app(pid, name.map(|name| name.to_string()).unwrap_or_default());
@@ -295,14 +300,20 @@ unsafe fn shoot(
     most: f64,
     sent: mpsc::Sender<Taken>,
 ) -> Result<(), String> {
+    // SAFETY: the caller passes an `SCShareableContent` or null.
     let Some(content) = (unsafe { content.as_ref() }) else {
+        // SAFETY: the caller passes an `NSError` or null.
         return Err(unsafe { described(error) });
     };
+    // SAFETY: `content` is an `SCShareableContent`, whose windows are an NSArray.
     let windows: Retained<AnyObject> = unsafe { msg_send![content, windows] };
+    // SAFETY: `windows` is an NSArray.
     let count: usize = unsafe { msg_send![&*windows, count] };
     let window = (0..count)
+        // SAFETY: `at` is below the array's count.
         .map(|at| -> Retained<AnyObject> { unsafe { msg_send![&*windows, objectAtIndex: at] } })
         .find(|window| {
+            // SAFETY: each item of the array is an `SCWindow`.
             let its: u32 = unsafe { msg_send![&**window, windowID] };
             its == id
         })
@@ -314,28 +325,39 @@ unsafe fn shoot(
     ) else {
         return Err("ScreenCaptureKit is missing".to_owned());
     };
+    // SAFETY: `filter` is the SCContentFilter class.
     let filter: Allocated<AnyObject> = unsafe { msg_send![filter, alloc] };
+    // SAFETY: a freshly allocated filter, set up once with an `SCWindow`.
     let filter: Retained<AnyObject> =
         unsafe { msg_send![filter, initWithDesktopIndependentWindow: &*window] };
+    // SAFETY: `window` is an `SCWindow`, whose frame is an NSRect.
     let frame: NSRect = unsafe { msg_send![&*window, frame] };
+    // SAFETY: `filter` is an initialised SCContentFilter.
     let native: f32 = unsafe { msg_send![&*filter, pointPixelScale] };
     let scale = f64::from(native).min(most / longest.max(1.));
     let width = (frame.size.width * scale).round().max(1.) as usize;
     let height = (frame.size.height * scale).round().max(1.) as usize;
+    // SAFETY: `config` is the SCStreamConfiguration class.
     let config: Retained<AnyObject> = unsafe { msg_send![config, new] };
+    // SAFETY: `config` is an SCStreamConfiguration; these setters take plain values.
     let _: () = unsafe { msg_send![&*config, setWidth: width] };
+    // SAFETY: as above.
     let _: () = unsafe { msg_send![&*config, setHeight: height] };
+    // SAFETY: as above.
     let _: () = unsafe { msg_send![&*config, setShowsCursor: false] };
     let taken = RcBlock::new(move |image: *mut CGImage, error: *mut AnyObject| {
         autoreleasepool(|_| {
             // SAFETY: ScreenCaptureKit hands either the picture or an error.
             let jpeg = match unsafe { image.as_ref() } {
                 Some(image) => jpeg(image),
+                // SAFETY: with no picture, ScreenCaptureKit hands an `NSError` or null.
                 None => Err(unsafe { described(error) }),
             };
             let _ = sent.send(jpeg.map(|jpeg| (jpeg, width as u32, height as u32, scale)));
         });
     });
+    // SAFETY: `manager` is the SCScreenshotManager class, and the filter, configuration and
+    // handler are the live objects made above.
     let _: () = unsafe {
         msg_send![manager, captureImageWithFilter: &*filter, configuration: &*config, completionHandler: &*taken]
     };
@@ -345,8 +367,10 @@ unsafe fn shoot(
 /// # Safety
 /// `error` is an `NSError` or null.
 unsafe fn described(error: *mut AnyObject) -> String {
+    // SAFETY: the caller passes an `NSError` or null.
     match unsafe { error.as_ref() } {
         Some(error) => {
+            // SAFETY: `error` is an NSError, whose description is a string.
             let said: Retained<NSString> = unsafe { msg_send![error, localizedDescription] };
             said.to_string()
         }
@@ -465,6 +489,7 @@ fn attribute(element: &CFType, name: &'static str) -> Option<CFType> {
             &mut value,
         )
     };
+    // SAFETY: on success the value is a retained CF object that this wrapper now owns.
     (error == 0 && !value.is_null()).then(|| unsafe { CFType::wrap_under_create_rule(value) })
 }
 
@@ -502,9 +527,15 @@ fn said(element: &CFType) -> Option<String> {
         .filter_map(|name| string(element, name))
         .map(|text| text.trim().to_owned())
         .find(|text| !text.is_empty())
-        .map(|text| match text.char_indices().nth(ONE_ELEMENT) {
-            Some((cut, _)) => format!("{}…", &text[..cut]),
-            None => text,
+        .map(|text| {
+            match text
+                .char_indices()
+                .nth(ONE_ELEMENT)
+                .and_then(|(cut, _)| text.get(..cut))
+            {
+                Some(kept) => format!("{kept}…"),
+                None => text,
+            }
         })
 }
 

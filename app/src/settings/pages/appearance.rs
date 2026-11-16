@@ -371,7 +371,9 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
             .collect(),
         backdrop_at(preferences.pane_backdrop),
         |bench, at, _| {
-            crate::settings::set(bench, PreferenceChange::PaneBackdrop(BACKDROPS[at].0));
+            if let Some(&(backdrop, _)) = BACKDROPS.get(at) {
+                crate::settings::set(bench, PreferenceChange::PaneBackdrop(backdrop));
+            }
         },
         window,
         cx,
@@ -421,12 +423,13 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         moved_glow,
         moved_glow_size,
     ];
-    let inks = (0..preferences.pane_inks.len())
-        .map(|at| {
-            let picker = cx.new(|cx| {
-                ColorPickerState::new(window, cx)
-                    .default_value(theme::color(&preferences.pane_inks[at]))
-            });
+    let inks = preferences
+        .pane_inks
+        .iter()
+        .enumerate()
+        .map(|(at, ink)| {
+            let picker =
+                cx.new(|cx| ColorPickerState::new(window, cx).default_value(theme::color(ink)));
             watching.push(cx.subscribe_in(
                 &picker,
                 window,
@@ -504,7 +507,9 @@ fn picture_rows(
             chosen,
         )
         .on_select(move |at, _, cx| {
-            let change = changes[*at].clone();
+            let Some(change) = changes.get(*at).cloned() else {
+                return;
+            };
             this.update(cx, |bench, _| crate::settings::set(bench, change))
         })
     };
@@ -714,7 +719,9 @@ fn step(bench: &Workbench, by: isize, cx: &App) {
         None if by > 0 => 0,
         None => last,
     };
-    crate::settings::set(bench, PreferenceChange::ThemeId(listed[next].clone()));
+    if let Some(id) = listed.get(next) {
+        crate::settings::set(bench, PreferenceChange::ThemeId(id.clone()));
+    }
 }
 
 /// The themes the library shows as searched and filtered: yours, then Sikemux's, then Ghostty's.
@@ -863,7 +870,9 @@ pub fn render(
             chosen,
         )
         .on_select(move |chosen, _, cx| {
-            let tone = [Tone::All, Tone::Dark, Tone::Light][*chosen];
+            let Some(&tone) = [Tone::All, Tone::Dark, Tone::Light].get(*chosen) else {
+                return;
+            };
             this.update(cx, |bench, cx| {
                 change_fields(bench, cx, |fields, _| fields.tone = tone);
             })
@@ -921,8 +930,9 @@ pub fn render(
         let (this, t) = (this.clone(), t.clone());
         uniform_list("theme-grid", shown_rows, move |range, _, _| {
             range
-                .map(|at| {
-                    let cards = rows_of[at].iter().map(|summary| {
+                .filter_map(|at| {
+                    let row = rows_of.get(at)?;
+                    let cards = row.iter().map(|summary| {
                         let chosen = summary.id == picked;
                         let custom = summary.source == ThemeSource::Custom;
                         let group = SharedString::from(format!("theme-card-{}", summary.id));
@@ -1017,15 +1027,17 @@ pub fn render(
                                     }),
                             )
                     });
-                    let gaps = COLUMNS - rows_of[at].len();
-                    div()
-                        .id(("theme-row", at))
-                        .w_full()
-                        .h(px(CARD_ROW))
-                        .flex()
-                        .gap(SPACE_1H)
-                        .children(cards)
-                        .children((0..gaps).map(|_| div().flex_1()))
+                    let gaps = COLUMNS - row.len();
+                    Some(
+                        div()
+                            .id(("theme-row", at))
+                            .w_full()
+                            .h(px(CARD_ROW))
+                            .flex()
+                            .gap(SPACE_1H)
+                            .children(cards)
+                            .children((0..gaps).map(|_| div().flex_1())),
+                    )
                 })
                 .collect()
         })
@@ -1199,7 +1211,9 @@ pub fn render(
             chosen,
         )
         .on_select(move |chosen, _, cx| {
-            let scale = [1., 1.1, 1.25][*chosen];
+            let Some(&scale) = [1., 1.1, 1.25].get(*chosen) else {
+                return;
+            };
             this.update(cx, |bench, _| {
                 crate::settings::set(bench, PreferenceChange::UiTextScale(scale))
             })
@@ -1221,7 +1235,9 @@ pub fn render(
                 .unwrap_or(0),
         )
         .on_select(move |chosen, _, cx| {
-            let width = widths[*chosen];
+            let Some(&width) = widths.get(*chosen) else {
+                return;
+            };
             this.update(cx, |bench, _| {
                 crate::settings::set(bench, PreferenceChange::ChatWidth(width))
             })
@@ -1239,7 +1255,9 @@ pub fn render(
             usize::from(preferences.contrast == Contrast::More),
         )
         .on_select(move |chosen, _, cx| {
-            let contrast = levels[*chosen];
+            let Some(&contrast) = levels.get(*chosen) else {
+                return;
+            };
             this.update(cx, |bench, _| {
                 crate::settings::set(bench, PreferenceChange::Contrast(contrast))
             })
@@ -1261,7 +1279,9 @@ pub fn render(
                 .unwrap_or(0),
         )
         .on_select(move |chosen, _, cx| {
-            let motion = choices[*chosen];
+            let Some(&motion) = choices.get(*chosen) else {
+                return;
+            };
             this.update(cx, |bench, _| {
                 crate::settings::set(bench, PreferenceChange::Motion(motion))
             })

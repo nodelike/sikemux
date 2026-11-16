@@ -242,7 +242,7 @@ impl Review {
             self.lay_out();
         }
         if let Some(at) = self.items.iter().position(|item| match item {
-            Item::Header(card) => self.cards[*card].path == path,
+            Item::Header(card) => self.cards.get(*card).is_some_and(|card| card.path == path),
             _ => false,
         }) {
             self.list().scroll_to(ListOffset {
@@ -262,7 +262,9 @@ impl Review {
     }
 
     fn toggle(&mut self, card: usize) {
-        let path = &self.cards[card].path;
+        let Some(Card { path, .. }) = self.cards.get(card) else {
+            return;
+        };
         if !self.folded.remove(path) {
             self.folded.insert(path.clone());
         }
@@ -300,12 +302,11 @@ impl Review {
     fn read(&mut self, core: &Target, cx: &mut Context<GitPane>) {
         let top = self.list().logical_scroll_top().item_ix;
         let first = self.items.get(top).map_or(0, |item| item.card());
-        for index in first..(first + READ_AHEAD).min(self.cards.len()) {
-            if self.folded.contains(&self.cards[index].path) {
+        for card in self.cards.iter_mut().skip(first).take(READ_AHEAD) {
+            if self.folded.contains(&card.path) {
                 continue;
             }
-            for at in 0..self.cards[index].sections.len() {
-                let section = &mut self.cards[index].sections[at];
+            for section in &mut card.sections {
                 if section.asked {
                     continue;
                 }
@@ -384,11 +385,16 @@ impl Review {
     }
 
     fn expand(&mut self, card: usize, at: usize) {
-        let section = &mut self.cards[card].sections[at];
-        if !section.whole {
-            section.whole = true;
-            section.asked = false;
+        if let Some(section) = self.section_mut(card, at) {
+            if !section.whole {
+                section.whole = true;
+                section.asked = false;
+            }
         }
+    }
+
+    fn section(&self, card: usize, at: usize) -> Option<&Section> {
+        self.cards.get(card)?.sections.get(at)
     }
 
     fn section_mut(&mut self, card: usize, at: usize) -> Option<&mut Section> {
@@ -415,14 +421,13 @@ pub fn review(pane: &mut GitPane, window: &mut Window, cx: &mut Context<GitPane>
     let language = |path: &str, cx: &App| {
         crate::file_icons::language(path, cx).filter(|language| crate::syntax::knows(language))
     };
-    for card in 0..pane.review.cards.len() {
+    for (card, shown) in pane.review.cards.iter_mut().enumerate() {
         let read = |section: &Section| matches!(section.diff, Some(Ok(_)));
-        if !pane.review.cards[card].sections.iter().any(read) {
+        if !shown.sections.iter().any(read) {
             continue;
         }
-        let language = language(&pane.review.cards[card].path, cx);
-        for at in 0..pane.review.cards[card].sections.len() {
-            let section = &mut pane.review.cards[card].sections[at];
+        let language = language(&shown.path, cx);
+        for (at, section) in shown.sections.iter_mut().enumerate() {
             if let Some(Ok(diff)) = &section.diff {
                 section
                     .colours
@@ -511,8 +516,13 @@ fn draw(
             )
             .into_any_element(),
         Item::Title(card, at) => {
-            let section = &review.cards[card].sections[at];
-            let file = review.cards[card].file.as_ref();
+            let Some(shown) = review.cards.get(card) else {
+                return div().into_any_element();
+            };
+            let Some(section) = shown.sections.get(at) else {
+                return div().into_any_element();
+            };
+            let file = shown.file.as_ref();
             let (change, word) = match section.side {
                 Some(Side::Staged) => (
                     file.map_or(GitChange::Unchanged, |file| file.index),
@@ -541,7 +551,9 @@ fn draw(
             .into_any_element()
         }
         Item::Note(card, at) => {
-            let section = &review.cards[card].sections[at];
+            let Some(section) = review.section(card, at) else {
+                return div().into_any_element();
+            };
             let (text, colour) = match &section.diff {
                 None => (t!("loading diff...").to_owned(), t.text_tertiary),
                 Some(Err(error)) => (format!("x {error}"), t.danger),
@@ -558,7 +570,12 @@ fn draw(
             .into_any_element()
         }
         Item::Row(card, at, index) => {
-            let section = &review.cards[card].sections[at];
+            let Some(shown) = review.cards.get(card) else {
+                return div().into_any_element();
+            };
+            let Some(section) = shown.sections.get(at) else {
+                return div().into_any_element();
+            };
             let Some(Ok(diff)) = &section.diff else {
                 return div().into_any_element();
             };
@@ -566,7 +583,7 @@ fn draw(
                 note: section.notes.get(index).cloned().flatten(),
                 ..RowLook::new(&t, advance, section.scrolled)
             };
-            let file = Path::new(&review.repo).join(&review.cards[card].path);
+            let file = Path::new(&review.repo).join(&shown.path);
             let width = diff.width(advance);
             let (expanding, wheeling) = (view.clone(), view.clone());
             body(
@@ -613,8 +630,10 @@ fn draw(
 /// pane's own render, where reading it panics.
 fn header(view: &Entity<GitPane>, pane: &GitPane, card: usize, cx: &App) -> AnyElement {
     let review = &pane.review;
-    let path = &review.cards[card].path;
-    let file = review.cards[card].file.as_ref();
+    let Some(Card { path, file, .. }) = review.cards.get(card) else {
+        return div().into_any_element();
+    };
+    let file = file.as_ref();
     let open = !review.folded.contains(path);
     let target = OpenAt {
         path: Path::new(&review.repo).join(path),

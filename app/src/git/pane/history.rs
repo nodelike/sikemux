@@ -72,51 +72,60 @@ pub fn graph(commits: &[GitCommit]) -> Graph {
         .map(|commit| commit.full_hash.as_str())
         .collect();
     let mut drawn: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut lanes: Vec<Option<&str>> = Vec::new();
-    let mut up: Vec<bool> = Vec::new();
+    let mut lanes: Vec<Option<(&str, bool)>> = Vec::new();
     let mut rows = Vec::with_capacity(commits.len());
     let mut widest = 0;
-    let free = |lanes: &mut Vec<Option<&str>>, up: &mut Vec<bool>| {
+    let free = |lanes: &mut Vec<Option<(&str, bool)>>| {
         lanes.iter().position(Option::is_none).unwrap_or_else(|| {
             lanes.push(None);
-            up.push(false);
             lanes.len() - 1
         })
     };
     for commit in commits {
         let hash = commit.full_hash.as_str();
-        let expecting: Vec<usize> = (0..lanes.len())
-            .filter(|lane| lanes[*lane] == Some(hash))
+        let expecting: Vec<(usize, bool)> = lanes
+            .iter()
+            .enumerate()
+            .filter_map(|(lane, waits)| match waits {
+                Some((waits, unpushed)) if *waits == hash => Some((lane, *unpushed)),
+                _ => None,
+            })
             .collect();
         let lane = match expecting.first() {
-            Some(lane) => *lane,
-            None => free(&mut lanes, &mut up),
+            Some(&(lane, _)) => lane,
+            None => free(&mut lanes),
         };
         let merges = expecting
             .iter()
-            .map(|from| {
+            .map(|&(from, unpushed)| {
                 (
-                    *from,
+                    from,
                     Edge {
-                        lane: *from,
-                        unpushed: up[*from],
+                        lane: from,
+                        unpushed,
                     },
                 )
             })
             .collect();
-        let through = (0..lanes.len())
-            .filter(|other| *other != lane && lanes[*other].is_some_and(|waits| waits != hash))
-            .map(|other| Edge {
-                lane: other,
-                unpushed: up[other],
+        let through = lanes
+            .iter()
+            .enumerate()
+            .filter_map(|(other, waits)| match waits {
+                Some((waits, unpushed)) if other != lane && *waits != hash => Some(Edge {
+                    lane: other,
+                    unpushed: *unpushed,
+                }),
+                _ => None,
             })
             .collect();
-        for from in &expecting {
-            lanes[*from] = None;
-            up[*from] = false;
+        for &(from, _) in &expecting {
+            if let Some(waits) = lanes.get_mut(from) {
+                *waits = None;
+            }
         }
-        lanes[lane] = None;
-        up[lane] = false;
+        if let Some(waits) = lanes.get_mut(lane) {
+            *waits = None;
+        }
         let parents: Vec<&str> = commit
             .parents
             .iter()
@@ -125,17 +134,16 @@ pub fn graph(commits: &[GitCommit]) -> Graph {
             .collect();
         let mut branches = Vec::new();
         for (index, parent) in parents.iter().enumerate() {
-            let to = match lanes.iter().position(|waits| *waits == Some(*parent)) {
+            let to = match lanes
+                .iter()
+                .position(|waits| waits.is_some_and(|(waits, _)| waits == *parent))
+            {
                 Some(to) => to,
-                None if index == 0 => {
-                    lanes[lane] = Some(parent);
-                    up[lane] = commit.unpushed;
-                    lane
-                }
                 None => {
-                    let to = free(&mut lanes, &mut up);
-                    lanes[to] = Some(parent);
-                    up[to] = commit.unpushed;
+                    let to = if index == 0 { lane } else { free(&mut lanes) };
+                    if let Some(waits) = lanes.get_mut(to) {
+                        *waits = Some((parent, commit.unpushed));
+                    }
                     to
                 }
             };
@@ -158,7 +166,6 @@ pub fn graph(commits: &[GitCommit]) -> Graph {
         drawn.insert(hash);
         while lanes.last().is_some_and(Option::is_none) {
             lanes.pop();
-            up.pop();
         }
         widest = widest.max(lanes.len()).max(lane + 1);
     }
@@ -198,8 +205,15 @@ impl Inks {
         if edge.unpushed {
             self.unpushed
         } else {
-            self.lanes[edge.lane % self.lanes.len()]
+            self.lane(edge.lane)
         }
+    }
+
+    fn lane(&self, lane: usize) -> Hsla {
+        self.lanes
+            .get(lane % self.lanes.len())
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -241,7 +255,7 @@ fn paint(lanes: &Lanes, inks: &Inks, chosen: bool, bounds: Bounds<Pixels>, windo
     let colour = if lanes.unpushed {
         inks.unpushed
     } else {
-        inks.lanes[lanes.lane % inks.lanes.len()]
+        inks.lane(lanes.lane)
     };
     let disc = |radius: f32, colour: Hsla, window: &mut Window| {
         let centre = at(node, middle);
@@ -287,16 +301,13 @@ fn paint(lanes: &Lanes, inks: &Inks, chosen: bool, bounds: Bounds<Pixels>, windo
 /// A conventional-commit prefix such as `feat(git): ` repeats down the whole list, so a
 /// row shows what follows it.
 fn without_scope(subject: &str) -> &str {
-    let kind = subject
-        .find(|character: char| !character.is_ascii_alphabetic())
-        .unwrap_or(subject.len());
-    if kind == 0 {
+    let mut rest = subject.trim_start_matches(|character: char| character.is_ascii_alphabetic());
+    if rest.len() == subject.len() {
         return subject;
     }
-    let mut rest = &subject[kind..];
     if let Some(scoped) = rest.strip_prefix('(') {
-        match scoped.find(')') {
-            Some(close) => rest = &scoped[close + 1..],
+        match scoped.split_once(')') {
+            Some((_, after)) => rest = after,
             None => return subject,
         }
     }

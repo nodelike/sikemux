@@ -460,18 +460,17 @@ fn transfer(
         .into_iter()
         .filter(|(.., reached, _)| *reached)
         .collect();
-    if hosts.is_empty() {
-        return rows::note(
-            t!("Sign in to your account on another Sikemux host to link it, then send projects there."),
-            cx,
-        );
-    }
     let chosen = transfer
         .host
         .as_ref()
         .and_then(|key| hosts.iter().position(|(host, ..)| host == key))
         .unwrap_or(0);
-    let (host, label, _, after) = hosts[chosen].clone();
+    let Some((host, label, _, after)) = hosts.get(chosen).cloned() else {
+        return rows::note(
+            t!("Sign in to your account on another Sikemux host to link it, then send projects there."),
+            cx,
+        );
+    };
     let keys: Vec<String> = hosts.iter().map(|(key, ..)| key.clone()).collect();
     let (pick_host, pick_way, pick_changes, send) =
         (this.clone(), this.clone(), this.clone(), this.clone());
