@@ -435,7 +435,7 @@ async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_tol
         .says(format!("tool trigger.list {{}}\n{waits}"), waits)
         .await;
     worker.chat.until_said("nothing is set to wake you").await;
-    worker.chat.until_turns_ended(3).await;
+    worker.chat.until(|chat| !chat.view.head.running).await;
 
     let heard = folded::prompts(&lead.chat.view.rows);
     assert!(

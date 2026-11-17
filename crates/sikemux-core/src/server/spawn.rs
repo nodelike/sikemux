@@ -1089,6 +1089,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
         .get(agent_id)
         .map(|chat| chat.feed.last_answer().map(TerminalAnswer::Said));
     let wrote_nothing = matches!((&ending, &chat_answer), (Ending::Finished, Some(None)));
+    let sent_back = super::questions::sent_back_unwoken(core, agent_id);
+    let unwoken = super::questions::waits_unwoken(core, agent_id);
     let (core, worker) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         let answer = match chat_answer {
@@ -1115,7 +1117,7 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
                 turn.answer
             }
         };
-        if wrote_nothing || quiet(&core, &worker, &ending, answer.as_ref()) {
+        if wrote_nothing || quiet(&core, &worker, &ending, answer.as_ref(), sent_back) {
             elsewhere::send_commits(&core, &worker).await;
             return;
         }
@@ -1123,7 +1125,6 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             let (core, worker) = (core.clone(), worker.clone());
             blocking(move || Ok(work_settled(&core, &worker))).await
         };
-        let unwoken = super::questions::waits_unwoken(&core, &worker);
         let calm = is_calm(&ending, answer.as_ref(), settled.unwrap_or(false), unwoken);
         if let Some(line) = calm
             .then(|| calm_line(&core, &worker, answer.as_ref()))
@@ -1191,7 +1192,13 @@ fn calm_line(core: &Core, worker: &str, answer: Option<&TerminalAnswer>) -> Opti
     )
 }
 
-fn quiet(core: &Core, worker: &str, ending: &Ending, answer: Option<&TerminalAnswer>) -> bool {
+fn quiet(
+    core: &Core,
+    worker: &str,
+    ending: &Ending,
+    answer: Option<&TerminalAnswer>,
+    sent_back: bool,
+) -> bool {
     if !matches!(ending, Ending::Finished) {
         return false;
     }
@@ -1202,10 +1209,7 @@ fn quiet(core: &Core, worker: &str, ending: &Ending, answer: Option<&TerminalAns
         {
             false
         }
-        _ => {
-            super::questions::sent_back_unwoken(core, worker)
-                || super::turn_state::set_a_wake(core, worker)
-        }
+        _ => sent_back || super::turn_state::set_a_wake(core, worker),
     }
 }
 
