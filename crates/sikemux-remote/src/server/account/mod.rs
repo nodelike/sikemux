@@ -23,7 +23,7 @@ use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use allowance::refresh as refresh_allowance;
 pub use code::sign_in_by_code;
-pub use orgs::refresh as refresh_orgs;
+pub use orgs::{policy as org_policy, refresh as refresh_orgs, OrgPolicy};
 pub use sikemux_calls::account::AccountPictureParams;
 pub use sikemux_calls::account::{SignInCode, SignInPage};
 use std::future::Future;
