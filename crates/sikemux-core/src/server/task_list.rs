@@ -23,11 +23,8 @@ pub(crate) async fn read(core: &Arc<Core>, params: BoardParams) -> Result<Projec
 }
 
 pub(crate) fn of_folder(core: &Core, folder: &str) -> ProjectTasks {
-    let project = (core.workspaces().projects().into_iter())
-        .find(|project| project.path.as_os_str() == folder)
-        .map(|project| project.id);
     let mut rows: Vec<TaskRow> = (super::person_calls::shown(core).iter())
-        .filter(|call| call.state == CallState::Open && Some(&call.project) == project.as_ref())
+        .filter(|call| call.state == CallState::Open && call.project == folder)
         .map(call_row)
         .collect();
     rows.extend(board::task_rows(core, folder));
