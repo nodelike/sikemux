@@ -1143,6 +1143,54 @@ fn agent_row(
         .filter(|retitling| retitling.agent == agent.id && retitling.in_rail)
         .map(|retitling| crate::home::retitle_field(retitling, 13., cx).w_full());
     let said = (bench.chat_of(&agent.id)).and_then(|chat| bench.said_in(&chat.id));
+    let host = host_tag(bench, agent, cx);
+    let lead_apart = (hang.lead_apart.as_deref())
+        .and_then(|lead| bench.agent_by_id(lead))
+        .and_then(|lead| lead.name)
+        .map(|lead| ui::meta(format!("@{lead} ›"), cx).pl(SPACE_2));
+    let first = host.is_none() && lead_apart.is_none();
+    let name = (agent.handle())
+        .map(|name| ui::meta(format!("@{name}"), cx).when(first, |name| name.pl(SPACE_2)));
+    let wake = (agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx));
+    let turn_time = ui::turn_time(&agent.id, agent.turn.as_ref());
+    let counts = counts(agent, cx);
+    let shut_fold = fold.as_ref().filter(|fold| !fold.open);
+    // The hover buttons cover the name and counts, which fade for them, so nothing slides.
+    let covered = fades
+        && (name.is_some() || counts.is_some())
+        && shut_fold.is_none()
+        && wake.is_none()
+        && turn_time.is_none();
+    let (name, counts) = match covered {
+        true => {
+            let tail = div()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(SPACE_2)
+                .min_w(px(if pin.is_some() { 40. } else { 20. }))
+                .pr(SPACE_1)
+                .children(name)
+                .children(counts);
+            (
+                Some(ui::gives_way(AGENT_ROW, tail).into_any_element()),
+                None,
+            )
+        }
+        false => (
+            name.map(|name| {
+                let name = name.pr(SPACE_1);
+                match fades {
+                    true => ui::gives_way(AGENT_ROW, name).into_any_element(),
+                    false => name.into_any_element(),
+                }
+            }),
+            counts.map(|counts| match fades {
+                true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
+                false => counts.into_any_element(),
+            }),
+        ),
+    };
     let row = Row::new(
         SharedString::from(format!("agent-{}", agent.id)),
         agent.title.clone(),
@@ -1152,7 +1200,9 @@ fn agent_row(
         row.subtitle(crate::pickers::recent::said_line(said, cx))
     })
     .mark(22., mark)
-    .hover_padding(AGENT_ROW, if pin.is_some() { 48. } else { 28. })
+    .when(!covered, |row| {
+        row.hover_padding(AGENT_ROW, if pin.is_some() { 48. } else { 28. })
+    })
     .chosen(chosen)
     .glided(glided && chosen)
     .compact(bench.rail_compact())
@@ -1180,21 +1230,10 @@ fn agent_row(
             }
         }
     }))
-    .children(host_tag(bench, agent, cx))
-    .children(
-        (hang.lead_apart.as_deref())
-            .and_then(|lead| bench.agent_by_id(lead))
-            .and_then(|lead| lead.name)
-            .map(|lead| ui::meta(format!("@{lead} ›"), cx).pl(SPACE_2)),
-    )
-    .children(agent.handle().map(|name| {
-        let name = ui::meta(format!("@{name}"), cx).pl(SPACE_2).pr(SPACE_1);
-        match fades {
-            true => ui::gives_way(AGENT_ROW, name).into_any_element(),
-            false => name.into_any_element(),
-        }
-    }))
-    .children(fold.as_ref().filter(|fold| !fold.open).map(|fold| {
+    .children(host)
+    .children(lead_apart)
+    .children(name)
+    .children(shut_fold.map(|fold| {
         div()
             .flex_none()
             .px(px(5.))
@@ -1206,12 +1245,9 @@ fn agent_row(
             .font_features(crate::theme::tabular())
             .child(format!("+{}", fold.count))
     }))
-    .children((agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx)))
-    .children(ui::turn_time(&agent.id, agent.turn.as_ref()))
-    .children(counts(agent, cx).map(|counts| match fades {
-        true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
-        false => counts.into_any_element(),
-    }));
+    .children(wake)
+    .children(turn_time)
+    .children(counts);
     let lines = hang_lines(hang, cx);
     let card = (!elsewhere)
         .then(|| crate::agents::card::view(bench, agent, project.as_deref(), cx))
