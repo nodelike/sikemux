@@ -30,6 +30,7 @@ const DRIVE: &str = if cfg!(windows) {
 };
 
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
     Regex::new(&format!(
         r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|oga|opus|flac|aac))\s*(["')])"#,
     ))
@@ -50,16 +51,16 @@ pub fn is_page_id(id: &str) -> bool {
 the markup goes straight after the doctype and needs no parsing of the page. */
 pub fn insert_head(html: &str, markup: &str) -> String {
     let body = html.trim_start_matches('\u{feff}');
-    let lead = body.len() - body.trim_start().len();
-    let doctype = body[lead..]
-        .get(..9)
-        .is_some_and(|start| start.eq_ignore_ascii_case("<!doctype"));
+    let rest = body.trim_start();
+    let lead = body.len() - rest.len();
+    let doctype = (rest.get(..9)).is_some_and(|start| start.eq_ignore_ascii_case("<!doctype"));
     let at = if doctype {
-        body[lead..].find('>').map_or(0, |end| lead + end + 1)
+        rest.find('>').map_or(0, |end| lead + end + 1)
     } else {
         0
     };
-    format!("{}{markup}{}", &body[..at], &body[at..])
+    let (before, after) = body.split_at_checked(at).unwrap_or(("", body));
+    format!("{before}{markup}{after}")
 }
 
 fn escape_text(text: &str) -> String {
@@ -281,7 +282,7 @@ pub fn title(dir: &Path, id: &str) -> Option<String> {
         false => std::fs::read_to_string(&path).ok()?,
     };
     let start = page.to_ascii_lowercase().find("<title")?;
-    let (_, rest) = page[start..].split_once('>')?;
+    let (_, rest) = page.get(start..)?.split_once('>')?;
     let (title, _) = rest.split_once('<')?;
     let title = (title
         .replace("&lt;", "<")
@@ -306,11 +307,11 @@ pub fn theme_rule(dark: bool, variables: &BTreeMap<String, String>) -> String {
         if dark { "dark" } else { "light" }
     );
     for (name, value) in variables {
-        let named = name.len() > 2
-            && name.starts_with("--")
-            && name[2..]
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        let named = (name.strip_prefix("--")).is_some_and(|rest| {
+            !rest.is_empty()
+                && (rest.bytes())
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        });
         if named {
             let value: String = value.chars().filter(|c| !";{}<>".contains(*c)).collect();
             rule.push_str(&format!("{name}:{value};"));
