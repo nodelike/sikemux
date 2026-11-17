@@ -27,6 +27,7 @@ pub(crate) mod record;
 pub(crate) mod rehome;
 pub(crate) mod reopen;
 pub(crate) mod route;
+pub(crate) mod search;
 pub(crate) mod spawn;
 pub(crate) mod team;
 pub mod transfer;

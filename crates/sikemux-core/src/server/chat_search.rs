@@ -36,8 +36,8 @@ struct Searchable {
     tier: Tier,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Tier {
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub(crate) enum Tier {
     NeedsYou,
     Moving,
     Open,
@@ -137,10 +137,34 @@ impl Query {
 
 /// The saved chats `asked` names, and with a query, every open agent and saved chat it finds
 /// in the order to show them. A quick answer looks only at names and the titles of the chats
-/// the core holds; a page after the first adds only the saved chats on it.
-pub async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreResult<RecentChats> {
-    let Some(query) = Query::parse(asked.query.as_deref()) else {
+/// the core holds; a page after the first adds only the saved chats on it. Asked `elsewhere`,
+/// it searches the account's linked hosts instead.
+pub async fn recent_chats(core: &Arc<Core>, asked: RecentChatsParams) -> CoreResult<RecentChats> {
+    if asked.elsewhere {
+        let Some(query) = asked
+            .query
+            .as_deref()
+            .filter(|typed| Query::parse(Some(typed)).is_some())
+        else {
+            return Ok(RecentChats::default());
+        };
+        return Ok(super::hosts::search::elsewhere(core, &asked, query).await);
+    }
+    if Query::parse(asked.query.as_deref()).is_none() {
         return workspace::recent_chats(core, asked).await;
+    }
+    let (mut answer, found) = search_here(core, asked).await?;
+    answer.found = found.into_iter().map(|(_, found)| found).collect();
+    Ok(answer)
+}
+
+/// What `asked`, holding a query, finds on this host, each found chat with its rank.
+pub(crate) async fn search_here(
+    core: &Core,
+    asked: RecentChatsParams,
+) -> CoreResult<(RecentChats, Vec<(Rank, FoundChat)>)> {
+    let Some(query) = Query::parse(asked.query.as_deref()) else {
+        return Ok(Default::default());
     };
     let first = asked.cursor.is_none();
     let project = asked.project.clone();
@@ -162,8 +186,8 @@ pub async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreResult<R
     let found = ranked(&query, &agents, &closed, &answer.said);
     let held = answer.chats.iter().filter(|chat| chat.agent_id.is_some());
     let chats = (found.iter())
-        .filter(|found| found.agent_id.is_none())
-        .filter_map(|found| {
+        .filter(|(_, found)| found.agent_id.is_none())
+        .filter_map(|(_, found)| {
             closed
                 .iter()
                 .find(|chat| Some(&chat.id) == found.chat.as_ref())
@@ -173,20 +197,20 @@ pub async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreResult<R
         .cloned()
         .collect();
     answer.chats = chats;
-    answer.found = found;
-    Ok(answer)
+    Ok((answer, found))
 }
 
 /// Where the query matched, how closely, the tier, unpinned, then rail place or age.
-type Rank = (FoundBy, u8, Tier, bool, u64);
+pub(crate) type Rank = (FoundBy, u8, Tier, bool, u64);
 
-/// The open agents and closed chats `query` finds, in the order to show them.
+/// The open agents and closed chats `query` finds, in the order to show them, each with its
+/// rank.
 fn ranked(
     query: &Query,
     agents: &[&Searchable],
     closed: &[&RecentInfo],
     said: &HashMap<String, sikemux_agents::sessions::said::FoundLine>,
-) -> Vec<FoundChat> {
+) -> Vec<(Rank, FoundChat)> {
     let said_in = |chat: Option<&String>| {
         !query.names_only && chat.is_some_and(|chat| said.contains_key(chat))
     };
@@ -206,6 +230,7 @@ fn ranked(
             agent_id: Some(agent.agent_id.clone()),
             chat: agent.chat.clone(),
             by,
+            host: None,
         };
         hits.push(((by, closeness, agent.tier, false, place as u64), found));
     }
@@ -222,6 +247,7 @@ fn ranked(
             agent_id: None,
             chat: Some(chat.id.clone()),
             by,
+            host: None,
         };
         let newest_first = u64::MAX - chat.active_at;
         hits.push((
@@ -233,15 +259,16 @@ fn ranked(
     let mut shown = Vec::with_capacity(hits.len());
     let mut held_back = Vec::new();
     let mut closed_titles = 0;
-    for (_, found) in hits {
+    for hit in hits {
+        let found = &hit.1;
         let closed_title = found.by == FoundBy::Title && found.agent_id.is_none();
         closed_titles += usize::from(closed_title);
         if found.by == FoundBy::Said && found.agent_id.is_none() {
             shown.append(&mut held_back);
         }
         match closed_title && closed_titles > CLOSED_TITLES_FIRST {
-            true => held_back.push(found),
-            false => shown.push(found),
+            true => held_back.push(hit),
+            false => shown.push(hit),
         }
     }
     shown.append(&mut held_back);

@@ -45,6 +45,8 @@ pub struct OlderChats {
     pub said: HashMap<String, FoundLine>,
     /// The open agents and saved chats `query` finds, in the order the core ranks them.
     pub found: Vec<FoundChat>,
+    /// The linked hosts, by key, that did not answer the search in time.
+    pub unanswered: Vec<String>,
     /// `found` still holds the last query's rows, until the core answers this one.
     stale: bool,
     loading: bool,
@@ -84,6 +86,7 @@ impl Workbench {
                 next: None,
                 said: HashMap::new(),
                 found: shown,
+                unanswered: Vec::new(),
                 stale: true,
                 loading: true,
             });
@@ -94,6 +97,7 @@ impl Workbench {
             cursor: cursor.clone(),
             limit: Some(limit),
             quick,
+            elsewhere: false,
         };
         let quick = (!same && !query.is_empty()).then(|| params(true));
         let full = (!query.starts_with('@')).then(|| params(false));
@@ -147,11 +151,14 @@ impl Workbench {
             older.said.extend(page.said);
             if std::mem::take(&mut older.stale) {
                 older.found.clear();
+                older.unanswered.clear();
             }
+            older.unanswered.extend(page.unanswered);
             let found = page.found.into_iter().filter(|found| {
                 !(older.found.iter()).any(|here| {
-                    (here.agent_id.is_some() && here.agent_id == found.agent_id)
-                        || (here.agent_id.is_none() && here.chat == found.chat)
+                    here.host == found.host
+                        && ((here.agent_id.is_some() && here.agent_id == found.agent_id)
+                            || (here.agent_id.is_none() && here.chat == found.chat))
                 })
             });
             let found: Vec<FoundChat> = found.collect();

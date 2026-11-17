@@ -140,6 +140,13 @@ impl Copies {
             .collect()
     }
 
+    /// `host`'s project of the repository `identity`, by its id there.
+    pub(super) fn project_on(&self, host: &str, identity: &str) -> Option<String> {
+        (self.heard.locked().get(host).into_iter().flatten())
+            .find(|held| held.identity.as_deref() == Some(identity))
+            .map(|held| held.id.clone())
+    }
+
     /// Whether `host` said it holds any project.
     pub(super) fn holds(&self, host: &str) -> bool {
         self.heard

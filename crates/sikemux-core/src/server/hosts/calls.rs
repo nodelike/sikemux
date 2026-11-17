@@ -14,7 +14,7 @@ use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
     answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked, open, record,
-    rehome, reopen, route, spawn, transfer,
+    rehome, reopen, route, search, spawn, transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -67,6 +67,7 @@ host_asks! {
     ChiefCopy "chiefCopy" chief_copy::ChiefCopy;
     RecordCopy "recordCopy" record::RecordCopy;
     RecordAct "recordAct" record::RecordAct;
+    SearchChats "searchChats" search::SearchParams;
 }
 
 /// Asks what became of the call `call`.
@@ -203,6 +204,7 @@ async fn dispatch(
         RecordCopy::METHOD => record::heard(core, host, read::<RecordCopy>(params)?),
         RecordAct::METHOD => record::act_here(core, read::<RecordAct>(params)?).await,
         TakeChat::METHOD => chat_move::take_here(core, read::<TakeChat>(params)?).await,
+        SearchChats::METHOD => search::here(core, read::<SearchChats>(params)?).await,
         _ => Err(format!("this host does not know {method}")),
     }
 }

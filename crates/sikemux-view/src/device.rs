@@ -249,6 +249,9 @@ pub struct FoundChat {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<String>,
     pub by: FoundBy,
+    /// The linked host it is on, by key; none for this host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 /// Where a search found a chat: its agent's @name, its title, or what was said in it.

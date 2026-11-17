@@ -178,6 +178,10 @@ pub struct RecentChatsParams {
     /// reading what the saved chats said.
     #[serde(default)]
     pub quick: bool,
+    /// Searches the account's linked hosts instead of this one, answering once each has
+    /// answered or the wait for them is over.
+    #[serde(default)]
+    pub elsewhere: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -190,4 +194,7 @@ pub struct RecentChats {
     /// What the query found, open agents and saved chats together, in the order to show them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub found: Vec<sikemux_view::device::FoundChat>,
+    /// The linked hosts, by key, that did not answer a search of them in time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unanswered: Vec<String>,
 }
