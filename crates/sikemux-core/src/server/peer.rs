@@ -215,7 +215,7 @@ fn shared_board(core: &Core, org: &str, project: &str) -> Option<SharedBoard> {
             agent: (decision.learned.agent.is_some())
                 .then_some(decision.learned.name)
                 .flatten(),
-            person: None,
+            person: decision.learned.person,
             at: decision.learned.at,
         })
         .collect();

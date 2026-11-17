@@ -34,6 +34,8 @@ pub struct Overruled {
 }
 
 pub struct BoardAbove {
+    /// The signed-in person's first name, for what they decide.
+    pub person_name: fn(&Core) -> Option<String>,
     /// What Sikemux keeps for the agent, for after its task in the same letter.
     /// Knowledge is picked by the words of `task`, a lead's own, when given, and
     /// of the agent's card.

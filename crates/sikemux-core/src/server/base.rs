@@ -470,6 +470,7 @@ pub(super) fn repo_above() -> RepoAbove {
 
 pub(super) fn board_above() -> BoardAbove {
     BoardAbove {
+        person_name: memory::moving::first_name,
         memory_brief: memory::brief,
         messages_from_board: |core, to, text, note| {
             Box::pin(messages::from_board(core, to, text, note))
