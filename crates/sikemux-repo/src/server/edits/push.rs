@@ -1013,7 +1013,6 @@ mod tests {
     /// A push Bitbucket's branch rules refused said only "failed to push some refs".
     #[test]
     fn a_refused_push_says_what_the_remote_said() {
-        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let root = sikemux_process::files::real_path(root.path()).unwrap();
         let remote = root.join("remote.git");
@@ -1024,7 +1023,11 @@ mod tests {
         commit(&work, "base.txt", "base\n", "mine: base");
         let hook = |at: PathBuf, said: &str| {
             std::fs::write(&at, format!("#!/bin/sh\necho '{said}'\nexit 1\n")).unwrap();
-            std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
         };
         hook(
             work.join(".git/hooks/pre-push"),
