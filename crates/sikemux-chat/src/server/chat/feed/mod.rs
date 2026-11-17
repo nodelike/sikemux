@@ -1247,6 +1247,10 @@ impl Feed {
         self.inner.locked().replay.work.running_tasks() as u32
     }
 
+    pub fn running_task(&self) -> Option<String> {
+        self.inner.locked().replay.work.running_task()
+    }
+
     /// The agent's process went away, and every subagent and background task
     /// it had going went with it. The chat is told each one ended.
     pub fn agent_gone(&self) {

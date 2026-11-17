@@ -415,7 +415,8 @@ fn advanced(changes: WorkAt) -> Option<u8> {
 }
 
 /// What set to wake the agent it waits on, its turn having ended at `rested_at`: CI or a timer
-/// it set, its lead's answer, a worker of its at work, or the project's check on its slice.
+/// it set, its lead's answer, a worker of its at work, the project's check on its slice, or a
+/// background task of its still running.
 fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
     let set = core
         .triggers()
@@ -462,7 +463,26 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             agents: on_agents.iter().map(|on| on.id.clone()).collect(),
         });
     }
-    set
+    set.or_else(|| background_task(core, agent_id, rested_at))
+}
+
+/// A background task of the agent's still running after its turn ended, which wakes it as it ends.
+fn background_task(core: &Core, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
+    let task = core.chats().get(agent_id)?.feed.running_task()?;
+    Some(TurnWait {
+        kind: TurnWaitKind::Process,
+        what: match task.is_empty() {
+            true => "a background task".to_owned(),
+            false => format!("background task {task}"),
+        },
+        started_at: rested_at,
+        expected_ms: None,
+        until: None,
+        place: None,
+        by: None,
+        agent: None,
+        agents: Vec::new(),
+    })
 }
 
 fn land_of(core: &Core, agent_id: &str) -> Option<TurnWait> {

@@ -308,6 +308,12 @@ impl Claude {
                 self.send(assistant);
                 self.finish(uuid, None);
             }
+            // Ends its turn waiting on a shell left running in the background.
+            "background" => {
+                self.send(json!({ "type": "system", "subtype": "task_started", "task_id": format!("bash-{uuid}"), "description": "Poll the render", "task_type": "local_bash", "is_backgrounded": true }));
+                self.say(&message_id, "waiting on the render");
+                self.finish(uuid, None);
+            }
             // Fails the first time for want of the network, and answers when sent again.
             "offline" => {
                 static FAILED_ONCE: std::sync::atomic::AtomicBool =
