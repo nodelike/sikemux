@@ -11,6 +11,7 @@
     "RUSTSEC-2026-0370": "zvariant, merged into zbus 6, reached through zbus 5 in the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
     "RUSTSEC-2026-0371": "zbus_names, merged into zbus 6, reached through zbus 5 in the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
     "RUSTSEC-2026-0372": "zvariant_derive, merged into zbus 6, reached through zbus 5 in the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
-    "RUSTSEC-2026-0374": "Unmaintained TOML parser behind askama in uniffi_bindgen, which is in the lockfile only as an optional dependency of uniffi's bindgen feature; no crate we build enables it, so no binary compiles it."
+    "RUSTSEC-2026-0374": "Unmaintained TOML parser behind askama in uniffi_bindgen, which is in the lockfile only as an optional dependency of uniffi's bindgen feature; no crate we build enables it, so no binary compiles it.",
+    "RUSTSEC-2026-0543": "chrono, declared unmaintained with no vulnerability reported; the GPUI app formats local times with it and GPUI Kit and the GPUI fork take it too, so it goes when the app moves to jiff and those crates move."
   }
 }
