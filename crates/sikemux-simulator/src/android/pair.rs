@@ -22,7 +22,11 @@ pub struct Invitation {
 
 impl Default for Invitation {
     fn default() -> Self {
-        let random = |length: usize| uuid::Uuid::new_v4().simple().to_string()[..length].to_owned();
+        let random = |length: usize| {
+            let mut random = uuid::Uuid::new_v4().simple().to_string();
+            random.truncate(length);
+            random
+        };
         Self {
             name: format!("sikemux-{}", random(8)),
             password: random(12),

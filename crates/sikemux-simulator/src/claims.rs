@@ -147,7 +147,8 @@ fn process_name(pid: u32) -> String {
             )
         };
         if written > 0 {
-            return String::from_utf8_lossy(&buffer[..written as usize]).into_owned();
+            return String::from_utf8_lossy(buffer.get(..written as usize).unwrap_or_default())
+                .into_owned();
         }
     }
     let _ = pid;
@@ -174,7 +175,8 @@ pub(crate) fn alive(_: u32) -> bool {
     true
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
 

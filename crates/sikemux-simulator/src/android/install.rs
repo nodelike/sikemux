@@ -92,8 +92,9 @@ async fn fetch_text(url: &str) -> SimResult<String> {
 fn tag<'a>(body: &'a str, name: &str) -> Option<&'a str> {
     let open = format!("<{name}>");
     let start = body.find(&open)? + open.len();
-    let end = body[start..].find(&format!("</{name}>"))? + start;
-    Some(body[start..end].trim())
+    let rest = body.get(start..)?;
+    let end = rest.find(&format!("</{name}>"))?;
+    Some(rest.get(..end)?.trim())
 }
 
 /// Each `<remotePackage>` in a repository listing: its path and body.
@@ -150,9 +151,9 @@ fn archive(body: &str) -> Option<(String, String, u64)> {
 
 fn checksum(complete: &str) -> Option<String> {
     let start = complete.find("<checksum")?;
-    let value = &complete[start..];
-    let value = &value[value.find('>')? + 1..];
-    Some(value[..value.find("</checksum>")?].trim().to_owned())
+    let value = complete.get(start..)?;
+    let value = value.get(value.find('>')? + 1..)?;
+    Some(value.get(..value.find("</checksum>")?)?.trim().to_owned())
 }
 
 /// The newest stable package at `path` with an archive for this computer.
@@ -355,7 +356,7 @@ async fn download(package: &Package, zip: &Path, mut progress: impl FnMut(u64)) 
             if read == 0 {
                 break;
             }
-            hasher.update(&buffer[..read]);
+            hasher.update(buffer.get(..read).unwrap_or_default());
         }
         written = kept;
         std::fs::OpenOptions::new()

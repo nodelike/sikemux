@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::android::is_android;
 use super::claims::Claim;
@@ -181,8 +181,8 @@ pub(super) async fn run(
                 )?,
             };
             let mut fields = json!({ "udid": device.udid, "x": point.0, "y": point.1 });
-            if let Some(duration) = number("duration") {
-                fields["duration"] = duration.into();
+            if let (Some(duration), Some(fields)) = (number("duration"), fields.as_object_mut()) {
+                fields.insert("duration".to_owned(), duration.into());
             }
             manager.request("tap", fields).await?;
             settled_state(manager, agent_id, Some(before), report(params)?).await
@@ -200,14 +200,14 @@ pub(super) async fn run(
             );
             let mut fields =
                 json!({ "udid": device.udid, "x": from.0, "y": from.1, "toX": to.0, "toY": to.1 });
-            if let Some(duration) = number("duration") {
-                fields["duration"] = duration.into();
+            if let (Some(duration), Some(fields)) = (number("duration"), fields.as_object_mut()) {
+                fields.insert("duration".to_owned(), duration.into());
             }
             let warning = edge_warning(before.size, from);
             manager.request("swipe", fields).await?;
             let mut state = settled_state(manager, agent_id, Some(before), report(params)?).await?;
-            if let Some(warning) = warning {
-                state["warning"] = warning.into();
+            if let (Some(warning), Some(state)) = (warning, state.as_object_mut()) {
+                state.insert("warning".to_owned(), warning.into());
             }
             Ok(state)
         }
@@ -263,11 +263,11 @@ pub(super) async fn run(
                 )
                 .await?;
             Ok(json!({
-                "data": shot["jpeg"],
+                "data": shot.get("jpeg"),
                 "mimeType": "image/jpeg",
                 "title": format!("{} ({})", device.name, device.os),
-                "width": shot["width"],
-                "height": shot["height"],
+                "width": shot.get("width"),
+                "height": shot.get("height"),
             }))
         }
         "sim.launch" => launch(manager, agent_id, params).await,
@@ -323,7 +323,7 @@ pub(super) async fn run(
             let timed = timed(
                 &points,
                 number("duration"),
-                |point| json!({ "x": point[0], "y": point[1] }),
+                |point| json!({ "x": point.first(), "y": point.get(1) }),
             );
             manager
                 .request("touchPath", json!({ "udid": device.udid, "points": timed }))
@@ -334,11 +334,14 @@ pub(super) async fn run(
             let device = attached(manager, agent_id)?;
             let before = read_screen(manager, &device).await?;
             let points = path(params, &["x1", "y1", "x2", "y2"])?;
-            let timed = timed(
-                &points,
-                number("duration"),
-                |point| json!({ "x": point[0], "y": point[1], "x2": point[2], "y2": point[3] }),
-            );
+            let timed = timed(&points, number("duration"), |point| {
+                json!({
+                    "x": point.first(),
+                    "y": point.get(1),
+                    "x2": point.get(2),
+                    "y2": point.get(3),
+                })
+            });
             manager
                 .request(
                     "touch2Path",
@@ -468,8 +471,9 @@ impl Numbering {
         let mut numbered = Vec::with_capacity(elements.len());
         for element in elements {
             let wanted = key(element);
-            let candidates: Vec<usize> = (0..self.known.len())
-                .filter(|&index| !taken[index] && key(&self.known[index].1) == wanted)
+            let candidates: Vec<usize> = (self.known.iter().zip(&taken).enumerate())
+                .filter(|(_, ((_, known), taken))| !**taken && key(known) == wanted)
+                .map(|(index, _)| index)
                 .collect();
             let alone = candidates.len() == 1
                 && elements.iter().filter(|other| key(other) == wanted).count() == 1
@@ -484,16 +488,20 @@ impl Numbering {
             } else {
                 candidates
                     .into_iter()
-                    .map(|index| (index, distance(self.known[index].1.center, element.center)))
+                    .filter_map(|index| {
+                        let (_, known) = self.known.get(index)?;
+                        Some((index, distance(known.center, element.center)))
+                    })
                     .filter(|(_, apart)| *apart <= SAME_PLACE)
                     .min_by(|a, b| a.1.total_cmp(&b.1))
                     .map(|(index, _)| index)
             };
-            let number = match chosen {
-                Some(index) => {
-                    taken[index] = true;
-                    self.known[index].0
-                }
+            let kept = chosen.and_then(|index| {
+                *taken.get_mut(index)? = true;
+                self.known.get(index).map(|(number, _)| *number)
+            });
+            let number = match kept {
+                Some(number) => number,
                 None => {
                     self.next += 1;
                     self.next - 1
@@ -512,8 +520,9 @@ fn distance(a: (f64, f64), b: (f64, f64)) -> f64 {
 
 pub(super) async fn list_devices(manager: &SimulatorManager) -> Result<Vec<Device>, String> {
     let reply = manager.request("devices", json!({})).await?;
-    Ok(reply["devices"]
-        .as_array()
+    Ok(reply
+        .get("devices")
+        .and_then(Value::as_array)
         .map(|devices| devices.iter().filter_map(device_from).collect())
         .unwrap_or_default())
 }
@@ -708,7 +717,8 @@ async fn attach(
     let screen = manager
         .request("screen", json!({ "udid": device.udid }))
         .await?;
-    device.screen = screen["width"].as_f64().zip(screen["height"].as_f64());
+    let side = |name: &str| screen.get(name).and_then(Value::as_f64);
+    device.screen = side("width").zip(side("height"));
     manager.set_device(agent_id, &device);
     let _ = manager
         .request("logs", json!({ "udid": device.udid, "limit": 1 }))
@@ -724,7 +734,9 @@ async fn attach(
         json!({ "agentId": agent_id, "udid": device.udid, "name": device.name }),
     );
     let mut state = settled_state(manager, agent_id, None, Report::Full).await?;
-    state["shown"] = SHOWN_ON_DESK.into();
+    if let Some(state) = state.as_object_mut() {
+        state.insert("shown".to_owned(), SHOWN_ON_DESK.into());
+    }
     Ok(state)
 }
 
@@ -976,19 +988,22 @@ async fn launch(
     let pid = match manager.launch_in_flight(agent_id, bundle, LAUNCH_IN_FLIGHT) {
         Some(pid) => pid,
         None => {
-            let mut fields = json!({ "udid": device.udid, "bundleId": bundle });
+            let mut fields = Map::new();
+            fields.insert("udid".to_owned(), device.udid.clone().into());
+            fields.insert("bundleId".to_owned(), bundle.into());
             for key in ["arguments", "environment"] {
                 if let Some(value) = params.get(key) {
-                    fields[key] = value.clone();
+                    fields.insert(key.to_owned(), value.clone());
                 }
             }
+            let fields = Value::Object(fields);
             manager.note_launch(agent_id, bundle, None);
             let budget = remaining()
                 .unwrap_or(Duration::from_secs(60))
                 .saturating_sub(SETTLE_MARGIN);
             match manager.request_within("launch", fields, budget).await {
                 Ok(launched) => {
-                    let pid = launched["pid"].as_i64();
+                    let pid = launched.get("pid").and_then(Value::as_i64);
                     manager.note_launch(agent_id, bundle, pid);
                     pid
                 }
@@ -1008,12 +1023,17 @@ async fn launch(
         manager.forget_launch(agent_id, bundle);
     }
     let mut state = settled_state(manager, agent_id, Some(before), report(params)?).await?;
-    state["pid"] = pid.into();
-    if !in_front {
-        state["launching"] = format!(
-            "{bundle} is still launching; call sim state in a moment, or sim launch again, which waits for this launch rather than starting another"
-        )
-        .into();
+    if let Some(state) = state.as_object_mut() {
+        state.insert("pid".to_owned(), pid.into());
+        if !in_front {
+            state.insert(
+                "launching".to_owned(),
+                format!(
+                    "{bundle} is still launching; call sim state in a moment, or sim launch again, which waits for this launch rather than starting another"
+                )
+                .into(),
+            );
+        }
     }
     Ok(state)
 }
@@ -1076,18 +1096,21 @@ async fn logs(manager: &SimulatorManager, agent_id: &str, params: &Value) -> Res
         .map_or(DEFAULT_LOG_LINES, |limit| limit as usize)
         .clamp(1, MAX_LOG_LINES);
     let process = params.get("process").and_then(Value::as_str);
-    let mut fields = json!({ "udid": device.udid, "after": cursor, "limit": limit });
+    let mut fields = Map::new();
+    fields.insert("udid".to_owned(), device.udid.clone().into());
+    fields.insert("after".to_owned(), cursor.into());
+    fields.insert("limit".to_owned(), limit.into());
     if let Some(process) = process {
-        fields["process"] = process.into();
+        fields.insert("process".to_owned(), process.into());
     }
     let generation = params
         .get("generation")
         .and_then(Value::as_i64)
         .or_else(|| manager.log_generation(agent_id, process));
     if let Some(generation) = generation {
-        fields["generation"] = generation.into();
+        fields.insert("generation".to_owned(), generation.into());
     }
-    let mut reply = manager.request("logs", fields).await?;
+    let mut reply = manager.request("logs", Value::Object(fields)).await?;
     if let Some(generation) = reply.get("generation").and_then(Value::as_i64) {
         manager.set_log_generation(agent_id, process, generation);
     }
@@ -1159,7 +1182,8 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
     };
     let size = app_size(&reply).or(device.screen);
     let (app, elements) = elements_from(&reply, size);
-    let keyboard = flattened(&reply["elements"]).into_iter().any(|element| {
+    let elements_read = reply.get("elements").map(flattened).unwrap_or_default();
+    let keyboard = elements_read.into_iter().any(|element| {
         element["traits"]
             .as_array()
             .is_some_and(|traits| traits.iter().any(|trait_| trait_ == "KeyboardKey"))
@@ -1212,7 +1236,7 @@ async fn turned(
                 json!({ "udid": device.udid, "format": "jpeg", "pointSize": true }),
             )
             .await?;
-        let picture = shot["jpeg"].clone();
+        let picture = shot.get("jpeg").cloned().unwrap_or_default();
         if last.as_ref() == Some(&picture) {
             break;
         }
@@ -1302,29 +1326,37 @@ async fn settled_state(
     checkpoint()?;
     let numbered = manager.number(agent_id, &latest.elements);
     let previous = manager.last_read(agent_id);
-    let mut state = json!({
-        "device": format!("{} ({})", device.name, device.os),
-        "app": latest.app,
-    });
+    let mut state = Map::new();
+    state.insert(
+        "device".to_owned(),
+        format!("{} ({})", device.name, device.os).into(),
+    );
+    state.insert("app".to_owned(), latest.app.clone().into());
     match (report, previous) {
         (Report::Outcome, _) => {}
         (Report::Changes, Some((previous_app, previous))) if previous_app == latest.app => {
             let (changed, removed) = changes(&previous, &numbered);
-            state["changes"] = if changed.is_empty() && removed.is_empty() {
+            let changes = if changed.is_empty() && removed.is_empty() {
                 "none".into()
             } else {
                 json!({ "elements": changed, "removed": removed })
             };
+            state.insert("changes".to_owned(), changes);
         }
-        _ => state["elements"] = element_lines(&numbered).into(),
+        _ => {
+            state.insert("elements".to_owned(), element_lines(&numbered).into());
+        }
     }
     if let Some((width, height)) = latest.size {
-        state["screen"] = json!({ "width": width, "height": height });
+        state.insert(
+            "screen".to_owned(),
+            json!({ "width": width, "height": height }),
+        );
     }
     if !matches!(report, Report::Outcome) {
         manager.remember_read(agent_id, latest.app, numbered);
     }
-    Ok(state)
+    Ok(Value::Object(state))
 }
 
 /// How much an acting tool says about the screen afterwards, as the browser's tools do.
@@ -1560,7 +1592,9 @@ pub(super) fn timed(
         .enumerate()
         .map(|(index, coordinates)| {
             let mut timed = point(coordinates);
-            timed["t"] = (step * index as f64).into();
+            if let Some(timed) = timed.as_object_mut() {
+                timed.insert("t".to_owned(), (step * index as f64).into());
+            }
             timed
         })
         .collect()

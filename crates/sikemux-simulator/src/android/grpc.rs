@@ -117,10 +117,8 @@ fn framed(message: &[u8]) -> bytes::Bytes {
 
 /// The next whole message in `buffer`, once it has all arrived.
 fn message(buffer: &mut BytesMut) -> Option<bytes::Bytes> {
-    if buffer.len() < 5 {
-        return None;
-    }
-    let length = u32::from_be_bytes([buffer[1], buffer[2], buffer[3], buffer[4]]) as usize;
+    let header: [u8; 4] = buffer.get(1..5)?.try_into().ok()?;
+    let length = u32::from_be_bytes(header) as usize;
     if buffer.len() < 5 + length {
         return None;
     }

@@ -205,21 +205,22 @@ impl SimManager {
         }
         let mut sender = Some(sender);
         for _ in 0..2 {
-            let helper = slot.as_mut().expect("helper was just started");
+            let Some(helper) = slot.as_mut() else {
+                break;
+            };
             let mut pending = helper.waiting.locked();
             if !pending.closed {
-                pending
-                    .senders
-                    .insert(id, sender.take().expect("sent once"));
+                if let Some(sender) = sender.take() {
+                    pending.senders.insert(id, sender);
+                }
                 break;
             }
             drop(pending);
             *slot = Some(self.spawn(executable.clone())?);
         }
-        let helper = slot.as_mut().expect("helper was just started");
-        if sender.is_some() {
+        let Some(helper) = slot.as_mut().filter(|_| sender.is_none()) else {
             return Err("the simulator helper stopped".into());
-        }
+        };
         let mut line = request.to_string();
         line.push('\n');
         let written = helper
@@ -272,8 +273,14 @@ impl SimManager {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| format!("could not start the simulator helper: {error}"))?;
-        let stdin = child.stdin.take().expect("stdin is piped");
-        let stdout = child.stdout.take().expect("stdout is piped");
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or("the simulator helper has no input")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("the simulator helper has no output")?;
         let waiting: Waiting = Arc::default();
         let answers = Arc::clone(&waiting);
         std::thread::spawn(move || {
@@ -508,11 +515,16 @@ impl SimManager {
                 request.as_object().cloned().unwrap_or_default(),
             )
             .await?;
-        let port = stream["port"]
-            .as_u64()
+        let port = stream
+            .get("port")
+            .and_then(Value::as_u64)
             .and_then(|port| u16::try_from(port).ok())
             .ok_or("the simulator helper gave no stream port")?;
-        let token = stream["token"].as_str().unwrap_or_default().to_owned();
+        let token = stream
+            .get("token")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         let read = Arc::new(Progress::default());
         let mut watches = self.watches.locked();
@@ -604,7 +616,8 @@ impl SimManager {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
 
