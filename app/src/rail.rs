@@ -1616,19 +1616,13 @@ fn space_menu(
 fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let Some(view) = bench.this_view() else {
-        return div()
-            .flex_none()
-            .flex()
+        return foot(&t)
             .justify_end()
-            .px(SPACE_2H)
-            .py(SPACE_1H)
-            .border_t(crate::theme::border())
-            .border_color(t.border)
             .child(settings_button())
             .into_any_element();
     };
     let Some(account) = view.account.as_deref() else {
-        return sign_in(bench, cx).into_any_element();
+        return foot(&t).child(sign_in(bench, cx)).into_any_element();
     };
     let who = account
         .name
@@ -1698,6 +1692,13 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             )
         },
     );
+    foot(&t)
+        .child(div().flex_1().min_w_0().child(menu))
+        .into_any_element()
+}
+
+/// The rail's last band, under a line, that holds the account row.
+fn foot(t: &Tokens) -> Div {
     div()
         .flex_none()
         .flex()
@@ -1707,8 +1708,6 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .py(SPACE_1H)
         .border_t(crate::theme::border())
         .border_color(t.border)
-        .child(div().flex_1().min_w_0().child(menu))
-        .into_any_element()
 }
 
 /// A row of the account menu, roomier than other menus' rows since it opens the width of the rail.
@@ -1759,12 +1758,27 @@ fn settings_button() -> IconButton {
     IconButton::new("settings", Icon::Settings, t!("Settings"))
         .glyph(14.)
         .width(28.)
-        .on_click(|_, window, cx| keymap::dispatch(actions::ToggleSettings::ID, window, cx))
+        .on_click(|_, window, cx| {
+            cx.stop_propagation();
+            keymap::dispatch(actions::ToggleSettings::ID, window, cx)
+        })
 }
 
 /// The account's picture in a circle, else its initials.
 pub(crate) fn avatar(bench: &Workbench, account: &AccountInfo, size: f32, t: &Tokens) -> Div {
     let initials = initials(account.name.as_deref(), account.email.as_deref());
+    face(size, t)
+        .text_size(px(size * 0.375))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.text_secondary)
+        .map(|face| match bench.picture() {
+            Some(picture) => face.child(gpui_kit::img(picture).size_full().rounded_full()),
+            None => face.child(initials),
+        })
+}
+
+/// The circle an account's picture sits in, and the sign-in mark in its place.
+fn face(size: f32, t: &Tokens) -> Div {
     div()
         .size(px(size))
         .flex_none()
@@ -1776,13 +1790,6 @@ pub(crate) fn avatar(bench: &Workbench, account: &AccountInfo, size: f32, t: &To
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(size * 0.375))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(t.text_secondary)
-        .map(|face| match bench.picture() {
-            Some(picture) => face.child(gpui_kit::img(picture).size_full().rounded_full()),
-            None => face.child(initials),
-        })
 }
 
 /// The first letters of the first and last words of the name, else the email's first.
@@ -1801,57 +1808,28 @@ fn initials(name: Option<&str>, email: Option<&str>) -> String {
     }
 }
 
+/// The account row while no one is signed in: it signs in, and its gear opens Settings.
 fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx);
-    let (copy, button) = if bench.signing_in {
-        (
-            t!("Finish signing in in your browser."),
-            Button::new("sign-in", t!("Cancel"), Variant::Outline).on_click(cx.listener(
-                |bench, _, _, cx| {
-                    bench.cancel_sign_in();
-                    cx.notify();
-                },
-            )),
-        )
-    } else {
-        (
-            t!("Sign in to reach this host from your phone and other devices."),
-            Button::new("sign-in", t!("Sign in"), Variant::Primary)
-                .icon(Icon::LogIn)
-                .on_click(cx.listener(|bench, _, _, cx| {
-                    bench.sign_in();
-                    cx.notify();
-                })),
-        )
+    let mark = face(24., t).child(ui::icon(Icon::LogIn, 13.).text_color(t.accent));
+    let row = match bench.signing_in {
+        true => Row::new("account", t!("Finish signing in in your browser"))
+            .detail(t!("Cancel"))
+            .on_click(cx.listener(|bench, _, _, cx| {
+                bench.cancel_sign_in();
+                cx.notify();
+            })),
+        false => Row::new("account", t!("Sign in")).on_click(cx.listener(|bench, _, _, cx| {
+            bench.sign_in();
+            cx.notify();
+        })),
     };
-    div()
-        .flex_none()
-        .mx(SPACE_2H)
-        .mb(SPACE_2H)
-        .p(SPACE_2)
-        .flex()
-        .flex_col()
-        .gap(SPACE_2)
-        .rounded(radius_2())
-        .bg(gpui_kit::Hsla {
-            a: 0.04,
-            ..t.text_primary
-        })
-        .child(
-            div()
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .line_height(crate::theme::ui_text(12. * 1.4))
-                .text_color(t.text_secondary)
-                .child(copy),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_1)
-                .child(div().flex_1().min_w_0().flex().flex_col().child(button))
-                .child(settings_button()),
-        )
+    div().flex_1().min_w_0().child(
+        row.mark(24., mark)
+            .centered()
+            .padding_right(2.)
+            .child(settings_button()),
+    )
 }
 
 /// `rail` taking the keys, whose arrows walk the rows it lists.
