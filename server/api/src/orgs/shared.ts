@@ -185,6 +185,7 @@ export async function admit(
     detail: { role, ...detail },
   });
   await seatsChanged(trx, [userId]);
+  await orgsChanged(trx, [userId]);
   return org;
 }
 
