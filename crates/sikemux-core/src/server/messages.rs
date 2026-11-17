@@ -1867,7 +1867,8 @@ pub(crate) async fn report_calm(core: &Arc<Core>, worker: String, lead: String, 
     .await;
 }
 
-/// The calm reports waiting for `agent_id`, taken as what its turn starts with.
+/// The calm reports waiting for `agent_id`, taken as what its turn starts with. Each also
+/// shows in its chat as a line, since what the turn starts with is the agent's alone.
 pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
     let calm = core.harness().mailbox.take_calm(agent_id);
     if calm.is_empty() {
@@ -1875,6 +1876,12 @@ pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
     }
     log(core, agent_id, &calm, MessageOutcome::Delivered);
     let lines: Vec<&str> = calm.iter().map(|queued| queued.text.as_str()).collect();
+    if let Some(chat) = core.chats().get(agent_id) {
+        for line in &lines {
+            let shown = line.strip_prefix("- ").unwrap_or(line);
+            super::chat::tell_update(&chat, sikemux_fold::update::notice("info", shown, None));
+        }
+    }
     Some(crate::sessions::for_agent::sikemux_context(
         "reports",
         CALM_HEADING,
