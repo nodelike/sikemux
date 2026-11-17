@@ -9757,7 +9757,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-app"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -9878,7 +9878,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-buildinfo"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "hex",
  "sha2 0.11.0",
@@ -10137,7 +10137,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-gpui"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -10220,7 +10220,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-host"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "backtrace",
  "base64 0.22.1",
@@ -10269,7 +10269,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-hostkit"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "backtrace",
  "libc",
@@ -10650,7 +10650,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-remote"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -10770,7 +10770,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-simulator"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -10793,7 +10793,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-trust"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
  "minisign-verify",
@@ -10816,7 +10816,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-voice"
-version = "0.6.1-nightly.22"
+version = "0.6.1"
 dependencies = [
  "hex",
  "objc2-foundation 0.3.2",
