@@ -33,6 +33,7 @@ import {
 import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
+import { serviceMark } from '@/chat/Markdown';
 import { AskerMark } from '@/calls/AskerMark';
 import { SECRET_INPUT } from '@/calls/secretInput';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, see, useKept } from '@/calls/hostCalls';
@@ -399,7 +400,7 @@ function LinkTile({ link, onOpen }: { link: CallLink; onOpen: () => void }) {
       style={({ pressed }) => [styles.link, pressed && { backgroundColor: colors.active }]}
       accessibilityRole="link"
       accessibilityLabel={link.label}>
-      <Icon name="IconGlobe" size={14} color={colors.secondary} />
+      <Icon name={serviceMark(link.url) ?? 'IconGlobe'} size={14} color={colors.secondary} />
       <Text style={styles.linkLabel} numberOfLines={1}>
         {link.label}
       </Text>

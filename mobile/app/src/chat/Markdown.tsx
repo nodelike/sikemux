@@ -54,7 +54,7 @@ const SERVICES: [string[], IconName][] = [
 ];
 
 /** The mark of the service a web link leads to, as the Mac puts it before the link. */
-function serviceMark(url: string): IconName | undefined {
+export function serviceMark(url: string): IconName | undefined {
   const host = /^https?:\/\/([^/?#:]+)/i.exec(url)?.[1]?.toLowerCase();
   if (!host) return undefined;
   return SERVICES.find(([domains]) => domains.some((domain) => host === domain || host.endsWith(`.${domain}`)))?.[1];
