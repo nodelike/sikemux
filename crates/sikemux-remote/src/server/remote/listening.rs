@@ -280,6 +280,7 @@ pub async fn listen(core: &Arc<Core>) -> CoreResult<()> {
             JOIN_ALPN.to_vec(),
             super::LINK_ALPN.to_vec(),
             sikemux_wire::look::LOOK_ALPN.to_vec(),
+            sikemux_corekit::peer::PEER_ALPN.to_vec(),
         ])
         .bind()
         .await
@@ -370,6 +371,10 @@ pub async fn serve_device(core: Arc<Core>, incoming: Incoming) {
     }
     if connection.alpn() == sikemux_wire::look::LOOK_ALPN {
         crate::server::look::serve(core, connection).await;
+        return;
+    }
+    if connection.alpn() == sikemux_corekit::peer::PEER_ALPN {
+        (core.remote_above().serve_peer)(core.clone(), connection).await;
         return;
     }
     if connection.alpn() == super::LINK_ALPN {

@@ -31,6 +31,7 @@ pub(crate) fn of_folder(core: &Core, folder: &str) -> ProjectTasks {
     ProjectTasks {
         project: folder.to_owned(),
         rows,
+        teammates: super::peer::tasks(core, folder),
     }
 }
 
@@ -56,6 +57,7 @@ fn call_row(call: &PersonCall) -> TaskRow {
         holder: Some(TaskHolder {
             agent_id: call.asker.agent_id.clone(),
             name: call.asker.name.clone(),
+            cli: None,
         }),
         since: call.raised_at,
         dropped: None,

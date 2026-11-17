@@ -54,6 +54,8 @@ pub struct RemoteAbove {
     pub hosts_relink: fn(&Core),
     /// A linked host connected: its link is served until it ends.
     pub serve_link: fn(Arc<Core>, Connection) -> Serving,
+    /// Answers a teammate's host reading a project shared with their org.
+    pub serve_peer: fn(Arc<Core>, Connection) -> Serving,
     /// What this host draws behind its panes, for a browser on the account.
     pub host_look: fn(&Core) -> LookReply,
     /// The account no longer has these hosts, so their links go.

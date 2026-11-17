@@ -27,7 +27,7 @@ fn orgs(core: &Core) -> Vec<AccountOrg> {
     sikemux_corekit::accounts::orgs(core.account().shown().as_ref()).to_vec()
 }
 
-fn active(core: &Core, org: &str) -> bool {
+pub(crate) fn active(core: &Core, org: &str) -> bool {
     orgs(core)
         .iter()
         .any(|known| known.id == org && known.active)
@@ -43,13 +43,14 @@ fn project(core: &Core, project: &str) -> Option<(String, String)> {
         .and_then(|known| Some((known.path.to_string_lossy().into_owned(), known.identity?)))
 }
 
-fn shared_with(core: &Core, folder: &str) -> Option<String> {
+pub(crate) fn shared_with(core: &Core, folder: &str) -> Option<String> {
     let state = core.boards().state.locked();
     state.of(folder)?.settings.shared_with.clone()
 }
 
 /// The registry's account answered again, or a board this host keeps was saved.
 pub(crate) fn heard(core: &Arc<Core>) {
+    super::peer::heard(core);
     let core = core.clone();
     tokio::spawn(async move { reconcile(&core).await });
 }
@@ -61,6 +62,7 @@ pub(crate) fn records_changed(core: &Arc<Core>, keys: &[String]) {
         .any(|key| (state.of(key)).is_some_and(|board| board.settings.shared_with.is_some()));
     drop(state);
     if shared {
+        super::peer::changed(core);
         heard(core);
     }
 }
@@ -125,6 +127,7 @@ pub(crate) async fn share(
         take_back(core, org, &identity).await;
     }
     reconcile(core).await;
+    super::peer::changed(core);
     Ok(sharing(core, &params.project).await)
 }
 
@@ -138,6 +141,7 @@ pub(crate) async fn unshare(
     if let Some(org) = board::person_share(core, folder, None).await? {
         take_back(core, org, &identity).await;
     }
+    super::peer::changed(core);
     Ok(sharing(core, &params.project).await)
 }
 

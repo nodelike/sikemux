@@ -132,6 +132,7 @@ pub use sikemux_serve::server::session;
 pub use sikemux_workspace::server::saved_sessions;
 pub use sikemux_workspace::server::search;
 pub(crate) use sikemux_workspace::server::seen;
+pub(crate) mod peer;
 mod session_watch;
 pub mod settling;
 pub mod setup_check;
@@ -557,6 +558,7 @@ impl ServerCore for Core {
                     chiefs: chief::Chiefs::new(data_dir),
                     now: now::Now::new(data_dir),
                     finishing: finished::Finishing::default(),
+                    peer: peer::Peer::new(data_dir),
                 }) as sikemux_kernel::Parts,
             ]
         });

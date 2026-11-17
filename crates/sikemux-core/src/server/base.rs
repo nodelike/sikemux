@@ -332,6 +332,7 @@ pub(super) fn remote_above() -> RemoteAbove {
         hosts_wake: |core| core.hosts().wake.now(),
         hosts_relink: |core| core.hosts().relink.now(),
         serve_link: |core, connection| Box::pin(hosts::serve(core, connection)),
+        serve_peer: |core, connection| Box::pin(super::peer::serve(core, connection)),
         host_look: backdrop::host_look,
         forget_hosts_off_account: hosts::account::forget_hosts_off_account,
         host_rows: hosts::rows,

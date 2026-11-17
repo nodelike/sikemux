@@ -136,7 +136,7 @@ impl TrustedKeys {
         self.0.insert(id.to_owned(), key);
     }
 
-    fn get(&self, id: &str) -> Option<&[u8; 32]> {
+    pub(crate) fn get(&self, id: &str) -> Option<&[u8; 32]> {
         self.0.get(id)
     }
 }

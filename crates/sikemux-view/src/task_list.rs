@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::calls::CallKind;
+use crate::teammates::Teammate;
 use crate::workspace::PullChecks;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,6 +14,20 @@ pub struct ProjectTasks {
     pub project: String,
     /// In section order, then newest first within each.
     pub rows: Vec<TaskRow>,
+    /// The tasks on teammates' boards for the same repository, read-only, in the same order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub teammates: Vec<TeammateTask>,
+}
+
+/// A task on the board a teammate shares, as their own list shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateTask {
+    pub person: Teammate,
+    /// When the teammate's host last sent its board, in unix milliseconds.
+    pub heard: u64,
+    #[serde(flatten)]
+    pub row: TaskRow,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -62,6 +77,9 @@ pub struct TaskRow {
 pub struct TaskHolder {
     pub agent_id: String,
     pub name: String,
+    /// Which CLI the agent runs, given on a teammate's task, where the agent is not one of yours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
 }
 
 /// What the core checked of a task, for the one muted line beside its title.

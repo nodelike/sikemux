@@ -437,7 +437,7 @@ fn addresses_of(value: &Value) -> Vec<String> {
         .collect()
 }
 
-fn addr_of(core: &Core, id: &str, addresses: &[String]) -> Result<EndpointAddr, String> {
+pub(crate) fn addr_of(core: &Core, id: &str, addresses: &[String]) -> Result<EndpointAddr, String> {
     let key: iroh::PublicKey = id
         .parse()
         .map_err(|_| "that is not a host's key".to_owned())?;
