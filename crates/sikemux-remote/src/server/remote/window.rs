@@ -64,5 +64,7 @@ async fn answered(text: String) -> CoreResult<bool> {
 
 #[cfg(not(windows))]
 async fn answered(_text: String) -> CoreResult<bool> {
-    unreachable!("only a core that asks in its own window opens one")
+    Err(super::CoreError::from(
+        "this computer has no window of the core's own to ask in",
+    ))
 }

@@ -25,7 +25,9 @@ pub fn random_key() -> Option<Key> {
 pub fn host_secret(host: &iroh::SecretKey) -> Key {
     let hashed = Sha512::digest(host.to_bytes());
     let mut scalar = [0; KEY_LEN];
-    scalar.copy_from_slice(&hashed[..KEY_LEN]);
+    for (to, from) in scalar.iter_mut().zip(hashed.iter()) {
+        *to = *from;
+    }
     scalar
 }
 
@@ -179,7 +181,7 @@ const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 /// The recovery key as the person writes it down: its 256 bits in base32, four characters a
 /// group.
 pub fn recovery_text(secret: &Key) -> String {
-    let mut digits = Vec::new();
+    let mut digits: Vec<u8> = Vec::new();
     let mut buffer: u32 = 0;
     let mut bits = 0;
     for byte in secret {
@@ -187,11 +189,11 @@ pub fn recovery_text(secret: &Key) -> String {
         bits += 8;
         while bits >= 5 {
             bits -= 5;
-            digits.push(RECOVERY_ALPHABET[((buffer >> bits) & 31) as usize]);
+            digits.extend(RECOVERY_ALPHABET.get(((buffer >> bits) & 31) as usize));
         }
     }
     if bits > 0 {
-        digits.push(RECOVERY_ALPHABET[((buffer << (5 - bits)) & 31) as usize]);
+        digits.extend(RECOVERY_ALPHABET.get(((buffer << (5 - bits)) & 31) as usize));
     }
     digits
         .chunks(4)
