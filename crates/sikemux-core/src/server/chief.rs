@@ -765,7 +765,10 @@ fn offered_models(core: &Core, kind: &str) -> Vec<String> {
     (super::chat::models_of(core, kind).into_iter())
         .flat_map(|picker| picker.choices)
         .filter(|choice| !choice.superseded)
-        .map(|choice| choice.label)
+        .map(|choice| match choice.label == choice.value {
+            true => choice.value,
+            false => format!("{} ({})", choice.value, choice.label),
+        })
         .collect()
 }
 

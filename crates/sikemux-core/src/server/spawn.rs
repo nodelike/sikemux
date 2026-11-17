@@ -118,6 +118,38 @@ fn effort_param(params: &Value, provider: &str) -> Result<Option<String>, String
         })
 }
 
+/// Refuses a model `provider` would not run, such as a picker's label in place of its id,
+/// before a worker is made whose first turn would fail on it. An agent that has not yet
+/// offered its models is not checked.
+fn known_model(core: &Core, provider: &str, model: &str) -> Result<(), String> {
+    let Some(picker) = super::chat::models_of(core, provider) else {
+        return Ok(());
+    };
+    let catalog = crate::agent_catalog::agent(provider);
+    let mut ids: Vec<&str> = (picker.choices.iter())
+        .map(|choice| choice.value.as_str())
+        .collect();
+    for id in (catalog.iter()).flat_map(|agent| agent.models_since.iter().map(|since| since.model))
+    {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    let aliases = catalog.map(|agent| agent.commit_models).unwrap_or_default();
+    let bare = model.split_once('[').map_or(model, |(bare, _)| bare);
+    if ids.contains(&bare) || aliases.contains(&model) || aliases.contains(&bare) {
+        return Ok(());
+    }
+    let meant = (picker.choices.iter())
+        .find(|choice| choice.label.eq_ignore_ascii_case(model))
+        .map(|choice| format!("; for {}, pass {}", choice.label, choice.value))
+        .unwrap_or_default();
+    Err(format!(
+        "{provider} has no model {model}{meant}. Pass one of its ids: {}",
+        ids.join(", ")
+    ))
+}
+
 fn reports_back(params: &Value) -> Result<bool, String> {
     match params.get("report") {
         None | Some(Value::Null) => Ok(true),
@@ -411,6 +443,9 @@ fn start(
         .or_else(|| helper.as_ref().map(|helper| helper.agent.clone()))
         .or_else(|| lead.cli().map(str::to_owned))
         .ok_or("cli must name the agent to start, such as claude or codex")?;
+    if let Some(model) = &model {
+        known_model(core, &provider, model)?;
+    }
     let (model, paid) = match (helper, named_provider) {
         (_, Some(id)) => (model, Paid::By(Some(id))),
         (Some(helper), None) => (helper.model, Paid::By(helper.provider)),
