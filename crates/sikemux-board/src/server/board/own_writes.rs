@@ -22,6 +22,7 @@ pub const METHOD: &str = "boardOwnWrite";
 pub enum OwnWrite {
     TriggerCard {
         trigger: u64,
+        host: String,
         title: String,
         details: String,
     },
@@ -71,11 +72,12 @@ pub fn write_here(core: &Arc<Core>, at_home: AtHome) -> Result<(), String> {
     match at_home.write {
         OwnWrite::TriggerCard {
             trigger,
+            host,
             title,
             details,
         } => {
             if let Some((card, task)) =
-                super::add_for_trigger(core, &project, trigger, &title, &details)?
+                super::add_for_trigger(core, &project, (trigger, &host), &title, &details)?
             {
                 tokio::spawn(super::hand_off::take_up(core.clone(), project, card, task));
             }

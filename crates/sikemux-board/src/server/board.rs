@@ -112,6 +112,9 @@ pub struct Card {
     /// The trigger whose firing added it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trigger: Option<u64>,
+    /// The host whose trigger it is, since each host counts its own triggers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fired_on: Option<String>,
     /// What CI kept failing on, on the project's branch, that it was filed
     /// for or took since.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -785,6 +788,8 @@ pub struct Adding {
     pub ticket: Option<CardTicket>,
     /// The trigger whose firing it is.
     pub trigger: Option<u64>,
+    /// The host whose trigger it is.
+    pub fired_on: Option<String>,
     /// What CI kept failing on, on the project's branch.
     pub ci: Option<failing::Broke>,
 }
@@ -1348,6 +1353,7 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         result: None,
         ticket: adding.ticket,
         trigger: adding.trigger,
+        fired_on: adding.fired_on,
         ci: adding.ci.map(|broke| broke.failures).unwrap_or_default(),
         arrivals: Vec::new(),
         recordings: Vec::new(),
@@ -1431,18 +1437,19 @@ pub fn add_card(
     Ok((id, view))
 }
 
-/// Adds a card for trigger `trigger` that came due, as the person's own; to the card it added
+/// Adds a card for trigger `trigger` of `host` that came due, as the person's own; to the card it added
 /// before instead, while that is still open. Answers the card and its task while nobody holds
 /// it, for an agent of its own to take up with `hand_off::take_up`.
 pub fn add_for_trigger(
     core: &Arc<Core>,
     project: &str,
-    trigger: u64,
+    (trigger, host): (u64, &str),
     title: &str,
     details: &str,
 ) -> Result<Option<(u64, String)>, String> {
     let write = own_writes::OwnWrite::TriggerCard {
         trigger,
+        host: host.to_owned(),
         title: title.to_owned(),
         details: details.to_owned(),
     };
@@ -1453,6 +1460,7 @@ pub fn add_for_trigger(
         title: title.to_owned(),
         details: details.to_owned(),
         trigger: Some(trigger),
+        fired_on: Some(host.to_owned()),
         ..Adding::default()
     };
     let (id, _) = add_card(core, project, &By::Auto("Trigger"), adding, None)?;

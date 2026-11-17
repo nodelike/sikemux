@@ -9,6 +9,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::triggers::{HoldTriggerParams, TriggerParams};
 use std::collections::{HashSet, VecDeque};
@@ -694,7 +695,9 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
             None => trigger.prompt.clone(),
         };
-        match super::board::add_for_trigger(&core, project, trigger.id, &trigger.title, &details) {
+        let here = core.remote().core_id().unwrap_or_default();
+        let fired = (trigger.id, here.as_str());
+        match super::board::add_for_trigger(&core, project, fired, &trigger.title, &details) {
             Ok(Some((card, task))) => {
                 super::board::hand_off::take_up(core.clone(), project.clone(), card, task).await
             }
