@@ -60,3 +60,57 @@ pub struct KeepParams {
 pub struct KeepNewParams {
     pub on: bool,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OrgVaultStatus {
+    /// No owner or admin has written to it yet.
+    #[default]
+    Unmade,
+    /// A host of a member that holds the key has not let this one in yet.
+    Waiting,
+    Open,
+}
+
+/// An org's vault, as this host holds it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownOrgVault {
+    pub org: String,
+    pub name: String,
+    pub status: OrgVaultStatus,
+    /// How many of the members' hosts hold its key.
+    pub holders: usize,
+    /// The org's Team plan is paid. While it is not, agents are handed none of its entries.
+    pub active: bool,
+    /// The account is an owner or admin there, so this host may add and remove entries.
+    pub writes: bool,
+    pub model_keys: Vec<ShownOrgModelKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed: Option<String>,
+}
+
+/// A model provider's key the org's admins added for every member. Never the key.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownOrgModelKey {
+    pub id: String,
+    /// The catalogue provider it is a key of.
+    pub provider: String,
+    pub label: String,
+    /// The provider id agents are started on to use it.
+    pub route: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OrgModelKeyAdd {
+    pub org: String,
+    pub provider: String,
+    pub key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OrgEntryParams {
+    pub org: String,
+    pub id: String,
+}

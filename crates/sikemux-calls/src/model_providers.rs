@@ -3,6 +3,7 @@ use sikemux_agents::launch::providers::AnthropicApi;
 use sikemux_agents::launch::providers::Helper;
 use sikemux_agents::launch::providers::KeySpec;
 use sikemux_agents::launch::providers::Kind;
+use sikemux_agents::launch::providers::ProviderOrg;
 use std::collections::BTreeMap;
 
 /// The models a provider serves, with what it starts chats on.
@@ -57,6 +58,9 @@ pub struct RoutesParams {
 pub struct ModelRoute {
     pub id: String,
     pub label: String,
+    /// The org whose key this route runs on, rather than the person's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<ProviderOrg>,
     /// A runner on this host rather than an API.
     pub local: bool,
     pub models: Vec<String>,
@@ -146,6 +150,9 @@ pub struct ModelProvider {
     pub custom: bool,
     /// A keyed provider has its key saved; a local runner is answering.
     pub connected: bool,
+    /// The org whose admin added this key for its members, rather than the person their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<ProviderOrg>,
     /// What a running local runner has installed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<String>>,

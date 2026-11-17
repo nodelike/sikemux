@@ -43,6 +43,15 @@ fn keyed(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
     Ok(provider)
 }
 
+/// A provider whose key the person keeps themselves, not one an org's admins added.
+fn own_keyed(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
+    let provider = keyed(core, id)?;
+    if let Some(org) = &provider.org {
+        return Err(format!("{}'s admins change the key of {}", org.name, provider.label).into());
+    }
+    Ok(provider)
+}
+
 fn known(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
     store(core)?
         .find(id)
@@ -118,6 +127,7 @@ fn entry(
         openai: provider.openai.clone(),
         anthropic: provider.anthropic.clone(),
         custom: provider.custom,
+        org: provider.org.clone(),
     }
 }
 
@@ -261,7 +271,10 @@ pub async fn list(core: &Arc<Core>) -> CoreResult<Vec<ModelProvider>> {
     let mut listed = Vec::with_capacity(asking.len());
     for (provider, asked) in all.into_iter().zip(asking) {
         let models = asked.await.ok().flatten();
-        let connected = models.is_some() || provider.custom || saved.contains(&provider.id);
+        let connected = models.is_some()
+            || provider.custom
+            || provider.org.is_some()
+            || saved.contains(&provider.id);
         listed.push(entry(core, provider, connected, &feed, models));
     }
     Ok(listed)
@@ -333,6 +346,7 @@ pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<Mo
                 .collect(),
             id: provider.id,
             label: provider.label,
+            org: provider.org,
             models,
         });
     }
@@ -369,7 +383,7 @@ pub async fn set_helper(core: &Arc<Core>, params: HelperParams) -> CoreResult<()
 /// Saves the key once the provider accepts it. Agents already running keep
 /// the environment they started with.
 pub async fn connect(core: &Arc<Core>, params: ConnectParams) -> CoreResult<()> {
-    let provider = keyed(core, &params.id)?;
+    let provider = own_keyed(core, &params.id)?;
     if provider.custom {
         return Err(format!("{} keeps the key it was added with", provider.label).into());
     }
@@ -390,7 +404,7 @@ pub async fn resolved(entered: String) -> CoreResult<String> {
 }
 
 pub async fn disconnect(core: &Arc<Core>, params: ProviderParams) -> CoreResult<()> {
-    let provider = keyed(core, &params.id)?;
+    let provider = own_keyed(core, &params.id)?;
     if provider.custom {
         return Err(format!("Remove {} rather than disconnect it", provider.label).into());
     }

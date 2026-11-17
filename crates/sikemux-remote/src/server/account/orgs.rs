@@ -73,6 +73,8 @@ pub async fn policy(core: &Core, org_id: &str) -> OrgPolicy {
         })
 }
 
+/// Reads them again, then the vaults of the orgs they name.
 pub async fn refresh(core: &Core) {
     kept::refresh::<OrgMemberships>(core, PATH, FILE).await;
+    core.vault().orgs().wake();
 }
