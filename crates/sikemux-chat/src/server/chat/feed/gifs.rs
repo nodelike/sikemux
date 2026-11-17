@@ -49,7 +49,9 @@ impl Cut {
             + &text;
         let with = |text: &str| {
             let mut payload = payload.clone();
-            payload["update"]["content"]["text"] = json!(text);
+            if let Some(slot) = payload.pointer_mut("/update/content/text") {
+                *slot = json!(text);
+            }
             payload
         };
         let mut pieces = Vec::new();
@@ -90,19 +92,20 @@ fn reply_text(kind: ChatEventKind, payload: &Value) -> Option<(String, String)> 
 /// The text before the first whole ask, what it asks, and the text after it.
 fn split_ask(text: &str) -> Option<(&str, &str, &str)> {
     let mut from = 0;
-    while let Some(found) = text[from..].find(OPENS) {
+    while let Some(found) = text.get(from..)?.find(OPENS) {
         let start = from + found;
-        let inside = &text[start + OPENS.len()..];
+        let (head, opened) = text.split_at_checked(start)?;
+        let inside = opened.get(OPENS.len()..)?;
         let end = inside
             .char_indices()
             .take_while(|(at, ch)| *at <= LONGEST_ASK && *ch != '\n')
             .find(|(_, ch)| *ch == ']')
             .map(|(at, _)| at);
         if let Some(end) = end {
-            let ask = inside[..end].trim();
+            let ask = inside.get(..end)?.trim();
             if !ask.is_empty() {
-                let after = &inside[end + 1..];
-                let before = text[..start].strip_suffix(' ').unwrap_or(&text[..start]);
+                let after = inside.get(end + 1..)?;
+                let before = head.strip_suffix(' ').unwrap_or(head);
                 return Some((before, ask, after));
             }
         }
@@ -113,10 +116,12 @@ fn split_ask(text: &str) -> Option<(&str, &str, &str)> {
 
 /// Where an ask that the next chunk may finish begins, or the text's end when there is none.
 fn unfinished_ask(text: &str) -> usize {
-    let Some(start) = text.rfind('[') else {
+    let Some((start, tail)) = text
+        .rfind('[')
+        .and_then(|start| Some((start, text.get(start..)?)))
+    else {
         return text.len();
     };
-    let tail = &text[start..];
     let opening = OPENS.starts_with(tail) && tail.len() < OPENS.len();
     let open_ask = tail.starts_with(OPENS)
         && tail.len() <= OPENS.len() + LONGEST_ASK

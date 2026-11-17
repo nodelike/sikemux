@@ -37,6 +37,10 @@ pub fn idle(core: &Arc<Core>, agent_id: &str, provider: &str, cwd: &str) -> Arc<
         account: None,
         fallbacks: Vec::new(),
     };
+    #[expect(
+        clippy::panic,
+        reason = "a chat a test cannot list is meant to stop the test"
+    )]
     let (chat, _) = core
         .chats()
         .insert(core, launch, Origin::default(), None)

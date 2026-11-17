@@ -270,8 +270,8 @@ impl Replay {
             return false;
         };
         text.push_str(later.text);
-        if let Some(at) = payload.get("at") {
-            last.event.payload["until"] = at.clone();
+        if let (Some(at), Some(fields)) = (payload.get("at"), last.event.payload.as_object_mut()) {
+            fields.insert("until".to_owned(), at.clone());
         }
         last.seq = seq;
         last.bytes += later.text.len();
@@ -713,7 +713,8 @@ impl Replay {
             let Some(ended) = self.entries.iter().take(before).rposition(ends) else {
                 break 0;
             };
-            let retried = self.entries[ended].event.kind == ChatEventKind::Error
+            let retried = (self.entries.get(ended))
+                .is_some_and(|entry| entry.event.kind == ChatEventKind::Error)
                 && !(self.entries.iter().take(start + 1).skip(ended))
                     .any(|entry| entry.event.kind == ChatEventKind::Prompt);
             if !retried {
@@ -773,8 +774,8 @@ pub mod testing {
             "sessionUpdate": kind,
             "content": { "type": "text", "text": text },
         });
-        if let Some(message) = message {
-            update["messageId"] = json!(message);
+        if let (Some(message), Some(fields)) = (message, update.as_object_mut()) {
+            fields.insert("messageId".to_owned(), json!(message));
         }
         json!({ "sessionId": "s", "update": update })
     }

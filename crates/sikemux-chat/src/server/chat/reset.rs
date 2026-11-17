@@ -331,7 +331,9 @@ pub fn cancel_by_person(core: &Core, agent_id: &str) {
                 "This chat will not resume when the limit resets",
                 None,
             );
-            update["resumesAt"] = Value::Null;
+            if let Some(fields) = update.as_object_mut() {
+                fields.insert("resumesAt".to_owned(), Value::Null);
+            }
             say(&chat, update);
         }
     }
@@ -472,6 +474,8 @@ fn resume_notice(provider: &str, at: u64) -> Value {
         &format!("Resumes {} when your {agent} limit resets", when(at)),
         Some("Sikemux sends your last message again then. Sending anything to this chat first cancels it."),
     );
-    update["resumesAt"] = json!(at);
+    if let Some(fields) = update.as_object_mut() {
+        fields.insert("resumesAt".to_owned(), json!(at));
+    }
     update
 }

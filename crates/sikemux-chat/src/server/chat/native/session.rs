@@ -261,7 +261,9 @@ impl SinkPort for ChatSink {
         }
         match end {
             TurnEnd::Completed(payload) => {
-                chat.note_answered(payload["stopReason"] == json!(StopReason::Cancelled));
+                chat.note_answered(
+                    payload.get("stopReason") == Some(&json!(StopReason::Cancelled)),
+                );
                 chat.finish_turn(payload);
                 if let Some(core) = chat.core.upgrade() {
                     let account = self.account.as_deref();
@@ -1152,8 +1154,10 @@ impl<B: Backend> Running<'_, B> {
                     }
                 }
             }
-            ChatCommand::HandOver { .. } => unreachable!("the loop hands the chat over itself"),
-            ChatCommand::TakeHandoff => unreachable!("the loop takes the note itself"),
+            ChatCommand::HandOver { reply } => {
+                let _ = reply.send(Err("the chat's loop hands it over itself".into()));
+            }
+            ChatCommand::TakeHandoff => {}
         }
         ControlFlow::Continue(())
     }
@@ -1400,18 +1404,24 @@ impl<B: Backend> Running<'_, B> {
             self.backend.set_config(&config_id, &value).await
         };
         if let Ok(options) = &result {
-            self.state.setup["configOptions"] = options.clone();
+            if let Some(setup) = self.state.setup.as_object_mut() {
+                setup.insert("configOptions".to_owned(), options.clone());
+            }
             self.chat.tell_options(&self.state.session_id, options);
         }
         let _ = reply.send(result.map(|options| json!({ "configOptions": options })));
     }
 
     fn is_effort(&self, config_id: &str) -> bool {
-        (self.state.setup["configOptions"]
-            .as_array()
-            .into_iter()
-            .flatten())
-        .any(|row| row["id"] == config_id && sikemux_fold::pickers::is_effort(row))
+        let options = self
+            .state
+            .setup
+            .get("configOptions")
+            .and_then(Value::as_array);
+        options.into_iter().flatten().any(|row| {
+            row.get("id").and_then(Value::as_str) == Some(config_id)
+                && sikemux_fold::pickers::is_effort(row)
+        })
     }
 
     fn steer(

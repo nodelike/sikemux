@@ -578,6 +578,10 @@ pub async fn set_config(
         .await
         .map_err(|_| CoreError::from(STOPPED))?
         .map_err(CoreError::from)?;
-    keep_model_choice(core, agent_id, &answer["configOptions"]);
+    keep_model_choice(
+        core,
+        agent_id,
+        answer.get("configOptions").unwrap_or(&Value::Null),
+    );
     Ok(answer)
 }

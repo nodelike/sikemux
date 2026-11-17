@@ -103,8 +103,16 @@ pub fn rank(
     for (place, (_, slot)) in listed.into_iter().enumerate() {
         let place = u32::try_from(place).unwrap_or(u32::MAX);
         match slot {
-            Slot::Chat(index) => chats[index].attention_rank = place,
-            Slot::Session(index) => sessions[index].attention_rank = Some(place),
+            Slot::Chat(index) => {
+                if let Some(chat) = chats.get_mut(index) {
+                    chat.attention_rank = place;
+                }
+            }
+            Slot::Session(index) => {
+                if let Some(session) = sessions.get_mut(index) {
+                    session.attention_rank = Some(place);
+                }
+            }
         }
     }
 }

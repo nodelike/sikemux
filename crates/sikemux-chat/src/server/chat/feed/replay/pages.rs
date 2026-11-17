@@ -185,7 +185,7 @@ impl Replay {
                 .entries
                 .binary_search_by_key(&index, |entry| entry.index))
             .ok()
-            .map(|at| &self.entries[at])
+            .and_then(|at| self.entries.get(at))
         };
         let (ask, prompt) = match opened.map(|index| (index, held(index))) {
             Some((_, Some(entry))) => (ask_of(&entry.event), None),

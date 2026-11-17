@@ -615,8 +615,8 @@ impl Chat {
     /// Says `failure`, which leaves whatever is at work going on.
     pub fn error(&self, failure: Value) {
         self.tell_failure(failure, |state, feed, mut failure| {
-            if state.running() {
-                failure[sikemux_fold::update::TURN_GOES_ON] = json!(true);
+            if let (true, Some(fields)) = (state.running(), failure.as_object_mut()) {
+                fields.insert(sikemux_fold::update::TURN_GOES_ON.to_owned(), json!(true));
             }
             feed.emit(ChatEventKind::Error, failure);
         });
@@ -1145,16 +1145,16 @@ impl Chat {
     }
 
     pub fn mark_ready(&self, start: ChatStart) {
+        let options = start.setup.get("configOptions").unwrap_or(&Value::Null);
         if let Some(core) = self.core.upgrade() {
             if let Some(launcher) = &self.origin.launcher {
-                core.workspaces()
-                    .note_config_options(launcher, &start.setup["configOptions"]);
+                core.workspaces().note_config_options(launcher, options);
             }
             core.names()
                 .note_session(self.agent_id(), &start.session_id);
         }
         self.feed.set_start(start.clone());
-        self.tell_options(&start.session_id, &start.setup["configOptions"]);
+        self.tell_options(&start.session_id, options);
         self.tell_saved_usage(&start.session_id, &start.setup);
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {

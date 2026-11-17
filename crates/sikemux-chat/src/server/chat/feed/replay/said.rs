@@ -151,8 +151,9 @@ impl Replay {
                 kept
             }
         };
-        exchanges[first..]
+        exchanges
             .iter()
+            .skip(first)
             .map(|(asked, answered)| (start(asked), end(answered)))
             .collect()
     }
