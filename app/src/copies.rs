@@ -680,7 +680,7 @@ pub fn where_held(folded: &Folded, cx: &App) -> Option<AnyElement> {
             .items_center()
             .gap(px(3.))
             .text_color(t.host)
-            .child(ui::icon(Icon::Laptop, 11.).text_color(t.host))
+            .child(crate::rail::host_glyph(crate::theme::ROW_GLYPH, true, cx))
             .child(ui::text(label, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
             .into_any_element(),
     )

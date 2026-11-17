@@ -153,6 +153,9 @@ pub const TEXT_MD: f32 = 14.;
 pub const TEXT_LG: f32 = 16.;
 pub const TEXT_XL: f32 = 20.;
 
+/// The glyph a rail row is marked with, such as a host's laptop, drawn in its 16px mark slot.
+pub const ROW_GLYPH: f32 = 14.;
+
 thread_local! {
     /// The worn theme's corner radii, which [`apply`] sets.
     static RADII: Cell<[f32; 4]> = const { Cell::new([4., 5., 10., 14.]) };

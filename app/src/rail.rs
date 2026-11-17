@@ -370,7 +370,7 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
     let row = Row::new("this-host", t!("This host"))
         .mark(
             16.,
-            ui::icon(Icon::Laptop, 14.)
+            ui::icon(Icon::Laptop, crate::theme::ROW_GLYPH)
                 .text_color(t.text_secondary)
                 .group_hover(ui::ROW, move |style| style.text_color(t.text_primary)),
         )
@@ -569,7 +569,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         bench.choose_host(crate::hosts::HostChoice::Account(key.clone()), cx)
                     }))
                 })
-                .mark(16., host_glyph(14., linked, cx))
+                .mark(16., host_glyph(crate::theme::ROW_GLYPH, linked, cx))
                 .quiet()
                 .when_some(
                     {

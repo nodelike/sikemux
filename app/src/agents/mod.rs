@@ -1500,7 +1500,7 @@ fn host_mark(id: String, said: SharedString, cx: &App) -> AnyElement {
         .flex_none()
         .pl(SPACE_2)
         .tooltip(ui::tooltip(said))
-        .child(ui::icon(Icon::Laptop, 11.).text_color(Tokens::get(cx).host))
+        .child(crate::rail::host_glyph(crate::theme::ROW_GLYPH, true, cx))
         .into_any_element()
 }
 
