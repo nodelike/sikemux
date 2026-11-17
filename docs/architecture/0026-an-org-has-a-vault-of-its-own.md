@@ -3,6 +3,9 @@
 - Status: Accepted
 - Decision date: 2026-11-17
 - Amends: [ADR 0016](./0016-the-account-vault.md)
+- Amended: 2026-11-18, after a review against a hostile server: wraps name their sealer, a wrap
+  is never overwritten, hosts refuse what is older than they hold, and one bad answer no longer
+  erases a host's copy
 
 ## Context
 
@@ -26,7 +29,9 @@ group's and must reach a different set of hosts: every host of every member, and
 - **When a member or a member's host goes, the key is replaced.** The server keeps the wraps of
   hosts that are no longer a member's and says the vault needs a new key. The next owner's or
   admin's host to read it makes a new key, wraps it for the members' hosts that are left, and seals
-  every entry again under it in one request; the server drops every other wrap. A host whose
+  every entry again under it in one request; the server drops every other wrap. One request
+  wraps the new key for at most 500 hosts, its own first, then those that held the old key; the
+  rest wait for the next round. A host whose
   account left the org, whose account let it go, or that signed out drops its copy of every org
   vault.
 - **Each host keeps its copy in its own secret store**, in one item apart from the account
@@ -46,18 +51,38 @@ group's and must reach a different set of hosts: every host of every member, and
   member's host it shows among the connected providers as the catalogue provider marked with the
   org, under its own id, and agents start on it only when it is chosen. The person's own key to
   the same provider stays a separate choice, and members cannot change or disconnect it.
+- **The org's audit log shows each change to the vault**: its making, each host given the key,
+  each new key, and each entry written or removed, by kind.
 - **The org-facing routes are staff-only until billing is live**, as the org routes are.
 
 ## What holds against a server that turns hostile
 
 Someone who reads the server's data, or takes a copy of it, gets nothing of an org's vault: it
-keeps only sealed entries and wrapped keys. The server cannot move entries between orgs or
-entries, change an entry's kind, or replay an entry under another generation. A server that lies
-in what it answers can still list a host key of its own among the members' hosts waiting for the
-key, or name one when the key is replaced, and the hosts would wrap the key for it, since nothing
-lets them tell a member's real host apart. This is the same gap ADR 0016 records for the account
-vault, and the same step would close it. There is no recovery key: an org whose every holding
-host is gone makes its vault again.
+keeps only sealed entries and wrapped keys. Against a server that lies in what it answers:
+
+- **A wrap names its sealer.** Each wrap carries the sealing host's public key, and its key is
+  derived from that host's own key as well as a one-off one, so only that host could have made
+  it. A host takes a wrap only from itself or from a host the vault lists as holding the key.
+  The host that makes the vault, or replaces its key, keeps the key it made rather than reading
+  it back, and a host holding the key at a generation ignores any other wrap at that generation.
+- **A stored wrap stays.** Adding wraps never replaces one a host already has, so one member's
+  host cannot overwrite another's and lock it out.
+- **Nothing older than a host holds is taken in.** Each host keeps the newest generation it took
+  and each entry's newest revision, removed entries included. It refuses an older generation, an
+  entry sealed under another generation than the vault's, and an older revision, and keeps what
+  it held; it does not replace the key while the server lists such an entry. The server can still hold an entry back, which hosts take for its removal.
+- **One answer does not erase a host's copy.** A missing or untrusted wrap, or the server saying
+  the vault does not exist while the host holds its key, leaves the copy as it is and shows the
+  failure. Only the server saying the account is not in the org, which is how a removed member
+  is told, makes a host let go.
+- **The server alone decides who is a member, and in which role.** Only its role check keeps a
+  member's host from writing what an admin's may. It can also list a host key of its own among
+  the members' hosts, and the holders would wrap the key for it, since nothing lets them tell a
+  member's real host apart; once listed as holding the key, such a host could seal a key of its
+  own for a host that holds none yet. This is the gap ADR 0016 records for the account vault,
+  and the same step would close it.
+
+There is no recovery key: an org whose every holding host is gone makes its vault again.
 
 ## Consequences
 
