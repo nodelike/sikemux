@@ -5,6 +5,7 @@
 mod automation;
 mod decisions;
 mod landing;
+mod new_trigger;
 mod places;
 mod rules;
 pub(crate) mod said;
@@ -110,6 +111,7 @@ pub struct PlaybookTab {
     spaces: Vec<String>,
     /// The folders of found tasks the person opened.
     opened: HashSet<String>,
+    new_trigger: Option<new_trigger::NewTrigger>,
     _typing: Vec<Subscription>,
 }
 
@@ -363,6 +365,7 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
             space,
             spaces,
             opened: HashSet::new(),
+            new_trigger: None,
             _typing: vec![saving, filtering],
         },
     );
@@ -616,7 +619,7 @@ pub fn pane(
         Page::Rules => rules::page(playbook, folder, &this, cx),
         Page::Places => places::page(settings, playbook, folder, &this, cx),
         Page::Landing => landing::page(playbook, folder, &this, cx),
-        Page::Automation => automation::page(playbook, &this, cx),
+        Page::Automation => automation::page(bench, settings, playbook, folder, &this, cx),
         Page::General => vec![general(bench, settings, folder, &this, cx)],
         Page::Processes => tasks(bench, settings, folder, &this, cx),
         Page::Setup => setup::page(settings, folder, &this, cx),
