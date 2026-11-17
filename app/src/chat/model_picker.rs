@@ -1127,7 +1127,7 @@ impl Render for Menu {
                         .gap(SPACE_1H)
                         .children(
                             org.as_ref()
-                                .map(|org| ui::initials(&org.name, &org.id, 14., cx)),
+                                .map(|org| ui::org_mark(&org.name, &org.id, 14.)),
                         )
                         .child(ui::caps(heading, cx))
                         .flex_none()

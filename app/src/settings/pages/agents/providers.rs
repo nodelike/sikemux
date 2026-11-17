@@ -31,7 +31,9 @@ use crate::core::Target;
 use crate::settings::rows::{self, Choice};
 use crate::settings::Page;
 use crate::settings::Settings;
-use crate::theme::{Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM};
+use crate::theme::{
+    Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM,
+};
 use crate::ui;
 use crate::ui::numbers::compact;
 use crate::workbench::Workbench;
@@ -859,7 +861,13 @@ fn org_add_row(
 }
 
 /// A group's name in spaced capitals over its card, after the org's mark when it is an org's.
-fn grouped(mark: Option<AnyElement>, name: &str, card: AnyElement, cx: &App) -> AnyElement {
+fn grouped(
+    mark: Option<AnyElement>,
+    name: &str,
+    after: Option<AnyElement>,
+    card: AnyElement,
+    cx: &App,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -871,7 +879,8 @@ fn grouped(mark: Option<AnyElement>, name: &str, card: AnyElement, cx: &App) -> 
                 .gap(SPACE_2)
                 .px(SPACE_4)
                 .children(mark)
-                .child(ui::caps(name, cx)),
+                .child(ui::caps(name, cx))
+                .children(after),
         )
         .child(card)
         .into_any_element()
@@ -928,8 +937,19 @@ fn org_group(
         .children(keys.iter().map(|key| org_key_row(bench, fields, vault, key, this, cx)))
         .when(adds, |body| body.child(org_add_row(fields, vault, kind, this, cx)));
     let card = rows::section("", None, Some(sub.into()), false, body, cx);
-    let mark = ui::initials(&vault.name, &vault.org, 14., cx).into_any_element();
-    Some(grouped(Some(mark), &vault.name, card, cx))
+    let mark = ui::org_mark(&vault.name, &vault.org, 14.).into_any_element();
+    let lapsed = (!vault.active).then(|| {
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+            .text_color(Tokens::get(cx).warn)
+            .child(ui::plan_lapsed_mark(10., cx))
+            .child(t!("Plan lapsed"))
+            .into_any_element()
+    });
+    Some(grouped(Some(mark), &vault.name, lapsed, card, cx))
 }
 
 fn save_helper(bench: &mut Workbench, helper: Option<Helper>, cx: &mut Context<Workbench>) {
@@ -1145,7 +1165,7 @@ pub fn render(
             .collect();
         match orgs.is_empty() {
             true => vec![own],
-            false => std::iter::once(grouped(None, t!("Yours"), own, cx))
+            false => std::iter::once(grouped(None, t!("Yours"), None, own, cx))
                 .chain(orgs)
                 .collect(),
         }
