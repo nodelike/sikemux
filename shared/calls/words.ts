@@ -372,6 +372,28 @@ export const WHAT_RUNS = "What runs";
 export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";
+/** The answers a do or look call takes, by the ids the core gives its options. */
+export const DO_DONE = "done";
+export const DO_NOT_DOING = "notDoing";
+export const LOOK_SEEN = "seen";
+/** A do call's Go before an answer is chosen, and a look call's. */
+export const DONE = "Done";
+export const SEEN = "Seen";
+/** The field under Not doing on a do call. */
+export const WHY_NOT_DOING = "Say why you're not doing it…";
+/** Under the docked card, the rest of an agent's waiting calls folded into one row. */
+export const moreCalls = (count: number, say: Say = english) => say("{count} more calls", { count });
+export const newest = (question: string, say: Say = english) => say("Newest: {question}", { question });
+
+/** A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question. */
+export function headline(call: PersonCall, say: Say = english): string {
+    const title = call.title?.trim();
+    if (!title) return call.question;
+    if (call.kind === "do") return say("Do · {title}", { title });
+    if (call.kind === "look") return say("Look · {title}", { title });
+    return call.question;
+}
+
 /** Which of an agent's waiting calls the card shows: `1 of 3`. */
 export const place = (index: number, count: number, say: Say = english) => say("{index} of {count}", { index, count });
 /** On the card when the answer sent from its notification did not go. */

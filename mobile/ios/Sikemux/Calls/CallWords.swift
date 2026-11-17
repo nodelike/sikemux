@@ -256,6 +256,27 @@ enum CallWords {
     }
     /// Go with this while the host has not yet taken that this phone drew the call.
     static let connecting = String(localized: "Connecting…")
+    /// The answers a do or look call takes, by the ids the core gives its options.
+    static let doneId = "done"
+    static let notDoingId = "notDoing"
+    static let seenId = "seen"
+    /// A do call's Go before an answer is chosen, and a look call's.
+    static let done = String(localized: "Done")
+    static let seen = String(localized: "Seen")
+    /// The field under Not doing on a do call.
+    static let whyNotDoing = String(localized: "Say why you're not doing it…")
+    /// Under the docked card, the rest of an agent's waiting calls folded into one row.
+    static func moreCalls(_ count: Int) -> String { String(localized: "\(count) more calls") }
+    static func newest(_ question: String) -> String { String(localized: "Newest: \(question)") }
+    /// A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question.
+    static func headline(_ call: PersonCall) -> String {
+        guard let title = call.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { return call.question }
+        switch call.kind {
+        case .do: return String(localized: "Do · \(title)")
+        case .look: return String(localized: "Look · \(title)")
+        default: return call.question
+        }
+    }
     /// Which of an agent's waiting calls the card shows: `1 of 3`.
     static func place(_ index: Int, of count: Int) -> String { String(localized: "\(index) of \(count)") }
     /// On the card when the answer sent from its notification did not go.
