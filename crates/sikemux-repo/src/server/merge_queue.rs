@@ -117,7 +117,8 @@ pub enum Blame {
     BaseRed,
     /// The change at this place in the stack.
     Broke(usize),
-    Unknown,
+    /// None could be named, and why.
+    Unknown(String),
 }
 
 /// A check of `stacked` on `tip` failed, after `failing_took`: whether the base
@@ -144,8 +145,11 @@ pub async fn blame(
     let commits = stacked.iter().flatten().cloned().collect();
     let found =
         checks::first_failing_in_queue(core, dir, commits, tip, command, agent, failing_took).await;
-    Ok(found
-        .ok()
-        .and_then(|sha| stacked.iter().position(|change| change.contains(&sha)))
-        .map_or(Blame::Unknown, Blame::Broke))
+    Ok(match found {
+        Ok(sha) => match stacked.iter().position(|change| change.contains(&sha)) {
+            Some(at) => Blame::Broke(at),
+            None => Blame::Unknown(format!("its first failing commit {sha} is in none of them")),
+        },
+        Err(why) => Blame::Unknown(why),
+    })
 }

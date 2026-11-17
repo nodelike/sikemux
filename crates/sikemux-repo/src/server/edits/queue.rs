@@ -423,13 +423,13 @@ fn tell(core: &Arc<Core>, agent: &str, text: String) {
     });
 }
 
-/// Saves the whole output of a check that failed with `agent`'s land, which the
-/// host keeps only for its last two runs, and says where it is.
-fn keep_log(core: &Core, agent: &str, output: &str) -> String {
+/// Saves the whole output of a failed check as `name`'s log, which the host
+/// keeps only for its last two runs, and says where it is.
+fn keep_log(core: &Core, name: &str, output: &str) -> String {
     let Some(dir) = core.data_dir().as_ref().map(|dir| dir.join("land-logs")) else {
         return String::new();
     };
-    let path = dir.join(format!("{agent}.log"));
+    let path = dir.join(format!("{name}.log"));
     match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, output)) {
         Ok(()) => format!("\n\nThe whole log is at {}.", path.display()),
         Err(_) => String::new(),
@@ -762,6 +762,36 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             keep_log(core, &laid.waiting.agent, &ran.output)
         )
     };
+    let verdict = match &blamed {
+        Ok(Blame::Broke(at)) => (stacked.laid.get(*at))
+            .map(|laid| {
+                format!(
+                    "the land of {} by {} broke it",
+                    laid.waiting.short(),
+                    laid.waiting.agent
+                )
+            })
+            .unwrap_or_default(),
+        Ok(Blame::BaseRed) => format!(
+            "{} at {} fails it by itself",
+            key.1,
+            tip.get(..9).unwrap_or(&tip)
+        ),
+        Ok(Blame::Unknown(why)) | Err(why) => format!("no land could be named: {why}"),
+    };
+    let lands: Vec<&str> = stacked
+        .laid
+        .iter()
+        .map(|laid| laid.waiting.short())
+        .collect();
+    eprintln!(
+        "sikemux core: {label} failed on {} lands for {} ({}) after {} s; {verdict}.{}",
+        lands.len(),
+        key.1,
+        lands.join(", "),
+        ran.took_ms / 1000,
+        keep_log(core, &batch_log_name(&key.1), &ran.output),
+    );
     match blamed {
         Ok(Blame::Broke(at)) => {
             with_line(core, key, |line| line.lane.one_at_a_time = false);
@@ -775,13 +805,18 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
                 failed_over(core, key, &only.waiting, &tip, held(&only.waiting));
             }
         }
-        Ok(Blame::Unknown) | Err(_) if stacked.laid.len() > 1 => {
+        Ok(Blame::Unknown(_)) | Err(_) if stacked.laid.len() > 1 => {
             with_line(core, key, |line| line.lane.one_at_a_time = true);
         }
-        Ok(Blame::Unknown) | Err(_) => {
+        Ok(Blame::Unknown(_)) | Err(_) => {
             send_back(core, key, &first.waiting, &failed(first));
         }
     }
+}
+
+/// The name a failed check of `branch`'s lands keeps its whole log under.
+fn batch_log_name(branch: &str) -> String {
+    format!("lands-onto-{}", branch.replace('/', "-"))
 }
 
 /// Its check ran out of time on a busy host, which says nothing of its commits, so it keeps its
