@@ -134,23 +134,6 @@ fn role_name(role: OrgRole) -> &'static str {
     }
 }
 
-/// Two short bars, the mark of a paused plan.
-fn pause_mark(cx: &App) -> AnyElement {
-    let bar = || {
-        div()
-            .w(px(2.))
-            .h(px(8.))
-            .rounded(px(1.))
-            .bg(Tokens::get(cx).warn)
-    };
-    div()
-        .flex()
-        .gap(px(2.))
-        .child(bar())
-        .child(bar())
-        .into_any_element()
-}
-
 fn plan_state(org: &AccountOrg, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let (mark, label, color) = match org.active {
@@ -159,7 +142,11 @@ fn plan_state(org: &AccountOrg, cx: &App) -> AnyElement {
             t!("Active"),
             t.text_secondary,
         ),
-        false => (pause_mark(cx), t!("Plan lapsed"), t.warn),
+        false => (
+            ui::plan_lapsed_mark(10., cx).into_any_element(),
+            t!("Plan lapsed"),
+            t.warn,
+        ),
     };
     div()
         .flex()
@@ -187,7 +174,7 @@ fn orgs_section(orgs: &[AccountOrg], lit: bool, this: &Entity<Workbench>, cx: &A
         .flex_col()
         .children(orgs.iter().map(|org| {
             rows::row_with(
-                Some(ui::initials(&org.name, &org.id, 24., cx).into_any_element()),
+                Some(ui::org_mark(&org.name, &org.id, 24.).into_any_element()),
                 org.name.clone(),
                 Some(role_name(org.role).into()),
                 plan_state(org, cx),

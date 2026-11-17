@@ -179,6 +179,7 @@ icons!(
     Status => "status",
     Steps => "steps",
     Stop => "stop",
+    Pause => "pause",
     Swipe => "swipe",
     Table => "table",
     Tablet => "tablet",

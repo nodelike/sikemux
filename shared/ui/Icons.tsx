@@ -181,6 +181,13 @@ export const IconRun = makeSvgIcon(
     { fill: "currentColor" },
 );
 export const IconStop = makeSvgIcon(<rect x="6" y="6" width="12" height="12" rx="2" stroke="none" />, { fill: "currentColor" });
+export const IconPause = makeSvgIcon(
+    <>
+        <rect x="6" y="5" width="4" height="14" rx="1" stroke="none" />
+        <rect x="14" y="5" width="4" height="14" rx="1" stroke="none" />
+    </>,
+    { fill: "currentColor" },
+);
 export const IconGit = makeSvgIcon(
     <>
         <path d="M15 6a9 9 0 0 0-9 9V3" />

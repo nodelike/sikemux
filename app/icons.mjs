@@ -65,6 +65,7 @@ const DRAWN = {
   grok: [ICONS, "IconGrok"],
   run: [ICONS, "IconRun"],
   stop: [ICONS, "IconStop"],
+  pause: [ICONS, "IconPause"],
   refresh: [ICONS, "IconRefresh"],
   laptop: [ICONS, "IconLaptop"],
   plug: [ICONS, "IconPlug"],
