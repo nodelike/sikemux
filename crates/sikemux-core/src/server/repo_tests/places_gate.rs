@@ -809,3 +809,38 @@ async fn a_retry_that_started_after_an_end_may_have_run() {
         Some(CallResult::MayHaveRun)
     );
 }
+
+/// @Wataru widened a tag ruleset on nodelike/sikemux, the project's own repository, and the
+/// person got "Set rulesets/24037079 on nodelike/sikemux?" from a place an older gate had kept
+/// for every `gh api` write.
+#[test]
+fn a_github_write_to_the_projects_own_repository_runs_and_others_ask_in_words() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    let url = "https://github.com/nodelike/sikemux.git";
+    git(&cwd, &["remote", "set-url", "origin", url]);
+    let kept = new_place(
+        "writes on GitHub's API",
+        true,
+        vec![Recognise::Stage {
+            tool: "GitHub's API".into(),
+            name: "writes".into(),
+        }],
+        None,
+    );
+    let core = core_at(None, &project, vec![kept]);
+    let ship = |line: &str| {
+        let looks = crate::ship::Looks::Every;
+        crate::ship::of_command(line, &[], looks, &cwd, &|_| None).remove(0)
+    };
+    let own = "gh api -X PUT repos/nodelike/sikemux/rulesets/24037079 --input - --jq .conditions";
+    assert!(matches!(run(&core, ship(own), &cwd), Ok(None)));
+    let filled = "gh api -X POST repos/{owner}/{repo}/labels -f name=phone";
+    assert!(matches!(run(&core, ship(filled), &cwd), Ok(None)));
+    assert!(open_calls(&core).is_empty());
+
+    let theirs = "gh api -X PUT repos/acme/web/rulesets/24037079 --input -";
+    assert!(run(&core, ship(theirs), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    assert_eq!(call.question, "Change who may push what to acme/web?");
+}

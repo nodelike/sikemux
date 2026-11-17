@@ -74,6 +74,11 @@ pub enum Target {
         environments: Vec<String>,
         inputs: Vec<String>,
     },
+    /// A write through GitHub's API, by the `owner/name` of the repository it changes, as the
+    /// command spells it, `{owner}/{repo}` included; empty when it names none, as a GraphQL call.
+    GitHub {
+        repo: String,
+    },
     /// A tag pushed to the project's remote, which can start a release; empty when which tags
     /// can't be read.
     Tag {
@@ -373,7 +378,9 @@ pub(crate) fn target_of(
             Some(workflow(args, env, cwd))
         }
         "gh" if args.first().is_some_and(|word| word == "api") => {
-            Some(stage("GitHub's API", "writes"))
+            let call = github_api(&args[1..]);
+            let repo = call.as_ref().and_then(ApiCall::repo).unwrap_or_default();
+            Some(Target::GitHub { repo })
         }
         "gh" => Some(package(GITHUB_RELEASES)),
         "npm" | "pnpm" | "yarn" if args.iter().any(|arg| arg == "publish") => Some(package("npm")),
@@ -1350,6 +1357,67 @@ fn s3_destination(args: &[String]) -> Option<&String> {
         }
     }
     paths.get(1).copied()
+}
+
+/// A `gh api` call: its method, as gh sends it, and the endpoint, without a leading slash.
+pub struct ApiCall {
+    pub method: String,
+    pub endpoint: String,
+}
+
+impl ApiCall {
+    /// The `owner/name` of the repository the endpoint changes, when it names one.
+    pub fn repo(&self) -> Option<String> {
+        let path = self.endpoint.split(['?', '#']).next()?;
+        let mut parts = path.split('/');
+        let ("repos", Some(owner), Some(name)) = (parts.next()?, parts.next(), parts.next()) else {
+            return None;
+        };
+        Some(format!("{owner}/{name}"))
+    }
+}
+
+/// What `gh api` run with `args`, the words after `api`, calls.
+pub fn github_api(args: &[impl AsRef<str>]) -> Option<ApiCall> {
+    const VALUED: [&str; 17] = [
+        "-X",
+        "--method",
+        "-f",
+        "-F",
+        "--field",
+        "--raw-field",
+        "-H",
+        "--header",
+        "-q",
+        "--jq",
+        "-t",
+        "--template",
+        "--input",
+        "-p",
+        "--preview",
+        "--hostname",
+        "--cache",
+    ];
+    let (mut endpoint, mut method, mut fields) = (None, None, false);
+    let mut words = args.iter().map(AsRef::as_ref);
+    while let Some(arg) = words.next() {
+        if VALUED.contains(&arg) {
+            let value = words.next();
+            match arg {
+                "-X" | "--method" => method = value.map(str::to_ascii_uppercase),
+                "-f" | "-F" | "--field" | "--raw-field" | "--input" => fields = true,
+                _ => {}
+            }
+        } else if let Some(value) = arg.strip_prefix("--method=") {
+            method = Some(value.to_ascii_uppercase());
+        } else if !arg.starts_with('-') && endpoint.is_none() {
+            endpoint = Some(arg.trim_start_matches('/').to_owned());
+        }
+    }
+    Some(ApiCall {
+        method: method.unwrap_or_else(|| if fields { "POST" } else { "GET" }.to_owned()),
+        endpoint: endpoint?,
+    })
 }
 
 /// Whether `gh api` with `args` writes: a GraphQL query that holds a mutation, or a REST call

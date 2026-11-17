@@ -228,9 +228,10 @@ pub fn workflow_asks(target: &Target) -> bool {
 }
 
 /// The production place a fact of `ship` names by itself, whatever the project's list says:
-/// a target its service marks as production, a write to a production database, a workflow
-/// that reaches production, or a stack, stage, app, profile, context or workspace whose name
-/// says production.
+/// a target its service marks as production, a write to a production database, a write as the
+/// person to a GitHub repository, a workflow that reaches production, or a stack, stage, app,
+/// profile, context or workspace whose name says production. The gate lets a write to the
+/// project's own repositories through before it asks here.
 fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
     let place =
         |name: String, fact: Recognise| new_place(&name, true, vec![fact], found_in.clone());
@@ -271,6 +272,12 @@ fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
         Target::Stage { tool, name } if says_production(name) => {
             Some(stage_place(tool, name, found_in))
         }
+        Target::GitHub { repo } if !repo.is_empty() => Some(new_place(
+            &format!("{repo} on GitHub"),
+            true,
+            Vec::new(),
+            found_in,
+        )),
         Target::Database { name } => Some(place(
             format!("The {name} database"),
             Recognise::Database { name: name.clone() },
@@ -310,6 +317,7 @@ fn not_production_fact(ship: &Ship) -> bool {
 fn program_of(ship: &Ship) -> String {
     match ship.target.as_ref().map(Target::bare) {
         Some(Target::Database { .. }) => "database write".to_owned(),
+        Some(Target::GitHub { .. }) => "GitHub write".to_owned(),
         _ => match ship.kind {
             ShipKind::Publish => "publish".to_owned(),
             _ => "deploy".to_owned(),

@@ -312,6 +312,11 @@ fn check_call(
         .filter(|project| !project.is_empty())
         .unwrap_or_else(|| core.workspaces().project_of(cwd));
     let mut ship = ship;
+    if let Some(Target::GitHub { repo }) = ship.target.as_ref().map(Target::bare) {
+        if owned_here(repo, cwd, &project) {
+            return Ok(None);
+        }
+    }
     if ship.kind == ShipKind::Push && !same_repository(&push::run_in(&ship.what, cwd), &project) {
         return Ok(None);
     }
@@ -601,65 +606,27 @@ fn call_for(
 }
 
 /// What a `gh api` command writes on GitHub, in the words the person would use for it, such
-/// as "Comment on owner/repo#12". `here` names the checkout's repository, which gh puts in
-/// for `{owner}/{repo}`.
+/// as "Comment on owner/repo#12", and never an endpoint or an id. `here` names the checkout's
+/// repository, which gh puts in for `{owner}/{repo}`.
 fn github_write(what: &str, here: impl FnOnce() -> Option<String>) -> Option<String> {
     let command = what.rsplit(" && ").next()?;
     let words: Vec<&str> = command.split_whitespace().collect();
     let ["gh", "api", args @ ..] = words.as_slice() else {
         return None;
     };
-    let valued = [
-        "-X",
-        "--method",
-        "-f",
-        "-F",
-        "--field",
-        "--raw-field",
-        "-H",
-        "--header",
-        "-q",
-        "--jq",
-        "-t",
-        "--template",
-        "--input",
-        "-p",
-        "--preview",
-        "--hostname",
-        "--cache",
-    ];
-    let (mut endpoint, mut method, mut fields) = (None, None, false);
-    let mut at = 0;
-    while let Some(arg) = args.get(at) {
-        at += 1;
-        if valued.contains(arg) {
-            let value = args.get(at).copied();
-            at += 1;
-            match *arg {
-                "-X" | "--method" => method = value.map(str::to_ascii_uppercase),
-                "-f" | "-F" | "--field" | "--raw-field" | "--input" => fields = true,
-                _ => {}
-            }
-        } else if let Some(value) = arg.strip_prefix("--method=") {
-            method = Some(value.to_ascii_uppercase());
-        } else if !arg.starts_with('-') && endpoint.is_none() {
-            endpoint = Some(arg.trim_start_matches('/'));
+    let call = crate::ship::github_api(args)?;
+    let Some(named) = call.repo() else {
+        return Some("Write to GitHub as you".to_owned());
+    };
+    let repo = match named.split_once('/') {
+        Some(("{owner}", _) | (_, "{repo}")) => {
+            here().unwrap_or_else(|| "this repository".to_owned())
         }
-    }
-    let method = method.unwrap_or_else(|| if fields { "POST" } else { "GET" }.to_owned());
-    let endpoint = endpoint?;
-    if endpoint == "graphql" {
-        return Some("Write to GitHub as you".to_owned());
-    }
-    let parts: Vec<&str> = endpoint.split(['?', '#']).next()?.split('/').collect();
-    let ["repos", owner, repo, rest @ ..] = parts.as_slice() else {
-        return Some("Write to GitHub as you".to_owned());
+        _ => named,
     };
-    let repo = match (*owner, *repo) {
-        ("{owner}", _) | (_, "{repo}") => here().unwrap_or_else(|| "this repository".to_owned()),
-        _ => format!("{owner}/{repo}"),
-    };
-    let said = match (method.as_str(), rest) {
+    let path = call.endpoint.split(['?', '#']).next().unwrap_or_default();
+    let rest: Vec<&str> = path.split('/').skip(3).collect();
+    let said = match (call.method.as_str(), rest.as_slice()) {
         ("POST", ["issues" | "pulls", number, "comments", ..]) => {
             format!("Comment on {repo}#{number}")
         }
@@ -685,16 +652,16 @@ fn github_write(what: &str, here: impl FnOnce() -> Option<String>) -> Option<Str
         ("PUT", ["pages"]) => format!("Change GitHub Pages for {repo}"),
         ("DELETE", ["pages"]) => format!("Turn off GitHub Pages for {repo}"),
         ("POST", ["pages", "builds"]) => format!("Rebuild GitHub Pages for {repo}"),
-        (method, rest @ [_, ..]) if !rest.iter().any(|part| part.starts_with('{')) => {
-            let verb = match method {
-                "POST" => "Add",
-                "PUT" => "Set",
-                "DELETE" => "Delete",
-                _ => "Change",
-            };
-            format!("{verb} {} on {repo}", rest.join("/"))
+        (_, ["rulesets", ..]) => format!("Change who may push what to {repo}"),
+        (_, ["branches", _, "protection", ..]) => format!("Change branch protection on {repo}"),
+        (_, ["labels", ..]) => format!("Change the labels of {repo}"),
+        (_, ["collaborators", ..]) => format!("Change who can work on {repo}"),
+        (_, ["hooks", ..]) => format!("Change the webhooks of {repo}"),
+        (_, ["actions", "secrets", ..]) => format!("Change the secrets of {repo}"),
+        (_, ["actions", ..] | ["environments", ..]) => {
+            format!("Change how GitHub Actions runs for {repo}")
         }
-        _ => format!("Change {repo} on GitHub"),
+        _ => format!("Change {repo} on GitHub as you"),
     };
     Some(said)
 }
@@ -862,6 +829,24 @@ fn same_repository(dir: &Path, project: &str) -> bool {
         (Some((pushed, theirs)), Some((own, ours))) => pushed == own || !theirs.is_disjoint(&ours),
         _ => true,
     }
+}
+
+/// Whether the GitHub repository `repo` belongs to whoever owns the remotes of the checkout at
+/// `cwd` or of `project`, as gh's `{owner}` does, so a write there is the project's own work.
+fn owned_here(repo: &str, cwd: &Path, project: &str) -> bool {
+    let owner = repo.split('/').next().unwrap_or_default();
+    if owner.is_empty() || owner == "{owner}" {
+        return !repo.is_empty();
+    }
+    [cwd, Path::new(project)].into_iter().any(|dir| {
+        let remotes = Git::quick(dir)
+            .trimmed(&["remote", "-v"])
+            .unwrap_or_default();
+        (remotes.lines())
+            .filter_map(|line| line.split_whitespace().nth(1))
+            .filter_map(super::credential::owner_and_name)
+            .any(|(theirs, _)| theirs.eq_ignore_ascii_case(owner))
+    })
 }
 
 /// Whether two keys name the same place, whatever the work or the action.
@@ -1836,6 +1821,14 @@ mod tests {
             (
                 "gh api -X POST repos/{owner}/{repo}/pages -f build_type=workflow",
                 "Turn on GitHub Pages for nodelike/sikemux",
+            ),
+            (
+                "gh api -X PUT repos/acme/web/rulesets/24037079 --input - --jq .conditions",
+                "Change who may push what to acme/web",
+            ),
+            (
+                "gh api -X POST repos/acme/web/deployments/77/statuses -f state=success",
+                "Change acme/web on GitHub as you",
             ),
         ] {
             let here = || Some("nodelike/sikemux".to_owned());

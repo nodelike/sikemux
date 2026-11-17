@@ -373,7 +373,8 @@ async fn a_yes_covers_its_own_job_once() {
     assert!(said.contains("said no"), "{said}");
 }
 
-/// `gh api graphql` with a query that holds no mutation raised a production call.
+/// `gh api graphql` with a query that holds no mutation raised a production call. A write to a
+/// named repository asks; the gate lets the project's own through before judging.
 #[test]
 fn a_graphql_read_is_not_a_write() {
     let cwd = Path::new("/nowhere");
@@ -392,7 +393,7 @@ fn a_graphql_read_is_not_a_write() {
     );
     assert_eq!(
         judge_line(&[], "gh api repos/acme/web/issues -f title=x", cwd, &[]),
-        Goes::Unplaced
+        Goes::Asks
     );
 }
 
