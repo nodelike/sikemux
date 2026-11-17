@@ -37,6 +37,11 @@ const SHOWN: Record<string, OrgAuditAction> = {
   "org.domain_joining_changed": "domain_joining_changed",
   "org.domain_removed": "domain_removed",
   "org.policy_changed": "policy_changed",
+  "org_vault.created": "vault_created",
+  "org_vault.key_added": "vault_host_added",
+  "org_vault.rotated": "vault_rotated",
+  "org_vault.entry_written": "vault_entry_written",
+  "org_vault.entry_removed": "vault_entry_removed",
 };
 
 /** What the Team plan's own changes are called in the org's log. */
@@ -63,15 +68,20 @@ const ruleAdding = (value: unknown) =>
     ? (value as OrgRuleAdding)
     : undefined;
 
-const userOf = (actor: string) =>
-  actor.startsWith("user:") ? actor.slice(5) : null;
+/** Who did it: the person, or the person whose host did it. */
+const doerOf = (row: Selectable<Tables["audit"]>) =>
+  row.actor.startsWith("user:")
+    ? row.actor.slice(5)
+    : row.actor.startsWith("device:")
+      ? row.user_id
+      : null;
 
 function entryBody(
   row: Selectable<Tables["audit"]>,
   named: Map<string, Person>,
 ): OrgAuditEntry {
   const detail = row.detail as Record<string, unknown>;
-  const by = userOf(row.actor);
+  const by = doerOf(row);
   const about = row.user_id !== by ? row.user_id : null;
   const action = SHOWN[row.action] ?? PLAN[row.action];
   if (!action) throw new Error(`The org's log read a ${row.action} row`);
@@ -82,6 +92,9 @@ function entryBody(
     team: text(detail.team),
     previousName: text(detail.previousName),
     domain: text(detail.domain),
+    entryKind: row.action.startsWith("org_vault.entry_")
+      ? text(detail.kind)
+      : undefined,
     joining: joining(detail.joining),
     ruleAdding: ruleAdding(detail.ruleAdding),
     asking: typeof detail.asking === "boolean" ? detail.asking : undefined,
@@ -164,9 +177,7 @@ export function auditRoutes(
     const named = await people(c, [
       ...new Set(
         page.flatMap((row) =>
-          [userOf(row.actor), row.user_id].filter(
-            (id): id is string => id !== null,
-          ),
+          [doerOf(row), row.user_id].filter((id): id is string => id !== null),
         ),
       ),
     ]);

@@ -111,13 +111,12 @@ function auditOrg(
   { orgId, userId, hostKey }: Asker,
   action: AuditAction,
   detail: Record<string, unknown>,
-  subject = orgId,
 ) {
   return audit(trx, {
     userId,
     actor: `device:${hostKey}`,
     action,
-    subject,
+    subject: orgId,
     detail: { org: orgId, ...detail },
   });
 }
@@ -142,7 +141,7 @@ export async function createOrgVault(
   await auditOrg(trx, asker, "org_vault.created", {});
 }
 
-/** A member's host holding the key seals it for other members' hosts. */
+/** A member's host holding the key seals it for other members' hosts. A host that has a wrap keeps it. */
 export async function addOrgKeys(
   trx: Transaction<Tables>,
   asker: Asker,
@@ -151,27 +150,19 @@ export async function addOrgKeys(
   atCurrent((await lockedVault(trx, asker.orgId)).generation, generation);
   await requireHolder(trx, asker, generation);
   await requireMemberHosts(trx, asker.orgId, keys);
-  await trx
+  const added = await trx
     .insertInto("org_vault_keys")
     .values(wrapRows(asker, generation, keys))
-    .onConflict((oc) =>
-      oc.columns(["org_id", "host_key"]).doUpdateSet((eb) => ({
-        generation: eb.ref("excluded.generation"),
-        wrapped: eb.ref("excluded.wrapped"),
-        wrapped_by: eb.ref("excluded.wrapped_by"),
-        created_at: sql<Date>`now()`,
-      })),
-    )
+    .onConflict((oc) => oc.columns(["org_id", "host_key"]).doNothing())
+    .returning("host_key")
     .execute();
+  if (!added.length) return;
   await vaultChanged(trx, asker.orgId);
-  for (const key of keys)
-    await auditOrg(
-      trx,
-      asker,
-      "org_vault.key_added",
-      { generation },
-      key.hostKey,
-    );
+  for (const { host_key } of added)
+    await auditOrg(trx, asker, "org_vault.key_added", {
+      generation,
+      host: host_key,
+    });
 }
 
 /** Every wrap is replaced by the new key's, so a host that left keeps only a key nothing is sealed under. */
@@ -290,13 +281,12 @@ export async function putOrgEntry(
       .executeTakeFirstOrThrow();
   }
   await vaultChanged(trx, orgId);
-  await auditOrg(
-    trx,
-    asker,
-    "org_vault.entry_written",
-    { kind, generation, revision: row.revision },
-    id,
-  );
+  await auditOrg(trx, asker, "org_vault.entry_written", {
+    entry: id,
+    kind,
+    generation,
+    revision: row.revision,
+  });
   return toEntry(row);
 }
 
@@ -328,11 +318,9 @@ export async function removeOrgEntry(
     );
   }
   await vaultChanged(trx, orgId);
-  await auditOrg(
-    trx,
-    asker,
-    "org_vault.entry_removed",
-    { kind: removed.kind, revision },
-    id,
-  );
+  await auditOrg(trx, asker, "org_vault.entry_removed", {
+    entry: id,
+    kind: removed.kind,
+    revision,
+  });
 }

@@ -16,6 +16,7 @@ import {
   IconCircleAlert,
   IconCopy,
   IconGlobe,
+  IconLock,
   IconPlus,
   IconShield,
   IconStack,
@@ -929,9 +930,14 @@ function AuditGlyph({ action }: { action: OrgAuditEntry["action"] }) {
   if (action.startsWith("team_")) return <IconStack size={16} />;
   if (action.startsWith("domain_")) return <IconGlobe size={16} />;
   if (action === "policy_changed") return <IconShield size={16} />;
+  if (action.startsWith("vault_")) return <IconLock size={16} />;
   if (action.startsWith("plan_") || action === "seats_changed")
     return <IconActivity size={16} />;
   return <IconUsers size={16} />;
+}
+
+function entryWords(kind?: string) {
+  return kind === "model-key" ? "a model key" : "an entry";
 }
 
 function auditLine(entry: OrgAuditEntry, org: Org): string {
@@ -995,6 +1001,16 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
       if (entry.dailyQuestions !== undefined)
         return `${by} set questions a day per person to ${entry.dailyQuestions}`;
       return `${by} changed the policy`;
+    case "vault_created":
+      return `${by} made ${org.name}'s vault`;
+    case "vault_host_added":
+      return `${by}'s computer gave a member's computer the vault's key`;
+    case "vault_rotated":
+      return `${by}'s computer replaced the vault's key after a computer left`;
+    case "vault_entry_written":
+      return `${by} saved ${entryWords(entry.entryKind)} in the vault`;
+    case "vault_entry_removed":
+      return `${by} removed ${entryWords(entry.entryKind)} from the vault`;
   }
 }
 

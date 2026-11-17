@@ -913,6 +913,16 @@ pub enum OrgAuditAction {
     DomainRemoved,
     #[serde(rename = "policy_changed")]
     PolicyChanged,
+    #[serde(rename = "vault_created")]
+    VaultCreated,
+    #[serde(rename = "vault_host_added")]
+    VaultHostAdded,
+    #[serde(rename = "vault_rotated")]
+    VaultRotated,
+    #[serde(rename = "vault_entry_written")]
+    VaultEntryWritten,
+    #[serde(rename = "vault_entry_removed")]
+    VaultEntryRemoved,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -960,6 +970,9 @@ pub struct OrgAuditEntry {
     /// The questions a day a policy change set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub daily_questions: Option<OrgDailyQuestions>,
+    /// What a vault entry written or removed is, such as model-key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_kind: Option<String>,
     /// The seat count a change set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats: Option<i64>,

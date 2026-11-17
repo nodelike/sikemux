@@ -953,7 +953,12 @@ export type OrgAuditAction =
   | "domain_verified"
   | "domain_joining_changed"
   | "domain_removed"
-  | "policy_changed";
+  | "policy_changed"
+  | "vault_created"
+  | "vault_host_added"
+  | "vault_rotated"
+  | "vault_entry_written"
+  | "vault_entry_removed";
 export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "created",
   "joined",
@@ -975,6 +980,11 @@ export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "domain_joining_changed",
   "domain_removed",
   "policy_changed",
+  "vault_created",
+  "vault_host_added",
+  "vault_rotated",
+  "vault_entry_written",
+  "vault_entry_removed",
 ];
 
 /** Where the next page of the audit log starts. Opaque to apps. */
@@ -1006,6 +1016,8 @@ export interface OrgAuditEntry {
   asking?: boolean;
   /** The questions a day a policy change set. */
   dailyQuestions?: OrgDailyQuestions;
+  /** What a vault entry written or removed is, such as model-key. */
+  entryKind?: string;
   /** The seat count a change set. */
   seats?: number;
   /** True when a seat change waits for the plan's renewal. */
@@ -1299,7 +1311,7 @@ export interface OrgVaultEntryPut {
   revision: number;
 }
 
-/** A member's host holding the org's key at the current generation seals it for other members' hosts. */
+/** A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one. */
 export interface OrgVaultKeysAdd {
   generation: VaultGeneration;
   keys: OrgWrappedKey[];

@@ -6992,7 +6992,12 @@
           "domain_verified",
           "domain_joining_changed",
           "domain_removed",
-          "policy_changed"
+          "policy_changed",
+          "vault_created",
+          "vault_host_added",
+          "vault_rotated",
+          "vault_entry_written",
+          "vault_entry_removed"
         ]
       },
       "OrgAuditCursor": {
@@ -7046,6 +7051,10 @@
           "dailyQuestions": {
             "description": "The questions a day a policy change set.",
             "$ref": "#/components/schemas/OrgDailyQuestions"
+          },
+          "entryKind": {
+            "description": "What a vault entry written or removed is, such as model-key.",
+            "type": "string"
           },
           "seats": {
             "description": "The seat count a change set.",
@@ -7608,7 +7617,7 @@
         "additionalProperties": false
       },
       "OrgVaultKeysAdd": {
-        "description": "A member's host holding the org's key at the current generation seals it for other members' hosts.",
+        "description": "A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one.",
         "type": "object",
         "properties": {
           "generation": { "$ref": "#/components/schemas/VaultGeneration" },

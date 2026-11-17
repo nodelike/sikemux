@@ -1721,6 +1721,11 @@ export const schema = {
         "domain_joining_changed",
         "domain_removed",
         "policy_changed",
+        "vault_created",
+        "vault_host_added",
+        "vault_rotated",
+        "vault_entry_written",
+        "vault_entry_removed",
       ],
     },
     OrgAuditCursor: {
@@ -1779,6 +1784,11 @@ export const schema = {
         dailyQuestions: {
           description: "The questions a day a policy change set.",
           $ref: "#/$defs/OrgDailyQuestions",
+        },
+        entryKind: {
+          description:
+            "What a vault entry written or removed is, such as model-key.",
+          type: "string",
         },
         seats: {
           description: "The seat count a change set.",
@@ -2323,7 +2333,7 @@ export const schema = {
     },
     OrgVaultKeysAdd: {
       description:
-        "A member's host holding the org's key at the current generation seals it for other members' hosts.",
+        "A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one.",
       type: "object",
       properties: {
         generation: { $ref: "#/$defs/VaultGeneration" },

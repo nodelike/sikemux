@@ -58,7 +58,7 @@ pub struct OrgVaultEntryPut {
     pub revision: i64,
 }
 
-/// A member's host holding the org's key at the current generation seals it for other members' hosts.
+/// A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultKeysAdd {

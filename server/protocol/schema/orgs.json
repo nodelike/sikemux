@@ -567,7 +567,12 @@
         "domain_verified",
         "domain_joining_changed",
         "domain_removed",
-        "policy_changed"
+        "policy_changed",
+        "vault_created",
+        "vault_host_added",
+        "vault_rotated",
+        "vault_entry_written",
+        "vault_entry_removed"
       ]
     },
     "OrgAuditEntry": {
@@ -633,6 +638,10 @@
         "dailyQuestions": {
           "description": "The questions a day a policy change set.",
           "$ref": "#/$defs/OrgDailyQuestions"
+        },
+        "entryKind": {
+          "description": "What a vault entry written or removed is, such as model-key.",
+          "type": "string"
         },
         "seats": {
           "description": "The seat count a change set.",

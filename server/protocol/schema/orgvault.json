@@ -133,7 +133,7 @@
       "additionalProperties": false
     },
     "OrgVaultKeysAdd": {
-      "description": "A member's host holding the org's key at the current generation seals it for other members' hosts.",
+      "description": "A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one.",
       "type": "object",
       "properties": {
         "generation": { "$ref": "vault.json#/$defs/VaultGeneration" },
