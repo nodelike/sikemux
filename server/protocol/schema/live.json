@@ -26,7 +26,8 @@
         "vault.changed",
         "mods.changed",
         "plan.changed",
-        "orgs.changed"
+        "orgs.changed",
+        "shares.changed"
       ]
     },
     "RevokeReason": {

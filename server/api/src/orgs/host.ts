@@ -1,16 +1,34 @@
 import type { Services } from "../app.ts";
 import type { OrgMemberships } from "@sikemux/protocol";
 import { Hono } from "hono";
-import { sql } from "kysely";
+import { sql, type ExpressionBuilder } from "kysely";
 
 import { isStaff } from "../account/staff.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
+import type { Tables } from "../db.ts";
 import { perUser } from "../limits.ts";
 
 /**
  * GET /v1/account/orgs: the orgs the account a host is on is in, read again on orgs.changed.
  * Until plans go live only staff are in any.
  */
+/** Whether the org in `orgs.id` holds an active Team subscription. */
+export function teamPaid(eb: ExpressionBuilder<Tables, "orgs">) {
+  return eb.exists(
+    eb
+      .selectFrom("subscriptions")
+      .innerJoin(
+        "billing_customers",
+        "billing_customers.id",
+        "subscriptions.customer_id",
+      )
+      .select(sql`1`.as("one"))
+      .whereRef("billing_customers.org_id", "=", "orgs.id")
+      .where("subscriptions.product", "=", "team")
+      .where("subscriptions.status", "=", "active"),
+  );
+}
+
 export function membershipRoutes({
   database: { db },
   verifier,
@@ -29,23 +47,7 @@ export function membershipRoutes({
         .selectFrom("orgs")
         .innerJoin("org_users", "org_users.org_id", "orgs.id")
         .select(["orgs.id", "orgs.name", "org_users.role"])
-        .select((eb) =>
-          eb
-            .exists(
-              eb
-                .selectFrom("subscriptions")
-                .innerJoin(
-                  "billing_customers",
-                  "billing_customers.id",
-                  "subscriptions.customer_id",
-                )
-                .select(sql`1`.as("one"))
-                .whereRef("billing_customers.org_id", "=", "orgs.id")
-                .where("subscriptions.product", "=", "team")
-                .where("subscriptions.status", "=", "active"),
-            )
-            .as("paid"),
-        )
+        .select((eb) => teamPaid(eb).as("paid"))
         .where("org_users.user_id", "=", userId)
         .orderBy("orgs.created_at")
         .orderBy("orgs.id")

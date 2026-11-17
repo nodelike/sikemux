@@ -61,7 +61,8 @@ export type AccountEventType =
   | "vault.changed"
   | "mods.changed"
   | "plan.changed"
-  | "orgs.changed";
+  | "orgs.changed"
+  | "shares.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -75,6 +76,7 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "mods.changed",
   "plan.changed",
   "orgs.changed",
+  "shares.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -792,6 +794,9 @@ export type LiveServerMessage =
   | LiveBye
   | LivePushed;
 
+/** The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none. */
+export type MemberName = string;
+
 /** The oldest version of each app the server works with, by platform. Dev builds are never too old. */
 export interface MinimumVersions {
   macos: ChannelVersions;
@@ -1185,6 +1190,16 @@ export interface OrgSeats {
   limit: number;
 }
 
+/** One org whose Team plan is paid: its members, and the projects the others share with it. */
+export interface OrgShareList {
+  org: OrgId;
+  members: ShareMember[];
+  /** What the other members share; never the account's own. */
+  shares: SharedProject[];
+  /** The account's own registrations with the org. */
+  mine: SharedProject[];
+}
+
 /** A named list of an org's members. It owns nothing: it stands in wherever a list of people goes. */
 export interface OrgTeam {
   id: OrgTeamId;
@@ -1232,6 +1247,29 @@ export interface PaymentCard {
   last4: string;
   expMonth: number;
   expYear: number;
+}
+
+/** The server's word that the host `from` belongs to a member of the org, for the host `to`, a teammate's host with a project shared with that org. The asking host shows it over ALPN sikemux/peer/1, and shows a new one before it runs out or the connection ends. The signature is the server's Ed25519 signature, with the join tickets' key, over the UTF-8 text `sikemux-peer|v1|<keyId>|<org>|<member>|<from>|<to>|<issuedAt>|<expiresAt>|<memberName>`, times in decimal. */
+export interface PeerTicket {
+  /** The ticket's format. Only 1 exists. */
+  v: number;
+  keyId: string;
+  org: OrgId;
+  /** The asking account's membership id in the org. */
+  member: OrgMemberId;
+  memberName: MemberName;
+  from: DeviceKey;
+  to: DeviceKey;
+  issuedAt: number;
+  /** Five minutes after issuedAt. */
+  expiresAt: number;
+  signature: string;
+}
+
+/** Which teammate's host the asking host wants to read a shared project from, as a member of which org. */
+export interface PeerTicketRequest {
+  org: OrgId;
+  host: DeviceKey;
 }
 
 /** The host waiting behind a user code, for the person to check before approving it. */
@@ -1304,6 +1342,9 @@ export const platformValues: readonly Platform[] = [
 
 /** The connector a sign-in is for, such as sikemux.github. */
 export type PluginId = string;
+
+/** A project as the server knows it: the SHA-256, in lowercase hex, of its repository's normalised address. The server never learns the address; a teammate's host matches the hash against its own projects. */
+export type ProjectKey = string;
 
 /** Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them. */
 export type PushApp = "production" | "dev";
@@ -1478,6 +1519,14 @@ export const ShareCloseCode = {
 export type ShareCloseCode =
   (typeof ShareCloseCode)[keyof typeof ShareCloseCode];
 
+/** A project a teammate shares with the org, and the host to ask for its record. */
+export interface SharedProject {
+  project: ProjectKey;
+  /** The id of the teammate's membership in the org. */
+  member: OrgMemberId;
+  host: DeviceKey;
+}
+
 /** The share ended. The server closes a viewer's connection with ShareCloseCode ended after it. */
 export interface ShareEnded {
   type: "ended";
@@ -1525,6 +1574,15 @@ export interface ShareHost {
 
 /** A shared chat's id: 16 random bytes the host picks, in unpadded base64url. */
 export type ShareId = string;
+
+/** Someone in the org, by their membership id, the name they show and their account's picture. */
+export interface ShareMember {
+  id: OrgMemberId;
+  name: MemberName;
+  imageUrl: string | null;
+  /** Whether this is the account asking. */
+  you: boolean;
+}
 
 /** Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link. */
 export interface ShareOpen {
@@ -1582,6 +1640,24 @@ export interface ShareRefused {
   type: "refused";
   share: ShareId;
   reason: ShareRefusal;
+}
+
+/** A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves. */
+export interface ShareRegistration {
+  org: OrgId;
+  project: ProjectKey;
+  host: DeviceKey;
+}
+
+/** The share registry as one host sees it: each of its account's orgs whose Team plan is paid. shares.changed and orgs.changed say when to read it again. */
+export interface ShareRegistry {
+  orgs: OrgShareList[];
+}
+
+/** A project the account no longer shares with the org. */
+export interface ShareRemoval {
+  org: OrgId;
+  project: ProjectKey;
 }
 
 /** A host publishes its shared chats; a viewer watches one. */
@@ -2042,6 +2118,7 @@ export interface Definitions {
   LiveRevoked: LiveRevoked;
   LiveRole: LiveRole;
   LiveServerMessage: LiveServerMessage;
+  MemberName: MemberName;
   MinimumVersions: MinimumVersions;
   ModConflict: ModConflict;
   ModDocument: ModDocument;
@@ -2099,6 +2176,7 @@ export interface Definitions {
   OrgRole: OrgRole;
   OrgRoleChange: OrgRoleChange;
   OrgSeats: OrgSeats;
+  OrgShareList: OrgShareList;
   OrgTeam: OrgTeam;
   OrgTeamCreate: OrgTeamCreate;
   OrgTeamId: OrgTeamId;
@@ -2108,12 +2186,15 @@ export interface Definitions {
   PaddleCheckout: PaddleCheckout;
   PaddleEnvironment: PaddleEnvironment;
   PaymentCard: PaymentCard;
+  PeerTicket: PeerTicket;
+  PeerTicketRequest: PeerTicketRequest;
   PendingHost: PendingHost;
   PlanFeature: PlanFeature;
   PlanId: PlanId;
   PlanPayer: PlanPayer;
   Platform: Platform;
   PluginId: PluginId;
+  ProjectKey: ProjectKey;
   PushApp: PushApp;
   PushKind: PushKind;
   PushPlatform: PushPlatform;
@@ -2137,6 +2218,7 @@ export interface Definitions {
   ShareClientMessage: ShareClientMessage;
   ShareClose: ShareClose;
   ShareCloseCode: ShareCloseCode;
+  SharedProject: SharedProject;
   ShareEnded: ShareEnded;
   ShareEndReason: ShareEndReason;
   ShareFrame: ShareFrame;
@@ -2144,6 +2226,7 @@ export interface Definitions {
   ShareHello: ShareHello;
   ShareHost: ShareHost;
   ShareId: ShareId;
+  ShareMember: ShareMember;
   ShareOpen: ShareOpen;
   ShareOpened: ShareOpened;
   SharePing: SharePing;
@@ -2152,6 +2235,9 @@ export interface Definitions {
   ShareReady: ShareReady;
   ShareRefusal: ShareRefusal;
   ShareRefused: ShareRefused;
+  ShareRegistration: ShareRegistration;
+  ShareRegistry: ShareRegistry;
+  ShareRemoval: ShareRemoval;
   ShareRole: ShareRole;
   ShareSeq: ShareSeq;
   ShareServerMessage: ShareServerMessage;

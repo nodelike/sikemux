@@ -49,6 +49,7 @@ enum AccountEventType: String, Codable, Hashable, Sendable {
     case modsChanged = "mods.changed"
     case planChanged = "plan.changed"
     case orgsChanged = "orgs.changed"
+    case sharesChanged = "shares.changed"
     /// A value added after this build, which it cannot act on.
     case unknown
 

@@ -959,6 +959,146 @@
         }
       }
     },
+    "/v1/account/shares": {
+      "get": {
+        "operationId": "getShareRegistry",
+        "summary": "The projects teammates share with the account's orgs whose Team plan is paid, and who is in each",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "responses": {
+          "200": {
+            "description": "The registry as this account sees it; shares.changed and orgs.changed say when to read it again.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ShareRegistry" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "registerShare",
+        "summary": "Share a project with an org, or move it to another of the account's hosts",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ShareRegistration" }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The org's other members' hosts find it, and hear shares.changed."
+          },
+          "404": {
+            "description": "You are not in an org with that id whose Team plan is paid, or none of your hosts has that key.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/shares/remove": {
+      "post": {
+        "operationId": "removeShare",
+        "summary": "Stop sharing a project with an org",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ShareRemoval" }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The org's members no longer find it, whether or not it was shared."
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/peer-tickets": {
+      "post": {
+        "operationId": "createPeerTicket",
+        "summary": "A ticket for this host to read what a teammate's host shares with an org",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PeerTicketRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The ticket, good for five minutes. The other host still checks that the org is paid up on its side and that it shares the project asked for.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PeerTicket" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id whose Team plan is paid, or no other member of it shares a project from that host.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "More than 30 tickets in a minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/orgs": {
       "post": {
         "operationId": "createOrg",
@@ -4805,7 +4945,8 @@
           "vault.changed",
           "mods.changed",
           "plan.changed",
-          "orgs.changed"
+          "orgs.changed",
+          "shares.changed"
         ]
       },
       "AccountProfile": {
@@ -6044,6 +6185,12 @@
         ],
         "discriminator": { "propertyName": "type" }
       },
+      "MemberName": {
+        "description": "The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
       "MinimumVersions": {
         "description": "The oldest version of each app the server works with, by platform. Dev builds are never too old.",
         "type": "object",
@@ -6731,6 +6878,29 @@
         "required": ["held", "limit"],
         "additionalProperties": false
       },
+      "OrgShareList": {
+        "description": "One org whose Team plan is paid: its members, and the projects the others share with it.",
+        "type": "object",
+        "properties": {
+          "org": { "$ref": "#/components/schemas/OrgId" },
+          "members": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ShareMember" }
+          },
+          "shares": {
+            "description": "What the other members share; never the account's own.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SharedProject" }
+          },
+          "mine": {
+            "description": "The account's own registrations with the org.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SharedProject" }
+          }
+        },
+        "required": ["org", "members", "shares", "mine"],
+        "additionalProperties": false
+      },
       "OrgTeam": {
         "description": "A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.",
         "type": "object",
@@ -6815,6 +6985,61 @@
         "required": ["brand", "last4", "expMonth", "expYear"],
         "additionalProperties": false
       },
+      "PeerTicket": {
+        "description": "The server's word that the host `from` belongs to a member of the org, for the host `to`, a teammate's host with a project shared with that org. The asking host shows it over ALPN sikemux/peer/1, and shows a new one before it runs out or the connection ends. The signature is the server's Ed25519 signature, with the join tickets' key, over the UTF-8 text `sikemux-peer|v1|<keyId>|<org>|<member>|<from>|<to>|<issuedAt>|<expiresAt>|<memberName>`, times in decimal.",
+        "type": "object",
+        "properties": {
+          "v": {
+            "description": "The ticket's format. Only 1 exists.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1
+          },
+          "keyId": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "maxLength": 32
+          },
+          "org": { "$ref": "#/components/schemas/OrgId" },
+          "member": {
+            "description": "The asking account's membership id in the org.",
+            "$ref": "#/components/schemas/OrgMemberId"
+          },
+          "memberName": { "$ref": "#/components/schemas/MemberName" },
+          "from": { "$ref": "#/components/schemas/DeviceKey" },
+          "to": { "$ref": "#/components/schemas/DeviceKey" },
+          "issuedAt": { "type": "integer", "minimum": 0 },
+          "expiresAt": {
+            "description": "Five minutes after issuedAt.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+        },
+        "required": [
+          "v",
+          "keyId",
+          "org",
+          "member",
+          "memberName",
+          "from",
+          "to",
+          "issuedAt",
+          "expiresAt",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "PeerTicketRequest": {
+        "description": "Which teammate's host the asking host wants to read a shared project from, as a member of which org.",
+        "type": "object",
+        "properties": {
+          "org": { "$ref": "#/components/schemas/OrgId" },
+          "host": { "$ref": "#/components/schemas/DeviceKey" }
+        },
+        "required": ["org", "host"],
+        "additionalProperties": false
+      },
       "PendingHost": {
         "description": "The host waiting behind a user code, for the person to check before approving it.",
         "type": "object",
@@ -6894,6 +7119,11 @@
         "description": "The connector a sign-in is for, such as sikemux.github.",
         "type": "string",
         "pattern": "^sikemux\\.[a-z0-9-]{1,48}$"
+      },
+      "ProjectKey": {
+        "description": "A project as the server knows it: the SHA-256, in lowercase hex, of its repository's normalised address. The server never learns the address; a teammate's host matches the hash against its own projects.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
       },
       "PushApp": {
         "description": "Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.",
@@ -7163,6 +7393,20 @@
           }
         ]
       },
+      "SharedProject": {
+        "description": "A project a teammate shares with the org, and the host to ask for its record.",
+        "type": "object",
+        "properties": {
+          "project": { "$ref": "#/components/schemas/ProjectKey" },
+          "member": {
+            "description": "The id of the teammate's membership in the org.",
+            "$ref": "#/components/schemas/OrgMemberId"
+          },
+          "host": { "$ref": "#/components/schemas/DeviceKey" }
+        },
+        "required": ["project", "member", "host"],
+        "additionalProperties": false
+      },
       "ShareEnded": {
         "description": "The share ended. The server closes a viewer's connection with ShareCloseCode ended after it.",
         "type": "object",
@@ -7233,6 +7477,25 @@
         "description": "A shared chat's id: 16 random bytes the host picks, in unpadded base64url.",
         "type": "string",
         "pattern": "^[A-Za-z0-9_-]{22}$"
+      },
+      "ShareMember": {
+        "description": "Someone in the org, by their membership id, the name they show and their account's picture.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgMemberId" },
+          "name": { "$ref": "#/components/schemas/MemberName" },
+          "imageUrl": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "you": {
+            "description": "Whether this is the account asking.",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "imageUrl", "you"],
+        "additionalProperties": false
       },
       "ShareOpen": {
         "description": "Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link.",
@@ -7319,6 +7582,39 @@
           "reason": { "$ref": "#/components/schemas/ShareRefusal" }
         },
         "required": ["type", "share", "reason"],
+        "additionalProperties": false
+      },
+      "ShareRegistration": {
+        "description": "A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves.",
+        "type": "object",
+        "properties": {
+          "org": { "$ref": "#/components/schemas/OrgId" },
+          "project": { "$ref": "#/components/schemas/ProjectKey" },
+          "host": { "$ref": "#/components/schemas/DeviceKey" }
+        },
+        "required": ["org", "project", "host"],
+        "additionalProperties": false
+      },
+      "ShareRegistry": {
+        "description": "The share registry as one host sees it: each of its account's orgs whose Team plan is paid. shares.changed and orgs.changed say when to read it again.",
+        "type": "object",
+        "properties": {
+          "orgs": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgShareList" }
+          }
+        },
+        "required": ["orgs"],
+        "additionalProperties": false
+      },
+      "ShareRemoval": {
+        "description": "A project the account no longer shares with the org.",
+        "type": "object",
+        "properties": {
+          "org": { "$ref": "#/components/schemas/OrgId" },
+          "project": { "$ref": "#/components/schemas/ProjectKey" }
+        },
+        "required": ["org", "project"],
         "additionalProperties": false
       },
       "ShareRole": {

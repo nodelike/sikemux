@@ -8,7 +8,7 @@ import {
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { JoinTicket } from "@sikemux/protocol";
+import type { JoinTicket, PeerTicket } from "@sikemux/protocol";
 
 import { settingsFrom } from "../env.ts";
 
@@ -23,6 +23,7 @@ export interface JoinSigner {
 }
 
 const TICKET_SECONDS = 600;
+const PEER_TICKET_SECONDS = 300;
 const KEY_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function devKeyFile(home: string): string {
@@ -78,6 +79,32 @@ export function signTicket(
     signer.privateKey,
   ).toString("hex");
   return { ...fields, signature };
+}
+
+/** What the server signs for a peer ticket. The name goes last, so no character in it can shift a field. */
+export function peerMessage(ticket: Omit<PeerTicket, "signature">): string {
+  return `sikemux-peer|v${ticket.v}|${ticket.keyId}|${ticket.org}|${ticket.member}|${ticket.from}|${ticket.to}|${ticket.issuedAt}|${ticket.expiresAt}|${ticket.memberName}`;
+}
+
+export function signPeerTicket(
+  signer: Pick<JoinSigner, "keyId" | "privateKey">,
+  fields: Pick<PeerTicket, "org" | "member" | "memberName" | "from" | "to">,
+  now = Date.now(),
+): PeerTicket {
+  const issuedAt = Math.floor(now / 1000);
+  const unsigned: Omit<PeerTicket, "signature"> = {
+    v: 1,
+    keyId: signer.keyId,
+    ...fields,
+    issuedAt,
+    expiresAt: issuedAt + PEER_TICKET_SECONDS,
+  };
+  const signature = sign(
+    null,
+    Buffer.from(peerMessage(unsigned), "utf8"),
+    signer.privateKey,
+  ).toString("hex");
+  return { ...unsigned, signature };
 }
 
 export function rawPublicKey(privateKey: KeyObject): string {

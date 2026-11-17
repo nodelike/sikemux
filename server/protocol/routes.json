@@ -437,6 +437,71 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/account/shares",
+      "operationId": "getShareRegistry",
+      "summary": "The projects teammates share with the account's orgs whose Team plan is paid, and who is in each",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The registry as this account sees it; shares.changed and orgs.changed say when to read it again.",
+          "body": "ShareRegistry"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/account/shares",
+      "operationId": "registerShare",
+      "summary": "Share a project with an org, or move it to another of the account's hosts",
+      "auth": "host",
+      "request": "ShareRegistration",
+      "responses": {
+        "204": {
+          "description": "The org's other members' hosts find it, and hear shares.changed."
+        },
+        "404": {
+          "description": "You are not in an org with that id whose Team plan is paid, or none of your hosts has that key.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/shares/remove",
+      "operationId": "removeShare",
+      "summary": "Stop sharing a project with an org",
+      "auth": "host",
+      "request": "ShareRemoval",
+      "responses": {
+        "204": {
+          "description": "The org's members no longer find it, whether or not it was shared."
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/peer-tickets",
+      "operationId": "createPeerTicket",
+      "summary": "A ticket for this host to read what a teammate's host shares with an org",
+      "auth": "host",
+      "request": "PeerTicketRequest",
+      "responses": {
+        "200": {
+          "description": "The ticket, good for five minutes. The other host still checks that the org is paid up on its side and that it shares the project asked for.",
+          "body": "PeerTicket"
+        },
+        "404": {
+          "description": "You are not in an org with that id whose Team plan is paid, or no other member of it shares a project from that host.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "More than 30 tickets in a minute.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/orgs",
       "operationId": "createOrg",

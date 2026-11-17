@@ -55,7 +55,10 @@ type AuditAction =
   | "org.domain_added"
   | "org.domain_verified"
   | "org.domain_joining_changed"
-  | "org.domain_removed";
+  | "org.domain_removed"
+  | "share.added"
+  | "share.moved"
+  | "share.removed";
 
 interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */

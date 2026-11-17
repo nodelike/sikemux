@@ -64,9 +64,14 @@ import type {
   OrgTeamList,
   OrgTeamRename,
   PaddleCheckout,
+  PeerTicket,
+  PeerTicketRequest,
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
+  ShareRegistration,
+  ShareRegistry,
+  ShareRemoval,
   StashAdd,
   StashItem,
   StashList,
@@ -185,6 +190,17 @@ export function apiClient(send: Send) {
     getAccountAllowance: () => send<Allowance>("GET", `/v1/account/allowance`),
     /** The orgs the account a host is on is in, its role in each and whether each one's Team plan is paid. */
     getAccountOrgs: () => send<OrgMemberships>("GET", `/v1/account/orgs`),
+    /** The projects teammates share with the account's orgs whose Team plan is paid, and who is in each. */
+    getShareRegistry: () => send<ShareRegistry>("GET", `/v1/account/shares`),
+    /** Share a project with an org, or move it to another of the account's hosts. */
+    registerShare: (body: ShareRegistration) =>
+      send<void>("PUT", `/v1/account/shares`, body),
+    /** Stop sharing a project with an org. */
+    removeShare: (body: ShareRemoval) =>
+      send<void>("POST", `/v1/account/shares/remove`, body),
+    /** A ticket for this host to read what a teammate's host shares with an org. */
+    createPeerTicket: (body: PeerTicketRequest) =>
+      send<PeerTicket>("POST", `/v1/account/peer-tickets`, body),
     /** Make an org, with you as its owner. */
     createOrg: (body: OrgCreate) => send<Org>("POST", `/v1/orgs`, body),
     /** The orgs you are in. */

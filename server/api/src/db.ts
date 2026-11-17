@@ -305,6 +305,13 @@ export interface Tables {
     invited_by: string | null;
     joined_at: CreatedAt;
   };
+  org_shares: {
+    member_id: string;
+    project: string;
+    host: string;
+    created_at: CreatedAt;
+    updated_at: ColumnType<Date, never, Date>;
+  };
   org_invites: {
     id: Generated<string>;
     org_id: string;

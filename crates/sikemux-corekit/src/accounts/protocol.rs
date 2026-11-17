@@ -98,6 +98,8 @@ pub enum AccountEventType {
     PlanChanged,
     #[serde(rename = "orgs.changed")]
     OrgsChanged,
+    #[serde(rename = "shares.changed")]
+    SharesChanged,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -845,6 +847,9 @@ pub enum LiveServerMessage {
     Unknown,
 }
 
+/// The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.
+pub type MemberName = String;
+
 /// An amount in the currency's smallest unit, such as cents.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1215,6 +1220,18 @@ pub struct OrgSeats {
     pub limit: i64,
 }
 
+/// One org whose Team plan is paid: its members, and the projects the others share with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgShareList {
+    pub org: OrgId,
+    pub members: Vec<ShareMember>,
+    /// What the other members share; never the account's own.
+    pub shares: Vec<SharedProject>,
+    /// The account's own registrations with the org.
+    pub mine: Vec<SharedProject>,
+}
+
 /// A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1279,6 +1296,33 @@ pub struct PaymentCard {
     pub last4: String,
     pub exp_month: i64,
     pub exp_year: i64,
+}
+
+/// The server's word that the host `from` belongs to a member of the org, for the host `to`, a teammate's host with a project shared with that org. The asking host shows it over ALPN sikemux/peer/1, and shows a new one before it runs out or the connection ends. The signature is the server's Ed25519 signature, with the join tickets' key, over the UTF-8 text `sikemux-peer|v1|<keyId>|<org>|<member>|<from>|<to>|<issuedAt>|<expiresAt>|<memberName>`, times in decimal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerTicket {
+    /// The ticket's format. Only 1 exists.
+    pub v: i64,
+    pub key_id: String,
+    pub org: OrgId,
+    /// The asking account's membership id in the org.
+    pub member: OrgMemberId,
+    pub member_name: MemberName,
+    pub from: DeviceKey,
+    pub to: DeviceKey,
+    pub issued_at: i64,
+    /// Five minutes after issuedAt.
+    pub expires_at: i64,
+    pub signature: String,
+}
+
+/// Which teammate's host the asking host wants to read a shared project from, as a member of which org.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerTicketRequest {
+    pub org: OrgId,
+    pub host: DeviceKey,
 }
 
 /// Something a paid plan includes. Free's are everyone's and are not listed.
@@ -1358,6 +1402,9 @@ pub enum Platform {
     #[serde(other)]
     Unknown,
 }
+
+/// A project as the server knows it: the SHA-256, in lowercase hex, of its repository's normalised address. The server never learns the address; a teammate's host matches the hash against its own projects.
+pub type ProjectKey = String;
 
 /// Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1458,6 +1505,51 @@ pub struct ScheduledChange {
     pub product: BillingProductId,
     pub interval: BillingInterval,
     pub quantity: i64,
+}
+
+/// A project a teammate shares with the org, and the host to ask for its record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedProject {
+    pub project: ProjectKey,
+    /// The id of the teammate's membership in the org.
+    pub member: OrgMemberId,
+    pub host: DeviceKey,
+}
+
+/// Someone in the org, by their membership id, the name they show and their account's picture.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareMember {
+    pub id: OrgMemberId,
+    pub name: MemberName,
+    pub image_url: Option<String>,
+    /// Whether this is the account asking.
+    pub you: bool,
+}
+
+/// A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareRegistration {
+    pub org: OrgId,
+    pub project: ProjectKey,
+    pub host: DeviceKey,
+}
+
+/// The share registry as one host sees it: each of its account's orgs whose Team plan is paid. shares.changed and orgs.changed say when to read it again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareRegistry {
+    pub orgs: Vec<OrgShareList>,
+}
+
+/// A project the account no longer shares with the org.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareRemoval {
+    pub org: OrgId,
+    pub project: ProjectKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1803,6 +1895,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveRevoked" => through::<LiveServerMessage>(json),
         "LiveRole" => through::<LiveRole>(json),
         "LiveServerMessage" => through::<LiveServerMessage>(json),
+        "MemberName" => through::<MemberName>(json),
         "Money" => through::<Money>(json),
         "Org" => through::<Org>(json),
         "OrgAuditAction" => through::<OrgAuditAction>(json),
@@ -1842,6 +1935,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgRole" => through::<OrgRole>(json),
         "OrgRoleChange" => through::<OrgRoleChange>(json),
         "OrgSeats" => through::<OrgSeats>(json),
+        "OrgShareList" => through::<OrgShareList>(json),
         "OrgTeam" => through::<OrgTeam>(json),
         "OrgTeamCreate" => through::<OrgTeamCreate>(json),
         "OrgTeamId" => through::<OrgTeamId>(json),
@@ -1851,10 +1945,13 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PaddleCheckout" => through::<PaddleCheckout>(json),
         "PaddleEnvironment" => through::<PaddleEnvironment>(json),
         "PaymentCard" => through::<PaymentCard>(json),
+        "PeerTicket" => through::<PeerTicket>(json),
+        "PeerTicketRequest" => through::<PeerTicketRequest>(json),
         "PlanFeature" => through::<PlanFeature>(json),
         "PlanId" => through::<PlanId>(json),
         "PlanPayer" => through::<PlanPayer>(json),
         "Platform" => through::<Platform>(json),
+        "ProjectKey" => through::<ProjectKey>(json),
         "PushApp" => through::<PushApp>(json),
         "PushKind" => through::<PushKind>(json),
         "PushPlatform" => through::<PushPlatform>(json),
@@ -1864,6 +1961,11 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushTokenState" => through::<PushTokenState>(json),
         "RenewalCharge" => through::<RenewalCharge>(json),
         "ScheduledChange" => through::<ScheduledChange>(json),
+        "SharedProject" => through::<SharedProject>(json),
+        "ShareMember" => through::<ShareMember>(json),
+        "ShareRegistration" => through::<ShareRegistration>(json),
+        "ShareRegistry" => through::<ShareRegistry>(json),
+        "ShareRemoval" => through::<ShareRemoval>(json),
         "ShedBoxes" => through::<ShedBoxes>(json),
         "Staff" => through::<Staff>(json),
         "StashAdd" => through::<StashAdd>(json),

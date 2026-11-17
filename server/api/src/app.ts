@@ -29,6 +29,7 @@ import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import { membershipRoutes } from "./orgs/host.ts";
 import { orgRoutes } from "./orgs/routes.ts";
+import { shareRoutes } from "./orgs/shares.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
 import { relayAccessRoutes, type RelayAccess } from "./relay/access.ts";
@@ -124,6 +125,9 @@ export function createApp(services: Services) {
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account/allowance", allowanceRoutes(services));
   app.route("/v1/account/orgs", membershipRoutes(services));
+  const { shares, tickets } = shareRoutes(services);
+  app.route("/v1/account/shares", shares);
+  app.route("/v1/account/peer-tickets", tickets);
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/orgs", orgRoutes(services));
   app.route(

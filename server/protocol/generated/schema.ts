@@ -115,6 +115,7 @@ export const schema = {
         "mods.changed",
         "plan.changed",
         "orgs.changed",
+        "shares.changed",
       ],
     },
     AccountProfile: {
@@ -1427,6 +1428,13 @@ export const schema = {
       ],
       discriminator: { propertyName: "type" },
     },
+    MemberName: {
+      description:
+        "The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.",
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+    },
     MinimumVersions: {
       description:
         "The oldest version of each app the server works with, by platform. Dev builds are never too old.",
@@ -2095,6 +2103,27 @@ export const schema = {
       required: ["held", "limit"],
       additionalProperties: false,
     },
+    OrgShareList: {
+      description:
+        "One org whose Team plan is paid: its members, and the projects the others share with it.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        members: { type: "array", items: { $ref: "#/$defs/ShareMember" } },
+        shares: {
+          description: "What the other members share; never the account's own.",
+          type: "array",
+          items: { $ref: "#/$defs/SharedProject" },
+        },
+        mine: {
+          description: "The account's own registrations with the org.",
+          type: "array",
+          items: { $ref: "#/$defs/SharedProject" },
+        },
+      },
+      required: ["org", "members", "shares", "mine"],
+      additionalProperties: false,
+    },
     OrgTeam: {
       description:
         "A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.",
@@ -2172,6 +2201,63 @@ export const schema = {
         expYear: { type: "integer", minimum: 2000 },
       },
       required: ["brand", "last4", "expMonth", "expYear"],
+      additionalProperties: false,
+    },
+    PeerTicket: {
+      description:
+        "The server's word that the host `from` belongs to a member of the org, for the host `to`, a teammate's host with a project shared with that org. The asking host shows it over ALPN sikemux/peer/1, and shows a new one before it runs out or the connection ends. The signature is the server's Ed25519 signature, with the join tickets' key, over the UTF-8 text `sikemux-peer|v1|<keyId>|<org>|<member>|<from>|<to>|<issuedAt>|<expiresAt>|<memberName>`, times in decimal.",
+      type: "object",
+      properties: {
+        v: {
+          description: "The ticket's format. Only 1 exists.",
+          type: "integer",
+          minimum: 1,
+          maximum: 1,
+        },
+        keyId: {
+          type: "string",
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+          maxLength: 32,
+        },
+        org: { $ref: "#/$defs/OrgId" },
+        member: {
+          description: "The asking account's membership id in the org.",
+          $ref: "#/$defs/OrgMemberId",
+        },
+        memberName: { $ref: "#/$defs/MemberName" },
+        from: { $ref: "#/$defs/DeviceKey" },
+        to: { $ref: "#/$defs/DeviceKey" },
+        issuedAt: { type: "integer", minimum: 0 },
+        expiresAt: {
+          description: "Five minutes after issuedAt.",
+          type: "integer",
+          minimum: 0,
+        },
+        signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
+      },
+      required: [
+        "v",
+        "keyId",
+        "org",
+        "member",
+        "memberName",
+        "from",
+        "to",
+        "issuedAt",
+        "expiresAt",
+        "signature",
+      ],
+      additionalProperties: false,
+    },
+    PeerTicketRequest: {
+      description:
+        "Which teammate's host the asking host wants to read a shared project from, as a member of which org.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["org", "host"],
       additionalProperties: false,
     },
     PendingHost: {
@@ -2261,6 +2347,12 @@ export const schema = {
       description: "The connector a sign-in is for, such as sikemux.github.",
       type: "string",
       pattern: "^sikemux\\.[a-z0-9-]{1,48}$",
+    },
+    ProjectKey: {
+      description:
+        "A project as the server knows it: the SHA-256, in lowercase hex, of its repository's normalised address. The server never learns the address; a teammate's host matches the hash against its own projects.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
     },
     PushApp: {
       description:
@@ -2557,6 +2649,21 @@ export const schema = {
         },
       ],
     },
+    SharedProject: {
+      description:
+        "A project a teammate shares with the org, and the host to ask for its record.",
+      type: "object",
+      properties: {
+        project: { $ref: "#/$defs/ProjectKey" },
+        member: {
+          description: "The id of the teammate's membership in the org.",
+          $ref: "#/$defs/OrgMemberId",
+        },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["project", "member", "host"],
+      additionalProperties: false,
+    },
     ShareEnded: {
       description:
         "The share ended. The server closes a viewer's connection with ShareCloseCode ended after it.",
@@ -2628,6 +2735,22 @@ export const schema = {
         "A shared chat's id: 16 random bytes the host picks, in unpadded base64url.",
       type: "string",
       pattern: "^[A-Za-z0-9_-]{22}$",
+    },
+    ShareMember: {
+      description:
+        "Someone in the org, by their membership id, the name they show and their account's picture.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgMemberId" },
+        name: { $ref: "#/$defs/MemberName" },
+        imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
+        you: {
+          description: "Whether this is the account asking.",
+          type: "boolean",
+        },
+      },
+      required: ["id", "name", "imageUrl", "you"],
+      additionalProperties: false,
     },
     ShareOpen: {
       description:
@@ -2719,6 +2842,38 @@ export const schema = {
         reason: { $ref: "#/$defs/ShareRefusal" },
       },
       required: ["type", "share", "reason"],
+      additionalProperties: false,
+    },
+    ShareRegistration: {
+      description:
+        "A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        project: { $ref: "#/$defs/ProjectKey" },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["org", "project", "host"],
+      additionalProperties: false,
+    },
+    ShareRegistry: {
+      description:
+        "The share registry as one host sees it: each of its account's orgs whose Team plan is paid. shares.changed and orgs.changed say when to read it again.",
+      type: "object",
+      properties: {
+        orgs: { type: "array", items: { $ref: "#/$defs/OrgShareList" } },
+      },
+      required: ["orgs"],
+      additionalProperties: false,
+    },
+    ShareRemoval: {
+      description: "A project the account no longer shares with the org.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        project: { $ref: "#/$defs/ProjectKey" },
+      },
+      required: ["org", "project"],
       additionalProperties: false,
     },
     ShareRole: {
