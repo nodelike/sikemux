@@ -5,27 +5,30 @@ description: "Rules, knowledge and decisions you say once, which the agents star
 
 Sikemux keeps what you would otherwise repeat in every chat, so you say it once and the agents started in the project are handed it. It keeps three kinds of thing, each at one level:
 
-| Kind          | Kept for                          | Example                                | Kept until                                 |
-| ------------- | --------------------------------- | -------------------------------------- | ------------------------------------------ |
-| **Rules**     | The project, or one goal          | "Shadows, never glows"                 | Someone retires it, or its goal is removed |
-| **Knowledge** | The project, or a folder above it | "The service is called ai-service now" | It is proven wrong                         |
-| **Decisions** | A goal, on its card               | "One project is one concept"           | Someone retires it, or the goal is removed |
+| Kind          | Kept for                                  | Example                                | Kept until                                 |
+| ------------- | ----------------------------------------- | -------------------------------------- | ------------------------------------------ |
+| **Rules**     | You, the project, or one goal             | "Shadows, never glows"                 | Someone retires it, or its goal is removed |
+| **Knowledge** | You, or the project                       | "The service is called ai-service now" | It is proven wrong                         |
+| **Decisions** | The project, marked with the goal it was for | "One project is one concept"        | Someone retires it                         |
 
-Rules and knowledge kept for a folder above the project apply to every project under it, for a product that spans several repositories.
+Rules and knowledge kept for you are in your own store, which every project reads: how you like to work everywhere, rather than how one project does. Tell an agent how you like to work everywhere, and it keeps that as yours. The project's own store follows its repository, so every checkout of it reads the same one.
 
-Agents keep rules and knowledge with the `memory_add`, `memory_update` and `memory_list` tools, and a goal's decisions with `board_decide`, when you tell them to remember something or when they find it out. Each one says which agent learned it, in which chat and when, so you can check where it came from. A correction keeps what it said before. A goal's decisions and its own rules are kept on its card; a goal keeps 64 of each, and past that drops its oldest retired ones first. A goal is a card with no card above it, and once it has decisions or rules of its own it can't be moved under another card.
+Agents keep rules and knowledge with the `memory_add`, `memory_update` and `memory_list` tools, and decisions with `decide`, when you tell them to remember something or when they find it out. Each one says which agent learned it, in which chat and when, so you can check where it came from. A correction keeps what it said before. The project keeps one list of decisions, each marked with the goal the agent was working toward, or with none when it had no goal; past 512 it drops its oldest retired ones first. A goal keeps its own rules on its card, 64 of them, dropping its oldest retired ones first. A goal is a card with no card above it, and once it has decisions or rules of its own it can't be moved under another card.
+
+A note only reaches the agents that read it. So when an agent saves a rule or knowledge about code, Sikemux asks it to add a lint or a land check that enforces it, or to say why no check can.
 
 ## What an agent is handed
 
 When another agent starts an agent in a project, its task ends with what Sikemux keeps, in the same message:
 
-- every rule of the project and of the folders above it
+- every rule of yours and of the project
 - only the knowledge its task names: knowledge that names paths or services goes to agents whose task or card names one of them as a whole word, and knowledge that names none goes to every agent.
-- once the agent holds a card, the goal the card sits under: the goal's own title and details, its rules and its decisions. An agent started by another agent works toward its lead's goal, so it gets the goal's part before it claims a card of its own.
+- the project's decisions its task names, or else the newest ones of its goal.
+- once the agent holds a task, the goal the task sits under: the goal's own title and details and its rules. An agent started by another agent works toward its lead's goal, so it gets the goal's part before it claims a task of its own.
 
 Nobody writes a handoff by hand. A new agent handed a card, by **Resume** or by taking its chat up again from **Recent**, is told, from the owner that lost it, the branch and checkout it worked in, its commits there, what it left uncommitted and the last thing it wrote, so it carries the work on rather than starting again.
 
-A chat you start yourself is handed what Sikemux keeps once, as it starts: every rule of the project and of the folders above it, and the knowledge that names nothing in particular. Claude Code and Codex take it among their instructions, after any developer instructions of your own in Codex's config; other agents get it with your first message that isn't a slash command, shown there as context rather than as your words. It holds what Sikemux kept when the chat began; what changes later, and a goal's rules and decisions once the agent holds a card, it reads with `memory_list`.
+A chat you start yourself is handed what Sikemux keeps once, as it starts: every rule of yours and of the project, the knowledge that names nothing in particular, and the project's decisions your first message names. Claude Code and Codex take it among their instructions, after any developer instructions of your own in Codex's config; other agents get it with your first message that isn't a slash command, shown there as context rather than as your words. It holds what Sikemux kept when the chat began; what changes later, and a goal's rules once the agent holds a card, it reads with `memory_list`.
 
 Rules and knowledge an agent wrote come under their own heading, naming the agent and saying they are notes, not your orders, so a rule an agent picked up from a web page can't pass as yours. A goal's decisions name the agent that made them.
 

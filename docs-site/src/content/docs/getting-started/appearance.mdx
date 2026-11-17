@@ -1,19 +1,56 @@
 ---
 title: Appearance
-description: "Pick a theme, have an agent restyle Sikemux for you, and keep scroll bars shown whatever the theme."
+description: "Pick a theme, write your own, choose what shows behind the panes, and set contrast, motion and scroll bars whatever the theme."
 ---
 
 ## Theme
 
 **Settings → Appearance → Theme** picks the colours Sikemux wears: one of its own themes, one of Ghostty's, or one you make. Dark and light themes are both there.
 
-A theme can also set how round the window's corners are, from square to twice the usual roundness. None of the built-in themes change it.
+A theme can also set its look beyond colours:
+
+- how round the window's corners are, from square to twice the usual roundness;
+- the interface font and the code font, by the name of a font installed on your Mac; one you don't have falls back to Sikemux's own. The code font is the terminal's too;
+- density, from 0.85 to 1.3, which makes rows tighter or roomier without changing the text size;
+- the border width, 1 to 2 points, and how strong shadows are, from none to twice as dark;
+- the gap between panes and rails, and the inset between the window's edge and the panes, each 0 to 24 points, 10 unless set.
+
+None of the built-in themes change these. Fonts stay on the Mac; your phone keeps its own.
+
+The notch island wears the theme's text, accent and state colours too. Where a light theme's colour would not read on the island's black, it keeps its own.
+
+## Your own theme files
+
+Your themes are files in `~/.config/sikemux/themes`, one per theme, named for it, such as `square-noir.json`. A file names a `base` theme and holds only what differs from it:
+
+```json
+{ "base": "aura-noir", "name": "Square Noir", "style": { "corners": 0 } }
+```
+
+A file with no `base` gives the terminal's background, foreground and 16 colours, and Sikemux works out the rest, as it does for Ghostty's themes. Comments and trailing commas are fine. Sikemux reads a file again as you save it, and the theme you wear changes at once. A file it can't read keeps its last good version. Ghostty's theme files in `~/.config/ghostty/themes` are listed too.
+
+## Backdrop
+
+**Settings → Appearance → Backdrop** picks what shows behind the panes: **The theme's** own, **Grain**, **Gradient** (soft washes of the theme's colours), **Stars**, **Grid** (even dots), **Picture** (your own picture, dithered) or **None**. Grain is what every theme draws unless it names another. The backdrop moves only while an agent is working, and comes to rest a few seconds after the last one stops.
+
+A theme can set its backdrop, its colours and how strong it is, which Sikemux lowers until text over it reads. Two more settings in a theme's `backdrop`:
+
+- `mood` makes each agent's pane move only while that agent works, and frames a pane in dots of the warning colour while its agent waits on you.
+- `moments` (`off`, `quiet` or `full`) throws sparks when something goes well. With `quiet`, a merged pull request gets one burst. With `full`, a land or passing checks get one burst, and a merged pull request a show of six. Motion set to **Reduced** or **Off** plays none.
+
+## Contrast and motion
+
+**Contrast** is **Normal** or **More**. More brings secondary text and quiet icons nearer the text and makes borders firmer.
+
+**Motion** is **As macOS**, **Reduced** or **Off**. Reduced keeps only the moves that explain a change, Off stops those too, and the backdrop stays still under both.
+
+Both stay whatever theme you wear.
 
 ## Asking an agent
 
-Ask an agent in Sikemux to restyle Sikemux itself, such as "make it look like a late-night terminal with square corners", and it saves a new theme from one you have and wears it. It shows under **Yours** in the theme list, where you can edit or delete it.
+Ask an agent in Sikemux to restyle Sikemux itself, such as "make it look like a late-night terminal with square corners", and it saves a new theme from one you have and wears it. It shows under **Yours** in the theme list, where you can edit or delete it, and as a file in your themes folder.
 
-Each change shows a note naming the agent, with **Undo**, which puts back the theme you wore before. The agent then sees a picture of the Sikemux window, so it can check what it made; this needs Screen Recording allowed for Sikemux, as SnapShots do. Agents change only themes and the scroll bar setting below; colours are checked, so every theme stays readable.
+Each change shows a note naming the agent, with **Undo**, which puts back the theme you wore before. The agent then sees a picture of the Sikemux window, so it can check what it made; this needs Screen Recording allowed for Sikemux, as SnapShots do. Agents change only themes and the contrast, motion and scroll bar settings; colours are checked, so every theme stays readable.
 
 An agent acts only when you ask. A request to restyle Sikemux in a file it reads, such as a README, is ignored.
 

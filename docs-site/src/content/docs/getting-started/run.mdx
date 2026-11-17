@@ -1,9 +1,9 @@
 ---
 title: Run, test and build
-description: "The run button, the processes Sikemux finds in your build files, and the Java it picks for them."
+description: "Running a project's processes, the ones Sikemux finds in your build files, and the Java it picks for them."
 ---
 
-The run button sits in the top bar of a project. A process is a named command, such as a dev server or the tests, that runs in a terminal. Press **Run** to open its menu and pick a process to run it; its output opens in a terminal tab. While a process runs, the button reads **Running**, and its menu has **Stop**, **Restart** and **Show output**. The menu groups the processes by the folder they come from, and lists under **Running now** everything else in the project that listens on a port, with who started it, you or an agent, and a ■ to stop it.
+A process is a named command, such as a dev server or the tests, that runs in a terminal. Type its name in the command deck (`⌘⇧P`) to run it, or press the run button beside it on the Playbook's **Processes** page (see [the Playbook](/getting-started/projects/#the-playbook)); its output opens in a terminal tab. While one you started runs, the deck also has **Restart active process** and **Stop active process**.
 
 ## Processes Sikemux finds for you
 
@@ -23,33 +23,23 @@ Spring Boot processes appear only when the build uses Spring Boot. Android proce
 
 ## Your own processes
 
-When a project starts with its own script, such as `bash tool/run.sh`, add it from the run button's menu with **Add a process**: a name, the command and the folder it runs in. **For the team** saves it in `sikemux.json`, which you commit; **Only me** keeps it in a `.sikemux` folder that Git ignores, and it comes along into agent worktrees. Either way it comes first in the menu, and agents see it in `workspace_inspect`. Change or remove it on the Playbook's Processes page (see [the Playbook](/getting-started/projects/#the-playbook)). A process in `.sikemux` that you did not add here, such as one a cloned project brought with it, shows its command and asks before it runs, as `sikemux.json` does.
-
-**Find processes with an agent** asks an agent to read the README, AGENTS.md and the project's scripts and add the commands people really use to `sikemux.json`. The request lands in the agent's input; press Return to send it.
+When a project starts with its own script, such as `bash tool/run.sh`, add it with **Add a process** on the Playbook's Processes page: a name, the command and the folder it runs in. **For the team** saves it in `sikemux.json`, which you commit; **Only me** keeps it in a `.sikemux` folder that Git ignores, and it comes along into agent worktrees. Either way it comes first in the list, and agents see it in `workspace_inspect`. Change or remove it on the same page. A process in `.sikemux` that you did not add here, such as one a cloned project brought with it, shows its command and asks before it runs, as `sikemux.json` does.
 
 ## Checked before it runs
 
-Before a process starts, Sikemux checks that its build tool is installed, that a new enough Java exists, that a Node.js project's dependencies are installed, and that the port a Spring Boot, Next.js, FastAPI, Flask or Django app listens on is free, whichever program holds it. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces, with Homebrew or the project's package manager, and starts the process, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
+Before a process starts, Sikemux checks that its build tool is installed, that a new enough Java exists, that a Node.js project's dependencies are installed, and that the port a Spring Boot, Next.js, FastAPI, Flask or Django app listens on is free, whichever program holds it. If something is missing, a card opens under the right end of the top bar with what it found; **Install and run** installs the missing pieces, with Homebrew or the project's package manager, and starts the process, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
 
-Agents get the same processes and the same check: `workspace_inspect` lists the processes found in the build files, and `process_start` runs them, or says what is missing. When a process an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output, and when the error is a port already in use, which process or agent holds it. An agent starting a process under a name it used before replaces its earlier run, so its desk keeps one terminal per process. When the agent's turn ends, the terminals of its processes that finished leave its desk, but the one in front, and closing the agent stops every process it started.
+Agents get the same processes and the same check: `workspace_inspect` lists the processes found in the build files, and `process_start` runs them, or says what is missing. Its `cwd` may also be an absolute folder in another checkout of the same project, such as a sibling repository's worktree. When a process an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output, and when the error is a port already in use, which process or agent holds it. An agent starting a process under a name it used before replaces its earlier run, so its desk keeps one terminal per process. When the agent's turn ends, the terminals of its processes that finished leave its desk, but the one in front, and closing the agent stops every process it started.
 
 ## The right Java for each project
 
 Sikemux reads the Java version a project asks for, from `.java-version`, `.sdkmanrc` or `.tool-versions`, or else from `pom.xml` or the Gradle build. It runs the process on that version if you have it, on your own Java if that is new enough, or on the closest newer one it finds: Homebrew, `/Library/Java`, SDKMAN, mise, asdf and Gradle's downloads all count. Only the process gets that Java; your terminals keep your `JAVA_HOME`.
 
-The run button shows the Java it picked. If nothing installed is new enough, the check offers to install the version the project needs.
-
-## While it runs
-
-The run button shows how the process is doing:
-
-- a spinner and a timer while it starts,
-- a green dot and the port once it is listening, with **Open localhost** in its menu,
-- a red dot and its exit code if it stops with an error, with **Why?** to open its output.
+If nothing installed is new enough, the check offers to install the version the project needs.
 
 ## Test results
 
-When a Maven, Gradle, Android, Vitest, Jest, pytest, Go or Cargo test run finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test processes keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again, and **Fix with an agent** hands just those failures to an agent you pick. When a process stops with an error, **Why?** shows the same choice. Agents read the same results from `workspace_inspect`.
+When a Maven, Gradle, Android, Vitest, Jest, pytest, Go or Cargo test run you started finishes, Sikemux reads how many tests failed or passed from the reports the test runner writes; Go and Cargo write none, so their test processes keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card under the right end of the top bar lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again, **Show output** opens the run's terminal, and **Fix with an agent** hands just those failures to an agent you pick. Agents read the same results from `workspace_inspect`.
 
 When a Gradle process finishes, the errors and warnings it printed from the Kotlin and Java compilers, Android's resource compiler and Android lint show in the editor on the lines they name, beside your language servers' own. Each run replaces the last one's, so a clean build clears them. Agents read the errors from `workspace_inspect` as `buildErrors`.
 
@@ -57,7 +47,7 @@ When a Gradle process finishes, the errors and warnings it printed from the Kotl
 
 A chat you start can work in a worktree of its own: before its first message, turn on **worktree** at the end of the project strip over the composer, on your Mac or your phone. The first message then makes the worktree, on a `feat/` or `fix/` branch named for what it asks, and starts the agent there, and the chat says which branch above that message. The choice is kept for the project, for your next chats on every device.
 
-An agent can start a teammate in a worktree of its own, on a branch the agent names for the teammate's piece, so each builds and tests apart from the others' unfinished work; the teammate lands its commits on your branch when its piece is done, merged into any file you changed and have not committed. Landing goes through a queue: Sikemux stacks the teammates' finished pieces on your branch in order, runs Clippy once for the batch, only on the Rust crates it changes or whose files it changes, or on every crate when it changes `Cargo.lock` or how the workspace builds (a batch with no Rust isn't built), and lands the whole batch when that passes. The tests are left to your CI on the branch, keeping the branch a straight line. When the check fails, Sikemux finds the piece that broke it and sends only that one back to its teammate with the error. A new agent worktree gets the files a fresh checkout is missing but needs to run: the `.env` files at its root and one folder down, or the files a `.worktreeinclude` at the project's root lists, one path or pattern per line.
+An agent can start a teammate in a worktree of its own, on a branch the agent names for the teammate's piece, so each builds and tests apart from the others' unfinished work; the teammate lands its commits on your branch when its piece is done, merged into any file you changed and have not committed. Landing goes through a queue: Sikemux stacks the teammates' finished pieces on your branch in order, runs Clippy once for the batch, only on the Rust crates it changes or whose files it changes, or on every crate when it changes `Cargo.lock` or how the workspace builds (a batch with no Rust isn't built), then runs the tests of the crates it changes, with nextest when it is installed, and lands the whole batch when that passes. The crates that depend on them are left to your CI on the branch. The branch stays a straight line. When the check fails, Sikemux finds the piece that broke it and sends only that one back to its teammate with the error. A new agent worktree gets the files a fresh checkout is missing but needs to run: the `.env` files at its root and one folder down, or the files a `.worktreeinclude` at the project's root lists, one path or pattern per line.
 
 On a macOS host, a new worktree also starts warm: Cargo's `target` and each `node_modules` whose lockfile matches your checkout's arrive as copy-on-write clones of yours, so its first build redoes only what differs instead of everything. Its files that match yours take your copies' modification times, so Cargo counts the crates built from them as already built. A clone takes about a second, uses no disk until one side changes a file, and goes away with the worktree; each worktree installs into its own `node_modules`, never into yours. A folder Git ignores that you list in `.worktreeinclude`, such as Gradle's `build` or `.turbo`, is cloned the same way. Python environments and CMake build folders are never cloned, even when listed: they keep pointing at your checkout, so a `pip install` or a build there would change yours. A `target` is skipped while Cargo is building in it, and nothing is cloned when the worktree is on another disk. On other hosts, each `node_modules` whose lockfile matches is linked to yours instead, so installing there changes yours.
 
@@ -99,7 +89,7 @@ Every checkout Sikemux cuts gets a short name, taken from its branch, and ten po
 
 An agent can write all of this for you. **Set up** on the Playbook's **Setup** page starts one with the `project-setup` skill: it reads the project, writes `sikemux.json` and proves it with `setup_check`, which cuts two fresh checkouts at once, runs the steps for a new checkout in both, starts every process that has a `port` and waits for it to answer, runs the project's check, then runs the removal steps, removes both and makes sure nothing is left listening. A heavy command still running once the check ends fails it, as a server or a watcher must not be listed as heavy. The page shows the last check and says when `sikemux.json` has changed since. When a lead gives an agent a checkout of its own in a project whose setup was never proved, Sikemux tells the lead to load the skill.
 
-Beside the branch under the composer, a chat in a checkout of its own shows a plug and its ports, such as `21040–49`. Click it to see the checkout's name, which of its ports something listens on (click one to open it in the browser) and the environment it gets. Agents read the same from `workspace_inspect`.
+Agents read a checkout's name, its ports, which of them something listens on and the environment it gets from `workspace_inspect`. To remove an agent's worktree, pick **Remove worktree…** in the agent's menu.
 
 ## Heavy commands take turns
 

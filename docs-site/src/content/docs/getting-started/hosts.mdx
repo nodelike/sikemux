@@ -5,7 +5,7 @@ description: "Every host on your account at a glance, how busy each one is and w
 
 The **Devices** page shows every host on your account that runs Sikemux: this one and the [hosts you've linked](/agents/linked-hosts/). For each one it shows whether your agents can still run there, and what is using up the machine.
 
-Open it with the gauge beside **+** on the side rail's **Hosts** header, with **Devices** in the account menu, with **Devices** in the command palette or under **New…**, or with ⌘⇧H (Ctrl+Shift+H on Linux). To open it on one host, pick **Host details** at the top of the **⋯** beside that host, or beside **This host**. Clicking a host's row in the rail still switches the window to that host.
+Open it from the **Devices** button at the right of the top bar, which shows the chosen host at a glance and the hosts to switch to, then **Open Devices**. The gauge beside **+** on the side rail's **Hosts** header opens it too, as do **Devices** in the account menu, **Devices** in the command palette or under **New…**, and ⌘⇧H (Ctrl+Shift+H on Linux). To open it on one host, pick **Host details** at the top of the **⋯** beside that host, or beside **This host**. Clicking a host's row in the rail still switches the window to that host. This host, linked hosts and SSH hosts all wear the same laptop icon, and so does the row of an agent that runs on another host.
 
 ## The hosts
 
@@ -43,9 +43,11 @@ A host raises an alert when:
 
 When a linked host is out of reach, its card lists what Sikemux checked on the way to it, in order: remote access here, this computer online, your account, a path to the host (straight there or through a relay), its core answering, and the host letting this computer in. The first step that failed says why, the ones after it say they were not checked, and the card offers the fix it can make, such as **Turn on remote access** or **Start Sikemux** over SSH, with **Copy diagnosis** for the whole list. Once this computer is signed in, its own detail shows the same list when your devices cannot reach it.
 
+When the host out of reach is where a project's @Chief lives, the chief's row in the tab rail says since when and offers **Take over here**, which opens the chief on this host from what its home last sent. A host removed from your account hands its chiefs to another host that holds the project.
+
 When a host's last update failed or was undone, or its set-up over SSH stopped, a card says why, shows the last lines the tool printed, and offers **Try again** and **Copy output**.
 
-Its alerts show here first, and also at the top of the notch's list. Clicking either opens this page on that host. In the side rail, a host with a serious alert only turns its dot red. When an alert comes from an agent's work, it names the agent using the most. If another host has room, it offers **Move @Name to** that host, which sends the agent's project, with its chats, tabs and uncommitted changes, to the healthy host with the most memory free, in gigabytes, once you confirm. When other agents work in the same project, the button names the project instead, since they all go with it. With no host to move to, the alert only explains.
+Its alerts show here first, and also at the top of the notch's list. Clicking either opens this page on that host. In the side rail, a host with a serious alert only turns its dot red. When an alert comes from an agent's work, it names the agent using the most. If another host has room, it offers **Move @Name to** that host, which sends the agent's project, with its chats, tabs and uncommitted changes, to the healthy host with the most memory free, in gigabytes, once you confirm. Moving a project between your hosts is part of Pro, free for now while Pro's features come free. When other agents work in the same project, the button names the project instead, since they all go with it. With no host to move to, the alert only explains.
 
 ### Resources
 

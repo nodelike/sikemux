@@ -1,17 +1,24 @@
 ---
 title: How agents use pages
-description: "What an agent can do with a tab, and pages that need a password."
+description: "What an agent can do with a tab, the pages it makes for you, and pages that need a password."
 ---
 
 An agent drives its desk tabs through Sikemux's `browser_*` tools. It can:
 
 - read a page as numbered elements and text, or just the part around a phrase or at its end;
 - click, type, press keys, scroll and drag;
-- wait for a page to reach a state, such as text appearing, a streamed answer settling or the network going quiet;
+- run a script in the page;
+- wait for a page to reach a state, such as text appearing, a streamed answer settling, the network going quiet or a script's check coming true;
 - take screenshots, draw on them and record the tab;
 - read the network calls and console messages of the page.
 
 You see each of these happen on the desk.
+
+## Pages agents make for you
+
+When an agent has something to show you, such as a report, a comparison or a mockup, it writes it as a web page. It checks the page off screen first with `page_preview`, then opens it with `page_show` in a tab on its desk, and its reply carries a card with the top of the page and its title; click the card to bring the tab forward. A page loads the pictures, frames, stylesheets and scripts it names by a relative address from the folder it was written in, unless that folder is your home folder, Downloads or the like.
+
+Sikemux keeps every page shown. Showing the same title again makes a new version. Ask an agent for a page you saw before and it finds it with `page_list` and opens it again rather than making it anew. Older versions go after 30 days, unless a call or one of your asks links them.
 
 ## Pages that need a password
 
