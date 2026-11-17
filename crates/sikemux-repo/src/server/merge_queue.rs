@@ -19,12 +19,12 @@ const RED_BASE_LOOK_MS: u64 = 5 * 60_000;
 /// Waits for the queues' checkout, which one check uses at a time. A check of
 /// commits bound for the remote goes before any check that only lands on a
 /// local branch, such as a teammate's land into its lead's checkout.
-pub async fn checkout_turn(pushes: bool) -> tokio::sync::MutexGuard<'static, ()> {
+pub async fn checkout_turn(to_remote: bool) -> tokio::sync::MutexGuard<'static, ()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static CHECKOUT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     static PUSHING: AtomicUsize = AtomicUsize::new(0);
     static PUSHED: tokio::sync::Notify = tokio::sync::Notify::const_new();
-    if pushes {
+    if to_remote {
         PUSHING.fetch_add(1, Ordering::SeqCst);
         let turn = CHECKOUT.lock().await;
         PUSHING.fetch_sub(1, Ordering::SeqCst);

@@ -194,13 +194,17 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
 
 /// Says a land without a push stays in `repo`'s checkout, when `branch` has a remote copy it won't reach.
 fn local_only(repo: &Path, branch: &str) -> String {
-    let remote = format!("refs/remotes/origin/{branch}");
-    match git(repo, &["rev-parse", "--verify", "-q", &remote]) {
-        Ok(_) => format!(
+    match on_remote(repo, branch) {
+        true => format!(
             " in this computer's checkout only, not on origin/{branch}; land with push: true to push it too"
         ),
-        Err(_) => String::new(),
+        false => String::new(),
     }
+}
+
+fn on_remote(repo: &Path, branch: &str) -> bool {
+    let remote = format!("refs/remotes/origin/{branch}");
+    git(repo, &["rev-parse", "--verify", "-q", &remote]).is_ok()
 }
 
 /// Where the agent's commits wait to land.
@@ -243,7 +247,15 @@ fn wake(core: &Core, key: Key) {
         line.lane.running = true;
     }
     runtime.spawn(async move {
-        while let Some(batch) = next(&core, &key) {
+        let (repo, branch) = key.clone();
+        let to_remote = blocking(move || Ok(on_remote(&repo, &branch)))
+            .await
+            .unwrap_or(false);
+        loop {
+            let _turn = merge_queue::checkout_turn(to_remote).await;
+            let Some(batch) = next(&core, &key) else {
+                return;
+            };
             check_and_land(&core, &key, batch).await;
             with_line(&core, &key, |line| {
                 line.waiting.iter_mut().for_each(|w| w.checking = false)
@@ -633,8 +645,6 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     if stacked.laid.is_empty() {
         return;
     }
-    let pushes = stacked.laid.iter().any(|laid| laid.waiting.push);
-    let _turn = merge_queue::checkout_turn(pushes).await;
     let stacked = tidy(core, key, stacked).await;
     let Some(first) = stacked.laid.first() else {
         return;
