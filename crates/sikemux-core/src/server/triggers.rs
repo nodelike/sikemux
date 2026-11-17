@@ -112,6 +112,9 @@ struct Trigger {
     /// How many requests came while its chat was closed past the most it keeps.
     #[serde(default, skip_serializing_if = "is_zero")]
     dropped: u32,
+    /// Its webhook has been called by GitHub.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    from_github: bool,
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -1007,6 +1010,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             set: Some(learned(core, Some(&agent_id))),
             held: Vec::new(),
             dropped: 0,
+            from_github: false,
         };
         state.triggers.push(trigger.clone());
         Ok(trigger)
@@ -1174,6 +1178,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
                 next_at: trigger.shown_next_at(),
                 set: trigger.set.clone().map(Box::new),
                 paused: trigger.stopped,
+                from_github: trigger.from_github,
             };
             (trigger.next_at, line)
         })
@@ -1216,6 +1221,7 @@ pub(crate) fn park_in_line(
             set: Some(learned(core, Some(agent_id))),
             held: Vec::new(),
             dropped: 0,
+            from_github: false,
         };
         state.triggers.push(trigger.clone());
         trigger
@@ -1260,6 +1266,7 @@ pub(crate) fn park_for_thing(
             set: Some(learned(core, Some(agent_id))),
             held: Vec::new(),
             dropped: 0,
+            from_github: false,
         };
         state.triggers.push(trigger.clone());
         trigger
@@ -1413,6 +1420,7 @@ fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
                     set: None,
                     held: Vec::new(),
                     dropped: 0,
+                    from_github: false,
                 });
             }
             (None, _) => {}
@@ -1586,6 +1594,16 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         );
         return Ok(());
     };
+    let from_github =
+        (delivery.headers.iter()).any(|(name, _)| name.eq_ignore_ascii_case("x-github-event"));
+    if from_github && !trigger.from_github {
+        core.triggers().change(|state| {
+            if let Some(kept) = (state.triggers.iter_mut()).find(|kept| kept.id == trigger.id) {
+                kept.from_github = true;
+            }
+        });
+        core.changed(What::Read(super::changed::Topic::Playbook));
+    }
     if trigger.paused.is_some() && trigger.stopped.is_none() {
         let request = fired_request(delivery);
         core.triggers().change(|state| {

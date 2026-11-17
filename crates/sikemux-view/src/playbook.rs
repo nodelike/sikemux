@@ -112,5 +112,8 @@ pub enum RunsAlone {
         /// When the person paused it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         paused: Option<u64>,
+        /// Its webhook has been called by GitHub.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        from_github: bool,
     },
 }
