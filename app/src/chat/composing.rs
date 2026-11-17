@@ -103,6 +103,9 @@ pub struct Composing {
     pub dismissed: Option<SharedString>,
     /// The files going out with the next message, its pictures named in the draft by number.
     pub attachments: Vec<PathBuf>,
+    /// Where the chat's core keeps each file sent to it from this host, so the same file
+    /// dropped again while its copy is still going names that copy instead of sending it twice.
+    pub kept_from: HashMap<PathBuf, PathBuf>,
     /// The file attached last and when, whose tile flashes as it comes in.
     pub fresh: Option<(PathBuf, std::time::Instant)>,
     /// The agents, files or commands offered for the word at the caret.
@@ -1273,6 +1276,7 @@ impl Workbench {
             suggested: None,
             dismissed: None,
             attachments: Vec::new(),
+            kept_from: HashMap::new(),
             fresh: None,
             menu: None,
             model_open: false,

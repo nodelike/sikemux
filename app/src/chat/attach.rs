@@ -191,7 +191,7 @@ fn image_tag(number: usize, path: &Path) -> InlineToken {
 
 impl Composing {
     /// Adds the files not already going, up to as many as a message carries, and names each
-    /// new picture at the caret.
+    /// picture at the caret, one already going again under its own number.
     fn attach(
         &mut self,
         paths: impl IntoIterator<Item = PathBuf>,
@@ -200,17 +200,21 @@ impl Composing {
     ) {
         let mut tags = Vec::new();
         for path in paths {
-            if path.as_os_str().is_empty() || self.attachments.contains(&path) {
+            if path.as_os_str().is_empty() {
                 continue;
             }
-            if self.attachments.len() == MAX_ATTACHMENTS {
-                break;
-            }
-            self.fresh = Some((path.clone(), std::time::Instant::now()));
+            let number = match self.attachments.iter().position(|going| *going == path) {
+                Some(index) => index + 1,
+                None if self.attachments.len() == MAX_ATTACHMENTS => break,
+                None => {
+                    self.attachments.push(path.clone());
+                    self.attachments.len()
+                }
+            };
             if is_image(&path) {
-                tags.push(image_tag(self.attachments.len() + 1, &path));
+                tags.push(image_tag(number, &path));
             }
-            self.attachments.push(path);
+            self.fresh = Some((path, std::time::Instant::now()));
         }
         if tags.is_empty() {
             return;
@@ -318,13 +322,22 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let elsewhere = *self.chat_target(agent).place() != Place::This;
-        let (keep, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
-            .into_iter()
-            .partition(|path| elsewhere || is_screenshot_thumbnail(path));
+        let composing = self.composing(agent);
+        let (mut keep, mut there): (Vec<PathBuf>, Vec<PathBuf>) = (Vec::new(), Vec::new());
+        for path in paths {
+            let going = composing.and_then(|composing| {
+                (composing.kept_from.get(&path)).filter(|kept| composing.attachments.contains(kept))
+            });
+            match going {
+                Some(kept) => there.push(kept.clone()),
+                None if elsewhere || is_screenshot_thumbnail(&path) => keep.push(path),
+                None => there.push(path),
+            }
+        }
         if !keep.is_empty() {
             self.keep_files(agent, keep, window, cx);
         }
-        self.attach_there(agent, paths, Vec::new(), window, cx);
+        self.attach_there(agent, there, Vec::new(), window, cx);
     }
 
     /// Hands the next message of `agent`'s chat files that are already where the agent runs,
@@ -475,8 +488,19 @@ impl Workbench {
                         } else {
                             "application/octet-stream"
                         };
+                        let (owner, from) = (agent.clone(), path.clone());
+                        let kept =
+                            move |bench: &mut Self,
+                                  path: PathBuf,
+                                  window: &mut Window,
+                                  cx: &mut Context<Self>| {
+                                if let Some(composing) = bench.composing_mut(&owner) {
+                                    composing.kept_from.insert(from, path.clone());
+                                }
+                                bench.attach_there(&owner, vec![path], Vec::new(), window, cx)
+                            };
                         this.update_in(cx, |bench, window, cx| {
-                            bench.keep(&agent, name, mime, bytes, attach_kept(&agent), window, cx)
+                            bench.keep(&agent, name, mime, bytes, kept, window, cx)
                         })
                         .ok();
                     }
