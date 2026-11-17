@@ -399,8 +399,12 @@ fn frecency(page: &Visit, now: u64) -> f64 {
 }
 
 fn starts_a_word(text: &str, word: &str) -> bool {
-    text.match_indices(word)
-        .any(|(at, _)| at == 0 || text[..at].ends_with(|c: char| !c.is_alphanumeric()))
+    text.match_indices(word).any(|(at, _)| {
+        at == 0
+            || text
+                .get(..at)
+                .is_some_and(|head| head.ends_with(|c: char| !c.is_alphanumeric()))
+    })
 }
 
 /// Only web pages are worth suggesting, and a page is the same page whichever

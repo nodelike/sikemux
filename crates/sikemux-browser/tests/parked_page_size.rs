@@ -2,6 +2,11 @@
 //! once took that distance off the page, which then laid out with a negative
 //! height. WebKit and AppKit want the main thread, so this runs as its own program,
 //! answering nextest's `--list` itself.
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 const TEST: &str = "a_parked_page_lays_out_at_its_own_size";
 

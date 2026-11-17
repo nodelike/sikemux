@@ -33,9 +33,7 @@ const POST: &str = "((handler, stringify) => { const post = handler.postMessage.
 const PAGE_POSTER: &str = "__sikemuxAnswer";
 
 thread_local! {
-    static ANSWERS: Retained<Answers> = Answers::new(
-        MainThreadMarker::new().expect("tab scripts run on the main thread"),
-    );
+    static ANSWERS: RefCell<Option<Retained<Answers>>> = const { RefCell::new(None) };
     static WAITING: RefCell<HashMap<String, Waiting>> = RefCell::new(HashMap::new());
     /// WebKit tears a named world down once nothing holds it, and the element
     /// numbers the agent was given go with it.
@@ -96,6 +94,14 @@ impl Answers {
     }
 }
 
+fn answers(mtm: MainThreadMarker) -> Retained<Answers> {
+    ANSWERS.with(|slot| {
+        slot.borrow_mut()
+            .get_or_insert_with(|| Answers::new(mtm))
+            .clone()
+    })
+}
+
 fn helper_world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
     HELPER_WORLD.with(|slot| {
         slot.borrow_mut()
@@ -130,15 +136,14 @@ pub(super) fn listen(configuration: &WKWebViewConfiguration, mtm: MainThreadMark
             true,
         );
         controller.addUserScript(&script);
-        ANSWERS.with(|answers| {
-            for world in [World::Page, World::Helper] {
-                controller.addScriptMessageHandler_contentWorld_name(
-                    ProtocolObject::from_ref(&**answers),
-                    &content_world(world, mtm),
-                    &NSString::from_str(HANDLER),
-                );
-            }
-        });
+        let answers = answers(mtm);
+        for world in [World::Page, World::Helper] {
+            controller.addScriptMessageHandler_contentWorld_name(
+                ProtocolObject::from_ref(&*answers),
+                &content_world(world, mtm),
+                &NSString::from_str(HANDLER),
+            );
+        }
     }
 }
 

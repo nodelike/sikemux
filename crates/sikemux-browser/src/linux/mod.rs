@@ -195,6 +195,8 @@ impl Drop for Clip {
 // SAFETY: the view inside is only touched on the GTK thread: through `on_gtk`, and in
 // `Drop`, which sends it there.
 unsafe impl Send for Held {}
+// SAFETY: a shared `Held` reaches its view only through its mutex, inside `with`, which runs
+// on the GTK thread.
 unsafe impl Sync for Held {}
 
 impl Drop for Held {

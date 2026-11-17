@@ -7,8 +7,8 @@
 fn main() {}
 
 #[cfg(windows)]
-fn main() {
-    proof::run();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    proof::run()
 }
 
 #[cfg(windows)]
@@ -78,9 +78,9 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
         fn shortcut(&self, _shortcut: BrowserShortcut) {}
     }
 
-    pub fn run() {
+    pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let folder = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| "proof".into()));
-        std::fs::create_dir_all(&folder).expect("the folder for answers can be made");
+        std::fs::create_dir_all(&folder)?;
         match runtime_version() {
             Ok(version) => println!("WebView2 {version}"),
             Err(why) => {
@@ -89,9 +89,9 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
             }
         }
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let runtime = tokio::runtime::Runtime::new().expect("the tools' runtime starts");
+        let runtime = tokio::runtime::Runtime::new()?;
         sikemux_base::runtime::set(runtime.handle().clone());
-        let window = open_window();
+        let window = open_window()?;
         run_pages_on_this_thread();
         let host = Arc::new(ProofHost {
             window,
@@ -116,12 +116,13 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
                 DispatchMessageW(&message);
             }
         }
+        Ok(())
     }
 
-    fn open_window() -> isize {
+    fn open_window() -> windows::core::Result<isize> {
         // SAFETY: a plain top-level window of our own class, on this thread.
         unsafe {
-            let instance = HINSTANCE(GetModuleHandleW(None).expect("the program's module").0);
+            let instance = HINSTANCE(GetModuleHandleW(None)?.0);
             let class = WNDCLASSW {
                 lpfnWndProc: Some(window_events),
                 hInstance: instance,
@@ -143,8 +144,7 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
                 Some(instance),
                 None,
             )
-            .expect("the window opens")
-            .0 as isize
+            .map(|window| window.0 as isize)
         }
     }
 
@@ -165,7 +165,10 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
 
     fn drive(manager: &BrowserManager, folder: &Path) -> bool {
         let page = folder.join("page.html");
-        std::fs::write(&page, PAGE).expect("the page is written");
+        if let Err(error) = std::fs::write(&page, PAGE) {
+            println!("the page could not be written: {error}");
+            return false;
+        }
         let url = match manager.local_file_url(&page) {
             Ok(url) => url,
             Err(why) => return failed("local_file_url", &why),
@@ -209,7 +212,9 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
                             .decode(data)
                             .unwrap_or_default();
                         let _ = std::fs::write(folder.join("screenshot.jpg"), jpeg);
-                        answer["data"] = json!("written to screenshot.jpg");
+                        if let Some(fields) = answer.as_object_mut() {
+                            fields.insert("data".into(), json!("written to screenshot.jpg"));
+                        }
                     }
                     let text = serde_json::to_string_pretty(&answer).unwrap_or_default();
                     println!("{name}: {}", text.chars().take(600).collect::<String>());

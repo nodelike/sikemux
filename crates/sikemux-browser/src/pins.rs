@@ -48,11 +48,11 @@ pub async fn wait(manager: &BrowserManager, agent_id: &str) -> Result<PinAnswer,
     };
     let answer: Value = serde_json::from_str(&answer)
         .map_err(|_| "the page returned an unreadable answer".to_string())?;
-    let text = |at: &Value, key: &str| at[key].as_str().map(str::to_owned);
-    if let (Some(id), Some(words)) = (text(&answer["note"], "id"), text(&answer["note"], "words")) {
+    let text = |pointer: &str| answer.pointer(pointer)?.as_str().map(str::to_owned);
+    if let (Some(id), Some(words)) = (text("/note/id"), text("/note/words")) {
         return Ok(PinAnswer::Note { id, words });
     }
-    if let Some(id) = text(&answer["looksRight"], "id") {
+    if let Some(id) = text("/looksRight/id") {
         return Ok(PinAnswer::LooksRight { id });
     }
     Ok(PinAnswer::Nothing)
@@ -63,7 +63,7 @@ const ROOM: f64 = 16.0;
 
 /// `area` of the page's viewport with room around it, kept inside the viewport.
 pub(crate) fn with_room(area: &Value, viewport: (f64, f64)) -> (f64, f64, f64, f64) {
-    let side = |key: &str| area[key].as_f64().unwrap_or(0.0);
+    let side = |key: &str| area.get(key).and_then(Value::as_f64).unwrap_or(0.0);
     let left = (side("left") - ROOM).max(0.0);
     let top = (side("top") - ROOM).max(0.0);
     let width = (side("width") + 2.0 * ROOM).min(viewport.0 - left).max(1.0);
@@ -83,8 +83,12 @@ pub async fn spot(
         .ok_or("the tab closed before its picture was taken")?;
     let size = call(&view, "viewportSize", &[]).await?;
     let viewport = (
-        size["width"].as_f64().unwrap_or(f64::MAX),
-        size["height"].as_f64().unwrap_or(f64::MAX),
+        size.get("width")
+            .and_then(Value::as_f64)
+            .unwrap_or(f64::MAX),
+        size.get("height")
+            .and_then(Value::as_f64)
+            .unwrap_or(f64::MAX),
     );
     screenshot(&view, None, Some(with_room(area, viewport))).await
 }

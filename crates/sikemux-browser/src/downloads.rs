@@ -146,10 +146,14 @@ pub(crate) fn unique_download_path(folder: &Path, name: &str) -> PathBuf {
         Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
         _ => (name, String::new()),
     };
-    (2..)
-        .map(|n| folder.join(format!("{stem} ({n}){extension}")))
-        .find(|path| !path.exists())
-        .expect("some numbered name is free")
+    let mut n = 2;
+    loop {
+        let path = folder.join(format!("{stem} ({n}){extension}"));
+        if !path.exists() {
+            return path;
+        }
+        n += 1;
+    }
 }
 
 #[cfg(test)]

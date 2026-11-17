@@ -84,6 +84,8 @@ struct Held(Mutex<State>);
 // SAFETY: the page's COM objects inside are only reached on the window's thread: `with`
 // sends every act there, and `Drop` sends the page there to close.
 unsafe impl Send for Held {}
+// SAFETY: a shared `Held` reaches its page only through its mutex, and uses the page itself
+// only on the window's thread, for the same reasons as `Send` above.
 unsafe impl Sync for Held {}
 
 impl Held {
@@ -465,23 +467,23 @@ impl Tab {
     }
 
     pub fn set_zoom(&self, zoom: f64) {
-        // SAFETY: on the window's thread, with the page's live controller.
         self.held.with(move |page| {
+            // SAFETY: on the window's thread, with the page's live controller.
             let _ = unsafe { page.controller.SetZoomFactor(zoom) };
         });
     }
 
     pub fn reload(&self) {
-        // SAFETY: on the window's thread, with the page's live webview.
         self.held.with(|page| {
+            // SAFETY: on the window's thread, with the page's live webview.
             let _ = unsafe { page.webview.Reload() };
         });
     }
 
     pub fn navigate(&self, url: &str) {
         let url = HSTRING::from(url);
-        // SAFETY: on the window's thread, with the page's live webview.
         self.held.with(move |page| {
+            // SAFETY: on the window's thread, with the page's live webview.
             let _ = unsafe { page.webview.Navigate(&url) };
         });
     }

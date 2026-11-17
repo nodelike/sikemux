@@ -79,9 +79,10 @@ impl LocalFiles {
             .and_then(|folder| sikemux_process::files::real_path(folder).ok())
             .filter(|folder| !is_broad(folder));
         let (port, token) = self.share(&root, only, media, written_in)?;
-        let mut url = Url::parse(&format!("http://127.0.0.1:{port}/")).expect("loopback url");
+        let mut url =
+            Url::parse(&format!("http://127.0.0.1:{port}/")).map_err(|error| error.to_string())?;
         url.path_segments_mut()
-            .expect("http url has a path")
+            .map_err(|()| "the loopback address has no path")?
             .pop_if_empty()
             .push(&token)
             .push(&name);
@@ -405,7 +406,7 @@ async fn read_head(stream: &mut TcpStream) -> std::io::Result<Option<String>> {
         if read == 0 {
             return Ok(None);
         }
-        head.extend_from_slice(&buffer[..read]);
+        head.extend_from_slice(buffer.get(..read).unwrap_or_default());
     }
     Ok(Some(String::from_utf8_lossy(&head).into_owned()))
 }
@@ -463,7 +464,9 @@ async fn send_file(
         if read == 0 {
             return Ok(());
         }
-        stream.write_all(&chunk[..read]).await?;
+        stream
+            .write_all(chunk.get(..read).unwrap_or_default())
+            .await?;
     }
 }
 

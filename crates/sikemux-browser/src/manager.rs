@@ -412,7 +412,7 @@ impl BrowserManager {
         let parsed = Url::parse(&url)
             .ok()
             .filter(tab_may_load)
-            .unwrap_or_else(|| Url::parse(BLANK_URL).expect("about:blank parses"));
+            .or_else(|| Url::parse(BLANK_URL).ok())?;
         let blank = parsed.as_str() == BLANK_URL;
         let view = match self.create_view(agent_id, tab_id, parsed, user_agent, None) {
             Ok(view) => view,

@@ -24,11 +24,12 @@ pub struct Snip {
 impl Snip {
     /// The box in the viewport, which the next wait flashes once the picture is taken.
     pub fn area(&self) -> Value {
+        let side = |key: &str| self.page.get(key).cloned().unwrap_or_default();
         json!({
-            "left": self.page["left"],
-            "top": self.page["top"],
-            "width": self.page["width"],
-            "height": self.page["height"],
+            "left": side("left"),
+            "top": side("top"),
+            "width": side("width"),
+            "height": side("height"),
         })
     }
 }
@@ -67,13 +68,13 @@ pub async fn wait(
     if page.is_null() {
         return Ok(Snipped::Nothing);
     }
-    if page["ended"] == true {
+    if page.get("ended").and_then(Value::as_bool) == Some(true) {
         return Ok(Snipped::Ended);
     }
-    if page["pin"].is_object() {
+    if let Some(pin) = page.get("pin").filter(|pin| pin.is_object()) {
         return Ok(Snipped::Pinned {
             tab_id,
-            pin: page["pin"].clone(),
+            pin: pin.clone(),
         });
     }
     Ok(Snipped::Boxed { tab_id, page })
@@ -89,7 +90,7 @@ pub async fn take(
     let view = manager
         .loaded_view(agent_id, &tab_id)
         .ok_or("the tab closed before its picture was taken")?;
-    let side = |key: &str| page[key].as_f64().unwrap_or(0.0);
+    let side = |key: &str| page.get(key).and_then(Value::as_f64).unwrap_or(0.0);
     let area = (side("left"), side("top"), side("width"), side("height"));
     let jpeg = screenshot(&view, None, Some(area)).await?;
     Ok(Snip { jpeg, page })

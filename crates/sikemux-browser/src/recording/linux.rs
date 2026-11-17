@@ -205,7 +205,7 @@ impl Writer {
             pixels
                 .chunks(stride)
                 .take(self.height as usize)
-                .flat_map(|line| &line[..row])
+                .flat_map(|line| line.iter().take(row))
                 .copied()
                 .collect(),
         )

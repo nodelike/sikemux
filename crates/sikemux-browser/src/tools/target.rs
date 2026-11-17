@@ -71,7 +71,9 @@ pub(super) async fn call_when_shown(
     let started = Instant::now();
     loop {
         let answer = page_answer(view, function, args).await?;
-        if answer["missing"] != json!(true) || started.elapsed() >= APPEAR_WAIT {
+        if answer.get("missing").and_then(Value::as_bool) != Some(true)
+            || started.elapsed() >= APPEAR_WAIT
+        {
             return unwrap_answer(answer);
         }
         tokio::time::sleep(CONDITION_POLL).await;
