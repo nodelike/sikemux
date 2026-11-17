@@ -84,12 +84,6 @@ fn folder_of(core: &Core, project: &str) -> Option<String> {
         .map(|it| it.path.to_string_lossy().into_owned())
 }
 
-fn project_id_of(core: &Core, folder: &str) -> Option<String> {
-    (core.workspaces().projects().into_iter())
-        .find(|it| it.path.to_string_lossy() == folder)
-        .map(|it| it.id)
-}
-
 /// The folder of the project `agent` works in.
 fn folder_of_agent(core: &Core, agent: &str) -> Option<String> {
     folder_of(core, &core.workspaces().agent(agent)?.project)
@@ -280,12 +274,9 @@ fn said_under(core: &Core, filed: Option<u64>, agent: &str, said: AskSaid) -> Op
 }
 
 /// What the person sent under the ask `id` of the workspace project `project`, the ask first.
-pub(crate) fn said(core: &Core, project: &str, id: u64) -> Vec<AskSaid> {
-    let Some(folder) = folder_of(core, project) else {
-        return Vec::new();
-    };
+pub(crate) fn said(core: &Core, folder: &str, id: u64) -> Vec<AskSaid> {
     let state = core.boards().state.locked();
-    (state.of(&folder))
+    (state.of(folder))
         .and_then(|board| board.card(id).ok()?.asked())
         .map(|asked| asked.said.clone())
         .unwrap_or_default()
@@ -609,52 +600,36 @@ fn rank(stand: &AskStand) -> u8 {
 /// An ask nobody has whose chief was not told of it yet.
 pub(crate) struct Untold {
     pub id: u64,
-    /// The workspace project, by id.
-    pub project: String,
+    /// The project's folder.
+    pub folder: String,
     pub title: String,
     /// Since when nobody has it.
     pub since: u64,
 }
 
 pub(crate) fn with_nobody_untold(core: &Core) -> Vec<Untold> {
-    let untold: Vec<(String, u64, String, u64)> = {
-        let state = core.boards().state.locked();
-        (state.boards.values())
-            .flat_map(|board| asks(board).map(move |(card, asked)| (board, card, asked)))
-            .filter(|(_, _, asked)| asked.commit.is_none() && asked.in_build_at.is_none())
-            .filter_map(|(board, card, asked)| {
-                let since = asked.nobody_since?;
-                (asked.told_since != Some(since)).then(|| {
-                    let folder = board.folder().to_owned();
-                    (folder, card.id, card.title().to_owned(), since)
-                })
-            })
-            .collect()
-    };
-    (untold.into_iter())
-        .filter_map(|(folder, id, title, since)| {
-            Some(Untold {
-                id,
-                project: project_id_of(core, &folder)?,
-                title,
+    let state = core.boards().state.locked();
+    (state.boards.values())
+        .flat_map(|board| asks(board).map(move |(card, asked)| (board, card, asked)))
+        .filter(|(_, _, asked)| asked.commit.is_none() && asked.in_build_at.is_none())
+        .filter_map(|(board, card, asked)| {
+            let since = asked.nobody_since?;
+            (asked.told_since != Some(since)).then(|| Untold {
+                id: card.id,
+                folder: board.folder().to_owned(),
+                title: card.title().to_owned(),
                 since,
             })
         })
         .collect()
 }
 
-/// The chiefs were told the asks `told`, each by workspace project and number, have nobody.
+/// The chiefs were told the asks `told`, each by folder and number, have nobody.
 pub(crate) fn told(core: &Core, told: &[(String, u64)]) {
-    let folders: Vec<(String, u64)> = (told.iter())
-        .filter_map(|(project, id)| Some((folder_of(core, project)?, *id)))
-        .collect();
     change(core, |board, at| {
         let folder = board.folder().to_owned();
         each_ask(board, at, |id, asked| {
-            if !folders
-                .iter()
-                .any(|(on, told)| *on == folder && *told == id)
-            {
+            if !told.iter().any(|(on, told)| *on == folder && *told == id) {
                 return false;
             }
             let changed = asked.told_since != asked.nobody_since;

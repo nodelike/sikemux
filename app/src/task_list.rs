@@ -602,8 +602,12 @@ fn open(bench: &mut Workbench, agent: &str, row: &TaskRow, cx: &mut Context<Work
         }
     }
     if row.asked {
-        if let Some(project) = bench.project().map(|project| project.id.clone()) {
-            return bench.open_sheet(&project, id, cx);
+        if let Some(project) = bench.project() {
+            let (project, folder) = (
+                project.id.clone(),
+                project.path.to_string_lossy().into_owned(),
+            );
+            return bench.open_sheet(project, folder, id, cx);
         }
     }
     if let Some(holder) = &row.holder {

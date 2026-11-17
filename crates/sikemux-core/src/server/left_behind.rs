@@ -91,17 +91,18 @@ pub(crate) struct Unowned {
 pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
     let nobody = super::now::asks::with_nobody_untold(core);
     let mut told = Vec::new();
-    let chiefs = super::chief::seated(core);
     let mut lines: HashMap<String, Vec<String>> = HashMap::new();
     let mut next: Option<u64> = None;
     for super::now::asks::Untold {
         id,
-        project,
+        folder,
         title,
         since,
     } in nobody
     {
-        let Some(chief) = chiefs.get(&project) else {
+        let seated = super::chief::chief_at(core, &folder)
+            .filter(|chief| core.workspaces().agent(chief).is_some());
+        let Some(chief) = seated else {
             continue;
         };
         let due = since + GRACE_MS;
@@ -109,8 +110,8 @@ pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
             next = Some(next.map_or(due, |next| next.min(due)));
             continue;
         }
-        told.push((project, id));
-        (lines.entry(chief.clone()).or_default()).push(format!(
+        told.push((folder, id));
+        (lines.entry(chief).or_default()).push(format!(
             "- #{id} {title} ({} min)",
             now.saturating_sub(since) / 60_000
         ));

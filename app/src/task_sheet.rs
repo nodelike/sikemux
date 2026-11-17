@@ -57,9 +57,16 @@ impl Workbench {
         (self.view_at(&self.place())?.now.iter()).find(|now| now.project == project)
     }
 
-    pub(crate) fn open_sheet(&mut self, project: &str, id: u64, cx: &mut Context<Self>) {
+    pub(crate) fn open_sheet(
+        &mut self,
+        project: String,
+        folder: String,
+        id: u64,
+        cx: &mut Context<Self>,
+    ) {
         self.task_sheet = Some(Sheet {
-            project: project.to_owned(),
+            project,
+            folder,
             id,
             said: Vec::new(),
             read_at: None,
@@ -81,10 +88,11 @@ impl Workbench {
         let Some(sheet) = self.task_sheet.as_ref() else {
             return;
         };
-        let project = sheet.project.clone();
+        let (project, folder) = (sheet.project.clone(), sheet.folder.clone());
         let order: Vec<u64> = (self.feeds.at(&self.place()))
             .and_then(|feed| feed.task_list.as_ref())
             .into_iter()
+            .filter(|list| list.project == folder)
             .flat_map(|list| &list.rows)
             .filter(|row| row.asked)
             .filter_map(|row| match row.of {
@@ -98,7 +106,7 @@ impl Workbench {
         let Some(&next) = at.checked_add_signed(by).and_then(|at| order.get(at)) else {
             return;
         };
-        self.open_sheet(&project, next, cx);
+        self.open_sheet(project, folder, next, cx);
     }
 
     /// The view moved: the sheet closes once its task is gone, and reads what was said under it
@@ -115,7 +123,7 @@ impl Workbench {
         if sheet.read_at == Some(more) {
             return;
         }
-        let (id, project) = (sheet.id, sheet.project.clone());
+        let (id, project) = (sheet.id, sheet.folder.clone());
         if let Some(sheet) = self.task_sheet.as_mut() {
             sheet.read_at = Some(more);
         }
@@ -140,7 +148,9 @@ impl Workbench {
 
 /// The task the sheet shows, and what the person sent under it as the core last said.
 pub(crate) struct Sheet {
+    /// The workspace project, by id.
     project: String,
+    folder: String,
     id: u64,
     said: Vec<AskSaid>,
     /// How many more messages the task had when `said` was read.
