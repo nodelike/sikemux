@@ -9,9 +9,7 @@ use curve25519_dalek::montgomery::MontgomeryPoint;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
 use ring::hkdf;
 use ring::rand::{SecureRandom, SystemRandom};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
-use std::collections::BTreeMap;
 
 pub const KEY_LEN: usize = 32;
 
@@ -159,43 +157,6 @@ pub fn unwrap_from(wrapped: &str, secret: &Key, context: &str) -> Option<(Key, M
     let key = aead_key(&shared, context, &[sender.as_bytes(), ephemeral.as_bytes()])?;
     let vault = open_with(&key, context, sealed)?.try_into().ok()?;
     Some((vault, sender))
-}
-
-/// The newest of a vault this host has taken in, so a server handing back an older generation or
-/// an older copy of an entry is refused, and a removed entry cannot come back as it was.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Seen {
-    pub generation: i64,
-    revisions: BTreeMap<String, i64>,
-    removed: BTreeMap<String, i64>,
-}
-
-impl Seen {
-    pub fn takes_generation(&self, generation: i64) -> bool {
-        generation >= self.generation
-    }
-
-    pub fn takes_entry(&self, id: &str, revision: i64) -> bool {
-        self.revisions.get(id).is_none_or(|seen| revision >= *seen)
-            && self.removed.get(id).is_none_or(|gone| revision > *gone)
-    }
-
-    /// Takes in a vault at `generation` holding exactly `entries`, as id and revision, each of
-    /// which this took.
-    pub fn note<'a>(&mut self, generation: i64, entries: impl IntoIterator<Item = (&'a str, i64)>) {
-        self.generation = self.generation.max(generation);
-        let live: BTreeMap<&str, i64> = entries.into_iter().collect();
-        let revisions = std::mem::take(&mut self.revisions);
-        for (id, revision) in revisions {
-            if !live.contains_key(id.as_str()) {
-                self.removed.insert(id, revision);
-            }
-        }
-        for (id, revision) in live {
-            self.removed.remove(id);
-            self.revisions.insert(id.to_owned(), revision);
-        }
-    }
 }
 
 /// What a sealed entry is bound to, so the server cannot hand back an older copy of it.

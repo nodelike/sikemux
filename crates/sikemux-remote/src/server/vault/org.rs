@@ -30,7 +30,7 @@ use crate::accounts::vault::VaultEntryReseal;
 
 use super::super::account::api::{host_request, host_send_any};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
-use super::seal::{self, Key, Seen};
+use super::seal::{self, Key};
 
 const TICK: Duration = Duration::from_secs(60);
 const SETTLE: Duration = Duration::from_secs(2);
@@ -65,12 +65,26 @@ struct Opened {
     body: Value,
 }
 
-/// One org's vault as this host holds it, which its secret store keeps between runs.
+/// One org's vault as this host holds it, which its secret store keeps between runs. The server
+/// is refused anything older than this: an earlier generation of the key, or an earlier revision
+/// of an entry held.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 struct Held {
-    seen: Seen,
+    generation: i64,
     key: Option<Key>,
     entries: BTreeMap<String, Opened>,
+}
+
+impl Held {
+    fn takes_generation(&self, generation: i64) -> bool {
+        self.key.is_none() || generation >= self.generation
+    }
+
+    fn takes_entry(&self, id: &str, revision: i64) -> bool {
+        self.entries
+            .get(id)
+            .is_none_or(|held| revision >= held.revision)
+    }
 }
 
 /// The copy in the secret store: every org vault this host holds, for one account.
@@ -354,15 +368,15 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
         set(core, &org.id, Org::default());
         return Ok(());
     };
-    if !held.seen.takes_generation(vault.generation) {
+    if !held.takes_generation(vault.generation) {
         return Err(format!(
             "the accounts server handed back generation {} of the org's key, older than the {} this host holds",
-            vault.generation, held.seen.generation
+            vault.generation, held.generation
         )
         .into());
     }
     let (key, failed) = match (held.key, &vault.key) {
-        (Some(key), _) if held.seen.generation == vault.generation => (Some(key), None),
+        (Some(key), _) if held.generation == vault.generation => (Some(key), None),
         (_, Some(wrapped)) => match open_wrap(wrapped, secret, &org.id, &vault, me) {
             Some(key) => (Some(key), None),
             None => (
@@ -404,12 +418,12 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
         return Ok(());
     }
     if !vault.waiting.is_empty() {
-        add_keys(core, &org.id, secret, &vault, &key).await?;
+        add_keys(core, org, secret, &vault, &key).await?;
     }
     let mut entries = BTreeMap::new();
     for entry in &vault.entries {
         let opened = (entry.generation == vault.generation
-            && held.seen.takes_entry(&entry.id, entry.revision))
+            && held.takes_entry(&entry.id, entry.revision))
         .then(|| open_entry(&key, &org.id, entry))
         .flatten();
         match opened {
@@ -434,19 +448,12 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
             }
         }
     }
-    let mut seen = held.seen;
-    seen.note(
-        vault.generation,
-        entries
-            .iter()
-            .map(|(id, entry)| (id.as_str(), entry.revision)),
-    );
     set(
         core,
         &org.id,
         Org {
             held: Held {
-                seen,
+                generation: vault.generation,
                 key: Some(key),
                 entries,
             },
@@ -533,20 +540,25 @@ fn wrap_for(
 }
 
 /// Every host of every member gets the key: the org taking the person in is its admins
-/// letting their hosts in.
+/// letting their hosts in. A member's host lets in only its own account's hosts.
 async fn add_keys(
     core: &Core,
-    org: &str,
+    org: &AccountOrg,
     secret: &Key,
     vault: &Remote,
     key: &Key,
 ) -> CoreResult<()> {
+    let own = (!manages(org)).then(|| core.vault().state.locked().hosts.clone());
     let keys: Vec<OrgWrappedKey> = vault
         .waiting
         .iter()
-        .filter_map(|host| wrap_for(key, secret, org, vault.generation, host))
+        .filter(|host| own.as_ref().is_none_or(|own| own.contains_key(*host)))
+        .filter_map(|host| wrap_for(key, secret, &org.id, vault.generation, host))
         .collect();
-    let path = format!("{}/keys", vault_path(org));
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let path = format!("{}/keys", vault_path(&org.id));
     for keys in keys.chunks(WRAPS) {
         let add = OrgVaultKeysAdd {
             generation: vault.generation,
@@ -568,9 +580,9 @@ async fn rotate(
     vault: &Remote,
     key: &Key,
 ) -> CoreResult<Held> {
-    let mut seen = held(core, org).seen;
+    let held = held(core, org);
     if let Some(stale) = vault.entries.iter().find(|entry| {
-        entry.generation != vault.generation || !seen.takes_entry(&entry.id, entry.revision)
+        entry.generation != vault.generation || !held.takes_entry(&entry.id, entry.revision)
     }) {
         return Err(format!(
             "entry {} of the org's vault is older than this host's copy, so its key is not replaced",
@@ -632,14 +644,8 @@ async fn rotate(
     };
     let path = format!("{}/rotate", vault_path(org));
     host_request(core, Method::POST, &path, Some(json!(rotate))).await?;
-    seen.note(
-        generation,
-        opened
-            .iter()
-            .map(|(id, entry)| (id.as_str(), entry.revision)),
-    );
     Ok(Held {
-        seen,
+        generation,
         key: Some(next),
         entries: opened,
     })
@@ -683,14 +689,12 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
             .ok_or_else(|| CoreError::from("the org's key could not be wrapped"))?,
         };
         host_request(core, Method::POST, &vault_path(org_id), Some(json!(create))).await?;
-        let mut seen = Seen::default();
-        seen.note(1, []);
         set(
             core,
             org_id,
             Org {
                 held: Held {
-                    seen,
+                    generation: 1,
                     key: Some(key),
                     entries: BTreeMap::new(),
                 },
@@ -774,13 +778,13 @@ pub async fn add_model_key(core: &Arc<Core>, params: OrgModelKeyAdd) -> CoreResu
     })?;
     let put = OrgVaultEntryPut {
         kind: MODEL_KEY.to_owned(),
-        generation: held.seen.generation,
+        generation: held.generation,
         sealed: seal_entry(
             &vault_key,
             &org.id,
             &id,
             MODEL_KEY,
-            held.seen.generation,
+            held.generation,
             revision,
             &body,
         )?,

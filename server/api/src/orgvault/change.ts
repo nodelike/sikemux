@@ -1,4 +1,5 @@
 import type {
+  OrgRole,
   OrgVaultCreate,
   OrgVaultEntry,
   OrgVaultEntryPut,
@@ -141,15 +142,42 @@ export async function createOrgVault(
   await auditOrg(trx, asker, "org_vault.created", {});
 }
 
-/** A member's host holding the key seals it for other members' hosts. A host that has a wrap keeps it. */
+/** Refuses keys for hosts of another account, which only an owner's or admin's host may seal for. */
+async function requireOwnHosts(
+  trx: Transaction<Tables>,
+  { userId }: Asker,
+  keys: OrgWrappedKey[],
+) {
+  const own = await trx
+    .selectFrom("devices")
+    .select("key")
+    .where("user_id", "=", userId)
+    .where(
+      "key",
+      "in",
+      keys.map((key) => key.hostKey),
+    )
+    .execute();
+  if (own.length !== keys.length)
+    throw forbidden(
+      "Only an org's owner or admin may give the vault's key to another account's host.",
+    );
+}
+
+/**
+ * A member's host holding the key seals it for other members' hosts: an owner's or admin's for
+ * any, anyone else's only for its own account's. A host that has a wrap keeps it.
+ */
 export async function addOrgKeys(
   trx: Transaction<Tables>,
   asker: Asker,
+  role: OrgRole,
   { generation, keys }: OrgVaultKeysAdd,
 ): Promise<void> {
   atCurrent((await lockedVault(trx, asker.orgId)).generation, generation);
   await requireHolder(trx, asker, generation);
   await requireMemberHosts(trx, asker.orgId, keys);
+  if (role === "user") await requireOwnHosts(trx, asker, keys);
   const added = await trx
     .insertInto("org_vault_keys")
     .values(wrapRows(asker, generation, keys))
@@ -158,10 +186,21 @@ export async function addOrgKeys(
     .execute();
   if (!added.length) return;
   await vaultChanged(trx, asker.orgId);
-  for (const { host_key } of added)
+  const given = await trx
+    .selectFrom("devices")
+    .select(["key", "user_id", "name"])
+    .where(
+      "key",
+      "in",
+      added.map((row) => row.host_key),
+    )
+    .execute();
+  for (const host of given)
     await auditOrg(trx, asker, "org_vault.key_added", {
       generation,
-      host: host_key,
+      host: host.key,
+      member: host.user_id,
+      computer: host.name,
     });
 }
 

@@ -75,12 +75,17 @@ export function orgVaultRoutes({
   const changing = <T>(
     c: Context<AuthEnv>,
     need: Need,
-    change: (trx: Transaction<Tables>, asker: Asker) => Promise<T>,
+    change: (
+      trx: Transaction<Tables>,
+      asker: Asker,
+      member: Member,
+    ) => Promise<T>,
   ) => {
     const who = asker(c);
     return db.transaction().execute(async (trx) => {
-      allow(await memberOf(trx, live, who.orgId, who.userId), need);
-      return change(trx, who);
+      const member = await memberOf(trx, live, who.orgId, who.userId);
+      allow(member, need);
+      return change(trx, who, member);
     });
   };
 
@@ -115,7 +120,9 @@ export function orgVaultRoutes({
       perUser(limiter, "org-vault-keys", 60),
       async (c) => {
         const body = await readBody(c, "OrgVaultKeysAdd");
-        await changing(c, "member", (trx, who) => addOrgKeys(trx, who, body));
+        await changing(c, "member", (trx, who, member) =>
+          addOrgKeys(trx, who, member.role, body),
+        );
         return c.json(await state(c));
       },
     )
