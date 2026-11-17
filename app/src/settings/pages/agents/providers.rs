@@ -927,7 +927,7 @@ fn org_group(
         .when(waiting, |body| {
             body.child(note(
                 vec![t!(
-                    "Not open on this host yet. It opens once another of {org}'s hosts that's online hands this one the vault.",
+                    "Not open on this host yet. It opens once one of your hosts that has it, or a host of one of {org}'s owners or admins, is online.",
                     org = vault.name
                 )],
                 false,

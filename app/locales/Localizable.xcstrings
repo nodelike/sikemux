@@ -1273,7 +1273,7 @@
     "Not made yet": {},
     "Not needed for a model server on this host": {},
     "Not now": {},
-    "Not open on this host yet. It opens once another of {org}'s hosts that's online hands this one the vault.": {},
+    "Not open on this host yet. It opens once one of your hosts that has it, or a host of one of {org}'s owners or admins, is online.": {},
     "Not production · agents deploy here without asking": {},
     "Not production · found in {file} · agents deploy here without asking": {},
     "Not read yet": {},
