@@ -1,7 +1,7 @@
 //! Where a project's chief stands, kept on the other hosts that hold its repository. After each
-//! of the chief's turns its home sends them the brief a fresh session would start from, with the
-//! rules it keeps, so a host that takes the chief over once its home is removed goes on from
-//! there rather than from nothing.
+//! of the chief's turns its home sends them the brief a fresh session would start from, so a host
+//! that takes the chief over once its home is removed goes on from there rather than from
+//! nothing. The project's rules reach those hosts with its record.
 
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
@@ -31,7 +31,6 @@ pub(super) struct ChiefCopy {
     /// When its home sent it, in Unix milliseconds.
     at: u64,
     standing: ChatContext,
-    rules: String,
 }
 
 /// The chief `agent_id` ended a turn: the hosts that hold its repository get where it stands.
@@ -52,16 +51,11 @@ pub(crate) fn send(core: &Core, agent_id: &str) {
         return;
     };
     let brief = rotation::brief(&core, &chat);
-    let rules = (brief.instructions.lines())
-        .filter(|line| line.starts_with("- #"))
-        .collect::<Vec<_>>()
-        .join("\n");
     let params = params_of::<asks::ChiefCopy>(&ChiefCopy {
         identity,
         chief: agent_id.to_owned(),
         at: epoch_ms(),
         standing: brief.message,
-        rules,
     });
     for host in holders {
         let (core, params) = (core.clone(), params.clone());
@@ -102,23 +96,15 @@ pub(super) fn heard(core: &Core, copy: ChiefCopy) -> Answer {
     Ok(Value::Null)
 }
 
-/// What this host kept of where `chief`, of the repository `identity`, stood: its brief and
-/// rules as a fresh session's first message, and when its home sent them.
+/// What this host kept of where `chief`, of the repository `identity`, stood: its brief as a
+/// fresh session's first message, and when its home sent it.
 pub(super) fn kept(core: &Core, identity: &str, chief: &str) -> Option<(Vec<ChatContext>, u64)> {
     let text = std::fs::read(file(core, identity)?).ok()?;
     let copy: ChiefCopy = serde_json::from_slice(&text).ok()?;
     if copy.chief != chief {
         return None;
     }
-    let mut standing = vec![copy.standing];
-    if !copy.rules.is_empty() {
-        standing.push(crate::sessions::for_agent::sikemux_context(
-            "chief-rules",
-            "The rules you kept on your home host",
-            &copy.rules,
-        ));
-    }
-    Some((standing, copy.at))
+    Some((vec![copy.standing], copy.at))
 }
 
 /// Removes what was kept of a chief this host has taken over.
