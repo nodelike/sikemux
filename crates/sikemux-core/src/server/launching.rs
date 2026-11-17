@@ -483,7 +483,7 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
 /// The model a new chat of `kind` will run: the one chosen, else the agent's own default as its
 /// settings name it, else the one its last session started on. None when all that says is
 /// "default".
-fn model_of(
+pub(super) fn model_of(
     core: &Core,
     book: &crate::agent_accounts::Book,
     kind: &str,

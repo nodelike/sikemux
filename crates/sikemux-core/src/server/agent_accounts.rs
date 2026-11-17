@@ -695,7 +695,23 @@ pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult
         account: takers.current.map(named),
         others: takers.others.into_iter().map(named).collect(),
         none_because: takers.none_because,
+        smart: smart_pick(core, &chat.agent_id),
     })
+}
+
+/// The account the core would place the chat's next message from the person on now.
+fn smart_pick(core: &Core, agent_id: &str) -> Option<String> {
+    let agent = core.workspaces().agent(agent_id)?;
+    let book = core.workspaces().accounts().unwrap_or_default();
+    if !book.smart || agent.model_provider.is_some() {
+        return None;
+    }
+    let chat = Placing {
+        model: super::launching::model_of(core, &book, &agent.provider, agent.model.clone()),
+        person: true,
+        cwd: Some(agent.cwd.clone()),
+    };
+    placement(&book, &agent.provider, &chat, |_| true).map(|placed| placed.id)
 }
 
 /// The accounts their provider refuses, each with the chats stranded on it and where they could

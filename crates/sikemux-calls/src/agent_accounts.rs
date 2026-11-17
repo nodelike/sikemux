@@ -40,6 +40,10 @@ pub struct ChatAccounts {
     pub account: Option<NamedAccount>,
     pub others: Vec<NamedAccount>,
     pub none_because: Option<String>,
+    /// The account the core would pick for the chat's model now, by its id; none while smart
+    /// accounts are off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smart: Option<String>,
 }
 
 /// An account its provider refuses, the chats whose turns failed on it, and the accounts they

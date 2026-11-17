@@ -445,6 +445,43 @@ impl World {
         }
     }
 
+    /// Signs in one more Claude account, `name`, with `used` percent of its week gone and the
+    /// week refilling in `days`.
+    fn add_account(&self, name: &str, used: u64, days: u64) -> anyhow::Result<()> {
+        let id = format!("film-{}", name.to_lowercase().replace(' ', "-"));
+        let folder = self.home.join(format!(".claude-{id}"));
+        std::fs::create_dir_all(&folder)?;
+        std::fs::write(
+            folder.join("fake-account.json"),
+            json!({ "loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max" })
+                .to_string(),
+        )?;
+        let limits = json!({
+            "rate_limits_available": true,
+            "subscription_type": "max",
+            "rate_limits": {
+                "five_hour": { "utilization": used / 4, "resetsInMinutes": 120 },
+                "seven_day": { "utilization": used, "resetsInMinutes": days * 24 * 60 },
+            },
+        });
+        std::fs::write(folder.join("fake-usage.json"), usage(&limits).to_string())?;
+        let book = self.call("agentAccounts", json!({}))?;
+        let mut profiles = (book.get("profiles").and_then(Value::as_array))
+            .cloned()
+            .unwrap_or_default();
+        let program = profiles
+            .iter()
+            .find(|profile| profile.get("provider") == Some(&json!("claude")))
+            .and_then(|profile| profile.get("executablePath").cloned())
+            .ok_or_else(|| anyhow!("the world has no Claude account to copy"))?;
+        profiles.push(json!({
+            "id": id, "provider": "claude", "accent": "#e0663a", "name": name,
+            "executablePath": program, "configPath": folder,
+        }));
+        self.call("setAgentAccounts", json!({ "profiles": profiles }))?;
+        Ok(())
+    }
+
     pub(super) fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
         Ok(self.runtime.block_on(self.client.call(method, params))?)
     }
@@ -505,6 +542,11 @@ impl World {
                 }
                 self.chat = Some(chat);
             }
+            "account" => self.add_account(
+                step.text(0)?,
+                step.text(1)?.parse()?,
+                step.text(2)?.parse()?,
+            )?,
             "lead" => {
                 let chat = (self.chat.clone()).ok_or_else(|| anyhow!("open a chat first"))?;
                 let lead = (self.named.get(step.text(0)?).cloned())

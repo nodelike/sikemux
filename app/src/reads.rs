@@ -508,6 +508,7 @@ impl Workbench {
                 if !keep_decoded(&mut self.reads.usage, value, "plan usage") {
                     return;
                 }
+                self.accounts.forget_takers();
             }
             Read::Shares => {
                 if !keep_decoded(&mut self.reads.shares, value, "shares") {
