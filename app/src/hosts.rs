@@ -89,6 +89,7 @@ pub struct Feed {
     pub questions: Vec<Question>,
     pub tasks: Option<TaskList>,
     pub task_list: Option<sikemux_view::task_list::ProjectTasks>,
+    pub sharing: Option<sikemux_view::teammates::ProjectSharing>,
     pub runs: Vec<RunView>,
     pub ports: Vec<ProjectPort>,
     pub activity: Option<ActivitySummary>,

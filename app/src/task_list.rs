@@ -1,6 +1,7 @@
 //! The desk's Tasks view: the project's one list of tasks as the core sorts it, a section each
 //! for the calls waiting on the person, finished work, work moving, work nobody holds, dropped
-//! work and finished work already opened.
+//! work and finished work already opened. Teammates' tasks on a board shared with them sit in the
+//! same sections, read-only, except For you, which stays the person's own.
 
 use std::collections::HashSet;
 
@@ -12,10 +13,13 @@ use gpui_kit::{
 use sikemux_calls::board::{BoardParams, BoardUpdateParams};
 use sikemux_calls::call;
 use sikemux_view::task_list::{ProjectTasks, TaskFact, TaskOf, TaskRow, TaskSection};
+use sikemux_view::teammates::Teammate;
 use sikemux_view::workspace::PullChecks;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::core::Target;
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
+use crate::picture::{Picture, Remote};
 use crate::reads::Read;
 use crate::theme::{self, Tokens, SPACE_2};
 use crate::toast;
@@ -33,16 +37,23 @@ pub(crate) struct View {
     scroll: ScrollHandle,
     /// Sections drawn whole; Opened starts shut and the rest show their first rows.
     unfolded: HashSet<TaskSection>,
+    /// Only the person's own tasks, leaving out teammates'.
+    yours: bool,
+}
+
+/// One task in the list: the person's own, or one on the board a teammate shares.
+#[derive(Clone, Copy)]
+struct Line<'a> {
+    row: &'a TaskRow,
+    by: Option<&'a Teammate>,
 }
 
 pub(crate) fn watch(target: &Target, folder: &str) {
-    target.watch_folder::<call::ProjectTasks>(
-        Read::TaskList,
-        BoardParams {
-            project: folder.to_owned(),
-        },
-        folder.to_owned(),
-    );
+    let of_folder = || BoardParams {
+        project: folder.to_owned(),
+    };
+    target.watch_folder::<call::ProjectTasks>(Read::TaskList, of_folder(), folder.to_owned());
+    target.watch_folder::<call::ProjectSharing>(Read::Sharing, of_folder(), folder.to_owned());
 }
 
 /// Reads the list again, as after the person's calls moved.
@@ -58,19 +69,43 @@ pub(crate) fn of_desk<'a>(bench: &'a Workbench, agent: &str) -> Option<&'a Proje
     (bench.feeds.at(&bench.place())?.task_list.as_ref()).filter(|list| list.project == folder)
 }
 
-fn count(list: &ProjectTasks, section: TaskSection) -> usize {
-    (list.rows.iter())
-        .filter(|row| row.section == section)
+fn yours_only(bench: &Workbench, agent: &str, cx: &App) -> bool {
+    (bench.desks.read(cx).task_views.get(agent)).is_some_and(|view| view.yours)
+}
+
+/// The person's tasks and, unless `yours`, teammates' in the same order the core sorts the
+/// person's: by section, then newest first.
+fn lines(list: &ProjectTasks, yours: bool) -> Vec<Line<'_>> {
+    let mine = (list.rows.iter()).map(|row| Line { row, by: None });
+    let theirs = (list.teammates.iter())
+        .filter(|_| !yours)
+        .filter(|task| task.row.section != TaskSection::ForYou)
+        .map(|task| Line {
+            row: &task.row,
+            by: Some(&task.person),
+        });
+    let mut lines: Vec<Line> = mine.chain(theirs).collect();
+    if !list.teammates.is_empty() {
+        lines.sort_by(|one, other| {
+            (one.row.section.cmp(&other.row.section)).then(other.row.since.cmp(&one.row.since))
+        });
+    }
+    lines
+}
+
+fn count(lines: &[Line], section: TaskSection) -> usize {
+    (lines.iter())
+        .filter(|line| line.row.section == section)
         .count()
 }
 
 /// The sections that hold any task, in the order they are drawn.
-fn sections(list: &ProjectTasks) -> Vec<(TaskSection, Vec<&TaskRow>)> {
-    let mut sections: Vec<(TaskSection, Vec<&TaskRow>)> = Vec::new();
-    for row in &list.rows {
+fn sections<'a>(lines: &[Line<'a>]) -> Vec<(TaskSection, Vec<Line<'a>>)> {
+    let mut sections: Vec<(TaskSection, Vec<Line>)> = Vec::new();
+    for line in lines {
         match sections.last_mut() {
-            Some((section, rows)) if *section == row.section => rows.push(row),
-            _ => sections.push((row.section, vec![row])),
+            Some((section, rows)) if *section == line.row.section => rows.push(*line),
+            _ => sections.push((line.row.section, vec![*line])),
         }
     }
     sections
@@ -94,8 +129,9 @@ pub(crate) fn show_section(
     section: TaskSection,
     cx: &mut Context<Workbench>,
 ) {
+    let yours = yours_only(bench, agent, cx);
     let at = (of_desk(bench, agent))
-        .and_then(|list| sections(list).iter().position(|(it, _)| *it == section));
+        .and_then(|list| (sections(&lines(list, yours)).iter()).position(|(it, _)| *it == section));
     bench.desks.update(cx, |desks, _| {
         let view = desks.task_views.entry(agent.to_owned()).or_default();
         if let Some(at) = at {
@@ -110,6 +146,7 @@ pub(crate) fn counts(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>
     let t = Tokens::get(cx).clone();
     let handle = cx.weak_entity();
     let list = of_desk(bench, agent);
+    let lines = list.map(|list| lines(list, yours_only(bench, agent, cx)));
     let jumps = [
         (TaskSection::ForYou, t!("for you")),
         (TaskSection::Finished, t!("finished")),
@@ -117,7 +154,7 @@ pub(crate) fn counts(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>
     ]
     .into_iter()
     .filter_map(|(section, words)| {
-        let count = count(list?, section);
+        let count = count(lines.as_deref()?, section);
         (count > 0).then_some((section, words, count))
     })
     .map(|(section, words, count)| {
@@ -140,6 +177,9 @@ pub(crate) fn counts(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>
                 let _ = handle.update(cx, |bench, cx| show_section(bench, &agent, section, cx));
             })
     });
+    let whose = list
+        .filter(|list| !list.teammates.is_empty())
+        .map(|_| whose(bench, agent, cx));
     div()
         .flex()
         .items_center()
@@ -147,7 +187,30 @@ pub(crate) fn counts(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>
         .whitespace_nowrap()
         .text_size(theme::ui_text(theme::TEXT_XS_H))
         .text_color(t.text_tertiary)
+        .children(whose)
         .children(jumps)
+}
+
+/// Everyone's tasks or only the person's own.
+fn whose(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let agent = agent.to_owned();
+    let yours = yours_only(bench, &agent, cx);
+    let choose = cx.listener(move |bench, chosen: &usize, _, cx| {
+        bench.desks.update(cx, |desks, _| {
+            let view = desks.task_views.entry(agent.clone()).or_default();
+            view.yours = *chosen == 1;
+            view.scroll.scroll_to_item(0);
+        });
+        bench.parts.redraw_stage(cx);
+    });
+    ui::Segmented::words(
+        "tasks-whose",
+        vec![(t!("Everyone").into(), None), (t!("Yours").into(), None)],
+        usize::from(yours),
+    )
+    .slide()
+    .on_select(choose)
+    .into_any_element()
 }
 
 /// The Calls page's foot: how much finished and dropped, each opening the tasks at its section.
@@ -157,11 +220,13 @@ pub(crate) fn calls_foot(
     cx: &App,
 ) -> Option<AnyElement> {
     let strong = bench.upgrade()?;
-    let list = of_desk(strong.read(cx), agent)?;
+    let bench_now = strong.read(cx);
+    let list = of_desk(bench_now, agent)?;
+    let lines = lines(list, yours_only(bench_now, agent, cx));
     let t = Tokens::get(cx).clone();
     let parts: Vec<AnyElement> = [TaskSection::Finished, TaskSection::Dropped]
         .into_iter()
-        .map(|section| (section, count(list, section)))
+        .map(|section| (section, count(&lines, section)))
         .filter(|(_, count)| *count > 0)
         .map(|(section, count)| {
             let (bench, agent) = (bench.clone(), agent.to_owned());
@@ -208,7 +273,8 @@ pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) 
     let Some(list) = of_desk(bench, agent) else {
         return div().into_any_element();
     };
-    if list.rows.is_empty() {
+    let lines = lines(list, yours_only(bench, agent, cx));
+    if lines.is_empty() {
         return div()
             .size_full()
             .flex()
@@ -225,7 +291,7 @@ pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) 
         (view.scroll.clone(), view.unfolded.clone())
     });
     let handle = cx.weak_entity();
-    let sections = sections(list);
+    let sections = sections(&lines);
     let last = sections.len().saturating_sub(1);
     div()
         .id(SharedString::from(format!("tasks-{agent}")))
@@ -325,7 +391,7 @@ fn rows_of(
     bench: &Workbench,
     agent: &str,
     section: TaskSection,
-    rows: &[&TaskRow],
+    rows: &[Line],
     open: bool,
     handle: &WeakEntity<Workbench>,
     cx: &App,
@@ -339,11 +405,10 @@ fn rows_of(
         .flex()
         .flex_col()
         .gap(px(2.))
-        .children(
-            (rows.iter())
-                .take(shown)
-                .map(|row| row_of(bench, agent, row, handle, cx)),
-        )
+        .children((rows.iter()).take(shown).map(|line| match line.by {
+            None => row_of(bench, agent, line.row, handle, cx),
+            Some(person) => teammates_row(bench, person, line.row, cx),
+        }))
         .when(folds, |it| {
             it.child(
                 div()
@@ -455,10 +520,7 @@ fn row_of(
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let key = match &row.of {
-        TaskOf::Task { id } => format!("task-{id}"),
-        TaskOf::Call { id } => format!("task-call-{id}"),
-    };
+    let key = row_key(row);
     let holder = row.holder.as_ref().map(|holder| {
         let mark = match bench.agent_by_id(&holder.agent_id) {
             Some(agent) => agent.mark(12., cx),
@@ -498,8 +560,20 @@ fn row_of(
             let _ = handle.update(cx, |bench, cx| open(bench, &agent, &row, cx));
         }
     };
-    div()
+    row_line(row, &t, cx)
         .id(SharedString::from(key))
+        .cursor_pointer()
+        .hover(|it| it.bg(t.surface_hover))
+        .children(holder)
+        .children(undo)
+        .child(age(row, &t))
+        .clicks(opens)
+        .into_any_element()
+}
+
+/// A row's mark, title and what the core checked of it, for what follows to end.
+fn row_line(row: &TaskRow, t: &Tokens, cx: &App) -> Div {
+    div()
         .h(px(30.))
         .px(px(6.))
         .flex()
@@ -508,8 +582,6 @@ fn row_of(
         .rounded(px(5.))
         .whitespace_nowrap()
         .text_size(theme::ui_text(theme::TEXT_SM))
-        .cursor_pointer()
-        .hover(|it| it.bg(t.surface_hover))
         .child(mark(row, cx))
         .child(
             div()
@@ -528,21 +600,96 @@ fn row_of(
                 .text_color(t.text_tertiary)
                 .child(fact_words(row)),
         )
-        .children(holder)
-        .children(undo)
-        .child(
-            div()
-                .flex_none()
-                .min_w(px(26.))
-                .flex()
-                .justify_end()
-                .text_size(theme::ui_text(theme::TEXT_2XS_H))
-                .text_color(t.text_tertiary)
-                .font_features(theme::tabular())
-                .child(ui::time::age(row.since)),
+}
+
+fn age(row: &TaskRow, t: &Tokens) -> Div {
+    div()
+        .flex_none()
+        .min_w(px(26.))
+        .flex()
+        .justify_end()
+        .text_size(theme::ui_text(theme::TEXT_2XS_H))
+        .text_color(t.text_tertiary)
+        .font_features(theme::tabular())
+        .child(ui::time::age(row.since))
+}
+
+fn row_key(row: &TaskRow) -> String {
+    match &row.of {
+        TaskOf::Task { id } => format!("task-{id}"),
+        TaskOf::Call { id } => format!("task-call-{id}"),
+    }
+}
+
+/// A teammate's task: the same line with their name and agent in place of the person's, and
+/// nothing to do with it.
+fn teammates_row(bench: &Workbench, person: &Teammate, row: &TaskRow, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let agent = (row.holder.as_ref()).map(|holder| {
+        (
+            holder.name.as_str(),
+            holder.cli.as_deref().unwrap_or_default(),
         )
-        .clicks(opens)
+    });
+    row_line(row, &t, cx)
+        .id(SharedString::from(format!(
+            "{}-{}",
+            person.member,
+            row_key(row)
+        )))
+        .child(teammate_pill(person, agent, bench, cx))
+        .child(age(row, &t))
         .into_any_element()
+}
+
+/// A person, by their picture and name, and the agent of theirs on a task, by its mark and name.
+pub(crate) fn teammate_pill(
+    person: &Teammate,
+    agent: Option<(&str, &str)>,
+    bench: &Workbench,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let size = 12.;
+    div()
+        .flex_none()
+        .pl(theme::SPACE_1)
+        .pr(theme::SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .rounded(theme::radius_2())
+        .bg(t.surface_raised)
+        .text_color(t.text_primary)
+        .text_size(theme::ui_text(theme::TEXT_2XS_H))
+        .whitespace_nowrap()
+        .child(face(person, size, &bench.asks, cx))
+        .child(person.name.clone())
+        .when_some(agent, |pill, (name, cli)| {
+            pill.child(div().text_color(t.text_disabled).child("·"))
+                .child(ui::mark(cli, size))
+                .child(format!("@{name}"))
+        })
+        .into_any_element()
+}
+
+/// A person's picture, or their initials when they have none.
+pub(crate) fn face(
+    person: &Teammate,
+    size: f32,
+    asks: &UnboundedSender<Ask>,
+    cx: &App,
+) -> AnyElement {
+    match &person.picture {
+        Some(url) => gpui_kit::img(
+            Picture::Remote(Remote::new(url.clone(), asks.clone())).source_at(px(size)),
+        )
+        .size(px(size))
+        .flex_none()
+        .rounded_full()
+        .into_any_element(),
+        None => ui::initials(&person.name, &person.member, size, cx).into_any_element(),
+    }
 }
 
 fn update(project: String, id: u64) -> BoardUpdateParams {

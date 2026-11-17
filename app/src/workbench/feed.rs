@@ -450,6 +450,7 @@ impl Workbench {
                 for read in [
                     Read::Tasks,
                     Read::TaskList,
+                    Read::Sharing,
                     Read::Runs,
                     Read::ProjectConfig,
                     Read::Ports,
@@ -460,6 +461,7 @@ impl Workbench {
                 let feed = self.feeds.at_mut(&place);
                 feed.tasks = None;
                 feed.task_list = None;
+                feed.sharing = None;
                 feed.runs.clear();
                 feed.ports.clear();
             }

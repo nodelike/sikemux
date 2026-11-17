@@ -81,6 +81,7 @@ mod swipe;
 mod syntax;
 mod tabs;
 mod task_list;
+mod task_share;
 mod task_sheet;
 mod tasks;
 pub mod terminal;

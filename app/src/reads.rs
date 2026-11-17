@@ -65,6 +65,8 @@ pub enum Read {
     Tasks,
     /// The project in front's one list of tasks.
     TaskList,
+    /// Who the project in front's board is shared with.
+    Sharing,
     Runs,
     ProjectConfig,
     Ports,
@@ -108,11 +110,12 @@ impl Read {
 
     /// What the core in front is watched for while its project is in front. A feed's `leave`
     /// lets go of what they answered.
-    pub const OF_THE_PROJECT_IN_FRONT: [Read; 11] = [
+    pub const OF_THE_PROJECT_IN_FRONT: [Read; 12] = [
         Read::Activity,
         Read::Mods,
         Read::Tasks,
         Read::TaskList,
+        Read::Sharing,
         Read::Runs,
         Read::Ports,
         Read::ProjectConfig,
@@ -149,6 +152,10 @@ impl Read {
             Read::Mods => (call::Mods::METHOD, &[Topic::Mods]),
             Read::Tasks => (call::Tasks::METHOD, &[Topic::Tasks, Topic::Runs]),
             Read::TaskList => (call::ProjectTasks::METHOD, &[Topic::Boards]),
+            Read::Sharing => (
+                call::ProjectSharing::METHOD,
+                &[Topic::Boards, Topic::Account],
+            ),
             Read::Runs => (call::TaskRuns::METHOD, &[Topic::Runs]),
             Read::ProjectConfig => (call::ProjectConfig::METHOD, &[Topic::Tasks]),
             Read::Ports => (call::Ports::METHOD, &[Topic::Ports]),
@@ -556,6 +563,16 @@ impl Workbench {
                 }
                 self.desks
                     .update(cx, |desks, cx| desks.redraw_call_pages(cx));
+                self.parts.redraw_stage(cx);
+            }
+            Read::Sharing => {
+                if !keep_decoded(
+                    &mut self.feeds.at_mut(&place).sharing,
+                    value,
+                    "board sharing",
+                ) {
+                    return;
+                }
                 self.parts.redraw_stage(cx);
             }
             Read::ProjectConfig => {
