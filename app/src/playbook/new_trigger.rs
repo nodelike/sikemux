@@ -72,7 +72,7 @@ pub(super) fn entry(
     if !allows(account, PlanFeature::OwnTriggers) {
         return Button::new("playbook-new-trigger", t!("New trigger"), Variant::Outline)
             .icon(Icon::Plus)
-            .trail(ui::caps("Pro", cx))
+            .trail(ui::pro_mark(cx))
             .on_click(move |_, window, cx| {
                 this.update(cx, |bench, cx| {
                     bench.open_settings(crate::settings::Page::Account, window, cx)
@@ -125,6 +125,7 @@ fn make(
             .auto_grow(3, 8)
             .placeholder(t!("What the chat is told when it fires"))
     });
+    sends.update(cx, |sends, cx| sends.focus(window, cx));
     let project = bench.project_at(folder).map(|project| project.id.clone());
     let open: Vec<(String, String)> = bench.shown().map_or(Vec::new(), |view| {
         (view.workspace.agents.iter())
@@ -507,16 +508,21 @@ fn when(
     div()
         .flex()
         .flex_col()
+        .items_start()
         .gap(SPACE_2)
         .child(kind)
-        .when(!form.hook, |column| {
-            column
-                .child(repeat)
-                .child(match form.repeat {
-                    Repeat::Every => every.into_any_element(),
-                    Repeat::Daily | Repeat::Once => timed.into_any_element(),
-                })
-                .when(form.repeat == Repeat::Daily, |column| column.child(days))
+        .when(!form.hook, |column| match form.repeat {
+            Repeat::Every => column.child(repeat).child(every),
+            Repeat::Daily | Repeat::Once => column
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_2)
+                        .child(repeat)
+                        .child(timed),
+                )
+                .when(form.repeat == Repeat::Daily, |column| column.child(days)),
         })
         .when(form.hook, |column| {
             column.child(words(t!(

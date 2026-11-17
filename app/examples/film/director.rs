@@ -907,6 +907,23 @@ impl Director {
                 account.staff = true;
                 account.flags = vec![sikemux_view::device::Flag::StaffFeed];
             }
+            "plan" => {
+                let account = self
+                    .signed_in
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("line {}: plan needs a signed-in account", step.line))?;
+                match step.text(0)? {
+                    "free" => {
+                        account.features = Some(Vec::new());
+                        account.pro_given = false;
+                    }
+                    "given" => {
+                        account.features = None;
+                        account.pro_given = true;
+                    }
+                    other => anyhow::bail!("line {}: no plan called {other}", step.line),
+                }
+            }
             "updates" => {
                 let channel = match step.text(0)? {
                     "stable" => sikemux_view::prefs::UpdateChannel::Stable,

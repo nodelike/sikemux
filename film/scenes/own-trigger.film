@@ -1,0 +1,26 @@
+# The Playbook's Automation page: the New trigger entry while Pro is free, its form with a
+# prompt typed, and the entry on the Free plan.
+stage 1760 1000
+window 1760 1000
+prefer themeId aura-noir
+project storefront shop
+chat Mira
+title "Order emails"
+core addTrigger "{\"prompt\":\"Check the nightly build\",\"when\":{\"kind\":\"every\",\"seconds\":3600},\"wakes\":{\"kind\":\"project\",\"project\":\"$project\"}}"
+settle 6
+plan given
+click 101,327
+settle 3
+click 400,215
+settle 2
+snap own-trigger-entry
+click "New trigger"
+settle 2
+type "Read yesterday's failed checks and fix the flaky ones" 600
+settle 1
+snap own-trigger-form
+click "Cancel"
+settle 1
+plan free
+settle 2
+snap own-trigger-free

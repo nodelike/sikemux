@@ -396,6 +396,18 @@ pub fn caps(value: &str, cx: &App) -> Div {
         .text_color(Tokens::get(cx).text_tertiary)
 }
 
+/// PRO in the accent, marking a way in that needs the Pro plan.
+pub fn pro_mark(cx: &App) -> Div {
+    let accent = Tokens::get(cx).accent;
+    caps("Pro", cx)
+        .px(theme::SPACE_1H)
+        .rounded(theme::radius_1())
+        .border(crate::theme::border())
+        .border_color(accent.opacity(0.45))
+        .bg(accent.opacity(0.1))
+        .text_color(accent)
+}
+
 /// `value` with the letters a search for `query` found in it in the primary ink at semibold,
 /// as every list that narrows to what is typed shows why a row is there.
 pub fn found(value: impl Into<SharedString>, query: &str, cx: &App) -> StyledText {
