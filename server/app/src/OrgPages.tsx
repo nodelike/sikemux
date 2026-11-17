@@ -5,6 +5,7 @@ import type {
   OrgDomainJoining,
   OrgMember,
   OrgOffer,
+  OrgPolicy,
   OrgRole,
   OrgRuleAdding,
   OrgTeam,
@@ -38,6 +39,7 @@ import {
   Rows,
   Section,
   Segmented,
+  Switch,
   useAction,
   useNotice,
 } from "./ui.tsx";
@@ -113,11 +115,13 @@ function OrgFrame({
   title,
   lede,
   needsToRun,
+  frozenNote,
   children,
 }: {
   title: string;
   lede: (org: Org) => ReactNode;
   needsToRun?: boolean;
+  frozenNote?: (org: Org) => ReactNode;
   children: (org: Org, show: (text: string) => void) => ReactNode;
 }) {
   const { orgs, org, problem, choose } = useOrgs();
@@ -163,10 +167,16 @@ function OrgFrame({
             <div className="banner warn" role="alert">
               <IconCircleAlert size={16} />
               <div className="grow">
-                <b>{org.name} has no Team plan running.</b>
-                <br />
-                Changes here are frozen until Team is renewed. Everything is
-                kept.
+                {frozenNote ? (
+                  frozenNote(org)
+                ) : (
+                  <>
+                    <b>{org.name} has no Team plan running.</b>
+                    <br />
+                    Changes here are frozen until Team is renewed. Everything is
+                    kept.
+                  </>
+                )}
               </div>
             </div>
           ) : null}
@@ -986,6 +996,191 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
         return `${by} set questions a day per person to ${entry.dailyQuestions}`;
       return `${by} changed the policy`;
   }
+}
+
+export function PolicyPage() {
+  return (
+    <OrgFrame
+      title="Policy"
+      lede={(org) =>
+        runs(org)
+          ? `How ${possessive(org.name)} agents work together. Every member's Sikemux follows these.`
+          : `How ${possessive(org.name)} agents work together. ${possessive(org.name)} admins set these; you can see them, not change them.`
+      }
+      frozenNote={(org) =>
+        `${possessive(org.name)} Team plan has lapsed. Policy is frozen as it was and nothing is deleted; it comes back when an owner renews in Plan and billing.`
+      }
+    >
+      {(org, show) => <Policy org={org} show={show} />}
+    </OrgFrame>
+  );
+}
+
+const possessive = (name: string) =>
+  name.endsWith("s") ? `${name}'` : `${name}'s`;
+
+const DAILY_QUESTIONS = { min: 1, max: 500 };
+
+function Policy({ org, show }: { org: Org; show: (text: string) => void }) {
+  const client = useClient();
+  const action = useAction();
+  const loaded = useLoad(
+    async () => (await client("see the org's policy")).getOrgPolicy(org.id),
+    org.id,
+  );
+  const [policy, setPolicy] = useState<OrgPolicy>();
+  const shown = policy ?? loaded.data;
+  const [typed, setTyped] = useState<string>();
+  const editable = runs(org) && org.seats.limit > 0;
+
+  const change = (next: OrgPolicy, said: string) =>
+    void action.run(
+      async () => {
+        setPolicy(
+          await (
+            await client("change the org's policy")
+          ).setOrgPolicy(org.id, next),
+        );
+        setTyped(undefined);
+        show(said);
+      },
+      (error) => `${problemText(error)} It is unchanged.`,
+    );
+
+  const saveQuestions = () => {
+    if (!shown || typed === undefined) return;
+    const count = Number(typed);
+    if (count === shown.dailyQuestions) return setTyped(undefined);
+    if (
+      !Number.isInteger(count) ||
+      count < DAILY_QUESTIONS.min ||
+      count > DAILY_QUESTIONS.max
+    ) {
+      setTyped(undefined);
+      return show(
+        `Questions a day must be a whole number from ${DAILY_QUESTIONS.min} to ${DAILY_QUESTIONS.max}.`,
+      );
+    }
+    change(
+      { ...shown, dailyQuestions: count },
+      `Questions a day per person: ${count}`,
+    );
+  };
+
+  if (loaded.problem) return <Problem text={loaded.problem} />;
+  if (!shown)
+    return (
+      <Section label="Project rules">
+        <Rows busy />
+      </Section>
+    );
+  return (
+    <>
+      <Section label="Project rules">
+        <Rows>
+          <PolicyRow
+            frozen={runs(org) && !editable}
+            name="Who can add a rule"
+            detail={`To a project ${org.name} shares. With approval, a member's rule waits for an admin.`}
+            end={
+              runs(org) ? (
+                <Segmented
+                  label="Who can add a rule"
+                  value={shown.ruleAdding}
+                  onChange={(ruleAdding) => {
+                    if (editable && ruleAdding !== shown.ruleAdding)
+                      change(
+                        { ...shown, ruleAdding },
+                        `Who can add a rule: ${RULE_WORDS[ruleAdding].toLowerCase()}`,
+                      );
+                  }}
+                  options={(["every_member", "admins_approve"] as const).map(
+                    (each) => ({ value: each, name: RULE_WORDS[each] }),
+                  )}
+                />
+              ) : (
+                <span className="value">{RULE_WORDS[shown.ruleAdding]}</span>
+              )
+            }
+          />
+        </Rows>
+      </Section>
+      <Section label="Asking">
+        <Rows>
+          <PolicyRow
+            frozen={runs(org) && !editable}
+            name="Teammates' agents can ask yours about a task"
+            detail="A project's owner can still stop anyone asking about it."
+            end={
+              runs(org) ? (
+                <Switch
+                  label="Teammates' agents can ask yours about a task"
+                  on={shown.asking}
+                  disabled={!editable || action.busy}
+                  onChange={(asking) =>
+                    change(
+                      { ...shown, asking },
+                      `Teammates' agents asking: ${asking ? "on" : "off"}`,
+                    )
+                  }
+                />
+              ) : (
+                <span className="value">{shown.asking ? "On" : "Off"}</span>
+              )
+            }
+          />
+          <PolicyRow
+            frozen={runs(org) && !editable}
+            name="Questions a day per person"
+            detail={`How many one person's agents may ask, across all of ${possessive(org.name)} shared projects.`}
+            end={
+              runs(org) ? (
+                <input
+                  className="field count-field"
+                  type="number"
+                  inputMode="numeric"
+                  aria-label="Questions a day per person"
+                  min={DAILY_QUESTIONS.min}
+                  max={DAILY_QUESTIONS.max}
+                  disabled={!editable || action.busy}
+                  value={typed ?? String(shown.dailyQuestions)}
+                  onChange={(event) => setTyped(event.target.value)}
+                  onBlur={saveQuestions}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") setTyped(undefined);
+                  }}
+                />
+              ) : (
+                <span className="value">{shown.dailyQuestions}</span>
+              )
+            }
+          />
+        </Rows>
+      </Section>
+      <Problem text={action.problem} />
+    </>
+  );
+}
+
+function PolicyRow({
+  name,
+  detail,
+  end,
+  frozen,
+}: {
+  name: string;
+  detail: string;
+  end: ReactNode;
+  frozen: boolean;
+}) {
+  return (
+    <li className="row choice" data-frozen={frozen || undefined}>
+      <span className="name">{name}</span>
+      <span className="detail">{detail}</span>
+      <span className="end">{end}</span>
+    </li>
+  );
 }
 
 /** The orgs whose proven domain matches the person's verified email, with a way in. */

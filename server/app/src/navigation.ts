@@ -13,6 +13,7 @@ export const TEAM = "/team";
 export const TEAMS = "/teams";
 export const DOMAINS = "/domains";
 export const AUDIT = "/audit-log";
+export const POLICY = "/policy";
 export const JOIN = "/orgs/join";
 export const PAY = "/pay";
 
@@ -26,6 +27,7 @@ const PAGES = new Set([
   TEAMS,
   DOMAINS,
   AUDIT,
+  POLICY,
   PRICING,
   DELETE_ACCOUNT,
 ]);

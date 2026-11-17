@@ -236,6 +236,30 @@ export function useAction() {
   return { busy, problem, run, clear: () => setProblem(undefined) };
 }
 
+export function Switch({
+  label,
+  on,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  on: boolean;
+  disabled?: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      className="switch"
+      aria-label={label}
+      aria-checked={on}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+    />
+  );
+}
+
 export function Segmented<Value extends string>({
   label,
   options,

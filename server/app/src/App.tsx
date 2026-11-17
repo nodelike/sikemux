@@ -14,6 +14,7 @@ import {
   IconStack,
   IconPlug,
   IconServer,
+  IconShield,
   IconTag,
   IconUser,
   IconUsers,
@@ -37,6 +38,7 @@ import { ShedNotHost } from "./Shed.tsx";
 import { Pay } from "./Pay.tsx";
 import {
   AuditPage,
+  PolicyPage,
   DomainsPage,
   OfferBanner,
   TeamsPage,
@@ -47,6 +49,7 @@ import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
   AUDIT,
+  POLICY,
   BILLING,
   CONNECTORS,
   CONSENT,
@@ -223,6 +226,7 @@ const PAGE_TITLES: Record<string, string> = {
   [TEAMS]: "Teams",
   [DOMAINS]: "Domains",
   [AUDIT]: "Audit log",
+  [POLICY]: "Policy",
   [JOIN]: "Join an org",
   [PRICING]: "Pricing",
   [DELETE_ACCOUNT]: "Delete your account",
@@ -261,6 +265,7 @@ function Account({
     [TEAMS]: billingShown,
     [DOMAINS]: billingShown,
     [AUDIT]: billingShown,
+    [POLICY]: billingShown,
     [JOIN]: billingShown,
     [PRICING]: staff,
   };
@@ -329,6 +334,11 @@ function Account({
                 name: "Audit log",
                 icon: <IconActivity size={15} />,
               },
+              {
+                path: POLICY,
+                name: "Policy",
+                icon: <IconShield size={15} />,
+              },
             ],
           },
         ]
@@ -381,6 +391,8 @@ function Account({
         <DomainsPage />
       ) : page === AUDIT ? (
         <AuditPage />
+      ) : page === POLICY ? (
+        <PolicyPage />
       ) : page === PRICING ? (
         <PricingPage />
       ) : page === BILLING ? (
