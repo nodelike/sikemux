@@ -157,10 +157,19 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     };
     let unseen = out_of_sight(bench, &agents);
     let snoozed = away_rows(&snoozed, cx);
-    let projects: Vec<ProjectInfo> = match bench.rails.all_projects {
+    let homes = home_projects(bench);
+    let place = bench.place();
+    let mut projects: Vec<ProjectInfo> = match bench.rails.all_projects {
         true => ranked_projects(bench),
         false => bench.project().cloned().into_iter().collect(),
     };
+    for project in &mut projects {
+        if let Some(home) = home_project(bench, &homes, &place, &project.id) {
+            *project = home.clone();
+        }
+    }
+    let mut seen = HashSet::new();
+    projects.retain(|project| seen.insert(project.id.clone()));
     let heads: Vec<(String, AnyElement)> = (projects.iter())
         .map(|project| {
             let chief = chief_of(project, &agents);
@@ -172,11 +181,11 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .filter_map(|project| chief_of(project, &agents))
         .map(|chief| chief.id.clone())
         .collect();
-    let place = bench.place();
     let mut agents: Vec<AgentRow> = (agents.into_iter())
-        .filter(|agent| !agent.chief || (agent.place != place && !leading.contains(&agent.id)))
+        .filter(|agent| {
+            !agent.chief || (agent.place != Place::This && !leading.contains(&agent.id))
+        })
         .collect();
-    let homes = home_projects(bench);
     if bench.rails.all_projects {
         let at = |project: &str| heads.iter().position(|(id, _)| id == project);
         agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
@@ -1319,6 +1328,18 @@ fn home_projects(bench: &Workbench) -> HashMap<(Place, String), String> {
                 .map(move |copy| ((copy.place, copy.project), own.clone()))
         })
         .collect()
+}
+
+/// This host's project that the copy `project` on the host at `place` folds into, so the rail
+/// heads it with the same @Chief whichever host is in front.
+fn home_project<'a>(
+    bench: &'a Workbench,
+    homes: &HashMap<(Place, String), String>,
+    place: &Place,
+    project: &str,
+) -> Option<&'a ProjectInfo> {
+    let home = homes.get(&(place.clone(), project.to_owned()))?;
+    (bench.this_view()?.workspace.projects.iter()).find(|project| project.id == *home)
 }
 
 /// The project whose @Chief leads the agent's row: this host's copy of its project.
