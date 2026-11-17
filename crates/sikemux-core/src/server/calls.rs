@@ -787,10 +787,7 @@ pub(crate) async fn record_write(
                 }
                 _ => drop(memory::seed_again(core, Peer::App, parse(params)?).await?),
             }
-            answer(
-                memory::record_at(core, &folder)
-                    .ok_or("the project keeps no rules or knowledge here")?,
-            )
+            Ok(memory::record_at(core, &folder).unwrap_or_default())
         }
         board::own_writes::METHOD => {
             let at_home = board::own_writes::read(params)?;

@@ -51,8 +51,8 @@ pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::promote;
 pub(crate) use record::{
-    mirror, personal as writes_personal, record, record_at, written_at_home,
-    APP_WRITES as APP_RECORD_WRITES,
+    free_elsewhere, free_here, mirror, personal as writes_personal, record, record_at,
+    written_at_home, APP_WRITES as APP_RECORD_WRITES,
 };
 pub(crate) use removed::{
     chat_ready, feed_moved, show_on as rules_missing, take_note as take_removed_note,
@@ -127,6 +127,9 @@ struct State {
     said_again: HashMap<String, (Option<u64>, HashSet<u64>)>,
     /// The project stores saved since their home last sent them to the linked hosts.
     saved: BTreeSet<String>,
+    /// The lowest id no linked host has given an entry yet, so one kept here never takes the id
+    /// of a linked host's own note.
+    free_elsewhere: u64,
 }
 
 impl State {
@@ -183,7 +186,10 @@ impl State {
 
     /// An id no entry has ever had.
     fn next_id(&mut self, key: &str) -> u64 {
-        let id = self.held.values().map(|held| held.next).max().unwrap_or(1);
+        let id = (self.held.values().map(|held| held.next))
+            .chain([self.free_elsewhere])
+            .max()
+            .unwrap_or(1);
         if let Some(held) = self.held.get_mut(key) {
             held.next = id + 1;
         }
@@ -199,6 +205,9 @@ pub(crate) struct Memory {
     promotes: Mutex<()>,
     /// Tests knowledge once it is due.
     pub(crate) wake: Wake,
+    /// What the person said in the turn of each agent on a linked host whose write this host,
+    /// the project's home, is doing now.
+    said_elsewhere: Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl Memory {
@@ -224,6 +233,7 @@ impl Memory {
             folder,
             promotes: Mutex::new(()),
             wake: Wake::default(),
+            said_elsewhere: Mutex::default(),
         }
     }
 
@@ -351,6 +361,7 @@ fn woke(core: &Arc<Core>) {
 /// Clients read what is kept again, and the inbox moves when knowledge went
 /// stale or holds again.
 fn tell_clients(core: &Core, stale_moved: bool) {
+    core.hosts().copies.wake.now();
     core.changed(What::Read(Topic::Memory));
     core.changed(What::Read(Topic::Playbook));
     if stale_moved {
@@ -986,9 +997,12 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     },
                     by,
                 )?;
-                say_kept(&core, &agent, &project, id);
                 let note = format!("Kept as #{id}, as the person's rule.");
-                return Ok(json!({ "note": with_check_asked(note, &said, &[]) }));
+                let note = json!(with_check_asked(note, &said, &[]));
+                if say_kept(&core, &agent, &project, id) {
+                    return Ok(json!({ "note": note }));
+                }
+                return Ok(json!({ "note": note, KEPT_ELSEWHERE: id }));
             }
             ToolAdd::Rule {
                 text,
@@ -1063,9 +1077,7 @@ fn about_code(text: &str, about: &[String]) -> bool {
 /// rule's longer words, so an agent's own idea, or a message another agent or a trigger sent,
 /// is kept as an agent's note rather than as the person's rule.
 fn said_by_person(core: &Core, agent: &str, rule: &str) -> bool {
-    let said = (core.chats().get(agent))
-        .map(|chat| chat.feed.person_said())
-        .unwrap_or_default();
+    let said = person_said(core, agent);
     let words = |text: &str| -> HashSet<String> {
         (text.split(|c: char| !c.is_alphanumeric()))
             .filter(|word| word.chars().count() >= 4)
@@ -1077,13 +1089,60 @@ fn said_by_person(core: &Core, agent: &str, rule: &str) -> bool {
     !rule.is_empty() && held * 2 >= rule.len()
 }
 
-/// The line in the agent's chat that says rule `id` was kept from the person's words.
-fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
+/// What the person said in `agent`'s turn now, read from its chat, or from the linked host it
+/// runs on while this host does its write.
+pub(crate) fn person_said(core: &Core, agent: &str) -> Vec<String> {
+    match core.chats().get(agent) {
+        Some(chat) => chat.feed.person_said(),
+        None => (core.memory().said_elsewhere.locked().get(agent).cloned()).unwrap_or_default(),
+    }
+}
+
+/// Holds what the person said in `agent`'s turn on a linked host while this host does its write.
+pub(crate) struct SaidElsewhere<'a> {
+    core: &'a Core,
+    agent: String,
+}
+
+pub(crate) fn said_elsewhere<'a>(
+    core: &'a Core,
+    agent: &str,
+    said: Vec<String>,
+) -> SaidElsewhere<'a> {
+    (core.memory().said_elsewhere.locked()).insert(agent.to_owned(), said);
+    SaidElsewhere {
+        core,
+        agent: agent.to_owned(),
+    }
+}
+
+impl Drop for SaidElsewhere<'_> {
+    fn drop(&mut self) {
+        (self.core.memory().said_elsewhere.locked()).remove(&self.agent);
+    }
+}
+
+/// Says in `agent`'s chat on this host that the rule its home kept from the person's words is
+/// kept, when the home's `answer` names one.
+pub(crate) fn kept_at_home(core: &Core, agent: &str, project: &str, answer: &mut Value) {
+    let kept = (answer.as_object_mut())
+        .and_then(|answer| answer.remove(KEPT_ELSEWHERE))
+        .and_then(|id| id.as_u64());
+    if let Some(id) = kept {
+        say_kept(core, agent, project, id);
+    }
+}
+
+const KEPT_ELSEWHERE: &str = "keptForChat";
+
+/// The line in the agent's chat that says rule `id` was kept from the person's words; answers
+/// whether the chat is on this host.
+fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
     let Some(chat) = core.chats().get(agent) else {
-        return;
+        return false;
     };
     let Some(start) = chat.feed.start() else {
-        return;
+        return true;
     };
     let rule = sikemux_view::chat::KeptRule {
         id,
@@ -1097,6 +1156,7 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
             "update": sikemux_fold::update::rule_notice(rule),
         }),
     );
+    true
 }
 
 /// `memory_update`: corrects, disputes or retires an entry, or changes what

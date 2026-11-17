@@ -6,7 +6,6 @@
 //! leaves a line with Undo in the chief's chat, or the acting agent's where there is no chief, and
 //! a rule that leaves is kept apart, with who and when, until the person brings it back.
 
-use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 
@@ -256,7 +255,7 @@ pub(super) fn is_set_aside(core: &Core, project: &str, id: u64) -> bool {
 
 /// Whether the person's own words started `agent`'s turn now.
 pub(super) fn persons_turn(core: &Core, agent: &str) -> bool {
-    (core.chats().get(agent)).is_some_and(|chat| !chat.feed.person_said().is_empty())
+    !super::person_said(core, agent).is_empty()
 }
 
 /// An agent brings back rule `id` of the person's in a turn the person's own words started.

@@ -125,7 +125,7 @@ pub(crate) fn personal(core: &Core, method: &str, params: &Value) -> bool {
 }
 
 /// The view of the project at `folder` after its home did an app's write and sent back what the
-/// project's store keeps now.
+/// project's store keeps now, if it keeps one, as when the write went to a goal's card.
 pub(crate) fn written_at_home(
     core: &Arc<Core>,
     folder: &str,
@@ -133,7 +133,9 @@ pub(crate) fn written_at_home(
     peer: &Peer,
     record: Value,
 ) -> Result<MemoryView, String> {
-    mirror(core, key, record)?;
+    if !record.is_null() {
+        mirror(core, key, record)?;
+    }
     Ok(super::view(core, folder, peer))
 }
 
@@ -148,4 +150,18 @@ pub(super) fn saved_since(core: &Core) -> Vec<String> {
     std::mem::take(&mut core.memory().state.locked().saved)
         .into_iter()
         .collect()
+}
+
+/// The lowest id no entry kept on this host has.
+pub(crate) fn free_here(core: &Core) -> u64 {
+    let state = core.memory().state.locked();
+    let free = (state.held.values().map(|held| held.next))
+        .max()
+        .unwrap_or(1);
+    free
+}
+
+/// The linked hosts have given entries ids below `free`.
+pub(crate) fn free_elsewhere(core: &Core, free: u64) {
+    core.memory().state.locked().free_elsewhere = free;
 }

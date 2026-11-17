@@ -49,6 +49,10 @@ pub(crate) struct Held {
     /// When the person last wrote to that chief, in Unix milliseconds, or 0 if never.
     #[serde(default, skip_serializing_if = "never")]
     chief_wrote: u64,
+    /// The lowest id that host gave none of the entries it keeps, the same on each of its
+    /// projects.
+    #[serde(default, skip_serializing_if = "never")]
+    ids_from: u64,
 }
 
 fn never(at: &u64) -> bool {
@@ -258,6 +262,7 @@ impl Copies {
 
 /// This host's projects, as it tells the others.
 fn held_here(core: &Core) -> Vec<Held> {
+    let ids_from = crate::server::memory::free_here(core);
     (core.workspaces().projects().into_iter())
         .map(|project| Held {
             git: core.git().shown(&project.path.to_string_lossy()).1,
@@ -270,6 +275,7 @@ fn held_here(core: &Core) -> Vec<Held> {
                 .and_then(|chief| crate::server::chief::person_wrote_at(core, chief))
                 .unwrap_or(0),
             chief: project.chief,
+            ids_from,
         })
         .collect()
 }
@@ -327,6 +333,10 @@ pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
         }
         changed
     };
+    let ids_from = (copies.heard.locked().values().flatten())
+        .map(|held| held.ids_from)
+        .max();
+    crate::server::memory::free_elsewhere(core, ids_from.unwrap_or_default());
     if changed {
         super::rehome::follow(core, host);
         stand_down(core);

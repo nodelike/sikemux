@@ -21,7 +21,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Refusal;
 use super::outbox::Sending;
 use super::team::{Foreign, Role};
-use super::{name_of, post, route};
+use super::{name_of, post, record, route};
 use crate::server::device_view::DeviceViewCore;
 use sikemux_process::clock::epoch_ms;
 
@@ -46,11 +46,13 @@ pub(super) fn host_removed(core: &Core, removed: &str, removed_name: &str) {
                 continue;
             };
             let waiting = waiting_for(&core, removed, &lead);
+            let written = record::sent_to(&core, removed, &identity);
             core.hosts().team.remove(&lead);
             let removed_name = removed_name.to_owned();
             tokio::spawn(async move {
                 match taken_up(&core, project, &lead, count, &removed_name, gone).await {
                     Ok(_) => {
+                        record::send_to(&core, &home, written);
                         if let Some(waiting) = waiting {
                             send_on(&core, waiting, &removed_name, gone, &lead, &home, &identity);
                         }
@@ -105,6 +107,7 @@ pub(crate) async fn take_over_here(
 /// person took it over there: they report to that host from then on.
 pub(super) fn follow(core: &Core, host: &str) {
     for (identity, lead, count) in core.hosts().copies.chiefs_on(host) {
+        record::follow_home(core, host, &identity);
         let Some(was) = (core.hosts().team.get(&lead))
             .filter(|foreign| foreign.role == Role::Lead && foreign.host != host)
             .map(|foreign| foreign.host)
@@ -180,6 +183,7 @@ fn move_workers(
     home: &str,
     identity: &str,
 ) {
+    record::send_to(core, home, record::sent_to(core, removed, identity));
     if let Some(waiting) = waiting_for(core, removed, lead) {
         send_on(core, waiting, removed_name, gone, lead, home, identity);
     }

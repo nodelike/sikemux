@@ -5,6 +5,7 @@
 //! record. A host out of reach of the home refuses a write, naming the home.
 
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ use super::super::board::record as board_record;
 use super::super::{memory, Core};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Answer;
+use super::outbox::Post;
 use super::{ask, name_of, Failed, ASK_WAIT};
 
 /// The calls from the app that change a project's record.
@@ -68,6 +70,9 @@ pub(super) struct RecordAct {
     params: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     agent_id: Option<String>,
+    /// What the person said in the agent's turn, which the home cannot read without its chat.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    person_said: Vec<String>,
 }
 
 fn project_at(core: &Core, folder: &str) -> Option<ProjectInfo> {
@@ -133,6 +138,7 @@ pub(crate) async fn app_write(
         method: method.to_owned(),
         params,
         agent_id: None,
+        person_said: Vec::new(),
     };
     let answered = act(core, &home, asked).await;
     if to_memory {
@@ -163,13 +169,20 @@ pub(crate) async fn tool_write(
     }
     let folder = crate::server::caller::project_of(core, request);
     let (home, identity) = away(core, &folder)?;
+    let agent = request.agent_id.clone();
     let asked = RecordAct {
         identity,
         method: request.method.clone(),
         params: request.params.clone(),
-        agent_id: request.agent_id.clone(),
+        person_said: (agent.as_deref())
+            .map_or_else(Vec::new, |agent| memory::person_said(core, agent)),
+        agent_id: agent.clone(),
     };
-    Some(act(core, &home, asked).await)
+    let mut answered = act(core, &home, asked).await;
+    if let (Ok(answer), Some(agent)) = (&mut answered, agent) {
+        memory::kept_at_home(core, &agent, &folder, answer);
+    }
+    Some(answered)
 }
 
 /// Has the home of the project at `folder` do the record's `method`, when another host keeps it.
@@ -187,6 +200,7 @@ pub(crate) fn act_waiting(
         method: method.to_owned(),
         params,
         agent_id: None,
+        person_said: Vec::new(),
     };
     Some(tokio::runtime::Handle::current().block_on(act(core, &home, asked)))
 }
@@ -203,12 +217,13 @@ pub(crate) fn post_home(core: &Core, folder: &str, method: &str, mut params: Val
         method: method.to_owned(),
         params,
         agent_id: None,
+        person_said: Vec::new(),
     };
     let sending = super::Sending::new(
         asks::RecordAct::METHOD,
         params_of::<asks::RecordAct>(&asked),
     );
-    let sending = sending.kept().about(&format!("record {identity}"));
+    let sending = sending.kept().about(&lane(&identity));
     if tokio::runtime::Handle::try_current().is_ok() {
         super::post(core, &home.host, sending);
     } else {
@@ -216,6 +231,59 @@ pub(crate) fn post_home(core: &Core, folder: &str, method: &str, mut params: Val
         core.hosts().wake.now();
     }
     true
+}
+
+fn lane(identity: &str) -> String {
+    format!("record {identity}")
+}
+
+/// Takes out what this host sent `home`, the old home of the project `identity`, to write there.
+pub(super) fn sent_to(core: &Core, home: &str, identity: &str) -> Vec<Post> {
+    let lane = lane(identity);
+    core.hosts().outbox.take(home, |post| post.lane == lane)
+}
+
+/// `host` became the home of the project `identity`: what this host sent another host to write
+/// there goes to `host` instead.
+pub(super) fn follow_home(core: &Core, host: &str, identity: &str) {
+    let moved = project_of(core, identity)
+        .and_then(|project| core.hosts().copies.home_of(core, &project))
+        .is_some_and(|home| home.host == host);
+    if !moved {
+        return;
+    }
+    for link in core.remote().links() {
+        if link.id != host {
+            send_to(core, host, sent_to(core, &link.id, identity));
+        }
+    }
+}
+
+/// Hands `posts`, taken with [`sent_to`] from the project's old home, to `home`, its new one,
+/// or writes them here when that is this host.
+pub(super) fn send_to(core: &Core, home: &str, posts: Vec<Post>) {
+    if posts.is_empty() {
+        return;
+    }
+    if Some(home) != core.remote().core_id().as_deref() {
+        core.hosts().outbox.put(home, posts);
+        return;
+    }
+    let Some(core) = core.arc() else {
+        return;
+    };
+    let asked: Vec<RecordAct> = (posts.into_iter())
+        .filter_map(|post| serde_json::from_value(post.params).ok())
+        .collect();
+    tokio::spawn(async move {
+        for asked in asked {
+            if let Err(error) = act_here(&core, asked).await {
+                eprintln!(
+                    "sikemux core: a write that waited for the board's old home was lost: {error}"
+                );
+            }
+        }
+    });
 }
 
 async fn act(core: &Arc<Core>, home: &ChiefHome, asked: RecordAct) -> Result<Value, String> {
@@ -257,6 +325,8 @@ pub(super) async fn act_here(core: &Arc<Core>, asked: RecordAct) -> Answer {
             .await
             .map_err(|error| error.to_string());
     }
+    let _said = (asked.agent_id.as_deref())
+        .map(|agent| memory::said_elsewhere(core, agent, asked.person_said.clone()));
     let request = HarnessRequest {
         id: super::call_id(),
         project: folder,
