@@ -23,7 +23,13 @@ group's and must reach a different set of hosts: every host of every member, and
 - **The first write by an owner or admin makes it.** Their host makes a key, wraps it for itself
   and sends the wrap. Only an owner's or admin's host may make the vault, add or replace an
   entry, take one out, or replace the key; the server refuses any other member's host. Any
-  member's host reads it.
+  member's host reads it. A shared project's rules are the one exception, below.
+- **A project a member shares with the org has two entries: its store and its waiting list.**
+  Each sits at an id the server works out from the project's hash and the kind
+  (`project-memory`, `project-memory-waiting`), and the server takes a put there only while some
+  member shares that project. Any member's host may put the waiting list, and the store too while
+  the org's policy lets every member add rules; otherwise only an owner's or admin's host puts
+  the store. The server removes both when the last member's share of the project ends.
 - **A member's host gets the key from a host that already holds it.** The server lists the
   members' hosts that lack the key, and a host holding it wraps it for them: an owner's or
   admin's host for any of them, any other member's host only for its own account's. The org
@@ -44,7 +50,9 @@ group's and must reach a different set of hosts: every host of every member, and
   key's generation and its revision, so the server cannot move an entry to another org, change
   its kind, or pass one generation's copy off as another's. Wraps are bound to the org, the
   generation and the host, apart from the account vault's.
-- **The server sees each entry's kind and nothing else of it.** `model-key` is the first kind.
+- **The server sees each entry's kind, size, revision and the host that last wrote it, and
+  nothing else of it.** For a project's entries it also knows which shared project they are of,
+  by hash. `model-key` is the first kind.
   An entry may carry the account vault's `access` list of hosts; a host the list leaves out does
   not use it.
 - **A lapsed plan freezes the vault and keeps it.** While an org's Team plan is not paid, the

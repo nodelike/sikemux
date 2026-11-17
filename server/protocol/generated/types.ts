@@ -1303,7 +1303,7 @@ export interface OrgVaultEntry {
 /** What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it. */
 export type OrgVaultEntryKind = string;
 
-/** An owner's or admin's host adds or replaces an entry. */
+/** An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules. */
 export interface OrgVaultEntryPut {
   kind: OrgVaultEntryKind;
   /** The generation of the key it is sealed under, which must be current. */

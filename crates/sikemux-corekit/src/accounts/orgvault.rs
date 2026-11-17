@@ -46,7 +46,7 @@ pub struct OrgVaultEntry {
 /// What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it.
 pub type OrgVaultEntryKind = String;
 
-/// An owner's or admin's host adds or replaces an entry.
+/// An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultEntryPut {

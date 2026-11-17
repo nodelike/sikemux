@@ -20,6 +20,7 @@ import {
   rotateOrgVault,
   type Asker,
 } from "./change.ts";
+import { allowPut } from "./projects.ts";
 import { memberOf, NOT_IN_ORG, orgVaultState, type Member } from "./state.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -31,7 +32,7 @@ const SEALED_BYTES = 87_400 + 256;
 /** The most one wrapped key takes in a body, with its host's key and the field names. */
 const WRAP_BYTES = 256 + 128;
 
-type Need = "member" | "manager" | "paid manager";
+type Need = "member" | "paid member" | "manager" | "paid manager";
 
 function entryId(c: Context): string {
   const id = c.req.param("id") ?? "";
@@ -42,9 +43,9 @@ function entryId(c: Context): string {
 
 function allow(member: Member, need: Need) {
   if (need === "member") return;
-  if (member.role === "user")
+  if (need !== "paid member" && member.role === "user")
     throw forbidden("Only an org's owner or admin may change its vault.");
-  if (need === "paid manager" && !member.active)
+  if (need !== "manager" && !member.active)
     throw forbidden(
       "The org's Team plan has lapsed: its vault keeps what it holds and takes nothing new.",
     );
@@ -53,7 +54,7 @@ function allow(member: Member, need: Need) {
 /**
  * An org's vault: what its members' hosts share, sealed under a key only they hold. The server
  * keeps the sealed entries and the key sealed for each host, and reads neither. Only an owner's
- * or admin's host writes to it.
+ * or admin's host writes to it, but for a shared project's rules (see projects.ts).
  */
 export function orgVaultRoutes({
   database: { db },
@@ -148,9 +149,10 @@ export function orgVaultRoutes({
         const id = entryId(c);
         const body = await readBody(c, "OrgVaultEntryPut");
         return c.json(
-          await changing(c, "paid manager", (trx, who) =>
-            putOrgEntry(trx, who, id, body),
-          ),
+          await changing(c, "paid member", async (trx, who, member) => {
+            await allowPut(trx, who.orgId, member, id, body.kind);
+            return putOrgEntry(trx, who, id, body);
+          }),
         );
       },
     )

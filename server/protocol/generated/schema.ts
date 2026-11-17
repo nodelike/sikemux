@@ -2316,7 +2316,8 @@ export const schema = {
       pattern: "^[a-z][a-z0-9-]{0,47}$",
     },
     OrgVaultEntryPut: {
-      description: "An owner's or admin's host adds or replaces an entry.",
+      description:
+        "An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules.",
       type: "object",
       properties: {
         kind: { $ref: "#/$defs/OrgVaultEntryKind" },

@@ -9,6 +9,7 @@ import { audit } from "../audit.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { ownedDevice } from "../devices/owned.ts";
+import { dropUnshared } from "../orgvault/projects.ts";
 import { appendEvents } from "../events/log.ts";
 import { teamPaid } from "./host.ts";
 import { notFound, readBody } from "../http.ts";
@@ -201,17 +202,21 @@ export function shareRoutes({
     .post("/remove", perUser(limiter, "share-remove", 30), async (c) => {
       const { userId } = c.get("identity");
       const { org, project } = await readBody(c, "ShareRemoval");
-      const removed = await db
-        .deleteFrom("org_shares")
-        .where("project", "=", project)
-        .where("member_id", "in", (eb) =>
-          eb
-            .selectFrom("org_users")
-            .select("id")
-            .where("org_id", "=", org)
-            .where("user_id", "=", userId),
-        )
-        .executeTakeFirst();
+      const removed = await db.transaction().execute(async (trx) => {
+        const removed = await trx
+          .deleteFrom("org_shares")
+          .where("project", "=", project)
+          .where("member_id", "in", (eb) =>
+            eb
+              .selectFrom("org_users")
+              .select("id")
+              .where("org_id", "=", org)
+              .where("user_id", "=", userId),
+          )
+          .executeTakeFirst();
+        if (removed.numDeletedRows > 0n) await dropUnshared(trx, org);
+        return removed;
+      });
       if (removed.numDeletedRows > 0n) {
         await audit(db, {
           userId,

@@ -35,6 +35,7 @@ import {
   readBody,
 } from "../http.ts";
 import { perUser } from "../limits.ts";
+import { dropUnshared } from "../orgvault/projects.ts";
 import { domainRoutes } from "./domains.ts";
 import { auditRoutes } from "./log.ts";
 import { policyRoutes } from "./policy.ts";
@@ -373,6 +374,7 @@ export function orgRoutes({
             .where("user_id", "=", target)
             .execute();
           await payerLeft(trx, orgId, target);
+          await dropUnshared(trx, orgId);
           await audit(trx, {
             userId: target,
             actor: `user:${userId}`,
@@ -404,6 +406,7 @@ export function orgRoutes({
           .where("user_id", "=", userId)
           .execute();
         await payerLeft(trx, orgId, userId);
+        await dropUnshared(trx, orgId);
         await audit(trx, {
           userId,
           actor: `user:${userId}`,

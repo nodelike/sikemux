@@ -1,5 +1,5 @@
 import release from "@sikemux/protocol/release.json" with { type: "json" };
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
@@ -9,6 +9,7 @@ import { payerLeft } from "../billing/payer.ts";
 import { appendEvent } from "../events/log.ts";
 import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
+import { dropUnshared } from "../orgvault/projects.ts";
 import { retryLater } from "../retry.ts";
 import type { ClerkBackend } from "./clerk.ts";
 
@@ -134,7 +135,7 @@ export async function markDeleted(
  * are alone in stays theirs, with its pending invites revoked, until it is erased with them.
  */
 async function leaveOrgs(
-  trx: Kysely<Tables>,
+  trx: Transaction<Tables>,
   userId: string,
   actor: Actor,
   { handOver }: { handOver: boolean },
@@ -203,6 +204,7 @@ async function leaveOrgs(
       .where("user_id", "=", userId)
       .execute();
     await payerLeft(trx, orgId, userId);
+    await dropUnshared(trx, orgId);
     await audit(trx, {
       userId,
       actor,
