@@ -51,7 +51,8 @@
 //! `FAKE_CLAUDE_MODELS`, a JSON list, the models it lists in place of its own.
 //!
 //! Asked once with `--print`, it keeps what it was sent in `fake-claude-asked.txt` where it runs
-//! and answers with nothing, or for an `initialize` with the models it lists, as Claude Code does.
+//! and answers with nothing, or for an `initialize` with the models it lists and for a usage
+//! request with its `fake-usage.json`, as Claude Code does.
 //!
 //! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
 //! `fake-account.json`, or a signed-out status when there is none, and a usage
@@ -809,14 +810,21 @@ fn main() {
     if args.iter().any(|arg| arg == "--print") {
         let mut asked = String::new();
         let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut asked);
-        let initialize = asked
+        let control = asked
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .find(|line| {
-                line.pointer("/request/subtype").and_then(Value::as_str) == Some("initialize")
+            .find_map(|line| {
+                let response = match line.pointer("/request/subtype").and_then(Value::as_str) {
+                    Some("initialize") => json!({ "models": models() }),
+                    Some("get_usage") => account_file("fake-usage.json")
+                        .unwrap_or_else(|| json!({ "rate_limits_available": false })),
+                    _ => return None,
+                };
+                Some((line.get("request_id").cloned(), response))
             });
-        if let Some(asked) = initialize {
-            let answer = json!({ "subtype": "success", "request_id": asked.get("request_id"), "response": { "models": models() } });
+        if let Some((request_id, response)) = control {
+            let answer =
+                json!({ "subtype": "success", "request_id": request_id, "response": response });
             println!(
                 "{}",
                 json!({ "type": "control_response", "response": answer })
