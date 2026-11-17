@@ -378,6 +378,9 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
         }
         Some(_) => {}
     }
+    if codehost::jobs_conclusion(&detail) == Conclusion::Stopped {
+        return Err("that run's jobs were only cancelled, as when a newer push supersedes it or no runner took a job; no commit broke it".into());
+    }
     let sha = text(run, "sha").to_owned();
     if sha.is_empty() {
         return Err("the code host did not say which commit that run built".into());
