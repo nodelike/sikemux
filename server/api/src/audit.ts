@@ -6,7 +6,7 @@ import type { Tables } from "./db.ts";
 export type Actor =
   `user:${string}` | `device:${string}` | "clerk" | "system" | "deploy";
 
-type AuditAction =
+export type AuditAction =
   | "device.registered"
   | "device.updated"
   | "device.renamed"
@@ -32,6 +32,11 @@ type AuditAction =
   | "vault.key_added"
   | "vault.entry_written"
   | "vault.entry_removed"
+  | "org_vault.created"
+  | "org_vault.key_added"
+  | "org_vault.rotated"
+  | "org_vault.entry_written"
+  | "org_vault.entry_removed"
   | "mods.purged"
   | "billing.checkout_opened"
   | "billing.subscription_changed"

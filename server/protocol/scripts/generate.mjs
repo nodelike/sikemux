@@ -103,6 +103,13 @@ const CORE_ONLY = new Map([
   ],
   ["hooks.json", { module: "hooks.rs", imports: FROM_THE_WIRE }],
   ["vault.json", { module: "vault.rs", imports: FROM_THE_WIRE }],
+  [
+    "orgvault.json",
+    {
+      module: "orgvault.rs",
+      imports: `\nuse super::vault::*;${FROM_THE_WIRE}`,
+    },
+  ],
 ]);
 
 const schemaDir = join(protocol, "schema");

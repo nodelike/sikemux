@@ -2217,6 +2217,180 @@ export const schema = {
       required: ["name"],
       additionalProperties: false,
     },
+    OrgVault: {
+      description: "An org's vault, as one of its members' hosts sees it.",
+      type: "object",
+      properties: {
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        key: {
+          description:
+            "The org's key sealed for the asking host at the current generation, or null when it has none yet.",
+          anyOf: [{ $ref: "#/$defs/OrgVaultWrapped" }, { type: "null" }],
+        },
+        holders: {
+          description:
+            "The members' hosts holding the key at the current generation.",
+          type: "array",
+          items: { $ref: "#/$defs/DeviceKey" },
+        },
+        waiting: {
+          description:
+            "The members' hosts without the key at the current generation, for a holder to wrap it for.",
+          type: "array",
+          items: { $ref: "#/$defs/DeviceKey" },
+        },
+        rotate: {
+          description:
+            "A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.",
+          type: "boolean",
+        },
+        entries: { type: "array", items: { $ref: "#/$defs/OrgVaultEntry" } },
+      },
+      required: [
+        "generation",
+        "key",
+        "holders",
+        "waiting",
+        "rotate",
+        "entries",
+      ],
+      additionalProperties: false,
+    },
+    OrgVaultCreate: {
+      description:
+        "An owner's or admin's host makes the org's vault, holding its key at generation 1.",
+      type: "object",
+      properties: {
+        key: {
+          description: "The org's key sealed for the asking host.",
+          $ref: "#/$defs/OrgVaultWrapped",
+        },
+      },
+      required: ["key"],
+      additionalProperties: false,
+    },
+    OrgVaultEntry: {
+      description:
+        "One entry in an org's vault, sealed under the org's key of its generation.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        kind: { $ref: "#/$defs/OrgVaultEntryKind" },
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        updatedBy: { $ref: "#/$defs/DeviceKey" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "id",
+        "kind",
+        "generation",
+        "sealed",
+        "revision",
+        "updatedBy",
+        "updatedAt",
+      ],
+      additionalProperties: false,
+    },
+    OrgVaultEntryKind: {
+      description:
+        "What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it.",
+      type: "string",
+      pattern: "^[a-z][a-z0-9-]{0,47}$",
+    },
+    OrgVaultEntryPut: {
+      description: "An owner's or admin's host adds or replaces an entry.",
+      type: "object",
+      properties: {
+        kind: { $ref: "#/$defs/OrgVaultEntryKind" },
+        generation: {
+          description:
+            "The generation of the key it is sealed under, which must be current.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: {
+          description:
+            "The entry's revision as the writer last saw it, or 0 to add it.",
+          type: "integer",
+          minimum: 0,
+          maximum: 999999999,
+        },
+      },
+      required: ["kind", "generation", "sealed", "revision"],
+      additionalProperties: false,
+    },
+    OrgVaultKeysAdd: {
+      description:
+        "A member's host holding the org's key at the current generation seals it for other members' hosts.",
+      type: "object",
+      properties: {
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        keys: {
+          type: "array",
+          items: { $ref: "#/$defs/OrgWrappedKey" },
+          minItems: 1,
+          maxItems: 500,
+        },
+      },
+      required: ["generation", "keys"],
+      additionalProperties: false,
+    },
+    OrgVaultRotate: {
+      description:
+        "An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once.",
+      type: "object",
+      properties: {
+        from: {
+          description: "The current generation.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        keys: {
+          description:
+            "The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgWrappedKey" },
+          minItems: 1,
+          maxItems: 500,
+        },
+        entries: {
+          description: "Every entry in the vault, each once.",
+          type: "array",
+          items: { $ref: "#/$defs/VaultEntryReseal" },
+          maxItems: 500,
+        },
+      },
+      required: ["from", "keys", "entries"],
+      additionalProperties: false,
+    },
+    OrgVaultState: {
+      type: "object",
+      properties: {
+        vault: {
+          description: "Null until an owner's or admin's host makes the vault.",
+          anyOf: [{ $ref: "#/$defs/OrgVault" }, { type: "null" }],
+        },
+      },
+      required: ["vault"],
+      additionalProperties: false,
+    },
+    OrgVaultWrapped: {
+      description: "The org's key sealed for one host, in URL-safe base64.",
+      type: "string",
+      pattern: "^[A-Za-z0-9_-]+$",
+      maxLength: 256,
+    },
+    OrgWrappedKey: {
+      description: "The org's key, sealed for one member's host.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        wrapped: { $ref: "#/$defs/OrgVaultWrapped" },
+      },
+      required: ["hostKey", "wrapped"],
+      additionalProperties: false,
+    },
     PaddleCheckout: {
       description:
         "Paddle.js opens its checkout with a client token, which Paddle makes public by design.",

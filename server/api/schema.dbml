@@ -620,6 +620,43 @@ Table org_shares {
   }
 }
 
+Table org_vaults {
+  org_id uuid [pk]
+  generation integer [not null, default: 1, note: 'generation >= 1']
+  created_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  rotated_at timestamptz
+}
+
+Table org_vault_keys {
+  org_id uuid [not null]
+  host_key text [not null, note: 'host_key ~ \'^[0-9a-f]{64}$\'']
+  generation integer [not null, note: 'generation >= 1']
+  wrapped text [not null, note: '(wrapped ~ \'^[A-Za-z0-9_-]+$\') AND (length(wrapped) <= 256)']
+  wrapped_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (org_id, host_key) [pk]
+  }
+}
+
+Table org_vault_entries {
+  id text [pk, note: 'id ~ \'^[0-9a-f]{32}$\'']
+  org_id uuid [not null]
+  kind text [not null, note: 'kind ~ \'^[a-z][a-z0-9-]{0,47}$\'']
+  generation integer [not null, note: 'generation >= 1']
+  sealed text [not null, note: '(sealed ~ \'^[A-Za-z0-9_-]+$\') AND (length(sealed) <= 87400)']
+  revision integer [not null, note: 'revision >= 1']
+  updated_by text [not null]
+  updated_at timestamptz [not null, default: `now()`]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    org_id [name: 'org_vault_entries_by_org']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -657,3 +694,6 @@ Ref: org_team_members.member_id > org_users.id [delete: cascade]
 Ref: org_team_members.team_id > org_teams.id [delete: cascade]
 Ref: org_domains.org_id > orgs.id [delete: cascade]
 Ref: org_shares.member_id > org_users.id [delete: cascade]
+Ref: org_vaults.org_id - orgs.id [delete: cascade]
+Ref: org_vault_keys.org_id > org_vaults.org_id [delete: cascade]
+Ref: org_vault_entries.org_id > org_vaults.org_id [delete: cascade]

@@ -1632,6 +1632,166 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/vault",
+      "operationId": "getOrgVault",
+      "summary": "An org's vault as this member's host sees it: its entries, the org's key sealed for this host, and the members' hosts still waiting for it",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The vault, or null when the org has none yet.",
+          "body": "OrgVaultState"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, or plans are not open to it yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/vault",
+      "operationId": "createOrgVault",
+      "summary": "Make the org's vault, as an owner's or admin's host, with its key sealed for this host",
+      "auth": "host",
+      "request": "OrgVaultCreate",
+      "responses": {
+        "201": {
+          "description": "The vault, at generation 1. Every member's host hears orgs.changed.",
+          "body": "OrgVaultState"
+        },
+        "403": {
+          "description": "The account is not the org's owner or admin, or the org's Team plan has lapsed.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, or plans are not open to it yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org already has a vault.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/vault/keys",
+      "operationId": "addOrgVaultKeys",
+      "summary": "Seal the org's key for other members' hosts, as a host holding it",
+      "auth": "host",
+      "request": "OrgVaultKeysAdd",
+      "responses": {
+        "200": {
+          "description": "The vault with the new holders. Every member's host hears orgs.changed.",
+          "body": "OrgVaultState"
+        },
+        "400": {
+          "description": "A key is for a device that is not a host of one of the org's members.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the key at that generation.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, or plans are not open to it yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/vault/rotate",
+      "operationId": "rotateOrgVault",
+      "summary": "Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one",
+      "auth": "host",
+      "request": "OrgVaultRotate",
+      "responses": {
+        "200": {
+          "description": "The vault at the next generation. Every member's host hears orgs.changed.",
+          "body": "OrgVaultState"
+        },
+        "400": {
+          "description": "A key is for a device that is not a host of one of the org's members, or leaves out this host.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "The account is not the org's owner or admin, or this host does not hold the key at that generation.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, or plans are not open to it yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/vault/entries/{id}",
+      "operationId": "putOrgVaultEntry",
+      "summary": "Add an entry to the org's vault, or replace one, as an owner's or admin's host",
+      "auth": "host",
+      "request": "OrgVaultEntryPut",
+      "responses": {
+        "200": {
+          "description": "The entry as it is now. Every member's host hears orgs.changed.",
+          "body": "OrgVaultEntry"
+        },
+        "403": {
+          "description": "The account is not the org's owner or admin, this host does not hold the key, or the org's Team plan has lapsed.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, or plans are not open to it yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/vault/entries/{id}",
+      "operationId": "deleteOrgVaultEntry",
+      "summary": "Take an entry out of the org's vault, as an owner's or admin's host",
+      "auth": "host",
+      "query": {
+        "revision": "VaultRevisionParam"
+      },
+      "responses": {
+        "204": {
+          "description": "Removed. Every member's host hears orgs.changed."
+        },
+        "400": {
+          "description": "The revision is missing.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "The account is not the org's owner or admin.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No entry with that id is in the org's vault, or your account is in no org with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The revision is not the entry's current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/mods/documents",
       "operationId": "pushModDocuments",

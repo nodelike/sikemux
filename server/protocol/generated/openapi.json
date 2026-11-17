@@ -3755,6 +3755,403 @@
         }
       }
     },
+    "/v1/orgs/{orgId}/vault": {
+      "get": {
+        "operationId": "getOrgVault",
+        "summary": "An org's vault as this member's host sees it: its entries, the org's key sealed for this host, and the members' hosts still waiting for it",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The vault, or null when the org has none yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgVaultState" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is in no org with that id, or plans are not open to it yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createOrgVault",
+        "summary": "Make the org's vault, as an owner's or admin's host, with its key sealed for this host",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgVaultCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The vault, at generation 1. Every member's host hears orgs.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgVaultState" }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is not the org's owner or admin, or the org's Team plan has lapsed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is in no org with that id, or plans are not open to it yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org already has a vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/vault/keys": {
+      "put": {
+        "operationId": "addOrgVaultKeys",
+        "summary": "Seal the org's key for other members' hosts, as a host holding it",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgVaultKeysAdd" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The vault with the new holders. Every member's host hears orgs.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgVaultState" }
+              }
+            }
+          },
+          "400": {
+            "description": "A key is for a device that is not a host of one of the org's members.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the key at that generation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is in no org with that id, or plans are not open to it yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/vault/rotate": {
+      "post": {
+        "operationId": "rotateOrgVault",
+        "summary": "Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgVaultRotate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The vault at the next generation. Every member's host hears orgs.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgVaultState" }
+              }
+            }
+          },
+          "400": {
+            "description": "A key is for a device that is not a host of one of the org's members, or leaves out this host.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is not the org's owner or admin, or this host does not hold the key at that generation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is in no org with that id, or plans are not open to it yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/vault/entries/{id}": {
+      "put": {
+        "operationId": "putOrgVaultEntry",
+        "summary": "Add an entry to the org's vault, or replace one, as an owner's or admin's host",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgVaultEntryPut" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The entry as it is now. Every member's host hears orgs.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgVaultEntry" }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is not the org's owner or admin, this host does not hold the key, or the org's Team plan has lapsed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is in no org with that id, or plans are not open to it yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteOrgVaultEntry",
+        "summary": "Take an entry out of the org's vault, as an owner's or admin's host",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/VaultRevisionParam" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed. Every member's host hears orgs.changed."
+          },
+          "400": {
+            "description": "The revision is missing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "The account is not the org's owner or admin.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry with that id is in the org's vault, or your account is in no org with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The revision is not the entry's current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/mods/documents": {
       "post": {
         "operationId": "pushModDocuments",
@@ -7107,6 +7504,177 @@
           "name": { "$ref": "#/components/schemas/OrgTeamName" }
         },
         "required": ["name"],
+        "additionalProperties": false
+      },
+      "OrgVault": {
+        "description": "An org's vault, as one of its members' hosts sees it.",
+        "type": "object",
+        "properties": {
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "key": {
+            "description": "The org's key sealed for the asking host at the current generation, or null when it has none yet.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/OrgVaultWrapped" },
+              { "type": "null" }
+            ]
+          },
+          "holders": {
+            "description": "The members' hosts holding the key at the current generation.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DeviceKey" }
+          },
+          "waiting": {
+            "description": "The members' hosts without the key at the current generation, for a holder to wrap it for.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DeviceKey" }
+          },
+          "rotate": {
+            "description": "A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.",
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgVaultEntry" }
+          }
+        },
+        "required": [
+          "generation",
+          "key",
+          "holders",
+          "waiting",
+          "rotate",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "OrgVaultCreate": {
+        "description": "An owner's or admin's host makes the org's vault, holding its key at generation 1.",
+        "type": "object",
+        "properties": {
+          "key": {
+            "description": "The org's key sealed for the asking host.",
+            "$ref": "#/components/schemas/OrgVaultWrapped"
+          }
+        },
+        "required": ["key"],
+        "additionalProperties": false
+      },
+      "OrgVaultEntry": {
+        "description": "One entry in an org's vault, sealed under the org's key of its generation.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/VaultEntryId" },
+          "kind": { "$ref": "#/components/schemas/OrgVaultEntryKind" },
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "updatedBy": { "$ref": "#/components/schemas/DeviceKey" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "id",
+          "kind",
+          "generation",
+          "sealed",
+          "revision",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "OrgVaultEntryKind": {
+        "description": "What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it.",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,47}$"
+      },
+      "OrgVaultEntryPut": {
+        "description": "An owner's or admin's host adds or replaces an entry.",
+        "type": "object",
+        "properties": {
+          "kind": { "$ref": "#/components/schemas/OrgVaultEntryKind" },
+          "generation": {
+            "description": "The generation of the key it is sealed under, which must be current.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": {
+            "description": "The entry's revision as the writer last saw it, or 0 to add it.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999999999
+          }
+        },
+        "required": ["kind", "generation", "sealed", "revision"],
+        "additionalProperties": false
+      },
+      "OrgVaultKeysAdd": {
+        "description": "A member's host holding the org's key at the current generation seals it for other members' hosts.",
+        "type": "object",
+        "properties": {
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "keys": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgWrappedKey" },
+            "minItems": 1,
+            "maxItems": 500
+          }
+        },
+        "required": ["generation", "keys"],
+        "additionalProperties": false
+      },
+      "OrgVaultRotate": {
+        "description": "An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once.",
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "The current generation.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "keys": {
+            "description": "The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgWrappedKey" },
+            "minItems": 1,
+            "maxItems": 500
+          },
+          "entries": {
+            "description": "Every entry in the vault, each once.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultEntryReseal" },
+            "maxItems": 500
+          }
+        },
+        "required": ["from", "keys", "entries"],
+        "additionalProperties": false
+      },
+      "OrgVaultState": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "description": "Null until an owner's or admin's host makes the vault.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/OrgVault" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["vault"],
+        "additionalProperties": false
+      },
+      "OrgVaultWrapped": {
+        "description": "The org's key sealed for one host, in URL-safe base64.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "maxLength": 256
+      },
+      "OrgWrappedKey": {
+        "description": "The org's key, sealed for one member's host.",
+        "type": "object",
+        "properties": {
+          "hostKey": { "$ref": "#/components/schemas/DeviceKey" },
+          "wrapped": { "$ref": "#/components/schemas/OrgVaultWrapped" }
+        },
+        "required": ["hostKey", "wrapped"],
         "additionalProperties": false
       },
       "PaddleCheckout": {

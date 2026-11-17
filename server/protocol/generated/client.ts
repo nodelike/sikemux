@@ -64,6 +64,12 @@ import type {
   OrgTeamCreate,
   OrgTeamList,
   OrgTeamRename,
+  OrgVaultCreate,
+  OrgVaultEntry,
+  OrgVaultEntryPut,
+  OrgVaultKeysAdd,
+  OrgVaultRotate,
+  OrgVaultState,
   PaddleCheckout,
   PeerTicket,
   PeerTicketRequest,
@@ -402,6 +408,47 @@ export function apiClient(send: Send) {
     /** Which agents on which hosts used the vault's entries in the last 30 days. */
     listVaultUses: (query: { entry?: VaultEntryId } = {}) =>
       send<VaultUses>("GET", `/v1/vault/uses${search(query)}`),
+    /** An org's vault as this member's host sees it: its entries, the org's key sealed for this host, and the members' hosts still waiting for it. */
+    getOrgVault: (orgId: string) =>
+      send<OrgVaultState>("GET", `/v1/orgs/${encodeURIComponent(orgId)}/vault`),
+    /** Make the org's vault, as an owner's or admin's host, with its key sealed for this host. */
+    createOrgVault: (orgId: string, body: OrgVaultCreate) =>
+      send<OrgVaultState>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault`,
+        body,
+      ),
+    /** Seal the org's key for other members' hosts, as a host holding it. */
+    addOrgVaultKeys: (orgId: string, body: OrgVaultKeysAdd) =>
+      send<OrgVaultState>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/keys`,
+        body,
+      ),
+    /** Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one. */
+    rotateOrgVault: (orgId: string, body: OrgVaultRotate) =>
+      send<OrgVaultState>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/rotate`,
+        body,
+      ),
+    /** Add an entry to the org's vault, or replace one, as an owner's or admin's host. */
+    putOrgVaultEntry: (orgId: string, id: string, body: OrgVaultEntryPut) =>
+      send<OrgVaultEntry>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/entries/${encodeURIComponent(id)}`,
+        body,
+      ),
+    /** Take an entry out of the org's vault, as an owner's or admin's host. */
+    deleteOrgVaultEntry: (
+      orgId: string,
+      id: string,
+      query: { revision?: VaultRevisionParam } = {},
+    ) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/entries/${encodeURIComponent(id)}${search(query)}`,
+      ),
     /** Store the mod documents this host changed, each only if its revision is still the server's. */
     pushModDocuments: (body: ModsPush) =>
       send<ModsPushed>("POST", `/v1/mods/documents`, body),

@@ -1255,6 +1255,80 @@ export interface OrgTeamRename {
   name: OrgTeamName;
 }
 
+/** An org's vault, as one of its members' hosts sees it. */
+export interface OrgVault {
+  generation: VaultGeneration;
+  /** The org's key sealed for the asking host at the current generation, or null when it has none yet. */
+  key: OrgVaultWrapped | null;
+  /** The members' hosts holding the key at the current generation. */
+  holders: DeviceKey[];
+  /** The members' hosts without the key at the current generation, for a holder to wrap it for. */
+  waiting: DeviceKey[];
+  /** A host that held the key is no longer a member's host, so an owner's or admin's host should replace it. */
+  rotate: boolean;
+  entries: OrgVaultEntry[];
+}
+
+/** An owner's or admin's host makes the org's vault, holding its key at generation 1. */
+export interface OrgVaultCreate {
+  /** The org's key sealed for the asking host. */
+  key: OrgVaultWrapped;
+}
+
+/** One entry in an org's vault, sealed under the org's key of its generation. */
+export interface OrgVaultEntry {
+  id: VaultEntryId;
+  kind: OrgVaultEntryKind;
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  revision: VaultRevision;
+  updatedBy: DeviceKey;
+  updatedAt: string;
+}
+
+/** What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it. */
+export type OrgVaultEntryKind = string;
+
+/** An owner's or admin's host adds or replaces an entry. */
+export interface OrgVaultEntryPut {
+  kind: OrgVaultEntryKind;
+  /** The generation of the key it is sealed under, which must be current. */
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  /** The entry's revision as the writer last saw it, or 0 to add it. */
+  revision: number;
+}
+
+/** A member's host holding the org's key at the current generation seals it for other members' hosts. */
+export interface OrgVaultKeysAdd {
+  generation: VaultGeneration;
+  keys: OrgWrappedKey[];
+}
+
+/** An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once. */
+export interface OrgVaultRotate {
+  /** The current generation. */
+  from: VaultGeneration;
+  /** The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped. */
+  keys: OrgWrappedKey[];
+  /** Every entry in the vault, each once. */
+  entries: VaultEntryReseal[];
+}
+
+export interface OrgVaultState {
+  /** Null until an owner's or admin's host makes the vault. */
+  vault: OrgVault | null;
+}
+
+/** The org's key sealed for one host, in URL-safe base64. */
+export type OrgVaultWrapped = string;
+
+/** The org's key, sealed for one member's host. */
+export interface OrgWrappedKey {
+  hostKey: DeviceKey;
+  wrapped: OrgVaultWrapped;
+}
+
 /** Paddle.js opens its checkout with a client token, which Paddle makes public by design. */
 export interface PaddleCheckout {
   clientToken: string;
@@ -2213,6 +2287,16 @@ export interface Definitions {
   OrgTeamList: OrgTeamList;
   OrgTeamName: OrgTeamName;
   OrgTeamRename: OrgTeamRename;
+  OrgVault: OrgVault;
+  OrgVaultCreate: OrgVaultCreate;
+  OrgVaultEntry: OrgVaultEntry;
+  OrgVaultEntryKind: OrgVaultEntryKind;
+  OrgVaultEntryPut: OrgVaultEntryPut;
+  OrgVaultKeysAdd: OrgVaultKeysAdd;
+  OrgVaultRotate: OrgVaultRotate;
+  OrgVaultState: OrgVaultState;
+  OrgVaultWrapped: OrgVaultWrapped;
+  OrgWrappedKey: OrgWrappedKey;
   PaddleCheckout: PaddleCheckout;
   PaddleEnvironment: PaddleEnvironment;
   PaymentCard: PaymentCard;

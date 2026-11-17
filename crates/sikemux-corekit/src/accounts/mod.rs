@@ -1,9 +1,10 @@
 //! What the core shares with the accounts server at api.sikemux.com. The types
-//! in [`protocol`], [`share`], [`host`], [`hooks`] and [`vault`] are generated from `server/protocol/schema`.
+//! in [`protocol`], [`share`], [`host`], [`hooks`], [`vault`] and [`orgvault`] are generated from `server/protocol/schema`.
 
 pub mod hooks;
 pub mod host;
 pub mod live;
+pub mod orgvault;
 pub mod share;
 pub mod socket;
 pub mod vault;
@@ -171,6 +172,7 @@ mod tests {
                     .or_else(|| super::host::round_trip(&name, &json))
                     .or_else(|| super::hooks::round_trip(&name, &json))
                     .or_else(|| super::vault::round_trip(&name, &json))
+                    .or_else(|| super::orgvault::round_trip(&name, &json))
                     .ok_or_else(|| format!("{name} has fixtures but no Rust type"))?
                     .map_err(|error| format!("{}: {error}", path.display()))?;
                 let read: serde_json::Value = serde_json::from_str(&json)?;

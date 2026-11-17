@@ -1,0 +1,16 @@
+{
+  "from": 2,
+  "keys": [
+    {
+      "hostKey": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "wrapped": "bmV4dC1rZXk"
+    }
+  ],
+  "entries": [
+    {
+      "id": "0123456789abcdef0123456789abcdef",
+      "sealed": "cmVzZWFsZWQ",
+      "revision": 3
+    }
+  ]
+}

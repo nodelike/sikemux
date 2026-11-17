@@ -1,0 +1,338 @@
+import type {
+  OrgVaultCreate,
+  OrgVaultEntry,
+  OrgVaultEntryPut,
+  OrgVaultKeysAdd,
+  OrgVaultRotate,
+  OrgWrappedKey,
+} from "@sikemux/protocol";
+import { sql, type Transaction } from "kysely";
+
+import { audit, type AuditAction } from "../audit.ts";
+import type { Tables } from "../db.ts";
+import { appendEvents } from "../events/log.ts";
+import { ApiFailure, badRequest, forbidden, notFound } from "../http.ts";
+import { ENTRY_COLUMNS, memberHosts, toEntry } from "./state.ts";
+
+const MAX_ENTRIES = 500;
+
+export interface Asker {
+  orgId: string;
+  userId: string;
+  hostKey: string;
+}
+
+function conflict(message: string): ApiFailure {
+  return new ApiFailure(409, "conflict", message);
+}
+
+/** The org's vault, locked until the transaction ends so its changes happen one at a time. */
+async function lockedVault(trx: Transaction<Tables>, orgId: string) {
+  const vault = await trx
+    .selectFrom("org_vaults")
+    .select("generation")
+    .where("org_id", "=", orgId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!vault) throw notFound("The org has no vault yet.");
+  return vault;
+}
+
+function atCurrent(current: number, generation: number) {
+  if (generation !== current)
+    throw conflict(
+      `The org's key is at generation ${current}, not ${generation}.`,
+    );
+}
+
+async function requireHolder(
+  trx: Transaction<Tables>,
+  { orgId, hostKey }: Asker,
+  generation: number,
+) {
+  const held = await trx
+    .selectFrom("org_vault_keys")
+    .select("host_key")
+    .where("org_id", "=", orgId)
+    .where("host_key", "=", hostKey)
+    .where("generation", "=", generation)
+    .executeTakeFirst();
+  if (!held)
+    throw forbidden(
+      `This host does not hold the org's key at generation ${generation}.`,
+    );
+}
+
+/** Refuses keys for anything but the members' hosts, or two for one host. */
+async function requireMemberHosts(
+  trx: Transaction<Tables>,
+  orgId: string,
+  keys: OrgWrappedKey[],
+) {
+  const wanted = new Set(keys.map((key) => key.hostKey));
+  if (wanted.size !== keys.length)
+    throw badRequest("Each host gets the key once.");
+  const hosts = await memberHosts(trx, orgId)
+    .where("devices.key", "in", [...wanted])
+    .execute();
+  if (hosts.length !== wanted.size)
+    throw badRequest("A key is for a device that is not a member's host.");
+}
+
+function wrapRows(
+  { orgId, hostKey }: Asker,
+  generation: number,
+  keys: OrgWrappedKey[],
+) {
+  return keys.map((key) => ({
+    org_id: orgId,
+    host_key: key.hostKey,
+    generation,
+    wrapped: key.wrapped,
+    wrapped_by: hostKey,
+  }));
+}
+
+/** Tells every member's hosts to read the org's vault again. */
+export async function vaultChanged(trx: Transaction<Tables>, orgId: string) {
+  const members = await trx
+    .selectFrom("org_users")
+    .select("user_id")
+    .where("org_id", "=", orgId)
+    .execute();
+  await appendEvents(
+    trx,
+    members.map(({ user_id }) => ({ userId: user_id, type: "orgs.changed" })),
+  );
+}
+
+function auditOrg(
+  trx: Transaction<Tables>,
+  { orgId, userId, hostKey }: Asker,
+  action: AuditAction,
+  detail: Record<string, unknown>,
+  subject = orgId,
+) {
+  return audit(trx, {
+    userId,
+    actor: `device:${hostKey}`,
+    action,
+    subject,
+    detail: { org: orgId, ...detail },
+  });
+}
+
+export async function createOrgVault(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  { key }: OrgVaultCreate,
+): Promise<void> {
+  const made = await trx
+    .insertInto("org_vaults")
+    .values({ org_id: asker.orgId, created_by: asker.hostKey })
+    .onConflict((oc) => oc.column("org_id").doNothing())
+    .returning("org_id")
+    .executeTakeFirst();
+  if (!made) throw conflict("The org already has a vault.");
+  await trx
+    .insertInto("org_vault_keys")
+    .values(wrapRows(asker, 1, [{ hostKey: asker.hostKey, wrapped: key }]))
+    .execute();
+  await vaultChanged(trx, asker.orgId);
+  await auditOrg(trx, asker, "org_vault.created", {});
+}
+
+/** A member's host holding the key seals it for other members' hosts. */
+export async function addOrgKeys(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  { generation, keys }: OrgVaultKeysAdd,
+): Promise<void> {
+  atCurrent((await lockedVault(trx, asker.orgId)).generation, generation);
+  await requireHolder(trx, asker, generation);
+  await requireMemberHosts(trx, asker.orgId, keys);
+  await trx
+    .insertInto("org_vault_keys")
+    .values(wrapRows(asker, generation, keys))
+    .onConflict((oc) =>
+      oc.columns(["org_id", "host_key"]).doUpdateSet((eb) => ({
+        generation: eb.ref("excluded.generation"),
+        wrapped: eb.ref("excluded.wrapped"),
+        wrapped_by: eb.ref("excluded.wrapped_by"),
+        created_at: sql<Date>`now()`,
+      })),
+    )
+    .execute();
+  await vaultChanged(trx, asker.orgId);
+  for (const key of keys)
+    await auditOrg(
+      trx,
+      asker,
+      "org_vault.key_added",
+      { generation },
+      key.hostKey,
+    );
+}
+
+/** Every wrap is replaced by the new key's, so a host that left keeps only a key nothing is sealed under. */
+export async function rotateOrgVault(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  { from, keys, entries }: OrgVaultRotate,
+): Promise<void> {
+  const { orgId, hostKey } = asker;
+  if (!keys.some((key) => key.hostKey === hostKey))
+    throw badRequest("The new key is sealed for this host too.");
+  atCurrent((await lockedVault(trx, orgId)).generation, from);
+  await requireHolder(trx, asker, from);
+  await requireMemberHosts(trx, orgId, keys);
+  const current = await trx
+    .selectFrom("org_vault_entries")
+    .select(["id", "revision"])
+    .where("org_id", "=", orgId)
+    .execute();
+  const revisions = new Map(current.map((row) => [row.id, row.revision]));
+  const named = new Set(entries.map((entry) => entry.id));
+  if (
+    named.size !== entries.length ||
+    entries.length !== current.length ||
+    entries.some((entry) => revisions.get(entry.id) !== entry.revision)
+  )
+    throw conflict(
+      "The entries are not every entry in the vault at its current revision.",
+    );
+  const next = from + 1;
+  await trx
+    .updateTable("org_vaults")
+    .set({ generation: next, rotated_at: sql<Date>`now()` })
+    .where("org_id", "=", orgId)
+    .execute();
+  await trx.deleteFrom("org_vault_keys").where("org_id", "=", orgId).execute();
+  await trx
+    .insertInto("org_vault_keys")
+    .values(wrapRows(asker, next, keys))
+    .execute();
+  if (entries.length)
+    await sql`
+      update org_vault_entries
+      set sealed = resealed.sealed, generation = ${next}, revision = revision + 1,
+        updated_by = ${hostKey}, updated_at = now()
+      from unnest(${entries.map((entry) => entry.id)}::text[], ${entries.map((entry) => entry.sealed)}::text[])
+        as resealed (id, sealed)
+      where org_vault_entries.id = resealed.id and org_vault_entries.org_id = ${orgId}`.execute(
+      trx,
+    );
+  await vaultChanged(trx, orgId);
+  await auditOrg(trx, asker, "org_vault.rotated", {
+    generation: next,
+    hosts: keys.length,
+    entries: entries.length,
+  });
+}
+
+export async function putOrgEntry(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  id: string,
+  { kind, generation, sealed, revision }: OrgVaultEntryPut,
+): Promise<OrgVaultEntry> {
+  const { orgId, hostKey } = asker;
+  atCurrent((await lockedVault(trx, orgId)).generation, generation);
+  await requireHolder(trx, asker, generation);
+  const existing = await trx
+    .selectFrom("org_vault_entries")
+    .select(["org_id", "revision"])
+    .where("id", "=", id)
+    .executeTakeFirst();
+  if (existing && existing.org_id !== orgId)
+    throw conflict("That entry id is taken.");
+  if ((existing?.revision ?? 0) !== revision)
+    throw conflict(
+      existing
+        ? `The entry is at revision ${existing.revision}, not ${revision}.`
+        : "The vault has no such entry; add it at revision 0.",
+    );
+  let row;
+  if (existing) {
+    row = await trx
+      .updateTable("org_vault_entries")
+      .set({
+        kind,
+        generation,
+        sealed,
+        revision: revision + 1,
+        updated_by: hostKey,
+        updated_at: sql<Date>`now()`,
+      })
+      .where("id", "=", id)
+      .returning(ENTRY_COLUMNS)
+      .executeTakeFirstOrThrow();
+  } else {
+    const held = await trx
+      .selectFrom("org_vault_entries")
+      .select((eb) => eb.fn.countAll<string>().as("count"))
+      .where("org_id", "=", orgId)
+      .executeTakeFirstOrThrow();
+    if (Number(held.count) >= MAX_ENTRIES)
+      throw conflict(`An org's vault holds at most ${MAX_ENTRIES} entries.`);
+    row = await trx
+      .insertInto("org_vault_entries")
+      .values({
+        id,
+        org_id: orgId,
+        kind,
+        generation,
+        sealed,
+        revision: 1,
+        updated_by: hostKey,
+      })
+      .returning(ENTRY_COLUMNS)
+      .executeTakeFirstOrThrow();
+  }
+  await vaultChanged(trx, orgId);
+  await auditOrg(
+    trx,
+    asker,
+    "org_vault.entry_written",
+    { kind, generation, revision: row.revision },
+    id,
+  );
+  return toEntry(row);
+}
+
+export async function removeOrgEntry(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  id: string,
+  revision: number,
+): Promise<void> {
+  const { orgId } = asker;
+  await lockedVault(trx, orgId);
+  const removed = await trx
+    .deleteFrom("org_vault_entries")
+    .where("id", "=", id)
+    .where("org_id", "=", orgId)
+    .where("revision", "=", revision)
+    .returning("kind")
+    .executeTakeFirst();
+  if (!removed) {
+    const existing = await trx
+      .selectFrom("org_vault_entries")
+      .select("revision")
+      .where("id", "=", id)
+      .where("org_id", "=", orgId)
+      .executeTakeFirst();
+    if (!existing) throw notFound("No entry with that id is in the vault.");
+    throw conflict(
+      `The entry is at revision ${existing.revision}, not ${revision}.`,
+    );
+  }
+  await vaultChanged(trx, orgId);
+  await auditOrg(
+    trx,
+    asker,
+    "org_vault.entry_removed",
+    { kind: removed.kind, revision },
+    id,
+  );
+}

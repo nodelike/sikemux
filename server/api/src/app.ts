@@ -29,6 +29,7 @@ import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import { membershipRoutes } from "./orgs/host.ts";
 import { orgRoutes } from "./orgs/routes.ts";
+import { orgVaultRoutes } from "./orgvault/routes.ts";
 import { shareRoutes } from "./orgs/shares.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
@@ -114,6 +115,7 @@ export function createApp(services: Services) {
   app.route("/v1/stash", stashRoutes(services));
   // A vault rotation carries every entry sealed again, so the vault limits its own bodies too.
   app.route("/v1/vault", vaultRoutes(services));
+  app.route("/v1/orgs/:orgId/vault", orgVaultRoutes(services));
   // A push carries many sealed documents and a mod's files are uploaded, so mods limit their own bodies too.
   app.route("/v1/mods", modRoutes(services));
   app.use(limitBody());

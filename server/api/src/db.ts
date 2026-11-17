@@ -246,6 +246,32 @@ export interface Tables {
     updated_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;
   };
+  org_vaults: {
+    org_id: string;
+    generation: ColumnType<number, never, number>;
+    created_by: string;
+    created_at: CreatedAt;
+    rotated_at: ColumnType<Date | null, never, Date>;
+  };
+  org_vault_keys: {
+    org_id: string;
+    host_key: string;
+    generation: number;
+    wrapped: string;
+    wrapped_by: string;
+    created_at: ColumnType<Date, never, Date>;
+  };
+  org_vault_entries: {
+    id: string;
+    org_id: string;
+    kind: string;
+    generation: number;
+    sealed: string;
+    revision: number;
+    updated_by: string;
+    updated_at: ColumnType<Date, never, Date>;
+    created_at: CreatedAt;
+  };
   vault_uses: {
     id: Generated<string>;
     user_id: string;
