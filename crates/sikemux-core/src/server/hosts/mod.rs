@@ -391,6 +391,19 @@ pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
     }
 }
 
+/// The linked host `wanted` names, to move work to or from it, which the account's plan must allow.
+/// The host that asks checks, so nothing has moved yet when it refuses.
+pub(crate) fn find_to_move_work(core: &Core, wanted: &str) -> Result<StoredLink, String> {
+    let account = core.account().shown();
+    if !crate::accounts::allows(
+        account.as_ref(),
+        crate::accounts::protocol::PlanFeature::MoveWork,
+    ) {
+        return Err("Moving work between hosts is part of Pro, and this account doesn't have it; the work can run on this host instead".into());
+    }
+    find(core, wanted)
+}
+
 pub(crate) fn name_of(core: &Core, id: &str) -> String {
     core.remote()
         .link(id)

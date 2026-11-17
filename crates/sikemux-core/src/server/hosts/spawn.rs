@@ -34,7 +34,7 @@ use super::code::{self, Checked, Code, Packed};
 use super::link::{Received, Refusal};
 use super::route::pin;
 use super::team::{Foreign, Role, Tree};
-use super::{call, find, name_of, post, Failed, Sending, Stands};
+use super::{call, find_to_move_work, name_of, post, Failed, Sending, Stands};
 
 /// Under the minute an agent's tool call may take.
 pub(super) const SPAWN_WAIT: Duration = Duration::from_secs(50);
@@ -72,7 +72,7 @@ pub(crate) async fn spawn(
             "a worker on another host runs on that host's own sign-ins; leave out provider".into(),
         );
     }
-    let link = find(core, host)?;
+    let link = find_to_move_work(core, host)?;
     let model = text(params, "model").map(str::to_owned);
     let effort = text(params, "effort").map(str::to_owned);
     let reports = !matches!(params.get("report"), Some(Value::Bool(false)));

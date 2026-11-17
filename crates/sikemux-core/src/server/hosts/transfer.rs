@@ -28,7 +28,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::open::{self, OpenAs};
-use super::{ask, call, call_id, find, receipt, Failed, Stands, ASK_WAIT};
+use super::{ask, call, call_id, find_to_move_work, receipt, Failed, Stands, ASK_WAIT};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
@@ -70,7 +70,7 @@ pub(super) struct Take {
 /// Sends the project's session to the linked host `host`, answering what went, what stayed and
 /// where it now is.
 pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreResult<SessionSent> {
-    let link = find(core, &params.host)?;
+    let link = find_to_move_work(core, &params.host)?;
     let project = core
         .workspaces()
         .project_info(&params.project)
