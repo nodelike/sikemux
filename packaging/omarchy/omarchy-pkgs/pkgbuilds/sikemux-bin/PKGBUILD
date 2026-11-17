@@ -3,7 +3,7 @@
 pkgname=sikemux-bin
 pkgver=0.6.1
 pkgrel=1
-pkgdesc='The IDE for you and your coding agents'
+pkgdesc='A whole team of AI coders, in one window'
 arch=('x86_64' 'aarch64')
 url='https://sikemux.com'
 license=('MIT')
