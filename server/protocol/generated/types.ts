@@ -990,7 +990,7 @@ export const orgAuditActionValues: readonly OrgAuditAction[] = [
 /** Where the next page of the audit log starts. Opaque to apps. */
 export type OrgAuditCursor = string;
 
-/** One thing that happened in the org. It names people only by their sign-in's name; never an email or a host. */
+/** One thing that happened in the org. It names people only by their sign-in's name and computers by what their member calls them; never an email or a host's key. */
 export interface OrgAuditEntry {
   id: string;
   at: string;
@@ -1018,6 +1018,8 @@ export interface OrgAuditEntry {
   dailyQuestions?: OrgDailyQuestions;
   /** What a vault entry written or removed is, such as model-key. */
   entryKind?: string;
+  /** What its member calls the computer given the vault's key, at the time. */
+  computer?: string;
   /** The seat count a change set. */
   seats?: number;
   /** True when a seat change waits for the plan's renewal. */
@@ -1311,7 +1313,7 @@ export interface OrgVaultEntryPut {
   revision: number;
 }
 
-/** A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one. */
+/** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. */
 export interface OrgVaultKeysAdd {
   generation: VaultGeneration;
   keys: OrgWrappedKey[];

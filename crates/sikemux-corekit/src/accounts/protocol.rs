@@ -931,7 +931,7 @@ pub enum OrgAuditAction {
 /// Where the next page of the audit log starts. Opaque to apps.
 pub type OrgAuditCursor = String;
 
-/// One thing that happened in the org. It names people only by their sign-in's name; never an email or a host.
+/// One thing that happened in the org. It names people only by their sign-in's name and computers by what their member calls them; never an email or a host's key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgAuditEntry {
@@ -973,6 +973,9 @@ pub struct OrgAuditEntry {
     /// What a vault entry written or removed is, such as model-key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entry_kind: Option<String>,
+    /// What its member calls the computer given the vault's key, at the time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer: Option<String>,
     /// The seat count a change set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats: Option<i64>,

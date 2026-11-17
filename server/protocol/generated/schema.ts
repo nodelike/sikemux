@@ -1737,7 +1737,7 @@ export const schema = {
     },
     OrgAuditEntry: {
       description:
-        "One thing that happened in the org. It names people only by their sign-in's name; never an email or a host.",
+        "One thing that happened in the org. It names people only by their sign-in's name and computers by what their member calls them; never an email or a host's key.",
       type: "object",
       properties: {
         id: { type: "string", pattern: "^[0-9]{1,19}$" },
@@ -1789,6 +1789,12 @@ export const schema = {
           description:
             "What a vault entry written or removed is, such as model-key.",
           type: "string",
+        },
+        computer: {
+          description:
+            "What its member calls the computer given the vault's key, at the time.",
+          type: "string",
+          maxLength: 64,
         },
         seats: {
           description: "The seat count a change set.",
@@ -2333,7 +2339,7 @@ export const schema = {
     },
     OrgVaultKeysAdd: {
       description:
-        "A member's host holding the org's key at the current generation seals it for other members' hosts. A host that already has the key sealed for it keeps that one.",
+        "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.",
       type: "object",
       properties: {
         generation: { $ref: "#/$defs/VaultGeneration" },

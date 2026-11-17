@@ -76,13 +76,20 @@ const doerOf = (row: Selectable<Tables["audit"]>) =>
       ? row.user_id
       : null;
 
+/** Who it happened to: the member whose computer was given the vault's key, or the row's person. */
+const subjectOf = (row: Selectable<Tables["audit"]>) =>
+  row.action === "org_vault.key_added"
+    ? (text((row.detail as Record<string, unknown>).member) ?? null)
+    : row.user_id;
+
 function entryBody(
   row: Selectable<Tables["audit"]>,
   named: Map<string, Person>,
 ): OrgAuditEntry {
   const detail = row.detail as Record<string, unknown>;
   const by = doerOf(row);
-  const about = row.user_id !== by ? row.user_id : null;
+  const subject = subjectOf(row);
+  const about = subject !== by ? subject : null;
   const action = SHOWN[row.action] ?? PLAN[row.action];
   if (!action) throw new Error(`The org's log read a ${row.action} row`);
   const fields = {
@@ -95,6 +102,7 @@ function entryBody(
     entryKind: row.action.startsWith("org_vault.entry_")
       ? text(detail.kind)
       : undefined,
+    computer: action === "vault_host_added" ? text(detail.computer) : undefined,
     joining: joining(detail.joining),
     ruleAdding: ruleAdding(detail.ruleAdding),
     asking: typeof detail.asking === "boolean" ? detail.asking : undefined,
@@ -177,7 +185,9 @@ export function auditRoutes(
     const named = await people(c, [
       ...new Set(
         page.flatMap((row) =>
-          [doerOf(row), row.user_id].filter((id): id is string => id !== null),
+          [doerOf(row), subjectOf(row)].filter(
+            (id): id is string => id !== null,
+          ),
         ),
       ),
     ]);
