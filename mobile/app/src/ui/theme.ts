@@ -31,6 +31,7 @@ export const defaultPalette = {
   warn: '#ffca85',
   danger: '#ff6767',
   cmd: '#ff6ac1',
+  host: '#9d7ceb',
   treeSpine: '#5f4a8a',
   treeTick: 'rgba(162, 119, 255, 0.72)',
   gitAdded: '#81b88b',
@@ -71,6 +72,7 @@ export type Palette = Pick<
   | 'warn'
   | 'danger'
   | 'cmd'
+  | 'host'
   | 'treeSpine'
   | 'treeTick'
   | 'gitAdded'

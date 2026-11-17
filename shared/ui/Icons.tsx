@@ -674,15 +674,6 @@ export const IconServer = makeSvgIcon(
         <path d="M6 18L6.01 18" />
     </>,
 );
-export const IconRemoteHost = makeSvgIcon(
-    <>
-        <rect x="2" y="12" width="20" height="5" rx="1.5" />
-        <rect x="2" y="19" width="20" height="3.5" rx="1.25" />
-        <path d="M6 14.5h.01" />
-        <path d="M5 8.5a7.5 7.5 0 0 1 13.5-3" />
-        <path d="M19.5 1.5l-.8 4.3-4.2-.9" />
-    </>,
-);
 export const IconTerminal = makeSvgIcon(
     <>
         <path d="m7 11 2-2-2-2" />
