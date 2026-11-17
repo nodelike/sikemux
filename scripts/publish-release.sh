@@ -85,9 +85,16 @@ PY
 
 RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
 # The staff feed takes a nightly unless it serves a newer build, or a stable candidate that
-# has not shipped yet: staff machines keep running the candidate the owner is asked about.
+# has not shipped yet or is still building: staff machines must update to the candidate, and
+# never would from a nightly of the release after it.
 staff_feed_takes() {
-  local serving
+  local serving building
+  building="$(gh run list --workflow release.yml --event push --limit 5 --json status,displayTitle \
+    --jq '[.[] | select(.status != "completed") | .displayTitle] | first // empty')"
+  if [[ -n "$building" ]]; then
+    echo "  the staff feed waits for the candidate: $building is still running"
+    return 1
+  fi
   serving="$(gh release download staff -p latest.json -O - 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null)" || return 0
   if [[ "$serving" != *-* ]] &&
     [[ "$(gh release view "v$serving" --json isPrerelease,name --jq '.isPrerelease and (.name | endswith("(pulled)") | not)')" == true ]]; then
