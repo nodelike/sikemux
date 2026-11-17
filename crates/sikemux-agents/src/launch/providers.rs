@@ -229,6 +229,15 @@ pub struct ProviderOrg {
     pub name: String,
 }
 
+impl ProviderOrg {
+    /// The catalogue provider an org's `route` runs on.
+    pub fn provider_in<'a>(&self, route: &'a str) -> &'a str {
+        route
+            .strip_prefix(&format!("org-{}-", self.id))
+            .unwrap_or(route)
+    }
+}
+
 /// A catalogue provider's key an org's vault holds for its members.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrgKey {

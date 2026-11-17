@@ -25,6 +25,7 @@ use crate::theme::{
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::workbench::Workbench;
+use sikemux_agents::launch::providers::ProviderOrg;
 use sikemux_calls::call;
 use sikemux_calls::model_providers::{ModelRoute, RoutesParams};
 
@@ -120,6 +121,15 @@ pub struct Unread {
 }
 
 type Route = ModelRoute;
+
+/// The mark of the provider a route runs on, an org's own key included.
+fn route_mark(route: &Route) -> Icon {
+    let provider = route
+        .org
+        .as_ref()
+        .map_or(route.id.as_str(), |org| org.provider_in(&route.id));
+    icons::model_provider(provider)
+}
 
 trait Named {
     /// `model` as the agent names it once a chat runs on this provider.
@@ -294,7 +304,7 @@ impl Menu {
     /// The group headings and every row under them, matched to the search: the agent's own
     /// models under its maker, then those of each connected provider it runs, then the row that
     /// adds one.
-    fn options(&self, cx: &App) -> (Vec<String>, Vec<Row>) {
+    fn options(&self, cx: &App) -> (Vec<(String, Option<ProviderOrg>)>, Vec<Row>) {
         let Some(bench) = self.bench.upgrade() else {
             return (Vec::new(), Vec::new());
         };
@@ -324,13 +334,13 @@ impl Menu {
             .kind(own)
             .and_then(|kind| kind.maker.clone());
         let own_mark = match (paying, &maker) {
-            (Some(route), _) => icons::model_provider(&route.id),
+            (Some(route), _) => route_mark(route),
             (None, Some(maker)) => icons::model_provider(maker),
             (None, None) => icons::agent(own),
         };
         let paying = paying.map(|route| route.label.clone());
         let maker = maker.unwrap_or_else(|| bench.agent_name(own).to_owned());
-        let mut groups = vec![paying.unwrap_or(maker)];
+        let mut groups = vec![(paying.unwrap_or(maker), None)];
         let mut options: Vec<Row> = Vec::new();
         let query = self.query.read(cx).value().trim().to_lowercase();
         let unfolded = self.older || !query.is_empty();
@@ -425,10 +435,11 @@ impl Menu {
         if !self.picked.locked {
             for route in &self.routes {
                 let here = self.picked.model_provider.as_deref() == Some(route.id.as_str());
-                groups.push(match route.local && !route.label.starts_with("Local") {
+                let heading = match route.local && !route.label.starts_with("Local") {
                     true => t!("{route} · local", route = route.label),
                     false => route.label.clone(),
-                });
+                };
+                groups.push((heading, route.org.clone()));
                 let group = groups.len() - 1;
                 options.extend(route.models.iter().map(|model| {
                     let chosen = here && route.named(model, &current);
@@ -451,7 +462,7 @@ impl Menu {
                     let meta = facts(route, model);
                     Row {
                         group,
-                        mark: Some(icons::model_provider(&route.id)),
+                        mark: Some(route_mark(route)),
                         label: model.clone(),
                         meta: (!meta.is_empty()).then(|| meta.join(" · ")),
                         current: chosen,
@@ -459,7 +470,7 @@ impl Menu {
                     }
                 }));
             }
-            groups.push(String::new());
+            groups.push((String::new(), None));
             options.push(Row {
                 group: groups.len() - 1,
                 mark: None,
@@ -479,7 +490,7 @@ impl Menu {
                 option.meta.as_deref().unwrap_or_default(),
                 groups
                     .get(option.group)
-                    .map(String::as_str)
+                    .map(|(heading, _)| heading.as_str())
                     .unwrap_or_default()
             )
             .to_lowercase()
@@ -1097,7 +1108,7 @@ impl Render for Menu {
         let speed = self.speed(&t);
         let mut list: Vec<AnyElement> = Vec::new();
         let mut chosen_at = None;
-        for (group, heading) in groups.iter().enumerate() {
+        for (group, (heading, org)) in groups.iter().enumerate() {
             let rows: Vec<(usize, Row)> = options
                 .iter()
                 .cloned()
@@ -1110,7 +1121,15 @@ impl Render for Menu {
             }
             if !heading.is_empty() {
                 list.push(
-                    ui::caps(heading, cx)
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_1H)
+                        .children(
+                            org.as_ref()
+                                .map(|org| ui::initials(&org.name, &org.id, 14., cx)),
+                        )
+                        .child(ui::caps(heading, cx))
                         .flex_none()
                         .px(SPACE_2H)
                         .pt(px(if list.is_empty() { 6. } else { 10. }))

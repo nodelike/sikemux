@@ -65,12 +65,13 @@ pub fn section_with(
 ) -> AnyElement {
     let t = Tokens::get(cx);
     let title: SharedString = title.into();
-    if let Some(drawn) = cx.try_global::<Drawn>() {
+    if let Some(drawn) = cx.try_global::<Drawn>().filter(|_| !title.is_empty()) {
         drawn.0.borrow_mut().push(title.clone());
     }
-    let named = cx
-        .try_global::<Shown>()
-        .is_none_or(|shown| shown.0 != title.as_ref());
+    let named = !title.is_empty()
+        && cx
+            .try_global::<Shown>()
+            .is_none_or(|shown| shown.0 != title.as_ref());
     let headed = named || meta.is_some() || action.is_some() || sub.is_some();
     let heading = div()
         .flex()

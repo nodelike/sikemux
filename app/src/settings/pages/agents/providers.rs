@@ -21,6 +21,9 @@ use sikemux_calls::model_providers::HelperParams;
 use sikemux_calls::model_providers::ModelProvider;
 use sikemux_calls::model_providers::ProviderParams;
 use sikemux_calls::params::NoParams;
+use sikemux_calls::vault::{
+    OrgEntryParams, OrgModelKeyAdd, OrgVaultStatus, ShownOrgModelKey, ShownOrgVault,
+};
 use sikemux_calls::Call;
 
 use crate::core;
@@ -57,6 +60,9 @@ pub(in crate::settings) const MODELS: &[crate::settings::index::Entry] = &[
 
 pub struct Fields {
     providers: Vec<ModelProvider>,
+    orgs: Vec<ShownOrgVault>,
+    /// The org a key is being added for, while its provider and key are being chosen.
+    org_adding: Option<OrgAdding>,
     helper: Option<Helper>,
     /// The provider whose key is being typed into `key`.
     editing: Option<String>,
@@ -68,6 +74,15 @@ pub struct Fields {
     /// The helper's agent and who pays for it, made again whenever the helper changes.
     helper_choices: Option<(Option<Helper>, Choice, Option<Choice>)>,
     _entering: Vec<Subscription>,
+}
+
+struct OrgAdding {
+    org: String,
+    kind: Kind,
+    /// The providers offered, in the order `choice` lists them.
+    offered: Vec<String>,
+    picked: usize,
+    choice: Choice,
 }
 
 impl Fields {
@@ -82,7 +97,10 @@ impl Fields {
             super::super::follow_typing(bench, &key, cx),
             cx.subscribe(&key, |bench, _, event: &InputEvent, cx| {
                 if let InputEvent::PressEnter { .. } = event {
-                    connect(bench, cx)
+                    match fields(bench, cx).is_some_and(|fields| fields.org_adding.is_some()) {
+                        true => add_org_key(bench, cx),
+                        false => connect(bench, cx),
+                    }
                 }
             }),
             cx.subscribe(&helper_model, |bench, model, event: &InputEvent, cx| {
@@ -94,6 +112,8 @@ impl Fields {
         ];
         Self {
             providers: Vec::new(),
+            orgs: Vec::new(),
+            org_adding: None,
             helper: None,
             editing: None,
             key,
@@ -129,9 +149,11 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
             .request_typed::<call::ModelProviders>(NoParams {})
             .await;
         let helper = here.request_typed::<call::ModelHelper>(NoParams {}).await;
+        let orgs = here.request_typed::<call::OrgVaults>(NoParams {}).await;
         let _ = bench.update(cx, |bench, cx| {
             change_fields(bench, cx, |fields, _| {
                 fields.providers = providers.unwrap_or_default();
+                fields.orgs = orgs.unwrap_or_default();
                 fields.helper = helper.ok().flatten();
                 fields.checking = false;
                 fields.helper_choices = None;
@@ -162,7 +184,10 @@ fn change<C: Call + 'static>(
             change_fields(bench, cx, |fields, _| {
                 fields.busy = None;
                 match answer {
-                    Ok(_) => fields.editing = None,
+                    Ok(_) => {
+                        fields.editing = None;
+                        fields.org_adding = None;
+                    }
                     Err(message) => fields.failure = Some((id, message)),
                 }
             });
@@ -190,6 +215,7 @@ fn edit(
 ) {
     change_fields(bench, cx, |fields, cx| {
         fields.editing = id;
+        fields.org_adding = None;
         fields.failure = None;
         fields.key.update(cx, |key, cx| {
             key.set_value("", window, cx);
@@ -622,6 +648,290 @@ fn local_row(
     row(label, Some(about), controls, &t)
 }
 
+/// The kind of page a catalogue provider's keys live on.
+fn kind_of(fields: &Fields, provider: &str) -> Option<Kind> {
+    (fields.providers.iter())
+        .find(|own| own.id == provider && own.org.is_none())
+        .map(|own| own.kind)
+}
+
+fn start_org_add(
+    bench: &mut Workbench,
+    org: String,
+    kind: Kind,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let Some(fields) = fields(bench, cx) else {
+        return;
+    };
+    let held: Vec<&str> = (fields.orgs.iter())
+        .filter(|vault| vault.org == org)
+        .flat_map(|vault| vault.model_keys.iter().map(|key| key.provider.as_str()))
+        .collect();
+    let offered: Vec<(String, String)> = (fields.providers.iter())
+        .filter(|provider| provider.kind == kind && provider.org.is_none() && !provider.custom)
+        .filter(|provider| !held.contains(&provider.id.as_str()))
+        .map(|provider| (provider.id.clone(), provider.label.clone()))
+        .collect();
+    let choice = Choice::new(
+        offered.iter().map(|(_, label)| label.clone()).collect(),
+        0,
+        |bench, at, cx| {
+            change_fields(bench, cx, |fields, _| {
+                if let Some(adding) = &mut fields.org_adding {
+                    adding.picked = at;
+                }
+            });
+        },
+        window,
+        cx,
+    );
+    change_fields(bench, cx, |fields, cx| {
+        fields.editing = None;
+        fields.failure = None;
+        fields.org_adding = Some(OrgAdding {
+            org,
+            kind,
+            offered: offered.into_iter().map(|(id, _)| id).collect(),
+            picked: 0,
+            choice,
+        });
+        fields.key.update(cx, |key, cx| {
+            key.set_value("", window, cx);
+            key.focus(window, cx);
+        });
+    });
+}
+
+fn add_org_key(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(params) = fields(bench, cx).and_then(|fields| {
+        let adding = fields.org_adding.as_ref()?;
+        let key = fields.key.read(cx).value().trim().to_owned();
+        Some(OrgModelKeyAdd {
+            org: adding.org.clone(),
+            provider: adding.offered.get(adding.picked)?.clone(),
+            key,
+        })
+        .filter(|params| !params.key.is_empty())
+    }) else {
+        return;
+    };
+    let id = format!("org-add-{}", params.org);
+    change::<call::OrgModelKeyAdd>(bench, id, params, cx);
+}
+
+fn org_key_row(
+    bench: &Workbench,
+    fields: &Fields,
+    vault: &ShownOrgVault,
+    key: &ShownOrgModelKey,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let provider = (fields.providers.iter()).find(|provider| provider.id == key.route);
+    let label = provider.map_or_else(
+        || format!("{} ({})", key.label, vault.name),
+        |provider| provider.label.clone(),
+    );
+    let busy = fields.busy.as_deref() == Some(key.route.as_str());
+    let failed = (fields.failure.as_ref())
+        .filter(|(at, _)| *at == key.route)
+        .map(|(_, message)| message.clone());
+    let models = provider.map(model_lines).unwrap_or_default();
+    let about = match (failed, vault.active, vault.writes) {
+        (Some(message), _, _) => lines(vec![message], true, cx),
+        (None, false, _) => lines(vec![t!("Paused").into()], false, cx),
+        (None, true, true) => {
+            let chats = provider.map(|provider| chats_on(bench, provider));
+            let first = t!("Connected for everyone in {org}.", org = vault.name);
+            let first = format!("{first} {}", chats.unwrap_or_default());
+            lines([vec![first.trim().to_owned()], models].concat(), false, cx)
+        }
+        (None, true, false) => {
+            let first = t!(
+                "{org}'s admins change the key of {provider}.",
+                org = vault.name,
+                provider = label
+            );
+            lines([vec![first], models].concat(), false, cx)
+        }
+    };
+    let controls = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .when(vault.active && vault.writes, |controls| {
+            let params = OrgEntryParams {
+                org: vault.org.clone(),
+                id: key.id.clone(),
+            };
+            let route = key.route.clone();
+            controls
+                .children(provider.and_then(|provider| check_button(provider, busy, this)))
+                .child(button(
+                    format!("org-key-remove-{route}"),
+                    t!("Remove"),
+                    ui::Variant::Outline,
+                    busy,
+                    this,
+                    move |bench, _, cx| {
+                        let params = OrgEntryParams {
+                            org: params.org.clone(),
+                            id: params.id.clone(),
+                        };
+                        change::<call::OrgModelKeyRemove>(bench, route.clone(), params, cx)
+                    },
+                ))
+        })
+        .when(vault.active && !vault.writes, |controls| {
+            controls.child(ui::icon(crate::icons::Icon::Lock, 14.).text_color(t.text_tertiary))
+        });
+    row(label, Some(about), controls, &t)
+}
+
+fn org_add_row(
+    fields: &Fields,
+    vault: &ShownOrgVault,
+    kind: Kind,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let adding = (fields.org_adding.as_ref())
+        .filter(|adding| adding.org == vault.org && adding.kind == kind);
+    let Some(adding) = adding else {
+        let this = this.clone();
+        let org = vault.org.clone();
+        return div()
+            .flex()
+            .px(SPACE_4)
+            .py(SPACE_2H)
+            .child(
+                ui::Button::new(
+                    SharedString::from(format!("org-key-add-{org}")),
+                    t!("Add a key for {org}", org = vault.name),
+                    ui::Variant::Outline,
+                )
+                .icon(crate::icons::Icon::Plus)
+                .on_click(move |_, window, cx| {
+                    let org = org.clone();
+                    this.update(cx, |bench, cx| start_org_add(bench, org, kind, window, cx))
+                }),
+            )
+            .into_any_element();
+    };
+    let t = Tokens::get(cx).clone();
+    let id = format!("org-add-{}", vault.org);
+    let busy = fields.busy.as_deref() == Some(id.as_str());
+    let failed = (fields.failure.as_ref())
+        .filter(|(at, _)| *at == id)
+        .map(|(_, message)| lines(vec![message.clone()], true, cx));
+    let empty = fields.key.read(cx).value().trim().is_empty() || adding.offered.is_empty();
+    let controls = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(div().w(px(160.)).child(adding.choice.view()))
+        .child(div().w(px(220.)).child(ui::Field::new(&fields.key)))
+        .child(button(
+            format!("org-key-cancel-{}", vault.org),
+            t!("Cancel"),
+            ui::Variant::Outline,
+            busy,
+            this,
+            |bench, window, cx| edit(bench, None, window, cx),
+        ))
+        .child(button(
+            format!("org-key-connect-{}", vault.org),
+            if busy { t!("Checking…") } else { t!("Add") },
+            ui::Variant::Primary,
+            busy || empty,
+            this,
+            |bench, _, cx| add_org_key(bench, cx),
+        ));
+    row(
+        t!("Add a key for {org}", org = vault.name),
+        failed,
+        controls,
+        &t,
+    )
+}
+
+/// A group's name in spaced capitals over its card, after the org's mark when it is an org's.
+fn grouped(mark: Option<AnyElement>, name: &str, card: AnyElement, cx: &App) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_2)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .px(SPACE_4)
+                .children(mark)
+                .child(ui::caps(name, cx)),
+        )
+        .child(card)
+        .into_any_element()
+}
+
+/// An org's keys of `kind`, while there are any to show or its admin may add one.
+fn org_group(
+    bench: &Workbench,
+    fields: &Fields,
+    vault: &ShownOrgVault,
+    kind: Kind,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let keys: Vec<&ShownOrgModelKey> = (vault.model_keys.iter())
+        .filter(|key| kind_of(fields, &key.provider) == Some(kind))
+        .collect();
+    let waiting = vault.status == OrgVaultStatus::Waiting;
+    let adds = vault.writes && !waiting;
+    if keys.is_empty() && !waiting && !adds {
+        return None;
+    }
+    let sub = match (vault.active, vault.writes) {
+        (false, _) => t!(
+            "{org}'s plan has lapsed, so its keys are paused and no chat can pick them. Nothing was deleted: they come back when an owner renews.",
+            org = vault.name
+        ),
+        (true, true) => t!(
+            "Keys {org}'s admins added. A chat runs on one only when it's picked; it never stands in for your own. You're an admin.",
+            org = vault.name
+        ),
+        (true, false) => t!(
+            "Keys {org}'s admins added. A chat runs on one only when it's picked; it never stands in for your own. You're a member.",
+            org = vault.name
+        ),
+    };
+    let note = |words: Vec<String>, failed: bool| {
+        div()
+            .px(SPACE_4)
+            .py(SPACE_2H)
+            .child(lines(words, failed, cx))
+    };
+    let body = div()
+        .when(waiting, |body| {
+            body.child(note(
+                vec![t!(
+                    "Not open on this host yet. It opens once another of {org}'s hosts that's online hands this one the vault.",
+                    org = vault.name
+                )],
+                false,
+            ))
+        })
+        .children(vault.failed.clone().map(|failed| note(vec![failed], true)))
+        .children(keys.iter().map(|key| org_key_row(bench, fields, vault, key, this, cx)))
+        .when(adds, |body| body.child(org_add_row(fields, vault, kind, this, cx)));
+    let card = rows::section("", None, Some(sub.into()), false, body, cx);
+    let mark = ui::initials(&vault.name, &vault.org, 14., cx).into_any_element();
+    Some(grouped(Some(mark), &vault.name, card, cx))
+}
+
 fn save_helper(bench: &mut Workbench, helper: Option<Helper>, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.helper = helper.clone());
     Target::here(&bench.asks).call_typed::<call::SetModelHelper>(HelperParams { helper });
@@ -786,7 +1096,7 @@ pub fn render(
         let mut providers: Vec<&ModelProvider> = fields
             .providers
             .iter()
-            .filter(|provider| provider.kind == kind)
+            .filter(|provider| provider.kind == kind && provider.org.is_none())
             .collect();
         providers.sort_by_key(|provider| !provider.custom);
         providers
@@ -829,19 +1139,30 @@ pub fn render(
             cx,
         )
     };
+    let with_orgs = |kind: Kind, own: AnyElement| -> Vec<AnyElement> {
+        let orgs: Vec<AnyElement> = (fields.orgs.iter())
+            .filter_map(|vault| org_group(bench, fields, vault, kind, this, cx))
+            .collect();
+        match orgs.is_empty() {
+            true => vec![own],
+            false => std::iter::once(grouped(None, t!("Yours"), own, cx))
+                .chain(orgs)
+                .collect(),
+        }
+    };
     let section = match page {
-        Page::Plans => keyed(
+        Page::Plans => return with_orgs(Kind::Plan, keyed(
             Kind::Plan,
         n!("Coding plans"),
         t!("Monthly subscriptions made for coding agents. Once its key is saved here, a plan's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain."),
         cx,
-    ),
-        Page::Providers => keyed(
+    )),
+        Page::Providers => return with_orgs(Kind::Api, keyed(
             Kind::Api,
         n!("API providers"),
         t!("Hosted models you pay the provider for by the token. Once its key is saved here, a provider's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain."),
         cx,
-    ),
+    )),
         Page::LocalModels => {
     let local = of_kind(Kind::Local);
     let running = connected(&local);
