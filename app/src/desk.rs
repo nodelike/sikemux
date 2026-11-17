@@ -594,8 +594,8 @@ impl Host for DeskHost {
         Some(sikemux_process::paths::home()?.join("Movies"))
     }
 
-    fn page_url(&self, agent_id: &str, html: &str) -> Result<String, String> {
-        self.pages.url(&draft_name(agent_id), html)
+    fn page_url(&self, agent_id: &str, html: &str, written_in: &Path) -> Result<String, String> {
+        self.pages.url(&draft_name(agent_id), html, written_in)
     }
 
     fn tabs_changed(&self) {
@@ -625,9 +625,10 @@ pub(crate) struct PageFiles {
 }
 
 impl PageFiles {
-    /// An address for `html` in a desk tab, kept as `name` so showing it again replaces the copy.
-    pub(crate) fn url(&self, name: &str, html: &str) -> Result<String, String> {
-        self.page_url(name, html, None)
+    /// An address for `html`, written in `written_in`, in a desk tab, kept as `name` so showing
+    /// it again replaces the copy.
+    pub(crate) fn url(&self, name: &str, html: &str, written_in: &Path) -> Result<String, String> {
+        self.page_url(name, html, None, Some(written_in))
     }
 
     /// An address for a page the core keeps, with the videos and sounds in `media` beside it.
@@ -637,10 +638,16 @@ impl PageFiles {
         page: &sikemux_calls::harness::PageHtml,
     ) -> Result<String, String> {
         let media = (page.media.as_deref()).filter(|media| media.is_dir());
-        self.page_url(id, &page.html, media)
+        self.page_url(id, &page.html, media, page.written_in.as_deref())
     }
 
-    fn page_url(&self, name: &str, html: &str, media: Option<&Path>) -> Result<String, String> {
+    fn page_url(
+        &self,
+        name: &str,
+        html: &str,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+    ) -> Result<String, String> {
         let folder = self
             .folder
             .as_ref()
@@ -649,7 +656,7 @@ impl PageFiles {
         let path = folder.join(format!("{name}.html"));
         let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
         std::fs::write(&path, themed).map_err(|error| error.to_string())?;
-        self.engine()?.local_file_url_with_media(&path, media)
+        self.engine()?.local_page_url(&path, media, written_in)
     }
 
     pub(crate) fn engine(&self) -> Result<Arc<BrowserManager>, String> {

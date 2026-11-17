@@ -182,6 +182,7 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
             html,
             picture,
             media,
+            written_in: crate::pages::written_in(&dir, &params.id),
         })
     })
     .await

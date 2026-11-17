@@ -849,11 +849,12 @@ async fn run(
                 .get("width")
                 .and_then(Value::as_u64)
                 .unwrap_or(crate::REPLY_COLUMN_WIDTH as u64);
+            let written_in = source.parent().unwrap_or(&source).to_path_buf();
             let html =
                 tokio::task::spawn_blocking(move || sikemux_base::pages::build(&source, None))
                     .await
                     .map_err(|error| error.to_string())??;
-            let url = manager.host().page_url(agent_id, &html)?;
+            let url = manager.host().page_url(agent_id, &html, &written_in)?;
             let mut preview = crate::preview::Preview::open(
                 manager.host(),
                 agent_id,

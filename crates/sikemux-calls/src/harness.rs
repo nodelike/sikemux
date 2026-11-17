@@ -14,6 +14,10 @@ pub struct PageHtml {
     /// The folder on the core's computer holding the videos and sounds the page names under it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<std::path::PathBuf>,
+    /// The folder on the core's computer the agent wrote the page in, which the page's other
+    /// relative addresses are served from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written_in: Option<std::path::PathBuf>,
 }
 
 /// The runs that match every field given.

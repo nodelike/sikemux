@@ -28,6 +28,7 @@ struct Share {
     port: u16,
     token: String,
     media: Option<(String, PathBuf)>,
+    written_in: Option<PathBuf>,
     /// Dropping it stops the share's server.
     _stop: tokio::sync::oneshot::Sender<()>,
 }
@@ -35,12 +36,18 @@ struct Share {
 impl LocalFiles {
     /// A loopback address that shows `path`, a file or a folder's `index.html`.
     pub fn url_for(&self, path: &Path) -> Result<String, String> {
-        self.url_with_media(path, None)
+        self.page_url(path, None, None)
     }
 
     /// Like [`Self::url_for`], with the files in `media` served under that folder's name
-    /// beside `path`, as a kept page names its videos and sounds.
-    pub fn url_with_media(&self, path: &Path, media: Option<&Path>) -> Result<String, String> {
+    /// beside `path`, as a kept page names its videos and sounds, and any other address the
+    /// page asks for served from `written_in`, the folder the agent wrote it in.
+    pub fn page_url(
+        &self,
+        path: &Path,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+    ) -> Result<String, String> {
         let mut path = sikemux_process::files::real_path(path)
             .map_err(|_| format!("{} does not exist", path.display()))?;
         if path.is_dir() {
@@ -68,7 +75,10 @@ impl LocalFiles {
             let name = media.file_name()?.to_string_lossy().into_owned();
             Some((name, sikemux_process::files::real_path(media).ok()?))
         });
-        let (port, token) = self.share(&root, only, media)?;
+        let written_in = written_in
+            .and_then(|folder| sikemux_process::files::real_path(folder).ok())
+            .filter(|folder| !is_broad(folder));
+        let (port, token) = self.share(&root, only, media, written_in)?;
         let mut url = Url::parse(&format!("http://127.0.0.1:{port}/")).expect("loopback url");
         url.path_segments_mut()
             .expect("http url has a path")
@@ -108,10 +118,12 @@ impl LocalFiles {
         root: &Path,
         only: Option<PathBuf>,
         media: Option<(String, PathBuf)>,
+        written_in: Option<PathBuf>,
     ) -> Result<(u16, String), String> {
         let key = only.clone().unwrap_or_else(|| root.to_path_buf());
         let mut shares = self.shares.locked();
-        if let Some(share) = shares.get(&key).filter(|share| share.media == media) {
+        let same = |share: &&Share| share.media == media && share.written_in == written_in;
+        if let Some(share) = shares.get(&key).filter(same) {
             return Ok((share.port, share.token.clone()));
         }
         shares.remove(&key);
@@ -134,6 +146,7 @@ impl LocalFiles {
             root: root.to_path_buf(),
             only,
             media: media.clone(),
+            written_in: written_in.clone(),
             token: token.clone(),
             port,
         };
@@ -151,6 +164,7 @@ impl LocalFiles {
             port,
             token: token.clone(),
             media,
+            written_in,
             _stop: stop,
         };
         shares.insert(key, share);
@@ -173,21 +187,28 @@ fn share_address(url: &str) -> Option<(u16, String, String)> {
 /// A page can read every file under the folder it came from, so only a git project shares its
 /// folder. A repository at home, Downloads, Desktop or the like gathers files from anywhere and does not count.
 fn serves_its_folder(folder: &Path) -> bool {
+    sikemux_process::files::repo_root(folder).is_some_and(|project| !is_broad(project))
+}
+
+/// Whether `folder` gathers files from anywhere: home or above it, a folder such as Downloads,
+/// or a temporary folder's root.
+fn is_broad(folder: &Path) -> bool {
     let Some(home) = std::env::var("HOME")
         .ok()
         .and_then(|home| sikemux_process::files::real_path(&home).ok())
     else {
-        return false;
+        return true;
     };
-    let catch_alls: Vec<PathBuf> = CATCH_ALL_FOLDERS
-        .iter()
-        .map(|name| home.join(name))
-        .chain(TEMPORARY_FOLDERS.iter().map(PathBuf::from))
-        .collect();
-    let broad = |path: &Path| {
-        path.parent().is_none() || home.starts_with(path) || catch_alls.iter().any(|f| f == path)
-    };
-    sikemux_process::files::repo_root(folder).is_some_and(|project| !broad(project))
+    let temporary = sikemux_process::files::real_path(std::env::temp_dir()).ok();
+    folder.parent().is_none()
+        || home.starts_with(folder)
+        || CATCH_ALL_FOLDERS
+            .iter()
+            .any(|name| home.join(name) == folder)
+        || TEMPORARY_FOLDERS
+            .iter()
+            .any(|path| Path::new(path) == folder)
+        || temporary.is_some_and(|temporary| temporary == folder)
 }
 
 const CATCH_ALL_FOLDERS: &[&str] = &[
@@ -208,6 +229,7 @@ struct Folder {
     only: Option<PathBuf>,
     /// A folder's name and where it is, served whole under that name.
     media: Option<(String, PathBuf)>,
+    written_in: Option<PathBuf>,
     token: String,
     port: u16,
 }
@@ -298,12 +320,18 @@ impl Folder {
                 _ => Answer::Refused(404),
             };
         }
-        let Ok(found) = sikemux_process::files::real_path(self.root.join(&relative)) else {
+        let found = sikemux_process::files::real_path(self.root.join(&relative)).ok();
+        let found = found.filter(|found| {
+            found.starts_with(&self.root) && self.only.as_ref().is_none_or(|only| only == found)
+        });
+        let found = found.or_else(|| {
+            let folder = self.written_in.as_ref()?;
+            let found = sikemux_process::files::real_path(folder.join(&relative)).ok()?;
+            found.starts_with(folder).then_some(found)
+        });
+        let Some(found) = found else {
             return Answer::Refused(404);
         };
-        if !found.starts_with(&self.root) || self.only.as_ref().is_some_and(|only| *only != found) {
-            return Answer::Refused(404);
-        }
         if found.is_file() {
             return Answer::File(found);
         }
@@ -471,6 +499,7 @@ mod tests {
             root,
             only: None,
             media: None,
+            written_in: None,
             token: "t0k".into(),
             port: 4000,
         };
