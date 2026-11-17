@@ -329,6 +329,7 @@ fn main() -> anyhow::Result<()> {
                 flags: Vec::new(),
                 features: None,
                 pro_given: false,
+                orgs: Vec::new(),
             }),
         compositor,
         output: (output_width, output_height),

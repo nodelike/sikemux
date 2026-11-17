@@ -40,6 +40,14 @@ pub fn allows(
         .is_none_or(|features| features.contains(&name))
 }
 
+/// The orgs the signed-in account holds a seat in, each with its own role there and whether the
+/// org's Team plan is paid. None while signed out or before the account has said.
+pub fn orgs(
+    account: Option<&sikemux_view::device::AccountInfo>,
+) -> &[sikemux_view::device::AccountOrg] {
+    account.map_or(&[], |account| &account.orgs)
+}
+
 /// Where the web app is. A shared chat's link opens there, and it hands the
 /// link on to the Mac or phone app when one is installed.
 pub fn app_base() -> String {

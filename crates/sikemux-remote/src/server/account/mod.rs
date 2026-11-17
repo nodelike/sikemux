@@ -12,6 +12,8 @@ pub mod api;
 mod code;
 pub mod devices;
 mod flags;
+mod kept;
+mod orgs;
 mod profile;
 
 use crate::server::changed::ChangedCore;
@@ -20,6 +22,7 @@ use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use allowance::refresh as refresh_allowance;
 pub use code::sign_in_by_code;
+pub use orgs::refresh as refresh_orgs;
 pub use sikemux_calls::account::AccountPictureParams;
 pub use sikemux_calls::account::{SignInCode, SignInPage};
 use std::future::Future;
@@ -206,6 +209,7 @@ pub async fn show(core: &Core) {
                 None => (None, saved_email, false),
             };
             let allowance = allowance::read(&folder, &owner).await;
+            let orgs = orgs::read(&folder, &owner).await;
             Some(AccountInfo {
                 name,
                 email,
@@ -215,6 +219,7 @@ pub async fn show(core: &Core) {
                 pro_given: allowance.as_ref().is_some_and(allowance::pro_given),
                 features: allowance
                     .map(|allowance| allowance.features.into_iter().map(feature_name).collect()),
+                orgs,
             })
         }
         (Some(_), None) => Some(AccountInfo {
@@ -225,6 +230,7 @@ pub async fn show(core: &Core) {
             flags: Vec::new(),
             features: None,
             pro_given: false,
+            orgs: Vec::new(),
         }),
     };
     let changed = {
