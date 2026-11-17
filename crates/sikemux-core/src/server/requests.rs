@@ -499,6 +499,7 @@ pub(super) async fn run(
                 client.answer::<ask::BackdropImage>(request_id, Ok(data_url));
             }
             Request::PublishOnScreen(ask::PublishOnScreen { agent_ids, focused }) => {
+                core.seen().window_in_front(client.id, focused);
                 super::seen::on_screen(&core, client.id, agent_ids, focused, true);
                 client.answer::<ask::PublishOnScreen>(request_id, Ok(()));
             }

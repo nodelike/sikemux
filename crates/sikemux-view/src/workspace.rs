@@ -404,13 +404,20 @@ pub struct Backdrop {
 /// A host's answer to a browser on the account asking for its look over `sikemux/look/1`: what
 /// the browser draws behind its pages.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "result", rename_all = "camelCase")]
+#[serde(
+    tag = "result",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum LookReply {
     Look {
         texture: bool,
         look: BackdropLook,
         /// The picture shown in place of the grain, as a JPEG data URL.
         picture: Option<String>,
+        /// When the person was last at this host's own window, in ms since the epoch; now
+        /// while it is in front. The browser draws the look of the host it is most recent on.
+        person_at_window: Option<u64>,
     },
     Refused {
         reason: String,

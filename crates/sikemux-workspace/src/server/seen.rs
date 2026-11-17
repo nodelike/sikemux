@@ -34,6 +34,9 @@ struct State {
     called_at: HashMap<String, u64>,
     person_at: HashMap<String, u64>,
     tool_at: HashMap<String, u64>,
+    /// The clients drawing this host's own window while it is in front.
+    windows_in_front: HashSet<ClientId>,
+    window_left_at: Option<u64>,
 }
 
 impl State {
@@ -131,6 +134,27 @@ impl Seen {
 
     fn forget_client(&self, client: ClientId) {
         self.state.locked().show(client, View::default());
+        self.window_in_front(client, false);
+    }
+
+    /// Whether `client`, a window of this host's own app, is in front.
+    pub fn window_in_front(&self, client: ClientId, in_front: bool) {
+        let mut state = self.state.locked();
+        if in_front {
+            state.windows_in_front.insert(client);
+        } else if state.windows_in_front.remove(&client) {
+            state.window_left_at = Some(epoch_ms());
+        }
+    }
+
+    /// When the person was last at this host's own window: now while one is in front.
+    pub fn person_at_window(&self) -> Option<u64> {
+        let state = self.state.locked();
+        if state.windows_in_front.is_empty() {
+            state.window_left_at
+        } else {
+            Some(epoch_ms())
+        }
     }
 
     pub fn viewed(&self, agent_id: &str) -> bool {

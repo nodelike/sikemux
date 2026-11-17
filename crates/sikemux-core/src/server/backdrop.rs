@@ -76,6 +76,7 @@ pub(crate) fn host_look(core: &Core) -> LookReply {
         texture: preferences.pane_backdrop != PaneBackdrop::None,
         look: look(&preferences, &core.look().palette()),
         picture: core.workspaces().backdrop_image(),
+        person_at_window: core.seen().person_at_window(),
     }
 }
 

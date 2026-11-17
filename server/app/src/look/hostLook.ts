@@ -8,8 +8,13 @@ import device, {
 } from "@web-device";
 
 import { api } from "../api.ts";
+import { type Answered, pickLook } from "./pickLook.ts";
+
+type Look = Extract<LookReply, { result: "look" }>;
 
 const ANSWER_MS = 15_000;
+/** How long the other hosts have to answer once one has. */
+const OTHERS_MS = 3_000;
 
 type Kept = { key: string; registered: boolean };
 
@@ -49,55 +54,62 @@ async function register(
 }
 
 /**
- * The look of the host the person used last, read from it end to end over iroh as a phone reads it,
- * or null when no host answers.
+ * The look of the host the person was at last, read from each host end to end over iroh as a
+ * phone reads it, or null when none answers.
  */
 export async function readHostLook(
   account: string,
   token: string,
-): Promise<LookReply | null> {
+): Promise<Look | null> {
   await device();
   const routes = api(token);
   const [{ devices }, network] = await Promise.all([
     routes.listDevices({ role: "host" }),
     routes.getNetwork(),
   ]);
-  const host = devices
-    .flatMap((each) =>
-      each.lastSeenAt ? [{ ...each, seen: each.lastSeenAt }] : [],
-    )
-    .sort((a, b) => b.seen.localeCompare(a.seen))[0];
-  if (!host) return null;
+  const hosts = devices.flatMap((each) =>
+    each.lastSeenAt ? [{ key: each.key, seenAt: each.lastSeenAt }] : [],
+  );
+  if (hosts.length === 0) return null;
 
   const own = kept(account);
   const key = bytes(own.key);
-  const ticket = async () => {
+  const ticket = async (host: string) => {
     if (!own.registered) {
       await register(routes, account, key);
       keep(account, { ...own, registered: true });
       own.registered = true;
     }
-    return routes.createJoinTicket(publicKey(key), { host: host.key });
+    return routes.createJoinTicket(publicKey(key), { host });
   };
-  const signed = await ticket().catch(async (error: unknown) => {
-    if (!(error instanceof ApiProblem && error.status === 404)) throw error;
-    own.registered = false;
-    return ticket();
-  });
+  const signed = (host: string) =>
+    ticket(host).catch(async (error: unknown) => {
+      if (!(error instanceof ApiProblem && error.status === 404)) throw error;
+      own.registered = false;
+      return ticket(host);
+    });
+  const relays = network.relays.map((relay) => relay.url);
 
-  const answer = await Promise.race([
-    readLook(
+  const answered: Answered[] = [];
+  const asked = hosts.map(async (host) => {
+    const answer = await readLook(
       key,
-      network.relays.map((relay) => relay.url),
+      relays,
       host.key,
-      JSON.stringify(signed),
-    ),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error("The host did not answer.")),
-        ANSWER_MS,
-      ),
-    ),
-  ]);
-  return JSON.parse(answer) as LookReply;
+      JSON.stringify(await signed(host.key)),
+    );
+    answered.push({
+      seenAt: host.seenAt,
+      reply: JSON.parse(answer) as LookReply,
+    });
+  });
+  await new Promise<void>((done) => {
+    const giveUp = setTimeout(done, ANSWER_MS);
+    const first = Promise.any(asked).then(() => setTimeout(done, OTHERS_MS));
+    void Promise.allSettled([...asked, first]).then(() => {
+      clearTimeout(giveUp);
+      done();
+    });
+  });
+  return pickLook(answered);
 }
