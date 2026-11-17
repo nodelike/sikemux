@@ -106,6 +106,25 @@ pub struct PersonSaid {
     /// When it was sent, in Unix milliseconds, where the history says.
     pub at: Option<u64>,
     pub text: String,
+    /// Each agent the person named with `@`, as the mention read and the agent it links to.
+    pub mentions: Vec<(String, String)>,
+}
+
+fn mentions(payload: &serde_json::Value) -> Vec<(String, String)> {
+    (payload
+        .get("context")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten())
+    .filter_map(|item| {
+        let agent = item
+            .get("uri")?
+            .as_str()?
+            .strip_prefix(sikemux_view::chat::AGENT_URI)?;
+        let title = item.get("title")?.as_str()?;
+        Some((title.to_owned(), agent.to_owned()))
+    })
+    .collect()
 }
 
 /// The prompts the person sent in the history file `name` in `dir`, newest first, from its last
@@ -120,6 +139,7 @@ pub fn persons_prompts(dir: &Path, name: &str, max_bytes: u64) -> Vec<PersonSaid
                 index,
                 at: payload.get("at").and_then(serde_json::Value::as_u64),
                 text: text.to_owned(),
+                mentions: mentions(payload),
             })
         })
         .collect();
@@ -149,6 +169,7 @@ pub fn turn_prompt(dir: &Path, name: &str, max_bytes: u64) -> Option<PersonSaid>
         index: *index,
         at: payload.get("at").and_then(serde_json::Value::as_u64),
         text: payload.get("text")?.as_str()?.to_owned(),
+        mentions: mentions(payload),
     })
 }
 

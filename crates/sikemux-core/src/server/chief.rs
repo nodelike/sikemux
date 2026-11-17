@@ -899,7 +899,14 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
     let wrote: Vec<String> = (wrote.into_iter())
         .filter(|agent| agents.contains(agent))
         .collect();
-    person_lines.extend(typed_since(core, &wrote, feeds, since, &quoted_answers));
+    person_lines.extend(typed_since(
+        core,
+        chief,
+        &wrote,
+        feeds,
+        since,
+        &quoted_answers,
+    ));
     let notes: Vec<(u64, String)> = (notes.into_iter())
         .map(|(at, text)| (at, format!("- {text}")))
         .collect();
@@ -926,6 +933,7 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
 /// leaves out, though the line says the person wrote.
 fn typed_since(
     core: &Core,
+    chief: &str,
     wrote: &[String],
     feeds: Vec<(String, String)>,
     since: u64,
@@ -963,7 +971,12 @@ fn typed_since(
                     "- wrote to {}, the words that answered its call",
                     called(core, agent)
                 ),
-                Some(words) => format!("- wrote to {}: {}", called(core, agent), quoted(&words)),
+                Some(words) => format!(
+                    "- wrote to {}: {}{}",
+                    called(core, agent),
+                    quoted(&words),
+                    mentioned(core, chief, &said.mentions)
+                ),
                 None => format!("- wrote to {}", called(core, agent)),
             };
             lines.push((at, line));
@@ -984,6 +997,27 @@ fn typed_since(
         lines.push((at, line));
     }
     lines
+}
+
+/// Who each `@` mention in the person's words links to, as `chief` should read it: itself, or
+/// another agent, named with its project when that is not the chief's.
+fn mentioned(core: &Core, chief: &str, mentions: &[(String, String)]) -> String {
+    if mentions.is_empty() {
+        return String::new();
+    }
+    let project = |agent: &str| core.workspaces().agent(agent).map(|agent| agent.project);
+    let links: Vec<String> = (mentions.iter())
+        .map(|(title, agent)| match agent == chief {
+            true => format!("{title} is you"),
+            false if project(agent) != project(chief) => {
+                let elsewhere = (project(agent).and_then(|id| core.workspaces().project_info(&id)))
+                    .map_or_else(|| "another project".to_owned(), |info| info.name);
+                format!("{title} is {agent} of {elsewhere}, not you")
+            }
+            false => format!("{title} is {agent}"),
+        })
+        .collect();
+    format!(" ({})", links.join("; "))
 }
 
 /// The digest's sections under their headings, within [`DIGEST_CHARS`]: the oldest lines go

@@ -708,6 +708,8 @@ pub(crate) struct Said {
     pub words: Option<String>,
     /// It was a slash command.
     pub command: bool,
+    /// Each agent named with `@`, as the mention read and the agent it links to.
+    pub mentions: Vec<(String, String)>,
 }
 
 /// What the person typed into the chat run `feed`, newest first, as the core recorded each
@@ -723,6 +725,7 @@ pub(crate) fn persons_said_in(core: &Core, feed: &str) -> Vec<Said> {
             at: said.at,
             words: persons(&said.text),
             command: super::chat::prompt::is_command(&said.text),
+            mentions: said.mentions,
         })
         .collect()
 }
