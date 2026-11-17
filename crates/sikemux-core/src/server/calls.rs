@@ -551,6 +551,7 @@ calls! { core, client, method, params;
     },
     "boards" = Boards: Watch, any_program => board::boards(&core),
     "board" = Board: Watch, any_program => board::board(&core, params).await?,
+    "projectTasks" = ProjectTasks: Watch => super::task_list::read(&core, params).await?,
     "boardAdd" = BoardAdd: Full, counted => board::person_add(&core, params).await?,
     "boardHandOff" = BoardHandOff: Full => board::hand_off(&core, params).await?,
     "boardResumeOwner" = BoardResumeOwner: Full => board::retired(params)?,

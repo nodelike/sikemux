@@ -1,13 +1,14 @@
 //! Keeps a board to the work still on it, with nobody asked: a card whose cards under it are all
 //! done is done too, a card whose owner's landed commit passed the project's check is done once
-//! the owner leaves it or waits on the person, finished cards leave a few days after they finish, and an open card nobody
-//! has touched for a week moves to Later until someone takes it up again.
+//! the owner leaves it or waits on the person, finished and dropped cards leave a few days after
+//! they end, and an open card nobody has touched for a week is dropped until someone takes it up.
 
 use super::*;
 use crate::server::board_state::BoardParts;
 
-/// How long an open card nobody holds sits untouched before it moves to Later.
+/// How long an open card nobody holds sits untouched before it is dropped.
 const UNTOUCHED_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+const UNTOUCHED_WHY: &str = "nobody touched it for a week";
 const CLOSED_RESULT: &str = "Every card under it is done.";
 
 /// Tidies every board, and answers when the next card comes due to leave or move.
@@ -30,7 +31,7 @@ pub fn settle(core: &Arc<Core>) -> Option<u64> {
         let mut state = core.boards().state.locked();
         let kept_until = archive::finished_long_ago(core, &mut state, &project, now);
         next = sooner(next, kept_until);
-        next = sooner(next, put_aside(core, &mut state, &project, now));
+        next = sooner(next, drop_untouched(core, &mut state, &project, now));
     }
     next
 }
@@ -42,7 +43,10 @@ fn finished_under(core: &Core, card: &Card, under: &[&Card]) -> bool {
         && card.ticket.is_none()
         && holder(core, card).is_none()
         && !under.is_empty()
-        && under.iter().all(|card| card.status == CardStatus::Done)
+        && under
+            .iter()
+            .all(|card| card.status == CardStatus::Done || card.dropped.is_some())
+        && under.iter().any(|card| card.status == CardStatus::Done)
 }
 
 fn close_parents(core: &Arc<Core>, project: &str) {
@@ -136,16 +140,16 @@ fn wanted(board: &Board) -> HashSet<u64> {
         if worked {
             wanted.extend(card.depends_on.iter().copied());
         }
-        if card.status != CardStatus::Done && card.aside_at.is_none() {
+        if card.status != CardStatus::Done && card.dropped.is_none() {
             wanted.extend(card.parent);
         }
     }
     wanted
 }
 
-/// Moves the open cards nobody has touched for long to Later, and brings back each one that
-/// was taken up, changed or is wanted again. Answers when the next card comes due to move.
-fn put_aside(core: &Core, state: &mut State, project: &str, now: u64) -> Option<u64> {
+/// Drops the open cards nobody has touched for long, and brings back each one the board dropped
+/// that was taken up, changed or is wanted again. Answers when the next card comes due to drop.
+fn drop_untouched(core: &Core, state: &mut State, project: &str, now: u64) -> Option<u64> {
     let board = state.of(project)?;
     let wanted = wanted(board);
     let idle: HashSet<u64> = (board.cards.iter())
@@ -160,15 +164,20 @@ fn put_aside(core: &Core, state: &mut State, project: &str, now: u64) -> Option<
     for card in &mut board.cards {
         let touched = card.updated_at.max(card.acted_at);
         let idle = idle.contains(&card.id);
-        match card.aside_at {
-            Some(at) if !idle || touched > at => {
-                card.aside_at = None;
+        match &card.dropped {
+            Some(dropped) if dropped.by == DroppedBy::Board && (!idle || touched > dropped.at) => {
+                card.dropped = None;
                 card.updated_at = now;
                 changed = true;
             }
             Some(_) => {}
             None if idle && touched + UNTOUCHED_MS <= now => {
-                card.aside_at = Some(now);
+                card.dropped = Some(CardDropped {
+                    at: now,
+                    by: DroppedBy::Board,
+                    why: UNTOUCHED_WHY.to_owned(),
+                    instead: None,
+                });
                 changed = true;
             }
             None if idle => next = sooner(next, Some(touched + UNTOUCHED_MS)),

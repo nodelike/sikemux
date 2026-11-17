@@ -145,6 +145,7 @@ pub mod ssh;
 mod stalls;
 pub mod stash;
 pub mod streams;
+mod task_list;
 pub mod tasks;
 mod team_told;
 pub mod themes;

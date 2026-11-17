@@ -15,8 +15,8 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{
     BoardAddParams, BoardAddTicketParams, BoardCard, BoardCardParams, BoardColumn, BoardParams,
     BoardSettings, BoardSettingsParams, BoardTicketCard, BoardTicketParams, BoardUpdateParams,
-    CardCommit, CardPull, CardStatus, CardTicket, ForgetInheritedParams, Landing, ProjectBoard,
-    PullState, Tracker,
+    CardCommit, CardDropped, CardPull, CardStatus, CardTicket, DroppedBy, ForgetInheritedParams,
+    Landing, ProjectBoard, PullState, Tracker,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -54,6 +54,7 @@ pub mod own_writes;
 pub mod record;
 mod spend;
 pub mod steps;
+mod task_rows;
 pub mod tickets;
 mod tidy;
 
@@ -63,6 +64,7 @@ pub use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandedOff};
 pub use key::rekey;
 pub use steps::{BoardProposalParams, PlacesProposal};
+pub use task_rows::task_rows;
 
 const FOLDER: &str = "boards";
 const MAX_CARDS: usize = 1000;
@@ -135,10 +137,11 @@ pub struct Card {
     /// owner's latest claim is the card it works now.
     #[serde(default)]
     acted_at: u64,
-    /// When it was put aside in Later, having sat open and untouched; it stays off the board
-    /// until someone takes it up again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    aside_at: Option<u64>,
+    dropped: Option<CardDropped>,
+    /// When the person opened it once it was done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    opened_at: Option<u64>,
     /// The landed commit of its owner's that the project's check passed on while the owner worked
     /// it. The card closes by itself once the owner leaves it or waits on the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -154,7 +157,7 @@ pub struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 7;
+const VERSION: u32 = 8;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -827,11 +830,19 @@ pub struct Changes {
     pub result: Option<String>,
     pub depends_on: Option<Vec<u64>>,
     pub parent: Option<Option<u64>>,
+    pub drop: Option<Dropping>,
+    pub opened: bool,
+}
+
+#[derive(Clone)]
+pub enum Dropping {
+    Drop { why: String, instead: Option<u64> },
+    Undrop,
 }
 
 impl Changes {
     fn from_params(params: &Value) -> Result<Self, String> {
-        Ok(Self {
+        Self {
             title: match params.get("title") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(title)) => Some(title_of(title)?),
@@ -841,8 +852,9 @@ impl Changes {
             acceptance: optional_text(params, "acceptance")?,
             status: match params.get("status") {
                 None | Some(Value::Null) => None,
+                Some(Value::String(status)) if status.trim() == "dropped" => None,
                 Some(Value::String(status)) => Some(CardStatus::parse(status)?),
-                Some(_) => return Err("status must be open, progress or done".into()),
+                Some(_) => return Err("status must be open, progress, done or dropped".into()),
             },
             result: optional_text(params, "result")?,
             depends_on: match params.get("dependsOn") {
@@ -850,7 +862,27 @@ impl Changes {
                 Some(value) => Some(card_ids(value, "dependsOn")?),
             },
             parent: optional_id(params.get("parent"), "parent")?,
-        })
+            drop: None,
+            opened: false,
+        }
+        .dropping(params)
+    }
+
+    fn dropping(mut self, params: &Value) -> Result<Self, String> {
+        let dropped =
+            params.get("status").and_then(Value::as_str).map(str::trim) == Some("dropped");
+        let instead = optional_id(params.get("replacedBy"), "replacedBy")?.flatten();
+        if !dropped {
+            return match instead {
+                Some(_) => Err("replacedBy goes with status dropped".into()),
+                None => Ok(self),
+            };
+        }
+        let why = (self.result.take())
+            .filter(|why| !why.trim().is_empty())
+            .ok_or("Say in result, in a few words, why it is dropped")?;
+        self.drop = Some(Dropping::Drop { why, instead });
+        Ok(self)
     }
 
     fn is_empty(&self) -> bool {
@@ -862,6 +894,8 @@ impl Changes {
             result,
             depends_on,
             parent,
+            drop,
+            opened,
         } = self;
         title.is_none()
             && details.is_none()
@@ -870,6 +904,8 @@ impl Changes {
             && result.is_none()
             && depends_on.is_none()
             && parent.is_none()
+            && drop.is_none()
+            && !opened
     }
 }
 
@@ -1060,6 +1096,7 @@ impl Card {
     fn hold(&mut self, owner: Owner) {
         self.owner = Some(owner);
         self.status = CardStatus::Progress;
+        self.dropped = None;
         self.updated_at = epoch_ms();
         self.acted_at = self.updated_at;
     }
@@ -1216,7 +1253,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         arrivals: card.arrivals.clone(),
         at: card.at,
         updated_at: card.updated_at,
-        aside_at: card.aside_at,
+        dropped: card.dropped.clone(),
         commits: card.commits.clone(),
         pulls: card.pulls.clone(),
     }
@@ -1305,8 +1342,11 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if waits_on_person(core, card) {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
-    if card.aside_at.is_some() {
-        fields.insert("later".into(), true.into());
+    if let Some(dropped) = &card.dropped {
+        fields.insert("dropped".into(), dropped.why.clone().into());
+        if let Some(instead) = dropped.instead {
+            fields.insert("replacedBy".into(), instead.into());
+        }
     }
     if full {
         let under: Vec<Value> = board
@@ -1361,7 +1401,8 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         at: now,
         updated_at: now,
         acted_at: now,
-        aside_at: None,
+        dropped: None,
+        opened_at: None,
         checked: None,
         commits: Vec::new(),
         pulls: Vec::new(),
@@ -1700,6 +1741,19 @@ fn change_in(
     if let Some(depends_on) = &changes.depends_on {
         board.check_depends(Some(id), depends_on)?;
     }
+    if let Some(Dropping::Drop {
+        instead: Some(instead),
+        ..
+    }) = &changes.drop
+    {
+        if *instead == id {
+            return Err(format!("#{id} cannot replace itself"));
+        }
+        board.card(*instead)?;
+    }
+    if changes.opened && before.status != CardStatus::Done {
+        return Err(format!("#{id} is not done yet"));
+    }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
         let keeps = !before.goal.is_none() || !board.decided.on_goal(id).is_empty();
@@ -1710,6 +1764,12 @@ fn change_in(
         }
     }
     let blocked_before = board.blocked();
+    let only_opened = changes.opened
+        && Changes {
+            opened: false,
+            ..changes.clone()
+        }
+        .is_empty();
     let card = board.card_mut(id)?;
     if let Some(title) = changes.title {
         card.title = title;
@@ -1750,7 +1810,26 @@ fn change_in(
         Some(CardStatus::Progress) => card.status = CardStatus::Progress,
         None => {}
     }
-    card.updated_at = epoch_ms();
+    let now = epoch_ms();
+    match changes.drop {
+        Some(Dropping::Drop { why, instead }) => {
+            card.dropped = Some(CardDropped {
+                at: now,
+                by: dropper(core, by),
+                why,
+                instead,
+            });
+        }
+        Some(Dropping::Undrop) => card.dropped = None,
+        None if changes.status.is_some() => card.dropped = None,
+        None => {}
+    }
+    if changes.opened {
+        card.opened_at = Some(now);
+    }
+    if !only_opened {
+        card.updated_at = now;
+    }
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
     if after.status == CardStatus::Done {
@@ -1786,6 +1865,17 @@ fn change_in(
     }
     notices.extend(unblocked(board, &blocked_before, by));
     Ok((agent_view(core, board, &after, false), notices))
+}
+
+fn dropper(core: &Core, by: &By) -> DroppedBy {
+    match by {
+        By::Person => DroppedBy::Person,
+        By::Auto(_) => DroppedBy::Board,
+        By::Agent(agent) => DroppedBy::Agent {
+            id: agent.clone(),
+            name: name_of(core, agent),
+        },
+    }
 }
 
 fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, String> {
@@ -2227,6 +2317,8 @@ impl BoardUpdateParamsExt for BoardUpdateParams {
                 .map(|ids| distinct_cards(ids, "dependsOn"))
                 .transpose()?,
             parent: self.parent.map(|id| (id > 0).then_some(id)),
+            drop: self.undrop.then_some(Dropping::Undrop),
+            opened: self.opened,
         })
     }
 }

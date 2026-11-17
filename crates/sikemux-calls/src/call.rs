@@ -335,6 +335,7 @@ crate::calls! {
     "hosts" Hosts (crate::params::NoParams) -> Vec<crate::hosts::HostRow>;
     "boards" Boards (crate::params::NoParams) -> Vec<crate::board::ProjectBoard>;
     "board" Board (crate::board::BoardParams) -> crate::board::ProjectBoard;
+    "projectTasks" ProjectTasks (crate::board::BoardParams) -> sikemux_view::task_list::ProjectTasks;
     "boardAdd" BoardAdd (crate::board::BoardAddParams) -> crate::board::ProjectBoard;
     "boardHandOff" BoardHandOff (crate::board::BoardHandOffParams) -> crate::board::HandedOff;
     "boardResumeOwner" BoardResumeOwner (crate::board::BoardCardParams) -> crate::board::ProjectBoard;

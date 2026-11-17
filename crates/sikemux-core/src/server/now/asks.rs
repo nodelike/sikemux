@@ -17,7 +17,7 @@ use crate::text::{clipped, clipped_line};
 use serde_json::{json, Value};
 use sikemux_markdown::paths::is_image_path;
 use sikemux_view::goals::{AgentDesk, DeskPage};
-use sikemux_view::now::{AskCall, AskSaid};
+use sikemux_view::now::{AskCall, AskSaid, AskStand, NowAsk};
 use std::collections::{BTreeMap, BTreeSet};
 
 const TITLE_CHARS: usize = 160;

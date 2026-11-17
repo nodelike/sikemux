@@ -2150,12 +2150,19 @@
           "type": "string",
           "enum": [
             "open",
-            "done"
+            "done",
+            "dropped"
           ]
         },
         "result": {
+          "description": "With dropped: why, in a few words",
           "type": "string",
           "maxLength": 16384
+        },
+        "replacedBy": {
+          "description": "With dropped: the task that takes its place",
+          "type": "integer",
+          "minimum": 1
         },
         "dependsOn": {
           "type": "array",

@@ -14,6 +14,8 @@
 //! folders each project under that folder now keeps as its own.
 //! Version 7: each goal card kept its own decisions; the project keeps them all in one list
 //! now, each tagged with its goal and keeping its id, and new ids start above every old one.
+//! Version 8: a card nobody touched for a week, once put aside in Later, is dropped by the board,
+//! and the cards already done count as opened by the person.
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -53,7 +55,26 @@ pub fn carry_over(mut board: Value, folders: Option<&Vec<(String, Vec<Value>)>>)
     if version < 7 {
         decisions_to_one_list(&mut board);
     }
+    if version < 8 {
+        later_to_dropped(&mut board);
+    }
     board
+}
+
+fn later_to_dropped(board: &mut Value) {
+    let cards = board.get_mut("cards").and_then(Value::as_array_mut);
+    for card in cards.into_iter().flatten().filter_map(Value::as_object_mut) {
+        if let Some(at) = card.remove("asideAt").filter(|at| !at.is_null()) {
+            card.insert(
+                "dropped".into(),
+                json!({ "at": at, "by": { "kind": "board" }, "why": "nobody touched it for a week" }),
+            );
+        }
+        if card.get("status").and_then(Value::as_str) == Some("done") {
+            let at = card.get("updatedAt").cloned().unwrap_or(Value::Null);
+            card.insert("openedAt".into(), at);
+        }
+    }
 }
 
 fn decisions_to_one_list(board: &mut Value) {

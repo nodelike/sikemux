@@ -92,6 +92,11 @@ impl Card {
         self.asked.as_ref()
     }
 
+    /// When it was done or dropped, else when it last changed.
+    pub fn ended_at(&self) -> u64 {
+        (self.dropped.as_ref()).map_or(self.updated_at, |dropped| dropped.at)
+    }
+
     /// Whether lists show it: a card the person asked for shows once an agent took it on.
     pub fn listed(&self) -> bool {
         self.asked
@@ -145,7 +150,8 @@ impl Board {
             at,
             updated_at: at,
             acted_at: at,
-            aside_at: None,
+            dropped: None,
+            opened_at: None,
             checked: None,
             commits: Vec::new(),
             pulls: Vec::new(),
