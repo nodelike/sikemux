@@ -10,6 +10,9 @@ export const CONNECTORS = "/connectors";
 export const BILLING = "/billing";
 export const PRICING = "/pricing";
 export const TEAM = "/team";
+export const TEAMS = "/teams";
+export const DOMAINS = "/domains";
+export const AUDIT = "/audit-log";
 export const JOIN = "/orgs/join";
 export const PAY = "/pay";
 
@@ -20,6 +23,9 @@ const PAGES = new Set([
   HOSTS,
   BILLING,
   TEAM,
+  TEAMS,
+  DOMAINS,
+  AUDIT,
   PRICING,
   DELETE_ACCOUNT,
 ]);

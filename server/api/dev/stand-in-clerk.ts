@@ -7,11 +7,36 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
  * answers the Backend API's user reads, so the API can name them.
  */
 const PEOPLE = [
-  { key: "ines", id: "user_standinines", name: "Inês Duarte" },
-  { key: "tomas", id: "user_standintomas", name: "Tomás Reyes" },
-  { key: "priya", id: "user_standinpriya", name: "Priya Natarajan" },
-  { key: "jonah", id: "user_standinjonah", name: "Jonah Lindqvist" },
-  { key: "amara", id: "user_standinamara", name: "Amara Okafor" },
+  {
+    key: "ines",
+    id: "user_standinines",
+    name: "Inês Duarte",
+    domain: "lumen.test",
+  },
+  {
+    key: "tomas",
+    id: "user_standintomas",
+    name: "Tomás Reyes",
+    domain: "lumen.test",
+  },
+  {
+    key: "priya",
+    id: "user_standinpriya",
+    name: "Priya Natarajan",
+    domain: "lumen.test",
+  },
+  {
+    key: "jonah",
+    id: "user_standinjonah",
+    name: "Jonah Lindqvist",
+    domain: "fjord.test",
+  },
+  {
+    key: "amara",
+    id: "user_standinamara",
+    name: "Amara Okafor",
+    domain: "lumen.test",
+  },
 ];
 
 const port = Number(process.env.PORT ?? 4100);
@@ -34,7 +59,18 @@ function token(userId: string) {
 
 function user(person: (typeof PEOPLE)[number]) {
   const [first, ...rest] = person.name.split(" ");
-  return { id: person.id, first_name: first, last_name: rest.join(" ") };
+  const email = {
+    id: `idn_${person.key}`,
+    email_address: `${person.key}@${person.domain}`,
+    verification: { status: "verified" },
+  };
+  return {
+    id: person.id,
+    first_name: first,
+    last_name: rest.join(" "),
+    primary_email_address_id: email.id,
+    email_addresses: [email],
+  };
 }
 
 createServer(async (request, response) => {

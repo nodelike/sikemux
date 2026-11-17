@@ -1625,6 +1625,69 @@ a.button {
   overflow-wrap: anywhere;
 }
 
+.inline-form .field {
+  height: 32px;
+  font-size: 13px;
+}
+
+.picks,
+.txt-record {
+  grid-column: 2 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.picks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.picks .grow {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.txt-record {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 10px;
+}
+
+.txt-record dt {
+  color: var(--text-tertiary);
+}
+
+.txt-record dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.txt-record code {
+  font: 12.5px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.banner.offer {
+  align-items: center;
+  margin-bottom: 22px;
+  border: 1px solid color-mix(in oklab, var(--acc) 30%, transparent);
+  background: color-mix(in oklab, var(--acc) 7%, var(--bg));
+}
+
+.banner.offer > svg {
+  margin-top: 0;
+  color: color-mix(in oklab, var(--acc) 60%, var(--ink));
+}
+
 .join {
   display: flex;
   flex-direction: column;

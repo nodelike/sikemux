@@ -36,6 +36,13 @@ import {
 } from "./money.ts";
 import { BILLING, TEAM } from "./navigation.ts";
 import {
+  OfferRow,
+  OrgChoice,
+  ROLE_WORDS,
+  useOffers,
+  useOrgs,
+} from "./OrgPages.tsx";
+import {
   Confirm,
   ItemRow,
   PageHead,
@@ -46,12 +53,6 @@ import {
   useAction,
   useNotice,
 } from "./ui.tsx";
-
-const ROLE_WORDS: Record<OrgRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  user: "User",
-};
 
 /** Whether someone with `actor`'s role may change, remove or invite someone with `role`, as the API decides it. */
 function manages(actor: OrgRole, role: OrgRole) {
@@ -67,30 +68,25 @@ type Detail = {
 };
 
 export function TeamPage({ follow }: { follow: Follow }) {
-  const client = useClient();
-  const [orgs, setOrgs] = useState<Org[]>();
-  const [problem, setProblem] = useState<string>();
-  const [chosen, setChosen] = useState<string>();
-  const [tick, setTick] = useState(0);
+  const { orgs, org, problem, choose, reload, version } = useOrgs();
+  const offers = useOffers(true);
   const { notice, show } = useNotice();
-  const org = orgs?.find((each) => each.id === chosen) ?? orgs?.[0];
 
-  useEffect(() => {
-    let current = true;
-    void client("see your org")
-      .then((routes) => routes.listOrgs())
-      .then(
-        ({ orgs }) => current && setOrgs(orgs),
-        (error: unknown) =>
-          current &&
-          setProblem(`${problemText(error)} Reload the page to try again.`),
-      );
-    return () => {
-      current = false;
-    };
-  }, [client, tick]);
-
-  const reload = () => setTick((n) => n + 1);
+  const joined = (each: Org) => {
+    show(`You joined ${each.name}`);
+    choose(each.id);
+    offers.reload();
+    reload();
+  };
+  const offered = offers.offers.length ? (
+    <Section label="Orgs at your email's domain">
+      <Rows>
+        {offers.offers.map((offer) => (
+          <OfferRow key={offer.orgId} offer={offer} onJoined={joined} />
+        ))}
+      </Rows>
+    </Section>
+  ) : null;
 
   if (problem)
     return (
@@ -115,7 +111,7 @@ export function TeamPage({ follow }: { follow: Follow }) {
   if (!org)
     return (
       <>
-        <NoOrg />
+        <NoOrg offered={offered} />
         {notice}
       </>
     );
@@ -125,23 +121,15 @@ export function TeamPage({ follow }: { follow: Follow }) {
       <PageHead title="Team">
         {org.name}. Everyone with a seat has Pro on their own hosts.
       </PageHead>
-      {orgs.length > 1 ? (
-        <div className="payer">
-          <Segmented
-            label="Which org"
-            value={org.id}
-            onChange={setChosen}
-            options={orgs.map((each) => ({ value: each.id, name: each.name }))}
-          />
-        </div>
-      ) : null}
+      <OrgChoice orgs={orgs} org={org} choose={choose} />
       <OrgView
         key={org.id}
         org={org}
-        version={tick}
+        version={version}
         follow={follow}
         reload={reload}
         show={show}
+        offered={offered}
       />
       {notice}
     </>
@@ -154,12 +142,14 @@ function OrgView({
   follow,
   reload,
   show,
+  offered,
 }: {
   org: Org;
   version: number;
   follow: Follow;
   reload: () => void;
   show: (text: string) => void;
+  offered: ReactNode;
 }) {
   const client = useClient();
   const [detail, setDetail] = useState<Detail>();
@@ -278,6 +268,7 @@ function OrgView({
           }}
         />
       ) : null}
+      {offered}
       <Leave org={org} onLeft={reload} show={show} />
     </div>
   );
@@ -746,7 +737,7 @@ function Leave({
   );
 }
 
-function NoOrg() {
+function NoOrg({ offered }: { offered: ReactNode }) {
   const client = useClient();
   const checkout = useCheckout();
   const [catalog, setCatalog] = useState<BillingCatalog>();
@@ -822,6 +813,7 @@ function NoOrg() {
             )}
           </div>
         </Section>
+        {offered}
         <Section label="Joining an org">
           <Rows>
             <ItemRow

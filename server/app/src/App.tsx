@@ -8,7 +8,10 @@ import {
 } from "react";
 
 import {
+  IconActivity,
   IconCreditCard,
+  IconGlobe,
+  IconStack,
   IconPlug,
   IconServer,
   IconTag,
@@ -32,14 +35,23 @@ import { useLive } from "./live.ts";
 import { PricingPage } from "./Pricing.tsx";
 import { ShedNotHost } from "./Shed.tsx";
 import { Pay } from "./Pay.tsx";
+import {
+  AuditPage,
+  DomainsPage,
+  OfferBanner,
+  TeamsPage,
+  useOffers,
+} from "./OrgPages.tsx";
 import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
+  AUDIT,
   BILLING,
   CONNECTORS,
   CONSENT,
   DELETE_ACCOUNT,
+  DOMAINS,
   HOST,
   HOSTS,
   isSharePath,
@@ -48,6 +60,7 @@ import {
   PRICING,
   takeReturn,
   TEAM,
+  TEAMS,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
@@ -207,6 +220,9 @@ const PAGE_TITLES: Record<string, string> = {
   [HOSTS]: "Hosts",
   [BILLING]: "Plan and billing",
   [TEAM]: "Team",
+  [TEAMS]: "Teams",
+  [DOMAINS]: "Domains",
+  [AUDIT]: "Audit log",
   [JOIN]: "Join an org",
   [PRICING]: "Pricing",
   [DELETE_ACCOUNT]: "Delete your account",
@@ -238,9 +254,13 @@ function Account({
       : undefined;
   const billingShown = useBillingShown(ready && active);
   const [planVersion, setPlanVersion] = useState(0);
+  const offers = useOffers(billingShown);
   const shown: Record<string, boolean> = {
     [BILLING]: billingShown,
     [TEAM]: billingShown,
+    [TEAMS]: billingShown,
+    [DOMAINS]: billingShown,
+    [AUDIT]: billingShown,
     [JOIN]: billingShown,
     [PRICING]: staff,
   };
@@ -298,6 +318,17 @@ function Account({
             label: "Org",
             items: [
               { path: TEAM, name: "Team", icon: <IconUsers size={15} /> },
+              { path: TEAMS, name: "Teams", icon: <IconStack size={15} /> },
+              {
+                path: DOMAINS,
+                name: "Domains",
+                icon: <IconGlobe size={15} />,
+              },
+              {
+                path: AUDIT,
+                name: "Audit log",
+                icon: <IconActivity size={15} />,
+              },
             ],
           },
         ]
@@ -325,6 +356,9 @@ function Account({
       groups={groups}
       wide={page === PRICING}
     >
+      {page !== TEAM && page !== JOIN && account.state === "active" ? (
+        <OfferBanner offers={offers.offers} onOpen={() => go(TEAM)} />
+      ) : null}
       {account.state === "deleting" ? (
         <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
       ) : page === DELETE_ACCOUNT ? (
@@ -341,6 +375,12 @@ function Account({
         <JoinPage follow={follow} />
       ) : page === TEAM ? (
         <TeamPage follow={follow} />
+      ) : page === TEAMS ? (
+        <TeamsPage />
+      ) : page === DOMAINS ? (
+        <DomainsPage />
+      ) : page === AUDIT ? (
+        <AuditPage />
       ) : page === PRICING ? (
         <PricingPage />
       ) : page === BILLING ? (
