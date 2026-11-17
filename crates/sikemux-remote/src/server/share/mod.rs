@@ -691,6 +691,8 @@ mod tests {
                 by: "Rohan".into(),
                 restored: false,
                 back_by: None,
+                store: Default::default(),
+                moved: false,
             }),
             decided: None,
             worker_page: None,

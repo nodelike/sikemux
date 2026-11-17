@@ -4,7 +4,6 @@
 use crate::ui::Clicks;
 use std::rc::Rc;
 
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, App, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window,
@@ -75,8 +74,6 @@ type Act = Rc<dyn Fn(&mut Workbench, &mut Context<Workbench>)>;
 pub(super) struct Action {
     label: &'static str,
     act: Act,
-    /// It shows only while the pointer is over its row.
-    on_hover: bool,
 }
 
 impl Action {
@@ -87,13 +84,7 @@ impl Action {
         Self {
             label,
             act: Rc::new(act),
-            on_hover: false,
         }
-    }
-
-    pub(super) fn on_hover(mut self) -> Self {
-        self.on_hover = true;
-        self
     }
 }
 
@@ -115,23 +106,16 @@ pub(super) fn line(
     });
     let link = |at: usize, action: Action| {
         let (this, act) = (this.clone(), action.act.clone());
-        div()
-            .flex()
-            .gap(SPACE_1)
-            .when(action.on_hover, |part| {
-                part.opacity(0.).group_hover(ROW, |part| part.opacity(1.))
-            })
-            .child("·")
-            .child(
-                div()
-                    .id(SharedString::from(format!("{id}-{at}")))
-                    .text_color(t.text_secondary)
-                    .hover(|word| word.text_color(t.text_primary))
-                    .child(action.label)
-                    .clicks(move |_, _: &mut Window, cx| {
-                        this.update(cx, |bench, cx| act(bench, cx));
-                    }),
-            )
+        div().flex().gap(SPACE_1).child("·").child(
+            div()
+                .id(SharedString::from(format!("{id}-{at}")))
+                .text_color(t.text_secondary)
+                .hover(|word| word.text_color(t.text_primary))
+                .child(action.label)
+                .clicks(move |_, _: &mut Window, cx| {
+                    this.update(cx, |bench, cx| act(bench, cx));
+                }),
+        )
     };
     div()
         .flex()

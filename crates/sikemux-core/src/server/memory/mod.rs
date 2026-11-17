@@ -40,6 +40,7 @@ use crate::text::to_keep;
 
 mod brief;
 mod check;
+pub(crate) mod moving;
 mod now_check;
 mod promote;
 mod record;
@@ -49,9 +50,9 @@ mod seed;
 pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
-pub(crate) use promote::promote;
+pub(crate) use promote::{promote, promote_all};
 pub(crate) use record::{
-    free_elsewhere, free_here, mirror, personal as writes_personal, record, record_at,
+    free_elsewhere, free_here, mirror, moving_to, personal as writes_personal, record, record_at,
     written_at_home, APP_WRITES as APP_RECORD_WRITES,
 };
 pub(crate) use removed::{
@@ -88,6 +89,12 @@ struct Held {
     /// Rules kept from a chat's words that the person removed, until that chat's agent hears it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     removed: Vec<removed::Removed>,
+    /// Entries whose offer to move to the other store the person turned down.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    not_now: BTreeSet<u64>,
+    /// Other projects' rules in the same words, taken in when one moved into the person's store.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    absorbed: Vec<moving::Absorbed>,
 }
 
 impl Held {
@@ -107,6 +114,8 @@ impl Held {
         self.seeding = self.seeding.take().or(from.seeding);
         self.set_aside.extend(from.set_aside);
         self.removed.extend(from.removed);
+        self.not_now.extend(from.not_now);
+        self.absorbed.extend(from.absorbed);
     }
 }
 
@@ -424,10 +433,13 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
         seeding: None,
         set_aside: Vec::new(),
         removed: Vec::new(),
+        not_now: BTreeSet::new(),
+        absorbed: Vec::new(),
     }))
 }
 
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
+    let learned = moving::named(core, learned);
     let (text, store) = match &new {
         NewMemory::Rule { text, store, .. } | NewMemory::Knowledge { text, store, .. } => {
             (to_keep(text, "text", MAX_TEXT_CHARS)?, *store)
@@ -465,6 +477,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
                 sensitive,
                 learned,
                 was: None,
+                moved: None,
             });
         }
         NewMemory::Knowledge {
@@ -482,6 +495,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
             was: None,
             checked: None,
             stale: None,
+            moved: None,
         }),
     }
     core.memory().save(&mut state, &key);
@@ -516,6 +530,12 @@ fn amend(
     update: MemoryUpdateParams,
     by: Learned,
 ) -> Result<(), String> {
+    if let Some(store) = update.store {
+        return moving::move_to(core, project, update.id, store, by);
+    }
+    if update.not_now {
+        return moving::not_now(core, project, update.id);
+    }
     let Some(card) = update.goal else {
         return change(core, project, update, by);
     };
@@ -618,6 +638,7 @@ fn change(
         .held
         .get_mut(&key)
         .ok_or("the store went while it was being changed")?;
+    let store = held.store;
     let mut stale_moved = false;
     let (mut line, mut back, mut undone_already, mut removed_from) = (None, None, None, None);
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
@@ -637,9 +658,9 @@ fn change(
                     agent,
                     name: learned.name.take(),
                 });
-                rule.learned = learned;
+                rule.learned = moving::reworded(&rule.learned, learned);
                 line = Some((
-                    now_check::line(core, project, rule, &agent, None, Some(was.clone())),
+                    now_check::line(core, project, store, rule, &agent, None, Some(was.clone())),
                     agent,
                 ));
                 rule.was = Some(was);
@@ -649,7 +670,7 @@ fn change(
                     .ok_or("the rule went while it was being changed")?;
                 let rule = held.rules.remove(at);
                 line = Some((
-                    now_check::line(core, project, &rule, &agent, None, None),
+                    now_check::line(core, project, store, &rule, &agent, None, None),
                     agent.clone(),
                 ));
                 held.set_aside.push(now_check::SetAside {
@@ -664,6 +685,7 @@ fn change(
                     sensitive: false,
                     learned: by,
                     was: None,
+                    moved: None,
                 });
             }
             (Some(text), None) => {
@@ -675,7 +697,7 @@ fn change(
                     undone_already = Some(flat);
                 }
                 back = put_back.and(changed_by);
-                rule.learned = by;
+                rule.learned = moving::reworded(&rule.learned, by);
                 rule.was = Some(was);
             }
             (None, agent) => {
@@ -687,7 +709,7 @@ fn change(
                     .map(|with| with.agent.clone());
                 if let Some(agent) = agent {
                     line = Some((
-                        now_check::line(core, project, &rule, &agent, None, None),
+                        now_check::line(core, project, store, &rule, &agent, None, None),
                         agent.clone(),
                     ));
                     held.set_aside.push(now_check::SetAside {
@@ -710,7 +732,7 @@ fn change(
         let was_stale = known.stale.is_some();
         if let Some(text) = text {
             known.was = Some(std::mem::replace(&mut known.text, text));
-            known.learned = by.clone();
+            known.learned = moving::reworded(&known.learned, by.clone());
             known.stale = None;
             known.checked = None;
         }
@@ -749,7 +771,7 @@ fn change(
         let rule = (core.memory().state.locked().held.get(&key))
             .and_then(|held| held.rules.iter().find(|rule| rule.id == id).cloned());
         if let Some(rule) = rule {
-            let mut line = now_check::line(core, project, &rule, &agent, None, None);
+            let mut line = now_check::line(core, project, store, &rule, &agent, None, None);
             line.restored = true;
             crate::server::chief::rule_back(core, line, &agent);
         }
@@ -774,7 +796,7 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
             let rules: Vec<ListedRule> = (held.rules.iter())
                 .filter(|rule| shows_sensitive || !rule.sensitive)
                 .map(|rule| ListedRule {
-                    stays: promote::stays(rule, &file),
+                    stays: promote::stays(rule, held.store, &file),
                     rule: rule.clone(),
                 })
                 .collect();
@@ -798,7 +820,12 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
 /// knowledge kept, the project's store first. Sensitive entries show only in Sikemux's own window.
 pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entry>, Vec<Entry>) {
     let shows_sensitive = matches!(peer, Peer::App);
+    let me = moving::first_name(core);
+    let someone = |learned: &Learned| {
+        (learned.person.clone()).filter(|person| me.as_ref().is_some_and(|me| me != person))
+    };
     let state = core.memory().state.locked();
+    let offers = moving::Offers::new(&state, project);
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
         for rule in held
@@ -814,6 +841,9 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: false,
                 sensitive: rule.sensitive,
                 store: held.store,
+                moved: rule.moved.clone(),
+                someone: someone(&rule.learned),
+                offer: offers.for_rule(held, rule),
             };
             match rule.learned.agent {
                 None => rules.push(kept),
@@ -833,6 +863,9 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: known.stale.is_some(),
                 sensitive: known.sensitive,
                 store: held.store,
+                moved: known.moved.clone(),
+                someone: someone(&known.learned),
+                offer: None,
             });
         }
     }
@@ -1179,6 +1212,8 @@ pub(crate) async fn tool_update(
             .filter(|asked| !asked.is_empty());
         let update = MemoryUpdateParams {
             goal: given.goal.then(|| goal_card(&core, &agent)).transpose()?,
+            store: None,
+            not_now: false,
             project: project.clone(),
             id: given.id,
             text: given.text,
@@ -1313,6 +1348,8 @@ pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result
         check: None,
         drop_check: false,
         goal: None,
+        store: None,
+        not_now: false,
     };
     change(core, project, update, learned(core, None))
 }
@@ -1329,8 +1366,8 @@ pub(crate) async fn person_add(
             NewMemory::Rule {
                 text,
                 goal: None,
-                store: Store::Project,
                 sensitive,
+                ..
             } => now_check::bring_back_words(&core, &project, text, *sensitive),
             _ => None,
         };

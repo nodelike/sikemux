@@ -118,10 +118,16 @@ pub(crate) fn personal(core: &Core, method: &str, params: &Value) -> bool {
     match method {
         "memory.add" => flag("yours") && !goal,
         "memoryAdd" => params.pointer("/entry/store").and_then(Value::as_str) == Some("personal"),
-        "memory.update" | "memoryUpdate" => !goal && held_here(),
+        "memory.update" => !goal && held_here(),
+        "memoryUpdate" => moving_to(params).is_none() && !goal && held_here(),
         "promoteRule" => held_here(),
         _ => false,
     }
+}
+
+/// The store a move from the app takes an entry to, when `params` of its memoryUpdate are one.
+pub(crate) fn moving_to(params: &Value) -> Option<Store> {
+    serde_json::from_value(params.get("store")?.clone()).ok()
 }
 
 /// The view of the project at `folder` after its home did an app's write and sent back what the

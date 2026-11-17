@@ -72,6 +72,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - End every failure report with its cause in Sikemux and who has it, or \"agent slip, no change\".
 - Pick for each worker the cheapest agent and model that will do its job well, and keep work off an account near its limit.
 - When a smaller change or a deletion solves the problem, choose it.
+- Sikemux offers on the Playbook to move a rule between the person's own and the project's; never move one yourself or ask about it.
 - When the person repeats a correction a rule of theirs already makes, give memory_update that rule's id with wrong \"said again\". If a check can express it, have a worker land one, then wrong \"now a check: <commit>\"; never for an Overrule's rule.
 - When you report to the person, lead with the outcome, then only what needs them. Report a result as what changed, where it is and what to try. Never say something is done unless Sikemux's state line for that work says so.
 - Come back to the person at five moments only: a call; done, with where the work is and what to try; slipped, with the new time and why; stuck on something only they have; and when they ask.";
@@ -1561,8 +1562,22 @@ pub(crate) fn rule_back(core: &Core, line: RuleChange, agent: &str) {
     rule_line(core, line, "Rule back", agent);
 }
 
+/// The person moved a rule between their own store and the project's: one line with Undo in the
+/// chief's chat says so.
+pub(crate) fn rule_moved(core: &Core, line: RuleChange) {
+    if let Some(chief) = chief_at(core, &line.project) {
+        let key = rule_key(&line);
+        put_row(
+            core,
+            &chief,
+            key,
+            sikemux_fold::update::rule_change_notice("Rule moved", line),
+        );
+    }
+}
+
 fn rule_line(core: &Core, line: RuleChange, title: &str, agent: &str) {
-    let key = rule_key(&line.project, line.rule);
+    let key = rule_key(&line);
     let chief = chief_at(core, &line.project);
     match chief {
         Some(chief) => {
@@ -1596,7 +1611,7 @@ pub(crate) fn rule_lines_back(core: &Core, project: &str, back: impl Fn(&RuleCha
         });
         for mut line in lines.unwrap_or_default() {
             line.restored = true;
-            let key = rule_key(project, line.rule);
+            let key = rule_key(&line);
             put_row(core, &chief, key, rule_back_notice(line));
         }
     }
@@ -1615,8 +1630,9 @@ fn rule_back_notice(line: RuleChange) -> Value {
     sikemux_fold::update::rule_change_notice("Rule back", line)
 }
 
-fn rule_key(project: &str, rule: u64) -> String {
-    format!("rule|{project}|{rule}")
+fn rule_key(line: &RuleChange) -> String {
+    let moved = if line.moved { "|moved" } else { "" };
+    format!("rule|{}|{}{moved}", line.project, line.rule)
 }
 
 /// The Overrule of a decision, when the person made one that Undo can put back.

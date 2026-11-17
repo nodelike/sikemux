@@ -1875,6 +1875,12 @@ pub struct RuleChange {
     /// The agent that brought it back, by name, as the person asked; none when the person did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub back_by: Option<String>,
+    /// The store the rule is kept in, or was before it was removed.
+    #[serde(default, skip_serializing_if = "crate::memory::Store::is_project")]
+    pub store: crate::memory::Store,
+    /// The person moved it into `store` from the other one; Undo moves it back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
 }
 
 /// A week in a chief's project, counted by the core.

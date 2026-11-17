@@ -178,7 +178,15 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
     }
     tell_clients(core, false);
     core.activity_log().core_used("rule.nowCheck");
-    let line = line(core, project, &rule, &chief, Some(commit), None);
+    let line = line(
+        core,
+        project,
+        Store::Project,
+        &rule,
+        &chief,
+        Some(commit),
+        None,
+    );
     crate::server::chief::rule_changed(core, line, &chief);
     Ok(())
 }
@@ -187,6 +195,7 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
 pub(super) fn line(
     core: &Core,
     project: &str,
+    store: Store,
     rule: &MemoryRule,
     agent: &str,
     commit: Option<String>,
@@ -201,6 +210,8 @@ pub(super) fn line(
         by: core.names().name_or_id(agent),
         restored: false,
         back_by: None,
+        store,
+        moved: false,
     }
 }
 
@@ -306,10 +317,7 @@ pub(super) fn bring_back_words(
 /// whose rule came back another way does: the line that offered it says it is back.
 pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> bool {
     let super::NewMemory::Rule {
-        text,
-        goal: None,
-        store: Store::Project,
-        ..
+        text, goal: None, ..
     } = new
     else {
         return false;
@@ -320,7 +328,7 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
         .any(|rule| rule.learned.agent.is_none() && crate::text::one_line(&rule.text) == same);
     if kept {
         crate::server::chief::rule_lines_back(core, project, |line| {
-            line.was.is_none() && line.text == same
+            !line.moved && line.was.is_none() && line.text == same
         });
     }
     kept
@@ -330,7 +338,7 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
 /// already, and the line for it says it is back: brought back by `agent`, or by the person.
 /// Answers the key of the store it is kept in.
 fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Result<String, String> {
-    let (key, apart) = {
+    let (key, store, apart) = {
         let mut state = core.memory().state.locked();
         let (key, apart) = take(&mut state, project, id)?;
         let words = apart.rule.text.to_lowercase();
@@ -343,13 +351,15 @@ fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Resul
         if !kept_again {
             held.rules.push(apart.rule.clone());
         }
+        let store = held.store;
         core.memory().save(&mut state, &key);
-        (key, apart)
+        (key, store, apart)
     };
     tell_clients(core, false);
     let mut back = line(
         core,
         project,
+        store,
         &apart.rule,
         &apart.by,
         apart.commit.clone(),

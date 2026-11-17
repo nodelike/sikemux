@@ -607,6 +607,7 @@ calls! { core, client, method, params;
     "memoryAdd" = MemoryAdd: Full => memory::person_add(&core, client.peer.clone(), params).await?,
     "memoryUpdate" = MemoryUpdate: Full => memory::person_update(&core, client.peer.clone(), params).await?,
     "promoteRule" = PromoteRule: Owner => memory::promote(&core, client.peer.clone(), params).await?,
+    "promoteRules" = PromoteRules: Owner => memory::promote_all(&core, client.peer.clone(), params).await?,
     "keepSeededRules" = KeepSeededRules: Owner => memory::keep_seeded(&core, client.peer.clone(), params).await?,
     "seedRules" = SeedRules: Owner => memory::seed_again(&core, client.peer.clone(), params).await?,
     "chatGoalUndo" = ChatGoalUndo: Full => {
@@ -773,6 +774,39 @@ pub(crate) async fn record_write(
         "undoOverrule" => answer(board::goal::undo_overrule(core, parse(params)?).await?),
         "boardDecide" => answer(board::goal::person_decide(core, parse(params)?).await?),
         "boardHeldCard" => answer(board::hand_off::person_held_card(core, parse(params)?).await?),
+        "memoryTake" => {
+            let core = core.clone();
+            blocking(move || {
+                let folder = (params.get("project").and_then(Value::as_str)).unwrap_or_default();
+                let id = (params.get("id").and_then(Value::as_u64))
+                    .ok_or("a move names what it moves")?;
+                let taken = memory::moving::take_out(
+                    &core,
+                    folder,
+                    id,
+                    sikemux_view::memory::Store::Project,
+                )?;
+                Ok(serde_json::json!({
+                    "record": memory::record_at(&core, folder),
+                    "was": taken.was,
+                    "entry": taken.going,
+                }))
+            })
+            .await
+        }
+        "memoryPut" => {
+            let core = core.clone();
+            blocking(move || {
+                let folder = (params.get("project").and_then(Value::as_str)).unwrap_or_default();
+                let entry =
+                    serde_json::from_value(params.get("entry").cloned().unwrap_or_default())
+                        .map_err(|error| error.to_string())?;
+                memory::moving::put_in(&core, folder, entry, sikemux_view::memory::Store::Project)?;
+                Ok(memory::record_at(&core, folder)
+                    .ok_or("the project keeps no rules or knowledge here")?)
+            })
+            .await
+        }
         method if memory::APP_RECORD_WRITES.contains(&method) => {
             let folder = (params.get("project").and_then(Value::as_str))
                 .unwrap_or_default()

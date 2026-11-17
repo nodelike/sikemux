@@ -38,6 +38,14 @@ pub struct Entry {
     pub sensitive: bool,
     #[serde(default, skip_serializing_if = "crate::memory::Store::is_project")]
     pub store: crate::memory::Store,
+    /// Who last moved it between the person's store and the project's, and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Learned>,
+    /// The person who said it, when someone other than whoever is signed in here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub someone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<crate::memory::MoveOffer>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

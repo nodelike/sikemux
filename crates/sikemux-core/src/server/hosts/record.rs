@@ -11,12 +11,14 @@ use std::sync::Arc;
 
 use crate::cli::protocol::HarnessRequest;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use sikemux_view::memory::Store;
 use sikemux_view::workspace::{ChiefHome, ProjectInfo};
 
 use super::super::access::Peer;
 use super::super::board::record as board_record;
-use super::super::{memory, Core};
+use super::super::memory::{self, moving};
+use super::super::Core;
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Answer;
 use super::outbox::Post;
@@ -124,12 +126,19 @@ pub(crate) async fn app_write(
     if !(APP_WRITES.contains(&method) || to_memory) {
         return None;
     }
-    if to_memory && memory::writes_personal(core, method, params) {
-        return None;
-    }
     let folder = (core.workspaces()).project_of(std::path::Path::new(
         params.get("project").and_then(Value::as_str)?,
     ));
+    if let Some(to) = (method == "memoryUpdate")
+        .then(|| memory::moving_to(params))
+        .flatten()
+    {
+        let (home, identity) = away(core, &folder)?;
+        return Some(move_across(core, peer, &folder, &home, &identity, to, params).await);
+    }
+    if to_memory && memory::writes_personal(core, method, params) {
+        return None;
+    }
     let (home, identity) = away(core, &folder)?;
     let mut params = params.clone();
     put_project(&mut params, identity.clone());
@@ -153,6 +162,73 @@ pub(crate) async fn app_write(
         }
         answer
     }))
+}
+
+/// Moves an entry between the person's own store, kept on this host, and the project's, kept at
+/// its home: each host writes its own half, and a half that fails puts the other back.
+async fn move_across(
+    core: &Arc<Core>,
+    peer: &Peer,
+    folder: &str,
+    home: &ChiefHome,
+    identity: &str,
+    to: Store,
+    params: &Value,
+) -> Result<Value, String> {
+    let id = (params.get("id").and_then(Value::as_u64)).ok_or("a move names what it moves")?;
+    let asked = |method: &str, params: Value| RecordAct {
+        identity: identity.to_owned(),
+        method: method.to_owned(),
+        params,
+        agent_id: None,
+        person_said: Vec::new(),
+    };
+    let record = match to {
+        Store::Project => {
+            let taken = moving::take_out(core, folder, id, Store::Personal)?;
+            let put = json!({ "project": identity, "entry": taken.going });
+            match act(core, home, asked("memoryPut", put)).await {
+                Ok(record) => {
+                    moving::moved_across(core, folder, &taken, to);
+                    record
+                }
+                Err(error) => {
+                    if let Err(lost) = moving::put_in(core, folder, taken.was, Store::Personal) {
+                        eprintln!(
+                            "a move to the project failed and its entry could not go back: {lost}"
+                        );
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Store::Personal => {
+            moving::can_take_in(core, folder, id, to)?;
+            let take = json!({ "project": identity, "id": id });
+            let answer = act(core, home, asked("memoryTake", take)).await?;
+            let entry = |name: &str| -> Result<moving::Moving, String> {
+                serde_json::from_value(answer.get(name).cloned().unwrap_or_default())
+                    .map_err(|error| error.to_string())
+            };
+            let taken = moving::Taken {
+                was: entry("was")?,
+                going: entry("entry")?,
+            };
+            if let Err(error) = moving::put_in(core, folder, taken.going.clone(), to) {
+                let put = json!({ "project": identity, "entry": taken.was });
+                if let Err(lost) = act(core, home, asked("memoryPut", put)).await {
+                    eprintln!(
+                        "a move to yours failed and its entry could not go back: {lost}"
+                    );
+                }
+                return Err(error);
+            }
+            moving::moved_across(core, folder, &taken, to);
+            answer.get("record").cloned().unwrap_or_default()
+        }
+    };
+    let view = memory::written_at_home(core, folder, identity, peer, record)?;
+    serde_json::to_value(view).map_err(|error| error.to_string())
 }
 
 /// Has the project's home do an agent's tool call, when its record is kept on another host.

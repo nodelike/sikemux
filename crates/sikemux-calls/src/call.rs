@@ -33,6 +33,7 @@ crate::calls! {
     "memory" Memory (crate::memory::MemoryParams) -> sikemux_view::memory::MemoryView;
     "memoryUpdate" MemoryUpdate (crate::memory::MemoryUpdateParams) -> sikemux_view::memory::MemoryView;
     "promoteRule" PromoteRule (crate::memory::MemoryEntryParams) -> sikemux_view::memory::MemoryView;
+    "promoteRules" PromoteRules (crate::memory::MemoryParams) -> sikemux_view::memory::MemoryView;
     "keepSeededRules" KeepSeededRules (crate::memory::KeepSeededParams) -> sikemux_view::memory::MemoryView;
     "seedRules" SeedRules (crate::memory::MemoryParams) -> sikemux_view::memory::MemoryView;
     "moveAgentToProject" MoveAgentToProject (crate::move_agent::MoveParams) -> sikemux_view::workspace::WorkspaceAgent;

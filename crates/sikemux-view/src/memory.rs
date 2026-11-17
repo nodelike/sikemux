@@ -20,6 +20,10 @@ pub struct Learned {
     /// For what the person said in a chat, the agent they said it to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub with: Option<SaidTo>,
+    /// The person whose words these were, by their account's first name, so a store that two
+    /// people's agents read can say which; none for an agent, or when no one was signed in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
 }
 
 /// The agent the person said something to, and what it was called then.
@@ -43,6 +47,9 @@ pub struct MemoryRule {
     pub learned: Learned,
     /// What it said before it was last corrected.
     pub was: Option<String>,
+    /// Who last moved it between the person's store and the project's, and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Learned>,
 }
 
 /// How things are, such as "the service is called ai-service now".
@@ -66,6 +73,9 @@ pub struct Knowledge {
     pub checked: Option<LastCheck>,
     /// Why it is no longer known to hold; it stays out of briefs meanwhile.
     pub stale: Option<Stale>,
+    /// Who last moved it between the person's store and the project's, and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Learned>,
 }
 
 /// What the core can test about knowledge by itself.
@@ -138,6 +148,8 @@ pub struct ListedRule {
 pub enum Stays {
     /// It is sensitive, so it never goes into the repository.
     Sensitive,
+    /// It is the person's own, kept for every project rather than this repository.
+    Yours,
     /// The project's folder is not the top of a git checkout, so an AGENTS.md there
     /// would not be versioned.
     NoCheckout,
@@ -160,6 +172,31 @@ impl Store {
     pub fn is_project(&self) -> bool {
         *self == Store::Project
     }
+
+    /// The store an entry of this one moves to.
+    pub fn other(self) -> Store {
+        match self {
+            Store::Project => Store::Personal,
+            Store::Personal => Store::Project,
+        }
+    }
+}
+
+/// The chief's offer to move an entry to the other store, until it is moved or the person says
+/// Not now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MoveOffer {
+    /// A rule of the person's own names something of this repository, so the project's agents
+    /// would follow it too.
+    AboutHere,
+    /// The person keeps the same rule for `elsewhere`, a project by its name, too, so it would
+    /// follow them everywhere as theirs.
+    SaidElsewhere { elsewhere: String },
 }
 
 /// What one store keeps.

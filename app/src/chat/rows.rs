@@ -1192,7 +1192,16 @@ fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(line) = notice.rule_change.clone() else {
         return div().into_any_element();
     };
+    let moved_to = || match line.store.is_project() {
+        true => t!(
+            "to {project}",
+            project = crate::ui::path::file_name(std::path::Path::new(&line.project))
+        ),
+        false => t!("to yours").to_owned(),
+    };
     let (head, tail) = match (line.restored, &line.commit, &line.was) {
+        (true, _, _) if line.moved => (t!("Moved back"), None),
+        (false, _, _) if line.moved => (t!("Rule moved"), Some(moved_to())),
         (true, _, _) => (
             t!("Rule back"),
             (line.back_by.clone()).map(|name| t!("by @{name}", name = name)),

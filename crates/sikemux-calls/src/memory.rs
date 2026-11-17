@@ -23,6 +23,12 @@ pub struct MemoryUpdateParams {
     pub drop_check: bool,
     /// The goal card whose own rule `id` is.
     pub goal: Option<u64>,
+    /// Moves it into this store, keeping its id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<Store>,
+    /// The person turned down the chief's offer to move it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub not_now: bool,
 }
 
 #[derive(Serialize, Deserialize)]

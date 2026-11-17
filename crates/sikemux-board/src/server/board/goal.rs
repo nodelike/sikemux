@@ -41,6 +41,7 @@ pub fn learned(core: &Core, agent: Option<&str>) -> Learned {
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
         at: epoch_ms(),
         with: None,
+        person: None,
     }
 }
 
