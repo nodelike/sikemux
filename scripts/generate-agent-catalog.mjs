@@ -658,6 +658,10 @@ impl AgentKind {
 ${agents.map((agent) => `        AgentKind::${pascal(agent.type)},`).join("\n")}
     ];
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "AGENTS lists one entry per kind, in the kind's order"
+    )]
     pub fn entry(self) -> &'static AgentEntry {
         &AGENTS[self as usize]
     }
