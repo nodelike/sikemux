@@ -182,6 +182,9 @@ pub struct RecentChatsParams {
     /// answered or the wait for them is over.
     #[serde(default)]
     pub elsewhere: bool,
+    /// With `elsewhere`, only these linked hosts, by key; every one when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hosts: Vec<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

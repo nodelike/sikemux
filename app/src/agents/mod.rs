@@ -34,8 +34,8 @@ use crate::icons::Icon;
 use crate::motion;
 use crate::rail::{Rail, RailWidth};
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_6, TEXT_2XS,
-    TEXT_3XS, TEXT_SM, TEXT_XS,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_6,
+    TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
 use crate::workbench::Workbench;
@@ -237,6 +237,9 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .collect();
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
+    }
+    if !tagged {
+        recent.extend(other_hosts_line(bench, cx));
     }
     let quiet = rows.is_empty() && snoozed.is_empty();
     let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
@@ -613,6 +616,10 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         .into_any_element(),
         false => ui::mono(ui::time::age(recent.active_at), TEXT_2XS, cx).into_any_element(),
     };
+    let elsewhere = bench.found_host(&recent.id).map(|key| {
+        let said = t!("On {host}", host = bench.host_name(key));
+        host_mark(format!("host-of-{}", recent.id), said.into(), cx)
+    });
     let row = Row::new(
         SharedString::from(format!("recent-{}", recent.id)),
         recent.title.clone(),
@@ -622,11 +629,18 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
     .when_some(bench.said_in(&recent.id), |row, said| {
         row.subtitle(crate::pickers::recent::said_line(said, cx))
     })
+    .children(elsewhere)
     .child(tail)
     .on_click(cx.listener({
         let recent = recent.clone();
         move |bench, _, _, cx| bench.take_up_chat(&recent, cx)
     }));
+    if bench.found_host(&recent.id).is_some() {
+        return div()
+            .id(SharedString::from(format!("recent-menu-{}", recent.id)))
+            .child(row)
+            .into_any_element();
+    }
     let pin = pin_chat(&cx.entity(), recent);
     let unpin = recent.pinned.then(|| {
         let unpin = pin.1.clone();
@@ -739,6 +753,72 @@ fn older_when_seen(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
     .w_full()
     .h(px(1.))
     .into_any_element()
+}
+
+/// The quiet last line of Recent while the filter searches other hosts: how many are still
+/// being asked, then which did not answer, with Try again for those alone.
+fn other_hosts_line(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let older = bench
+        .older
+        .as_ref()
+        .filter(|_| !bench.filter_text().is_empty())?;
+    if !bench.searches_hosts() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let line = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .pt(SPACE_2)
+        .pb(SPACE_1)
+        .pl(px(46.))
+        .pr(SPACE_4)
+        .text_size(crate::theme::ui_text(TEXT_2XS))
+        .text_color(t.text_tertiary);
+    if !older.asking.is_empty() {
+        let asking = match older.asking.len() {
+            1 => SharedString::from(t!("Asking 1 more host…")),
+            count => t!("Asking {count} more hosts…", count = count).into(),
+        };
+        return Some(
+            line.child(ui::working(9., t.text_tertiary))
+                .child(asking)
+                .into_any_element(),
+        );
+    }
+    if !bench.may_search_hosts() {
+        let upgrade = div()
+            .id("search-hosts-pro")
+            .hover(|upgrade| upgrade.text_color(t.text_secondary))
+            .child(t!("Pro searches every host's chats ›"))
+            .clicks(cx.listener(|bench, _, window, cx| {
+                bench.open_settings(crate::settings::Page::Account, window, cx)
+            }));
+        return Some(line.child(upgrade).into_any_element());
+    }
+    if older.unanswered.is_empty() {
+        return bench
+            .pro_free()
+            .map(|free| line.child(free).into_any_element());
+    }
+    let names: Vec<SharedString> = (older.unanswered.iter())
+        .map(|key| bench.host_name(key))
+        .collect();
+    let silent = t!("{hosts} didn't answer", hosts = names.join(", "));
+    let unanswered = older.unanswered.clone();
+    let again = div()
+        .id("search-hosts-again")
+        .text_color(t.text_secondary)
+        .hover(|again| again.text_color(t.text_primary))
+        .child(t!("Try again"))
+        .clicks(cx.listener(move |bench, _, _, cx| bench.search_hosts(unanswered.clone(), cx)));
+    Some(
+        line.child(silent)
+            .child("·")
+            .child(again)
+            .into_any_element(),
+    )
 }
 
 /// Asks for a recent chat's new title, and renames it in its CLI's own history.

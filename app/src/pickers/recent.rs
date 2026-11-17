@@ -9,16 +9,18 @@ use std::time::Duration;
 use gpui_kit::component::input::InputState;
 use gpui_kit::{
     div, App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
-    Subscription,
+    Subscription, Task,
 };
 use sikemux_agents::sessions::said::FoundLine;
 use sikemux_view::device::{FoundBy, FoundChat, RecentInfo};
 use std::collections::HashMap;
 
+use crate::core::Target;
 use crate::workbench::Workbench;
 use sikemux_agents::sessions::recent::RecentCursor;
 use sikemux_calls::call;
 use sikemux_calls::workspace::RecentChatsParams;
+use sikemux_corekit::accounts::protocol::PlanFeature;
 
 /// The rail's filter of recent chats: its field, and what is typed there in lower case.
 pub struct Filter {
@@ -45,8 +47,12 @@ pub struct OlderChats {
     pub said: HashMap<String, FoundLine>,
     /// The open agents and saved chats `query` finds, in the order the core ranks them.
     pub found: Vec<FoundChat>,
+    /// The linked hosts, by key, still being searched.
+    pub asking: Vec<String>,
     /// The linked hosts, by key, that did not answer the search in time.
     pub unanswered: Vec<String>,
+    limit: usize,
+    _searches: Vec<Task<()>>,
     /// `found` still holds the last query's rows, until the core answers this one.
     stale: bool,
     loading: bool,
@@ -86,7 +92,10 @@ impl Workbench {
                 next: None,
                 said: HashMap::new(),
                 found: shown,
+                asking: Vec::new(),
                 unanswered: Vec::new(),
+                limit,
+                _searches: Vec::new(),
                 stale: true,
                 loading: true,
             });
@@ -98,6 +107,7 @@ impl Workbench {
             limit: Some(limit),
             quick,
             elsewhere: false,
+            hosts: Vec::new(),
         };
         let quick = (!same && !query.is_empty()).then(|| params(true));
         let full = (!query.starts_with('@')).then(|| params(false));
@@ -116,9 +126,97 @@ impl Workbench {
             };
             let page = target.request_typed::<call::RecentChats>(full).await.ok();
             let _ = this.update(cx, |bench, cx| {
-                bench.take_page(&project, &query, page, true, cx)
+                bench.take_page(&project, &query, page, true, cx);
+                if !same && !query.is_empty() && bench.may_search_hosts() {
+                    let hosts = bench.other_copies();
+                    bench.search_hosts(hosts, cx);
+                }
             });
         }));
+    }
+
+    /// Whether the rail's filter also searches other hosts: some hold a copy of the project in
+    /// front.
+    pub fn searches_hosts(&self) -> bool {
+        !self.other_copies().is_empty()
+    }
+
+    /// Whether the account's plan lets a search reach the other hosts.
+    pub fn may_search_hosts(&self) -> bool {
+        let account = self.this_view().and_then(|view| view.account.as_deref());
+        sikemux_corekit::accounts::allows(account, PlanFeature::HistorySearch)
+    }
+
+    /// The hosts other than the one in front that hold a copy of the project in front, by key.
+    fn other_copies(&self) -> Vec<String> {
+        let (front, Some(folded)) = (self.place(), self.folded_in_front()) else {
+            return Vec::new();
+        };
+        (folded.copies.iter())
+            .filter(|copy| copy.place != front)
+            .filter_map(|copy| self.host_key(&copy.place))
+            .collect()
+    }
+
+    /// Searches each of `hosts` for what the rail's filter holds, through the core in front,
+    /// so each host's hits join the end of the list as it answers.
+    pub fn search_hosts(&mut self, hosts: Vec<String>, cx: &mut Context<Self>) {
+        let target = self.target();
+        let Some(older) = self.older.as_mut() else {
+            return;
+        };
+        older.unanswered.retain(|host| !hosts.contains(host));
+        for host in hosts {
+            let params = RecentChatsParams {
+                project: Some(older.project.clone()),
+                query: Some(older.query.clone()),
+                cursor: None,
+                limit: Some(older.limit),
+                quick: false,
+                elsewhere: true,
+                hosts: vec![host.clone()],
+            };
+            let asked = target.request_typed::<call::RecentChats>(params);
+            let (project, query) = (older.project.clone(), older.query.clone());
+            older.asking.push(host.clone());
+            older._searches.push(cx.spawn(async move |this, cx| {
+                let page = asked.await.ok();
+                let _ = this.update(cx, |bench, cx| {
+                    bench.take_host_page(&project, &query, &host, page, cx)
+                });
+            }));
+        }
+        cx.notify();
+    }
+
+    fn take_host_page(
+        &mut self,
+        project: &str,
+        query: &str,
+        host: &str,
+        page: Option<sikemux_calls::workspace::RecentChats>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(older) =
+            (self.older.as_mut()).filter(|older| older.project == project && older.query == query)
+        else {
+            return;
+        };
+        older.asking.retain(|asked| asked != host);
+        if page.is_none() {
+            older.unanswered.push(host.to_owned());
+        }
+        self.take_page(project, query, page, false, cx);
+    }
+
+    /// The linked host the chat `id` a search found is on, by key; none for the host in front.
+    pub fn found_host(&self, id: &str) -> Option<&str> {
+        let older = self.older.as_ref()?;
+        (older.found.iter())
+            .find(|found| {
+                found.chat.as_deref() == Some(id) || found.agent_id.as_deref() == Some(id)
+            })
+            .and_then(|found| found.host.as_deref())
     }
 
     /// Takes in a page the core answered for `query`: its saved chats and where each said the
@@ -151,7 +249,6 @@ impl Workbench {
             older.said.extend(page.said);
             if std::mem::take(&mut older.stale) {
                 older.found.clear();
-                older.unanswered.clear();
             }
             older.unanswered.extend(page.unanswered);
             let found = page.found.into_iter().filter(|found| {
@@ -298,7 +395,11 @@ impl Workbench {
     /// Opens the agent `id`'s chat, and when a search found it by its words, its find on them.
     pub fn open_found_agent(&mut self, id: &str, cx: &mut Context<Self>) {
         let found = (self.chat_of(id)).and_then(|chat| self.found_words(&chat.id));
-        self.open_agent(id, cx);
+        let on = match self.found_host(id) {
+            Some(host) => Target::new(&self.asks, self.place_of(host)),
+            None => Target::here(&self.asks),
+        };
+        self.open_agent_from(id, on, cx);
         if let Some(found) = found {
             self.find_once_attached(id.to_owned(), Some(found), cx);
         }

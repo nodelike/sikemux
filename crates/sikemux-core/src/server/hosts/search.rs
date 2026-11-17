@@ -69,6 +69,9 @@ pub(crate) async fn elsewhere(
     let mut asking = JoinSet::new();
     let mut waiting = Vec::new();
     for link in core.remote().links() {
+        if !asked.hosts.is_empty() && !asked.hosts.contains(&link.id) {
+            continue;
+        }
         let holds = (identity.as_deref())
             .is_none_or(|identity| core.hosts().copies.project_on(&link.id, identity).is_some());
         if !holds {
@@ -162,6 +165,7 @@ pub(super) async fn here(core: &Arc<Core>, params: SearchParams) -> Answer {
         limit: params.limit,
         quick: false,
         elsewhere: false,
+        hosts: Vec::new(),
     };
     let (answer, found) = search_here(core, asked)
         .await

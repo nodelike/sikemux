@@ -230,12 +230,8 @@ impl Workbench {
         identity: Option<&str>,
         cx: &mut Context<Self>,
     ) {
-        let host = match &copy.place {
-            Place::Account(key) => key.clone(),
-            Place::This => match &self.remote {
-                Some(remote) => remote.core_id.clone(),
-                None => return,
-            },
+        let Some(host) = self.host_key(&copy.place) else {
+            return;
         };
         self.keep_draft(agent, cx);
         let moving = self
@@ -353,6 +349,14 @@ impl Workbench {
         })?;
         let front = self.front_copy(&folded)?;
         (front.place == target).then(|| front.project.clone())
+    }
+
+    /// The account's key for the host at `place`.
+    pub fn host_key(&self, place: &Place) -> Option<String> {
+        match place {
+            Place::Account(key) => Some(key.clone()),
+            Place::This => self.remote.as_ref().map(|remote| remote.core_id.clone()),
+        }
     }
 
     /// A project of the host at `place`, by its id there.

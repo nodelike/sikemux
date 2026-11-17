@@ -592,7 +592,12 @@ impl Workbench {
             .id
             .strip_prefix(&format!("{}:", recent.provider))
             .unwrap_or(&recent.id);
-        let taken = self.resume_session(
+        let place = match self.found_host(&recent.id) {
+            Some(host) => self.place_of(host),
+            None => self.place(),
+        };
+        let taken = self.resume_session_on(
+            place,
             &recent.project,
             recent.provider.clone(),
             session.to_owned(),
@@ -624,7 +629,22 @@ impl Workbench {
         title: String,
         cx: &mut Context<Self>,
     ) -> Task<Option<String>> {
-        let Some(project) = self.projects().iter().find(|known| known.id == project) else {
+        self.resume_session_on(self.place(), project, provider, session_id, cwd, title, cx)
+    }
+
+    /// As [`Self::resume_session`], on the host at `place`.
+    #[allow(clippy::too_many_arguments)]
+    fn resume_session_on(
+        &self,
+        place: Place,
+        project: &str,
+        provider: String,
+        session_id: String,
+        cwd: PathBuf,
+        title: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
+        let Some(project) = self.project_on(&place, project) else {
             return Task::ready(None);
         };
         let asked = SessionChoice {
@@ -634,7 +654,7 @@ impl Workbench {
             cwd: Some(cwd),
             title: Some(title),
         };
-        let target = self.target();
+        let target = Target::new(&self.asks, place);
         let taken = target.request_typed::<call::ResumeSession>(asked);
         cx.spawn(async move |bench, cx| match taken.await {
             Ok(taken) => {
