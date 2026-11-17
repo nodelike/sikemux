@@ -44,6 +44,10 @@ struct Shape {
     view_box: String,
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the faces catalogue is built into the binary, generated and checked"
+)]
 fn catalogue() -> &'static Catalogue {
     static CATALOGUE: OnceLock<Catalogue> = OnceLock::new();
     CATALOGUE.get_or_init(|| {
@@ -86,7 +90,7 @@ fn face(style: &FaceStyle, agent: &WorkspaceAgent) -> Option<AgentFace> {
     let (pack, shape) = named.or_else(|| {
         let every_pack = style.pack == EVERY_PACK;
         let pack = if every_pack {
-            &packs[h as usize % packs.len()]
+            packs.get(h as usize % packs.len())?
         } else {
             packs
                 .iter()

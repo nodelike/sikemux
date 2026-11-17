@@ -103,8 +103,8 @@ impl Prices {
 /// `claude-fable-5-1[1m]` is the 1M context tier, which is priced by its base name.
 fn normalize(model: &str) -> String {
     let key = model.trim().to_lowercase();
-    match key.find('[') {
-        Some(at) => key[..at].to_string(),
+    match key.split_once('[') {
+        Some((base, _)) => base.to_string(),
         None => key,
     }
 }

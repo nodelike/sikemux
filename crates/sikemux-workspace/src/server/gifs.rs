@@ -32,7 +32,7 @@ pub async fn find(core: &Core, query: &str) -> Result<Value, String> {
     let (item, file) = items(&answer)
         .find_map(|item| {
             let file = ["md", "sm", "xs"].iter().find_map(|size| {
-                let file = item["file"][size]["gif"].as_object()?;
+                let file = item.get("file")?.get(*size)?.get("gif")?.as_object()?;
                 let shown = file
                     .get("url")
                     .and_then(Value::as_str)
@@ -80,7 +80,9 @@ async fn klipy(path: &str, query: &[(&str, &str)]) -> Result<Value, String> {
 }
 
 fn items(answer: &Value) -> impl Iterator<Item = &Value> {
-    answer["data"]["data"].as_array().into_iter().flatten()
+    (answer.pointer("/data/data").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
 }
 
 /// The same person to the GIF service across searches, without saying who.
@@ -90,5 +92,7 @@ fn customer(core: &Core) -> String {
         .as_ref()
         .map(|dir| dir.to_string_lossy().into_owned())
         .unwrap_or_default();
-    hex::encode(Sha256::digest(format!("klipy:{place}")))[..32].to_owned()
+    let mut customer = hex::encode(Sha256::digest(format!("klipy:{place}")));
+    customer.truncate(32);
+    customer
 }

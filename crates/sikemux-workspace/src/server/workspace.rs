@@ -408,9 +408,9 @@ fn dress(agent: &mut WorkspaceAgent, others: &[Kept]) {
             *score += if other.cwd == agent.cwd { 1000 } else { 1 };
         }
     }
-    let least = (0..BUDDY_COLOURS)
-        .min_by_key(|&slot| scores[slot])
-        .unwrap_or(0);
+    let least = (scores.iter().enumerate())
+        .min_by_key(|(_, score)| **score)
+        .map_or(0, |(slot, _)| slot);
     agent.buddy.get_or_insert_default().color = Some(least as u32);
 }
 
@@ -690,20 +690,20 @@ impl Workspaces {
 
     fn update_project(&self, id: &str, patch: Map<String, Value>) -> CoreResult<ProjectInfo> {
         self.change(|saved| {
-            let index = saved
-                .projects
-                .iter()
-                .position(|project| project.id == id)
+            let current = (saved.projects.iter())
+                .find(|project| project.id == id)
                 .ok_or_else(|| CoreError::from("that project is not on this host"))?;
             let project = patched(
-                &saved.projects[index],
+                current,
                 patch,
                 &[
                     "id", "path", "identity", "copies", "chief", "agents", "standing", "calls",
                 ],
             )?;
             check_project(&project, saved)?;
-            saved.projects[index] = project.clone();
+            if let Some(kept) = saved.projects.iter_mut().find(|known| known.id == id) {
+                *kept = project.clone();
+            }
             Ok(project)
         })
     }

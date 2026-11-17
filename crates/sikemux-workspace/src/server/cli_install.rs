@@ -63,28 +63,27 @@ fn status_for(executable: Option<PathBuf>) -> CliInstallStatus {
         );
     };
 
-    let install_state = match destination_state(&cli_path, &executable) {
-        DestinationState::Conflict => CliInstallState::Conflict,
-        DestinationState::Installed => CliInstallState::Installed,
+    let (install_state, message) = match destination_state(&cli_path, &executable) {
+        DestinationState::Installed if path_configured => {
+            (CliInstallState::Installed, "Ready. Run `sikemux <path>`.")
+        }
+        DestinationState::Installed => (
+            CliInstallState::Installed,
+            "Installed. Add the shown directory to PATH, then restart your shell.",
+        ),
         #[cfg(windows)]
-        DestinationState::Outdated => CliInstallState::Outdated,
-        DestinationState::Missing => CliInstallState::NotInstalled,
-    };
-    let message = match install_state {
-        CliInstallState::Installed if path_configured => "Ready. Run `sikemux <path>`.",
-        CliInstallState::Installed => {
-            "Installed. Add the shown directory to PATH, then restart your shell."
-        }
-        CliInstallState::Outdated => {
-            "A previous managed CLI is installed and can be updated safely."
-        }
-        CliInstallState::Conflict => {
-            "An unrelated file already uses this name. It was left untouched."
-        }
-        CliInstallState::NotInstalled => {
-            "Install a small launcher that connects your shell to this Sikemux app."
-        }
-        CliInstallState::Unavailable => unreachable!(),
+        DestinationState::Outdated => (
+            CliInstallState::Outdated,
+            "A previous managed CLI is installed and can be updated safely.",
+        ),
+        DestinationState::Conflict => (
+            CliInstallState::Conflict,
+            "An unrelated file already uses this name. It was left untouched.",
+        ),
+        DestinationState::Missing => (
+            CliInstallState::NotInstalled,
+            "Install a small launcher that connects your shell to this Sikemux app.",
+        ),
     };
     make_status(
         install_state,

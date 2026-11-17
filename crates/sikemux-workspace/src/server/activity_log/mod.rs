@@ -939,7 +939,7 @@ fn level(
         .iter()
         .filter_map(|quantile| {
             let at = ((quantile * sorted.len() as f64) as usize).min(sorted.len().checked_sub(1)?);
-            Some(sorted[at])
+            sorted.get(at).copied()
         })
         .collect();
     for day in days {
@@ -960,7 +960,8 @@ fn streaks(days: &[ActivityDay], today: i64) -> ActivityStreaks {
         .collect();
     let (mut longest, mut run) = (0, 0);
     for (index, day) in active.iter().enumerate() {
-        run = if index > 0 && active[index - 1] == day - 1 {
+        let before = index.checked_sub(1).and_then(|before| active.get(before));
+        run = if before == Some(&(day - 1)) {
             run + 1
         } else {
             1

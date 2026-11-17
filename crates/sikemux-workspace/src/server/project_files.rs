@@ -27,6 +27,7 @@ const MAX_PROJECT_FILES: usize = 250_000;
 const MAX_PROJECT_SNAPSHOT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PROJECT_ENCODED_PATH_BYTES: usize = MAX_PROJECT_SNAPSHOT_BYTES - 1024;
 const MAX_PROJECT_CACHE_ENTRIES: usize = 128;
+const NOT_LISTED: &str = "Sikemux could not list the project's files";
 /// How many changes back a client may still be answered with only the change.
 const KEPT_CHANGES: usize = 16;
 /// A change bigger than this is not kept; its readers get the whole list.
@@ -367,8 +368,8 @@ impl Slot {
         }
     }
 
-    fn answer(&self, since: Option<u64>) -> ProjectFiles {
-        let entry = self.entry.as_ref().expect("caught up");
+    fn answer(&self, since: Option<u64>) -> Option<ProjectFiles> {
+        let entry = self.entry.as_ref()?;
         let whole = || ProjectFiles {
             scan_id: entry.scan_id,
             files: Some((*entry.files).clone()),
@@ -376,18 +377,18 @@ impl Slot {
             removed: None,
         };
         let Some(since) = since else {
-            return whole();
+            return Some(whole());
         };
         if since == entry.scan_id {
-            return ProjectFiles {
+            return Some(ProjectFiles {
                 scan_id: entry.scan_id,
                 files: None,
                 added: None,
                 removed: None,
-            };
+            });
         }
         let Some(start) = self.changes.iter().position(|change| change.from == since) else {
-            return whole();
+            return Some(whole());
         };
         let (mut added, mut removed) = (HashSet::new(), HashSet::new());
         for change in self.changes.range(start..) {
@@ -407,12 +408,12 @@ impl Slot {
             paths.sort_unstable();
             paths
         };
-        ProjectFiles {
+        Some(ProjectFiles {
             scan_id: entry.scan_id,
             files: None,
             added: Some(sorted(added)),
             removed: Some(sorted(removed)),
-        }
+        })
     }
 }
 
@@ -503,7 +504,8 @@ pub fn read(params: ProjectFilesParams) -> Result<ProjectFiles, String> {
     let cell = project_cache(&repo)?;
     let mut slot = cell.slot.locked();
     slot.catch_up(&repo)?;
-    Ok(slot.answer(params.since))
+    slot.answer(params.since)
+        .ok_or_else(|| NOT_LISTED.to_owned())
 }
 
 /// The project's files and folders that best match the query, for a client that keeps no
@@ -514,7 +516,7 @@ pub fn entries(params: ProjectEntriesParams) -> Result<Vec<crate::fuzzy::Project
     let files = {
         let mut slot = cell.slot.locked();
         slot.catch_up(&repo)?;
-        slot.entry.as_ref().expect("caught up").files.clone()
+        slot.entry.as_ref().ok_or(NOT_LISTED)?.files.clone()
     };
     let limit = params.limit.min(MAX_ENTRIES);
     Ok(crate::fuzzy::rank_entries(&params.query, &files, limit))
@@ -601,7 +603,10 @@ fn removal_ranges(files: &[String], prefixes: &[PathBuf]) -> Vec<Range<usize>> {
         let subtree_prefix = format!("{exact}/");
         let start = files.partition_point(|file| file < &subtree_prefix);
         let mut end = start;
-        while end < files.len() && files[end].starts_with(&subtree_prefix) {
+        while files
+            .get(end)
+            .is_some_and(|file| file.starts_with(&subtree_prefix))
+        {
             end += 1;
         }
         if start < end {
@@ -639,12 +644,11 @@ fn merge_snapshot(
     let mut additions = additions.into_iter().peekable();
     let mut removed = removed.iter().peekable();
     let mut index = 0;
-    while index < current.len() {
+    while let Some(survivor) = current.get(index) {
         if removed.peek().is_some_and(|range| range.start <= index) {
             index = removed.next().map_or(index, |range| range.end);
             continue;
         }
-        let survivor = &current[index];
         while let Some(added) = additions.next_if(|added| added <= survivor) {
             if out.last() != Some(&added) {
                 out.push(added);

@@ -147,21 +147,23 @@ fn days_between(
         let day = day_at(&mut days, row.get(0)?);
         let (agent, model, speed): (String, String, String) =
             (row.get(1)?, row.get(2)?, row.get(3)?);
-        let entry =
-            match day.tokens.iter().position(|entry| {
-                entry.agent == agent && entry.model == model && entry.speed == speed
-            }) {
-                Some(index) => &mut day.tokens[index],
-                None => {
-                    day.tokens.push(ReportedTokens {
-                        agent,
-                        model,
-                        speed,
-                        ..ReportedTokens::default()
-                    });
-                    day.tokens.last_mut().expect("just pushed")
-                }
-            };
+        let held = (day.tokens.iter())
+            .position(|entry| entry.agent == agent && entry.model == model && entry.speed == speed);
+        let index = match held {
+            Some(index) => index,
+            None => {
+                day.tokens.push(ReportedTokens {
+                    agent,
+                    model,
+                    speed,
+                    ..ReportedTokens::default()
+                });
+                day.tokens.len() - 1
+            }
+        };
+        let Some(entry) = day.tokens.get_mut(index) else {
+            continue;
+        };
         let [input, output, cache_read, cache_write]: [i64; 4] =
             [row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?];
         entry.input += input;
