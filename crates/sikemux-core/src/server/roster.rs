@@ -549,7 +549,7 @@ pub(crate) fn resolve(
     match (here.as_slice(), reachable.as_slice(), called.as_slice()) {
         ([agent], _, _) | ([], [agent], _) => Ok((*agent).clone()),
         ([], [], []) => Err(format!(
-            "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
+            "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is read by agent_read and reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
         )),
         ([], [], elsewhere) => Err(format!(
             "No agent in your project or on your team is called {wanted}. {}; pass its agent id if you mean it",

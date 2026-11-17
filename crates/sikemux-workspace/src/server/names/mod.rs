@@ -680,9 +680,9 @@ impl Names {
         })
     }
 
-    /// The session of the newest closed agent with the id or name `wanted` that `lead` started,
-    /// or started an agent that did.
-    pub fn closed_worker(&self, lead: &str, wanted: &str) -> Option<RanSession> {
+    /// The id and session of the newest closed agent with the id or name `wanted` that `lead`
+    /// started, or started an agent that did.
+    pub fn closed_worker(&self, lead: &str, wanted: &str) -> Option<(String, RanSession)> {
         let book = self.book.locked();
         book.closed_sessions
             .iter()
@@ -697,7 +697,7 @@ impl Names {
                         .as_deref()
                         .is_some_and(|by| by == lead || book.leads(lead, by))
             })
-            .map(|closed| closed.ran.clone())
+            .map(|closed| (closed.agent_id.clone(), closed.ran.clone()))
     }
 
     /// Whether an agent here runs or recently ran `session_id`.

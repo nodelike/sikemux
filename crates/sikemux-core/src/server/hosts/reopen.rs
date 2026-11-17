@@ -180,7 +180,7 @@ pub(super) async fn reopen_here(
         return Err("that agent still runs here".into());
     }
     core.names().settle(core.open_agents());
-    let ran = core
+    let (_, ran) = core
         .names()
         .closed_worker(&params.lead.agent_id, &params.agent_id)
         .ok_or("this host no longer keeps the session of that worker")?;

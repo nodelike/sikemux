@@ -476,7 +476,8 @@ fn asleep_session_file(
     core: &Core,
     agent_id: &str,
 ) -> Option<(AgentKind, String, std::path::PathBuf)> {
-    let agent = core.workspaces().agent(agent_id)?;
+    let agent =
+        (core.workspaces().agent(agent_id)).or_else(|| core.workspaces().closed_agent(agent_id))?;
     let cli = AgentKind::from_name(&agent.provider)?;
     let session = agent.resume_id?;
     let book = core.workspaces().accounts().unwrap_or_default();
@@ -651,7 +652,11 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let (core, request, caller) = (core.clone(), request.clone(), caller.clone());
         blocking(move || {
             let project = super::caller::project_of(&core, &request);
-            let target = roster::resolve(&core, &roster::listed(&core), &agent, &project, &caller)?;
+            let target =
+                match roster::resolve(&core, &roster::listed(&core), &agent, &project, &caller) {
+                    Ok(target) => target,
+                    Err(why) => closed_worker(&core, &caller, &agent).ok_or(why)?,
+                };
             if target.agent_id == caller {
                 return Err("That agent is you".into());
             }
@@ -681,6 +686,25 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// A worker `lead` started that has closed, read where it stopped rather than reopened.
+fn closed_worker(core: &Core, lead: &str, wanted: &str) -> Option<Listed> {
+    let wanted = wanted.trim().trim_start_matches('@');
+    let (agent_id, ran) = core.names().closed_worker(lead, wanted)?;
+    Some(Listed {
+        agent_id,
+        name: Some(wanted.to_owned()),
+        project: ran.project,
+        cli: ran.provider,
+        title: ran.title,
+        model: None,
+        status: AgentStatus::Stopped,
+        parent: Some(lead.to_owned()),
+        active_at: None,
+        rank: 0,
+        reach: Reach::Stopped,
+    })
 }
 
 /// What an agent of a team on a linked host reads of `agent_id`, an agent here.

@@ -1123,7 +1123,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     if answers.is_some() || agents.iter().any(named) {
                         return Err(why.into());
                     }
-                    if let Some(ran) = core.names().closed_worker(&from, wanted) {
+                    if let Some((_, ran)) = core.names().closed_worker(&from, wanted) {
                         return Ok(Found::Closed(wanted.to_owned(), ran));
                     }
                     return match super::hosts::reopen::closed_elsewhere(&core, &from, wanted) {
