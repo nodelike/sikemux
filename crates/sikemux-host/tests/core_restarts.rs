@@ -2,6 +2,10 @@
 //! bring theirs back, and stays down when it is stopped.
 
 #![cfg(windows)]
+#![allow(
+    clippy::unwrap_used,
+    reason = "a failing test helper is meant to panic"
+)]
 
 use std::path::Path;
 use std::time::{Duration, Instant};

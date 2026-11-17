@@ -65,6 +65,10 @@ impl Manifest {
             #[serde(default)]
             families: Vec<Family>,
         }
+        #[expect(
+            clippy::expect_used,
+            reason = "tools.json is built into the binary and checked before every release"
+        )]
         let built: Built =
             serde_json::from_str(TOOLS).expect("tools/tools.json is a valid tool manifest");
         Self {
@@ -161,7 +165,7 @@ impl Manifest {
             None => Ok(without_front_matter(
                 sections
                     .first()
-                    .map_or(guide, |(_, start)| &guide[..*start]),
+                    .map_or(guide, |(_, start)| guide.get(..*start).unwrap_or(guide)),
             )),
             Some(ALL_TOPICS) => Ok(guide),
             Some(wanted) => sections
@@ -185,7 +189,7 @@ impl Manifest {
                     let end = sections
                         .get(index + 1)
                         .map_or(guide.len(), |(_, next)| *next);
-                    guide[*start..end].trim_end()
+                    guide.get(*start..end).unwrap_or_default().trim_end()
                 })
                 .ok_or_else(|| {
                     let names: Vec<&str> = sections.iter().map(|(name, _)| *name).collect();
@@ -359,11 +363,16 @@ fn guide_parts(guide: &str) -> std::collections::BTreeMap<Option<&str>, &str> {
     let mut parts = std::collections::BTreeMap::new();
     parts.insert(
         None,
-        &guide[..topics.first().map_or(guide.len(), |(_, start)| *start)],
+        topics
+            .first()
+            .map_or(guide, |(_, start)| guide.get(..*start).unwrap_or(guide)),
     );
     for (index, (name, start)) in topics.iter().enumerate() {
         let end = topics.get(index + 1).map_or(guide.len(), |(_, next)| *next);
-        parts.insert(Some(*name), guide[*start..end].trim_end());
+        parts.insert(
+            Some(*name),
+            guide.get(*start..end).unwrap_or_default().trim_end(),
+        );
     }
     parts
 }
@@ -485,7 +494,10 @@ impl Tool {
             .cloned()
             .collect();
         for name in unknown {
-            if let Some((owner, repo)) = self.split_repo(&name, &object[&name]) {
+            let Some(value) = object.get(&name) else {
+                continue;
+            };
+            if let Some((owner, repo)) = self.split_repo(&name, value) {
                 object.remove(&name);
                 if let Some(owner) = owner {
                     object.entry("owner").or_insert(owner.into());
@@ -695,17 +707,14 @@ fn distance(from: &str, to: &str) -> usize {
     let mut previous: Vec<usize> = (0..=to.len()).collect();
     for (row, left) in from.chars().enumerate() {
         let mut current = vec![row + 1];
-        for (column, right) in to.iter().enumerate() {
-            let substitute = previous[column] + usize::from(left != *right);
-            current.push(
-                substitute
-                    .min(previous[column + 1] + 1)
-                    .min(current[column] + 1),
-            );
+        for ((right, diagonal), above) in to.iter().zip(&previous).zip(previous.iter().skip(1)) {
+            let before = current.last().copied().unwrap_or_default();
+            let substitute = diagonal + usize::from(left != *right);
+            current.push(substitute.min(above + 1).min(before + 1));
         }
         previous = current;
     }
-    previous[to.len()]
+    previous.last().copied().unwrap_or_default()
 }
 
 /// `label` names the value for nested errors; the top level keeps the wording

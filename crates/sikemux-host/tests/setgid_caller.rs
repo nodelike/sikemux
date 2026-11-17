@@ -4,6 +4,10 @@
 //! agent's id" on every call because the core could not see the server's sockets.
 
 #![cfg(target_os = "linux")]
+#![allow(
+    clippy::unwrap_used,
+    reason = "a failing test helper is meant to panic"
+)]
 
 use sikemux_process::command::Stdio;
 use std::io::Write;

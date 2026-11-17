@@ -71,7 +71,7 @@ fn simulator_offered(agent_id: &str) -> bool {
         OFFER_TIMEOUT,
         Duration::ZERO,
     )
-    .is_ok_and(|answer| answer["offered"] == true)
+    .is_ok_and(|answer| answer.get("offered") == Some(&Value::Bool(true)))
 }
 
 fn agent_id() -> Result<String, String> {
@@ -398,7 +398,9 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
                     }
                     let mut answer = call_by_deadline(Arc::clone(&offer), relays, name, arguments);
                     if calls.finish(&id) {
-                        if let Some(blocks) = answer["content"].as_array_mut() {
+                        if let Some(blocks) =
+                            answer.get_mut("content").and_then(Value::as_array_mut)
+                        {
                             if let Some(news) = offer.take_guide_news() {
                                 blocks.push(text(&news));
                             }
@@ -455,8 +457,9 @@ fn next_plugin_change(
     relay: &Relay<'_>,
     seen: Option<u64>,
 ) -> Result<(u64, bool), String> {
-    let version = relay(PLUGINS_CHANGED_METHOD, &json!({ "seen": seen }))?["version"]
-        .as_u64()
+    let version = relay(PLUGINS_CHANGED_METHOD, &json!({ "seen": seen }))?
+        .get("version")
+        .and_then(Value::as_u64)
         .ok_or("Sikemux did not say how many times plugins changed")?;
     if seen.is_none_or(|seen| seen == version) {
         return Ok((version, false));
@@ -709,7 +712,12 @@ fn call(
 /// condition holds or its time is up. Sikemux marks a wait it cut short with `cappedAtMs`.
 fn wait_longer(patient: &Relay<'_>, arguments: &Value) -> Result<Value, String> {
     let started = std::time::Instant::now();
-    let asked = Duration::from_millis(arguments["timeoutMs"].as_u64().unwrap_or(0));
+    let asked = Duration::from_millis(
+        arguments
+            .get("timeoutMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+    );
     let mut arguments = arguments.clone();
     let mut rounds = 0;
     loop {
@@ -720,13 +728,18 @@ fn wait_longer(patient: &Relay<'_>, arguments: &Value) -> Result<Value, String> 
             .and_then(|fields| fields.remove("cappedAtMs"))
             .is_some();
         let left = asked.saturating_sub(started.elapsed());
-        if !cut_short || result["met"] != json!(false) || left.is_zero() {
+        if !cut_short || result.get("met") != Some(&Value::Bool(false)) || left.is_zero() {
             if rounds > 1 {
-                result["waitedMs"] = json!(started.elapsed().as_millis() as u64);
+                if let Some(fields) = result.as_object_mut() {
+                    let waited = started.elapsed().as_millis() as u64;
+                    fields.insert("waitedMs".into(), json!(waited));
+                }
             }
             return Ok(result);
         }
-        arguments["timeoutMs"] = json!(left.as_millis() as u64);
+        if let Some(fields) = arguments.as_object_mut() {
+            fields.insert("timeoutMs".into(), json!(left.as_millis() as u64));
+        }
     }
 }
 
@@ -847,8 +860,8 @@ fn reply(id: Value, result: Value) -> Value {
 
 fn failure(id: Value, code: i32, message: &str, data: Option<Value>) -> Value {
     let mut error = json!({ "code": code, "message": message });
-    if let Some(data) = data {
-        error["data"] = data;
+    if let (Some(data), Some(fields)) = (data, error.as_object_mut()) {
+        fields.insert("data".into(), data);
     }
     json!({ "jsonrpc": "2.0", "id": id, "error": error })
 }

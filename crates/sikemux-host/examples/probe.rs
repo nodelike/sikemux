@@ -1,7 +1,7 @@
 //! Writes what `whoami /groups` prints to `<name>.txt` beside this program, so a program the
 //! core starts reports what it runs at. Its first argument names the file; none names it `none`.
 
-fn main() {
+fn main() -> std::io::Result<()> {
     let name: String = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "none".into())
@@ -21,6 +21,6 @@ fn main() {
             exe.parent()
                 .map(|folder| folder.join(format!("{name}.txt")))
         })
-        .expect("this program's folder");
-    std::fs::write(beside, report).expect("the report is written");
+        .ok_or_else(|| std::io::Error::other("this program has no folder"))?;
+    std::fs::write(beside, report)
 }

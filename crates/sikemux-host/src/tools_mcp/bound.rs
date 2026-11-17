@@ -110,7 +110,7 @@ fn cut(value: &mut Value, over: usize, path: String) -> Option<String> {
             let total: usize = items.iter().map(size).sum();
             let (index, largest) = biggest(items.iter().enumerate())?;
             if items.len() == 1 || largest * 2 > total {
-                return cut(&mut items[index], over, format!("{path}[{index}]"));
+                return cut(items.get_mut(index)?, over, format!("{path}[{index}]"));
             }
             let count = items.len();
             let mut dropped = 0;
@@ -144,9 +144,5 @@ fn name<'a>(path: &'a str, fallback: &'a str) -> &'a str {
 
 /// The start of `text`, at most `bytes` long, ending on a whole character.
 fn cut_text(text: &str, bytes: usize) -> &str {
-    let mut end = bytes.min(text.len());
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    text.get(..text.floor_char_boundary(bytes)).unwrap_or(text)
 }

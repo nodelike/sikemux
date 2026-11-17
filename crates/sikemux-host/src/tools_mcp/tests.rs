@@ -418,7 +418,7 @@ fn the_guide_opening_stays_small_and_lists_every_topic() {
         let section = manifest.guide_text(Some(topic)).expect("a topic");
         assert!(section.starts_with(&format!("## {topic}: ")));
         assert!(
-            !section[3..].contains("\n## "),
+            !section.get(3..).unwrap_or_default().contains("\n## "),
             "{topic} runs into the next topic"
         );
     }

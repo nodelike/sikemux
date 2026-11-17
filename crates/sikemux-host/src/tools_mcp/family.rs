@@ -121,7 +121,10 @@ fn text<'a>(declared: &'a Value, key: &str) -> &'a str {
 }
 
 fn schema<'a>(declared: &'a Value, key: &str) -> &'a Value {
-    &declared["inputSchema"][key]
+    declared
+        .get("inputSchema")
+        .and_then(|schema| schema.get(key))
+        .unwrap_or(&Value::Null)
 }
 
 /// One property as the actions that take it describe it: the same schema when they agree,

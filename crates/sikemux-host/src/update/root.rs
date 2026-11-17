@@ -463,7 +463,10 @@ fn tail(output: &[u8]) -> Option<String> {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect();
-    let kept = lines[lines.len().saturating_sub(EVIDENCE_LINES)..].join("\n");
+    let kept = lines
+        .get(lines.len().saturating_sub(EVIDENCE_LINES)..)
+        .unwrap_or_default()
+        .join("\n");
     (!kept.is_empty()).then_some(kept)
 }
 
