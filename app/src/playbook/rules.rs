@@ -48,7 +48,7 @@ pub(super) fn page(
                 .collect::<Vec<_>>(),
         };
     let (project, yours): (Vec<&Entry>, Vec<&Entry>) =
-        (playbook.rules.iter()).partition(|rule| rule.store.is_project());
+        (playbook.rules.iter()).partition(|rule| rule.store != Store::Personal);
     let (yours_count, project_count) = (count(yours.len()), count(project.len()));
     let has_project_rules = !project.is_empty();
     let yours = group(
@@ -160,10 +160,11 @@ fn recent(at: u64) -> bool {
     crate::ui::time::now_ms().saturating_sub(at) < RECENT_MS
 }
 
-fn store_name(store: Store, project: &str) -> String {
-    match store {
-        Store::Personal => t!("yours").to_owned(),
-        Store::Project => project.to_owned(),
+fn store_name(store: Store, project: &str, org: Option<&str>) -> String {
+    match (store, org) {
+        (Store::Personal, _) => t!("yours").to_owned(),
+        (Store::Org, Some(org)) => org.to_owned(),
+        _ => project.to_owned(),
     }
 }
 
@@ -176,7 +177,7 @@ fn row(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (id, store) = (entry.id, entry.store);
+    let (id, store, org) = (entry.id, entry.store, entry.org.as_deref());
     let moved = (entry.moved.as_ref()).filter(|moved| recent(moved.at));
     let new = entry.someone.is_some() && moved.is_none() && recent(entry.learned.at);
     let who = match &entry.someone {
@@ -187,12 +188,15 @@ fn row(
     if entry.sensitive {
         words.push(t!("Sensitive").to_owned());
     }
+    if store == Store::Project && org.is_some() {
+        words.push(t!("Only you").to_owned());
+    }
     match moved {
         Some(moved) => {
             words.push(said::who(moved));
             words.push(t!(
                 "moved from {store} {when}",
-                store = store_name(store.other(), project),
+                store = store_name(store.other(), project, org),
                 when = when(moved.at)
             ));
         }
@@ -211,10 +215,10 @@ fn row(
     }
     let mut inline = Vec::new();
     if moved.is_some() {
-        let folder = folder.to_owned();
+        let (folder, org) = (folder.to_owned(), org.map(str::to_owned));
         let to = store.other();
         inline.push(Action::new(t!("Undo"), move |bench, cx| {
-            move_entry(bench, &folder, id, to, cx)
+            move_entry(bench, &folder, id, to, org.as_deref(), cx)
         }));
     } else if new {
         let folder = folder.to_owned();
@@ -250,18 +254,30 @@ fn row(
             .map(|offer| offer_box(entry, offer, folder, project, this, cx)),
     );
     let mut hover = Vec::new();
-    if moved.is_none() {
-        let (folder, project, this) = (folder.to_owned(), project.to_owned(), this.clone());
-        let to = store.other();
+    let mut moves = Vec::new();
+    if moved.is_none() && store != Store::Org {
+        moves.push(store.other());
+        if store == Store::Project && org.is_some() {
+            moves.push(Store::Org);
+        }
+    }
+    for to in moves {
+        let (folder, this) = (folder.to_owned(), this.clone());
+        let org = org.map(str::to_owned);
         hover.push(
             Button::new(
-                SharedString::from(format!("playbook-move-{id}")),
-                t!("Move to {store}", store = store_name(to, &project)),
+                SharedString::from(format!("playbook-move-{id}-{to:?}")),
+                t!(
+                    "Move to {store}",
+                    store = store_name(to, project, org.as_deref())
+                ),
                 Variant::Outline,
             )
             .icon(Icon::Move)
             .on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| move_entry(bench, &folder, id, to, cx))
+                this.update(cx, |bench, cx| {
+                    move_entry(bench, &folder, id, to, org.as_deref(), cx)
+                })
             })
             .into_any_element(),
         );
@@ -347,13 +363,13 @@ fn offer_box(
                 .child(
                     Button::new(
                         SharedString::from(format!("playbook-offer-{id}-move")),
-                        t!("Move to {store}", store = store_name(to, project)),
+                        t!("Move to {store}", store = store_name(to, project, None)),
                         Variant::Outline,
                     )
                     .icon(Icon::Move)
                     .on_click(move |_, _, cx| {
                         let (this, folder) = &moving;
-                        this.update(cx, |bench, cx| move_entry(bench, folder, id, to, cx))
+                        this.update(cx, |bench, cx| move_entry(bench, folder, id, to, None, cx))
                     }),
                 )
                 .child(
@@ -387,14 +403,9 @@ fn update(project: &str, id: u64) -> MemoryUpdateParams {
     }
 }
 
-fn moved_toast(to: Store, folder: &str) -> String {
-    match to {
-        Store::Personal => t!("Moved to yours").to_owned(),
-        Store::Project => t!(
-            "Moved to {project}",
-            project = crate::ui::path::file_name(std::path::Path::new(folder))
-        ),
-    }
+fn moved_toast(to: Store, folder: &str, org: Option<&str>) -> String {
+    let project = crate::ui::path::file_name(std::path::Path::new(folder));
+    t!("Moved to {store}", store = store_name(to, &project, org))
 }
 
 fn move_entry(
@@ -402,6 +413,7 @@ fn move_entry(
     folder: &str,
     id: u64,
     to: Store,
+    org: Option<&str>,
     cx: &mut Context<Workbench>,
 ) {
     let asked = bench
@@ -410,7 +422,7 @@ fn move_entry(
             store: Some(to),
             ..update(folder, id)
         });
-    let said = moved_toast(to, folder);
+    let said = moved_toast(to, folder, org);
     bench.report(
         asked,
         t!("It was not moved"),
@@ -463,7 +475,7 @@ pub(crate) fn restore(
             store: Some(line.store.other()),
             ..update(&line.project, line.rule)
         });
-        let back = moved_toast(line.store.other(), &line.project);
+        let back = moved_toast(line.store.other(), &line.project, None);
         bench.report(
             asked,
             t!("It was not moved back"),

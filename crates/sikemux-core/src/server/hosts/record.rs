@@ -132,7 +132,7 @@ pub(crate) async fn app_write(
         params.get("project").and_then(Value::as_str)?,
     ));
     if let Some(to) = (method == "memoryUpdate")
-        .then(|| memory::moving_to(params))
+        .then(|| memory::moving_to(core, &folder, params))
         .flatten()
     {
         let (home, identity) = away(core, &folder)?;
@@ -204,6 +204,7 @@ async fn move_across(
                 }
             }
         }
+        Store::Org => return Err("the project's home moves entries to its org".into()),
         Store::Personal => {
             moving::can_take_in(core, folder, id, to)?;
             let take = json!({ "project": identity, "id": id });

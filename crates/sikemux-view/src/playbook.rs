@@ -46,6 +46,10 @@ pub struct Entry {
     pub someone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<crate::memory::MoveOffer>,
+    /// The name of the org the project is shared with: whose store it is, or, for the project's
+    /// own entries, who does not get it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

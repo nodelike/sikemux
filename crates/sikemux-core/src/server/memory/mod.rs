@@ -42,6 +42,7 @@ mod brief;
 mod check;
 pub(crate) mod moving;
 mod now_check;
+mod org;
 mod promote;
 mod record;
 mod removed;
@@ -69,6 +70,7 @@ const MAX_TEXT_CHARS: usize = 1000;
 const MAX_ABOUT: usize = 12;
 const MAX_ABOUT_CHARS: usize = 200;
 const MAX_CHECK_CHARS: usize = 1000;
+const NOT_SHARED: &str = "This project is not shared with an org";
 
 /// What one store keeps. Kept even once empty, so `next` never goes back.
 #[derive(Clone, Serialize, Deserialize)]
@@ -99,6 +101,12 @@ struct Held {
     /// It is a copy of what another host, the project's home, sent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     mirrored: bool,
+    /// For an org's store, the member who put each entry there.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    writers: BTreeMap<u64, String>,
+    /// For an org's store, its entry in the org's vault as last read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base: Option<org::Base>,
 }
 
 impl Held {
@@ -143,6 +151,8 @@ struct State {
     /// The lowest id no linked host has given an entry yet, so one kept here never takes the id
     /// of a linked host's own note.
     free_elsewhere: u64,
+    /// The projects open here shared with an org, by their own store's key.
+    shared: HashMap<String, org::Shared>,
 }
 
 impl State {
@@ -155,13 +165,20 @@ impl State {
         match store {
             Store::Project => self.key_of(project),
             Store::Personal => PERSONAL.to_owned(),
+            Store::Org => self.org_key(project).unwrap_or_default(),
         }
     }
 
-    /// The stores whose entries apply to `project`: its own, then the person's.
+    /// The key of the store of the org `project` is shared with.
+    fn org_key(&self, project: &str) -> Option<String> {
+        self.shared.get(&self.key_of(project)).map(org::Shared::key)
+    }
+
+    /// The stores whose entries apply to `project`: its own, its org's, then the person's.
     fn applying<'a>(&'a self, project: &str) -> impl Iterator<Item = &'a Held> + 'a {
         [
             self.held.get(&self.key_of(project)),
+            (self.org_key(project)).and_then(|key| self.held.get(&key)),
             self.held.get(PERSONAL),
         ]
         .into_iter()
@@ -189,12 +206,17 @@ impl State {
             Store::Project => (self.keys.iter())
                 .find(|(_, key)| **key == held.key)
                 .map(|(folder, _)| PathBuf::from(folder)),
+            Store::Org => (self.keys.iter())
+                .find(|(_, key)| self.shared.get(*key).is_some_and(|is| is.key() == held.key))
+                .map(|(folder, _)| PathBuf::from(folder)),
         }
     }
 
-    /// Whether the store is the person's own or a project's open on this host.
+    /// Whether the store is the person's own, or a project's or its org's open on this host.
     fn in_use(&self, held: &Held) -> bool {
-        held.store == Store::Personal || self.keys.values().any(|key| *key == held.key)
+        held.store == Store::Personal
+            || self.keys.values().any(|key| *key == held.key)
+            || self.shared.values().any(|shared| shared.key() == held.key)
     }
 
     /// An id no entry has ever had.
@@ -221,6 +243,8 @@ pub(crate) struct Memory {
     /// What the person said in the turn of each agent on a linked host whose write this host,
     /// the project's home, is doing now.
     said_elsewhere: Mutex<HashMap<String, Vec<String>>>,
+    /// Told when an org's store is saved here, or shares changed, to sync with the org's vault.
+    org_sync: Arc<tokio::sync::Notify>,
 }
 
 impl Memory {
@@ -247,6 +271,7 @@ impl Memory {
             promotes: Mutex::new(()),
             wake: Wake::default(),
             said_elsewhere: Mutex::default(),
+            org_sync: Arc::default(),
         }
     }
 
@@ -262,8 +287,10 @@ impl Memory {
             ..
         } = state;
         let held = held.get(key)?;
-        if held.store == Store::Project {
-            saved.insert(key.to_owned());
+        match held.store {
+            Store::Project => drop(saved.insert(key.to_owned())),
+            Store::Org => self.org_sync.notify_one(),
+            Store::Personal => {}
         }
         let file = files
             .entry(key.to_owned())
@@ -351,11 +378,10 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
 
 impl crate::server::part::Part for Memory {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![crate::server::part::on_wake(
-            core,
-            |core| &core.memory().wake,
-            woke,
-        )]
+        vec![
+            crate::server::part::on_wake(core, |core| &core.memory().wake, woke),
+            tokio::spawn(org::serve(core.clone())),
+        ]
     }
 
     fn flush(&self) {
@@ -364,6 +390,11 @@ impl crate::server::part::Part for Memory {
             file.flush();
         }
     }
+}
+
+/// Which projects are shared with which orgs may have changed.
+pub(crate) fn shares_changed(core: &Core) {
+    core.memory().org_sync.notify_one();
 }
 
 fn woke(core: &Arc<Core>) {
@@ -440,6 +471,8 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
         not_now: BTreeSet::new(),
         absorbed: Vec::new(),
         mirrored: false,
+        writers: BTreeMap::new(),
+        base: None,
     }))
 }
 
@@ -451,7 +484,12 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         }
     };
     let mut state = core.memory().state.locked();
+    let persons_rule = matches!(new, NewMemory::Rule { .. }) && learned.agent.is_none();
+    let store = org::persons(&state, project, store, persons_rule);
     let key = state.key_for(project, store);
+    if key.is_empty() {
+        return Err(NOT_SHARED.into());
+    }
     let held = holding(&mut state, &key, store)?;
     if held.len() >= MAX_ENTRIES {
         return Err(format!(
@@ -502,6 +540,11 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
             stale: None,
             moved: None,
         }),
+    }
+    if let Some(full) = org::too_big(held) {
+        held.rules.retain(|rule| rule.id != id);
+        held.knowledge.retain(|known| known.id != id);
+        return Err(full);
     }
     core.memory().save(&mut state, &key);
     drop(state);
@@ -592,6 +635,14 @@ fn change(
     let about = update.about.map(abouts).transpose()?;
     let check = update.check.map(checked_check).transpose()?;
     let id = update.id;
+    {
+        let state = core.memory().state.locked();
+        let refused = (state.key_holding(project, id).ok())
+            .and_then(|key| org::refused(&state, project, &key, by.agent.is_some()));
+        if let Some(refused) = refused {
+            return Err(refused);
+        }
+    }
     let only_id = saying == 0 && about.is_none() && check.is_none() && !update.drop_check;
     if now_check::is_set_aside(core, project, id) {
         return match only_id {
@@ -831,14 +882,21 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
     };
     let state = core.memory().state.locked();
     let offers = moving::Offers::new(&state, project);
+    let shared = state.shared.get(&state.key_of(project));
+    let org = shared.map(|shared| shared.name.clone());
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
         let came_from = state.key_for(project, held.store.other());
-        let undoable = |moved: &Option<sikemux_view::memory::Moved>| {
-            (moving::back(moved, &came_from))
+        let mine = |id: u64| {
+            held.store != Store::Org
+                || shared.is_some_and(|shared| held.writers.get(&id) == Some(&shared.member))
+        };
+        let undoable = |id: u64, moved: &Option<sikemux_view::memory::Moved>| {
+            (moving::back(moved, &came_from) && mine(id))
                 .then(|| moved.as_ref().map(|moved| moved.by.clone()))
                 .flatten()
         };
+        let org = org.clone().filter(|_| held.store != Store::Personal);
         for rule in held
             .rules
             .iter()
@@ -852,9 +910,10 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: false,
                 sensitive: rule.sensitive,
                 store: held.store,
-                moved: undoable(&rule.moved),
+                moved: undoable(rule.id, &rule.moved),
                 someone: someone(&rule.learned),
                 offer: offers.for_rule(held, rule),
+                org: org.clone(),
             };
             match rule.learned.agent {
                 None => rules.push(kept),
@@ -874,9 +933,10 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: known.stale.is_some(),
                 sensitive: known.sensitive,
                 store: held.store,
-                moved: undoable(&known.moved),
+                moved: undoable(known.id, &known.moved),
                 someone: someone(&known.learned),
                 offer: None,
+                org: org.clone(),
             });
         }
     }
@@ -922,7 +982,7 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
                 Some(Stale::Disputed { why, by }) => (why.clone(), by.at, by.agent.clone()),
             };
             let project = match held.store {
-                Store::Project => match state.folder_of_store(held) {
+                Store::Project | Store::Org => match state.folder_of_store(held) {
                     Some(folder) => Some(folder),
                     None => continue,
                 },
@@ -1188,10 +1248,17 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
     let Some(start) = chat.feed.start() else {
         return true;
     };
+    let org = {
+        let state = core.memory().state.locked();
+        let shared = state.shared.get(&state.key_of(project));
+        (shared.filter(|shared| (state.held.get(&shared.key())).is_some_and(|held| held.holds(id))))
+            .map(|shared| shared.name.clone())
+    };
     let rule = sikemux_view::chat::KeptRule {
         id,
         project: project.to_owned(),
         undone: false,
+        org,
     };
     chat.emit(
         sikemux_fold::ChatEventKind::SessionUpdate,

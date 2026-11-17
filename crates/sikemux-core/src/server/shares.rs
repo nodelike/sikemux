@@ -51,6 +51,7 @@ pub(crate) fn shared_with(core: &Core, folder: &str) -> Option<String> {
 /// The registry's account answered again, or a board this host keeps was saved.
 pub(crate) fn heard(core: &Arc<Core>) {
     super::peer::heard(core);
+    super::memory::shares_changed(core);
     let core = core.clone();
     tokio::spawn(async move { reconcile(&core).await });
 }

@@ -992,9 +992,10 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(rule) = notice.rule.clone() else {
         return div().into_any_element();
     };
-    let head = match rule.undone {
-        true => t!("Kept as a rule, then undone"),
-        false => t!("Kept as a rule"),
+    let head = match (rule.undone, &rule.org) {
+        (true, _) => t!("Kept as a rule, then undone").to_owned(),
+        (false, Some(org)) => t!("Kept as a rule for {org}", org = org),
+        (false, None) => t!("Kept as a rule").to_owned(),
     };
     let bench = looks.bench.clone();
     notice_box(looks)

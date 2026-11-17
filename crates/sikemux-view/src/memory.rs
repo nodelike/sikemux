@@ -169,13 +169,15 @@ pub enum Stays {
 }
 
 /// Whose rules and knowledge these are: the project's, which every agent on its repository reads
-/// wherever it is open, or the person's own, which follow them to every project.
+/// wherever it is open, the person's own, which follow them to every project, or those of the org
+/// the project is shared with, which its members' agents read too.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Store {
     #[default]
     Project,
     Personal,
+    Org,
 }
 
 impl Store {
@@ -187,7 +189,7 @@ impl Store {
     pub fn other(self) -> Store {
         match self {
             Store::Project => Store::Personal,
-            Store::Personal => Store::Project,
+            Store::Personal | Store::Org => Store::Project,
         }
     }
 }

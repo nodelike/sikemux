@@ -2012,6 +2012,9 @@ pub struct KeptRule {
     /// The person removed the rule again, from the line's Undo or the Playbook.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
+    /// The name of the org whose store it went to, for its members' agents too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
 }
 
 /// Where a goal began, passed a step or ended in a chat, and how it stood then.

@@ -187,6 +187,7 @@ impl<'a> Offers<'a> {
                     elsewhere: elsewhere.clone(),
                 })
             }
+            Store::Org => None,
         }
     }
 }
@@ -241,9 +242,23 @@ pub(super) fn move_to(
     }
     let from_key = state.key_holding(project, id)?;
     let to_key = state.key_for(project, to);
+    if to_key.is_empty() {
+        return Err(super::NOT_SHARED.into());
+    }
     if from_key == to_key {
         return Err(format!("#{id} is kept there already"));
     }
+    let by_agent = by.agent.is_some();
+    let refused = super::org::refused(&state, project, &from_key, by_agent)
+        .or_else(|| super::org::refused(&state, project, &to_key, by_agent));
+    if let Some(refused) = refused {
+        return Err(refused);
+    }
+    let across_org = to == Store::Org
+        || state
+            .held
+            .get(&from_key)
+            .is_some_and(|held| held.store == Store::Org);
     let target = holding(&mut state, &to_key, to)?;
     if target.len() >= MAX_ENTRIES {
         return Err(format!(
@@ -256,6 +271,11 @@ pub(super) fn move_to(
         (state.held.get(&to_key))
             .filter(|target| entry.kept_in(target))
             .map(|target| format!("{} keeps that already", project_name(&state, &target.key)))
+    });
+    let refused = refused.or_else(|| {
+        let mut trial = state.held.get(&to_key)?.clone();
+        put(&mut trial, entry.clone());
+        super::org::too_big(&trial)
     });
     if let Some(refused) = refused {
         if let Some(from) = state.held.get_mut(&from_key) {
@@ -330,7 +350,7 @@ pub(super) fn move_to(
     drop(state);
     tell_clients(core, false);
     written(files)?;
-    if !sensitive {
+    if !sensitive && !across_org {
         tell_moved(core, project, id, &text, to, back);
     }
     Ok(())

@@ -90,6 +90,7 @@ pub(crate) fn show_on(core: &Core, agent: &str, feed: &Arc<Feed>) {
                     id: removed.id,
                     project: removed.project.clone(),
                     undone: true,
+                    org: None,
                 });
                 changed.push(key.clone());
             }
