@@ -15,7 +15,6 @@ mod buddy_picker;
 mod calls;
 mod chat;
 mod closing;
-#[cfg(target_os = "macos")]
 mod code_host_marks;
 mod command_popup;
 mod commands;
