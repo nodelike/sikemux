@@ -461,7 +461,6 @@ pub fn write_new_in_dir(
         .extension()
         .map(|ext| format!(".{}", ext.to_string_lossy()))
         .unwrap_or_default();
-    let mut fill = Some(fill);
     for n in 0..1000 {
         let candidate = if n == 0 {
             dir.join(name)
@@ -477,8 +476,7 @@ pub fn write_new_in_dir(
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         };
-        let written = fill.take().expect("a name is only opened once")(&mut destination)
-            .and_then(|()| destination.sync_all());
+        let written = fill(&mut destination).and_then(|()| destination.sync_all());
         if let Err(error) = written {
             drop(destination);
             let _ = fs::remove_file(&candidate);

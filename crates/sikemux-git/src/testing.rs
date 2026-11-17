@@ -10,6 +10,10 @@ pub fn repo_arg(repo: &Path) -> String {
 /// Test repositories commit without signing, whatever the person's own Git config asks for.
 const UNSIGNED: [&str; 4] = ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"];
 
+#[expect(
+    clippy::expect_used,
+    reason = "a test helper fails its test by panicking"
+)]
 pub fn git(repo: &Path, args: &[&str]) -> String {
     let out = sikemux_process::user_environment::command("git")
         .args(UNSIGNED)
@@ -28,6 +32,10 @@ pub fn git(repo: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "a test helper fails its test by panicking"
+)]
 pub fn git_at(repo: &Path, stamp: &str, args: &[&str]) -> String {
     let out = sikemux_process::user_environment::command("git")
         .args(UNSIGNED)
@@ -42,6 +50,10 @@ pub fn git_at(repo: &Path, stamp: &str, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "a test helper fails its test by panicking"
+)]
 pub fn init_repo() -> tempfile::TempDir {
     let td = tempfile::tempdir().expect("tempdir");
     git(td.path(), &["init"]);
@@ -51,6 +63,10 @@ pub fn init_repo() -> tempfile::TempDir {
     td
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "a test helper fails its test by panicking"
+)]
 pub fn commit_base(repo: &Path) {
     fs::write(repo.join("f.txt"), "base\n").expect("write base");
     git(repo, &["add", "f.txt"]);

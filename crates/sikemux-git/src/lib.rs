@@ -95,7 +95,7 @@ pub fn read_bounded_pipe(mut pipe: impl Read, exceeded: Arc<AtomicBool>) -> io::
             exceeded.store(true, Ordering::Release);
             return Err(io::Error::other("subprocess output exceeds 32 MiB limit"));
         }
-        bytes.extend_from_slice(&chunk[..read]);
+        bytes.extend_from_slice(chunk.get(..read).unwrap_or_default());
     }
 }
 
@@ -413,8 +413,8 @@ fn default_remote(repo: &str) -> Result<String, String> {
     if remotes.iter().any(|r| r == "origin") {
         return Ok("origin".into());
     }
-    if remotes.len() == 1 {
-        return Ok(remotes[0].clone());
+    if let [only] = remotes.as_slice() {
+        return Ok(only.clone());
     }
     if remotes.is_empty() {
         Err("No git remotes configured — add a remote before publishing this branch.".into())

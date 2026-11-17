@@ -176,8 +176,7 @@ fn numbered_rows<'a>(
     from: usize,
     to: usize,
 ) -> impl Iterator<Item = DiffRow> + 'a {
-    lines[from..to]
-        .iter()
+    (lines.get(from..to).unwrap_or_default().iter())
         .zip(from + 1..)
         .map(move |(text, number)| DiffRow(kind, number as u32, text.to_string()))
 }
