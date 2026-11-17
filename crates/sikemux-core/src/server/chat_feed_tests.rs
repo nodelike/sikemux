@@ -273,3 +273,45 @@ async fn a_client_back_after_the_chat_moved_on_unwatched_gets_just_what_changed(
         "a fold built again keeps every row's number"
     );
 }
+
+/// A reopened chat reads its saved end while a client already listens, and learns only once
+/// those rows are in that the session holds turns before them (task #269).
+#[tokio::test]
+async fn a_listening_client_learns_of_turns_read_before_its_rows() {
+    let core = crate::server::Core::new(Default::default(), None).unwrap();
+    let (client, mut frames) = ClientConn::inside(&core, crate::server::access::Peer::Local);
+    let feed = Feed::new("agent".into(), PermissionMode::WorkspaceWrite, None);
+    feed.subscribe(&client);
+    feed.hold();
+    for n in 0..3 {
+        feed.emit(
+            ChatEventKind::SessionUpdate,
+            text("user_message_chunk", None, &format!("ask {n}")),
+        );
+        feed.emit(
+            ChatEventKind::SessionUpdate,
+            text("agent_message_chunk", Some(&format!("m{n}")), "done"),
+        );
+    }
+    feed.tell_earlier(Box::new(|| Ok(None)));
+    feed.let_out();
+
+    let mut older = None;
+    while let Ok(frame) = frames.try_recv() {
+        let frame = sikemux_wire::protocol::read_frame_sync(&mut &frame[..])
+            .unwrap()
+            .unwrap();
+        if let Ok(ServerMessage::Event {
+            event: Event::Chat { changes, .. },
+        }) = serde_json::from_slice(&frame.payload)
+        {
+            let changes: Vec<ChatChange> = serde_json::from_value(changes).unwrap();
+            for change in changes {
+                if let ChatChange::View { view } = change {
+                    older = view.older_before;
+                }
+            }
+        }
+    }
+    assert!(older.is_some(), "the client is told it can page back");
+}

@@ -108,6 +108,8 @@ pub struct Inner {
     reach: Option<(String, Reach)>,
     /// The CLI's record of the session holds more before what the chat holds.
     has_earlier: bool,
+    /// `has_earlier` was set while the feed was held, so its clients are sent the view whole.
+    earlier_unsent: bool,
     gif_cut: gifs::Cut,
 }
 
@@ -305,6 +307,7 @@ impl Feed {
                 waits_for_person: false,
                 reach: None,
                 has_earlier: false,
+                earlier_unsent: false,
                 gif_cut: gifs::Cut::default(),
             }),
         }))
@@ -399,6 +402,7 @@ impl Feed {
                 waits_for_person: false,
                 reach: state.reach,
                 has_earlier: false,
+                earlier_unsent: false,
                 gif_cut: gifs::Cut::default(),
             }),
         }));
@@ -952,9 +956,12 @@ impl Feed {
         let seq = inner.replay.delivered();
         self.fold(&mut inner).number(seq + 1);
         let older = Self::holds_older(&inner);
+        let anew = std::mem::take(&mut inner.earlier_unsent);
         let fold = self.fold(&mut inner);
-        let changes =
-            (fold.catch_up(since).or_else(|| fold.added_since(since))).unwrap_or_else(|| {
+        let changes = (!anew)
+            .then(|| fold.catch_up(since).or_else(|| fold.added_since(since)))
+            .flatten()
+            .unwrap_or_else(|| {
                 vec![ChatChange::View {
                     view: Box::new(fold.view(older)),
                 }]
@@ -1052,7 +1059,15 @@ impl Feed {
     /// `earlier` reads once a client pages back that far.
     pub fn tell_earlier(&self, earlier: Earlier) {
         *self.earlier.locked() = Some(earlier);
-        self.inner.locked().has_earlier = true;
+        let mut inner = self.inner.locked();
+        if std::mem::replace(&mut inner.has_earlier, true) || inner.subscribers.is_empty() {
+            return;
+        }
+        if inner.holding {
+            inner.earlier_unsent = true;
+            return;
+        }
+        self.send_view(&mut inner);
     }
 
     /// Reads further back into the session until the history holds `turns` turns before

@@ -110,6 +110,26 @@ impl Feed {
         }
     }
 
+    /// Sends every client the chat as it stands, in place of what each holds.
+    pub fn send_view(&self, inner: &mut Inner) {
+        self.flush_locked(inner);
+        let seq = inner.replay.seq;
+        let older = Self::holds_older(inner);
+        let view = self.fold(inner).view(older);
+        let Some(frame) = self.frame(
+            seq,
+            &[ChatChange::View {
+                view: Box::new(view),
+            }],
+        ) else {
+            return;
+        };
+        inner.subscribers.retain(|_, subscriber| {
+            subscriber.behind = None;
+            subscriber.client.send(frame.clone())
+        });
+    }
+
     fn catch_up_later(&self, inner: &mut Inner) {
         if inner.catch_up_scheduled {
             return;
