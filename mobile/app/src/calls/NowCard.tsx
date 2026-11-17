@@ -1,11 +1,12 @@
-import { type ReactNode, useEffect, useState } from 'react';
-import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { type ReactNode, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { inLine, NOT_CONNECTED } from '@shared/calls/words';
 import { formatAge } from '@shared/lib/format';
 import type { Say } from '@shared/lib/say';
 import type { NowClosed, NowFact, NowGroup, NowRow, ProjectNow, WorkspaceAgent } from '@shared/wire.generated';
 import type { ConnectionLike } from '@sikemux/native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AgentFace } from '@/devices/Buddy';
 import { Dot } from '@/devices/AgentMarks';
 import { callHost } from '@/core/hostCalls';
@@ -13,7 +14,7 @@ import { problem } from '@/core/problem';
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
-import { useAnimating, useMinute } from '@/ui/motion';
+import { useMinute } from '@/ui/motion';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
 /** Rows of a group shown before the rest fold into one line of marks. */
@@ -22,9 +23,9 @@ const CLOSED_SHOWN = 3;
 const LATE_MS = 10 * 60_000;
 
 /**
- * The Now card over a chief's chat, as the Mac draws it: how many of its project's agents wait on the person, are
- * ready to look at, are moving and stand unsure, set large; then the rows the person acts on, the moving ones as
- * marks, and the agents closed lately with Reopen. Folded, it is the four counts alone at the top right.
+ * The Now card over a chief's chat, as the Mac draws it: its project's agents in four groups, waiting on the person,
+ * ready to look at, moving and not sure, one row each, then the agents closed lately with Reopen. Folded, it is the
+ * four counts alone at the top right.
  */
 export function NowCard({
   now,
@@ -57,6 +58,7 @@ export function NowCard({
     return (
       <View style={styles.foldedPlace} pointerEvents="box-none">
         <Pressable onPress={fold} style={[styles.face, styles.capsule]} accessibilityRole="button" accessibilityLabel={t('Open Now')}>
+          <TopLight />
           {counts.map(({ group, count }) => (
             <View key={group} style={[styles.pill, group === 'waitingOnYou' && count > 0 && styles.pillYou]}>
               <Dot color={tintOf(group, colors)} size={6} />
@@ -73,17 +75,23 @@ export function NowCard({
   const factRow = (row: NowRow) => {
     const known = agent(row.agent);
     if (!known) return null;
+    const under = workersOf(rows, known.id);
     return (
       <Pressable
         key={row.agent}
         onPress={() => onOpen(row.agent)}
         style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.active }]}
         accessibilityRole="button">
-        <AgentPill agent={known} />
+        <AgentFace agentId={known.id} provider={known.provider} size={15} />
+        <View style={styles.name}>
+          <Text style={styles.agentName} numberOfLines={1}>
+            {nameOf(known)}
+          </Text>
+          {under > 0 ? <Text style={styles.under}>{`+${under}`}</Text> : null}
+        </View>
         <Text style={styles.fact} numberOfLines={1}>
           {factWords(row.fact, t)}
         </Text>
-        {row.group === 'notSure' ? <Dot color={colors.tertiary} size={7} hollow /> : null}
         {clock(row.since, row.group === 'waitingOnYou' && minute * 60_000 - row.since > LATE_MS)}
       </Pressable>
     );
@@ -105,49 +113,28 @@ export function NowCard({
     if (!shown.length) return null;
     return (
       <View key={group}>
-        <Label words={t(groupWords(group))} count={shown.length} />
+        <Label words={t(groupWords(group))} count={shown.length} tint={tintOf(group, colors)} />
         {shown.slice(0, SHOWN).map(factRow)}
         {rest(shown.slice(SHOWN))}
       </View>
     );
   };
-  const moving = shownOf(rows, 'moving');
   return (
     <View style={styles.openPlace} pointerEvents="box-none">
       <View style={[styles.face, styles.card]}>
+        <TopLight />
         <Pressable onPress={fold} style={styles.head} accessibilityRole="button" accessibilityLabel={t('Fold Now')}>
-          <Icon name="Logo" size={13} color={colors.accent} />
+          <Icon name="Logo" size={14} color={colors.accent} />
           <Text style={styles.title}>{t('Now')}</Text>
-          <Text style={styles.sub}>{rows.length === 1 ? t('1 agent') : t('{count} agents', { count: rows.length })}</Text>
+          <Text style={styles.sub}>{`· ${rows.length === 1 ? t('1 agent') : t('{count} agents', { count: rows.length })}`}</Text>
           <View style={styles.grow} />
           <Chevron open />
         </Pressable>
-        <View style={styles.stats}>
-          {counts.map(({ group, count }) => (
-            <View key={group} style={styles.stat}>
-              <Text style={[styles.statCount, inkOf(group, count, colors, colors.ink)]}>{count}</Text>
-              <View style={styles.statLabel}>
-                <Dot color={tintOf(group, colors)} size={6} />
-                <Text style={styles.caps} numberOfLines={1}>
-                  {t(countWords(group))}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
         <ScrollView style={{ maxHeight: tall * 0.5 }} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          {listed('waitingOnYou')}
-          {listed('readyToLook')}
-          {moving.length ? (
-            <View>
-              <Label words={t(groupWords('moving'))} count={moving.length} />
-              <Cluster rows={rows} moving={moving} agent={agent} onOpen={onOpen} />
-            </View>
-          ) : null}
-          {listed('notSure')}
+          {GROUPS.map(listed)}
           {closed.length ? (
             <View>
-              <Label words={t('Closed lately')} count={closed.length} />
+              <Label words={t('Closed lately')} count={closed.length} tint={colors.tertiary} />
               {closed.slice(0, CLOSED_SHOWN).map((entry) => (
                 <ClosedLine key={entry.agent} closed={entry} connection={connection} full={full} clock={clock(entry.at)} />
               ))}
@@ -190,19 +177,6 @@ function tintOf(group: NowGroup, colors: Palette): string {
 /** A count's ink: faint at zero, the accent for what waits on the person, else `rest`. */
 function inkOf(group: NowGroup, count: number, colors: Palette, rest: string) {
   return { color: count === 0 ? colors.inkFaint : group === 'waitingOnYou' ? colors.accent : rest };
-}
-
-function countWords(group: NowGroup): string {
-  switch (group) {
-    case 'waitingOnYou':
-      return 'For you';
-    case 'readyToLook':
-      return 'Ready';
-    case 'moving':
-      return 'Moving';
-    default:
-      return 'Not sure';
-  }
 }
 
 function groupWords(group: NowGroup): string {
@@ -286,25 +260,33 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-function Label({ words, count }: { words: string; count: number }) {
+/** A group's spaced capitals in its colour, how many stand in it, and a hairline to the edge. */
+function Label({ words, count, tint }: { words: string; count: number; tint: string }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.label}>
-      <Text style={styles.caps}>{words}</Text>
+      <Text style={[styles.caps, { color: tint }]} numberOfLines={1}>
+        {words}
+      </Text>
       <Text style={styles.labelCount}>{count}</Text>
+      <View style={styles.hairline} />
     </View>
   );
 }
 
-function AgentPill({ agent }: { agent: WorkspaceAgent }) {
-  const styles = useStyles(makeStyles);
+/** The faint light at the top of the card, as the Mac lifts its face. */
+function TopLight() {
+  const colors = useColors();
   return (
-    <View style={styles.agentPill}>
-      <AgentFace agentId={agent.id} provider={agent.provider} size={14} />
-      <Text style={styles.agentName} numberOfLines={1}>
-        {nameOf(agent)}
-      </Text>
-    </View>
+    <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Defs>
+        <LinearGradient id="nowLight" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={colors.ink} stopOpacity={0.035} />
+          <Stop offset="0.3" stopColor={colors.ink} stopOpacity={0} />
+        </LinearGradient>
+      </Defs>
+      <Rect width="100%" height="100%" fill="url(#nowLight)" />
+    </Svg>
   );
 }
 
@@ -317,77 +299,6 @@ function Marks({ agents }: { agents: WorkspaceAgent[] }) {
           <AgentFace agentId={agent.id} provider={agent.provider} size={12} />
         </View>
       ))}
-    </View>
-  );
-}
-
-/** A moving agent's live dot, breathing while the app may animate. */
-function LiveDot() {
-  const styles = useStyles(makeStyles);
-  const animating = useAnimating();
-  const [phase] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    if (!animating) {
-      phase.setValue(0);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.timing(phase, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [phase, animating]);
-  const opacity = phase.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.45, 1] });
-  return <Animated.View style={[styles.liveDot, { opacity }]} />;
-}
-
-/** The moving agents as marks with live dots, a lead as a chip naming how many work under it, then what the longest standing does. */
-function Cluster({
-  rows,
-  moving,
-  agent,
-  onOpen,
-}: {
-  rows: NowRow[];
-  moving: NowRow[];
-  agent: (id: string) => WorkspaceAgent | undefined;
-  onOpen: (agentId: string) => void;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const t = useT();
-  const first = moving.map((row) => ({ row, known: agent(row.agent) })).find((found) => found.known);
-  return (
-    <View style={styles.cluster}>
-      <View style={styles.stars}>
-        {moving.map((row) => {
-          const known = agent(row.agent);
-          if (!known) return null;
-          const under = workersOf(rows, known.id);
-          return (
-            <Pressable
-              key={row.agent}
-              onPress={() => onOpen(row.agent)}
-              style={({ pressed }) => [styles.star, under > 0 && styles.lead, pressed && { backgroundColor: colors.selected }]}
-              accessibilityRole="button"
-              accessibilityLabel={`${nameOf(known)} · ${factWords(row.fact, t)}`}>
-              <AgentFace agentId={known.id} provider={known.provider} size={13} />
-              {under > 0 ? (
-                <>
-                  <Text style={styles.leadName}>{nameOf(known)}</Text>
-                  <Text style={styles.leadMore}>{`+${under}`}</Text>
-                </>
-              ) : null}
-              <LiveDot />
-            </Pressable>
-          );
-        })}
-      </View>
-      {first?.known ? (
-        <Text style={styles.who} numberOfLines={1}>
-          {`${nameOf(first.known)} ${factWords(first.row.fact, t)}`}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -444,52 +355,47 @@ const makeStyles = (colors: Palette) =>
       backgroundColor: colors.raised,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderStrong,
-      shadowColor: '#000',
-      shadowOpacity: 0.55,
-      shadowRadius: 24,
-      shadowOffset: { width: 0, height: 12 },
-      elevation: 12,
+      boxShadow: '0 8px 16px -8px rgba(0, 0, 0, 0.44), 0 28px 64px -16px rgba(0, 0, 0, 0.62)',
     },
     card: { borderRadius: 14, overflow: 'hidden' },
-    capsule: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 34, paddingLeft: 5, paddingRight: 4, borderRadius: 17 },
+    capsule: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      height: 34,
+      paddingLeft: 5,
+      paddingRight: 4,
+      borderRadius: 17,
+      overflow: 'hidden',
+    },
     pill: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 24, paddingHorizontal: 9, borderRadius: 12 },
     pillYou: { backgroundColor: colors.selected },
     pillText: { fontFamily: fonts.uiSemibold, fontSize: 13, fontVariant: ['tabular-nums'] },
     chevron: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
-    head: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingLeft: 14, paddingRight: 10 },
-    title: { fontFamily: fonts.uiSemibold, fontSize: 14, color: colors.ink },
-    sub: { fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
-    grow: { flex: 1 },
-    stats: {
+    head: {
       flexDirection: 'row',
-      paddingHorizontal: 8,
-      paddingTop: 2,
-      paddingBottom: 8,
+      alignItems: 'center',
+      gap: 8,
+      height: 48,
+      paddingLeft: 16,
+      paddingRight: 10,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    stat: { flex: 1, paddingHorizontal: 8, paddingVertical: 4 },
-    statCount: { fontFamily: fonts.uiSemibold, fontSize: 24, lineHeight: 28, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
-    statLabel: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+    title: { fontFamily: fonts.uiSemibold, fontSize: 14, color: colors.ink },
+    sub: { fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
+    grow: { flex: 1 },
     caps: { fontFamily: fonts.uiMedium, fontSize: 10, letterSpacing: 1.6, textTransform: 'uppercase', color: colors.tertiary },
-    body: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 8 },
-    label: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 26, marginTop: 4, paddingHorizontal: 10 },
-    labelCount: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.secondary, fontVariant: ['tabular-nums'] },
-    row: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 34, paddingHorizontal: 10, borderRadius: 8 },
+    body: { gap: 10, paddingHorizontal: 8, paddingTop: 6, paddingBottom: 10 },
+    label: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 26, paddingHorizontal: 10 },
+    labelCount: { fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary, fontVariant: ['tabular-nums'] },
+    hairline: { flex: 1, height: 1, backgroundColor: colors.border },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36, paddingHorizontal: 10, borderRadius: 8 },
+    name: { width: 96, flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+    under: { fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary, fontVariant: ['tabular-nums'] },
     fact: { flex: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 13.5, color: colors.secondary },
-    clock: { fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary, fontVariant: ['tabular-nums'] },
-    agentPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      height: 23,
-      paddingLeft: 5,
-      paddingRight: 8,
-      borderRadius: 7,
-      backgroundColor: colors.active,
-      maxWidth: 150,
-    },
-    agentName: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
+    clock: { minWidth: 30, textAlign: 'right', fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary, fontVariant: ['tabular-nums'] },
+    agentName: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 13.5, color: colors.ink },
     marks: { flexDirection: 'row', alignItems: 'center' },
     mini: {
       width: 20,
@@ -501,32 +407,6 @@ const makeStyles = (colors: Palette) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    cluster: { gap: 6, paddingHorizontal: 10, paddingTop: 2, paddingBottom: 6 },
-    stars: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    star: {
-      minWidth: 28,
-      height: 28,
-      borderRadius: 8,
-      backgroundColor: colors.active,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    lead: { paddingLeft: 7, paddingRight: 8, gap: 5 },
-    leadName: { fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.secondary },
-    leadMore: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary, fontVariant: ['tabular-nums'] },
-    liveDot: {
-      position: 'absolute',
-      right: -2,
-      bottom: -2,
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      borderWidth: 2,
-      borderColor: colors.raised,
-      backgroundColor: colors.live,
-    },
-    who: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
     reopen: { height: 26, paddingHorizontal: 8, borderRadius: 7, justifyContent: 'center' },
     reopenText: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
     refused: { paddingHorizontal: 10, paddingBottom: 4, fontFamily: fonts.ui, fontSize: 12.5 },

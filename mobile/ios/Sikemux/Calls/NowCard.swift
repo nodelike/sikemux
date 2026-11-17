@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The Now card at the top of a chief's chat, as the Mac floats it: how many of the project's agents wait on the
-/// person, are ready to look at, are moving and stand unsure, set large; then the rows the person acts on, the moving
-/// ones as marks, and the agents closed lately with Reopen. Folded, it is the four counts alone at the top right.
+/// The Now card at the top of a chief's chat, as the Mac floats it: the project's agents in four groups, waiting on
+/// the person, ready to look at, moving and not sure, one row each, then the agents closed lately with Reopen. Folded,
+/// it is the four counts alone at the top right.
 struct NowCard: View {
     @Environment(\.palette) private var palette
     @Environment(\.crew) private var crew
@@ -23,7 +23,7 @@ struct NowCard: View {
             if folded {
                 capsule(counts)
             } else {
-                card(counts)
+                card
             }
         }
         .animation(.easeOut(duration: 0.2), value: folded)
@@ -70,25 +70,33 @@ struct NowCard: View {
 
     // MARK: Open
 
-    private func card(_ counts: NowCounts) -> some View {
+    private var card: some View {
         VStack(spacing: 0) {
             head
-            stats(counts)
             ViewThatFits(in: .vertical) {
                 rows
                 ScrollView { rows }.scrollIndicators(.hidden)
             }
         }
         .frame(maxHeight: maxHeight, alignment: .top)
-        .background(surface(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)))
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(surface(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)))
         .padding(.horizontal, 12)
     }
 
     private func surface(_ shape: some InsettableShape) -> some View {
         shape.fill(palette.raised)
+            .overlay(
+                shape.fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: palette.ink.opacity(0.035), location: 0), .init(color: .clear, location: 0.3),
+                        ],
+                        startPoint: .top, endPoint: .bottom))
+            )
             .overlay(shape.strokeBorder(palette.border))
-            .shadow(color: .black.opacity(0.55), radius: 22, y: 14)
+            .shadow(color: .black.opacity(0.44), radius: 6, y: 8)
+            .shadow(color: .black.opacity(0.5), radius: 24, y: 20)
     }
 
     private var head: some View {
@@ -96,13 +104,14 @@ struct NowCard: View {
             HStack(spacing: 8) {
                 IconView(icon: Icons.logo, size: 14).foregroundStyle(palette.accent)
                 Text(NowWords.now).font(Theme.ui(14, .semibold)).foregroundStyle(palette.ink)
-                Text(NowWords.agents(now.rows?.count ?? 0)).font(Theme.ui(13)).foregroundStyle(palette.tertiary)
+                Text("· " + NowWords.agents(now.rows?.count ?? 0)).font(Theme.ui(13)).foregroundStyle(palette.tertiary)
                 Spacer(minLength: 0)
                 chevron(open: true)
             }
-            .padding(.leading, 14)
+            .padding(.leading, 16)
             .padding(.trailing, 8)
-            .frame(height: 44)
+            .frame(height: 48)
+            .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -115,29 +124,6 @@ struct NowCard: View {
             .frame(width: 28, height: 28)
     }
 
-    private func stats(_ counts: NowCounts) -> some View {
-        HStack(spacing: 2) {
-            ForEach(counts.each, id: \.label) { count in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(count.n)").font(Theme.ui(24, .semibold)).monospacedDigit().tracking(-0.4)
-                        .foregroundStyle(count.n == 0 ? palette.inkFaint : count.lit ? palette.accent : palette.ink)
-                    HStack(spacing: 6) {
-                        Circle().fill(tint(count.tint)).frame(width: 6, height: 6)
-                        Text(count.label.uppercased()).font(Theme.ui(10, .medium)).tracking(1.6)
-                            .foregroundStyle(palette.tertiary).lineLimit(1).fixedSize()
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.top, 2)
-        .padding(.bottom, 8)
-        .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1) }
-    }
-
     private func tint(_ tint: NowCounts.Tint) -> Color {
         switch tint {
         case .you: palette.accent
@@ -148,51 +134,51 @@ struct NowCard: View {
     }
 
     private var rows: some View {
-        VStack(spacing: 0) {
-            ForEach([NowGroup.waitingOnYou, .readyToLook], id: \.self) { group in
+        VStack(spacing: 10) {
+            ForEach([NowGroup.waitingOnYou, .readyToLook, .moving, .notSure], id: \.self) { group in
                 listed(group)
             }
-            let moving = NowCounts.shown(now, .moving)
-            if !moving.isEmpty {
-                label(NowWords.group(.moving), moving.count)
-                NowCluster(now: now, moving: moving)
-            }
-            listed(.notSure)
             let closed = now.closed ?? []
             if !closed.isEmpty {
-                label(NowWords.closedLately, closed.count)
-                ForEach(closed.prefix(Self.closedShown), id: \.agent) { closed in
-                    NowClosedRow(core: core, closed: closed, full: full)
+                VStack(spacing: 0) {
+                    label(NowWords.closedLately, closed.count, tint: palette.tertiary)
+                    ForEach(closed.prefix(Self.closedShown), id: \.agent) { closed in
+                        NowClosedRow(core: core, closed: closed, full: full)
+                    }
                 }
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.top, 2)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
     }
 
     @ViewBuilder private func listed(_ group: NowGroup) -> some View {
         let rows = NowCounts.shown(now, group)
         if !rows.isEmpty {
-            label(NowWords.group(group), rows.count)
-            ForEach(rows.prefix(Self.shown), id: \.agent) { row in
-                if let agent = crew?.agent(row.agent) { NowFactRow(agent: agent, row: row) }
+            VStack(spacing: 0) {
+                label(NowWords.group(group), rows.count, tint: tint(NowCounts.tint(group)))
+                ForEach(rows.prefix(Self.shown), id: \.agent) { row in
+                    if let agent = crew?.agent(row.agent) {
+                        NowFactRow(agent: agent, row: row, under: NowCounts.workers(now, agent.id))
+                    }
+                }
+                let rest = rows.dropFirst(Self.shown).compactMap { crew?.agent($0.agent) }
+                if !rest.isEmpty { NowRestRow(agents: Array(rest)) }
             }
-            let rest = rows.dropFirst(Self.shown).compactMap { crew?.agent($0.agent) }
-            if !rest.isEmpty { NowRestRow(agents: Array(rest)) }
         }
     }
 
-    private func label(_ words: String, _ count: Int) -> some View {
+    /// A group's spaced capitals in its colour, how many stand in it, and a hairline to the edge.
+    private func label(_ words: String, _ count: Int, tint: Color) -> some View {
         HStack(spacing: 8) {
             Text(words.uppercased()).font(Theme.ui(10.5, .medium)).tracking(2)
-                .foregroundStyle(palette.tertiary)
-            Text("\(count)").font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.secondary)
-            Spacer(minLength: 0)
+                .foregroundStyle(tint).lineLimit(1).fixedSize()
+            Text("\(count)").font(Theme.ui(11.5)).monospacedDigit().foregroundStyle(palette.tertiary).fixedSize()
+            Rectangle().fill(palette.border).frame(height: 1)
         }
         .padding(.horizontal, 10)
         .frame(height: 26)
-        .padding(.top, 4)
     }
 }
 
@@ -209,6 +195,15 @@ struct NowCounts {
     }
 
     let each: [Count]
+
+    static func tint(_ group: NowGroup) -> Tint {
+        switch group {
+        case .waitingOnYou: .you
+        case .readyToLook: .ready
+        case .moving: .moving
+        case .notSure, .unknown: .unsure
+        }
+    }
 
     init(_ now: ProjectNow) {
         each = [
@@ -234,12 +229,13 @@ struct NowCounts {
     }
 }
 
-/// One agent the person acts on: its chip, its fact and how long it has stood; a tap opens it.
+/// One agent on the card: its mark, its name, what it is doing and how long it has stood; a tap opens it.
 private struct NowFactRow: View {
     @Environment(\.palette) private var palette
     @Environment(\.hostCore) private var core
     let agent: Crew.Named
     let row: NowRow
+    let under: Int
 
     var body: some View {
         let since = Date(timeIntervalSince1970: Double(row.since) / 1000)
@@ -248,13 +244,18 @@ private struct NowFactRow: View {
             Haptics.select()
             Router.shared.push(.chat(core: core, agent: agent.id))
         } label: {
-            HStack(spacing: 9) {
-                AgentPill(agent: agent, size: 13)
+            HStack(spacing: 10) {
+                NamedMark(agent: agent, accent: palette.accent, size: 15)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(agent.written).font(Theme.ui(13.5, .medium)).foregroundStyle(palette.ink).lineLimit(1)
+                    if under > 0 {
+                        Text("+\(under)").font(Theme.ui(11.5)).monospacedDigit().foregroundStyle(palette.tertiary)
+                            .fixedSize()
+                    }
+                }
+                .frame(width: 96, alignment: .leading)
                 Text(NowWords.fact(row.fact)).font(Theme.ui(13.5)).foregroundStyle(palette.secondary).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if row.group == .notSure || row.group == .unknown {
-                    Circle().strokeBorder(palette.tertiary, lineWidth: 1.5).frame(width: 6, height: 6)
-                }
                 NowClock(since: since, late: late)
             }
             .padding(.horizontal, 10)
@@ -298,68 +299,6 @@ private struct NowMarks: View {
                     .background(palette.raised, in: RoundedRectangle(cornerRadius: 7).inset(by: -2))
             }
         }
-    }
-}
-
-/// The moving agents as marks, each with its live dot, a lead as a chip naming how many work under it; under them,
-/// what the longest standing is doing.
-private struct NowCluster: View {
-    @Environment(\.palette) private var palette
-    @Environment(\.crew) private var crew
-    @Environment(\.hostCore) private var core
-    let now: ProjectNow
-    let moving: [NowRow]
-    @State private var breath = false
-
-    var body: some View {
-        let agents = moving.compactMap { row in crew?.agent(row.agent).map { ($0, row) } }
-        VStack(alignment: .leading, spacing: 6) {
-            Wrap(spacing: 6) {
-                ForEach(agents, id: \.0.id) { agent, _ in
-                    star(agent, under: NowCounts.workers(now, agent.id))
-                }
-            }
-            if let (agent, row) = agents.first {
-                Text("\(agent.written) \(NowWords.fact(row.fact))").font(Theme.ui(12.5)).foregroundStyle(
-                    palette.tertiary
-                )
-                .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 2)
-        .padding(.bottom, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.2).repeatForever()) { breath = true }
-        }
-    }
-
-    private func star(_ agent: Crew.Named, under: Int) -> some View {
-        Button {
-            Haptics.select()
-            Router.shared.push(.chat(core: core, agent: agent.id))
-        } label: {
-            HStack(spacing: 5) {
-                NamedMark(agent: agent, accent: palette.accent, size: 14)
-                if under > 0 {
-                    Text(agent.written).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.secondary)
-                    Text("+\(under)").font(Theme.ui(12.5)).monospacedDigit().foregroundStyle(palette.tertiary)
-                }
-            }
-            .padding(.horizontal, under > 0 ? 7 : 0)
-            .frame(minWidth: 28, minHeight: 28)
-            .background(palette.active, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(alignment: .bottomTrailing) {
-                Circle().fill(palette.live).frame(width: 7, height: 7)
-                    .opacity(breath ? 0.45 : 1)
-                    .background(Circle().fill(palette.raised).padding(-2))
-                    .offset(x: 2, y: 2)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(agent.written)
     }
 }
 
@@ -425,6 +364,7 @@ private struct NowClock: View {
         Text(Format.age(since)).font(Theme.ui(12)).monospacedDigit()
             .foregroundStyle(late ? palette.warn : palette.tertiary)
             .fixedSize()
+            .frame(minWidth: 30, alignment: .trailing)
     }
 }
 
