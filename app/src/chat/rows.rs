@@ -1682,12 +1682,7 @@ pub(super) fn part(
             };
             notice_box(looks)
                 .child(ui::icon(icon, 12.).text_color(tint))
-                .child(
-                    div()
-                        .flex_none()
-                        .text_color(state)
-                        .child(notice.title.clone()),
-                )
+                .child(notice_summary(notice.title.clone()).text_color(state))
                 .children(notice.description.clone().map(notice_summary))
                 .into_any_element()
         }
