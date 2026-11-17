@@ -1169,6 +1169,15 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     };
     let (target, letter) = match found {
         Found::Open(target, letter) => (target, *letter),
+        Found::Closed(name, ran) if calls_off(&message_text(core, &request.params)?) => {
+            return Ok(called_off(
+                &name,
+                &format!("{}, cli {}", ran.session_id, ran.provider),
+            ));
+        }
+        Found::ClosedElsewhere(name) if calls_off(&message_text(core, &request.params)?) => {
+            return Ok(called_off(&name, &name));
+        }
         Found::Closed(name, ran) => return reopen(core, request, &name, ran).await,
         Found::ClosedElsewhere(name) => return reopen_elsewhere(core, request, &name).await,
     };
@@ -1214,6 +1223,51 @@ async fn reopen_elsewhere(
 }
 
 /// Takes up again the session of a closed agent the sender led, with the message as its task.
+/// The answer to a message that calls off the work of `name`, a worker that had closed, which
+/// agent_spawn reopens with `resume`.
+fn called_off(name: &str, resume: &str) -> Value {
+    json!({
+        "to": name,
+        "delivery": "notSent",
+        "note": format!("{name} had closed, so its work had already stopped, and Sikemux did not reopen it for a message that calls the work off. To reopen it with this message anyway, agent_spawn with resume {resume}."),
+    })
+}
+
+/// Whether `text` only calls work off, as a short message that opens with stop or cancel does.
+fn calls_off(text: &str) -> bool {
+    const OPENINGS: [&str; 12] = [
+        "stop",
+        "cancel",
+        "abort",
+        "halt",
+        "drop it",
+        "never mind",
+        "nevermind",
+        "stand down",
+        "no need",
+        "hold off",
+        "scrap",
+        "forget it",
+    ];
+    let text = text.trim().trim_start_matches('@').to_lowercase();
+    let opens = |text: &str| {
+        OPENINGS.iter().any(|opening| {
+            text.strip_prefix(opening).is_some_and(|rest| {
+                rest.chars()
+                    .next()
+                    .is_none_or(|next| !next.is_alphanumeric())
+            })
+        })
+    };
+    let after_name = (text.split_once(char::is_whitespace))
+        .filter(|(first, _)| first.ends_with([',', ':']))
+        .map(|(_, rest)| rest.trim_start());
+    text.chars().count() <= CALL_OFF_CHARS && (opens(&text) || after_name.is_some_and(opens))
+}
+
+/// The longest message read as only calling work off; a longer one gives the worker more to do.
+const CALL_OFF_CHARS: usize = 280;
+
 async fn reopen(
     core: &Arc<Core>,
     request: &HarnessRequest,
