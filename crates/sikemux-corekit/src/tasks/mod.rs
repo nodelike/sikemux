@@ -15,7 +15,14 @@ pub mod tools;
 use std::io::Read;
 use std::path::Path;
 
+use regex::Regex;
+
 const MAX_TEXT_BYTES: u64 = 2 * 1024 * 1024;
+
+#[expect(clippy::expect_used, reason = "every pattern is written in the code")]
+fn regex(pattern: &str) -> Regex {
+    Regex::new(pattern).expect("valid regex")
+}
 
 /// A text file's contents, or none when it is missing, unreadable, too big or
 /// binary.

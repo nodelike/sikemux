@@ -21,6 +21,10 @@ struct Catalogue {
     ghostty: Vec<Theme>,
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "both catalogues are files built into the program"
+)]
 fn catalogue() -> &'static Catalogue {
     static CATALOGUE: OnceLock<Catalogue> = OnceLock::new();
     CATALOGUE.get_or_init(|| {
@@ -43,6 +47,10 @@ fn catalogue() -> &'static Catalogue {
 }
 
 /// The theme with `theme_id`, or the default when it is gone.
+#[expect(
+    clippy::expect_used,
+    reason = "the default theme is built into the program"
+)]
 pub fn resolve(shelf: &Shelf, theme_id: &str) -> Theme {
     find(shelf, theme_id)
         .or_else(|| find(shelf, DEFAULT_THEME_ID))
@@ -218,7 +226,7 @@ fn rgba(color: &str) -> Rgba {
         let alpha = color
             .strip_prefix('#')
             .filter(|digits| digits.len() == 8)
-            .and_then(|digits| u8::from_str_radix(&digits[6..], 16).ok())
+            .and_then(|digits| u8::from_str_radix(digits.get(6..)?, 16).ok())
             .map_or(1., |alpha| f64::from(alpha) / 255.);
         return [
             f64::from(r) / 255.,
@@ -264,14 +272,14 @@ fn with_alpha([r, g, b, _]: Rgba, alpha: f64) -> Rgba {
 
 /// CSS `color-mix(in srgb, a amount, b)`.
 fn mix_srgb(a: Rgba, b: Rgba, amount: f64) -> Rgba {
-    std::array::from_fn(|index| a[index] * amount + b[index] * (1. - amount))
+    pairwise(a, b, |a, b| a * amount + b * (1. - amount))
 }
 
 /// CSS `color-mix(in oklab, a amount, b)`.
 fn mix_oklab(a: Rgba, b: Rgba, amount: f64) -> Rgba {
-    let (from, to) = (oklab(a), oklab(b));
-    let mixed: [f64; 3] =
-        std::array::from_fn(|index| from[index] * amount + to[index] * (1. - amount));
+    let mixed = pairwise(oklab(a), oklab(b), |from, to| {
+        from * amount + to * (1. - amount)
+    });
     let [r, g, bl] = from_oklab(mixed);
     [r, g, bl, a[3] * amount + b[3] * (1. - amount)]
 }
@@ -557,11 +565,17 @@ pub fn terminal_colors(theme: &Theme) -> TerminalColors {
         &t.bright_cyan,
         &t.bright_white,
     ];
+    let mut colors = fallback.ansi;
+    for (color, text) in colors.iter_mut().zip(ansi) {
+        if let Some(found) = hex(text) {
+            *color = found;
+        }
+    }
     TerminalColors {
         foreground: hex(&t.foreground).unwrap_or(fallback.foreground),
         background: hex(&t.background).unwrap_or(fallback.background),
         cursor: hex(&t.cursor),
-        ansi: std::array::from_fn(|index| hex(ansi[index]).unwrap_or(fallback.ansi[index])),
+        ansi: colors,
     }
 }
 
@@ -570,10 +584,10 @@ fn hex(color: &str) -> Option<[u8; 3]> {
     let digits = color.trim().strip_prefix('#')?;
     let digits: String = match digits.len() {
         3 => digits.chars().flat_map(|digit| [digit, digit]).collect(),
-        6 | 8 => digits[..6].to_owned(),
+        6 | 8 => digits.get(..6)?.to_owned(),
         _ => return None,
     };
-    let channel = |at: usize| u8::from_str_radix(&digits[at..at + 2], 16).ok();
+    let channel = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
     Some([channel(0)?, channel(2)?, channel(4)?])
 }
 
@@ -612,10 +626,19 @@ fn css([r, g, b]: [u8; 3]) -> String {
 }
 
 fn mix(from: [u8; 3], to: [u8; 3], amount: f64) -> [u8; 3] {
-    std::array::from_fn(|index| {
-        let (a, b) = (f64::from(from[index]), f64::from(to[index]));
+    pairwise(from, to, |a, b| {
+        let (a, b) = (f64::from(a), f64::from(b));
         (a + (b - a) * amount).round() as u8
     })
+}
+
+/// `a` and `b` combined place by place.
+fn pairwise<T: Copy, const N: usize>(a: [T; N], b: [T; N], combine: impl Fn(T, T) -> T) -> [T; N] {
+    let mut combined = a;
+    for (slot, other) in combined.iter_mut().zip(b) {
+        *slot = combine(*slot, other);
+    }
+    combined
 }
 
 fn alpha([r, g, b]: [u8; 3], amount: f64) -> String {
@@ -642,8 +665,8 @@ fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
 /// `color` moved toward `ink` just far enough to read at `minimum` contrast on every background.
 fn readable(color: [u8; 3], backgrounds: &[[u8; 3]], ink: [u8; 3], minimum: f64) -> [u8; 3] {
     let toward = |step: u8| -> [u8; 3] {
-        std::array::from_fn(|index| {
-            let (a, b) = (f64::from(color[index]), f64::from(ink[index]));
+        pairwise(color, ink, |a, b| {
+            let (a, b) = (f64::from(a), f64::from(b));
             (a + (b - a) * f64::from(step) / 100.).round() as u8
         })
     };
@@ -677,9 +700,17 @@ fn ghostty_theme(
     colours: &[Option<[u8; 3]>],
     accent: Option<[u8; 3]>,
 ) -> Option<Theme> {
-    let (bg, raw_fg, cursor, cursor_text) = (colours[0]?, colours[1]?, colours[2]?, colours[3]?);
-    let raw_selection = colours[4];
-    let ansi: Vec<[u8; 3]> = colours[5..].iter().copied().collect::<Option<_>>()?;
+    let [bg, raw_fg, cursor, cursor_text, raw_selection, ansi @ ..] = colours else {
+        return None;
+    };
+    let (bg, raw_fg, cursor, cursor_text) = ((*bg)?, (*raw_fg)?, (*cursor)?, (*cursor_text)?);
+    let raw_selection = *raw_selection;
+    let ansi: [[u8; 3]; 16] = ansi
+        .iter()
+        .copied()
+        .collect::<Option<Vec<_>>>()?
+        .try_into()
+        .ok()?;
     let (white, black) = ([0xff; 3], [0; 3]);
     let dark = contrast(white, bg) >= contrast(black, bg);
     let bg_dim = mix(bg, black, if dark { 0.22 } else { 0.035 });
@@ -704,7 +735,6 @@ fn ghostty_theme(
         .unwrap_or_else(|| mix(bg, acc, 0.28));
     let ink_dim = mix(fg, bg, 0.38);
     let tone = |color: [u8; 3]| css(readable(color, &[bg], fg, 3.));
-    let terminal = |index: usize| css(ansi[index]);
     Some(Theme {
         id: format!("ghostty-{}", slugify(name)),
         name: name.to_owned(),
@@ -721,7 +751,7 @@ fn ghostty_theme(
             acc_dim: alpha(acc, 0.1),
             line: css(line),
             hl: alpha(acc, 0.055),
-            danger: terminal(1),
+            danger: css(ansi[1]),
         },
         editor: ThemeEditor {
             fg: css(fg),
@@ -756,22 +786,22 @@ fn ghostty_theme(
             cursor: css(cursor),
             cursor_accent: css(cursor_text),
             selection_background: css(selection),
-            black: terminal(0),
-            red: terminal(1),
-            green: terminal(2),
-            yellow: terminal(3),
-            blue: terminal(4),
-            magenta: terminal(5),
-            cyan: terminal(6),
-            white: terminal(7),
-            bright_black: terminal(8),
-            bright_red: terminal(9),
-            bright_green: terminal(10),
-            bright_yellow: terminal(11),
-            bright_blue: terminal(12),
-            bright_magenta: terminal(13),
-            bright_cyan: terminal(14),
-            bright_white: terminal(15),
+            black: css(ansi[0]),
+            red: css(ansi[1]),
+            green: css(ansi[2]),
+            yellow: css(ansi[3]),
+            blue: css(ansi[4]),
+            magenta: css(ansi[5]),
+            cyan: css(ansi[6]),
+            white: css(ansi[7]),
+            bright_black: css(ansi[8]),
+            bright_red: css(ansi[9]),
+            bright_green: css(ansi[10]),
+            bright_yellow: css(ansi[11]),
+            bright_blue: css(ansi[12]),
+            bright_magenta: css(ansi[13]),
+            bright_cyan: css(ansi[14]),
+            bright_white: css(ansi[15]),
         },
         style: ThemeStyle::default(),
         backdrop: Default::default(),

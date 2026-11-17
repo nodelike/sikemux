@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
-use super::checkout;
+use super::{checkout, regex};
 
 pub const CONFIG_FILE: &str = "sikemux.json";
 pub const CONFIG_VERSION: u64 = 1;
@@ -113,10 +113,9 @@ const PHYSICAL_KEY_CODES: &[&str] = &[
 ];
 
 static PATTERNED_KEY_CODE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
+    regex(
         r"^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Numpad(?:[0-9]|Add|Comma|Decimal|Divide|Enter|Equal|Multiply|Subtract))$",
     )
-    .expect("key code pattern")
 });
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

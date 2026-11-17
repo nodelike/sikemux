@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::tasks::config::CONFIG_FILE;
-use crate::tasks::read_text;
+use crate::tasks::{read_text, regex};
 
 pub const DETECTED_PREFIX: &str = "detected.";
 pub const PERSONAL_PREFIX: &str = "personal.";
@@ -101,16 +101,12 @@ fn read_or_empty(path: &Path) -> String {
 }
 
 fn regexes(patterns: &[&str]) -> Vec<Regex> {
-    patterns
-        .iter()
-        .map(|pattern| Regex::new(pattern).expect("valid pattern"))
-        .collect()
+    patterns.iter().map(|pattern| regex(pattern)).collect()
 }
 
 macro_rules! regex {
     ($pattern:expr) => {{
-        static PATTERN: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new($pattern).expect("valid pattern"));
+        static PATTERN: LazyLock<Regex> = LazyLock::new(|| crate::tasks::regex($pattern));
         &*PATTERN
     }};
 }
@@ -144,8 +140,7 @@ static SDKMANRC: LazyLock<Vec<Regex>> =
 static TOOL_VERSIONS: LazyLock<Vec<Regex>> =
     LazyLock::new(|| regexes(&[r"(?mR)^\s*java\s+(?:[a-z]+-)*([0-9]+)"]));
 
-static FOLDER_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]*$").expect("valid pattern"));
+static FOLDER_NAME: LazyLock<Regex> = LazyLock::new(|| regex(r"^[A-Za-z0-9][A-Za-z0-9._-]*$"));
 
 fn first_number(text: &str, patterns: &[Regex]) -> Option<u32> {
     let captures = patterns.iter().find_map(|pattern| pattern.captures(text))?;
@@ -352,10 +347,7 @@ fn android_plugin_java(gradle_files: &str) -> Option<u32> {
 /// The named entries directly inside the first `name { … }` block, with their
 /// bodies: `create("staging") { … }`, `getByName("release")` or Groovy's `free { … }`.
 fn gradle_block_entries(build: &str, name: &str) -> Vec<(String, String)> {
-    let Some(opening) = Regex::new(&format!(r"(?-u:\b){name}\s*\{{"))
-        .expect("valid pattern")
-        .find(build)
-    else {
+    let Some(opening) = regex(&format!(r"(?-u:\b){name}\s*\{{")).find(build) else {
         return Vec::new();
     };
     let call = regex!(
@@ -375,7 +367,7 @@ fn gradle_block_entries(build: &str, name: &str) -> Vec<(String, String)> {
     let mut head = String::new();
     let mut body_start = None;
     let mut entry: Option<String> = None;
-    let text = &build[opening.end()..];
+    let text = build.get(opening.end()..).unwrap_or_default();
     for (index, character) in text.char_indices() {
         match character {
             '{' => {
@@ -403,7 +395,7 @@ fn gradle_block_entries(build: &str, name: &str) -> Vec<(String, String)> {
                 depth -= 1;
                 if depth == 0 {
                     if let (Some(name), Some(start)) = (entry.take(), body_start.take()) {
-                        add(name, text[start..index].to_owned());
+                        add(name, text.get(start..index).unwrap_or_default().to_owned());
                     }
                 }
             }
@@ -507,9 +499,10 @@ fn android_tasks(gradle: &str, module: AndroidModule, build: &str) -> Vec<Task> 
         }
     }
     let combinations = flavor_combinations(build);
+    let first_flavors = combinations.first().map(String::as_str).unwrap_or_default();
     let declares_variants = build_types.len() > 2
         || combinations.len() > 1
-        || !combinations[0].is_empty()
+        || !first_flavors.is_empty()
         || regex!(r"(?-u:\b)buildTypes\s*\{").is_match(build);
     let task = |gradle_task: String, id: String| {
         Task::new(
@@ -518,7 +511,7 @@ fn android_tasks(gradle: &str, module: AndroidModule, build: &str) -> Vec<Task> 
             format!("{gradle} {gradle_task}"),
         )
     };
-    let debug = variant_name(&combinations[0], "debug");
+    let debug = variant_name(first_flavors, "debug");
     let debug_task = capitalized(&debug);
     let mut tasks = Vec::new();
     if module == AndroidModule::App {
@@ -571,7 +564,7 @@ fn applies_application(build: &str) -> bool {
     regex!(r"(?-u:\b)application(?-u:\b)")
         .find_iter(build)
         .any(|found| {
-            let before = &build[..found.start()];
+            let before = build.get(..found.start()).unwrap_or_default();
             !before.ends_with("android.") && !before.ends_with("android-")
         })
 }
@@ -1156,8 +1149,8 @@ pub fn save_team(project: &Path, task: &AddedTask) -> Result<String, String> {
     });
     let id = task_id_for(&task.label);
     let mut entry = json!({ "id": id, "label": task.label, "command": task.command });
-    if task.cwd != "." {
-        entry["cwd"] = json!(task.cwd);
+    if let Some(entry) = entry.as_object_mut().filter(|_| task.cwd != ".") {
+        entry.insert("cwd".to_owned(), json!(task.cwd));
     }
     let tasks = with_task(config.get("tasks"), &id, entry);
     config.insert("tasks".to_owned(), tasks);

@@ -43,14 +43,20 @@ pub fn changed(old: &str, new: &str, first: u64) -> Lines {
     let old: Vec<&str> = old.lines().collect();
     let new: Vec<&str> = new.lines().collect();
     let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let (old, new) = (&old[prefix..], &new[prefix..]);
+    let (old, new) = (
+        old.get(prefix..).unwrap_or_default(),
+        new.get(prefix..).unwrap_or_default(),
+    );
     let suffix = old
         .iter()
         .rev()
         .zip(new.iter().rev())
         .take_while(|(a, b)| a == b)
         .count();
-    let (old, new) = (&old[..old.len() - suffix], &new[..new.len() - suffix]);
+    let (old, new) = (
+        old.get(..old.len() - suffix).unwrap_or_default(),
+        new.get(..new.len() - suffix).unwrap_or_default(),
+    );
     let ops = diff(old, new).unwrap_or_else(|| {
         std::iter::repeat_n(Op::Removed, old.len())
             .chain(std::iter::repeat_n(Op::Added, new.len()))
@@ -72,15 +78,16 @@ pub fn replaced<T: AsRef<str>>(old: &[T], new: &[T]) -> Vec<Replaced> {
     let old: Vec<&str> = old.iter().map(AsRef::as_ref).collect();
     let new: Vec<&str> = new.iter().map(AsRef::as_ref).collect();
     let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
+    let suffix = old
         .iter()
+        .skip(prefix)
         .rev()
-        .zip(new[prefix..].iter().rev())
+        .zip(new.iter().skip(prefix).rev())
         .take_while(|(a, b)| a == b)
         .count();
     let (a, b) = (
-        &old[prefix..old.len() - suffix],
-        &new[prefix..new.len() - suffix],
+        old.get(prefix..old.len() - suffix).unwrap_or_default(),
+        new.get(prefix..new.len() - suffix).unwrap_or_default(),
     );
     let ops = diff(a, b).unwrap_or_else(|| {
         std::iter::repeat_n(Op::Removed, a.len())
@@ -144,20 +151,26 @@ fn diff(a: &[&str], b: &[&str]) -> Option<Vec<Op>> {
     let mut v = vec![0isize; (2 * limit + 3) as usize];
     let mut trace: Vec<Vec<isize>> = Vec::new();
     for d in 0..=limit {
-        trace.push(v[(offset - d - 1) as usize..=(offset + d + 1) as usize].to_vec());
+        trace.push(
+            v.get((offset - d - 1) as usize..=(offset + d + 1) as usize)
+                .unwrap_or_default()
+                .to_vec(),
+        );
         for k in (-d..=d).step_by(2) {
-            let at = |k: isize| v[(offset + k) as usize];
+            let at = |k: isize| v.get((offset + k) as usize).copied().unwrap_or(0);
             let mut x = if k == -d || (k != d && at(k - 1) < at(k + 1)) {
                 at(k + 1)
             } else {
                 at(k - 1) + 1
             };
             let mut y = x - k;
-            while x < n && y < m && a[x as usize] == b[y as usize] {
+            while x < n && y < m && a.get(x as usize) == b.get(y as usize) {
                 x += 1;
                 y += 1;
             }
-            v[(offset + k) as usize] = x;
+            if let Some(slot) = v.get_mut((offset + k) as usize) {
+                *slot = x;
+            }
             if x >= n && y >= m {
                 return Some(backtrack(&trace, n, m));
             }
@@ -171,7 +184,7 @@ fn backtrack(trace: &[Vec<isize>], n: isize, m: isize) -> Vec<Op> {
     let mut ops = Vec::new();
     for (d, v) in trace.iter().enumerate().rev() {
         let d = d as isize;
-        let at = |k: isize| v[(k + d + 1) as usize];
+        let at = |k: isize| v.get((k + d + 1) as usize).copied().unwrap_or(0);
         let k = x - y;
         let prev_k = if k == -d || (k != d && at(k - 1) < at(k + 1)) {
             k + 1

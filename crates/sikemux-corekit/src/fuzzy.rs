@@ -15,10 +15,9 @@ const STOP_EVERY: usize = 1024;
 
 /// The text in lower case, folded into `buffer` when it fits so ranking a long list allocates nothing.
 fn lower<'a>(text: &'a str, buffer: &'a mut [u8; 512]) -> Cow<'a, [u8]> {
-    if !text.is_ascii() || text.len() > buffer.len() {
+    let Some(folded) = buffer.get_mut(..text.len()).filter(|_| text.is_ascii()) else {
         return Cow::Owned(text.to_lowercase().into_bytes());
-    }
-    let folded = &mut buffer[..text.len()];
+    };
     folded.copy_from_slice(text.as_bytes());
     folded.make_ascii_lowercase();
     Cow::Borrowed(folded)
@@ -26,12 +25,15 @@ fn lower<'a>(text: &'a str, buffer: &'a mut [u8; 512]) -> Cow<'a, [u8]> {
 
 fn score_field(query: &Finder, text: &[u8]) -> Option<u32> {
     if let Some(at) = query.find(text) {
-        let word_start = at == 0 || !text[at - 1].is_ascii_alphanumeric();
+        let word_start = at
+            .checked_sub(1)
+            .and_then(|before| text.get(before))
+            .is_none_or(|byte| !byte.is_ascii_alphanumeric());
         return Some(if word_start { 0 } else { 1000 } + at as u32);
     }
     let (mut from, mut score, mut previous) = (0, 0, usize::MAX - 1);
     for &letter in query.needle() {
-        let found = from + memchr::memchr(letter, &text[from..])?;
+        let found = from + memchr::memchr(letter, text.get(from..)?)?;
         score += if found == previous.wrapping_add(1) {
             0
         } else {
@@ -78,7 +80,8 @@ pub fn rank_paths_until(
         let name = path
             .iter()
             .rposition(|&byte| byte == b'/')
-            .map_or(&path[..], |slash| &path[slash + 1..]);
+            .and_then(|slash| path.get(slash + 1..))
+            .unwrap_or(&*path);
         let score = score_field(&query, name).map_or(whole + 1, |name| name.min(whole + 1));
         if score < SUBSEQUENCE {
             if !substring {
@@ -149,12 +152,14 @@ pub fn matched(query: &str, text: &str) -> Vec<Range<usize>> {
         .map(|(at, letter)| (at, letter.to_lowercase().next().unwrap_or(letter)))
         .collect();
     let end = |place: usize| letters.get(place + 1).map_or(text.len(), |(at, _)| *at);
-    if let Some(start) = letters.windows(query.len()).position(|run| {
-        run.iter()
-            .zip(&query)
-            .all(|((_, letter), wanted)| letter == wanted)
-    }) {
-        return std::iter::once(letters[start].0..end(start + query.len() - 1)).collect();
+    if let Some((start, [(at, _), ..])) =
+        letters.windows(query.len()).enumerate().find(|(_, run)| {
+            run.iter()
+                .zip(&query)
+                .all(|((_, letter), wanted)| letter == wanted)
+        })
+    {
+        return std::iter::once(*at..end(start + query.len() - 1)).collect();
     }
     let mut wanted = query.iter().peekable();
     let mut ranges: Vec<Range<usize>> = Vec::new();
@@ -188,7 +193,7 @@ pub struct ProjectEntry {
 pub fn rank_entries(query: &str, files: &[String], limit: usize) -> Vec<ProjectEntry> {
     let mut folders: Vec<&str> = files
         .iter()
-        .flat_map(|file| file.match_indices('/').map(|(at, _)| &file[..at]))
+        .flat_map(|file| file.match_indices('/').filter_map(|(at, _)| file.get(..at)))
         .collect();
     folders.sort_unstable();
     folders.dedup();
@@ -199,9 +204,11 @@ pub fn rank_entries(query: &str, files: &[String], limit: usize) -> Vec<ProjectE
         .collect();
     rank_paths(query, &entries, limit)
         .into_iter()
-        .map(|place| ProjectEntry {
-            path: entries[place].clone(),
-            folder: place >= files.len(),
+        .filter_map(|place| {
+            Some(ProjectEntry {
+                path: entries.get(place)?.clone(),
+                folder: place >= files.len(),
+            })
         })
         .collect()
 }

@@ -46,11 +46,10 @@ pub fn ports(config: &ProjectConfig, place: &Place) -> Vec<(String, u16)> {
 pub fn fill(text: &str, place: &Place, ports: &[(String, u16)]) -> String {
     let mut filled = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(open) = rest.find('{') {
-        filled.push_str(&rest[..open]);
-        let after = &rest[open + 1..];
-        let value = after.find('}').and_then(|close| {
-            let value = match &after[..close] {
+    while let Some((before, after)) = rest.split_once('{') {
+        filled.push_str(before);
+        let value = after.split_once('}').and_then(|(inside, remaining)| {
+            let value = match inside {
                 "checkout" => place.name.to_owned(),
                 "root" => place.root.to_string_lossy().into_owned(),
                 inside => {
@@ -59,12 +58,12 @@ pub fn fill(text: &str, place: &Place, ports: &[(String, u16)]) -> String {
                     port.to_string()
                 }
             };
-            Some((value, close))
+            Some((value, remaining))
         });
         match value {
-            Some((value, close)) => {
+            Some((value, remaining)) => {
                 filled.push_str(&value);
-                rest = &after[close + 1..];
+                rest = remaining;
             }
             None => {
                 filled.push('{');
@@ -247,7 +246,7 @@ pub(super) fn check_names(
         ));
     }
     for (index, (name, _)) in names.iter().enumerate() {
-        if names[..index].iter().any(|(earlier, _)| earlier == name) {
+        if names.iter().take(index).any(|(earlier, _)| earlier == name) {
             errors.push(issue(
                 format!("$.ports.{name}"),
                 ConfigErrorCode::DuplicateId,

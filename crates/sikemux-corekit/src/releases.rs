@@ -177,13 +177,13 @@ fn change(subject: &str) -> Option<&str> {
         .into_iter()
         .find_map(|kind| subject.strip_prefix(kind))?;
     let rest = match rest.strip_prefix('(') {
-        Some(scoped) => &scoped[scoped.find(')')? + 1..],
+        Some(scoped) => scoped.split_once(')')?.1,
         None => rest,
     };
     let said = rest.strip_prefix('!').unwrap_or(rest).strip_prefix(": ")?;
-    match said.find('.') {
-        Some(stop) if said[stop + 1..].is_empty() || said[stop + 1..].starts_with(' ') => {
-            Some(&said[..=stop])
+    match said.split_once('.') {
+        Some((sentence, after)) if after.is_empty() || after.starts_with(' ') => {
+            said.get(..=sentence.len())
         }
         _ => Some(said),
     }

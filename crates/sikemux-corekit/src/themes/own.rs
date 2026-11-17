@@ -174,11 +174,14 @@ pub fn from_ghostty_file(name: &str, text: &str) -> Option<Theme> {
             }
             _ => continue,
         };
-        colours[slot] = format!("#{}", value.trim_start_matches('#').to_ascii_lowercase());
+        if let Some(colour) = colours.get_mut(slot) {
+            *colour = format!("#{}", value.trim_start_matches('#').to_ascii_lowercase());
+        }
     }
     for (slot, fallback) in [(2, 1), (3, 0)] {
-        if colours[slot].is_empty() {
-            colours[slot] = colours[fallback].clone();
+        let fallback = colours.get(fallback).cloned().unwrap_or_default();
+        if let Some(colour) = colours.get_mut(slot).filter(|colour| colour.is_empty()) {
+            *colour = fallback;
         }
     }
     from_colours(name, &colours, None)

@@ -70,9 +70,11 @@ fn parse(args: Vec<OsString>) -> Result<Asked, String> {
             "--preserve-status" => preserve = true,
             "--foreground" => foreground = true,
             "-v" | "--verbose" => {}
-            _ if flag.starts_with("-s") && flag.len() > 2 => signal = signal_of(&flag[2..])?,
+            _ if flag.starts_with("-s") && flag.len() > 2 => {
+                signal = signal_of(flag.get(2..).unwrap_or_default())?
+            }
             _ if flag.starts_with("-k") && flag.len() > 2 => {
-                kill_after = Some(duration(&flag[2..])?)
+                kill_after = Some(duration(flag.get(2..).unwrap_or_default())?)
             }
             _ => break duration(&text)?,
         }
@@ -121,22 +123,22 @@ fn signal_of(name: &str) -> Result<i32, String> {
 
 impl Asked {
     fn run(self) -> i32 {
-        let mut command = sikemux_process::user_environment::command(&self.command[0]);
-        command.args(&self.command[1..]);
+        let Some((program, args)) = self.command.split_first() else {
+            return CANNOT_RUN;
+        };
+        let mut command = sikemux_process::user_environment::command(program);
+        command.args(args);
         if !self.foreground {
             platform::own_group(&mut command);
         }
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!(
-                    "timeout: {}: command not found",
-                    self.command[0].to_string_lossy()
-                );
+                eprintln!("timeout: {}: command not found", program.to_string_lossy());
                 return NOT_FOUND;
             }
             Err(error) => {
-                eprintln!("timeout: {}: {error}", self.command[0].to_string_lossy());
+                eprintln!("timeout: {}: {error}", program.to_string_lossy());
                 return CANNOT_RUN;
             }
         };
