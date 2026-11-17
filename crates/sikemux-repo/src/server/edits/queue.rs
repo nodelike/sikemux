@@ -834,42 +834,46 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
             .retain(|w| !landed.iter().any(|(laid, _, _)| laid.is(w)));
     });
     core.changed(What::View);
-    let mut pushers = Vec::new();
+    if let Some(pushed) = &pushed {
+        super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), pushed);
+    }
+    let sent_back = |agent: &str| {
+        (pushed.iter().flat_map(|pushed| &pushed.blocked))
+            .any(|blocked| blocked.owners.iter().any(|owner| owner == agent))
+    };
     for (waiting, commits, stays) in &landed {
         let stays = stays
             .as_deref()
             .map(|stays| format!(" {stays}"))
             .unwrap_or_default();
         let on = format!("{} is on {} as {}", waiting.short(), key.1, shorts(commits));
-        let on = match waiting.push {
-            true => on,
-            false => format!("{on}{}", local_only(&key.0, &key.1)),
-        };
-        tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
         core.notify().send(Signal::Landed {
             agent_id: waiting.agent.clone(),
         });
-        if waiting.push {
-            pushers.push((waiting.agent.clone(), on));
-        } else {
+        if !waiting.push {
+            let on = format!("{on}{}", local_only(&key.0, &key.1));
+            tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
             tell_lead(core, &waiting.agent, format!("Its land of {on}."), true);
-        }
-    }
-    let Some(pushed) = pushed else {
-        return;
-    };
-    super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), &pushed);
-    for (agent, on) in &pushers {
-        let (text, calm) = match (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) {
-            true => (
+        } else if sent_back(&waiting.agent) {
+            tell_lead(
+                core,
+                &waiting.agent,
                 format!(
                     "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
                 ),
                 false,
-            ),
-            false => (format!("Its land of {on}, and pushed."), true),
-        };
-        tell_lead(core, agent, text, calm);
+            );
+        } else {
+            let on = format!(
+                "{} is on {} and origin/{} as {}",
+                waiting.short(),
+                key.1,
+                key.1,
+                shorts(commits)
+            );
+            tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
+            tell_lead(core, &waiting.agent, format!("Its land of {on}."), true);
+        }
     }
 }
 
