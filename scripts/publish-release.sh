@@ -101,6 +101,7 @@ if [[ "$CHANNEL" == "stable" ]]; then
   echo "→ Publishing stable v$VERSION as a candidate for staff"
   "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
   scripts/move-feed.sh staff "$VERSION"
+  gh workflow run ship.yml -f "version=$VERSION"
   echo "✓ v$VERSION is on the staff feed; the Ship workflow makes it stable once it has soaked"
 else
   echo "→ Publishing nightly v$VERSION"

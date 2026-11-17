@@ -4,7 +4,8 @@ The root `AGENTS.md` applies here too.
 
 - Follow `docs/releasing.md`. Releases publish only from the Release workflow, started by
   pushing a `v*` tag; never run `scripts/release.sh --publish` yourself. A stable candidate
-  ships by itself: Ship runs every 10 minutes and publishes it once its gate passes on staff.
+  ships by itself: Release starts Ship, which waits out the soak and looks again every
+  10 minutes until its gate passes on staff.
 - Every push to `main` that passes CI becomes a nightly, tagged on that commit. Stable releases and hotfixes are tagged on
   `release/<major.minor>`, and their version bump and notes go only there.
 - Never check out `release/*` in this shared checkout. Commit to it from objects with a
