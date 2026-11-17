@@ -287,9 +287,11 @@ time and check with the person before going further.
 
 ## pages: Showing a page
 
-A page is one self-contained HTML file. Local pictures and fonts (relative,
-absolute or `~/` paths in `src`, CSS `url()` or a script string) are inlined
-when shown; remote `https` scripts load as they are. Pass absolute paths.
+A page is one HTML file. Local pictures and fonts (relative, absolute or `~/`
+paths in `src`, CSS `url()` or a script string) are inlined when shown; frames,
+stylesheets, scripts and pages it links from its own folder are kept with it
+on `page_show`, with what they link in turn; remote `https` scripts load as
+they are. Pass absolute paths.
 
 1. Write the file, such as in the system temp folder.
 2. `page_preview` draws it off screen (756 px wide; `width: 390` for a phone)

@@ -1,7 +1,7 @@
 //! Pages agents show the person: a self-contained HTML document an agent
 //! writes, kept in the data folder with every local picture and font it names
-//! inlined and every video or sound copied into a folder beside it, so it
-//! outlives those files.
+//! inlined, and every video, sound, frame, stylesheet, script or linked page from
+//! its folder copied into a folder beside it, so it outlives those files.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -16,6 +16,7 @@ pub const FOLDER: &str = "pages";
 const MIB: u64 = 1024 * 1024;
 const MAX_SOURCE_BYTES: u64 = 2 * MIB;
 const MAX_IMAGE_BYTES: u64 = 10 * MIB;
+const MAX_CARRIED_BYTES: u64 = 200 * MIB;
 /// Under the 16 MiB a connection to the core carries, so a reply can always fetch the page.
 const MAX_PAGE_BYTES: usize = 15 * MIB as usize;
 const MAX_TITLE_CHARS: usize = 120;
@@ -34,6 +35,15 @@ static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
         r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|oga|opus|flac|aac))\s*(["')])"#,
     ))
     .expect("local file pattern")
+});
+
+/// A file named by a page's `src`, `href` or `data` attribute, or a stylesheet's `url()` or
+/// `@import`, by a path with no scheme.
+static LINKED_FILE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i:\b(?:src|href|data)\s*=\s*["']|url\(\s*["']?|@import\s+["'])([^"'()<>\s:?#]+)[?#"')\s]"#,
+    )
+    .expect("linked file pattern")
 });
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -132,13 +142,126 @@ pub fn build(source: &Path, media: Option<&Path>) -> Result<String, String> {
             missing.join(", ")
         ));
     }
+    let page = match media {
+        Some(media) => carry_linked(folder, &page, media)?,
+        None => page.into_owned(),
+    };
     if page.len() > MAX_PAGE_BYTES {
         return Err(format!(
             "with its pictures and fonts inlined the page is {:.1} MiB; the limit is 15 MiB. Each mention of a file inlines it again, so name a big picture once, and use smaller pictures and fonts",
             page.len() as f64 / MIB as f64
         ));
     }
-    Ok(page.into_owned())
+    Ok(page)
+}
+
+/// Copies the files the page links from its own folder, such as frames, stylesheets, scripts
+/// and other pages, into `media` at the same place under it, with whatever those name in
+/// turn, and points the page's links there. A link out of the page's folder stays as written.
+fn carry_linked(folder: &Path, page: &str, media: &Path) -> Result<String, String> {
+    let Ok(root) = sikemux_process::files::real_path(folder) else {
+        return Ok(page.to_owned());
+    };
+    let prefix = media
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut carried = Carried {
+        root,
+        media,
+        bytes: 0,
+        done: std::collections::HashSet::new(),
+    };
+    let mut failure = None;
+    let page = LINKED_FILE.replace_all(page, |found: &regex::Captures| {
+        let (Some(all), Some(named)) = (found.get(0), found.get(1)) else {
+            return found[0].to_owned();
+        };
+        let (whole, reference) = (all.as_str(), named.as_str());
+        if reference.starts_with('/') || reference.starts_with(&format!("{prefix}/")) {
+            return whole.to_owned();
+        }
+        match carried.carry(folder, reference) {
+            Ok(Some(relative)) => {
+                let (start, end) = (named.start() - all.start(), named.end() - all.start());
+                format!("{}{prefix}/{relative}{}", &whole[..start], &whole[end..])
+            }
+            Ok(None) => whole.to_owned(),
+            Err(error) => {
+                failure.get_or_insert(error);
+                whole.to_owned()
+            }
+        }
+    });
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(page.into_owned()),
+    }
+}
+
+struct Carried<'a> {
+    root: PathBuf,
+    media: &'a Path,
+    bytes: u64,
+    done: std::collections::HashSet<PathBuf>,
+}
+
+impl Carried<'_> {
+    /// Copies the file `reference` names from `from`, when it is under the page's folder, and
+    /// gives its path under that folder.
+    fn carry(&mut self, from: &Path, reference: &str) -> Result<Option<String>, String> {
+        let decoded =
+            crate::http::percent_decode(reference).unwrap_or_else(|| reference.to_owned());
+        let Ok(path) = sikemux_process::files::real_path(from.join(decoded)) else {
+            return Ok(None);
+        };
+        let Ok(relative) = path.strip_prefix(&self.root) else {
+            return Ok(None);
+        };
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let shown = relative
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        if !self.done.insert(path.clone()) {
+            return Ok(Some(shown));
+        }
+        self.bytes += std::fs::metadata(&path).map_or(0, |metadata| metadata.len());
+        if self.bytes > MAX_CARRIED_BYTES {
+            return Err(
+                "the files the page links from its folder come to over 200 MiB; link fewer or smaller ones"
+                    .into(),
+            );
+        }
+        let kept = self.media.join(relative);
+        if let Some(parent) = kept.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("could not keep the page: {error}"))?;
+        }
+        std::fs::copy(&path, &kept).map_err(|error| format!("{}: {error}", path.display()))?;
+        if names_files(&path) {
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            let here = path.parent().unwrap_or(&self.root).to_path_buf();
+            for found in LINKED_FILE.captures_iter(&text) {
+                if !found[1].starts_with('/') {
+                    self.carry(&here, &found[1])?;
+                }
+            }
+        }
+        Ok(Some(shown))
+    }
+}
+
+/// Whether a carried file is a page or stylesheet whose own links are carried too.
+fn names_files(path: &Path) -> bool {
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(extension.as_str(), "html" | "htm" | "css" | "svg")
 }
 
 fn resolve(folder: &Path, reference: &str) -> PathBuf {
