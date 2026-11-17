@@ -20,7 +20,7 @@ use super::session::Session;
 use super::spawn::{self, Ending};
 use std::path::PathBuf;
 
-use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::prefs::{Belongs, PreferenceChange};
 
 use super::activity_log::{transcript_of, Place};
 use super::board_above::BoardAbove;
@@ -164,6 +164,11 @@ fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> 
         }
         PreferenceChange::OnboardingComplete(_) => about::introduced(core)?,
         _ => {}
+    }
+    if change.belongs() == Belongs::Person
+        || matches!(change, PreferenceChange::SyncAcrossHosts(true))
+    {
+        core.mods().personal_changed();
     }
     core.theme_changed();
     Ok(())

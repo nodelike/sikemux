@@ -12,9 +12,11 @@ pub(super) async fn skills_call(core: &Core, request: &HarnessRequest) -> Result
         .clone()
         .ok_or("Skills need Sikemux's data folder, and this core was started without one")?;
     let params = request.params.clone();
-    blocking(move || Ok(skills_answer(&data_dir, &params)))
+    let answer = blocking(move || Ok(skills_answer(&data_dir, &params)))
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    core.mods().personal_changed();
+    answer
 }
 
 pub(super) fn skills_answer(data_dir: &Path, params: &Value) -> Result<Value, String> {

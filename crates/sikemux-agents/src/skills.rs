@@ -35,6 +35,11 @@ const BUILT_IN: &[(&str, &str)] = &[(
     include_str!("../skills/project-setup/SKILL.md"),
 )];
 
+/// Whether `name` is a skill Sikemux ships, which every host keeps as its own build has it.
+pub fn is_built_in(name: &str) -> bool {
+    BUILT_IN.iter().any(|(shipped, _)| *shipped == name)
+}
+
 /// Puts the skills Sikemux ships in the library, replacing an older copy of one.
 pub fn place_built_in(data_dir: &Path) -> std::io::Result<()> {
     let library = ready_library(data_dir)?;
