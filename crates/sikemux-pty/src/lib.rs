@@ -5,7 +5,8 @@ pub mod master;
 pub mod output_log;
 pub mod process;
 pub mod program_status;
-#[cfg(all(test, windows))]
+#[cfg(test)]
+#[cfg(windows)]
 mod pseudoconsole_output;
 pub mod screen;
 pub mod shell;

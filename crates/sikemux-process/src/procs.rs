@@ -445,8 +445,8 @@ mod system {
         let booted_ms = fs::read_to_string("/proc/stat")
             .ok()
             .and_then(|stat| {
-                let line = stat.lines().find(|line| line.starts_with("btime "))?;
-                line[6..].trim().parse::<u64>().ok()
+                let booted = stat.lines().find_map(|line| line.strip_prefix("btime "))?;
+                booted.trim().parse::<u64>().ok()
             })
             .unwrap_or(0)
             * 1_000;

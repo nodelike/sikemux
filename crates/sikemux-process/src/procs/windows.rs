@@ -46,15 +46,11 @@ fn entries() -> Vec<Entry> {
     // SAFETY: the snapshot is open and `entry` has its size set, as both calls require.
     let mut more = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
     while more {
-        let length = entry
-            .szExeFile
-            .iter()
-            .position(|&unit| unit == 0)
-            .unwrap_or(entry.szExeFile.len());
+        let name = (entry.szExeFile.split(|&unit| unit == 0).next()).unwrap_or_default();
         entries.push(Entry {
             pid: entry.th32ProcessID,
             parent: entry.th32ParentProcessID,
-            name: String::from_utf16_lossy(&entry.szExeFile[..length]),
+            name: String::from_utf16_lossy(name),
         });
         // SAFETY: as above.
         more = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
@@ -243,10 +239,9 @@ fn split_command_line(line: &[u16]) -> Option<Vec<String>> {
 
 /// The program's file name without `.exe`, as Unix names a process.
 fn program_name(name: String) -> String {
-    match name.len().checked_sub(4) {
-        Some(stem) if name.is_char_boundary(stem) && name[stem..].eq_ignore_ascii_case(".exe") => {
-            name[..stem].to_string()
-        }
+    let split = (name.len().checked_sub(4)).and_then(|stem| name.split_at_checked(stem));
+    match split {
+        Some((stem, extension)) if extension.eq_ignore_ascii_case(".exe") => stem.to_string(),
         _ => name,
     }
 }
@@ -286,9 +281,9 @@ pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
         .find_map(|entry| {
             let entry = String::from_utf16_lossy(entry);
             let separator = 1 + entry.get(1..)?.find('=')?;
-            entry[..separator]
-                .eq_ignore_ascii_case(key)
-                .then(|| entry[separator + 1..].to_string())
+            let (name, value) = entry.split_at_checked(separator)?;
+            let value = value.strip_prefix('=')?;
+            name.eq_ignore_ascii_case(key).then(|| value.to_string())
         })
 }
 

@@ -836,8 +836,8 @@ mod wallpaper {
             )
         };
         let length = path.iter().position(|&unit| unit == 0)?;
-        (read != 0 && length > 0)
-            .then(|| PathBuf::from(std::ffi::OsString::from_wide(&path[..length])))
+        let name = path.get(..length)?;
+        (read != 0 && !name.is_empty()).then(|| PathBuf::from(std::ffi::OsString::from_wide(name)))
     }
 
     /// GNOME keeps a light and a dark wallpaper, worn by the colour scheme it is set to.

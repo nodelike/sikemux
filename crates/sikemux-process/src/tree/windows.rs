@@ -76,9 +76,10 @@ impl Tree {
         if !self.query(JobObjectBasicProcessIdList, &mut list) {
             return Vec::new();
         }
-        let listed = list[0] >> 32;
-        list[1..=listed.min(64)]
-            .iter()
+        let Some((&counts, pids)) = list.split_first() else {
+            return Vec::new();
+        };
+        (pids.iter().take(counts >> 32))
             .map(|&pid| pid as u32)
             .collect()
     }
@@ -197,7 +198,7 @@ fn interrupt(candidates: impl IntoIterator<Item = u32>) {
     };
     for candidate in candidates {
         // Ctrl-C in this process's own console would reach whatever else holds it.
-        if sharing[..count.min(sharing.len())].contains(&candidate) {
+        if sharing.iter().take(count).any(|&held| held == candidate) {
             continue;
         }
         // SAFETY: AttachConsole takes a pid and fails harmlessly for one without a console.

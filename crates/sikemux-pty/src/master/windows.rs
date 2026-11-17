@@ -49,7 +49,10 @@ impl Master {
             .spawn(move || {
                 let mut chunk = vec![0u8; CHUNK];
                 while let Ok(read @ 1..) = reader.read(&mut chunk) {
-                    if sent.blocking_send(chunk[..read].to_vec()).is_err() {
+                    if sent
+                        .blocking_send(chunk.get(..read).unwrap_or_default().to_vec())
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -103,9 +106,11 @@ impl Master {
             output.taken = 0;
         }
         let Output { left, taken, .. } = &mut *output;
-        let waiting = &left[*taken..];
+        let waiting = left.get(*taken..).unwrap_or_default();
         let read = waiting.len().min(buffer.len());
-        buffer[..read].copy_from_slice(&waiting[..read]);
+        if let (Some(into), Some(from)) = (buffer.get_mut(..read), waiting.get(..read)) {
+            into.copy_from_slice(from);
+        }
         *taken += read;
         Read::Bytes(read)
     }

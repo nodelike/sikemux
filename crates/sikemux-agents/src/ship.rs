@@ -378,7 +378,7 @@ pub(crate) fn target_of(
             Some(workflow(args, env, cwd))
         }
         "gh" if args.first().is_some_and(|word| word == "api") => {
-            let call = github_api(&args[1..]);
+            let call = github_api(args.get(1..).unwrap_or_default());
             let repo = call.as_ref().and_then(ApiCall::repo).unwrap_or_default();
             Some(Target::GitHub { repo })
         }

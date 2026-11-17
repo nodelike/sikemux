@@ -138,8 +138,7 @@ mod platform {
         if at_top && name.ends_with(".service") && service_is_delegated() {
             return Some(unit_path);
         }
-        let slice = components[..unit]
-            .iter()
+        let slice = (components.iter().take(unit))
             .rev()
             .find(|part| part.ends_with(".slice"))
             .copied();
