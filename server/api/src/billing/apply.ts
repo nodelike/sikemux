@@ -651,20 +651,20 @@ async function endPlanNow(
 export async function peopleOf(
   db: Kysely<Tables>,
   customerId: string,
-): Promise<string[]> {
+): Promise<{ people: string[]; org: boolean }> {
   const customer = await db
     .selectFrom("billing_customers")
     .select(["user_id", "org_id"])
     .where("id", "=", customerId)
     .executeTakeFirstOrThrow();
-  if (customer.user_id) return [customer.user_id];
-  if (!customer.org_id) return [];
+  if (customer.user_id) return { people: [customer.user_id], org: false };
+  if (!customer.org_id) return { people: [], org: false };
   const members = await db
     .selectFrom("org_users")
     .select("user_id")
     .where("org_id", "=", customer.org_id)
     .execute();
-  return members.map((member) => member.user_id);
+  return { people: members.map((member) => member.user_id), org: true };
 }
 
 /**
@@ -702,12 +702,15 @@ async function applyOnce(
         .executeTakeFirst();
       if (!fresh) return;
       const result = await apply(trx, from, event);
-      const people = result.customerId
+      const { people, org } = result.customerId
         ? await peopleOf(trx, result.customerId)
-        : [];
+        : { people: [], org: false };
       await appendEvents(
         trx,
-        people.map((userId) => ({ userId, type: "plan.changed" as const })),
+        people.flatMap((userId) => [
+          { userId, type: "plan.changed" as const },
+          ...(org ? [{ userId, type: "orgs.changed" as const }] : []),
+        ]),
       );
       if (result.cancelled)
         log.warn(

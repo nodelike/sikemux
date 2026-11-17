@@ -96,6 +96,8 @@ pub enum AccountEventType {
     ModsChanged,
     #[serde(rename = "plan.changed")]
     PlanChanged,
+    #[serde(rename = "orgs.changed")]
+    OrgsChanged,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -951,8 +953,38 @@ pub struct OrgMemberList {
     pub members: Vec<OrgMember>,
 }
 
+/// An org the account holds a seat in, as its hosts see it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMembership {
+    pub id: OrgId,
+    pub name: OrgName,
+    /// The account's role in it.
+    pub role: OrgRole,
+    pub plan: OrgPlan,
+}
+
+/// The orgs the account is in, oldest first. orgs.changed says when to read it again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMemberships {
+    pub orgs: Vec<OrgMembership>,
+}
+
 /// What the org is called, as its members see it.
 pub type OrgName = String;
+
+/// Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrgPlan {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "lapsed")]
+    Lapsed,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1555,7 +1587,10 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgMember" => through::<OrgMember>(json),
         "OrgMemberId" => through::<OrgMemberId>(json),
         "OrgMemberList" => through::<OrgMemberList>(json),
+        "OrgMembership" => through::<OrgMembership>(json),
+        "OrgMemberships" => through::<OrgMemberships>(json),
         "OrgName" => through::<OrgName>(json),
+        "OrgPlan" => through::<OrgPlan>(json),
         "OrgRename" => through::<OrgRename>(json),
         "OrgRole" => through::<OrgRole>(json),
         "OrgRoleChange" => through::<OrgRoleChange>(json),

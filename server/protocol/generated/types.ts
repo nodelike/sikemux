@@ -60,7 +60,8 @@ export type AccountEventType =
   | "stash.seen"
   | "vault.changed"
   | "mods.changed"
-  | "plan.changed";
+  | "plan.changed"
+  | "orgs.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -73,6 +74,7 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "vault.changed",
   "mods.changed",
   "plan.changed",
+  "orgs.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -995,8 +997,26 @@ export interface OrgMemberList {
   members: OrgMember[];
 }
 
+/** An org the account holds a seat in, as its hosts see it. */
+export interface OrgMembership {
+  id: OrgId;
+  name: OrgName;
+  /** The account's role in it. */
+  role: OrgRole;
+  plan: OrgPlan;
+}
+
+/** The orgs the account is in, oldest first. orgs.changed says when to read it again. */
+export interface OrgMemberships {
+  orgs: OrgMembership[];
+}
+
 /** What the org is called, as its members see it. */
 export type OrgName = string;
+
+/** Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept. */
+export type OrgPlan = "active" | "lapsed";
+export const orgPlanValues: readonly OrgPlan[] = ["active", "lapsed"];
 
 export interface OrgRename {
   name: OrgName;
@@ -1878,7 +1898,10 @@ export interface Definitions {
   OrgMember: OrgMember;
   OrgMemberId: OrgMemberId;
   OrgMemberList: OrgMemberList;
+  OrgMembership: OrgMembership;
+  OrgMemberships: OrgMemberships;
   OrgName: OrgName;
+  OrgPlan: OrgPlan;
   OrgRename: OrgRename;
   OrgRole: OrgRole;
   OrgRoleChange: OrgRoleChange;

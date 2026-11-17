@@ -48,6 +48,7 @@ import type {
   OrgList,
   OrgMember,
   OrgMemberList,
+  OrgMemberships,
   OrgRename,
   OrgRoleChange,
   PaddleCheckout,
@@ -170,6 +171,8 @@ export function apiClient(send: Send) {
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
     /** The plan of the account a host is on, and what it may use. */
     getAccountAllowance: () => send<Allowance>("GET", `/v1/account/allowance`),
+    /** The orgs the account a host is on is in, its role in each and whether each one's Team plan is paid. */
+    getAccountOrgs: () => send<OrgMemberships>("GET", `/v1/account/orgs`),
     /** Make an org, with you as its owner. */
     createOrg: (body: OrgCreate) => send<Org>("POST", `/v1/orgs`, body),
     /** The orgs you are in. */

@@ -114,6 +114,7 @@ export const schema = {
         "vault.changed",
         "mods.changed",
         "plan.changed",
+        "orgs.changed",
       ],
     },
     AccountProfile: {
@@ -1806,11 +1807,42 @@ export const schema = {
       required: ["members"],
       additionalProperties: false,
     },
+    OrgMembership: {
+      description: "An org the account holds a seat in, as its hosts see it.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgId" },
+        name: { $ref: "#/$defs/OrgName" },
+        role: {
+          description: "The account's role in it.",
+          $ref: "#/$defs/OrgRole",
+        },
+        plan: { $ref: "#/$defs/OrgPlan" },
+      },
+      required: ["id", "name", "role", "plan"],
+      additionalProperties: false,
+    },
+    OrgMemberships: {
+      description:
+        "The orgs the account is in, oldest first. orgs.changed says when to read it again.",
+      type: "object",
+      properties: {
+        orgs: { type: "array", items: { $ref: "#/$defs/OrgMembership" } },
+      },
+      required: ["orgs"],
+      additionalProperties: false,
+    },
     OrgName: {
       description: "What the org is called, as its members see it.",
       type: "string",
       minLength: 1,
       maxLength: 64,
+    },
+    OrgPlan: {
+      description:
+        "Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.",
+      type: "string",
+      enum: ["active", "lapsed"],
     },
     OrgRename: {
       type: "object",

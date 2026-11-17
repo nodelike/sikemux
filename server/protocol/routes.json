@@ -424,6 +424,19 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/account/orgs",
+      "operationId": "getAccountOrgs",
+      "summary": "The orgs the account a host is on is in, its role in each and whether each one's Team plan is paid",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The account's own memberships; orgs.changed says when to read them again.",
+          "body": "OrgMemberships"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/orgs",
       "operationId": "createOrg",

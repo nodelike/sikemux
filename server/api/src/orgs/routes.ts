@@ -166,12 +166,32 @@ async function keepAnOwner(
     throw conflict(message);
 }
 
-/** A seat that starts or ends changes its holder's plan, so their apps are told. */
+/** Tells `userIds`' hosts to read their orgs again. */
+async function orgsChanged(trx: Transaction<Tables>, userIds: string[]) {
+  await appendEvents(
+    trx,
+    userIds.map((userId) => ({ userId, type: "orgs.changed" as const })),
+  );
+}
+
+/** A seat that starts or ends changes its holder's plan and orgs, so their apps are told. */
 async function seatsChanged(trx: Transaction<Tables>, userIds: string[]) {
   await appendEvents(
     trx,
-    userIds.map((userId) => ({ userId, type: "plan.changed" as const })),
+    userIds.flatMap((userId) => [
+      { userId, type: "plan.changed" as const },
+      { userId, type: "orgs.changed" as const },
+    ]),
   );
+}
+
+async function membersOf(db: Kysely<Tables>, orgId: string) {
+  const rows = await db
+    .selectFrom("org_users")
+    .select("user_id")
+    .where("org_id", "=", orgId)
+    .execute();
+  return rows.map((row) => row.user_id);
 }
 
 export function orgRoutes({
@@ -237,6 +257,7 @@ export function orgRoutes({
           action: "org.created",
           subject: created.id,
         });
+        await orgsChanged(trx, [userId]);
         return created;
       });
       c.get("log").info({ orgId: org.id }, "created an org");
@@ -344,12 +365,16 @@ export function orgRoutes({
       const { name } = await readBody(c, "OrgRename");
       const { org, role } = await membership(db, orgId, userId);
       requireRole(role, ["owner", "admin"]);
-      const renamed = await db
-        .updateTable("orgs")
-        .set({ name: orgName(name) })
-        .where("id", "=", org.id)
-        .returningAll()
-        .executeTakeFirstOrThrow();
+      const renamed = await db.transaction().execute(async (trx) => {
+        const row = await trx
+          .updateTable("orgs")
+          .set({ name: orgName(name) })
+          .where("id", "=", org.id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        await orgsChanged(trx, await membersOf(trx, org.id));
+        return row;
+      });
       return c.json(await orgBody(db, renamed, role));
     })
     .delete("/:orgId", perUser(limiter, "delete-org", 10), async (c) => {
@@ -362,11 +387,7 @@ export function orgRoutes({
           throw conflict(
             "The org still has a subscription that has not ended; cancel it first.",
           );
-        const members = await trx
-          .selectFrom("org_users")
-          .select("user_id")
-          .where("org_id", "=", orgId)
-          .execute();
+        const members = await membersOf(trx, orgId);
         await trx.deleteFrom("orgs").where("id", "=", orgId).execute();
         await audit(trx, {
           userId,
@@ -374,10 +395,7 @@ export function orgRoutes({
           action: "org.deleted",
           subject: orgId,
         });
-        await seatsChanged(
-          trx,
-          members.map((member) => member.user_id),
-        );
+        await seatsChanged(trx, members);
       });
       c.get("log").info({ orgId }, "deleted an org");
       return c.body(null, 204);
@@ -440,6 +458,7 @@ export function orgRoutes({
             subject: orgId,
             detail: { from: current, to: next },
           });
+          await orgsChanged(trx, [target]);
           return trx
             .updateTable("org_users")
             .set({ role: next })

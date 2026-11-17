@@ -1,0 +1,16 @@
+{
+  "orgs": [
+    {
+      "id": "0b6e3f1c-8d2a-4f5e-9c7b-1a2d3e4f5a6b",
+      "name": "Acme",
+      "role": "owner",
+      "plan": "active"
+    },
+    {
+      "id": "6f1d2c3b-4a5e-4b7c-8d9e-0f1a2b3c4d5e",
+      "name": "Globex",
+      "role": "user",
+      "plan": "lapsed"
+    }
+  ]
+}
