@@ -32,6 +32,6 @@ snap now-pill
 key cmd-alt-7
 settle 4
 snap tasks
-click 1250,554
+click 1100,147
 settle 2
 snap tasks-sheet
