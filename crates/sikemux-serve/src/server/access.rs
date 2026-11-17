@@ -253,7 +253,7 @@ pub fn may_sign(peer: &Peer, standing: Option<Standing>) -> CoreResult<()> {
 #[cfg(test)]
 mod tests {
     fn table(method: &str) -> Rule {
-        unreachable!("no request here is the call {method}")
+        panic!("no request here is the call {method}")
     }
 
     use super::*;

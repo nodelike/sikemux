@@ -160,7 +160,9 @@ fn drain(stamping: &mut Stamping, first: &[u8]) -> Result<(), ()> {
             out.clear();
         }
         match platform::read(stamping.pipe, &mut buffer) {
-            Read::Bytes(read) => stamp_into(stamping, &buffer[..read], &mut out),
+            Read::Bytes(read) => {
+                stamp_into(stamping, buffer.get(..read).unwrap_or_default(), &mut out)
+            }
             Read::Empty => return Ok(()),
             Read::Closed => return Err(()),
         }

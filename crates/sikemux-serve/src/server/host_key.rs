@@ -48,7 +48,11 @@ impl Keeper {
         }
         let digest = Sha256::digest(socket.as_os_str().as_encoded_bytes());
         Ok(Self::Store {
-            account: format!("{}-{}", socket_name(socket)?, hex::encode(&digest[..8])),
+            account: format!(
+                "{}-{}",
+                socket_name(socket)?,
+                hex::encode(digest.get(..8).unwrap_or_default())
+            ),
         })
     }
 
