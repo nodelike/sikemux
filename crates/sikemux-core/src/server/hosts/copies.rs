@@ -318,11 +318,16 @@ pub(crate) fn share(core: &Arc<Core>) {
 /// `host` told this one what it holds.
 pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
     let copies = &core.hosts().copies;
-    let mut heard = copies.heard.locked();
-    if heard.get(host) != Some(&params.projects) {
-        heard.insert(host.to_owned(), params.projects);
-        copies.kept.save(&*heard);
-        drop(heard);
+    let changed = {
+        let mut heard = copies.heard.locked();
+        let changed = heard.get(host) != Some(&params.projects);
+        if changed {
+            heard.insert(host.to_owned(), params.projects);
+            copies.kept.save(&*heard);
+        }
+        changed
+    };
+    if changed {
         super::rehome::follow(core, host);
         stand_down(core);
         core.changed(What::View);
