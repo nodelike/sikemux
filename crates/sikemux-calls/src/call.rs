@@ -79,6 +79,7 @@ crate::calls! {
     "triage" Triage (crate::triage::TriageParams) -> sikemux_view::start::Triage;
     "removeTrigger" RemoveTrigger (crate::triggers::TriggerParams) -> bool;
     "holdTrigger" HoldTrigger (crate::triggers::HoldTriggerParams) -> bool;
+    "addTrigger" AddTrigger (crate::triggers::AddTriggerParams) -> sikemux_view::playbook::RunsAlone;
     "takeStep" TakeStep (crate::turn_state::TakeStepParams) -> ();
     "updateInstall" UpdateInstall (crate::updates::UpdateInstallParams) -> sikemux_view::updates::UpdateStatus;
     "updateApply" UpdateApply (crate::params::NoParams) -> bool;
