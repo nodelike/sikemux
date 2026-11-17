@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
-use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::prefs::{PreferenceChange, Preferences};
 
 use super::super::data::{host_key, Change, Write};
 use crate::server::connection::blocking;
@@ -140,6 +140,7 @@ fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<V
             Some((key, serde_json::from_str(text).ok()?))
         })
         .collect();
+    let defaults = of_person_in(&Preferences::default());
     let mut writes = Vec::new();
     for (key, here) in of_person(core) {
         let theirs = account.get(&key);
@@ -148,13 +149,16 @@ fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<V
         let theirs_moved = theirs != known.map(|known| &known.account);
         let take_theirs = match (theirs, known) {
             (None, _) => false,
-            (Some(_), None) => true,
+            (Some(_), None) => defaults.get(&key) == Some(&here),
             (Some(_), Some(_)) => theirs_moved && !ours_moved,
         };
         if let (true, Some(theirs)) = (take_theirs, theirs) {
             let wanted = json!({ "key": key, "value": theirs });
             if let Ok(change) = serde_json::from_value::<PreferenceChange>(wanted) {
-                preferences::set(core, change)?;
+                if let Err(error) = preferences::set(core, change) {
+                    eprintln!("sikemux core: the synced setting {key} was not taken: {error}");
+                    continue;
+                }
             }
             let here = of_person(core).remove(&key).unwrap_or(here);
             let account = theirs.clone();
@@ -177,7 +181,11 @@ fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<V
 
 /// The value of each preference of the person's this host holds, by its key.
 fn of_person(core: &Core) -> BTreeMap<String, Value> {
-    PreferenceChange::of_person(&core.preferences().get())
+    of_person_in(&core.preferences().get())
+}
+
+fn of_person_in(preferences: &Preferences) -> BTreeMap<String, Value> {
+    PreferenceChange::of_person(preferences)
         .into_iter()
         .filter_map(|change| match serde_json::to_value(change).ok()? {
             Value::Object(mut pair) => match (pair.remove("key")?, pair.remove("value")?) {
@@ -202,19 +210,20 @@ fn hash_of(bytes: &[u8]) -> String {
 }
 
 /// Every file in `folder` but dot-files, symbolic links and what stays with this host, by its
-/// path in it.
-fn scan(folder: &Folder) -> BTreeMap<String, Local> {
+/// path in it. None when part of it could not be read, so nothing unread passes for deleted.
+fn scan(folder: &Folder) -> Option<BTreeMap<String, Local>> {
     let mut found = BTreeMap::new();
     let mut waiting = vec![PathBuf::new()];
     while let Some(within) = waiting.pop() {
-        let Ok(entries) = std::fs::read_dir(folder.path.join(&within)) else {
-            continue;
+        let entries = match std::fs::read_dir(folder.path.join(&within)) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return None,
         };
-        for entry in entries.flatten() {
+        for entry in entries {
+            let entry = entry.ok()?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
+            let kind = entry.file_type().ok()?;
             let stays = within.as_os_str().is_empty() && (folder.stays)(&name);
             if name.starts_with('.') || kind.is_symlink() || stays {
                 continue;
@@ -224,8 +233,10 @@ fn scan(folder: &Folder) -> BTreeMap<String, Local> {
                 waiting.push(path);
                 continue;
             }
-            let Ok(bytes) = std::fs::read(entry.path()) else {
-                continue;
+            let bytes = match std::fs::read(entry.path()) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return None,
             };
             let changed = (entry.metadata().ok())
                 .and_then(|metadata| metadata.modified().ok())
@@ -243,7 +254,7 @@ fn scan(folder: &Folder) -> BTreeMap<String, Local> {
             );
         }
     }
-    found
+    Some(found)
 }
 
 /// A file as the account keeps it: its path, when it changed and its content, as text when it is
@@ -292,7 +303,10 @@ fn files(
     agreed: &mut BTreeMap<String, String>,
 ) -> CoreResult<Vec<Write>> {
     let collection = folder.collection;
-    let here = scan(folder);
+    let Some(here) = scan(folder) else {
+        eprintln!("sikemux core: part of {collection} could not be read; it syncs next time");
+        return Ok(Vec::new());
+    };
     let mut account: BTreeMap<String, (String, Vec<u8>, u64)> = BTreeMap::new();
     for (_, doc) in listed(core, collection)? {
         if let Some((path, bytes, changed)) = content_of(&doc) {
@@ -355,7 +369,10 @@ fn files(
         };
         match theirs {
             Some((hash, bytes, _)) => {
-                write_whole(&target, bytes)?;
+                if let Err(error) = write_whole(&target, bytes) {
+                    eprintln!("sikemux core: {collection}/{path} was not written: {error}");
+                    continue;
+                }
                 agreed.insert(path, hash.clone());
             }
             None => {

@@ -316,7 +316,9 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
         .map(|copy| arrival(sealing, copy))
         .collect();
     take_in(core, arrivals).await?;
-    personal::step(core).await?;
+    if let Err(error) = personal::step(core).await {
+        eprintln!("sikemux core: settings and skills did not sync: {error}");
+    }
     sweep(core).await?;
     if let Some(wait) = purge(core).await? {
         return Ok(Next::Later(wait));
