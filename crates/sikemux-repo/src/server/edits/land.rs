@@ -712,4 +712,58 @@ mod tests {
         );
         assert_eq!(git_in(&main, &["status", "--porcelain"]), "");
     }
+
+    #[test]
+    fn a_nested_repos_own_checkout_lands_and_pushes_while_its_checkout_is_mid_rebase() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        git_in(
+            &root,
+            &[
+                "init",
+                "-q",
+                "--bare",
+                "-b",
+                "main",
+                &remote.to_string_lossy(),
+            ],
+        );
+        let project = root.join("project");
+        let web = project.join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        git_in(&web, &["init", "-q", "-b", "main"]);
+        git_in(&web, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        git_in(&web, &["commit", "-q", "--allow-empty", "-m", "second"]);
+        git_in(
+            &web,
+            &["remote", "add", "origin", &remote.to_string_lossy()],
+        );
+        git_in(&web, &["push", "-q", "-u", "origin", "main"]);
+        git_in(&web, &["remote", "set-head", "origin", "main"]);
+        let stopped = sikemux_process::user_environment::command("git")
+            .args(["rebase", "-q", "--exec", "false", "HEAD~1"])
+            .current_dir(&web)
+            .output()
+            .unwrap();
+        assert!(!stopped.status.success());
+
+        let (worktree, _) =
+            crate::server::worktree::agent::cut_for(&web, &project, "fix/client").unwrap();
+        assert_eq!(worktree.base.as_deref(), Some("main"));
+        std::fs::write(worktree.path.join("c.txt"), "c\n").unwrap();
+        git_in(&worktree.path, &["add", "c.txt"]);
+        git_in(&worktree.path, &["commit", "-qm", "worker: c"]);
+        assert!(unlanded(&worktree).unwrap());
+
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        land_from(&worktree, &signing).unwrap();
+        assert_eq!(
+            git_in(&web, &["log", "-1", "--format=%s", "main"]),
+            "worker: c"
+        );
+    }
 }
