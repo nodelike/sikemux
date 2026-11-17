@@ -77,7 +77,9 @@ fn decisions_to_one_list(board: &mut Value) {
             .and_then(|kept| kept.as_array().cloned())
             .unwrap_or_default()
         {
-            decision["goal"] = id.clone();
+            if let Some(fields) = decision.as_object_mut() {
+                fields.insert("goal".into(), id.clone());
+            }
             decisions.push(decision);
         }
     }
@@ -148,13 +150,14 @@ fn environments_to_places(board: &mut Value, folders: &[(String, Vec<Value>)]) {
     let Some(proposal) = board.remove("environmentsProposal") else {
         return;
     };
-    let proposed: Vec<Place> = (proposal["environments"].as_array().into_iter().flatten())
+    let environments = proposal.get("environments").and_then(Value::as_array);
+    let proposed: Vec<Place> = (environments.into_iter().flatten())
         .filter_map(from_environment)
         .collect();
     if !proposed.is_empty() {
         board.insert(
             "placesProposal".into(),
-            json!({ "places": proposed, "why": proposal["why"], "by": proposal["by"], "at": proposal["at"] }),
+            json!({ "places": proposed, "why": proposal.get("why"), "by": proposal.get("by"), "at": proposal.get("at") }),
         );
     }
 }
@@ -240,21 +243,21 @@ fn runs_off_their_stage(board: &mut Value) {
     let Some(cards) = board.get_mut("cards").and_then(Value::as_array_mut) else {
         return;
     };
-    for card in cards {
-        let stage = card
-            .pointer("/auto/stage")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+    for card in cards.iter_mut().filter_map(Value::as_object_mut) {
+        let Some(auto) = card.get_mut("auto").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let stage = auto.get("stage").and_then(Value::as_str).map(str::to_owned);
         match stage.as_deref() {
-            Some("review") => card["auto"]["stage"] = "watching".into(),
+            Some("review") => {
+                auto.insert("stage".into(), "watching".into());
+            }
             Some("held") => {
-                card["auto"]["stage"] = "working".into();
-                card["auto"]["held"] = "fix".into();
+                auto.insert("stage".into(), "working".into());
+                auto.insert("held".into(), "fix".into());
             }
             Some("merged" | "closed") => {
-                if let Some(card) = card.as_object_mut() {
-                    card.remove("auto");
-                }
+                card.remove("auto");
             }
             _ => {}
         }

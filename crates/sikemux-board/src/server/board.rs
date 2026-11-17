@@ -1042,7 +1042,9 @@ fn first_clause(card: &Card) -> String {
         .min()
         .unwrap_or(line.len());
     clipped(
-        line[..end].trim_end_matches(['.', '?', '!', ':']),
+        line.get(..end)
+            .unwrap_or(line)
+            .trim_end_matches(['.', '?', '!', ':']),
         MAX_CLAUSE_CHARS,
     )
 }
@@ -1252,14 +1254,12 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             clipped(text, LISTED_TEXT_CHARS)
         }
     };
-    let mut view = json!({
-        "task": card.id,
-        "title": card.title,
-        "status": card.status.words(),
-        "owner": card.owner_name(core),
-        "createdBy": card.creator_name(core),
-    });
-    let fields = view.as_object_mut().expect("a card is an object");
+    let mut fields = serde_json::Map::new();
+    fields.insert("task".into(), json!(card.id));
+    fields.insert("title".into(), json!(card.title));
+    fields.insert("status".into(), json!(card.status.words()));
+    fields.insert("owner".into(), json!(card.owner_name(core)));
+    fields.insert("createdBy".into(), json!(card.creator_name(core)));
     if let Some(owner) = card.owner_id() {
         fields.insert("ownerId".into(), owner.into());
     }
@@ -1324,7 +1324,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             fields.insert("pulls".into(), json!(card.pulls));
         }
     }
-    view
+    Value::Object(fields)
 }
 
 /// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.

@@ -185,7 +185,10 @@ pub fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[FailedJob]) 
         n => format!(" and {} more", n - 1),
     };
     let owner = core.checks().failure_owner(project);
-    let title = format!("CI keeps failing: {}{more}", broke.failures[0].label());
+    let Some(first) = broke.failures.first() else {
+        return;
+    };
+    let title = format!("CI keeps failing: {}{more}", first.label());
     let adding = Adding {
         title: clipped(&title, MAX_TITLE_CHARS),
         details: format!(
