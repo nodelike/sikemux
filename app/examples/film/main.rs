@@ -20,7 +20,7 @@
 //!                               each project gets ORIGIN as its remote, so it is the shared one
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   signed-in                   signs the film's core in to a local accounts API, as the
-//!                               person and with the orgs the world's sikemuxAccount names
+//!                               person, host and orgs the world's sikemuxAccount names
 //!   host NAME                   signs in another host on the same account, a throwaway core
 //!                               of its own holding a copy of the last project
 //!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST

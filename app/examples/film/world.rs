@@ -173,7 +173,10 @@ impl World {
             runtime.block_on(client.call("setFaceStyle", face.clone()))?;
         }
         if let Some(account) = &mut account {
-            account.sign_in(&runtime, &client)?;
+            let name = (args.world.pointer("/sikemuxAccount/host"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("the world's sikemuxAccount names no host"))?;
+            account.sign_in(&runtime, &client, &work.join("data"), name)?;
         }
         Ok(Self {
             core,

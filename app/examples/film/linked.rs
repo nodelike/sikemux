@@ -74,11 +74,14 @@ impl Account {
         Ok(())
     }
 
-    /// Signs the core behind `client` in by code, approving the code as the person.
+    /// Signs the core behind `client` in by code, approving the code as the person, and names
+    /// it `name` on the account, never this computer's own name.
     pub(super) fn sign_in(
         &mut self,
         runtime: &tokio::runtime::Runtime,
         client: &CoreClient,
+        data: &Path,
+        name: &str,
     ) -> anyhow::Result<()> {
         let shown = runtime.block_on(client.call("accountSignInByCode", json!({})))?;
         let code = (shown.get("code"))
@@ -93,6 +96,7 @@ impl Account {
         }
         runtime.block_on(client.call("accountSignInFinish", json!({})))?;
         let status = listening(runtime, client)?;
+        name_on_account(runtime, client, &status.core_id, data, name)?;
         self.addresses.insert(status.core_id, status.addresses);
         let named = serde_json::to_string(&self.addresses)?;
         for folder in &self.folders {
@@ -155,6 +159,26 @@ fn listening(
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Renames the core on the account once its first name check has sent the computer's name,
+/// since a rename before that check is taken back.
+fn name_on_account(
+    runtime: &tokio::runtime::Runtime,
+    client: &CoreClient,
+    key: &str,
+    data: &Path,
+    name: &str,
+) -> anyhow::Result<()> {
+    let started = Instant::now();
+    while !data.join("account-host-name").exists() {
+        if started.elapsed() > Duration::from_secs(30) {
+            bail!("the core signed in as {name} never sent its own name to the account");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    runtime.block_on(client.call("renameAccountDevice", json!({ "key": key, "name": name })))?;
+    Ok(())
 }
 
 impl World {
@@ -229,13 +253,11 @@ impl World {
         }
         let account =
             (self.account.as_mut()).ok_or_else(|| anyhow!("the film is not signed in"))?;
-        account.sign_in(&self.runtime, &linked.client)?;
-        let key = self
-            .runtime
-            .block_on(linked.client.remote_status())?
-            .core_id;
-        self.runtime.block_on(
-            (linked.client).call("renameAccountDevice", json!({ "key": key, "name": name })),
+        account.sign_in(
+            &self.runtime,
+            &linked.client,
+            &linked.work.join("data"),
+            name,
         )?;
         self.linked.push(linked);
         Ok(())

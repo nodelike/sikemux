@@ -136,6 +136,7 @@
   ],
   "sikemuxAccount": {
     "person": "ines",
+    "host": "studio",
     "orgs": [
       { "name": "Lumen Studio", "role": "admin", "plan": "active" },
       { "name": "Fjord Labs", "role": "user", "plan": "active" },
