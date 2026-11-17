@@ -62,6 +62,7 @@ Table audit {
 
   indexes {
     at [name: 'audit_by_age']
+    (subject, id) [name: 'audit_by_subject', note: 'where (subject IS NOT NULL)']
     (user_id, at) [name: 'audit_by_user', note: 'at desc']
   }
 }
@@ -566,6 +567,44 @@ Table plan_gifts {
   }
 }
 
+Table org_teams {
+  id uuid [pk, default: `gen_random_uuid()`]
+  org_id uuid [not null]
+  name text [not null, note: '(length(name) >= 1) AND (length(name) <= 64)']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (org_id, name) [unique]
+  }
+}
+
+Table org_team_members {
+  team_id uuid [not null]
+  member_id uuid [not null]
+  added_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (team_id, member_id) [pk]
+    member_id [name: 'org_team_members_by_member']
+  }
+}
+
+Table org_domains {
+  id uuid [pk, default: `gen_random_uuid()`]
+  org_id uuid [not null]
+  domain text [not null, note: '(length(domain) <= 253) AND (domain ~ \'^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$\')']
+  token text [not null, note: 'token ~ \'^[A-Za-z0-9_-]{22}$\'']
+  joining text [not null, default: 'offered', note: 'joining = ANY (ARRAY[\'open\', \'offered\'])']
+  added_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  verified_at timestamptz
+
+  indexes {
+    (org_id, domain) [unique]
+    domain [name: 'org_domains_verified', unique, note: 'where (verified_at IS NOT NULL)']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -598,3 +637,7 @@ Ref: billing_checkouts.customer_id > billing_customers.id [delete: cascade]
 Ref: billing_checkouts.opened_by > users.id [delete: cascade]
 Ref: billing_people.user_id > users.id [delete: cascade]
 Ref: plan_gifts.user_id - users.id [delete: cascade]
+Ref: org_teams.org_id > orgs.id [delete: cascade]
+Ref: org_team_members.member_id > org_users.id [delete: cascade]
+Ref: org_team_members.team_id > org_teams.id [delete: cascade]
+Ref: org_domains.org_id > orgs.id [delete: cascade]

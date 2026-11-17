@@ -39,7 +39,14 @@ import type {
   ModsPushed,
   Network,
   Org,
+  OrgAuditCursor,
+  OrgAuditPage,
   OrgCreate,
+  OrgDomain,
+  OrgDomainAdd,
+  OrgDomainJoin,
+  OrgDomainJoiningChange,
+  OrgDomainList,
   OrgId,
   OrgInviteCreate,
   OrgInviteCreated,
@@ -49,8 +56,13 @@ import type {
   OrgMember,
   OrgMemberList,
   OrgMemberships,
+  OrgOfferList,
   OrgRename,
   OrgRoleChange,
+  OrgTeam,
+  OrgTeamCreate,
+  OrgTeamList,
+  OrgTeamRename,
   PaddleCheckout,
   PendingHost,
   PushTokenRegistration,
@@ -225,6 +237,88 @@ export function apiClient(send: Send) {
       send<void>(
         "DELETE",
         `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}`,
+      ),
+    /** The orgs your email's domain lets you join. */
+    listOrgOffers: () => send<OrgOfferList>("GET", `/v1/orgs/offers`),
+    /** Join an org through your email's domain. */
+    joinOrgByDomain: (body: OrgDomainJoin) =>
+      send<Org>("POST", `/v1/orgs/offers/join`, body),
+    /** An org's teams. */
+    listOrgTeams: (orgId: string) =>
+      send<OrgTeamList>("GET", `/v1/orgs/${encodeURIComponent(orgId)}/teams`),
+    /** Make a team, as an owner or an admin. */
+    createOrgTeam: (orgId: string, body: OrgTeamCreate) =>
+      send<OrgTeam>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams`,
+        body,
+      ),
+    /** Rename a team, as an owner or an admin. */
+    renameOrgTeam: (orgId: string, teamId: string, body: OrgTeamRename) =>
+      send<OrgTeam>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}/name`,
+        body,
+      ),
+    /** Delete a team, as an owner or an admin. */
+    deleteOrgTeam: (orgId: string, teamId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}`,
+      ),
+    /** Put a member on a team, as an owner or an admin. */
+    addOrgTeamMember: (orgId: string, teamId: string, memberId: string) =>
+      send<OrgTeam>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`,
+      ),
+    /** Take a member off a team, as an owner or an admin. */
+    removeOrgTeamMember: (orgId: string, teamId: string, memberId: string) =>
+      send<OrgTeam>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`,
+      ),
+    /** An org's email domains, as an owner or an admin. */
+    listOrgDomains: (orgId: string) =>
+      send<OrgDomainList>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains`,
+      ),
+    /** Claim an email domain, as an owner or an admin. */
+    addOrgDomain: (orgId: string, body: OrgDomainAdd) =>
+      send<OrgDomain>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains`,
+        body,
+      ),
+    /** Look for a domain's TXT record, as an owner or an admin. */
+    verifyOrgDomain: (orgId: string, domainId: string) =>
+      send<OrgDomain>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/verify`,
+      ),
+    /** Choose how people at a domain come in, as an owner or an admin. */
+    setOrgDomainJoining: (
+      orgId: string,
+      domainId: string,
+      body: OrgDomainJoiningChange,
+    ) =>
+      send<OrgDomain>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/joining`,
+        body,
+      ),
+    /** Give up a domain, as an owner or an admin. */
+    removeOrgDomain: (orgId: string, domainId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}`,
+      ),
+    /** What happened in an org, as an owner or an admin. */
+    listOrgAudit: (orgId: string, query: { cursor?: OrgAuditCursor } = {}) =>
+      send<OrgAuditPage>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/audit${search(query)}`,
       ),
     /** Stash a link, text or file on your account. */
     addStash: (body: StashAdd) => send<StashItem>("POST", `/v1/stash`, body),

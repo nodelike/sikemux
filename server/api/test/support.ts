@@ -101,6 +101,7 @@ export function testApp(
     relayAccessToken: null,
     stash: null,
     hookHosts: new HookHosts(),
+    txtRecords: async () => [],
     billing: {
       provider: new StandInProvider("https://api.sikemux.com"),
       live: false,

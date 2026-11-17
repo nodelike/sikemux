@@ -1617,6 +1617,864 @@
         }
       }
     },
+    "/v1/orgs/offers": {
+      "get": {
+        "operationId": "listOrgOffers",
+        "summary": "The orgs your email's domain lets you join",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "Each org whose verified domain your verified sign-in email is at. Your address is read now and never kept.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgOfferList" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/offers/join": {
+      "post": {
+        "operationId": "joinOrgByDomain",
+        "summary": "Join an org through your email's domain",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgDomainJoin" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "You are in the org as a user, on one of its free seats. Nothing is charged.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgDomainJoin.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your verified sign-in email is not at a domain that org proved it owns, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "You are already in the org, or it has no free seat or no live Team plan.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/teams": {
+      "get": {
+        "operationId": "listOrgTeams",
+        "summary": "An org's teams",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Each team with its members.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgTeamList" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createOrgTeam",
+        "summary": "Make a team, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgTeamCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new team, with nobody on it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgTeam" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgTeamCreate.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org has a team by that name already, or its Team plan lapsed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/teams/{teamId}/name": {
+      "post": {
+        "operationId": "renameOrgTeam",
+        "summary": "Rename a team, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgTeamRename" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The team under its new name.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgTeam" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgTeamRename.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org has a team by that name already, or its Team plan lapsed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/teams/{teamId}": {
+      "delete": {
+        "operationId": "deleteOrgTeam",
+        "summary": "Delete a team, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team is gone. Its members stay in the org."
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/teams/{teamId}/members/{memberId}": {
+      "put": {
+        "operationId": "addOrgTeamMember",
+        "summary": "Put a member on a team, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "memberId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The team with the member on it. Adding someone already on it changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgTeam" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team or member with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeOrgTeamMember",
+        "summary": "Take a member off a team, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "memberId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The team without the member. They stay in the org.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgTeam" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team or member with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/domains": {
+      "get": {
+        "operationId": "listOrgDomains",
+        "summary": "An org's email domains, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Each domain, verified or waiting for its record.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgDomainList" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "addOrgDomain",
+        "summary": "Claim an email domain, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgDomainAdd" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The domain and the TXT record that proves it is the org's. Nobody joins by it until the record is found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgDomain" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgDomainAdd, or the domain is not one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org claims the domain already, or its Team plan lapsed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/domains/{domainId}/verify": {
+      "post": {
+        "operationId": "verifyOrgDomain",
+        "summary": "Look for a domain's TXT record, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The domain, verified. Verifying one already verified changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgDomain" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is not in the domain's DNS yet, another org verified the domain first, or the org's Team plan lapsed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/domains/{domainId}/joining": {
+      "put": {
+        "operationId": "setOrgDomainJoining",
+        "summary": "Choose how people at a domain come in, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgDomainJoiningChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The domain with its new choice.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgDomain" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgDomainJoiningChange.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/domains/{domainId}": {
+      "delete": {
+        "operationId": "removeOrgDomain",
+        "summary": "Give up a domain, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Nobody joins by the domain any more. Who already joined stays."
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/audit": {
+      "get": {
+        "operationId": "listOrgAudit",
+        "summary": "What happened in an org, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgAuditCursor" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the org's audit log, newest first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgAuditPage" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/stash": {
       "post": {
         "operationId": "addStash",
@@ -5453,11 +6311,203 @@
         "required": ["id", "name", "role", "seats", "createdAt"],
         "additionalProperties": false
       },
+      "OrgAuditAction": {
+        "description": "What happened. ownership is handed over when role_changed has to: owner.",
+        "type": "string",
+        "enum": [
+          "created",
+          "joined",
+          "left",
+          "removed",
+          "role_changed",
+          "invite_created",
+          "invite_revoked",
+          "seats_changed",
+          "plan_canceled",
+          "plan_resumed",
+          "team_created",
+          "team_renamed",
+          "team_deleted",
+          "team_member_added",
+          "team_member_removed",
+          "domain_added",
+          "domain_verified",
+          "domain_joining_changed",
+          "domain_removed"
+        ]
+      },
+      "OrgAuditCursor": {
+        "description": "Where the next page of the audit log starts. Opaque to apps.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+      },
+      "OrgAuditEntry": {
+        "description": "One thing that happened in the org. It names people only by their sign-in's name; never an email or a host.",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9]{1,19}$" },
+          "at": { "type": "string", "format": "date-time" },
+          "action": { "$ref": "#/components/schemas/OrgAuditAction" },
+          "by": {
+            "description": "The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it.",
+            "type": ["string", "null"],
+            "maxLength": 256
+          },
+          "about": {
+            "description": "The name of the member it happened to, when that is not who did it; else null.",
+            "type": ["string", "null"],
+            "maxLength": 256
+          },
+          "role": {
+            "description": "The role someone joined, left or was invited with.",
+            "$ref": "#/components/schemas/OrgRole"
+          },
+          "from": { "$ref": "#/components/schemas/OrgRole" },
+          "to": { "$ref": "#/components/schemas/OrgRole" },
+          "via": { "$ref": "#/components/schemas/OrgJoinedVia" },
+          "team": {
+            "description": "The team's name at the time.",
+            "$ref": "#/components/schemas/OrgTeamName"
+          },
+          "previousName": {
+            "description": "A renamed team's old name.",
+            "$ref": "#/components/schemas/OrgTeamName"
+          },
+          "domain": { "$ref": "#/components/schemas/OrgDomainName" },
+          "joining": { "$ref": "#/components/schemas/OrgDomainJoining" },
+          "seats": {
+            "description": "The seat count a change set.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "atRenewal": {
+            "description": "True when a seat change waits for the plan's renewal.",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "at", "action", "by", "about"],
+        "additionalProperties": false
+      },
+      "OrgAuditPage": {
+        "description": "Up to 50 of the org's audit entries, newest first.",
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgAuditEntry" }
+          },
+          "next": {
+            "description": "Pass as cursor for older entries; null at the start of the log.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/OrgAuditCursor" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["entries", "next"],
+        "additionalProperties": false
+      },
       "OrgCreate": {
         "description": "A new org, with you as its owner.",
         "type": "object",
         "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
         "required": ["name"],
+        "additionalProperties": false
+      },
+      "OrgDomain": {
+        "description": "An email domain the org claims.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgDomainId" },
+          "domain": { "$ref": "#/components/schemas/OrgDomainName" },
+          "joining": { "$ref": "#/components/schemas/OrgDomainJoining" },
+          "record": { "$ref": "#/components/schemas/OrgDomainRecord" },
+          "verifiedAt": {
+            "description": "When the record was found; null until then, and nobody joins by the domain before it.",
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "id",
+          "domain",
+          "joining",
+          "record",
+          "verifiedAt",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "OrgDomainAdd": {
+        "type": "object",
+        "properties": {
+          "domain": { "$ref": "#/components/schemas/OrgDomainName" },
+          "joining": { "$ref": "#/components/schemas/OrgDomainJoining" }
+        },
+        "required": ["domain", "joining"],
+        "additionalProperties": false
+      },
+      "OrgDomainId": {
+        "description": "An org domain's id, a UUID in lowercase.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgDomainJoin": {
+        "description": "Joining an org through your email's domain.",
+        "type": "object",
+        "properties": { "orgId": { "$ref": "#/components/schemas/OrgId" } },
+        "required": ["orgId"],
+        "additionalProperties": false
+      },
+      "OrgDomainJoining": {
+        "description": "How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in.",
+        "type": "string",
+        "enum": ["open", "offered"]
+      },
+      "OrgDomainJoiningChange": {
+        "type": "object",
+        "properties": {
+          "joining": { "$ref": "#/components/schemas/OrgDomainJoining" }
+        },
+        "required": ["joining"],
+        "additionalProperties": false
+      },
+      "OrgDomainList": {
+        "description": "The org's domains, oldest first.",
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgDomain" }
+          }
+        },
+        "required": ["domains"],
+        "additionalProperties": false
+      },
+      "OrgDomainName": {
+        "description": "An email domain, such as example.com, in lowercase.",
+        "type": "string",
+        "minLength": 4,
+        "maxLength": 253
+      },
+      "OrgDomainRecord": {
+        "description": "The DNS TXT record that proves the org owns the domain.",
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "Where the TXT record goes.",
+            "type": "string",
+            "maxLength": 300
+          },
+          "value": {
+            "description": "What the TXT record says.",
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": ["name", "value"],
         "additionalProperties": false
       },
       "OrgId": {
@@ -5532,6 +6582,11 @@
         },
         "required": ["token"],
         "additionalProperties": false
+      },
+      "OrgJoinedVia": {
+        "description": "How someone joined an org.",
+        "type": "string",
+        "enum": ["invite", "domain"]
       },
       "OrgList": {
         "description": "The orgs you are in, oldest first.",
@@ -5616,6 +6671,34 @@
         "minLength": 1,
         "maxLength": 64
       },
+      "OrgOffer": {
+        "description": "An org you may join because your verified sign-in email is at a domain it proved it owns.",
+        "type": "object",
+        "properties": {
+          "orgId": { "$ref": "#/components/schemas/OrgId" },
+          "name": { "$ref": "#/components/schemas/OrgName" },
+          "domain": { "$ref": "#/components/schemas/OrgDomainName" },
+          "joining": { "$ref": "#/components/schemas/OrgDomainJoining" },
+          "seatFree": {
+            "description": "Whether a seat is free for you now; joining is refused while none is.",
+            "type": "boolean"
+          }
+        },
+        "required": ["orgId", "name", "domain", "joining", "seatFree"],
+        "additionalProperties": false
+      },
+      "OrgOfferList": {
+        "description": "The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan.",
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgOffer" }
+          }
+        },
+        "required": ["offers"],
+        "additionalProperties": false
+      },
       "OrgPlan": {
         "description": "Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.",
         "type": "string",
@@ -5646,6 +6729,61 @@
           "limit": { "type": "integer", "minimum": 0 }
         },
         "required": ["held", "limit"],
+        "additionalProperties": false
+      },
+      "OrgTeam": {
+        "description": "A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgTeamId" },
+          "name": { "$ref": "#/components/schemas/OrgTeamName" },
+          "members": {
+            "description": "Who is on it, by membership id, in the order they were added.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgMemberId" }
+          },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "members", "createdAt"],
+        "additionalProperties": false
+      },
+      "OrgTeamCreate": {
+        "type": "object",
+        "properties": {
+          "name": { "$ref": "#/components/schemas/OrgTeamName" }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "OrgTeamId": {
+        "description": "A team's id, a UUID in lowercase.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgTeamList": {
+        "description": "The org's teams, by name.",
+        "type": "object",
+        "properties": {
+          "teams": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgTeam" }
+          }
+        },
+        "required": ["teams"],
+        "additionalProperties": false
+      },
+      "OrgTeamName": {
+        "description": "What a team is called; unique within its org.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "OrgTeamRename": {
+        "type": "object",
+        "properties": {
+          "name": { "$ref": "#/components/schemas/OrgTeamName" }
+        },
+        "required": ["name"],
         "additionalProperties": false
       },
       "PaddleCheckout": {

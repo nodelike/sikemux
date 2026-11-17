@@ -714,6 +714,350 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/orgs/offers",
+      "operationId": "listOrgOffers",
+      "summary": "The orgs your email's domain lets you join",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Each org whose verified domain your verified sign-in email is at. Your address is read now and never kept.",
+          "body": "OrgOfferList"
+        },
+        "404": {
+          "description": "Your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/offers/join",
+      "operationId": "joinOrgByDomain",
+      "summary": "Join an org through your email's domain",
+      "auth": "session",
+      "request": "OrgDomainJoin",
+      "responses": {
+        "200": {
+          "description": "You are in the org as a user, on one of its free seats. Nothing is charged.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgDomainJoin.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your verified sign-in email is not at a domain that org proved it owns, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "You are already in the org, or it has no free seat or no live Team plan.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/teams",
+      "operationId": "listOrgTeams",
+      "summary": "An org's teams",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Each team with its members.",
+          "body": "OrgTeamList"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/teams",
+      "operationId": "createOrgTeam",
+      "summary": "Make a team, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgTeamCreate",
+      "responses": {
+        "201": {
+          "description": "The new team, with nobody on it.",
+          "body": "OrgTeam"
+        },
+        "400": {
+          "description": "The body is not a valid OrgTeamCreate.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org has a team by that name already, or its Team plan lapsed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/teams/{teamId}/name",
+      "operationId": "renameOrgTeam",
+      "summary": "Rename a team, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgTeamRename",
+      "responses": {
+        "200": {
+          "description": "The team under its new name.",
+          "body": "OrgTeam"
+        },
+        "400": {
+          "description": "The body is not a valid OrgTeamRename.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org has a team by that name already, or its Team plan lapsed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/teams/{teamId}",
+      "operationId": "deleteOrgTeam",
+      "summary": "Delete a team, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The team is gone. Its members stay in the org."
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/teams/{teamId}/members/{memberId}",
+      "operationId": "addOrgTeamMember",
+      "summary": "Put a member on a team, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The team with the member on it. Adding someone already on it changes nothing.",
+          "body": "OrgTeam"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team or member with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/teams/{teamId}/members/{memberId}",
+      "operationId": "removeOrgTeamMember",
+      "summary": "Take a member off a team, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The team without the member. They stay in the org.",
+          "body": "OrgTeam"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no team or member with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/domains",
+      "operationId": "listOrgDomains",
+      "summary": "An org's email domains, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Each domain, verified or waiting for its record.",
+          "body": "OrgDomainList"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/domains",
+      "operationId": "addOrgDomain",
+      "summary": "Claim an email domain, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgDomainAdd",
+      "responses": {
+        "201": {
+          "description": "The domain and the TXT record that proves it is the org's. Nobody joins by it until the record is found.",
+          "body": "OrgDomain"
+        },
+        "400": {
+          "description": "The body is not a valid OrgDomainAdd, or the domain is not one.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org claims the domain already, or its Team plan lapsed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/domains/{domainId}/verify",
+      "operationId": "verifyOrgDomain",
+      "summary": "Look for a domain's TXT record, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The domain, verified. Verifying one already verified changes nothing.",
+          "body": "OrgDomain"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The record is not in the domain's DNS yet, another org verified the domain first, or the org's Team plan lapsed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/domains/{domainId}/joining",
+      "operationId": "setOrgDomainJoining",
+      "summary": "Choose how people at a domain come in, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgDomainJoiningChange",
+      "responses": {
+        "200": {
+          "description": "The domain with its new choice.",
+          "body": "OrgDomain"
+        },
+        "400": {
+          "description": "The body is not a valid OrgDomainJoiningChange.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/domains/{domainId}",
+      "operationId": "removeOrgDomain",
+      "summary": "Give up a domain, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "Nobody joins by the domain any more. Who already joined stays."
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/audit",
+      "operationId": "listOrgAudit",
+      "summary": "What happened in an org, as an owner or an admin",
+      "auth": "session",
+      "query": {
+        "cursor": "OrgAuditCursor"
+      },
+      "responses": {
+        "200": {
+          "description": "A page of the org's audit log, newest first.",
+          "body": "OrgAuditPage"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/stash",
       "operationId": "addStash",

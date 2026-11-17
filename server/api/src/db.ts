@@ -18,6 +18,7 @@ import type {
   DeviceRole,
   HookHeader,
   HookMethod,
+  OrgDomainJoining,
   OrgRole,
   Platform,
   PushApp,
@@ -315,6 +316,27 @@ export interface Tables {
     accepted_by: ColumnType<string | null, never, string>;
     accepted_at: ColumnType<Date | null, never, Date>;
     revoked_at: ColumnType<Date | null, never, Date>;
+  };
+  org_teams: {
+    id: Generated<string>;
+    org_id: string;
+    name: string;
+    created_at: CreatedAt;
+  };
+  org_team_members: {
+    team_id: string;
+    member_id: string;
+    added_at: CreatedAt;
+  };
+  org_domains: {
+    id: Generated<string>;
+    org_id: string;
+    domain: string;
+    token: string;
+    joining: OrgDomainJoining;
+    added_by: string;
+    created_at: CreatedAt;
+    verified_at: Date | null;
   };
   billing_customers: {
     id: Generated<string>;

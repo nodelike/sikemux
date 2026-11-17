@@ -65,6 +65,8 @@ export interface Services {
   stash: StashFiles | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
   hookHosts: HookHosts;
+  /** The TXT records at a DNS name, each one's strings joined; throws when the lookup fails. */
+  txtRecords: (name: string) => Promise<string[]>;
   billing: {
     /** Null when BILLING_PROVIDER is not set, and buying or changing anything answers unavailable. */
     provider: BillingProvider | null;

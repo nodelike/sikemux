@@ -1688,11 +1688,200 @@ export const schema = {
       required: ["id", "name", "role", "seats", "createdAt"],
       additionalProperties: false,
     },
+    OrgAuditAction: {
+      description:
+        "What happened. ownership is handed over when role_changed has to: owner.",
+      type: "string",
+      enum: [
+        "created",
+        "joined",
+        "left",
+        "removed",
+        "role_changed",
+        "invite_created",
+        "invite_revoked",
+        "seats_changed",
+        "plan_canceled",
+        "plan_resumed",
+        "team_created",
+        "team_renamed",
+        "team_deleted",
+        "team_member_added",
+        "team_member_removed",
+        "domain_added",
+        "domain_verified",
+        "domain_joining_changed",
+        "domain_removed",
+      ],
+    },
+    OrgAuditCursor: {
+      description:
+        "Where the next page of the audit log starts. Opaque to apps.",
+      type: "string",
+      minLength: 1,
+      maxLength: 40,
+    },
+    OrgAuditEntry: {
+      description:
+        "One thing that happened in the org. It names people only by their sign-in's name; never an email or a host.",
+      type: "object",
+      properties: {
+        id: { type: "string", pattern: "^[0-9]{1,19}$" },
+        at: { type: "string", format: "date-time" },
+        action: { $ref: "#/$defs/OrgAuditAction" },
+        by: {
+          description:
+            "The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it.",
+          type: ["string", "null"],
+          maxLength: 256,
+        },
+        about: {
+          description:
+            "The name of the member it happened to, when that is not who did it; else null.",
+          type: ["string", "null"],
+          maxLength: 256,
+        },
+        role: {
+          description: "The role someone joined, left or was invited with.",
+          $ref: "#/$defs/OrgRole",
+        },
+        from: { $ref: "#/$defs/OrgRole" },
+        to: { $ref: "#/$defs/OrgRole" },
+        via: { $ref: "#/$defs/OrgJoinedVia" },
+        team: {
+          description: "The team's name at the time.",
+          $ref: "#/$defs/OrgTeamName",
+        },
+        previousName: {
+          description: "A renamed team's old name.",
+          $ref: "#/$defs/OrgTeamName",
+        },
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+        seats: {
+          description: "The seat count a change set.",
+          type: "integer",
+          minimum: 0,
+        },
+        atRenewal: {
+          description: "True when a seat change waits for the plan's renewal.",
+          type: "boolean",
+        },
+      },
+      required: ["id", "at", "action", "by", "about"],
+      additionalProperties: false,
+    },
+    OrgAuditPage: {
+      description: "Up to 50 of the org's audit entries, newest first.",
+      type: "object",
+      properties: {
+        entries: { type: "array", items: { $ref: "#/$defs/OrgAuditEntry" } },
+        next: {
+          description:
+            "Pass as cursor for older entries; null at the start of the log.",
+          anyOf: [{ $ref: "#/$defs/OrgAuditCursor" }, { type: "null" }],
+        },
+      },
+      required: ["entries", "next"],
+      additionalProperties: false,
+    },
     OrgCreate: {
       description: "A new org, with you as its owner.",
       type: "object",
       properties: { name: { $ref: "#/$defs/OrgName" } },
       required: ["name"],
+      additionalProperties: false,
+    },
+    OrgDomain: {
+      description: "An email domain the org claims.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgDomainId" },
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+        record: { $ref: "#/$defs/OrgDomainRecord" },
+        verifiedAt: {
+          description:
+            "When the record was found; null until then, and nobody joins by the domain before it.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
+        createdAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "id",
+        "domain",
+        "joining",
+        "record",
+        "verifiedAt",
+        "createdAt",
+      ],
+      additionalProperties: false,
+    },
+    OrgDomainAdd: {
+      type: "object",
+      properties: {
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+      },
+      required: ["domain", "joining"],
+      additionalProperties: false,
+    },
+    OrgDomainId: {
+      description: "An org domain's id, a UUID in lowercase.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgDomainJoin: {
+      description: "Joining an org through your email's domain.",
+      type: "object",
+      properties: { orgId: { $ref: "#/$defs/OrgId" } },
+      required: ["orgId"],
+      additionalProperties: false,
+    },
+    OrgDomainJoining: {
+      description:
+        "How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in.",
+      type: "string",
+      enum: ["open", "offered"],
+    },
+    OrgDomainJoiningChange: {
+      type: "object",
+      properties: { joining: { $ref: "#/$defs/OrgDomainJoining" } },
+      required: ["joining"],
+      additionalProperties: false,
+    },
+    OrgDomainList: {
+      description: "The org's domains, oldest first.",
+      type: "object",
+      properties: {
+        domains: { type: "array", items: { $ref: "#/$defs/OrgDomain" } },
+      },
+      required: ["domains"],
+      additionalProperties: false,
+    },
+    OrgDomainName: {
+      description: "An email domain, such as example.com, in lowercase.",
+      type: "string",
+      minLength: 4,
+      maxLength: 253,
+    },
+    OrgDomainRecord: {
+      description: "The DNS TXT record that proves the org owns the domain.",
+      type: "object",
+      properties: {
+        name: {
+          description: "Where the TXT record goes.",
+          type: "string",
+          maxLength: 300,
+        },
+        value: {
+          description: "What the TXT record says.",
+          type: "string",
+          maxLength: 100,
+        },
+      },
+      required: ["name", "value"],
       additionalProperties: false,
     },
     OrgId: {
@@ -1767,6 +1956,11 @@ export const schema = {
       required: ["token"],
       additionalProperties: false,
     },
+    OrgJoinedVia: {
+      description: "How someone joined an org.",
+      type: "string",
+      enum: ["invite", "domain"],
+    },
     OrgList: {
       description: "The orgs you are in, oldest first.",
       type: "object",
@@ -1838,6 +2032,34 @@ export const schema = {
       minLength: 1,
       maxLength: 64,
     },
+    OrgOffer: {
+      description:
+        "An org you may join because your verified sign-in email is at a domain it proved it owns.",
+      type: "object",
+      properties: {
+        orgId: { $ref: "#/$defs/OrgId" },
+        name: { $ref: "#/$defs/OrgName" },
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+        seatFree: {
+          description:
+            "Whether a seat is free for you now; joining is refused while none is.",
+          type: "boolean",
+        },
+      },
+      required: ["orgId", "name", "domain", "joining", "seatFree"],
+      additionalProperties: false,
+    },
+    OrgOfferList: {
+      description:
+        "The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan.",
+      type: "object",
+      properties: {
+        offers: { type: "array", items: { $ref: "#/$defs/OrgOffer" } },
+      },
+      required: ["offers"],
+      additionalProperties: false,
+    },
     OrgPlan: {
       description:
         "Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.",
@@ -1871,6 +2093,56 @@ export const schema = {
         limit: { type: "integer", minimum: 0 },
       },
       required: ["held", "limit"],
+      additionalProperties: false,
+    },
+    OrgTeam: {
+      description:
+        "A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgTeamId" },
+        name: { $ref: "#/$defs/OrgTeamName" },
+        members: {
+          description:
+            "Who is on it, by membership id, in the order they were added.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgMemberId" },
+        },
+        createdAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "name", "members", "createdAt"],
+      additionalProperties: false,
+    },
+    OrgTeamCreate: {
+      type: "object",
+      properties: { name: { $ref: "#/$defs/OrgTeamName" } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    OrgTeamId: {
+      description: "A team's id, a UUID in lowercase.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgTeamList: {
+      description: "The org's teams, by name.",
+      type: "object",
+      properties: {
+        teams: { type: "array", items: { $ref: "#/$defs/OrgTeam" } },
+      },
+      required: ["teams"],
+      additionalProperties: false,
+    },
+    OrgTeamName: {
+      description: "What a team is called; unique within its org.",
+      type: "string",
+      minLength: 1,
+      maxLength: 64,
+    },
+    OrgTeamRename: {
+      type: "object",
+      properties: { name: { $ref: "#/$defs/OrgTeamName" } },
+      required: ["name"],
       additionalProperties: false,
     },
     PaddleCheckout: {

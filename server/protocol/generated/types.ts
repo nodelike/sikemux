@@ -927,9 +927,139 @@ export interface Org {
   createdAt: string;
 }
 
+/** What happened. ownership is handed over when role_changed has to: owner. */
+export type OrgAuditAction =
+  | "created"
+  | "joined"
+  | "left"
+  | "removed"
+  | "role_changed"
+  | "invite_created"
+  | "invite_revoked"
+  | "seats_changed"
+  | "plan_canceled"
+  | "plan_resumed"
+  | "team_created"
+  | "team_renamed"
+  | "team_deleted"
+  | "team_member_added"
+  | "team_member_removed"
+  | "domain_added"
+  | "domain_verified"
+  | "domain_joining_changed"
+  | "domain_removed";
+export const orgAuditActionValues: readonly OrgAuditAction[] = [
+  "created",
+  "joined",
+  "left",
+  "removed",
+  "role_changed",
+  "invite_created",
+  "invite_revoked",
+  "seats_changed",
+  "plan_canceled",
+  "plan_resumed",
+  "team_created",
+  "team_renamed",
+  "team_deleted",
+  "team_member_added",
+  "team_member_removed",
+  "domain_added",
+  "domain_verified",
+  "domain_joining_changed",
+  "domain_removed",
+];
+
+/** Where the next page of the audit log starts. Opaque to apps. */
+export type OrgAuditCursor = string;
+
+/** One thing that happened in the org. It names people only by their sign-in's name; never an email or a host. */
+export interface OrgAuditEntry {
+  id: string;
+  at: string;
+  action: OrgAuditAction;
+  /** The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it. */
+  by: string | null;
+  /** The name of the member it happened to, when that is not who did it; else null. */
+  about: string | null;
+  /** The role someone joined, left or was invited with. */
+  role?: OrgRole;
+  from?: OrgRole;
+  to?: OrgRole;
+  via?: OrgJoinedVia;
+  /** The team's name at the time. */
+  team?: OrgTeamName;
+  /** A renamed team's old name. */
+  previousName?: OrgTeamName;
+  domain?: OrgDomainName;
+  joining?: OrgDomainJoining;
+  /** The seat count a change set. */
+  seats?: number;
+  /** True when a seat change waits for the plan's renewal. */
+  atRenewal?: boolean;
+}
+
+/** Up to 50 of the org's audit entries, newest first. */
+export interface OrgAuditPage {
+  entries: OrgAuditEntry[];
+  /** Pass as cursor for older entries; null at the start of the log. */
+  next: OrgAuditCursor | null;
+}
+
 /** A new org, with you as its owner. */
 export interface OrgCreate {
   name: OrgName;
+}
+
+/** An email domain the org claims. */
+export interface OrgDomain {
+  id: OrgDomainId;
+  domain: OrgDomainName;
+  joining: OrgDomainJoining;
+  record: OrgDomainRecord;
+  /** When the record was found; null until then, and nobody joins by the domain before it. */
+  verifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface OrgDomainAdd {
+  domain: OrgDomainName;
+  joining: OrgDomainJoining;
+}
+
+/** An org domain's id, a UUID in lowercase. */
+export type OrgDomainId = string;
+
+/** Joining an org through your email's domain. */
+export interface OrgDomainJoin {
+  orgId: OrgId;
+}
+
+/** How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in. */
+export type OrgDomainJoining = "open" | "offered";
+export const orgDomainJoiningValues: readonly OrgDomainJoining[] = [
+  "open",
+  "offered",
+];
+
+export interface OrgDomainJoiningChange {
+  joining: OrgDomainJoining;
+}
+
+/** The org's domains, oldest first. */
+export interface OrgDomainList {
+  domains: OrgDomain[];
+}
+
+/** An email domain, such as example.com, in lowercase. */
+export type OrgDomainName = string;
+
+/** The DNS TXT record that proves the org owns the domain. */
+export interface OrgDomainRecord {
+  /** Where the TXT record goes. */
+  name: string;
+  /** What the TXT record says. */
+  value: string;
 }
 
 /** An org's id, a UUID in lowercase. */
@@ -973,6 +1103,10 @@ export interface OrgJoin {
   token: OrgInviteToken;
 }
 
+/** How someone joined an org. */
+export type OrgJoinedVia = "invite" | "domain";
+export const orgJoinedViaValues: readonly OrgJoinedVia[] = ["invite", "domain"];
+
 /** The orgs you are in, oldest first. */
 export interface OrgList {
   orgs: Org[];
@@ -1014,6 +1148,21 @@ export interface OrgMemberships {
 /** What the org is called, as its members see it. */
 export type OrgName = string;
 
+/** An org you may join because your verified sign-in email is at a domain it proved it owns. */
+export interface OrgOffer {
+  orgId: OrgId;
+  name: OrgName;
+  domain: OrgDomainName;
+  joining: OrgDomainJoining;
+  /** Whether a seat is free for you now; joining is refused while none is. */
+  seatFree: boolean;
+}
+
+/** The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan. */
+export interface OrgOfferList {
+  offers: OrgOffer[];
+}
+
 /** Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept. */
 export type OrgPlan = "active" | "lapsed";
 export const orgPlanValues: readonly OrgPlan[] = ["active", "lapsed"];
@@ -1034,6 +1183,34 @@ export interface OrgRoleChange {
 export interface OrgSeats {
   held: number;
   limit: number;
+}
+
+/** A named list of an org's members. It owns nothing: it stands in wherever a list of people goes. */
+export interface OrgTeam {
+  id: OrgTeamId;
+  name: OrgTeamName;
+  /** Who is on it, by membership id, in the order they were added. */
+  members: OrgMemberId[];
+  createdAt: string;
+}
+
+export interface OrgTeamCreate {
+  name: OrgTeamName;
+}
+
+/** A team's id, a UUID in lowercase. */
+export type OrgTeamId = string;
+
+/** The org's teams, by name. */
+export interface OrgTeamList {
+  teams: OrgTeam[];
+}
+
+/** What a team is called; unique within its org. */
+export type OrgTeamName = string;
+
+export interface OrgTeamRename {
+  name: OrgTeamName;
 }
 
 /** Paddle.js opens its checkout with a client token, which Paddle makes public by design. */
@@ -1885,7 +2062,20 @@ export interface Definitions {
   Money: Money;
   Network: Network;
   Org: Org;
+  OrgAuditAction: OrgAuditAction;
+  OrgAuditCursor: OrgAuditCursor;
+  OrgAuditEntry: OrgAuditEntry;
+  OrgAuditPage: OrgAuditPage;
   OrgCreate: OrgCreate;
+  OrgDomain: OrgDomain;
+  OrgDomainAdd: OrgDomainAdd;
+  OrgDomainId: OrgDomainId;
+  OrgDomainJoin: OrgDomainJoin;
+  OrgDomainJoining: OrgDomainJoining;
+  OrgDomainJoiningChange: OrgDomainJoiningChange;
+  OrgDomainList: OrgDomainList;
+  OrgDomainName: OrgDomainName;
+  OrgDomainRecord: OrgDomainRecord;
   OrgId: OrgId;
   OrgInvite: OrgInvite;
   OrgInviteCreate: OrgInviteCreate;
@@ -1894,6 +2084,7 @@ export interface Definitions {
   OrgInviteList: OrgInviteList;
   OrgInviteToken: OrgInviteToken;
   OrgJoin: OrgJoin;
+  OrgJoinedVia: OrgJoinedVia;
   OrgList: OrgList;
   OrgMember: OrgMember;
   OrgMemberId: OrgMemberId;
@@ -1901,11 +2092,19 @@ export interface Definitions {
   OrgMembership: OrgMembership;
   OrgMemberships: OrgMemberships;
   OrgName: OrgName;
+  OrgOffer: OrgOffer;
+  OrgOfferList: OrgOfferList;
   OrgPlan: OrgPlan;
   OrgRename: OrgRename;
   OrgRole: OrgRole;
   OrgRoleChange: OrgRoleChange;
   OrgSeats: OrgSeats;
+  OrgTeam: OrgTeam;
+  OrgTeamCreate: OrgTeamCreate;
+  OrgTeamId: OrgTeamId;
+  OrgTeamList: OrgTeamList;
+  OrgTeamName: OrgTeamName;
+  OrgTeamRename: OrgTeamRename;
   PaddleCheckout: PaddleCheckout;
   PaddleEnvironment: PaddleEnvironment;
   PaymentCard: PaymentCard;

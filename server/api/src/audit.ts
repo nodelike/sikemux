@@ -46,7 +46,16 @@ type AuditAction =
   | "org.member_removed"
   | "org.role_changed"
   | "org.invite_created"
-  | "org.invite_revoked";
+  | "org.invite_revoked"
+  | "org.team_created"
+  | "org.team_renamed"
+  | "org.team_deleted"
+  | "org.team_member_added"
+  | "org.team_member_removed"
+  | "org.domain_added"
+  | "org.domain_verified"
+  | "org.domain_joining_changed"
+  | "org.domain_removed";
 
 interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */

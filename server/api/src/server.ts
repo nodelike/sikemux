@@ -1,3 +1,4 @@
+import { resolveTxt } from "node:dns/promises";
 import { mkdirSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import type { Server } from "node:http";
@@ -154,6 +155,8 @@ export async function startServer(config: Config, log: Logger) {
     relayAccessToken: config.relayAccessToken,
     stash: config.stash ? new StashFiles(config.stash) : null,
     hookHosts,
+    txtRecords: async (name) =>
+      (await resolveTxt(name)).map((chunks) => chunks.join("")),
     billing: { provider, live: config.billing.live },
   });
   const server = serve(

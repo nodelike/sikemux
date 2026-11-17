@@ -865,11 +865,175 @@ pub struct Org {
     pub created_at: String,
 }
 
+/// What happened. ownership is handed over when role_changed has to: owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrgAuditAction {
+    #[serde(rename = "created")]
+    Created,
+    #[serde(rename = "joined")]
+    Joined,
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "removed")]
+    Removed,
+    #[serde(rename = "role_changed")]
+    RoleChanged,
+    #[serde(rename = "invite_created")]
+    InviteCreated,
+    #[serde(rename = "invite_revoked")]
+    InviteRevoked,
+    #[serde(rename = "seats_changed")]
+    SeatsChanged,
+    #[serde(rename = "plan_canceled")]
+    PlanCanceled,
+    #[serde(rename = "plan_resumed")]
+    PlanResumed,
+    #[serde(rename = "team_created")]
+    TeamCreated,
+    #[serde(rename = "team_renamed")]
+    TeamRenamed,
+    #[serde(rename = "team_deleted")]
+    TeamDeleted,
+    #[serde(rename = "team_member_added")]
+    TeamMemberAdded,
+    #[serde(rename = "team_member_removed")]
+    TeamMemberRemoved,
+    #[serde(rename = "domain_added")]
+    DomainAdded,
+    #[serde(rename = "domain_verified")]
+    DomainVerified,
+    #[serde(rename = "domain_joining_changed")]
+    DomainJoiningChanged,
+    #[serde(rename = "domain_removed")]
+    DomainRemoved,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Where the next page of the audit log starts. Opaque to apps.
+pub type OrgAuditCursor = String;
+
+/// One thing that happened in the org. It names people only by their sign-in's name; never an email or a host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgAuditEntry {
+    pub id: String,
+    pub at: String,
+    pub action: OrgAuditAction,
+    /// The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it.
+    pub by: Option<String>,
+    /// The name of the member it happened to, when that is not who did it; else null.
+    pub about: Option<String>,
+    /// The role someone joined, left or was invited with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<OrgRole>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<OrgRole>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<OrgRole>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<OrgJoinedVia>,
+    /// The team's name at the time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team: Option<OrgTeamName>,
+    /// A renamed team's old name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_name: Option<OrgTeamName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<OrgDomainName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub joining: Option<OrgDomainJoining>,
+    /// The seat count a change set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seats: Option<i64>,
+    /// True when a seat change waits for the plan's renewal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at_renewal: Option<bool>,
+}
+
+/// Up to 50 of the org's audit entries, newest first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgAuditPage {
+    pub entries: Vec<OrgAuditEntry>,
+    /// Pass as cursor for older entries; null at the start of the log.
+    pub next: Option<OrgAuditCursor>,
+}
+
 /// A new org, with you as its owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgCreate {
     pub name: OrgName,
+}
+
+/// An email domain the org claims.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomain {
+    pub id: OrgDomainId,
+    pub domain: OrgDomainName,
+    pub joining: OrgDomainJoining,
+    pub record: OrgDomainRecord,
+    /// When the record was found; null until then, and nobody joins by the domain before it.
+    pub verified_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomainAdd {
+    pub domain: OrgDomainName,
+    pub joining: OrgDomainJoining,
+}
+
+/// An org domain's id, a UUID in lowercase.
+pub type OrgDomainId = String;
+
+/// Joining an org through your email's domain.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomainJoin {
+    pub org_id: OrgId,
+}
+
+/// How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrgDomainJoining {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "offered")]
+    Offered,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomainJoiningChange {
+    pub joining: OrgDomainJoining,
+}
+
+/// The org's domains, oldest first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomainList {
+    pub domains: Vec<OrgDomain>,
+}
+
+/// An email domain, such as example.com, in lowercase.
+pub type OrgDomainName = String;
+
+/// The DNS TXT record that proves the org owns the domain.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomainRecord {
+    /// Where the TXT record goes.
+    pub name: String,
+    /// What the TXT record says.
+    pub value: String,
 }
 
 /// An org's id, a UUID in lowercase.
@@ -923,6 +1087,18 @@ pub struct OrgJoin {
     pub token: OrgInviteToken,
 }
 
+/// How someone joined an org.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrgJoinedVia {
+    #[serde(rename = "invite")]
+    Invite,
+    #[serde(rename = "domain")]
+    Domain,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 /// The orgs you are in, oldest first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -974,6 +1150,25 @@ pub struct OrgMemberships {
 /// What the org is called, as its members see it.
 pub type OrgName = String;
 
+/// An org you may join because your verified sign-in email is at a domain it proved it owns.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgOffer {
+    pub org_id: OrgId,
+    pub name: OrgName,
+    pub domain: OrgDomainName,
+    pub joining: OrgDomainJoining,
+    /// Whether a seat is free for you now; joining is refused while none is.
+    pub seat_free: bool,
+}
+
+/// The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgOfferList {
+    pub offers: Vec<OrgOffer>,
+}
+
 /// Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OrgPlan {
@@ -1018,6 +1213,42 @@ pub struct OrgRoleChange {
 pub struct OrgSeats {
     pub held: i64,
     pub limit: i64,
+}
+
+/// A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTeam {
+    pub id: OrgTeamId,
+    pub name: OrgTeamName,
+    /// Who is on it, by membership id, in the order they were added.
+    pub members: Vec<OrgMemberId>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTeamCreate {
+    pub name: OrgTeamName,
+}
+
+/// A team's id, a UUID in lowercase.
+pub type OrgTeamId = String;
+
+/// The org's teams, by name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTeamList {
+    pub teams: Vec<OrgTeam>,
+}
+
+/// What a team is called; unique within its org.
+pub type OrgTeamName = String;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTeamRename {
+    pub name: OrgTeamName,
 }
 
 /// Paddle.js opens its checkout with a client token, which Paddle makes public by design.
@@ -1574,7 +1805,20 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveServerMessage" => through::<LiveServerMessage>(json),
         "Money" => through::<Money>(json),
         "Org" => through::<Org>(json),
+        "OrgAuditAction" => through::<OrgAuditAction>(json),
+        "OrgAuditCursor" => through::<OrgAuditCursor>(json),
+        "OrgAuditEntry" => through::<OrgAuditEntry>(json),
+        "OrgAuditPage" => through::<OrgAuditPage>(json),
         "OrgCreate" => through::<OrgCreate>(json),
+        "OrgDomain" => through::<OrgDomain>(json),
+        "OrgDomainAdd" => through::<OrgDomainAdd>(json),
+        "OrgDomainId" => through::<OrgDomainId>(json),
+        "OrgDomainJoin" => through::<OrgDomainJoin>(json),
+        "OrgDomainJoining" => through::<OrgDomainJoining>(json),
+        "OrgDomainJoiningChange" => through::<OrgDomainJoiningChange>(json),
+        "OrgDomainList" => through::<OrgDomainList>(json),
+        "OrgDomainName" => through::<OrgDomainName>(json),
+        "OrgDomainRecord" => through::<OrgDomainRecord>(json),
         "OrgId" => through::<OrgId>(json),
         "OrgInvite" => through::<OrgInvite>(json),
         "OrgInviteCreate" => through::<OrgInviteCreate>(json),
@@ -1583,6 +1827,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgInviteList" => through::<OrgInviteList>(json),
         "OrgInviteToken" => through::<OrgInviteToken>(json),
         "OrgJoin" => through::<OrgJoin>(json),
+        "OrgJoinedVia" => through::<OrgJoinedVia>(json),
         "OrgList" => through::<OrgList>(json),
         "OrgMember" => through::<OrgMember>(json),
         "OrgMemberId" => through::<OrgMemberId>(json),
@@ -1590,11 +1835,19 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgMembership" => through::<OrgMembership>(json),
         "OrgMemberships" => through::<OrgMemberships>(json),
         "OrgName" => through::<OrgName>(json),
+        "OrgOffer" => through::<OrgOffer>(json),
+        "OrgOfferList" => through::<OrgOfferList>(json),
         "OrgPlan" => through::<OrgPlan>(json),
         "OrgRename" => through::<OrgRename>(json),
         "OrgRole" => through::<OrgRole>(json),
         "OrgRoleChange" => through::<OrgRoleChange>(json),
         "OrgSeats" => through::<OrgSeats>(json),
+        "OrgTeam" => through::<OrgTeam>(json),
+        "OrgTeamCreate" => through::<OrgTeamCreate>(json),
+        "OrgTeamId" => through::<OrgTeamId>(json),
+        "OrgTeamList" => through::<OrgTeamList>(json),
+        "OrgTeamName" => through::<OrgTeamName>(json),
+        "OrgTeamRename" => through::<OrgTeamRename>(json),
         "PaddleCheckout" => through::<PaddleCheckout>(json),
         "PaddleEnvironment" => through::<PaddleEnvironment>(json),
         "PaymentCard" => through::<PaymentCard>(json),
