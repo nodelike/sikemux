@@ -2,9 +2,11 @@
 
 # Sikemux
 
-**Out of Claude? The chat carries on in Codex.**
+**A whole team of AI coders, in one window.**
 
-And see which agent needs you, on your Mac, the notch or your phone.
+Other tools give you one AI assistant. Sikemux gives you a team: Claude Code, Codex and more, side by side in one native app, where you see who's working, who's stuck and who needs you.
+
+Out of Claude? The chat carries on in Codex.
 
 A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs and Linux.
 
