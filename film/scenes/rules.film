@@ -10,6 +10,6 @@ core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":
 core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Keep replies short.\",\"goal\":null,\"sensitive\":false,\"store\":\"personal\"}}"
 chat Wren
 settle 4
-click 101,362
+key cmd-alt-6
 settle 3
 snap rules
