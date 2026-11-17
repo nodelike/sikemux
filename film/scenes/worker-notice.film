@@ -1,0 +1,15 @@
+# A worker's calm report reaches its lead as one line, ending in an ellipsis inside the column.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer paneImage null
+replies worker-notice.json
+project storefront shop
+chat Wren
+title "Cart total bug"
+say "Get a worker on the cart total bug."
+settle 20
+front Wren
+say "Where are we with it?"
+settle 6
+snap worker-notice
