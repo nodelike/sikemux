@@ -639,6 +639,28 @@ pub(crate) fn told(core: &Core, told: &[(String, u64)]) {
     });
 }
 
+/// The full id of the commit `named` in the project at `folder`, or in a repository the folder holds.
+fn commit_in(folder: &Path, named: &str) -> Option<String> {
+    let held = std::fs::read_dir(folder).into_iter().flatten().flatten();
+    let held = held
+        .map(|entry| entry.path())
+        .filter(|child| child.join(".git").exists());
+    std::iter::once(folder.to_path_buf())
+        .chain(held)
+        .find_map(|repo| {
+            Git::quick(&repo)
+                .trimmed(&[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "--end-of-options",
+                    &format!("{named}^{{commit}}"),
+                ])
+                .ok()
+                .filter(|commit| !commit.is_empty())
+        })
+}
+
 /// `task_update` with `asked`: the caller closes one of its project's asks that was handled: in the commit it
 /// names, which then stands for the ask's work, or with nothing to change, which answered it.
 pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
@@ -666,16 +688,7 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         return Ok(json!({ "closed": id, "answered": "no change" }));
     };
     let repo = PathBuf::from(&folder);
-    let commit = Git::quick(&repo)
-        .trimmed(&[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &format!("{named}^{{commit}}"),
-        ])
-        .ok()
-        .filter(|commit| !commit.is_empty())
+    let commit = commit_in(&repo, named)
         .ok_or_else(|| format!("{named} is not a commit of this project"))?;
     change_in(core, &folder, |board, at| {
         let Ok(card) = board.card_mut(id) else {
@@ -692,4 +705,39 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     });
     build_moved(core, &repo);
     Ok(json!({ "closed": id, "commit": commit }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_commit_of_a_repository_inside_the_project_folder_is_found() {
+        let folder = tempfile::tempdir().expect("tempdir");
+        let web = folder.path().join("web");
+        std::fs::create_dir(&web).expect("repository folder");
+        Git::quick(&web).trimmed(&["init", "-q"]).expect("init");
+        Git::quick(&web)
+            .trimmed(&[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "c",
+            ])
+            .expect("commit");
+        let head = Git::quick(&web)
+            .trimmed(&["rev-parse", "HEAD"])
+            .expect("head");
+
+        assert_eq!(
+            commit_in(folder.path(), head.get(..9).expect("short id")),
+            Some(head)
+        );
+        assert_eq!(commit_in(folder.path(), "0000000"), None);
+    }
 }
