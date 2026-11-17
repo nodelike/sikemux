@@ -243,8 +243,10 @@ jobs:
     permissions:
       contents: read
     # What the core compiles in. The app starts a core rather than running one, and links no plugin.
+    # The core links whole on every channel: in pieces it came out 44.0 MB against 35.3 MB, which
+    # pushed a nightly's update past its budget.
     env: &compiled_into_core
-      CARGO_PROFILE_RELEASE_LTO: &lto ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
+      CARGO_PROFILE_RELEASE_LTO: fat
       BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
       JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
       VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
@@ -262,7 +264,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      # Stable keeps fat LTO and no cache; a nightly trades a little size for half the build.
+      # Stable builds with no cache; a nightly compiles its crates through one.
       - &cache_nightly
         name: Cache compiled crates for a nightly
         if: needs.plan.outputs.channel == 'nightly'
@@ -381,7 +383,7 @@ jobs:
     needs: plan
     if: *planned
     env:
-      CARGO_PROFILE_RELEASE_LTO: *lto
+      CARGO_PROFILE_RELEASE_LTO: &lto ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
     runs-on: macos-26
     timeout-minutes: 90
     permissions:
