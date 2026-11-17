@@ -115,6 +115,36 @@ impl Decided {
         }
     }
 
+    /// Takes in `other`'s decisions. One is the same as its own when its words are, or when it has
+    /// the same id and one was corrected from the other; the one made or corrected last wins, and a
+    /// retirement its own lacks is taken. One it lacks gets a new id.
+    pub(super) fn merge(&mut self, other: Decided, card: impl Fn(u64) -> u64) {
+        let mut decisions = other.decisions;
+        decisions.sort_by_key(|decision| decision.learned.at);
+        for mut decision in decisions {
+            decision.goal = decision.goal.map(&card);
+            let same = (self.decisions.iter_mut()).find(|own| {
+                own.text == decision.text
+                    || own.id == decision.id
+                        && own.goal == decision.goal
+                        && (own.learned.at == decision.learned.at
+                            || own.was.as_deref() == Some(decision.text.as_str())
+                            || decision.was.as_deref() == Some(own.text.as_str()))
+            });
+            match same {
+                Some(own) => {
+                    let retired = own.retired.take().or(decision.retired.take());
+                    if decision.learned.at > own.learned.at {
+                        decision.id = own.id;
+                        *own = decision;
+                    }
+                    own.retired = retired;
+                }
+                None => drop(self.add(decision)),
+            }
+        }
+    }
+
     fn add(&mut self, mut decision: Decision) -> (Decision, Option<u64>) {
         let dropped = make_room(&mut self.decisions, MAX_DECISIONS);
         self.last += 1;

@@ -189,6 +189,9 @@ pub struct Board {
     /// them to another home to fold in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     shared: bool,
+    /// It is a copy of what another host, the project's home, sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    mirrored: bool,
     /// The latest CI run that failed on the project's branch, while the core runs.
     #[serde(skip)]
     ci_failing: failing::Latest,
@@ -243,6 +246,7 @@ impl Board {
             decided,
             audits,
             shared,
+            mirrored,
             ci_failing: _,
             places: _,
         } = self;
@@ -256,6 +260,7 @@ impl Board {
             decided: decided.clone(),
             audits: audits.clone(),
             shared: *shared,
+            mirrored: *mirrored,
             ..Self::default()
         }
     }

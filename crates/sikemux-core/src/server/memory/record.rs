@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sikemux_process::sync::Locked;
-use sikemux_view::memory::Store;
+use sikemux_view::memory::{Knowledge, MemoryRule, Store};
 
 use super::{tell_clients, Held, MemoryView, Peer, MAX_STORES, PERSONAL};
 use crate::server::Core;
@@ -24,25 +24,54 @@ pub(crate) const APP_WRITES: [&str; 6] = [
 
 /// What the store under `key` keeps, as its home sends it, without the notes for its own chats.
 pub(crate) fn record(core: &Core, key: &str) -> Option<Value> {
-    let state = core.memory().state.locked();
-    let mut held = state.held.get(key)?.clone();
-    held.removed.clear();
-    serde_json::to_value(held).ok()
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    let held = state.held.get_mut(key)?;
+    let was_copy = std::mem::replace(&mut held.mirrored, false);
+    let mut sent = held.clone();
+    sent.removed.clear();
+    if was_copy {
+        memory.save(&mut state, key);
+    }
+    serde_json::to_value(sent).ok()
+}
+
+/// Whether the store under `key` is a copy of what another host, the project's home, sent.
+pub(crate) fn is_copy(core: &Core, key: &str) -> bool {
+    (core.memory().state.locked().held.get(key)).is_some_and(|held| held.mirrored)
+}
+
+/// This host keeps the store under `key` as the project's home from now on.
+pub(crate) fn kept_here(core: &Core, key: &str) {
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    if let Some(held) = state.held.get_mut(key) {
+        held.mirrored = false;
+        memory.save(&mut state, key);
+    }
 }
 
 /// The project's home sent what its store under `key` keeps. It replaces this host's copy, which
 /// keeps only the notes for this host's chats; an entry of the person's own that shares an id with
-/// one sent takes a new one.
-pub(crate) fn mirror(core: &Core, key: &str, record: Value) -> Result<(), String> {
+/// one sent takes a new one. Answers what this host kept as the project's own until now, for the
+/// home to merge in.
+pub(crate) fn mirror(core: &Core, key: &str, record: Value) -> Result<Option<Value>, String> {
     let mut held: Held = serde_json::from_value(record).map_err(|error| error.to_string())?;
     if held.store != Store::Project {
         return Err("only a project's store crosses to its linked hosts".into());
     }
     held.key = key.to_owned();
+    held.mirrored = true;
     let memory = core.memory();
     let mut state = memory.state.locked();
+    let mut kept_as_home = None;
     match state.held.remove(key) {
-        Some(local) => held.removed = local.removed,
+        Some(mut local) => {
+            held.removed = std::mem::take(&mut local.removed);
+            if !local.mirrored && (local.len() > 0 || !local.set_aside.is_empty()) {
+                kept_as_home = serde_json::to_value(local).ok();
+            }
+        }
         None if state
             .held
             .values()
@@ -68,7 +97,121 @@ pub(crate) fn mirror(core: &Core, key: &str, record: Value) -> Result<(), String
     }
     drop(state);
     tell_clients(core, true);
+    Ok(kept_as_home)
+}
+
+/// Merges in the store another host kept as the project's own before this host's copy reached
+/// it. An entry is the same when its words are, or when it has the same id and one side was
+/// corrected from the other; the one learned or corrected last wins, and one this store lacks gets
+/// a new id. It removes nothing, so an entry removed there comes back.
+pub(crate) fn merge_in(core: &Core, key: &str, theirs: Value) -> Result<(), String> {
+    let theirs: Held = serde_json::from_value(theirs).map_err(|error| error.to_string())?;
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    if !state.held.contains_key(key) {
+        return Err("this host keeps no rules or knowledge for that project".into());
+    }
+    for mut rule in theirs.rules {
+        let Some(own) = state.held.get_mut(key) else {
+            break;
+        };
+        let said = Said::rule(&rule);
+        if (own.set_aside.iter()).any(|apart| said.same(&Said::rule(&apart.rule))) {
+            continue;
+        }
+        match (own.rules.iter_mut()).find(|own| said.same(&Said::rule(own))) {
+            Some(own) if rule.learned.at > own.learned.at => {
+                rule.id = own.id;
+                *own = rule;
+            }
+            Some(_) => {}
+            None => {
+                rule.id = state.next_id(key);
+                if let Some(own) = state.held.get_mut(key) {
+                    own.rules.push(rule);
+                }
+            }
+        }
+    }
+    for mut known in theirs.knowledge {
+        let Some(own) = state.held.get_mut(key) else {
+            break;
+        };
+        let said = Said::known(&known);
+        match (own.knowledge.iter_mut()).find(|own| said.same(&Said::known(own))) {
+            Some(own) if known.learned.at > own.learned.at => {
+                known.id = own.id;
+                *own = known;
+            }
+            Some(_) => {}
+            None => {
+                known.id = state.next_id(key);
+                if let Some(own) = state.held.get_mut(key) {
+                    own.knowledge.push(known);
+                }
+            }
+        }
+    }
+    for mut apart in theirs.set_aside {
+        let Some(own) = state.held.get_mut(key) else {
+            break;
+        };
+        let said = Said::rule(&apart.rule);
+        if (own.set_aside.iter()).any(|own| said.same(&Said::rule(&own.rule))) {
+            continue;
+        }
+        match (own.rules.iter()).position(|rule| said.same(&Said::rule(rule))) {
+            Some(listed) => apart.rule.id = own.rules.remove(listed).id,
+            None => apart.rule.id = state.next_id(key),
+        }
+        if let Some(own) = state.held.get_mut(key) {
+            own.set_aside.push(apart);
+        }
+    }
+    if let Some(own) = state.held.get_mut(key) {
+        own.seeding = own.seeding.take().or(theirs.seeding);
+    }
+    memory.save(&mut state, key);
+    drop(state);
+    tell_clients(core, true);
     Ok(())
+}
+
+struct Said<'a> {
+    id: u64,
+    text: &'a str,
+    at: u64,
+    was: Option<&'a str>,
+}
+
+impl<'a> Said<'a> {
+    fn rule(rule: &'a MemoryRule) -> Self {
+        let (id, text, at, was) = (rule.id, &rule.text, rule.learned.at, &rule.was);
+        Said {
+            id,
+            text,
+            at,
+            was: was.as_deref(),
+        }
+    }
+
+    fn known(known: &'a Knowledge) -> Self {
+        let (id, text, at, was) = (known.id, &known.text, known.learned.at, &known.was);
+        Said {
+            id,
+            text,
+            at,
+            was: was.as_deref(),
+        }
+    }
+
+    fn same(&self, other: &Said) -> bool {
+        self.text == other.text
+            || self.id == other.id
+                && (self.at == other.at
+                    || self.was == Some(other.text)
+                    || other.was == Some(self.text))
+    }
 }
 
 fn renumber(state: &mut super::State, taken: &HashSet<u64>) -> bool {
@@ -140,7 +283,7 @@ pub(crate) fn written_at_home(
     peer: &Peer,
     record: Value,
 ) -> Result<MemoryView, String> {
-    if !record.is_null() {
+    if !record.is_null() && is_copy(core, key) {
         mirror(core, key, record)?;
     }
     Ok(super::view(core, folder, peer))

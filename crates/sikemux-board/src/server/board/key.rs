@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sikemux_process::sync::Locked;
 
-use super::{kept, Board, Core, State};
+use super::{kept, Board, Card, Core, State};
 use crate::server::board_state::BoardParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -97,5 +97,68 @@ impl Board {
         self.next = self.next.max(other.next + offset);
         self.decided.fold(other.decided, card);
         self.places.take();
+    }
+
+    /// Takes in the board `other` kept as the project's home, matching cards by id and when they
+    /// were made: the one changed last wins, keeping the commits, pulls, recordings and arrivals
+    /// either had, and its cards this board lacks get new ids unless this board archived them. It
+    /// removes nothing else, so a card `other` removed comes back.
+    pub(super) fn merge(&mut self, other: Board, archived: &HashSet<(u64, u64)>) {
+        let cards: Vec<Card> = (other.cards.into_iter())
+            .filter(|card| !archived.contains(&(card.id, card.at)))
+            .collect();
+        let mut renumbered = HashMap::new();
+        for card in &cards {
+            if !(self.cards.iter()).any(|own| own.id == card.id && own.at == card.at) {
+                renumbered.insert(card.id, self.next);
+                self.next += 1;
+            }
+        }
+        let card = |id: u64| renumbered.get(&id).copied().unwrap_or(id);
+        for mut taken in cards {
+            taken.parent = taken.parent.map(card);
+            taken.depends_on = taken.depends_on.into_iter().map(card).collect();
+            match (self.cards.iter_mut()).find(|own| own.id == taken.id && own.at == taken.at) {
+                Some(own) => own.merge(taken),
+                None => {
+                    taken.id = card(taken.id);
+                    self.cards.push(taken);
+                }
+            }
+        }
+        self.decided.merge(other.decided, card);
+        self.places.take();
+    }
+}
+
+impl Card {
+    fn merge(&mut self, mut other: Card) {
+        if other.updated_at > self.updated_at {
+            std::mem::swap(self, &mut other);
+        }
+        for commit in other.commits {
+            if !(self.commits.iter()).any(|own| own.sha == commit.sha) {
+                self.commits.push(commit);
+            }
+        }
+        for pull in other.pulls {
+            if !(self.pulls.iter()).any(|own| own.number == pull.number) {
+                self.pulls.push(pull);
+            }
+        }
+        for recording in other.recordings {
+            if !(self.recordings.iter()).any(|own| own.path == recording.path) {
+                self.recordings.push(recording);
+            }
+        }
+        for arrival in other.arrivals {
+            if !(self.arrivals.iter()).any(|own| own.at == arrival.at) {
+                self.arrivals.push(arrival);
+            }
+        }
+        self.commits.sort_by_key(|commit| commit.at);
+        self.recordings.sort_by_key(|recording| recording.at);
+        self.arrivals.sort_by_key(|arrival| arrival.at);
+        self.checked = self.checked.take().or(other.checked);
     }
 }

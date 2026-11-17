@@ -299,14 +299,20 @@ pub(crate) fn post_home(core: &Core, folder: &str, method: &str, mut params: Val
         asks::RecordAct::METHOD,
         params_of::<asks::RecordAct>(&asked),
     );
-    let sending = sending.kept().about(&lane(&identity));
+    queue(core, &home.host, &identity, sending);
+    true
+}
+
+/// Queues `sending` for `host` in the project's lane, which keeps it until it arrives and moves
+/// it on when the project's home does.
+fn queue(core: &Core, host: &str, identity: &str, sending: super::Sending) {
+    let sending = sending.kept().about(&lane(identity));
     if tokio::runtime::Handle::try_current().is_ok() {
-        super::post(core, &home.host, sending);
+        super::post(core, host, sending);
     } else {
-        core.hosts().outbox.push(&home.host, sending);
+        core.hosts().outbox.push(host, sending);
         core.hosts().wake.now();
     }
-    true
 }
 
 fn lane(identity: &str) -> String {
@@ -348,12 +354,30 @@ pub(super) fn send_to(core: &Core, home: &str, posts: Vec<Post>) {
     let Some(core) = core.arc() else {
         return;
     };
-    let asked: Vec<RecordAct> = (posts.into_iter())
-        .filter_map(|post| serde_json::from_value(post.params).ok())
-        .collect();
+    let from = core.remote().core_id().unwrap_or_default();
     tokio::spawn(async move {
-        for asked in asked {
-            if let Err(error) = act_here(&core, asked).await {
+        for post in posts {
+            let doing = match &post.call {
+                Some(call) => match core.hosts().receipts.begin(&from, call) {
+                    Ok(doing) => Some(doing),
+                    Err(_) => continue,
+                },
+                None => None,
+            };
+            let done = match post.method.as_str() {
+                asks::RecordAct::METHOD => match serde_json::from_value(post.params) {
+                    Ok(asked) => act_here(&core, asked).await.map(drop),
+                    Err(error) => Err(error.to_string()),
+                },
+                asks::RecordTakeIn::METHOD => (serde_json::from_value(post.params))
+                    .map_err(|error| error.to_string())
+                    .and_then(|kept| taken_in(&core, &from, kept).map(drop)),
+                _ => Ok(()),
+            };
+            if let Some(doing) = doing {
+                doing.done(&done.clone().map(|()| Value::Null));
+            }
+            if let Err(error) = done {
                 eprintln!(
                     "sikemux core: a write that waited for the board's old home was lost: {error}"
                 );
@@ -478,7 +502,7 @@ fn send(core: &Arc<Core>, identity: &str, only: Option<&str>, carries: Carries) 
         memory,
     });
     for host in holders {
-        let (core, params, identity) = (core.clone(), params.clone(), identity.to_owned());
+        let (core, params) = (core.clone(), params.clone());
         tokio::spawn(async move {
             let sent = ask(
                 &core,
@@ -489,20 +513,11 @@ fn send(core: &Arc<Core>, identity: &str, only: Option<&str>, carries: Carries) 
                 ASK_WAIT,
             )
             .await;
-            match sent {
-                Ok(Value::Null) => {}
-                Ok(theirs) => {
-                    if let Err(error) = board_record::fold_in(&core, &identity, theirs) {
-                        eprintln!(
-                            "sikemux core: {}'s own cards were not taken in: {error}",
-                            name_of(&core, &host)
-                        );
-                    }
-                }
-                Err(error) => eprintln!(
+            if let Err(error) = sent {
+                eprintln!(
                     "sikemux core: the board did not reach {}: {error}",
                     name_of(&core, &host)
-                ),
+                );
             }
         });
     }
@@ -519,14 +534,102 @@ pub(super) fn heard(core: &Core, host: &str, copy: RecordCopy) -> Answer {
             name_of(core, host)
         ));
     }
+    let was_copy =
+        board_record::is_copy(core, &copy.identity) || memory::is_copy(core, &copy.identity);
+    let mut replaced = Replaced::default();
+    let mut failed = Vec::new();
     if let Some(memory) = copy.memory {
-        memory::mirror(core, &copy.identity, memory)?;
+        match memory::mirror(core, &copy.identity, memory) {
+            Ok(kept) => replaced.memory = kept,
+            Err(error) => failed.push(error),
+        }
     }
-    let Some(board) = copy.board else {
-        return Ok(Value::Null);
-    };
-    let unshared = board_record::mirror(core, &copy.identity, board)?;
-    Ok(unshared.unwrap_or(Value::Null))
+    if let Some(board) = copy.board {
+        match board_record::mirror(core, &copy.identity, board) {
+            Ok(Some(board_record::Replaced::Unshared(cards))) => replaced.unshared = Some(cards),
+            Ok(Some(board_record::Replaced::KeptAsHome(board))) => replaced.board = Some(board),
+            Ok(None) => {}
+            Err(error) => failed.push(error),
+        }
+    }
+    if !replaced.is_empty() {
+        let identity = copy.identity.clone();
+        let kept = TakeIn {
+            identity,
+            kept: replaced,
+        };
+        let sending = super::Sending::new(
+            asks::RecordTakeIn::METHOD,
+            params_of::<asks::RecordTakeIn>(&kept),
+        )
+        .call(super::call_id());
+        queue(core, host, &copy.identity, sending);
+    }
+    if !was_copy {
+        core.hosts().copies.wake.now();
+    }
+    if failed.is_empty() {
+        Ok(Value::Null)
+    } else {
+        Err(failed.join("; "))
+    }
+}
+
+/// What a linked host kept that a copy from the project's home replaced, sent to the home in the
+/// project's lane so it arrives even when the link drops before the copy is answered.
+#[derive(Serialize, Deserialize)]
+pub(super) struct TakeIn {
+    identity: String,
+    #[serde(flatten)]
+    kept: Replaced,
+}
+
+/// A linked host sent what a copy of this host's replaced there.
+pub(super) fn taken_in(core: &Core, host: &str, taking: TakeIn) -> Answer {
+    take_in(core, &taking.identity, host, taking.kept);
+    Ok(Value::Null)
+}
+
+/// What the copy replaced, by part.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Replaced {
+    /// Cards it kept on its own before it shared the board.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unshared: Option<Value>,
+    /// The board it kept as the project's home, as when it was out of reach while another host
+    /// took the chief over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    board: Option<Value>,
+    /// The project's rules and knowledge it kept as their home.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory: Option<Value>,
+}
+
+impl Replaced {
+    fn is_empty(&self) -> bool {
+        self.unshared.is_none() && self.board.is_none() && self.memory.is_none()
+    }
+}
+
+fn take_in(core: &Core, identity: &str, host: &str, theirs: Replaced) {
+    let taken = [
+        theirs
+            .unshared
+            .map(|cards| board_record::fold_in(core, identity, cards)),
+        theirs
+            .board
+            .map(|board| board_record::merge_in(core, identity, board)),
+        theirs
+            .memory
+            .map(|store| memory::merge_in(core, identity, store)),
+    ];
+    for error in taken.into_iter().flatten().filter_map(Result::err) {
+        eprintln!(
+            "sikemux core: what {} kept was not taken in: {error}",
+            name_of(core, host)
+        );
+    }
 }
 
 fn put_project(params: &mut Value, project: String) {

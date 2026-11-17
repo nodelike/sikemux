@@ -52,8 +52,9 @@ pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::{promote, promote_all};
 pub(crate) use record::{
-    free_elsewhere, free_here, mirror, moving_to, personal as writes_personal, record, record_at,
-    written_at_home, APP_WRITES as APP_RECORD_WRITES,
+    free_elsewhere, free_here, is_copy, kept_here, merge_in, mirror, moving_to,
+    personal as writes_personal, record, record_at, written_at_home,
+    APP_WRITES as APP_RECORD_WRITES,
 };
 pub(crate) use removed::{
     chat_ready, feed_moved, show_on as rules_missing, take_note as take_removed_note,
@@ -95,6 +96,9 @@ struct Held {
     /// Other projects' rules in the same words, taken in when one moved into the person's store.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     absorbed: Vec<moving::Absorbed>,
+    /// It is a copy of what another host, the project's home, sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    mirrored: bool,
 }
 
 impl Held {
@@ -435,6 +439,7 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
         removed: Vec::new(),
         not_now: BTreeSet::new(),
         absorbed: Vec::new(),
+        mirrored: false,
     }))
 }
 

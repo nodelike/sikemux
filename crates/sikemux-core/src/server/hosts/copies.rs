@@ -53,6 +53,9 @@ pub(crate) struct Held {
     /// projects.
     #[serde(default, skip_serializing_if = "never")]
     ids_from: u64,
+    /// That host holds a copy of the record the project's home sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    copy: bool,
 }
 
 fn never(at: &u64) -> bool {
@@ -145,6 +148,16 @@ impl Copies {
         (self.heard.locked().get(host).into_iter().flatten())
             .find(|held| held.identity.as_deref() == Some(identity))
             .map(|held| held.id.clone())
+    }
+
+    /// The linked hosts that said they hold a copy of the record of the repository `identity`.
+    pub(super) fn with_copy(&self, identity: &str) -> Vec<String> {
+        (self.heard.locked().iter())
+            .filter(|(_, held)| {
+                (held.iter()).any(|held| held.identity.as_deref() == Some(identity) && held.copy)
+            })
+            .map(|(host, _)| host.clone())
+            .collect()
     }
 
     /// Whether `host` said it holds any project.
@@ -267,6 +280,12 @@ impl Copies {
     }
 }
 
+/// Whether this host holds a copy of the record of the repository `identity` that its home sent.
+pub(super) fn holds_copy(core: &Core, identity: &str) -> bool {
+    super::super::board::record::is_copy(core, identity)
+        || super::super::memory::is_copy(core, identity)
+}
+
 /// This host's projects, as it tells the others.
 fn held_here(core: &Core) -> Vec<Held> {
     let ids_from = crate::server::memory::free_here(core);
@@ -276,6 +295,7 @@ fn held_here(core: &Core) -> Vec<Held> {
             id: project.id,
             name: project.name,
             path: project.path,
+            copy: (project.identity.as_deref()).is_some_and(|identity| holds_copy(core, identity)),
             identity: project.identity,
             chief_count: project.chief_count,
             chief_wrote: (project.chief.as_deref())

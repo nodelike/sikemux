@@ -68,6 +68,7 @@ host_asks! {
     RecordCopy "recordCopy" record::RecordCopy;
     RecordAct "recordAct" record::RecordAct;
     SearchChats "searchChats" search::SearchParams;
+    RecordTakeIn "recordTakeIn" record::TakeIn;
 }
 
 /// Asks what became of the call `call`.
@@ -203,6 +204,7 @@ async fn dispatch(
         ChiefCopy::METHOD => chief_copy::heard(core, read::<ChiefCopy>(params)?),
         RecordCopy::METHOD => record::heard(core, host, read::<RecordCopy>(params)?),
         RecordAct::METHOD => record::act_here(core, read::<RecordAct>(params)?).await,
+        RecordTakeIn::METHOD => record::taken_in(core, host, read::<RecordTakeIn>(params)?),
         TakeChat::METHOD => chat_move::take_here(core, read::<TakeChat>(params)?).await,
         SearchChats::METHOD => search::here(core, read::<SearchChats>(params)?).await,
         _ => Err(format!("this host does not know {method}")),

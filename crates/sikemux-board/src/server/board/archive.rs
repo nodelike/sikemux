@@ -89,6 +89,25 @@ fn move_off(boards: &Boards, state: &mut State, project: &str, going: HashSet<u6
     }
 }
 
+/// The cards of the project at `folder` that moved off its board, by id and when they were made.
+pub fn archived(boards: &Boards, folder: &str) -> HashSet<(u64, u64)> {
+    #[derive(Deserialize)]
+    struct Archived {
+        id: u64,
+        at: u64,
+    }
+    let Some(data) = boards.folder.as_deref().and_then(Path::parent) else {
+        return HashSet::new();
+    };
+    let Ok(text) = std::fs::read_to_string(file(data, folder)) else {
+        return HashSet::new();
+    };
+    (text.lines())
+        .filter_map(|line| serde_json::from_str::<Archived>(line).ok())
+        .map(|card| (card.id, card.at))
+        .collect()
+}
+
 fn file(data: &Path, project: &str) -> PathBuf {
     (data.join(FOLDER))
         .join(kept::file_for(project))
