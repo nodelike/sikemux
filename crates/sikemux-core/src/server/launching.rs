@@ -728,6 +728,10 @@ pub(crate) async fn start_new(
         .and_then(|was| was.worktree.as_ref())
         .map(|tree| tree.branch.clone());
     let cwd = (choice.cwd.clone()).or_else(|| was.as_ref().map(|was| was.cwd.clone()));
+    let _reopening = match &cwd {
+        Some(cwd) => Some(super::worktree::removal::reopening(core, cwd).await),
+        None => None,
+    };
     let resumed = match cwd {
         Some(cwd) => Some(
             blocking(move || Ok(super::worktree::agent::resumed_in(&cwd, branch.as_deref())?))

@@ -18,6 +18,7 @@ use crate::git::Git;
 use crate::server::connection::blocking;
 use crate::server::ports;
 use crate::server::{Core, CoreError, CoreResult};
+use sikemux_process::sync::Locked;
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::AgentState;
 
@@ -286,6 +287,14 @@ pub async fn remove(core: &Arc<Core>, params: RemoveWorktreeParams) -> CoreResul
 /// refuses while anything in it is uncommitted, so only build output and other ignored
 /// folders go with it.
 pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path) {
+    let _removal = core.build_outputs().removal.lock().await;
+    if let Some(holder) = held_now(core, tree) {
+        eprintln!(
+            "sikemux core: kept the landed worktree {}, as {holder} works in it again",
+            tree.display()
+        );
+        return;
+    }
     ports::checkout::removing(core, tree).await;
     let (repo, tree) = (repo.to_owned(), tree.to_owned());
     let removed = blocking(move || {
@@ -310,5 +319,47 @@ pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path) {
             eprintln!("sikemux core: removed the worktree {path}, as all its work is landed")
         }
         Err(error) => eprintln!("sikemux core: kept a landed worktree: {error}"),
+    }
+}
+
+/// Who works in `tree` at this moment: an open agent, or one being reopened there.
+fn held_now(core: &Core, tree: &Path) -> Option<String> {
+    let reopening =
+        (core.build_outputs().reopening.locked().iter()).any(|cwd| cwd.starts_with(tree));
+    if reopening {
+        return Some("an agent being reopened".into());
+    }
+    (core.workspaces().agent_ids().into_iter())
+        .filter_map(|id| core.workspaces().agent(&id))
+        .find(|agent| {
+            agent.cwd.starts_with(tree)
+                || (agent.worktree.as_ref()).is_some_and(|held| held.path == tree)
+        })
+        .map(|agent| agent.id)
+}
+
+/// Keeps the folder an agent is being reopened in from removal until this is dropped, by which
+/// time the agent's record holds it. A removal already under way finishes first, so the reopen
+/// finds the folder gone and makes it again.
+pub struct Reopening {
+    core: Arc<Core>,
+    cwd: PathBuf,
+}
+
+pub async fn reopening(core: &Arc<Core>, cwd: &Path) -> Reopening {
+    let _removal = core.build_outputs().removal.lock().await;
+    core.build_outputs().reopening.locked().push(cwd.to_owned());
+    Reopening {
+        core: core.clone(),
+        cwd: cwd.to_owned(),
+    }
+}
+
+impl Drop for Reopening {
+    fn drop(&mut self) {
+        let mut reopening = self.core.build_outputs().reopening.locked();
+        if let Some(at) = reopening.iter().position(|cwd| *cwd == self.cwd) {
+            reopening.swap_remove(at);
+        }
     }
 }

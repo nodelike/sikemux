@@ -179,10 +179,10 @@ fn make_again(cwd: &Path, branch: Option<&str>) -> Result<AgentWorktree, String>
     let now = Git::quick(&repo)
         .trimmed(&["rev-parse", "--verify", "HEAD"])
         .map_err(|_| "the project has no commit to make it from")?;
-    let kept = branch
-        .map(str::to_owned)
-        .filter(|branch| branch_exists(&repo, branch))
-        .or_else(|| branch_for_folder(&repo, &folder));
+    let kept = match branch {
+        Some(branch) => Some(branch.to_owned()).filter(|branch| branch_exists(&repo, branch)),
+        None => branch_for_folder(&repo, &folder),
+    };
     let (branch, start_sha, start) = match kept {
         Some(branch) if !landed(&repo, &branch, &now) => {
             let start_sha = Git::quick(&repo).trimmed(&["merge-base", &now, &branch])?;

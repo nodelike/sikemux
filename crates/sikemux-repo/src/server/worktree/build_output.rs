@@ -78,6 +78,11 @@ pub struct BuildOutputs {
     /// When the next sweep of landed worktrees may start, in Unix milliseconds; 0 until the
     /// first look, which only sets it.
     next_landed_sweep_at: AtomicU64,
+    /// Held while a landed worktree is removed, and while an agent being reopened claims its
+    /// folder, so a reopen never starts in a folder that is going.
+    pub(super) removal: tokio::sync::Mutex<()>,
+    /// The folders agents are being reopened in, until their records hold them.
+    pub(super) reopening: Mutex<Vec<PathBuf>>,
 }
 
 impl BuildOutputs {
