@@ -69,6 +69,8 @@ struct Waiting {
     failed_over: Option<String>,
     /// A check holding it is running, so a newer land of its agent queues behind it.
     checking: bool,
+    /// Its check ran out of time once already, and its agent was told.
+    ran_out_of_time: bool,
 }
 
 impl Waiting {
@@ -126,6 +128,7 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         queued_at: epoch_ms(),
         failed_over: None,
         checking: false,
+        ran_out_of_time: false,
     };
     let short = waiting.short().to_owned();
     let (ahead, replaced) = {
@@ -346,6 +349,7 @@ pub fn resume(core: &Arc<Core>) {
                 queued_at: epoch_ms(),
                 failed_over: None,
                 checking: false,
+                ran_out_of_time: false,
             });
             keys.insert(key);
         }
@@ -688,7 +692,18 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             return put_on(core, key, stacked).await;
         }
         Ok(ran) => ran,
-        Err(why) => {
+        Err(checks::NotRun::OutOfTime(why))
+            if stacked
+                .laid
+                .iter()
+                .all(|laid| !laid.waiting.ran_out_of_time) =>
+        {
+            for laid in &stacked.laid {
+                out_of_time(core, key, &laid.waiting, &label, &why);
+            }
+            return;
+        }
+        Err(checks::NotRun::OutOfTime(why) | checks::NotRun::Other(why)) => {
             for laid in &stacked.laid {
                 send_back(
                     core,
@@ -751,6 +766,24 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             let laid = &stacked.laid[0];
             send_back(core, key, &laid.waiting, &failed(laid));
         }
+    }
+}
+
+/// Its check ran out of time on a busy host, which says nothing of its commits, so it keeps its
+/// place and the check runs once more, carrying on from what the last run built. A second run
+/// out of time sends it back, so a check that hangs cannot hold the line for good.
+fn out_of_time(core: &Arc<Core>, key: &Key, waiting: &Waiting, label: &str, why: &str) {
+    let newly = with_line(core, key, |line| {
+        let w = line.waiting.iter_mut().find(|w| w.is(waiting))?;
+        Some(!std::mem::replace(&mut w.ran_out_of_time, true))
+    });
+    if newly.flatten() == Some(true) {
+        let text = format!(
+            "Your land of {} onto {} is still waiting: {label} ran out of time on this busy computer ({why}). That is not your commits' doing, so it keeps its place and the check runs once more. Nothing is yours to do.",
+            waiting.short(),
+            key.1
+        );
+        tell(core, &waiting.agent, text);
     }
 }
 

@@ -241,12 +241,20 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     }
     let conclusion = run["conclusion"].as_str().unwrap_or("ended");
     let url = run["url"].as_str().unwrap_or_default();
-    let mut said = format!("CI run {} ended {conclusion}. {url}", id_text(id));
     let how = match Conclusion::of(conclusion) {
         Conclusion::Passed => CiEnded::Passed,
-        Conclusion::Failed => CiEnded::Failed,
+        Conclusion::Failed => match codehost::jobs_conclusion(&detail) {
+            Conclusion::Failed => CiEnded::Failed,
+            Conclusion::Stopped | Conclusion::Passed => CiEnded::Stopped,
+        },
         Conclusion::Stopped => CiEnded::Stopped,
     };
+    let ended = if how == CiEnded::Stopped {
+        "stopped"
+    } else {
+        conclusion
+    };
+    let mut said = format!("CI run {} ended {ended}. {url}", id_text(id));
     if how == CiEnded::Failed {
         let failed: Vec<&str> = detail["jobs"]
             .as_array()

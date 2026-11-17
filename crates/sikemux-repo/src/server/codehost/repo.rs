@@ -534,9 +534,18 @@ pub async fn commit_checks(
     if runs.is_empty() || !all_ran {
         return Ok(Checks::None);
     }
+    let mut ends = Vec::with_capacity(runs.len());
+    for run in &runs {
+        ends.push(match conclusion(run) {
+            Some(Conclusion::Failed) => Some(failed_or_stopped(repo, run).await),
+            other => other,
+        });
+    }
     let ended = |wanted: Conclusion| -> Vec<String> {
         runs.iter()
-            .filter(|run| conclusion(run) == Some(wanted))
+            .zip(&ends)
+            .filter(|(_, end)| **end == Some(wanted))
+            .map(|(run, _)| run)
             .map(|run| {
                 format!(
                     "{}: {} {}",
@@ -587,6 +596,32 @@ async fn runs_on(
 
 fn conclusion(run_or_job: &Value) -> Option<Conclusion> {
     run_or_job["conclusion"].as_str().map(Conclusion::of)
+}
+
+/// A run GitHub calls failed whose jobs were only cancelled, as when a newer
+/// push supersedes it, says nothing of the change.
+async fn failed_or_stopped(repo: &Repo, run: &Value) -> Conclusion {
+    match self::run(repo, &run["id"]).await {
+        Ok(detail) => jobs_conclusion(&detail),
+        Err(_) => Conclusion::Failed,
+    }
+}
+
+/// How a run that ended as failed went, by its jobs in `detail`.
+pub fn jobs_conclusion(detail: &Value) -> Conclusion {
+    let jobs = detail["jobs"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if jobs.is_empty()
+        || jobs
+            .iter()
+            .any(|job| conclusion(job) == Some(Conclusion::Failed))
+    {
+        Conclusion::Failed
+    } else {
+        Conclusion::Stopped
+    }
 }
 
 /// Failed jobs read on one commit.

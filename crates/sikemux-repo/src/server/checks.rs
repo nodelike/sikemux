@@ -1316,6 +1316,37 @@ fn run_check(
     limit: Duration,
     env: Vec<(String, String)>,
 ) -> Result<Ran, String> {
+    run_timed(cwd, command, seed, limit, env).map_err(String::from)
+}
+
+/// Why a check did not run.
+pub enum NotRun {
+    /// It ran past its limit, the time it spent waiting for its turn on the host not counted.
+    OutOfTime(String),
+    Other(String),
+}
+
+impl From<String> for NotRun {
+    fn from(why: String) -> Self {
+        Self::Other(why)
+    }
+}
+
+impl From<NotRun> for String {
+    fn from(not_run: NotRun) -> Self {
+        match not_run {
+            NotRun::OutOfTime(why) | NotRun::Other(why) => why,
+        }
+    }
+}
+
+fn run_timed(
+    cwd: &Path,
+    command: &str,
+    seed: u32,
+    limit: Duration,
+    env: Vec<(String, String)>,
+) -> Result<Ran, NotRun> {
     let mut shell = sikemux_process::user_environment::background_shell()?;
     shell
         .args(["-c", &format!("exec 2>&1\n{command}")])
@@ -1337,7 +1368,13 @@ fn run_check(
     if let Some(pid) = pid.get() {
         RUNNING.locked().remove(pid);
     }
-    let output = output.map_err(|error| format!("it did not run: {error}"))?;
+    let output = output.map_err(|error| {
+        let why = format!("it did not run: {error}");
+        match error {
+            sikemux_process::ProcessRunError::Timeout(_) => NotRun::OutOfTime(why),
+            _ => NotRun::Other(why),
+        }
+    })?;
     Ok(Ran {
         passed: output.status.success(),
         text: all_said(&output),
@@ -1372,7 +1409,7 @@ pub async fn run_in_queue(
     commit: &str,
     command: &str,
     agent: &str,
-) -> Result<QueueRun, String> {
+) -> Result<QueueRun, NotRun> {
     use crate::server::edits::generate::refresh;
     let checkout = crate::server::worktree::agent::merge_queue(core, dir, commit).await?;
     let (owner, dir, command) = (core.clone(), dir.to_owned(), command.to_owned());
@@ -1380,13 +1417,13 @@ pub async fn run_in_queue(
     let env = before_commit(agent);
     let ran = tokio::task::spawn_blocking(move || {
         refresh(&owner, &dir, &checkout)?;
-        let ran = run_check(&checkout, &command, seed, RUN_LIMIT, env.clone())?;
+        let ran = run_timed(&checkout, &command, seed, RUN_LIMIT, env.clone())?;
         if ran.passed || !compiler_cache_failed(&ran.text) {
             return Ok(ran);
         }
         let mut env = env;
         env.push(("RUSTC_WRAPPER".to_owned(), String::new()));
-        run_check(&checkout, &command, seed, RUN_LIMIT, env)
+        run_timed(&checkout, &command, seed, RUN_LIMIT, env)
     })
     .await
     .map_err(|error| error.to_string())??;
