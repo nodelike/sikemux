@@ -79,7 +79,7 @@ impl World {
             claude.join("fake-usage.json"),
             usage(args.world.pointer("/account/usage").unwrap_or(&Value::Null)).to_string(),
         )?;
-        std::fs::write(home.join(".claude.json"), signed_in("edon"))?;
+        std::fs::write(claude.join(".claude.json"), signed_in("edon"))?;
         let socket = work.join("core.sock");
         let _ = std::fs::remove_file(&socket);
         let log = std::fs::File::create(work.join("core.log"))?;
