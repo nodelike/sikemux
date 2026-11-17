@@ -1004,7 +1004,7 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
     case "vault_created":
       return `${by} made ${org.name}'s vault`;
     case "vault_host_added":
-      return `${by}'s computer gave ${entry.about ? `${entry.about}'s` : "their"} computer${entry.computer ? ` “${entry.computer}”` : ""} the vault's key`;
+      return `${by}'s computer gave ${entry.about ? `${entry.about}'s` : "a"} computer${entry.computer ? ` “${entry.computer}”` : ""} the vault's key`;
     case "vault_rotated":
       return `${by}'s computer replaced the vault's key after a computer left`;
     case "vault_entry_written":

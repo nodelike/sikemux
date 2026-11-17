@@ -5,7 +5,8 @@
 - Amends: [ADR 0016](./0016-the-account-vault.md)
 - Amended: 2026-11-18, after a review against a hostile server: wraps name their sealer, a wrap
   is never overwritten, only an owner's or admin's host hands the key to another account's host,
-  hosts refuse what is older than they hold, and one bad answer no longer erases a host's copy
+  hosts refuse what is older than they hold, and a missing or untrusted answer no longer erases a
+  host's copy
 
 ## Context
 
@@ -71,13 +72,16 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
 - **A stored wrap stays, and members wrap only for their own hosts.** Adding wraps never
   replaces one a host already has, and the server takes a wrap for another account's host only
   from an owner's or admin's host, so a member's host can neither overwrite another's wrap nor
-  write the first one.
+  write the first one. A wrap stays with its host key, so a host key that moves to another
+  member's account before the next new key keeps the wrap its old account's member sealed.
 - **Nothing older than a host holds now is taken in.** A host refuses a generation of the key
   older than the one it holds, an entry sealed under another generation than the vault's, and a
   revision older than the copy of that entry it holds, and keeps what it held; it does not
   replace the key while the server lists such an entry. It keeps no record of entries it no
   longer holds, so the server can hold an entry back, which hosts take for its removal, and
-  later list it again, which they take back.
+  later list it again, at that revision or an older one, which they take back. A host replacing
+  the key seals again what the server lists, so an entry taken back this way crosses into the new
+  generation as a valid entry of it.
 - **A failed answer does not erase a host's copy.** A missing or untrusted wrap, or the server
   saying the vault does not exist while the host holds its key, leaves the copy as it is and
   shows the failure. Only the server saying the account is not in the org, which is how a removed member
@@ -91,16 +95,18 @@ What still rests on the server:
   tell a member's real host apart. Once that key is listed as holding, the server can hand any
   host a key of its own, a host that holds the real one included: it names its key among the
   holders, raises the generation and wraps a new key from it, and that answer replaces the
-  host's copy. This is the gap ADR 0016 records for the account vault, and the same step would
-  close it.
+  host's copy. The lie outlasts itself: the host then refuses the honest server's lower
+  generation, keeps any entry the server forged at a high revision and hands it to agents, and
+  an admin's host writes under a key no other host has. Only signing out clears it. This is the
+  gap ADR 0016 records for the account vault, and the same step would close it.
 - **A host that holds nothing takes what the server gives.** A host that is waiting has nothing
   to compare against, and a 404 or a sign-out empties a host's copy, so the server can roll a
   host back in two answers: one that empties it, then an old copy.
 - **Restoring the server from an older backup** strands the hosts that held newer. Each keeps
   the key generation and the entry copies it held and refuses the backup's older ones, and the
   server refuses admins' writes to those entries, since they name revisions it no longer has.
-  Entries the backup lacks, hosts take for removed. Nothing the hosts do moves it on; only
-  bringing the server's data forward again does.
+  Entries the backup lacks, hosts take for removed. Bringing the server's data forward again
+  moves them on, and so does signing a host out and in, which takes the backup's state.
 - **A wrap waits on its sealer.** A wrap whose sealer has left the org lists no holder that hosts
   trust, so its host cannot open it until the rotation that leaving asks for. If no host holds
   the key any more, the vault is lost: there is no recovery key, and making an org's vault
