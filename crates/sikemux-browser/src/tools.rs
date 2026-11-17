@@ -28,6 +28,8 @@ const SETTLE: Duration = Duration::from_millis(250);
 const DOWNLOAD_WAIT: Duration = Duration::from_secs(15);
 const MAX_WAIT_MS: u64 = 30_000;
 const SCRIPT_TIMEOUT_MS: u64 = 30_000;
+const SCRIPT_RAN_OUT: &str = "the script did not finish within";
+const WAIT_INSTEAD: &str = "to wait for something on the page, call browser_wait with text, selector, networkIdle, or script (a page expression it checks until truthy, for up to 180 s) instead of polling inside browser_evaluate";
 /// Well inside the time the core waits for any reply.
 const MAX_BLOCKING_MS: u64 = (PAGE_REPLY_TIMEOUT.as_secs() - 5) * 1000;
 /// The longest one call waits on a condition, leaving time to read the page for its answer.
@@ -606,7 +608,12 @@ async fn run(
                 serde_json::from_value(params["allowedSites"].clone()).unwrap_or_default();
             loop {
                 let left = limit.saturating_sub(started.elapsed());
-                let answer = run_agent_script(&view, &script, left, Some(&allowed)).await?;
+                let answer = run_agent_script(&view, &script, left, Some(&allowed))
+                    .await
+                    .map_err(|error| match error.starts_with(SCRIPT_RAN_OUT) {
+                        true => format!("{error}; {WAIT_INSTEAD}"),
+                        false => error,
+                    })?;
                 let write = &answer["result"]["sikemuxHeldWrite"];
                 if !write.is_object() {
                     return Ok(answer);
@@ -1161,10 +1168,7 @@ catch (error) {{ return String(error); }}"#
 /// A script error in words an agent can act on.
 fn script_failure(error: &str, limit: Duration) -> String {
     if error.is_empty() {
-        format!(
-            "the script did not finish within {} seconds; to wait for the page, use browser_wait with text, selector or networkIdle instead of polling in a script",
-            limit.as_secs()
-        )
+        format!("{SCRIPT_RAN_OUT} {} seconds", limit.as_secs())
     } else if error.contains("no longer reachable") {
         "the page navigated or reloaded while the script ran, so its result was lost; to reload, use browser_navigate with go reload".into()
     } else {
