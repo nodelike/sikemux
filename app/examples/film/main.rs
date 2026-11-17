@@ -15,6 +15,9 @@
 //! a control the window reports. Times are in seconds.
 //!   stage W H / window W H      the frame and the window in its middle, in points
 //!   replies FILE                the stand-in Claude's scripted replies (see sikemux-fake-claude)
+//!   team FOLDER ORIGIN          wakes the core on the account FOLDER, beside the scene, recorded:
+//!                               its orgs, what teammates share and its copies of their boards;
+//!                               each project gets ORIGIN as its remote, so it is the shared one
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
@@ -165,10 +168,18 @@ fn main() -> anyhow::Result<()> {
     let replies = header("replies")
         .map(|step| step.text(0).map(|file| args.scene.with_file_name(file)))
         .transpose()?;
+    let team = header("team")
+        .map(|step| -> anyhow::Result<_> {
+            Ok((
+                args.scene.with_file_name(step.text(0)?),
+                step.text(1)?.to_owned(),
+            ))
+        })
+        .transpose()?;
     std::fs::create_dir_all(&args.work)?;
     let clock = args.work.join("clock");
     std::fs::write(&clock, "0")?;
-    let mut world = World::start(&args, replies, &clock)?;
+    let mut world = World::start(&args, replies, team, &clock)?;
 
     let bench = Rc::new(RefCell::new(None));
     let kept = bench.clone();

@@ -19,6 +19,8 @@ pub(super) struct World {
     named: std::collections::HashMap<String, String>,
     /// The folder of the checkout the last `core` call made, for `$checkout`.
     checkout: Option<String>,
+    /// The remote every project gets, in a scene on a recorded team.
+    origin: Option<String>,
     pub(super) claude: PathBuf,
     pub(super) world: Value,
 }
@@ -27,6 +29,7 @@ impl World {
     pub(super) fn start(
         args: &Args,
         replies: Option<PathBuf>,
+        team: Option<(PathBuf, String)>,
         clock: &Path,
     ) -> anyhow::Result<Self> {
         let work = &args.work;
@@ -82,6 +85,9 @@ impl World {
         std::fs::write(claude.join(".claude.json"), signed_in("edon"))?;
         let socket = work.join("core.sock");
         let _ = std::fs::remove_file(&socket);
+        if let Some((folder, _)) = &team {
+            seat_team(folder, work, &home, &socket)?;
+        }
         let log = std::fs::File::create(work.join("core.log"))?;
         let mut command = sikemux_process::user_environment::command(&args.core);
         let path = command
@@ -179,6 +185,7 @@ impl World {
             chat: None,
             named: std::collections::HashMap::new(),
             checkout: None,
+            origin: team.map(|(_, origin)| origin),
             claude,
             world: args.world.clone(),
         })
@@ -414,6 +421,9 @@ impl World {
             Ok(())
         };
         git(&["init", "-q", "-b", "main"])?;
+        if let Some(origin) = &self.origin {
+            git(&["remote", "add", "origin", origin])?;
+        }
         let mut copied: Vec<String> = std::fs::read_dir(&path)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
@@ -719,6 +729,71 @@ pub(super) fn session_id(seed: usize) -> String {
 }
 
 /// Claude's usage answer, with each window's `resetsInMinutes` turned into when it resets.
+/// Copies a recorded team account into the world before its core starts, with its teammates'
+/// boards heard just now. A dev core keeps its host key in a file named for its socket's path,
+/// and trusts the recorded account only beside that key.
+fn seat_team(folder: &Path, work: &Path, home: &Path, socket: &Path) -> anyhow::Result<()> {
+    let copied = sikemux_process::user_environment::command("cp")
+        .arg("-R")
+        .arg(folder.join("."))
+        .arg(work)
+        .status()?;
+    if !copied.success() {
+        bail!("could not copy {}", folder.display());
+    }
+    let boards_file = work.join("data/teammate-boards.json");
+    let mut copies: Value = serde_json::from_slice(&std::fs::read(&boards_file)?)?;
+    let boards = copies
+        .get_mut("boards")
+        .and_then(Value::as_array_mut)
+        .context("the recorded boards have no list")?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as u64;
+    let latest = boards
+        .iter()
+        .filter_map(|board| board.get("heard")?.as_u64())
+        .max()
+        .unwrap_or(now);
+    let shift = |at: &mut Value| {
+        if let Some(ms) = at.as_u64() {
+            *at = json!(ms + now.saturating_sub(latest));
+        }
+    };
+    for board in boards {
+        board.get_mut("heard").map(shift);
+        let tasks = board
+            .pointer_mut("/board/tasks")
+            .and_then(Value::as_array_mut);
+        for task in tasks.into_iter().flatten() {
+            task.get_mut("since").map(shift);
+            task.pointer_mut("/fact/at").map(shift);
+        }
+    }
+    std::fs::write(&boards_file, serde_json::to_vec(&copies)?)?;
+    let mut shasum = sikemux_process::user_environment::command("shasum")
+        .args(["-a", "256"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    shasum
+        .stdin
+        .take()
+        .context("shasum took no input")?
+        .write_all(socket.as_os_str().as_encoded_bytes())?;
+    let digest = String::from_utf8(shasum.wait_with_output()?.stdout)?;
+    let keys = home.join(".config/sikemux/secrets/sikemux-host-dev");
+    std::fs::create_dir_all(&keys)?;
+    std::fs::rename(
+        work.join("host"),
+        keys.join(format!(
+            "core.sock-{}",
+            digest.get(..16).unwrap_or_default()
+        )),
+    )?;
+    Ok(())
+}
+
 #[expect(
     clippy::indexing_slicing,
     reason = "indexing adds a missing rate_limits key as null, which the fake usage file keeps"

@@ -765,7 +765,7 @@ impl Director {
         let seconds = |at: usize| step.number(at).map(f64::from);
         let background = step.background;
         match step.verb.as_str() {
-            "stage" | "window" | "replies" => {}
+            "stage" | "window" | "replies" | "team" => {}
             "settle" => self.settle(seconds(0).unwrap_or(3.))?,
             "hold" => {
                 let started = Instant::now();

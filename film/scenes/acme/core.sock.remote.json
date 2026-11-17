@@ -1,0 +1,19 @@
+{
+  "enabled": false,
+  "devices": [],
+  "owner": "user_edon",
+  "accountEventId": 0,
+  "pendingLeave": null,
+  "removed": null,
+  "network": null,
+  "flagsOff": [],
+  "notifications": {},
+  "revoked": {},
+  "shares": [],
+  "joinedThrough": {},
+  "links": [],
+  "requireApproval": false,
+  "declinedLinks": [],
+  "removedHere": {},
+  "handsOnly": []
+}
