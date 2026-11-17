@@ -623,7 +623,8 @@ impl log::Log for Breadcrumbs {
     fn flush(&self) {}
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
+#[cfg(target_os = "macos")]
 mod tests {
     use sikemux_process::command::{Child, Command, Stdio};
     use std::io::{Read, Write};
@@ -758,7 +759,7 @@ mod tests {
             .block_on(async {
                 let _ = tokio::spawn(async { deep(u64::MAX) }).await;
             });
-        unreachable!("the stack did not overflow")
+        panic!("the stack did not overflow")
     }
 
     #[inline(never)]
@@ -774,7 +775,7 @@ mod tests {
     fn segfault() -> ! {
         // SAFETY: this process is meant to crash here, and nothing runs after the write.
         unsafe { std::ptr::null_mut::<u8>().write_volatile(1) };
-        unreachable!("writing to null did not crash")
+        panic!("writing to null did not crash")
     }
 
     fn test_process(role: &str) -> Command {
