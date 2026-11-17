@@ -140,7 +140,7 @@ fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<V
             Some((key, serde_json::from_str(text).ok()?))
         })
         .collect();
-    let defaults = of_person_in(&Preferences::default());
+    let starting = of_person_in(&core.preferences().starting());
     let mut writes = Vec::new();
     for (key, here) in of_person(core) {
         let theirs = account.get(&key);
@@ -149,7 +149,7 @@ fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<V
         let theirs_moved = theirs != known.map(|known| &known.account);
         let take_theirs = match (theirs, known) {
             (None, _) => false,
-            (Some(_), None) => defaults.get(&key) == Some(&here),
+            (Some(_), None) => starting.get(&key) == Some(&here),
             (Some(_), Some(_)) => theirs_moved && !ours_moved,
         };
         if let (true, Some(theirs)) = (take_theirs, theirs) {
@@ -163,6 +163,8 @@ fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<V
             let here = of_person(core).remove(&key).unwrap_or(here);
             let account = theirs.clone();
             agreed.insert(key, Setting { account, here });
+        } else if known.is_none() && theirs.is_none() && starting.get(&key) == Some(&here) {
+            continue;
         } else if ours_moved || theirs.is_none() {
             writes.push(Write {
                 collection: SETTINGS.to_owned(),
