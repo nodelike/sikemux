@@ -98,10 +98,6 @@ pub struct Preferences {
     /// person said.
     pub language_server_trust: BTreeMap<String, bool>,
     pub custom_commands: Vec<CustomCommand>,
-    /// The browser app single sign-on opens in, or none for the default one.
-    pub cloud_browser: String,
-    /// The shortcut that brings that browser's desktop forward.
-    pub cloud_browser_shortcut: String,
     /// Agents may drive the iOS Simulator.
     pub ios_simulator: bool,
     /// How the island over the MacBook notch behaves.
@@ -252,8 +248,6 @@ preference_changes! {
     DefaultGitRepos default_git_repos: BTreeMap<String, String>,
     LanguageServerTrust language_server_trust: BTreeMap<String, bool>,
     CustomCommands custom_commands: Vec<CustomCommand>,
-    CloudBrowser cloud_browser: String,
-    CloudBrowserShortcut cloud_browser_shortcut: String,
     IosSimulator ios_simulator: bool,
     Notch notch: crate::notch::NotchSettings,
     VoiceDictation voice_dictation: bool,
@@ -483,8 +477,6 @@ impl Default for Preferences {
             default_git_repos: BTreeMap::new(),
             language_server_trust: BTreeMap::new(),
             custom_commands: Vec::new(),
-            cloud_browser: String::new(),
-            cloud_browser_shortcut: String::new(),
             ios_simulator: true,
             notch: crate::notch::NotchSettings::default(),
             voice_dictation: false,

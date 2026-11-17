@@ -212,8 +212,6 @@ fn within_limits(mut preferences: Preferences) -> Preferences {
         })
         .take(MAX_KEYBINDING_OVERRIDES)
         .collect();
-    preferences.cloud_browser = preferences.cloud_browser.trim().to_owned();
-    preferences.cloud_browser_shortcut = preferences.cloud_browser_shortcut.trim().to_owned();
     preferences.last_agent_type = preferences
         .last_agent_type
         .filter(|agent| crate::agent_catalog::agent(agent).is_some());

@@ -729,7 +729,7 @@ fn make_app(bench: &mut Workbench, organization: Option<String>, cx: &mut Contex
         while let Some(part) = streaming.parts.recv().await {
             for item in part.items {
                 if let Some(url) = item["url"].as_str() {
-                    open_page(url.to_owned(), None, cx);
+                    cx.update(|cx| cx.open_url(url));
                 }
             }
             if let Some(error) = part.error {
@@ -1104,7 +1104,7 @@ fn sign_in_with_token(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 /// Starts the connector's sign-in in the browser: its own, or for AWS the profile's single
-/// sign-on, opened in the browser Settings › Single sign-on names.
+/// sign-on.
 fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(signing) = super::state(bench, cx)
         .and_then(|pages| pages.connectors.as_ref())
@@ -1117,13 +1117,6 @@ fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         AWS => ("signIn", json!({ "profile": signing.profile })),
         _ => ("signInWithBrowser", json!({})),
     };
-    let preferences = bench.preferences();
-    let browser = (plugin == AWS && !preferences.cloud_browser.trim().is_empty()).then(|| {
-        (
-            preferences.cloud_browser.trim().to_owned(),
-            preferences.cloud_browser_shortcut.clone(),
-        )
-    });
     let call = PluginCall {
         plugin,
         method: method.to_owned(),
@@ -1136,7 +1129,7 @@ fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         while let Some(part) = streaming.parts.recv().await {
             for item in part.items {
                 if let Some(url) = item["url"].as_str() {
-                    open_page(url.to_owned(), browser.clone(), cx);
+                    cx.update(|cx| cx.open_url(url));
                 }
             }
             if let Some(error) = part.error {
@@ -1157,21 +1150,6 @@ fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             signing.browser = Some(waiting);
         }
     });
-}
-
-/// Opens a sign-in page in `browser`, the app and the shortcut that brings it forward, else in
-/// the default browser.
-fn open_page(url: String, browser: Option<(String, String)>, cx: &mut gpui_kit::AsyncApp) {
-    #[cfg(target_os = "macos")]
-    if let Some((app, shortcut)) = browser {
-        cx.background_executor()
-            .spawn(async move { crate::cloud_browser::open(&url, &app, &shortcut) })
-            .detach();
-        return;
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = browser;
-    cx.update(|cx| cx.open_url(&url));
 }
 
 /// The sign-in finished: the dialog closes, or says why the service refused it.

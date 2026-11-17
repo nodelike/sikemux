@@ -15,7 +15,6 @@ pub(super) mod activity;
 pub(super) mod agents;
 pub(super) mod appearance;
 pub(super) mod cli;
-pub(super) mod cloud;
 pub(super) mod connectors;
 pub(super) mod general;
 pub(crate) use general::sent as session_sent;
@@ -34,7 +33,6 @@ pub struct State {
     pub actions: Option<actions::Fields>,
     pub activity: Option<activity::Fields>,
     pub appearance: Option<appearance::Fields>,
-    pub cloud: Option<cloud::Fields>,
     pub connectors: Option<connectors::Fields>,
     pub general: Option<general::Fields>,
     pub keybindings: Option<keybindings::Fields>,
@@ -106,7 +104,6 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
             Some(fields) if fields.stale => cx.defer_in(window, connectors::read),
             Some(_) => {}
         },
-        Page::SignOn if pages.cloud.is_none() => cx.defer_in(window, cloud::make),
         Page::Actions if pages.actions.is_none() => cx.defer_in(window, actions::make),
         Page::Cli if pages.cli.is_none() => {
             cx.defer_in(window, |bench, _, cx| cli::read(bench, cx))
@@ -170,7 +167,6 @@ pub fn render(
         Page::Connectors => connectors::render(bench, pages, &lit, this, cx),
         Page::Mods => mods::render(bench, &lit, this, cx),
         Page::Settled => settled::render(bench, pages, &lit, this, cx),
-        Page::SignOn => cloud::render(bench, pages, &lit, this, cx),
         Page::Actions => actions::render(bench, pages, &lit, this, cx),
         Page::Cli => cli::render(bench, pages, &lit, this, cx),
         Page::OtherApps => outside::render(bench, &lit, this, cx),

@@ -16,7 +16,6 @@ mod calls;
 mod chat;
 mod closing;
 #[cfg(target_os = "macos")]
-mod cloud_browser;
 mod code_host_marks;
 mod command_popup;
 mod commands;
