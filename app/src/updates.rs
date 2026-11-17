@@ -33,7 +33,7 @@ const KEYS_REST: Duration = Duration::from_secs(3);
 /// restarts the app.
 const IDLE: Duration = Duration::from_secs(10 * 60);
 
-/// When the person last pressed a key in any window.
+/// When the person last pressed a key in any window, or when the app started if none yet.
 pub(crate) struct LastKey(pub Instant);
 
 impl Global for LastKey {}
