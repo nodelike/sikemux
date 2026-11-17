@@ -139,14 +139,41 @@ enum CiOn {
     Run(Value),
 }
 
-/// What `on` names in the checkout `dir`: a run by its address or id, or else a commit, a
-/// branch or `HEAD`; and how the trigger shows it.
+/// What `on` names in the checkout `dir`, or else in another repository of its project: a run
+/// by its address or id, or else a commit, a branch or `HEAD`; and how the trigger shows it.
 pub(super) async fn watch(
     core: &Arc<Core>,
     dir: &str,
     on: &str,
 ) -> Result<(CiWatch, String), String> {
+    let mut first = None;
+    for checkout in checkouts(core, dir) {
+        match watch_in(core, &checkout, on).await {
+            Ok(found) => return Ok(found),
+            Err(error) => first = first.or(Some(error)),
+        }
+    }
+    Err(first.unwrap_or_default())
+}
+
+/// `dir` first, then the repositories beside it in a project that is a folder of them.
+fn checkouts(core: &Core, dir: &str) -> Vec<String> {
+    let root = core.workspaces().project_of(Path::new(dir));
+    let others = (std::fs::read_dir(&root).into_iter().flatten().flatten())
+        .map(|entry| entry.path())
+        .filter(|path| path.join(".git").exists())
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| path != dir);
+    std::iter::once(dir.to_owned()).chain(others).collect()
+}
+
+async fn watch_in(core: &Arc<Core>, dir: &str, on: &str) -> Result<(CiWatch, String), String> {
     let repo = codehost::of_project(core, dir).await?;
+    let id = repo.id();
+    if codehost::run_in(core, on).is_some() && !on.contains(&format!("/{}/{}/", id.owner, id.name))
+    {
+        return Err(format!("{on} is a run of another repository than {dir}'s"));
+    }
     let commit = {
         let (dir, on) = (dir.to_owned(), on.to_owned());
         blocking(move || Ok(commit_of(Path::new(&dir), &on)))
@@ -174,7 +201,7 @@ pub(super) async fn watch(
     };
     let watch = CiWatch {
         dir: dir.to_owned(),
-        fed: crate::server::codehost::ci::is_fed(core, &repo.id()),
+        fed: crate::server::codehost::ci::is_fed(core, &id),
         repo: repo.watched(),
         on,
         since: epoch_ms(),

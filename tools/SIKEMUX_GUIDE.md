@@ -1048,21 +1048,23 @@ must pass `production`.
 A trigger sends your chat a prompt from `Trigger` when its time comes. Use one
 instead of sleeping or looping. `trigger_add` takes exactly one of `in`, `at`,
 `every`, `daily` (with optional `weekdays` such as `["mon", "fri"]`), `ci`,
-`process`, `agent` or `webhook`.
+`rundeck`, `process`, `agent` or `webhook`.
 
 - `ci`: a commit, branch, `HEAD`, or a run's address or id, on GitHub,
-  Bitbucket, GitLab or Forgejo.
+  Bitbucket, GitLab or Forgejo. In a project that is a folder of repositories,
+  a branch or run of any of them.
+- `rundeck`: a Rundeck run's execution id or address.
 - `process`: an `executionId`; with `until`, text it prints. Park on a dev
   server with `until: "ready"`.
 - `agent`: an agent's name; `until` is `done` (default), `needs_you`, `idle`
   or `any`.
 
-`ci`, `process` and `agent` triggers fire once, with what happened added, so
-end your turn right after setting one. Never end a turn saying you are waiting
-without one set; nothing would wake you. `process` and `agent` time out after
-two hours unless `timeout` says otherwise. When it already happened,
-`trigger_add` answers in `happened` (`ended` for `ci`) and sets nothing. A `ci`
-failure names the failing runs, which `who_wrote` takes; no run within three
+`ci`, `rundeck`, `process` and `agent` triggers fire once, with what happened
+added, so end your turn right after setting one. Never end a turn saying you are
+waiting without one set; nothing would wake you. `rundeck`, `process` and
+`agent` time out after two hours unless `timeout` says otherwise. When it
+already happened, `trigger_add` answers in `happened` (`ended` for `ci` and
+`rundeck`) and sets nothing. A `ci` failure names the failing runs, which `who_wrote` takes; no run within three
 minutes fires saying so.
 
 After `git_commit` pushes, by itself or through a land, Sikemux watches that

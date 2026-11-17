@@ -842,6 +842,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             target: &["{title}"],
             detail: &[
                 "after CI on {ci}",
+                "after Rundeck run {rundeck}",
                 "for {process}",
                 "for {agent}",
                 "daily at {daily}",

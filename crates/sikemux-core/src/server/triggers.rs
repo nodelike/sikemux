@@ -39,6 +39,7 @@ mod check;
 mod ci;
 mod on_mod;
 mod park;
+mod rundeck;
 
 pub(crate) use ci::{ci_moved, waiting_on_ci};
 pub(crate) use on_mod::{written as mod_written, Written as ModWritten};
@@ -88,6 +89,9 @@ struct Trigger {
     /// when it gives up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     park: Option<park::Park>,
+    /// The Rundeck run it fires on once it ends; its time is only when it looks again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rundeck: Option<rundeck::RundeckRun>,
     /// The command whose output, when it changes, is what makes a repeating trigger fire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     check: Option<check::Check>,
@@ -145,7 +149,16 @@ impl Trigger {
             id: self.id,
             title: self.title.clone(),
             when: self.when.clone(),
-            next_at: self.next_at.filter(|_| self.ci.is_none()),
+            next_at: self.shown_next_at(),
+        }
+    }
+
+    /// When it is shown to fire next: never for CI, and for a Rundeck run when it gives up.
+    fn shown_next_at(&self) -> Option<u64> {
+        match (&self.ci, &self.rundeck) {
+            (Some(_), _) => None,
+            (_, Some(run)) => Some(run.gives_up_at),
+            _ => self.next_at,
         }
     }
 }
@@ -253,7 +266,10 @@ impl Triggers {
             .triggers
             .iter()
             .filter(|trigger| {
-                trigger.prompts(agent_id) && trigger.ci.is_none() && trigger.park.is_none()
+                trigger.prompts(agent_id)
+                    && trigger.ci.is_none()
+                    && trigger.park.is_none()
+                    && trigger.rundeck.is_none()
             })
             .filter_map(|trigger| trigger.next_at)
             .min()
@@ -412,6 +428,22 @@ impl Triggers {
                 trigger.next_at = Some(now + watch.look_again_ms());
                 return true;
             }
+            if let Some(run) = &trigger.rundeck {
+                if now < run.gives_up_at {
+                    looking.push(trigger.id);
+                    trigger.next_at = Some((now + rundeck::LOOK_AGAIN_MS).min(run.gives_up_at));
+                    return true;
+                }
+                let mut timed_out = trigger.clone();
+                timed_out.prompt = format!("{}\n\n{}", trigger.prompt, run.timed_out(now));
+                firing.push(Firing {
+                    trigger: timed_out,
+                    late: None,
+                    last: true,
+                    request: None,
+                });
+                return false;
+            }
             if let Some(park) = &trigger.park {
                 let mut timed_out = trigger.clone();
                 timed_out.prompt = format!("{}\n\n{}", trigger.prompt, park.timed_out(now));
@@ -569,7 +601,7 @@ pub(crate) fn resume(core: &Arc<Core>) {
             if trigger.watch.is_some() {
                 return true;
             }
-            if trigger.ci.is_some() {
+            if trigger.ci.is_some() || trigger.rundeck.is_some() {
                 trigger.next_at = Some(now);
                 return true;
             }
@@ -742,14 +774,17 @@ async fn fire(core: Arc<Core>, firing: Firing) {
 
 /// Has the trigger `id` look at what it waits on, and fire if that calls for it.
 async fn look(core: Arc<Core>, id: u64) {
-    let checks = {
+    let (checks, rundeck) = {
         let state = core.triggers().state.locked();
         let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
-        trigger.is_some_and(|trigger| trigger.check.is_some())
+        trigger.map_or((false, false), |trigger| {
+            (trigger.check.is_some(), trigger.rundeck.is_some())
+        })
     };
-    match checks {
-        true => check::look(core, id).await,
-        false => ci::look(core, id).await,
+    match (checks, rundeck) {
+        (true, _) => check::look(core, id).await,
+        (_, true) => rundeck::look(core, id).await,
+        _ => ci::look(core, id).await,
     }
 }
 
@@ -820,6 +855,29 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             }
         }
     };
+    let rundeck = match params.get("rundeck") {
+        None | Some(Value::Null) => None,
+        Some(on) => {
+            if ci.is_some()
+                || park.is_some()
+                || board.is_some()
+                || given(params, "webhook")
+                || given(params, "check")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A Rundeck trigger prompts this chat once its run ends, so give it only timeout, no time, ci, process, agent, check, webhook or board".into());
+            }
+            let gives_up_at = now + park::timeout(params)? * 1000;
+            match rundeck::asked(core, on, now, gives_up_at).await? {
+                rundeck::Asked::Ended(said) => {
+                    return Ok(
+                        json!({ "ended": said, "note": "It already ended, so no trigger was set." }),
+                    )
+                }
+                rundeck::Asked::Waits(run, shown) => Some((run, shown)),
+            }
+        }
+    };
     let check = match params.get("check") {
         None | Some(Value::Null) => None,
         Some(Value::String(command)) if !command.trim().is_empty() => {
@@ -861,6 +919,14 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         _ if park.is_some() => {
             let at = park.as_ref().map_or(now, |(_, _, at)| *at);
             (TriggerWhen::Once { at }, Some(at), None)
+        }
+        _ if rundeck.is_some() => {
+            let at = rundeck.as_ref().map_or(now, |(run, _)| run.gives_up_at);
+            (
+                TriggerWhen::Once { at },
+                Some(now + rundeck::LOOK_AGAIN_MS),
+                None,
+            )
         }
         _ if ci.is_some() => {
             let (look_again, shown) = (ci.as_ref())
@@ -931,6 +997,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             paused: None,
             ci: ci.map(|(watch, _)| watch),
             park: park.clone().map(|(park, _, _)| park),
+            rundeck: rundeck.clone().map(|(run, _)| run),
             check,
             watch: watch.clone(),
             stopped: None,
@@ -962,6 +1029,10 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let mut answer = json!({ "trigger": trigger.id });
     if let Some((_, shown, at)) = &park {
         answer["note"] = format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into();
+        return Ok(answer);
+    }
+    if let Some((_, shown)) = &rundeck {
+        answer["note"] = format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into();
         return Ok(answer);
     }
     if let Some(check) = &trigger.check {
@@ -1096,7 +1167,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
                 id: trigger.id,
                 title: trigger.title.clone(),
                 when: trigger.when.clone(),
-                next_at: trigger.next_at.filter(|_| trigger.ci.is_none()),
+                next_at: trigger.shown_next_at(),
                 set: trigger.set.clone().map(Box::new),
                 paused: trigger.stopped,
             };
@@ -1134,6 +1205,7 @@ pub(crate) fn park_in_line(
             paused: None,
             ci: None,
             park: Some(park),
+            rundeck: None,
             check: None,
             watch: None,
             stopped: None,
@@ -1177,6 +1249,7 @@ pub(crate) fn park_for_thing(
             paused: None,
             ci: None,
             park: Some(park),
+            rundeck: None,
             check: None,
             watch: None,
             stopped: None,
@@ -1328,6 +1401,7 @@ fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
                     paused: None,
                     ci: Some(watch),
                     park: None,
+                    rundeck: None,
                     check: None,
                     watch: None,
                     stopped: None,

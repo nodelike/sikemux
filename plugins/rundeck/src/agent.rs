@@ -394,7 +394,7 @@ async fn awaited(
             .unwrap_or_default();
     } else {
         outcome.note = Some(format!(
-            "still {} after {}s; rundeck execution with wait keeps waiting",
+            "still {} after {}s; to wait longer, trigger_add with rundeck set to its id and end your turn",
             outcome.status,
             WAIT_LIMIT.as_secs()
         ));

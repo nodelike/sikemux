@@ -2381,7 +2381,7 @@
     },
     {
       "name": "trigger_add",
-      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["{title}"], "detail": ["after CI on {ci}", "for {process}", "for {agent}", "daily at {daily}"]},
+      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["{title}"], "detail": ["after CI on {ci}", "after Rundeck run {rundeck}", "for {process}", "for {agent}", "daily at {daily}"]},
       "method": "trigger.add",
       "description": "Prompt this chat later.",
       "properties": {
@@ -2436,6 +2436,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "rundeck": {
+          "description": "Fire once this Rundeck run ends: its execution id or address",
+          "type": "string"
         },
         "process": {
           "description": "Fire once this executionId ends",
