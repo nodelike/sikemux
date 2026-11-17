@@ -149,7 +149,9 @@ pub(crate) fn answer(
         },
     );
     let mut reply = reply(&answer, claim);
-    reply["seconds"] = json!((seconds * 10.0).round() / 10.0);
+    if let Some(fields) = reply.as_object_mut() {
+        fields.insert("seconds".into(), json!((seconds * 10.0).round() / 10.0));
+    }
     Ok(reply)
 }
 

@@ -90,10 +90,12 @@ pub(crate) async fn app_write(
     if !APP_WRITES.contains(&method) {
         return None;
     }
-    let folder = (core.workspaces()).project_of(std::path::Path::new(params["project"].as_str()?));
+    let folder = (core.workspaces()).project_of(std::path::Path::new(
+        params.get("project").and_then(Value::as_str)?,
+    ));
     let (home, identity) = away(core, &folder)?;
     let mut params = params.clone();
-    params["project"] = identity.clone().into();
+    put_project(&mut params, identity.clone());
     let asked = RecordAct {
         identity,
         method: method.to_owned(),
@@ -101,8 +103,8 @@ pub(crate) async fn app_write(
         agent_id: None,
     };
     Some(act(core, &home, asked).await.map(|mut answer| {
-        if answer["project"].is_string() {
-            answer["project"] = folder.clone().into();
+        if answer.get("project").is_some_and(Value::is_string) {
+            put_project(&mut answer, folder.clone());
         }
         answer
     }))
@@ -137,7 +139,7 @@ pub(crate) fn act_waiting(
     mut params: Value,
 ) -> Option<Result<Value, String>> {
     let (home, identity) = away(core, folder)?;
-    params["project"] = identity.clone().into();
+    put_project(&mut params, identity.clone());
     let asked = RecordAct {
         identity,
         method: method.to_owned(),
@@ -181,7 +183,7 @@ pub(super) async fn act_here(core: &Arc<Core>, asked: RecordAct) -> Answer {
         .ok_or("this host does not keep that project's board")?;
     if !asked.method.contains('.') {
         let mut params = asked.params;
-        params["project"] = folder.into();
+        put_project(&mut params, folder);
         return crate::server::calls::record_write(core, &asked.method, params)
             .await
             .map_err(|error| error.to_string());
@@ -288,4 +290,10 @@ pub(super) fn heard(core: &Core, host: &str, copy: RecordCopy) -> Answer {
     }
     let unshared = board_record::mirror(core, &copy.identity, copy.board)?;
     Ok(unshared.unwrap_or(Value::Null))
+}
+
+fn put_project(params: &mut Value, project: String) {
+    if let Some(fields) = params.as_object_mut() {
+        fields.insert("project".into(), project.into());
+    }
 }

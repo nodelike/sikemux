@@ -266,9 +266,11 @@ impl Memory {
 
 /// A store an earlier core kept by a folder's path, read as that project's.
 fn keyed_by_store(mut value: Value) -> Value {
-    if let Some(folder) = (value.as_object_mut()).and_then(|held| held.remove("folder")) {
-        value["key"] = folder;
-        value["store"] = json!("project");
+    if let Some(held) = value.as_object_mut() {
+        if let Some(folder) = held.remove("folder") {
+            held.insert("key".into(), folder);
+            held.insert("store".into(), json!("project"));
+        }
     }
     value
 }

@@ -1033,8 +1033,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         return Ok(Value::Object(answer));
     }
     if let Some((_, shown)) = &rundeck {
-        answer["note"] = format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into();
-        return Ok(answer);
+        answer.insert("note".into(), format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into());
+        return Ok(Value::Object(answer));
     }
     if let Some(check) = &trigger.check {
         answer.insert("check".into(), check.said().into());

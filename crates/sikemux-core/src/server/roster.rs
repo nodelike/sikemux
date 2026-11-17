@@ -459,11 +459,12 @@ pub(crate) async fn move_account(
             Err(why) => refused.push(json!({ "agent": name, "reason": why.to_string() })),
         }
     }
-    let mut result = json!({ "moved": moved });
+    let mut result = serde_json::Map::new();
+    result.insert("moved".into(), moved.into());
     if !refused.is_empty() {
-        result["refused"] = refused.into();
+        result.insert("refused".into(), refused.into());
     }
-    Ok(result)
+    Ok(Value::Object(result))
 }
 
 /// The open agents other than `caller` that wait on another agent, by the agent each waits on.
