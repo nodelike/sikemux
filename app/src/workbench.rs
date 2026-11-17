@@ -89,6 +89,9 @@ pub struct Workbench {
     pub(crate) open_waits: Vec<(sikemux_wire::protocol::CallId, HashMap<String, bool>)>,
     /// Each open Playbook tab's state, by the project's folder.
     pub project_settings: HashMap<String, crate::playbook::PlaybookTab>,
+    /// What the core last said each project's Playbook holds, by the project's folder, for its
+    /// Playbook tab and its chats; none while the first read is out.
+    pub(crate) playbooks: HashMap<String, Option<sikemux_view::playbook::Playbook>>,
     pub shown: crate::screens::experience::Shown,
     pub(crate) picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
@@ -357,6 +360,7 @@ impl Workbench {
             agent_setup: Default::default(),
             overlays: Overlays::default(),
             project_settings: HashMap::new(),
+            playbooks: HashMap::new(),
             kept_running_told: false,
             open_waits: Vec::new(),
             pairing: crate::pairing::RemotePairing::new(cx),

@@ -901,6 +901,13 @@ pub(super) fn strip(
         }),
         worktree,
         pull: crate::worktrees::head::pull_badge(bench, &agent.id, cx),
+        listening: project
+            .filter(|_| place == bench.place())
+            .and_then(|project| {
+                let own = head.map_or(&[][..], |head| head.triggers.as_slice());
+                let folder = project.path.to_string_lossy();
+                super::listening::item(bench, &project.id, &folder, own, cx)
+            }),
         account,
     }
 }
