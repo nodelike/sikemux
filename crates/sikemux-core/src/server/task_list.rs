@@ -9,7 +9,6 @@ use sikemux_view::task_list::{ProjectTasks, TaskFact, TaskHolder, TaskOf, TaskRo
 
 use super::board;
 use super::connection::blocking;
-use super::workspace_state::WorkspaceParts;
 use super::Core;
 
 pub(crate) async fn read(core: &Arc<Core>, params: BoardParams) -> Result<ProjectTasks, String> {
