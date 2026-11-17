@@ -554,7 +554,7 @@ impl Default for Preferences {
             elsewhere_spaces: BTreeMap::new(),
             project_order: Vec::new(),
             build_runs: 0,
-            sync_across_hosts: true,
+            sync_across_hosts: false,
         }
     }
 }

@@ -75,60 +75,67 @@ struct Setting {
 
 /// Makes this host's copy and the account's the same, while the person keeps sync on.
 pub(super) async fn step(core: &Arc<Core>) -> CoreResult<()> {
-    if !core.preferences().get().sync_across_hosts {
-        return Ok(());
-    }
     let Some(data_dir) = core.config().data_dir.clone() else {
         return Ok(());
     };
     let Some(account) = core.remote().owner() else {
         return Ok(());
     };
+    let host = host_key(core)?;
     let worker = core.clone();
-    blocking(move || {
-        let path = data_dir.join(AGREED);
-        let mut agreed: Agreed = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .filter(|agreed: &Agreed| agreed.account == account)
-            .unwrap_or_else(|| Agreed {
-                account,
-                ..Agreed::default()
-            });
-        let before = serde_json::to_vec(&agreed)?;
-        let mut writes = settings(&worker, &mut agreed.settings)?;
-        for folder in folders(&data_dir) {
-            let known = agreed
-                .files
-                .entry(folder.collection.to_owned())
-                .or_default();
-            writes.extend(files(&worker, &folder, known)?);
-        }
-        if !writes.is_empty() {
-            let host = host_key(&worker)?;
-            (worker.mods().data).write(MODULE, writes, &BTreeMap::new(), (&host, "person"))?;
-        }
-        let after = serde_json::to_vec(&agreed)?;
-        if after != before {
-            write_whole(&path, &after)?;
-        }
-        Ok(())
-    })
-    .await
+    let folders = folders(&data_dir);
+    blocking(move || carry(&worker, (&data_dir, &host), account, &folders)).await
 }
 
-fn listed(core: &Core, collection: &str) -> CoreResult<BTreeMap<String, (Value, u64)>> {
+fn carry(
+    core: &Core,
+    (data_dir, host): (&Path, &str),
+    account: String,
+    folders: &[Folder],
+) -> CoreResult<()> {
+    if !core.preferences().get().sync_across_hosts {
+        return Ok(());
+    }
+    let path = data_dir.join(AGREED);
+    let mut agreed: Agreed = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(|agreed: &Agreed| agreed.account == account)
+        .unwrap_or_else(|| Agreed {
+            account,
+            ..Agreed::default()
+        });
+    let before = serde_json::to_vec(&agreed)?;
+    let mut writes = settings(core, &mut agreed.settings)?;
+    for folder in folders {
+        let known = agreed
+            .files
+            .entry(folder.collection.to_owned())
+            .or_default();
+        writes.extend(files(core, folder, known)?);
+    }
+    if !writes.is_empty() {
+        (core.mods().data).write(MODULE, writes, &BTreeMap::new(), (host, "person"))?;
+    }
+    let after = serde_json::to_vec(&agreed)?;
+    if after != before {
+        write_whole(&path, &after)?;
+    }
+    Ok(())
+}
+
+fn listed(core: &Core, collection: &str) -> CoreResult<BTreeMap<String, Value>> {
     let listed = (core.mods().data).list(MODULE, collection, None, None, &|_| None)?;
     Ok(listed
         .into_iter()
-        .map(|listed| (listed.id, (listed.doc, listed.at)))
+        .map(|listed| (listed.id, listed.doc))
         .collect())
 }
 
 fn settings(core: &Core, agreed: &mut BTreeMap<String, Setting>) -> CoreResult<Vec<Write>> {
     let account: BTreeMap<String, Value> = listed(core, SETTINGS)?
         .into_iter()
-        .filter_map(|(key, (doc, _))| {
+        .filter_map(|(key, doc)| {
             let text = doc.get(VALUE)?.as_str()?;
             Some((key, serde_json::from_str(text).ok()?))
         })
@@ -239,8 +246,10 @@ fn scan(folder: &Folder) -> BTreeMap<String, Local> {
     found
 }
 
-/// A file as the account keeps it: its path and its content, as text when it is text.
-fn document_of(path: &str, bytes: &[u8]) -> Map<String, Value> {
+/// A file as the account keeps it: its path, when it changed and its content, as text when it is
+/// text.
+fn document_of(path: &str, local: &Local) -> Map<String, Value> {
+    let bytes = &local.bytes;
     let content = match std::str::from_utf8(bytes) {
         Ok(text) => ("text", text.to_owned()),
         Err(_) => (
@@ -250,12 +259,14 @@ fn document_of(path: &str, bytes: &[u8]) -> Map<String, Value> {
     };
     Map::from_iter([
         ("path".to_owned(), Value::from(path)),
+        ("changed".to_owned(), Value::from(local.changed)),
         (content.0.to_owned(), Value::from(content.1)),
     ])
 }
 
-fn content_of(doc: &Value) -> Option<(String, Vec<u8>)> {
+fn content_of(doc: &Value) -> Option<(String, Vec<u8>, u64)> {
     let path = doc.get("path")?.as_str()?.to_owned();
+    let changed = doc.get("changed").and_then(Value::as_u64).unwrap_or(0);
     let bytes = match (doc.get("text"), doc.get("base64")) {
         (Some(Value::String(text)), _) => text.clone().into_bytes(),
         (_, Some(Value::String(encoded))) => base64::engine::general_purpose::STANDARD
@@ -263,7 +274,7 @@ fn content_of(doc: &Value) -> Option<(String, Vec<u8>)> {
             .ok()?,
         _ => return None,
     };
-    Some((path, bytes))
+    Some((path, bytes, changed))
 }
 
 /// A path from another host that stays inside the folder.
@@ -283,9 +294,9 @@ fn files(
     let collection = folder.collection;
     let here = scan(folder);
     let mut account: BTreeMap<String, (String, Vec<u8>, u64)> = BTreeMap::new();
-    for (_, (doc, at)) in listed(core, collection)? {
-        if let Some((path, bytes)) = content_of(&doc) {
-            account.insert(path, (hash_of(&bytes), bytes, at));
+    for (_, doc) in listed(core, collection)? {
+        if let Some((path, bytes, changed)) = content_of(&doc) {
+            account.insert(path, (hash_of(&bytes), bytes, changed));
         }
     }
     let paths: BTreeSet<String> = (here.keys())
@@ -310,7 +321,7 @@ fn files(
         let ours_moved = ours_hash != known;
         let theirs_moved = theirs_hash != known;
         let ours_newer = match (ours, theirs) {
-            (Some(local), Some((_, _, at))) => local.changed > *at,
+            (Some(local), Some((_, _, changed))) => local.changed > *changed,
             (Some(_), None) => true,
             (None, _) => false,
         };
@@ -319,7 +330,7 @@ fn files(
             let id = hash_of(path.as_bytes());
             let change = match ours {
                 Some(local) => {
-                    let doc = document_of(&path, &local.bytes);
+                    let doc = document_of(&path, local);
                     if Value::Object(doc.clone()).to_string().len() > MOST_FILE_JSON {
                         too_large(core, collection, &path);
                         continue;
