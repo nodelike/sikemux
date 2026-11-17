@@ -80,4 +80,7 @@ pub struct BoardAbove {
     /// Has the home of the project at this folder make a change to its record, when another
     /// host keeps it; refuses when the home is out of reach. Called off the async workers.
     pub records_act: RecordAct,
+    /// Sends the home of the project at this folder a change to its record, to make once it is
+    /// in reach, when another host keeps it; answers whether it went.
+    pub records_post: fn(&Core, &str, &str, Value) -> bool,
 }

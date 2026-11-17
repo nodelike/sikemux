@@ -1,6 +1,6 @@
 //! What the core remembers so the person never says it twice: rules agents
-//! follow and knowledge of how things are, kept for a project or a folder
-//! above it. Each entry says where it was learned, so it can be checked, and
+//! follow and knowledge of how things are, kept for a project or for the
+//! person. Each entry says where it was learned, so it can be checked, and
 //! knowledge visibly goes stale. What a goal decided and a goal's own rules
 //! are kept on its card by the board.
 
@@ -121,8 +121,8 @@ pub enum Stale {
     Disputed { why: String, by: Learned },
 }
 
-/// A rule as the memory view lists it, with whether it can move into its
-/// folder's AGENTS.md.
+/// A rule as the memory view lists it, with whether it can move into the
+/// project's AGENTS.md.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListedRule {
@@ -132,16 +132,16 @@ pub struct ListedRule {
     pub stays: Option<Stays>,
 }
 
-/// Why a rule cannot move into its folder's AGENTS.md.
+/// Why a rule cannot move into the project's AGENTS.md.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Stays {
     /// It is sensitive, so it never goes into the repository.
     Sensitive,
-    /// Its folder is not the top of a git checkout, so an AGENTS.md there
+    /// The project's folder is not the top of a git checkout, so an AGENTS.md there
     /// would not be versioned.
     NoCheckout,
-    /// The folder's AGENTS.md links to nothing that can be read, or to a
+    /// The project's AGENTS.md links to nothing that can be read, or to a
     /// file outside the checkout.
     LinkedAway,
 }

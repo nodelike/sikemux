@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_wire::protocol::DeviceAccess;
 
-use super::access::{Needs, Program, Setup};
+use super::access::{Needs, Peer, Program, Setup};
 use super::activity_log::Counted;
 use super::chat::calls as chat_calls;
 use super::connection::{blocking, ClientConn};
@@ -749,7 +749,7 @@ async fn record_elsewhere(
             return Some(Err(error));
         }
     }
-    let answered = super::hosts::record::app_write(core, method, params).await?;
+    let answered = super::hosts::record::app_write(core, &client.peer, method, params).await?;
     Some(answered.map_err(CoreError::from))
 }
 
@@ -772,7 +772,33 @@ pub(crate) async fn record_write(
         "undoOverrule" => answer(board::goal::undo_overrule(core, parse(params)?).await?),
         "boardDecide" => answer(board::goal::person_decide(core, parse(params)?).await?),
         "boardHeldCard" => answer(board::hand_off::person_held_card(core, parse(params)?).await?),
-        method => Err(format!("{method} does not write a project's board").into()),
+        method if memory::APP_RECORD_WRITES.contains(&method) => {
+            let folder = (params.get("project").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned();
+            match method {
+                "memoryAdd" => drop(memory::person_add(core, Peer::App, parse(params)?).await?),
+                "memoryUpdate" => {
+                    drop(memory::person_update(core, Peer::App, parse(params)?).await?)
+                }
+                "promoteRule" => drop(memory::promote(core, Peer::App, parse(params)?).await?),
+                "keepSeededRules" => {
+                    drop(memory::keep_seeded(core, Peer::App, parse(params)?).await?)
+                }
+                _ => drop(memory::seed_again(core, Peer::App, parse(params)?).await?),
+            }
+            answer(
+                memory::record_at(core, &folder)
+                    .ok_or("the project keeps no rules or knowledge here")?,
+            )
+        }
+        board::own_writes::METHOD => {
+            let at_home = board::own_writes::read(params)?;
+            let core = core.clone();
+            blocking(move || Ok(board::own_writes::write_here(&core, at_home)?)).await?;
+            Ok(Value::Null)
+        }
+        method => Err(format!("{method} does not write a project's record").into()),
     }
 }
 

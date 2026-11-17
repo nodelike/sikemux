@@ -1,4 +1,5 @@
-//! A project's record, its board with the decisions on it, kept by its home: the host of its
+//! A project's record, its board with the decisions on it and its store of rules and knowledge,
+//! kept by its home: the host of its
 //! chief (ADR 0023). The home sends the record to every linked host that holds the repository,
 //! and those hosts send their writes to the home rather than keep them, so every host sees one
 //! record. A host out of reach of the home refuses a write, naming the home.
@@ -12,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_view::workspace::{ChiefHome, ProjectInfo};
 
+use super::super::access::Peer;
 use super::super::board::record as board_record;
-use super::super::Core;
+use super::super::{memory, Core};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Answer;
 use super::{ask, name_of, Failed, ASK_WAIT};
@@ -33,13 +35,30 @@ pub(crate) const APP_WRITES: [&str; 10] = [
 ];
 
 /// The tools an agent changes a project's record with.
-pub(crate) const TOOL_WRITES: [&str; 4] =
-    ["task.add", "task.claim", "task.update", "decision.keep"];
+pub(crate) const TOOL_WRITES: [&str; 6] = [
+    "task.add",
+    "task.claim",
+    "task.update",
+    "decision.keep",
+    "memory.add",
+    "memory.update",
+];
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct RecordCopy {
     identity: String,
-    board: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    board: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory: Option<Value>,
+}
+
+/// Which parts of a record a copy carries.
+#[derive(Clone, Copy)]
+enum Carries {
+    Board,
+    Memory,
+    Both,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -66,6 +85,14 @@ fn keeps_record(core: &Core, folder: &str) -> bool {
         .is_none_or(|project| core.hosts().copies.home_of(core, &project).is_none())
 }
 
+/// The repositories of this host's projects whose record another host keeps.
+pub(crate) fn elsewhere_identities(core: &Core) -> Vec<String> {
+    (core.workspaces().projects().into_iter())
+        .filter(|project| core.hosts().copies.home_of(core, project).is_some())
+        .filter_map(|project| project.identity)
+        .collect()
+}
+
 /// The folders of this host's projects whose record another host keeps.
 pub(crate) fn elsewhere(core: &Core) -> Vec<String> {
     (core.workspaces().projects().into_iter())
@@ -84,10 +111,15 @@ fn away(core: &Core, folder: &str) -> Option<(ChiefHome, String)> {
 /// Has the project's home do the app's `method`, when its record is kept on another host.
 pub(crate) async fn app_write(
     core: &Arc<Core>,
+    peer: &Peer,
     method: &str,
     params: &Value,
 ) -> Option<Result<Value, String>> {
-    if !APP_WRITES.contains(&method) {
+    let to_memory = memory::APP_RECORD_WRITES.contains(&method);
+    if !(APP_WRITES.contains(&method) || to_memory) {
+        return None;
+    }
+    if to_memory && memory::writes_personal(core, method, params) {
         return None;
     }
     let folder = (core.workspaces()).project_of(std::path::Path::new(
@@ -97,12 +129,19 @@ pub(crate) async fn app_write(
     let mut params = params.clone();
     put_project(&mut params, identity.clone());
     let asked = RecordAct {
-        identity,
+        identity: identity.clone(),
         method: method.to_owned(),
         params,
         agent_id: None,
     };
-    Some(act(core, &home, asked).await.map(|mut answer| {
+    let answered = act(core, &home, asked).await;
+    if to_memory {
+        return Some(answered.and_then(|record| {
+            let view = memory::written_at_home(core, &folder, &identity, peer, record)?;
+            serde_json::to_value(view).map_err(|error| error.to_string())
+        }));
+    }
+    Some(answered.map(|mut answer| {
         if answer.get("project").is_some_and(Value::is_string) {
             put_project(&mut answer, folder.clone());
         }
@@ -116,7 +155,10 @@ pub(crate) async fn tool_write(
     request: &HarnessRequest,
 ) -> Option<Result<Value, String>> {
     let closes_an_ask = request.params.get("asked").is_some();
-    if !TOOL_WRITES.contains(&request.method.as_str()) || closes_an_ask {
+    if !TOOL_WRITES.contains(&request.method.as_str())
+        || closes_an_ask
+        || memory::writes_personal(core, &request.method, &request.params)
+    {
         return None;
     }
     let folder = crate::server::caller::project_of(core, request);
@@ -147,6 +189,33 @@ pub(crate) fn act_waiting(
         agent_id: None,
     };
     Some(tokio::runtime::Handle::current().block_on(act(core, &home, asked)))
+}
+
+/// Sends the home of the project at `folder` the record's `method` to do once it is in reach,
+/// when another host keeps it; answers whether it went.
+pub(crate) fn post_home(core: &Core, folder: &str, method: &str, mut params: Value) -> bool {
+    let Some((home, identity)) = away(core, folder) else {
+        return false;
+    };
+    put_project(&mut params, identity.clone());
+    let asked = RecordAct {
+        identity: identity.clone(),
+        method: method.to_owned(),
+        params,
+        agent_id: None,
+    };
+    let sending = super::Sending::new(
+        asks::RecordAct::METHOD,
+        params_of::<asks::RecordAct>(&asked),
+    );
+    let sending = sending.kept().about(&format!("record {identity}"));
+    if tokio::runtime::Handle::try_current().is_ok() {
+        super::post(core, &home.host, sending);
+    } else {
+        core.hosts().outbox.push(&home.host, sending);
+        core.hosts().wake.now();
+    }
+    true
 }
 
 async fn act(core: &Arc<Core>, home: &ChiefHome, asked: RecordAct) -> Result<Value, String> {
@@ -201,12 +270,21 @@ pub(super) async fn act_here(core: &Arc<Core>, asked: RecordAct) -> Answer {
 /// The boards kept under `keys` changed: each this host keeps goes to the linked hosts in reach
 /// that hold its repository.
 pub(crate) fn changed(core: &Arc<Core>, keys: Vec<String>) {
+    send_kept(core, keys, Carries::Board);
+}
+
+/// The project stores kept under `keys` changed, sent on as [`changed`] sends boards.
+pub(crate) fn memory_changed(core: &Arc<Core>, keys: Vec<String>) {
+    send_kept(core, keys, Carries::Memory);
+}
+
+fn send_kept(core: &Arc<Core>, keys: Vec<String>, carries: Carries) {
     for key in keys {
         let Some(project) = project_of(core, &key) else {
             continue;
         };
         if core.hosts().copies.home_of(core, &project).is_none() {
-            send(core, &key, None);
+            send(core, &key, None, carries);
         }
     }
 }
@@ -226,12 +304,12 @@ pub(super) fn heard_holds(core: &Arc<Core>, host: &str) {
             .any(|holder| holder == host)
             && core.hosts().copies.home_of(core, &project).is_none()
         {
-            send(core, identity, Some(host));
+            send(core, identity, Some(host), Carries::Both);
         }
     }
 }
 
-fn send(core: &Arc<Core>, identity: &str, only: Option<&str>) {
+fn send(core: &Arc<Core>, identity: &str, only: Option<&str>, carries: Carries) {
     let mut holders = core.hosts().copies.holders(identity);
     holders.retain(|host| {
         only.is_none_or(|only| only == host) && core.hosts().connected(host).is_some()
@@ -239,12 +317,19 @@ fn send(core: &Arc<Core>, identity: &str, only: Option<&str>) {
     if holders.is_empty() {
         return;
     }
-    let Some(board) = board_record::record(core, identity) else {
+    let board = matches!(carries, Carries::Board | Carries::Both)
+        .then(|| board_record::record(core, identity))
+        .flatten();
+    let memory = matches!(carries, Carries::Memory | Carries::Both)
+        .then(|| memory::record(core, identity))
+        .flatten();
+    if board.is_none() && memory.is_none() {
         return;
-    };
+    }
     let params = params_of::<asks::RecordCopy>(&RecordCopy {
         identity: identity.to_owned(),
         board,
+        memory,
     });
     for host in holders {
         let (core, params, identity) = (core.clone(), params.clone(), identity.to_owned());
@@ -288,7 +373,13 @@ pub(super) fn heard(core: &Core, host: &str, copy: RecordCopy) -> Answer {
             name_of(core, host)
         ));
     }
-    let unshared = board_record::mirror(core, &copy.identity, copy.board)?;
+    if let Some(memory) = copy.memory {
+        memory::mirror(core, &copy.identity, memory)?;
+    }
+    let Some(board) = copy.board else {
+        return Ok(Value::Null);
+    };
+    let unshared = board_record::mirror(core, &copy.identity, board)?;
     Ok(unshared.unwrap_or(Value::Null))
 }
 

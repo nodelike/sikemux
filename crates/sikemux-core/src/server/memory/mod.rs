@@ -14,7 +14,7 @@ pub use sikemux_calls::memory::{
     KeepSeededParams, MemoryEntryParams, MemoryParams, MemoryUpdateParams,
 };
 pub use sikemux_calls::memory::{MemoryAddParams, NewMemory};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -42,6 +42,7 @@ mod brief;
 mod check;
 mod now_check;
 mod promote;
+mod record;
 mod removed;
 mod seed;
 
@@ -49,6 +50,10 @@ pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::promote;
+pub(crate) use record::{
+    mirror, personal as writes_personal, record, record_at, written_at_home,
+    APP_WRITES as APP_RECORD_WRITES,
+};
 pub(crate) use removed::{
     chat_ready, feed_moved, show_on as rules_missing, take_note as take_removed_note,
 };
@@ -120,6 +125,8 @@ struct State {
     promoting: Option<u64>,
     /// Each chief's turn, and the rules it named said again in that turn.
     said_again: HashMap<String, (Option<u64>, HashSet<u64>)>,
+    /// The project stores saved since their home last sent them to the linked hosts.
+    saved: BTreeSet<String>,
 }
 
 impl State {
@@ -159,19 +166,19 @@ impl State {
     }
 
     /// A folder on this host to test a store's knowledge in: the person's home for their own
-    /// store, else a folder of the project's.
+    /// store, else a folder of the project's; none for a store of no project open here.
     fn folder_of_store(&self, held: &Held) -> Option<PathBuf> {
         match held.store {
             Store::Personal => std::env::var_os("HOME").map(PathBuf::from),
             Store::Project => (self.keys.iter())
                 .find(|(_, key)| **key == held.key)
-                .map(|(folder, _)| PathBuf::from(folder))
-                .or_else(|| {
-                    Path::new(&held.key)
-                        .is_absolute()
-                        .then(|| PathBuf::from(&held.key))
-                }),
+                .map(|(folder, _)| PathBuf::from(folder)),
         }
+    }
+
+    /// Whether the store is the person's own or a project's open on this host.
+    fn in_use(&self, held: &Held) -> bool {
+        held.store == Store::Personal || self.keys.values().any(|key| *key == held.key)
     }
 
     /// An id no entry has ever had.
@@ -228,9 +235,13 @@ impl Memory {
             held,
             files,
             promoting,
+            saved,
             ..
         } = state;
         let held = held.get(key)?;
+        if held.store == Store::Project {
+            saved.insert(key.to_owned());
+        }
         let file = files
             .entry(key.to_owned())
             .or_insert_with(|| Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(key))));
@@ -320,7 +331,7 @@ impl crate::server::part::Part for Memory {
         vec![crate::server::part::on_wake(
             core,
             |core| &core.memory().wake,
-            settle,
+            woke,
         )]
     }
 
@@ -330,6 +341,11 @@ impl crate::server::part::Part for Memory {
             file.flush();
         }
     }
+}
+
+fn woke(core: &Arc<Core>) {
+    crate::server::hosts::record::memory_changed(core, record::saved_since(core));
+    settle(core);
 }
 
 /// Clients read what is kept again, and the inbox moves when knowledge went
@@ -378,7 +394,12 @@ fn checked_check(check: MemoryCheck) -> Result<MemoryCheck, String> {
 
 /// What the store under `key` keeps, kept from now on when it kept nothing yet.
 fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut Held, String> {
-    if !state.held.contains_key(key) && state.held.len() >= MAX_STORES {
+    let in_use = state
+        .held
+        .values()
+        .filter(|held| state.in_use(held))
+        .count();
+    if !state.held.contains_key(key) && in_use >= MAX_STORES {
         return Err(format!(
             "Sikemux already keeps rules and knowledge for {MAX_STORES} projects, as many as it can"
         ));
@@ -402,8 +423,8 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         }
     };
     let mut state = core.memory().state.locked();
-    let folder = state.key_for(project, store);
-    let held = holding(&mut state, &folder, store)?;
+    let key = state.key_for(project, store);
+    let held = holding(&mut state, &key, store)?;
     if held.len() >= MAX_ENTRIES {
         return Err(format!(
             "That store already keeps {MAX_ENTRIES} rules and knowledge; retire some first"
@@ -420,10 +441,10 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
     if let Some(id) = known {
         return Err(format!("Sikemux already keeps that, as #{id}"));
     }
-    let id = state.next_id(&folder);
+    let id = state.next_id(&key);
     let held = state
         .held
-        .get_mut(&folder)
+        .get_mut(&key)
         .ok_or("the store went while it was being written to")?;
     match new {
         NewMemory::Rule { sensitive, .. } => {
@@ -452,7 +473,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
             stale: None,
         }),
     }
-    core.memory().save(&mut state, &folder);
+    core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, false);
     Ok(id)
@@ -572,8 +593,8 @@ fn change(
     if state.promoting == Some(id) {
         return Err(format!("#{id} is being written into AGENTS.md"));
     }
-    let folder = state.key_holding(project, id)?;
-    let persons_rule = (state.held.get(&folder))
+    let key = state.key_holding(project, id)?;
+    let persons_rule = (state.held.get(&key))
         .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
         .filter(|rule| rule.learned.agent.is_none());
     if let Some(rule) = persons_rule.filter(|_| acting.is_some()) {
@@ -581,10 +602,10 @@ fn change(
     }
     let note_id =
         (acting.is_some() && persons_rule.is_some() && text.is_some() && !new_words_persons)
-            .then(|| state.next_id(&folder));
+            .then(|| state.next_id(&key));
     let held = state
         .held
-        .get_mut(&folder)
+        .get_mut(&key)
         .ok_or("the store went while it was being changed")?;
     let mut stale_moved = false;
     let (mut line, mut back, mut undone_already, mut removed_from) = (None, None, None, None);
@@ -704,7 +725,7 @@ fn change(
     if update.retire {
         state.wanted.remove(&id);
     }
-    core.memory().save(&mut state, &folder);
+    core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, stale_moved);
     if let Some((line, agent)) = line {
@@ -714,7 +735,7 @@ fn change(
         removed::show(core, &agent);
     }
     if let Some(agent) = back {
-        let rule = (core.memory().state.locked().held.get(&folder))
+        let rule = (core.memory().state.locked().held.get(&key))
             .and_then(|held| held.rules.iter().find(|rule| rule.id == id).cloned());
         if let Some(rule) = rule {
             let mut line = now_check::line(core, project, &rule, &agent, None, None);
@@ -846,7 +867,10 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
                 Some(Stale::Disputed { why, by }) => (why.clone(), by.at, by.agent.clone()),
             };
             let project = match held.store {
-                Store::Project => state.folder_of_store(held),
+                Store::Project => match state.folder_of_store(held) {
+                    Some(folder) => Some(folder),
+                    None => continue,
+                },
                 Store::Personal => state.keys.keys().next().map(PathBuf::from),
             };
             listed.push(StaleKnowledge {

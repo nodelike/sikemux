@@ -564,7 +564,9 @@ pub(crate) async fn record_write(
         "task.claim" => board::claim(core, request).await,
         "task.update" => board::update(core, request).await,
         "decision.keep" => board::goal::tool(core, request).await,
-        method => Err(format!("{method} does not write a project's board")),
+        "memory.add" => super::memory::tool_add(core, request).await,
+        "memory.update" => super::memory::tool_update(core, request).await,
+        method => Err(format!("{method} does not write a project's record")),
     }
 }
 

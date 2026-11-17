@@ -50,6 +50,7 @@ pub mod goal;
 pub mod hand_off;
 mod key;
 mod migrate;
+pub mod own_writes;
 pub mod record;
 mod spend;
 pub mod steps;
@@ -1440,6 +1441,14 @@ pub fn add_for_trigger(
     title: &str,
     details: &str,
 ) -> Result<Option<(u64, String)>, String> {
+    let write = own_writes::OwnWrite::TriggerCard {
+        trigger,
+        title: title.to_owned(),
+        details: details.to_owned(),
+    };
+    if own_writes::sent_home(core, project, write) {
+        return Ok(None);
+    }
     let adding = Adding {
         title: title.to_owned(),
         details: details.to_owned(),
@@ -1463,6 +1472,13 @@ pub fn triggers_changed(core: &Core, project: &str) {
 /// The project's check passed on `sha` of its branch, which holds commits of `agents`: the card
 /// each of them works now keeps it, to close by itself once its owner leaves it.
 pub fn check_passed(core: &Arc<Core>, project: &str, agents: &[String], sha: &str) {
+    let write = own_writes::OwnWrite::CheckPassed {
+        agents: agents.to_vec(),
+        sha: sha.to_owned(),
+    };
+    if own_writes::sent_home(core, project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some(board) = state.of_mut(project) else {
         return;
@@ -1502,6 +1518,14 @@ pub fn committed(
     commits: &[(String, String)],
     landed: bool,
 ) {
+    let write = own_writes::OwnWrite::Committed {
+        agent: agent.to_owned(),
+        commits: commits.to_vec(),
+        landed,
+    };
+    if own_writes::sent_home(core, project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some(board) = state.of_mut(project) else {
         return;
@@ -1535,6 +1559,13 @@ pub fn committed(
 
 /// What the code host says of `pull`, which card `id`'s commits went up in.
 pub fn pull_seen(core: &Core, project: &str, id: u64, pull: CardPull) {
+    let write = own_writes::OwnWrite::PullSeen {
+        card: id,
+        pull: pull.clone(),
+    };
+    if own_writes::sent_home(core, project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some(card) = (state.of_mut(project)).and_then(|board| board.card_mut(id).ok()) else {
         return;
@@ -2070,6 +2101,18 @@ pub fn cards_done_since(core: &Core, since: u64) -> Vec<Summary> {
 
 /// Keeps a browser recording among the recordings of the card the agent works.
 pub fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: InboxRecording) {
+    let held_in =
+        held_card(&mut core.boards().state.locked(), agent_id).map(|(project, _)| project.clone());
+    let Some(project) = held_in else {
+        return;
+    };
+    let write = own_writes::OwnWrite::Recording {
+        agent: agent_id.to_owned(),
+        recording: recording.clone(),
+    };
+    if own_writes::sent_home(core, &project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some((project, card)) = held_card(&mut state, agent_id) else {
         return;
