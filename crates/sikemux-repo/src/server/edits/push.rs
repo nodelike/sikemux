@@ -1060,7 +1060,6 @@ mod tests {
     /// push refuse one whose authorship record was lost; main had to be put back by hand.
     #[test]
     fn a_refused_landing_push_leaves_main_as_it_was() {
-        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let root = sikemux_process::files::real_path(root.path()).unwrap();
         let remote = root.join("remote.git");
@@ -1104,7 +1103,11 @@ mod tests {
 
         let hook = remote.join("hooks/pre-receive");
         std::fs::write(&hook, "#!/bin/sh\necho 'main is protected'\nexit 1\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let known = |_: &str| Ok((true, "someone".to_owned()));
         let refused = push_holding(
             &work,
