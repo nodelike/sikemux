@@ -1220,8 +1220,12 @@ fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnsw
                 None,
             ),
         },
-        Ending::Stopped => (
-            "Was stopped before it finished its turn.".to_owned(),
+        Ending::Stopped { by_person: true } => (
+            "The person stopped it before it finished its turn.".to_owned(),
+            answer,
+        ),
+        Ending::Stopped { by_person: false } => (
+            "Its turn was cut off before it finished. The person did not stop it: Sikemux restarted it, or its CLI ended the turn.".to_owned(),
             answer,
         ),
         Ending::Failed(reason) => (format!("Its turn failed{}", because(Some(reason))), answer),

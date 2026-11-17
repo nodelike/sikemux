@@ -28,6 +28,8 @@ pub struct TurnProgress {
     pub unreported: bool,
     /// Why the turn in progress failed, said before the turn or the chat ends.
     pub failure: Option<String>,
+    /// The person asked the turn in progress to stop.
+    pub stop_asked: bool,
     /// How many times a turn was held, so a wait on one hold leaves the next alone.
     pub holds: u64,
 }
@@ -75,6 +77,7 @@ impl From<Flags> for TurnProgress {
             answered: flags.answered,
             unreported: turn != Turn::Idle,
             failure: None,
+            stop_asked: false,
             holds: 0,
         }
     }

@@ -470,6 +470,7 @@ pub fn cancel(core: &Core, agent_id: &str) -> CoreResult<()> {
     let chat = core.chats().running(agent_id)?;
     chat.feed.clear_queue();
     super::cap::stop_summarising(&chat);
+    chat.stop_asked();
     chat.send(ChatCommand::Cancel)
 }
 

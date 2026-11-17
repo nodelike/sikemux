@@ -109,7 +109,11 @@ pub enum Activity<'a> {
 #[serde(rename_all = "camelCase")]
 pub enum Ending {
     Finished,
-    Stopped,
+    /// The turn was cut off, `by_person` when the person asked it to stop rather than
+    /// Sikemux or the agent's CLI ending it.
+    Stopped {
+        by_person: bool,
+    },
     Failed(String),
     /// The chat ended, `mid_turn` or while the worker was idle. `asked` when someone
     /// closed or stopped it, rather than it dying by itself.
@@ -524,12 +528,21 @@ impl Chat {
     }
 
     /// A turn starts, whoever prompted it.
+    /// The person asked the turn at work to stop, so its lead hears it was them.
+    pub fn stop_asked(&self) {
+        let mut state = self.turn.locked();
+        if state.running() {
+            state.stop_asked = true;
+        }
+    }
+
     pub fn begin_turn(&self) {
         {
             let mut state = self.turn.locked();
             state.turned = true;
             state.unreported = true;
             state.failure = None;
+            state.stop_asked = false;
             if state.turn == Turn::Held {
                 state.turn = Turn::Idle;
             }
@@ -551,18 +564,19 @@ impl Chat {
     fn finish(&self, answer: Value, ends: impl FnOnce(Turn) -> bool) {
         let cancelled = sikemux_fold::update::stop_reason(&answer) == Some(StopReason::Cancelled);
         let holds = !cancelled && self.feed.running_subagents() > 0;
-        let new_hold = {
+        let (new_hold, by_person) = {
             let mut state = self.turn.locked();
             if !ends(state.turn) {
                 return;
             }
+            let by_person = std::mem::take(&mut state.stop_asked);
             self.feed.emit(ChatEventKind::TurnCompleted, answer);
             let was_held = state.turn == Turn::Held;
             state.turn = if holds { Turn::Held } else { Turn::Idle };
             if holds && !was_held {
                 state.holds += 1;
             }
-            (holds && !was_held).then_some(state.holds)
+            ((holds && !was_held).then_some(state.holds), by_person)
         };
         self.turn_over.notify_waiters();
         if let Some(hold) = new_hold {
@@ -576,7 +590,7 @@ impl Chat {
             return;
         }
         let ending = if cancelled {
-            Ending::Stopped
+            Ending::Stopped { by_person }
         } else {
             match self.take_failure() {
                 Some(failure) => Ending::Failed(failure),
@@ -639,11 +653,12 @@ impl Chat {
     /// when there is one, and messages waiting for the turn to end go in unless it was stopped.
     fn tell_of_ending(&self, activity: Activity<'_>, ending: Option<Ending>) {
         let ending = ending.filter(|ending| {
-            !(matches!(ending, Ending::Stopped) && self.moving_on.swap(false, Ordering::AcqRel))
+            !(matches!(ending, Ending::Stopped { .. })
+                && self.moving_on.swap(false, Ordering::AcqRel))
         });
         let carries_on = ending
             .as_ref()
-            .is_some_and(|ending| !matches!(ending, Ending::Stopped));
+            .is_some_and(|ending| !matches!(ending, Ending::Stopped { .. }));
         if let Some(core) = self.core.upgrade() {
             if matches!(ending, Some(Ending::Finished)) {
                 (core.chat_above().questions_reply_read)(&core, self.agent_id());
