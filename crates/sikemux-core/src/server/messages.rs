@@ -1931,13 +1931,26 @@ pub(crate) fn report_left(core: &Arc<Core>, worker: String, to: String, text: St
     });
 }
 
-/// Hands `to` how CI went after the push of a `worker` that has closed.
-pub(crate) fn report_ci(core: &Arc<Core>, worker: String, to: String, text: String) {
+/// Hands `to` one note on a CI run that failed after the pushes of `workers`, all closed.
+pub(crate) fn report_ci(core: &Arc<Core>, workers: Vec<String>, to: String, text: String) {
+    let Some(worker) = workers.first().cloned() else {
+        return;
+    };
     let name = core.names().name(&worker);
+    let others: Vec<String> = (workers.iter().skip(1))
+        .map(|other| called_now(core, other))
+        .collect();
     let core = core.clone();
     tokio::spawn(async move {
-        let note = |called: &str| {
-            format!("{called} has closed, and CI failed after its push. Sikemux watched it and sends this to you in its place: fix it or hand it on.")
+        let note = move |called: &str| {
+            let closed = match others.is_empty() {
+                true => format!("{called} has closed, and CI failed after its push"),
+                false => format!(
+                    "{called} and {} have closed, and CI failed after their pushes",
+                    others.join(", ")
+                ),
+            };
+            format!("{closed}. Sikemux watched it and sends this to you once in their place: fix it or hand it on.")
         };
         report_noted(&core, worker, name, to, text, false, note).await;
     });

@@ -442,10 +442,12 @@ fn watched(core: &Core, id: u64, change: impl FnOnce(&mut CiWatch)) {
 
 const AFTER_PUSH: &str = "Sikemux watches CI after each push, so this needs no trigger_add.";
 
-/// Tells each agent whose push the watch was for how its CI ended. A failure wakes it, or its
-/// lead once it has closed; any other end is only a notice it reads if it is at work.
+/// Tells each agent whose push the watch was for how its CI ended. A failure wakes it, or once
+/// it has closed its lead, which hears of the run once for all its closed pushers; any other end
+/// is only a notice it reads if it is at work.
 async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEnded) {
     let run = watch.run();
+    let mut closed_by_hearer: Vec<(String, Vec<String>)> = Vec::new();
     for agent in &watch.pushed_by {
         if watches_itself(core, agent, &run) {
             continue;
@@ -466,7 +468,10 @@ async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEn
             }
             (CiEnded::Failed, false) => {
                 if let Some(to) = crate::server::roster::hears_of(core, agent).agent() {
-                    messages::report_ci(core, agent.clone(), to.to_owned(), said.clone());
+                    match closed_by_hearer.iter_mut().find(|(hearer, _)| hearer == to) {
+                        Some((_, closed)) => closed.push(agent.clone()),
+                        None => closed_by_hearer.push((to.to_owned(), vec![agent.clone()])),
+                    }
                 }
                 Ok(())
             }
@@ -480,6 +485,9 @@ async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEn
         if let Err(error) = told {
             eprintln!("sikemux core: CI after a push did not reach {agent}: {error}");
         }
+    }
+    for (to, closed) in closed_by_hearer {
+        messages::report_ci(core, closed, to, said.clone());
     }
 }
 
