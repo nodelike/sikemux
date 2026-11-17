@@ -21,7 +21,6 @@ const AVATAR_ORIGIN: &str = "https://avatars.githubusercontent.com/";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 /// GitHub lists at most this many commits in one page of a comparison.
 const COMMITS_PER_PAGE: usize = 100;
-const MAX_COMMIT_PAGES: usize = 20;
 /// The modal draws avatars at 30 points, so 64 pixels stays sharp on a retina screen.
 const AVATAR_PIXELS: u32 = 64;
 const MAX_AVATAR_BYTES: usize = 64 * 1024;
@@ -218,9 +217,7 @@ async fn credits_between(previous: &str, tag: &str) -> Option<(ReleaseCredits, V
     let first: Comparison = get_json(&page_url(1)).await.ok()?;
     let total = first.total_commits;
     let mut commits = first.commits;
-    let pages = (total as usize)
-        .div_ceil(COMMITS_PER_PAGE)
-        .min(MAX_COMMIT_PAGES);
+    let pages = (total as usize).div_ceil(COMMITS_PER_PAGE);
     let mut fetching = JoinSet::new();
     for page in 2..=pages {
         let url = page_url(page);
@@ -248,30 +245,43 @@ async fn credits_between(previous: &str, tag: &str) -> Option<(ReleaseCredits, V
     Some((credits, subjects))
 }
 
-/// People ordered by how many commits they made. Commits with no GitHub
-/// account behind them, and those made by bots, credit nobody.
+/// People ordered by how many commits they made, one entry per GitHub account. A commit
+/// with no account behind it joins the person of the same name; bots credit nobody.
 fn tally(commits: Vec<ComparedCommit>) -> Vec<Contributor> {
     let mut people: Vec<Contributor> = Vec::new();
+    let mut strangers = Vec::new();
     for commit in commits {
-        let Some(account) = commit.author.filter(|account| account.kind == "User") else {
+        let name = commit
+            .commit
+            .author
+            .map(|author| author.name.trim().to_owned())
+            .filter(|name| !name.is_empty());
+        let Some(account) = commit.author else {
+            strangers.extend(name);
             continue;
         };
+        if account.kind != "User" {
+            continue;
+        }
         match people
             .iter_mut()
             .find(|person| person.login == account.login)
         {
             Some(person) => person.commits += 1,
             None => people.push(Contributor {
-                name: commit
-                    .commit
-                    .author
-                    .map(|author| author.name)
-                    .filter(|name| !name.trim().is_empty())
-                    .unwrap_or_else(|| account.login.clone()),
+                name: name.unwrap_or_else(|| account.login.clone()),
                 login: account.login,
                 commits: 1,
                 avatar: account.avatar_url,
             }),
+        }
+    }
+    for name in strangers {
+        if let Some(person) = people
+            .iter_mut()
+            .find(|person| person.name == name || person.login == name)
+        {
+            person.commits += 1;
         }
     }
     people.sort_by_key(|person| std::cmp::Reverse(person.commits));

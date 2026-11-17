@@ -6,8 +6,6 @@ import { execFileSync } from "node:child_process";
 const REPO_API = "https://api.github.com/repos/nodelike/sikemux";
 const REPO_WEB = "https://github.com/nodelike/sikemux";
 const AVATAR_ORIGIN = "https://avatars.githubusercontent.com/";
-const COMMITS_PER_PAGE = 100;
-const MAX_COMMIT_PAGES = 20;
 // The modal shows 16 faces before "+N"; the rest load when someone asks.
 const BUNDLED_AVATARS = 16;
 const AVATAR_PIXELS = 64;
@@ -82,23 +80,57 @@ async function getJson(url) {
   return response.json();
 }
 
-function tally(commits) {
+/** Every author since `previous`, newest first, with one commit of theirs to look up. */
+function authors(previous) {
+  const log = execFileSync(
+    "git",
+    ["log", "--format=%H%x00%an%x00%ae", `${previous}..${commit}`],
+    { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+  );
+  const byEmail = new Map();
+  let total = 0;
+  for (const line of log.split("\n")) {
+    if (!line) continue;
+    total += 1;
+    const [sha, name, email] = line.split("\0");
+    const known = byEmail.get(email.toLowerCase());
+    if (known) known.commits += 1;
+    else
+      byEmail.set(email.toLowerCase(), { sha, name: name.trim(), commits: 1 });
+  }
+  return { total, authors: [...byEmail.values()] };
+}
+
+/** People by commit count, one entry per GitHub account however many emails it used.
+ * An email with no account joins the person of the same name; bots credit nobody. */
+async function tally(authors) {
+  const accounts = await Promise.all(
+    authors.map(
+      async (author) =>
+        (await getJson(`${REPO_API}/commits/${author.sha}`)).author,
+    ),
+  );
   const people = new Map();
-  for (const entry of commits) {
-    const account = entry.author;
-    if (!account || account.type !== "User") continue;
+  const strangers = [];
+  authors.forEach((author, index) => {
+    const account = accounts[index];
+    if (!account) return strangers.push(author);
+    if (account.type !== "User") return;
     const known = people.get(account.login);
-    if (known) {
-      known.commits += 1;
-      continue;
-    }
-    const name = entry.commit?.author?.name?.trim();
+    if (known) return (known.commits += author.commits);
     people.set(account.login, {
       login: account.login,
-      name: name || account.login,
-      commits: 1,
+      name: author.name || account.login,
+      commits: author.commits,
       avatar: account.avatar_url,
     });
+  });
+  for (const stranger of strangers) {
+    const person = [...people.values()].find(
+      (person) =>
+        person.name === stranger.name || person.login === stranger.name,
+    );
+    if (person) person.commits += stranger.commits;
   }
   return [...people.values()].sort((a, b) => b.commits - a.commits);
 }
@@ -137,18 +169,8 @@ const current = parse(version) ?? fail(`${version} is not a semantic version`);
 const previous = previousTag(current);
 if (!previous) process.exit(0);
 
-const commits = [];
-let total = 0;
-for (let page = 1; page <= MAX_COMMIT_PAGES; page++) {
-  const comparison = await getJson(
-    `${REPO_API}/compare/${previous}...${commit}?per_page=${COMMITS_PER_PAGE}&page=${page}`,
-  );
-  total = comparison.total_commits;
-  commits.push(...comparison.commits);
-  if (comparison.commits.length < COMMITS_PER_PAGE || commits.length >= total)
-    break;
-}
-const contributors = tally(commits);
+const { total, authors: everyone } = authors(previous);
+const contributors = await tally(everyone);
 const avatars = {};
 await Promise.all(
   contributors.slice(0, BUNDLED_AVATARS).map(async (person) => {
