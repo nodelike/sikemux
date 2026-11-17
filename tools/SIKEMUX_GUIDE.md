@@ -81,7 +81,9 @@ already wait. `final` marks a pre-commit check, which goes first;
 `resources` names what only so many agents use at once:
 `"port-3000": { "label": "The app on port 3000", "port": 3000 }` or
 `{ "label": "Test phones", "count": 2 }`. A task or `heavy` entry lists what it
-holds in `needs`.
+holds in `needs`. `"perCheckout": true` counts checkouts instead of runs, so
+`"dev-stack": { "label": "Dev stack", "count": 2, "perCheckout": true }`, needed
+by every task of the stack, lets two checkouts run their stacks at once.
 
 Each checkout gets ten ports of its own. `ports` and each task's `port` name
 them, at most ten; the project's own folder keeps the given ports. `{port.<name>}`,

@@ -28,16 +28,38 @@ pub(crate) struct Need {
     pub(crate) count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) port: Option<u16>,
+    /// The checkout whose runs all share one of it, for a thing counted by checkouts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) checkout: Option<String>,
 }
 
 impl Need {
-    fn of(project: &str, resource: Resource) -> Self {
+    fn of(project: &str, checkout: &Path, resource: Resource) -> Self {
         Need {
             key: format!("{project}#{}", resource.name),
             name: resource.name,
             label: resource.label,
             count: resource.count,
             port: resource.port,
+            checkout: (resource.per_checkout).then(|| checkout.to_string_lossy().into_owned()),
+        }
+    }
+
+    /// How many of it the running runs `held` take from this one.
+    fn taken(&self, held: &[&Run]) -> usize {
+        let Some(own) = &self.checkout else {
+            return held.len();
+        };
+        let mut checkouts: Vec<&str> = (held.iter())
+            .flat_map(|run| run.needs.iter())
+            .filter(|need| need.key == self.key)
+            .filter_map(|need| need.checkout.as_deref())
+            .collect();
+        checkouts.sort_unstable();
+        checkouts.dedup();
+        match checkouts.contains(&own.as_str()) {
+            true => 0,
+            false => checkouts.len(),
         }
     }
 }
@@ -66,7 +88,7 @@ pub(crate) fn resolve(project: &str, dir: &Path, names: &[String]) -> Result<Vec
             name => (listed.iter())
                 .find(|resource| resource.name == name)
                 .cloned()
-                .map(|resource| Need::of(project, resource))
+                .map(|resource| Need::of(project, folder, resource))
                 .ok_or_else(|| {
                     format!("{name} is not among the resources in this project's sikemux.json")
                 }),
@@ -120,7 +142,7 @@ pub(crate) struct Around {
 pub(crate) fn unfree(state: &State, run: &Run, around: &Around) -> Option<Wanted> {
     for need in &run.needs {
         let held: Vec<&Run> = holders(state, &need.key).collect();
-        if held.len() >= need.count as usize {
+        if need.taken(&held) >= need.count as usize {
             return Some(Wanted::InUse {
                 label: need.label.clone(),
                 by: held.iter().find_map(|run| run.agent_id.clone()),

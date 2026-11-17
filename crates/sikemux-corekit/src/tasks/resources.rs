@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 use super::config::{ConfigError, ConfigErrorCode};
 
-const FIELDS: &[&str] = &["label", "count", "port"];
+const FIELDS: &[&str] = &["label", "count", "port", "perCheckout"];
 const MAX_RESOURCES: usize = 32;
 const MAX_COUNT: u64 = 64;
 const MAX_NEEDS: usize = 8;
@@ -27,6 +27,9 @@ pub struct Resource {
     /// The port it listens on, which must be free before it is handed out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    /// It counts checkouts rather than runs: every run in a checkout that holds it shares it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub per_checkout: bool,
 }
 
 pub(super) fn parse(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Resource> {
@@ -115,11 +118,24 @@ fn one(name: &str, entry: &Value, errors: &mut Vec<ConfigError>) -> Option<Resou
         },
     };
     let port = super::checkout::parse_port(entry.get("port"), &format!("{path}.port"), errors);
+    let per_checkout = match entry.get("perCheckout") {
+        None => false,
+        Some(Value::Bool(per_checkout)) if port.is_none() || !per_checkout => *per_checkout,
+        Some(_) => {
+            errors.push(issue(
+                format!("{path}.perCheckout"),
+                ConfigErrorCode::InvalidValue,
+                "perCheckout must be true or false, and a resource with a port cannot be shared.",
+            ));
+            return None;
+        }
+    };
     Some(Resource {
         name: name.to_owned(),
         label: label.to_owned(),
         count,
         port,
+        per_checkout,
     })
 }
 
