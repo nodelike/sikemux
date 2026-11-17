@@ -47,9 +47,19 @@ pub struct MemoryRule {
     pub learned: Learned,
     /// What it said before it was last corrected.
     pub was: Option<String>,
-    /// Who last moved it between the person's store and the project's, and when.
+    /// Who last moved it between the person's store and a project's, when, and from where.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moved: Option<Learned>,
+    pub moved: Option<Moved>,
+}
+
+/// The person moved an entry between their own store and a project's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Moved {
+    #[serde(flatten)]
+    pub by: Learned,
+    /// The key of the store it came from.
+    pub from: String,
 }
 
 /// How things are, such as "the service is called ai-service now".
@@ -73,9 +83,9 @@ pub struct Knowledge {
     pub checked: Option<LastCheck>,
     /// Why it is no longer known to hold; it stays out of briefs meanwhile.
     pub stale: Option<Stale>,
-    /// Who last moved it between the person's store and the project's, and when.
+    /// Who last moved it between the person's store and a project's, when, and from where.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moved: Option<Learned>,
+    pub moved: Option<Moved>,
 }
 
 /// What the core can test about knowledge by itself.

@@ -817,6 +817,7 @@ pub(crate) async fn record_write(
                     drop(memory::person_update(core, Peer::App, parse(params)?).await?)
                 }
                 "promoteRule" => drop(memory::promote(core, Peer::App, parse(params)?).await?),
+                "promoteRules" => drop(memory::promote_all(core, Peer::App, parse(params)?).await?),
                 "keepSeededRules" => {
                     drop(memory::keep_seeded(core, Peer::App, parse(params)?).await?)
                 }

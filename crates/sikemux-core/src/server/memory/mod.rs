@@ -828,6 +828,12 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
     let offers = moving::Offers::new(&state, project);
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
+        let came_from = state.key_for(project, held.store.other());
+        let undoable = |moved: &Option<sikemux_view::memory::Moved>| {
+            (moving::back(moved, &came_from))
+                .then(|| moved.as_ref().map(|moved| moved.by.clone()))
+                .flatten()
+        };
         for rule in held
             .rules
             .iter()
@@ -841,7 +847,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: false,
                 sensitive: rule.sensitive,
                 store: held.store,
-                moved: rule.moved.clone(),
+                moved: undoable(&rule.moved),
                 someone: someone(&rule.learned),
                 offer: offers.for_rule(held, rule),
             };
@@ -863,7 +869,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: known.stale.is_some(),
                 sensitive: known.sensitive,
                 store: held.store,
-                moved: known.moved.clone(),
+                moved: undoable(&known.moved),
                 someone: someone(&known.learned),
                 offer: None,
             });

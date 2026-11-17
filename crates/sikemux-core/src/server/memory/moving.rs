@@ -5,13 +5,14 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::RuleChange;
-use sikemux_view::memory::{Knowledge, Learned, MemoryRule, MoveOffer, Store};
+use sikemux_view::memory::{Knowledge, Learned, MemoryCheck, MemoryRule, MoveOffer, Moved, Store};
 
-use super::{holding, tell_clients, Core, Held, State, MAX_ENTRIES};
+use super::{holding, tell_clients, Core, Held, Kept, State, MAX_ENTRIES};
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 
@@ -50,7 +51,14 @@ impl Moving {
         }
     }
 
-    fn moved(&mut self) -> &mut Option<Learned> {
+    fn sensitive(&self) -> bool {
+        match self {
+            Moving::Rule(rule) => rule.sensitive,
+            Moving::Knowledge(known) => known.sensitive,
+        }
+    }
+
+    fn moved(&mut self) -> &mut Option<Moved> {
         match self {
             Moving::Rule(rule) => &mut rule.moved,
             Moving::Knowledge(known) => &mut known.moved,
@@ -66,6 +74,39 @@ impl Moving {
             }
         }
     }
+}
+
+/// Why `entry` cannot go to `to`: knowledge whose check reads a path inside the project would
+/// read it from the person's home once it is theirs.
+fn stays(entry: &Moving, to: Store) -> Result<(), String> {
+    match entry {
+        Moving::Knowledge(known) if to == Store::Personal => match &known.check {
+            Some(MemoryCheck::PathExists { path }) if !Path::new(path).is_absolute() => {
+                Err(format!(
+                    "#{} is checked by {path} inside this project, so it stays the project's",
+                    known.id
+                ))
+            }
+            _ => Ok(()),
+        },
+        _ => Ok(()),
+    }
+}
+
+/// Whether `moved` took the entry from the store keyed `to`, so moving it there is moving it back.
+pub(super) fn back(moved: &Option<Moved>, to: &str) -> bool {
+    moved.as_ref().is_some_and(|moved| moved.from == to)
+}
+
+/// Waits for the stores' files, and says when one could not be written.
+fn written(files: Vec<Option<Arc<Kept>>>) -> Result<(), String> {
+    for file in files.into_iter().flatten() {
+        file.flush();
+        if let Some(error) = file.unsaved() {
+            return Err(format!("Sikemux could not save the move: {error}"));
+        }
+    }
+    Ok(())
 }
 
 /// The signed-in person's first name, as their account gives it.
@@ -95,10 +136,15 @@ fn words(text: &str) -> String {
     crate::text::one_line(text).to_lowercase()
 }
 
-/// A project as the person knows it, from its store's key: the last part of its identity or
-/// folder.
-fn project_name(key: &str) -> String {
-    let last = key
+/// A project as the person knows it: the name of a folder it is open in here, else the last part
+/// of its store's key.
+fn project_name(state: &State, key: &str) -> String {
+    let folder = (state.keys.iter())
+        .filter(|(_, kept)| *kept == key)
+        .map(|(folder, _)| folder.as_str())
+        .min();
+    let last = folder
+        .unwrap_or(key)
         .trim_end_matches('/')
         .rsplit(['/', ':'])
         .next()
@@ -121,7 +167,7 @@ impl<'a> Offers<'a> {
             .flat_map(|held| {
                 (held.rules.iter())
                     .filter(|rule| rule.learned.agent.is_none())
-                    .map(|rule| (words(&rule.text), project_name(&held.key)))
+                    .map(|rule| (words(&rule.text), project_name(state, &held.key)))
             })
             .collect();
         Self {
@@ -131,7 +177,7 @@ impl<'a> Offers<'a> {
     }
 
     pub(super) fn for_rule(&self, held: &Held, rule: &MemoryRule) -> Option<MoveOffer> {
-        if rule.learned.agent.is_some() || held.not_now.contains(&rule.id) {
+        if rule.learned.agent.is_some() || rule.moved.is_some() || held.not_now.contains(&rule.id) {
             return None;
         }
         match held.store {
@@ -206,20 +252,26 @@ pub(super) fn move_to(
     }
     let from = (state.held.get_mut(&from_key)).ok_or("the store went while it was changed")?;
     let mut entry = take(from, id).ok_or("the entry went while it was moved")?;
-    from.not_now.remove(&id);
-    if let Some(target) = state
-        .held
-        .get(&to_key)
-        .filter(|target| entry.kept_in(target))
-    {
-        let kept = target.key.clone();
+    let refused = stays(&entry, to).err().or_else(|| {
+        (state.held.get(&to_key))
+            .filter(|target| entry.kept_in(target))
+            .map(|target| format!("{} keeps that already", project_name(&state, &target.key)))
+    });
+    if let Some(refused) = refused {
         if let Some(from) = state.held.get_mut(&from_key) {
             put(from, entry);
         }
-        return Err(format!("{} keeps that already", project_name(&kept)));
+        return Err(refused);
     }
-    let back = entry.moved().is_some();
-    *entry.moved() = (!back).then(|| by.clone());
+    if let Some(from) = state.held.get_mut(&from_key) {
+        from.not_now.remove(&id);
+    }
+    let back = back(entry.moved(), &to_key);
+    *entry.moved() = (!back).then(|| Moved {
+        by: by.clone(),
+        from: from_key.clone(),
+    });
+    let sensitive = entry.sensitive();
     let text = entry.text().to_owned();
     let mut touched = vec![from_key.clone(), to_key.clone()];
     match (to, &entry) {
@@ -258,7 +310,7 @@ pub(super) fn move_to(
                 }
                 None => Vec::new(),
             };
-            for taken in returning {
+            for taken in returning.into_iter().filter(|taken| taken.key != to_key) {
                 if let Some(held) = state.held.get_mut(&taken.key) {
                     held.rules.push(taken.rule);
                     touched.push(taken.key);
@@ -270,17 +322,21 @@ pub(super) fn move_to(
     if let Some(target) = state.held.get_mut(&to_key) {
         put(target, entry);
     }
+    touched.sort();
     touched.dedup();
-    for key in &touched {
-        core.memory().save(&mut state, key);
-    }
+    let files = (touched.iter())
+        .map(|key| core.memory().save(&mut state, key))
+        .collect();
     drop(state);
     tell_clients(core, false);
-    tell_moved(core, project, id, &text, to, back, by);
+    written(files)?;
+    if !sensitive {
+        tell_moved(core, project, id, &text, to, back);
+    }
     Ok(())
 }
 
-fn tell_moved(core: &Core, project: &str, id: u64, text: &str, to: Store, back: bool, by: Learned) {
+fn tell_moved(core: &Core, project: &str, id: u64, text: &str, to: Store, back: bool) {
     match back {
         true => crate::server::chief::rule_lines_back(core, project, |line| {
             line.moved && line.rule == id
@@ -293,7 +349,7 @@ fn tell_moved(core: &Core, project: &str, id: u64, text: &str, to: Store, back: 
                 text: crate::text::one_line(text),
                 commit: None,
                 was: None,
-                by: by.person.unwrap_or_default(),
+                by: String::new(),
                 restored: false,
                 back_by: None,
                 store: to,
@@ -318,17 +374,26 @@ pub(crate) fn take_out(core: &Core, project: &str, id: u64, from: Store) -> Resu
         return Err(format!("#{id} is being written into AGENTS.md"));
     }
     let key = state.key_for(project, from);
+    let to_key = state.key_for(project, from.other());
     let held = (state.held.get_mut(&key))
         .filter(|held| held.holds(id))
         .ok_or_else(|| format!("#{id} is not kept there"))?;
     let was = take(held, id).ok_or("the entry went while it was moved")?;
+    if let Err(refused) = stays(&was, from.other()) {
+        put(held, was);
+        return Err(refused);
+    }
     held.not_now.remove(&id);
     let mut going = was.clone();
-    let back = going.moved().is_some();
-    *going.moved() = (!back).then_some(by);
-    core.memory().save(&mut state, &key);
+    let back = back(going.moved(), &to_key);
+    *going.moved() = (!back).then(|| Moved {
+        by,
+        from: key.clone(),
+    });
+    let file = core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, false);
+    written(vec![file])?;
     Ok(Taken { was, going })
 }
 
@@ -337,18 +402,18 @@ pub(crate) fn take_out(core: &Core, project: &str, id: u64, from: Store) -> Resu
 pub(crate) fn can_take_in(core: &Core, project: &str, id: u64, to: Store) -> Result<(), String> {
     let state = core.memory().state.locked();
     let from = state.held.get(&state.key_for(project, to.other()));
-    let text = from
+    let found = from
         .and_then(|held| {
-            (held
-                .rules
-                .iter()
-                .find(|rule| rule.id == id)
-                .map(|rule| rule.text.clone()))
-            .or_else(|| {
-                (held.knowledge.iter().find(|known| known.id == id)).map(|known| known.text.clone())
-            })
+            (held.rules.iter().find(|rule| rule.id == id))
+                .map(|rule| Moving::Rule(Box::new(rule.clone())))
+                .or_else(|| {
+                    (held.knowledge.iter().find(|known| known.id == id))
+                        .map(|known| Moving::Knowledge(Box::new(known.clone())))
+                })
         })
         .ok_or_else(|| format!("#{id} is not kept there"))?;
+    stays(&found, to)?;
+    let text = found.text();
     let Some(target) = state.held.get(&state.key_for(project, to)) else {
         return Ok(());
     };
@@ -359,9 +424,12 @@ pub(crate) fn can_take_in(core: &Core, project: &str, id: u64, to: Store) -> Res
     }
     let kept = (target.rules.iter().map(|rule| &rule.text))
         .chain(target.knowledge.iter().map(|known| &known.text))
-        .any(|kept| kept.eq_ignore_ascii_case(&text));
+        .any(|kept| kept.eq_ignore_ascii_case(text));
     match kept {
-        true => Err(format!("{} keeps that already", project_name(&target.key))),
+        true => Err(format!(
+            "{} keeps that already",
+            project_name(&state, &target.key)
+        )),
         false => Ok(()),
     }
 }
@@ -378,30 +446,22 @@ pub(crate) fn put_in(core: &Core, project: &str, entry: Moving, to: Store) -> Re
         ));
     }
     if entry.kept_in(target) || target.holds(entry.id()) {
-        return Err(format!("{} keeps that already", project_name(&key)));
+        return Err(format!("{} keeps that already", project_name(&state, &key)));
     }
     put(target, entry);
-    core.memory().save(&mut state, &key);
+    let file = core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, false);
-    Ok(())
+    written(vec![file])
 }
 
 /// Says in the chief's chat that a move with its other half on another host is done.
 pub(crate) fn moved_across(core: &Core, project: &str, taken: &Taken, to: Store) {
     let mut going = taken.going.clone();
-    let moved = going.moved().clone();
-    let back = moved.is_none();
-    let by = moved.unwrap_or_else(|| named(core, super::learned(core, None)));
-    tell_moved(
-        core,
-        project,
-        taken.going.id(),
-        taken.going.text(),
-        to,
-        back,
-        by,
-    );
+    if !going.sensitive() {
+        let back = going.moved().is_none();
+        tell_moved(core, project, going.id(), going.text(), to, back);
+    }
 }
 
 /// The person turned down the chief's offer to move entry `id`; it is not made again.

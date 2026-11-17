@@ -77,7 +77,7 @@ pub(crate) async fn promote(
     .await
 }
 
-/// Moves every rule of the project's own that can go into its AGENTS.md.
+/// Moves every rule the person gave the project that can go into its AGENTS.md.
 pub(crate) async fn promote_all(
     core: &Arc<Core>,
     peer: Peer,
@@ -90,6 +90,7 @@ pub(crate) async fn promote_all(
         let ids: Vec<u64> = (core.memory().state.locked().own(&project))
             .map(|held| {
                 (held.rules.iter())
+                    .filter(|rule| rule.learned.agent.is_none())
                     .filter(|rule| stays(rule, held.store, &path).is_none())
                     .map(|rule| rule.id)
                     .collect()

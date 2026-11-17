@@ -217,9 +217,7 @@ async fn move_across(
             if let Err(error) = moving::put_in(core, folder, taken.going.clone(), to) {
                 let put = json!({ "project": identity, "entry": taken.was });
                 if let Err(lost) = act(core, home, asked("memoryPut", put)).await {
-                    eprintln!(
-                        "a move to yours failed and its entry could not go back: {lost}"
-                    );
+                    eprintln!("a move to yours failed and its entry could not go back: {lost}");
                 }
                 return Err(error);
             }

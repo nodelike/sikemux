@@ -13,10 +13,11 @@ use super::{tell_clients, Held, MemoryView, Peer, MAX_STORES, PERSONAL};
 use crate::server::Core;
 
 /// The calls from the app that change what Sikemux keeps.
-pub(crate) const APP_WRITES: [&str; 5] = [
+pub(crate) const APP_WRITES: [&str; 6] = [
     "memoryAdd",
     "memoryUpdate",
     "promoteRule",
+    "promoteRules",
     "keepSeededRules",
     "seedRules",
 ];
