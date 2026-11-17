@@ -174,6 +174,19 @@ pub struct AccountUsage {
     /// Whether smart accounts would start the agent's next new chat on it.
     #[serde(default)]
     pub next: bool,
+    /// Its resets kept while chats under the limit they refill wait for that limit to refill.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<KeptReset>,
+}
+
+/// A limit whose chats wait for a refill while a reset for it is kept.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptReset {
+    /// The label of the window the reset refills.
+    pub window: String,
+    /// When the first account under that limit refills, in Unix milliseconds.
+    pub refills: u64,
 }
 
 pub const READING_STALE_AFTER_MS: u64 = 15 * 60 * 1000;

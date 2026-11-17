@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::agent_accounts::allocate::Aim;
 use crate::agent_catalog::AgentKind;
 use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
@@ -455,20 +454,12 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
         true => drop(tokio::spawn(freshening)),
         false => freshening.await,
     }
-    let (log, cwd) = (
-        core.activity_log().clone(),
-        chosen.cwd.to_string_lossy().into_owned(),
-    );
-    let typical_tokens = blocking(move || Ok(log.typical_chat_tokens(&cwd)))
-        .await
-        .ok()
-        .flatten();
     let chat = super::agent_accounts::Placing {
         model: model_of(core, &book, &kind, chosen.model.clone()),
-        typical_tokens,
+        person: false,
         cwd: Some(chosen.cwd.clone()),
     };
-    let placed = super::agent_accounts::placement(&book, &kind, &chat, Aim::Soonest, |_| true)?;
+    let placed = super::agent_accounts::placement(&book, &kind, &chat, |_| true)?;
     let id = LauncherId::on(&kind, &placed.id).to_string();
     let launcher = core
         .workspaces()

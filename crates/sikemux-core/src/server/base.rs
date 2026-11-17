@@ -173,18 +173,18 @@ fn account_with_room(
     core: &Core,
     provider: &str,
     launch: &ChatLaunch,
+    person: bool,
     among: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
     let chat = agent_accounts::Placing {
         model: launch.model.clone(),
-        typical_tokens: None,
+        person,
         cwd: Some(launch.cwd.clone()),
     };
     agent_accounts::placement(
         &core.workspaces().accounts().unwrap_or_default(),
         provider,
         &chat,
-        crate::agent_accounts::allocate::Aim::Headroom,
         |profile| among(&profile.id),
     )
     .map(|placed| placed.id)
@@ -241,8 +241,8 @@ pub(super) fn chat_above() -> ChatAbove {
         new_token: tools::new_token,
         new_edits: || Box::<edits::Open>::default(),
         account_with_room,
-        spend_model_reset: |core, provider, launch| {
-            Box::pin(agent_accounts::spend_model_reset(core, provider, launch))
+        refill_at_limit: |core, provider, launch| {
+            Box::pin(agent_accounts::refill_at_limit(core, provider, launch))
         },
         other_agent_with_room: agent_accounts::other_agent_with_room,
         turn_told: turn_state::told,

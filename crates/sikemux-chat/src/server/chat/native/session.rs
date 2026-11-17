@@ -937,23 +937,26 @@ impl<B: Backend> Running<'_, B> {
             .account
             .as_ref()
             .map(|account| account.id.clone());
-        let refilled = failed.failure.kind == FailureKind::Limit
+        let at_limit = failed.failure.kind == FailureKind::Limit
             && state.reloadable
-            && switches_at_limit(chat)
-            && match chat.core.upgrade() {
-                Some(core) => {
-                    (core.chat_above().spend_model_reset)(&core, self.provider, self.launch).await
-                }
-                None => false,
-            };
+            && switches_at_limit(chat);
+        let refilled = match (at_limit, chat.core.upgrade()) {
+            (true, Some(core)) => {
+                (core.chat_above().refill_at_limit)(&core, self.provider, self.launch).await
+            }
+            _ => None,
+        };
+        let person = (state.last_prompt.as_ref()).is_some_and(|prompt| prompt.person);
         let retry = match failed.failure.kind {
-            FailureKind::Limit if refilled => chat.relaunch(self.launch).map(|launch| Rebind {
-                launch,
-                replay: state.last_prompt.clone(),
-                exhausted: state.exhausted.clone(),
-                signed_in_again: state.signed_in_again,
-                notice: None,
-            }),
+            FailureKind::Limit if refilled.is_some() && refilled == current => {
+                chat.relaunch(self.launch).map(|launch| Rebind {
+                    launch,
+                    replay: state.last_prompt.clone(),
+                    exhausted: state.exhausted.clone(),
+                    signed_in_again: state.signed_in_again,
+                    notice: None,
+                })
+            }
             FailureKind::SignIn if state.reloadable && !state.signed_in_again => {
                 chat.relaunch(self.launch).map(|launch| Rebind {
                     launch,
@@ -963,10 +966,15 @@ impl<B: Backend> Running<'_, B> {
                     notice: None,
                 })
             }
-            FailureKind::Limit if state.reloadable && switches_at_limit(chat) => {
+            FailureKind::Limit if at_limit => {
                 let mut tried = state.exhausted.clone();
                 tried.extend(current.clone());
-                next_account(chat, self.provider, self.launch, &tried).and_then(|next| {
+                tried.retain(|id| Some(id) != refilled.as_ref());
+                let refilled_elsewhere = (self.launch.fallbacks.iter())
+                    .find(|fallback| Some(&fallback.id) == refilled.as_ref());
+                let next = refilled_elsewhere
+                    .or_else(|| next_account(chat, self.provider, self.launch, &tried, person));
+                next.and_then(|next| {
                     let notice = switch_notice(self.launch, next, "limit");
                     let moved = on_account(self.provider, self.launch, next);
                     chat.relaunch(&moved).map(|launch| Rebind {

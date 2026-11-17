@@ -16,7 +16,7 @@ use super::chat_state::ChatParts;
 use super::person_calls::{self, Raise, ACCOUNT_REFUSED};
 use super::workspace_state::WorkspaceParts;
 use super::Core;
-use crate::agent_accounts::allocate::{self, Aim, Candidate};
+use crate::agent_accounts::allocate::{self, Candidate};
 use crate::agent_accounts::usage;
 
 const MOVE: &str = "move:";
@@ -190,7 +190,6 @@ fn call_for(
         .map(|(other, reading)| Candidate {
             id: &other.id,
             usage: reading.as_ref().map(|reading| &reading.usage),
-            typical: None,
             burn: (provider.as_deref()).map_or(0.0, |provider| {
                 let profile = book.profile(&other.id);
                 usage::burn(
@@ -200,7 +199,7 @@ fn call_for(
             }),
         })
         .collect();
-    let pick = allocate::place(&candidates, None, Aim::Headroom, epoch_ms())
+    let pick = allocate::place(&candidates, allocate::Chat::default(), epoch_ms())
         .map(|placed| placed.id)
         .or_else(|| to.first().map(|other| other.id.clone()));
     let mut moves: Vec<CallOption> = (readings.iter())

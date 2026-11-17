@@ -15,7 +15,6 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use crate::agent_accounts::allocate::Aim;
 use crate::agent_accounts::status::AgentStatus as AccountStatus;
 use crate::agent_accounts::usage;
 use crate::cli::protocol::{is_tool_agent_id, HarnessRequest};
@@ -437,12 +436,18 @@ async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Dur
             }
             Ok(Stands::Unknown) => {
                 not_started(core, agent_id);
-                format!("{} did not start on {place}: what started it never arrived there. Start it again if you still need it.", worker.name)
+                format!(
+                    "{} did not start on {place}: what started it never arrived there. Start it again if you still need it.",
+                    worker.name
+                )
             }
             Err(Failed::Refused(_)) => {
                 super::route::stop_worker(core, agent_id);
                 not_started(core, agent_id);
-                format!("{} may have started on {place}, but {place} runs an older Sikemux that cannot say, so Sikemux stopped it there. Start it again if you still need it.", worker.name)
+                format!(
+                    "{} may have started on {place}, but {place} runs an older Sikemux that cannot say, so Sikemux stopped it there. Start it again if you still need it.",
+                    worker.name
+                )
             }
             Ok(Stands::Running) | Err(_) => {
                 if core.hosts().connected(host).is_none() {
@@ -611,7 +616,9 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
         let signed_out = (of_cli.iter())
             .any(|launcher| matches!(launcher.status, Some(AccountStatus::SignedOut)));
         return Err(match signed_out {
-            true => format!("{cli} is signed in to no account there; the person signs in from Sikemux's Settings on that host"),
+            true => format!(
+                "{cli} is signed in to no account there; the person signs in from Sikemux's Settings on that host"
+            ),
             false => format!("{cli} does not start there"),
         });
     }
@@ -639,7 +646,7 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
         .map(|(launcher, _)| launcher.id.as_str())
         .collect();
     let book = core.workspaces().accounts().unwrap_or_default();
-    let placed = placement(&book, cli, &Placing::default(), Aim::Soonest, |profile| {
+    let placed = placement(&book, cli, &Placing::default(), |profile| {
         room.contains(&LauncherId::on(cli, &profile.id).to_string().as_str())
     })
     .map(|placed| LauncherId::on(cli, &placed.id).to_string());

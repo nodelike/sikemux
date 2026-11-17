@@ -12,7 +12,7 @@ pub use sikemux_calls::agent_accounts::{
     Unpicking,
 };
 pub use sikemux_calls::agent_accounts::{
-    AccountUsage, Adding, Installed, Saving, UsedReset, UsingReset,
+    AccountUsage, Adding, Installed, KeptReset, Saving, UsedReset, UsingReset,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ use super::connection::blocking;
 use super::workspace::refresh_launchers;
 use super::{Core, CoreResult};
 use crate::acp::failure::FailureKind;
-use crate::agent_accounts::allocate::{self, Aim, Candidate, Placement};
+use crate::agent_accounts::allocate::{self, Candidate, Placement};
 use crate::agent_accounts::{
     chat_account, defaults, folders, status, unpaid, usage, Book, Profile,
 };
@@ -301,12 +301,11 @@ pub(crate) fn other_agent_with_room(
             .map(|(profile, reading)| Candidate {
                 id: &profile.id,
                 usage: reading.as_ref().map(|reading| &reading.usage),
-                typical: None,
                 burn: usage::burn(agent.kind, profile.config_path.as_deref()),
             })
             .collect();
         offered.iter().any(|candidate| candidate.usage.is_none())
-            || allocate::place(&offered, None, Aim::Headroom, now).is_some()
+            || allocate::place(&offered, allocate::Chat::default(), now).is_some()
     };
     AGENTS
         .iter()
@@ -315,14 +314,12 @@ pub(crate) fn other_agent_with_room(
         .map(|agent| agent.kind)
 }
 
-/// The account a chat of `provider` on `model` goes to while smart is on, and why: the one
-/// [`allocate::place`] picks. None while smart is
-/// off, the agent has one account here, or no reading leaves any room.
+/// The account a chat goes to while smart is on, and why: the one [`allocate::place`] picks.
+/// None while smart is off, the agent has one account here, or no reading leaves any room.
 pub(crate) fn placement(
     book: &Book,
     provider: &str,
     chat: &Placing,
-    aim: Aim,
     among: impl Fn(&Profile) -> bool,
 ) -> Option<Placement> {
     let allowed = |profile: &Profile| {
@@ -331,25 +328,12 @@ pub(crate) fn placement(
     let candidates: Vec<_> = (candidates(book, provider).into_iter())
         .filter(|(profile, _)| among(profile) && allowed(profile))
         .collect();
-    let offered: Vec<Candidate> = (candidates.iter())
-        .map(|(profile, reading)| {
-            let usage = reading.as_ref().map(|reading| &reading.usage);
-            let weight = usage.map_or(1.0, |usage| {
-                allocate::weight(&usage.provider, usage.plan.as_deref())
-            });
-            Candidate {
-                id: &profile.id,
-                usage,
-                typical: chat
-                    .typical_tokens
-                    .zip(percent_per_token(&profile.id, weight))
-                    .map(|(tokens, percent)| tokens as f64 * percent),
-                burn: usage::burn(provider, profile.config_path.as_deref()),
-            }
-        })
-        .collect();
-    let model = chat.model.as_deref();
-    let placed = allocate::place(&offered, model, aim, sikemux_process::clock::epoch_ms());
+    let offered = offered(provider, &candidates);
+    let placing = allocate::Chat {
+        model: chat.model.as_deref(),
+        person: chat.person,
+    };
+    let placed = allocate::place(&offered, placing, sikemux_process::clock::epoch_ms());
     let chosen = book.chosen(provider);
     let chosen_allowed = (book.clone().with_built_ins().profile(&chosen)).is_some_and(allowed);
     placed.or_else(|| {
@@ -361,88 +345,27 @@ pub(crate) fn placement(
     })
 }
 
-/// What is known of the chat being placed: its model, and the tokens a typical chat in its
-/// project spends.
+fn offered<'a>(
+    provider: &str,
+    candidates: &'a [(Profile, Option<usage::Reading>)],
+) -> Vec<Candidate<'a>> {
+    (candidates.iter())
+        .map(|(profile, reading)| Candidate {
+            id: &profile.id,
+            usage: reading.as_ref().map(|reading| &reading.usage),
+            burn: usage::burn(provider, profile.config_path.as_deref()),
+        })
+        .collect()
+}
+
+/// What is known of the chat being placed.
 #[derive(Default)]
 pub(crate) struct Placing {
     pub model: Option<String>,
-    pub typical_tokens: Option<u64>,
+    /// It answers a message the person sent, so it may use the tenth agents leave them.
+    pub person: bool,
     /// Where it works, for the accounts its project uses.
     pub cwd: Option<PathBuf>,
-}
-
-/// What its chats' tokens cost one account's week, from how much they spent while it filled.
-struct Cost {
-    at: u64,
-    used: f64,
-    reset: Option<u64>,
-    weight: f64,
-    percent: f64,
-    tokens: f64,
-}
-
-fn costs() -> std::sync::MutexGuard<'static, HashMap<String, Cost>> {
-    static COSTS: LazyLock<Mutex<HashMap<String, Cost>>> = LazyLock::new(Mutex::default);
-    COSTS.locked()
-}
-
-/// The share of the account's week one token takes: as its own chats showed, else as another
-/// account's did, scaled by how many small plans each holds.
-fn percent_per_token(account: &str, weight: f64) -> Option<f64> {
-    let costs = costs();
-    let rate = |cost: &Cost| (cost.tokens > 0.0).then(|| cost.percent / cost.tokens);
-    if let Some(own) = costs.get(account).and_then(rate) {
-        return Some(own);
-    }
-    costs
-        .values()
-        .find_map(|cost| Some(rate(cost)? * cost.weight / weight))
-}
-
-/// Counts what the account's chats spent since its week last rose, once it rose by a point.
-fn note_cost(core: &Core, account: &str, reading: &usage::Usage) {
-    let now = sikemux_process::clock::epoch_ms();
-    let Some(week) = reading.week() else {
-        return;
-    };
-    let (used, reset) = (
-        week.used_at(now),
-        week.resets_at.as_ref().and_then(|at| at.unix_ms()),
-    );
-    let weight = allocate::weight(&reading.provider, reading.plan.as_deref());
-    let since = {
-        let mut costs = costs();
-        let cost = costs.entry(account.to_owned()).or_insert(Cost {
-            at: now,
-            used,
-            reset,
-            weight,
-            percent: 0.0,
-            tokens: 0.0,
-        });
-        if cost.reset != reset {
-            (cost.at, cost.used, cost.reset) = (now, used, reset);
-            return;
-        }
-        let risen = used - cost.used;
-        if risen < 1.0 {
-            return;
-        }
-        let since = cost.at;
-        (cost.at, cost.used, cost.weight) = (now, used, weight);
-        (since, risen)
-    };
-    let (log, account) = (core.activity_log().clone(), account.to_owned());
-    tokio::task::spawn_blocking(move || {
-        let tokens = log.tokens_on(&account, since.0, now);
-        if tokens == 0 {
-            return;
-        }
-        if let Some(cost) = costs().get_mut(&account) {
-            cost.percent += since.1;
-            cost.tokens += tokens as f64;
-        }
-    });
 }
 
 /// How long a chat waits to start for its accounts' readings to come in, before it is placed
@@ -641,50 +564,63 @@ pub(super) async fn use_reset(core: &Arc<Core>, using: UsingReset) -> CoreResult
     Ok(UsedReset { outcome, left })
 }
 
-/// Spends a reset of the account `launch` runs on that refills its used-up window of the
-/// launch's model, such as Fable's week, reading the account afresh first. Answers whether one
-/// was spent, so the chat can carry on where it is rather than move to an account without them.
-pub(crate) async fn spend_model_reset(
+/// Spends a reset for a chat that reached its limit, when [`allocate::reset_to_spend`] says one
+/// should go, after reading the account it ran on afresh. Answers the account refilled, for the
+/// chat to carry on there.
+pub(crate) async fn refill_at_limit(
     core: &Arc<Core>,
     provider: &str,
     launch: &sikemux_wire::protocol::ChatLaunch,
-) -> bool {
-    let Some(account) = launch.account.as_ref() else {
-        return false;
+) -> Option<String> {
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let usable = |id: &str| {
+        book.allowed_in(&launch.cwd, id)
+            && (launch.account.iter().chain(&launch.fallbacks)).any(|account| account.id == id)
     };
-    let config_path = crate::launch::named_account(provider, &launch.env).map(str::to_owned);
-    let model = launch.model.as_deref();
-    let holds = |reading: &usage::Usage| {
-        allocate::reset_for(reading, model, sikemux_process::clock::epoch_ms())
+    let readings = || -> Vec<(Profile, Option<usage::Reading>)> {
+        (signed_in(&book, provider).into_iter())
+            .filter(|profile| usable(&profile.id))
+            .map(|profile| {
+                let reading = usage::last_reading(provider, profile.config_path.as_deref());
+                (profile, reading)
+            })
+            .collect()
     };
-    let known = usage::last_reading(provider, config_path.as_deref());
-    if known.is_none_or(|known| known.usage.resets.is_none()) {
-        return false;
+    let holds_resets = |readings: &[(Profile, Option<usage::Reading>)]| {
+        (readings.iter()).any(|(_, reading)| {
+            reading
+                .as_ref()
+                .is_some_and(|reading| reading.usage.resets.is_some())
+        })
+    };
+    if !holds_resets(&readings()) {
+        return None;
     }
-    let Ok(program) = program(
-        core,
-        &Account {
-            provider: provider.to_owned(),
-            config_path: config_path.clone(),
-        },
-    )
-    .await
-    else {
-        return false;
+    let config_path = crate::launch::named_account(provider, &launch.env).map(str::to_owned);
+    let ran_on = Account {
+        provider: provider.to_owned(),
+        config_path: config_path.clone(),
     };
+    let program = program(core, &ran_on).await.ok()?;
     usage::forget_lookup(provider, config_path.as_deref());
-    let Ok(fresh) = usage::usage(provider, &program, config_path.as_deref()).await else {
-        return false;
+    usage::usage(provider, &program, config_path.as_deref())
+        .await
+        .ok()?;
+    let readings = readings();
+    let offered = offered(provider, &readings);
+    let now = sikemux_process::clock::epoch_ms();
+    let spend = allocate::reset_to_spend(&offered, launch.model.as_deref(), now)?;
+    let launcher = super::workspace::LauncherId::on(provider, &spend.account).to_string();
+    let using = UsingReset {
+        launcher,
+        kind: spend.kind,
     };
-    let Some(kind) = holds(&fresh) else {
-        return false;
-    };
-    let launcher = super::workspace::LauncherId::on(provider, &account.id).to_string();
-    match use_reset(core, UsingReset { launcher, kind }).await {
-        Ok(used) => used.outcome == usage::ResetOutcome::Reset,
+    match use_reset(core, using).await {
+        Ok(used) if used.outcome == usage::ResetOutcome::Reset => Some(spend.account),
+        Ok(_) => None,
         Err(error) => {
             eprintln!("sikemux core: a reset at the limit was not spent: {error}");
-            false
+            None
         }
     }
 }
@@ -819,10 +755,6 @@ pub(crate) fn note_live(
     if usage::note_live(provider, config_path, live) {
         core.changed(What::Read(Topic::Usage));
     }
-    let reading = usage::last_reading(provider, config_path);
-    if let (Some(account), Some(reading)) = (account_id, reading) {
-        note_cost(core, account, &reading.usage);
-    }
 }
 
 /// Every offered account's usage as last read, starting no agent's CLI.
@@ -882,6 +814,7 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
             usage: reading.map(|reading| reading.usage),
             problem,
             next: false,
+            kept: Vec::new(),
         });
     }
     mark_next(core, &mut found);
@@ -909,17 +842,24 @@ fn note_sign_in(
     }
 }
 
-/// Marks the account each agent's next new chat goes to.
+/// Marks the account each agent's next new chat goes to, and the resets kept while chats on
+/// the limit they refill wait for it to refill by itself.
 fn mark_next(core: &Core, found: &mut [AccountUsage]) {
     let book = core.workspaces().accounts().unwrap_or_default();
     let providers: std::collections::BTreeSet<String> = found
         .iter()
         .map(|account| account.provider.clone())
         .collect();
+    let now = sikemux_process::clock::epoch_ms();
     for provider in providers {
-        let next = placement(&book, &provider, &Placing::default(), Aim::Soonest, |_| {
-            true
-        });
+        let next = placement(&book, &provider, &Placing::default(), |_| true);
+        let readings: Vec<_> = (signed_in(&book, &provider).into_iter())
+            .map(|profile| {
+                let reading = usage::last_reading(&provider, profile.config_path.as_deref());
+                (profile, reading)
+            })
+            .collect();
+        let offered = offered(&provider, &readings);
         for account in found
             .iter_mut()
             .filter(|account| account.provider == provider)
@@ -928,8 +868,29 @@ fn mark_next(core: &Core, found: &mut [AccountUsage]) {
             account.next = next
                 .as_ref()
                 .is_some_and(|next| Some(next.id.as_str()) == id);
+            account.kept = kept_resets(account, &offered, now);
         }
     }
+}
+
+/// The account's resets kept while chats under the limit each refills wait, with when the
+/// first account under that limit refills.
+fn kept_resets(account: &AccountUsage, offered: &[Candidate], now: u64) -> Vec<KeptReset> {
+    let Some(usage) = account.usage.as_ref() else {
+        return Vec::new();
+    };
+    let kinds = usage.resets.iter().flat_map(|resets| &resets.kinds);
+    kinds
+        .filter_map(|kind| {
+            let window = (usage.windows.iter())
+                .find(|window| Some(&window.label) == kind.window.as_ref())?;
+            let kept = allocate::kept(offered, window.scope.as_deref(), now)?;
+            Some(KeptReset {
+                window: window.label.clone(),
+                refills: kept.refills,
+            })
+        })
+        .collect()
 }
 
 /// The agents found on this host, each on the account chosen for it. An agent that

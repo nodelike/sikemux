@@ -20,6 +20,7 @@ use sikemux_agents::agent_accounts::usage::ResetOutcome;
 use sikemux_agents::agent_accounts::usage::UsageWindow;
 use sikemux_agents::agent_accounts::Profile;
 use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::agent_accounts::KeptReset;
 use sikemux_calls::agent_accounts::Unpicking;
 use sikemux_calls::agent_accounts::UsedReset;
 use sikemux_calls::agent_accounts::UsingReset;
@@ -59,6 +60,7 @@ const ACCOUNT_PAD: f32 = 8.;
 const RESETS_HEAD: f32 = 22.;
 const RESET_ROW: f32 = 24.;
 const RESET_ASKING: f32 = 84.;
+const KEPT_LINE: f32 = 16.;
 const LABEL_WIDTH: f32 = 44.;
 const AVATAR: f32 = 18.;
 const FLOAT_GAP: f32 = 6.;
@@ -148,6 +150,13 @@ impl Shown<'_> {
         (self.usage)
             .and_then(|usage| usage.usage.as_ref()?.resets.as_ref())
             .map_or(&[], |resets| resets.kinds.as_slice())
+    }
+
+    /// Whether chats under the limit `kind` refills wait for a refill while it is kept.
+    fn kept(&self, kind: &ResetKind) -> Option<&KeptReset> {
+        let kept = self.usage?.kept.iter();
+        kept.into_iter()
+            .find(|kept| Some(&kept.window) == kind.window.as_ref())
     }
 
     /// How long ago its numbers were read, once that is worth saying.
@@ -871,6 +880,10 @@ fn account_height(view: &View, shown: &Shown) -> f32 {
         false => {
             RESETS_HEAD
                 + resets.len() as f32 * RESET_ROW
+                + (resets.iter())
+                    .filter(|kind| shown.kept(kind).is_some())
+                    .count() as f32
+                    * KEPT_LINE
                 + if asking { RESET_ASKING - RESET_ROW } else { 0. }
         }
     };
@@ -1065,11 +1078,18 @@ fn resets_list(
                 .text_color(t.text_tertiary),
         );
     Some(
-        div().flex().flex_col().child(head).children(
-            resets
-                .iter()
-                .map(|kind| reset_row(view, shown, kind, windows, cx)),
-        ),
+        div()
+            .flex()
+            .flex_col()
+            .child(head)
+            .children(resets.iter().flat_map(|kind| {
+                let kept = shown
+                    .kept(kind)
+                    .map(|kept| kept_line(kind, kept, windows, cx));
+                [Some(reset_row(view, shown, kind, windows, cx)), kept]
+                    .into_iter()
+                    .flatten()
+            })),
     )
 }
 
@@ -1097,10 +1117,19 @@ fn expiry_ink(use_by: u64, now: u64, t: &Tokens) -> Hsla {
     }
 }
 
+/// A reset's last day, as "Mar 9".
+fn day(use_by: Option<u64>) -> Option<String> {
+    let at = chrono::DateTime::from_timestamp_millis(i64::try_from(use_by?).ok()?)?;
+    Some(
+        at.with_timezone(&chrono::Local)
+            .format("%b %-d")
+            .to_string(),
+    )
+}
+
 fn until(use_by: Option<u64>, now: u64, cx: &App) -> Option<Div> {
     let t = Tokens::get(cx);
-    let at = chrono::DateTime::from_timestamp_millis(i64::try_from(use_by?).ok()?)?;
-    let day = at.with_timezone(&chrono::Local).format("%b %-d");
+    let day = day(use_by)?;
     Some(
         ui::text(t!("until {day}", day = day), TEXT_3XS_H, FontWeight::NORMAL)
             .flex_none()
@@ -1108,11 +1137,69 @@ fn until(use_by: Option<u64>, now: u64, cx: &App) -> Option<Div> {
     )
 }
 
-/// What spending one reset of `kind` does, said before it is spent, and what its button says.
-fn reset_says(kind: &ResetKind, windows: &[(String, &UsageWindow)], now: u64) -> (String, String) {
-    let refilled = (kind.window.as_deref())
+/// The window a reset of `kind` refills, with its name as the panel says it.
+fn refilled<'w>(
+    kind: &ResetKind,
+    windows: &'w [(String, &'w UsageWindow)],
+) -> Option<(&'w str, &'w UsageWindow)> {
+    (kind.window.as_deref())
         .and_then(|label| windows.iter().find(|(_, window)| window.label == label))
-        .map(|(name, window)| (name.as_str(), *window));
+        .map(|(name, window)| (name.as_str(), *window))
+}
+
+/// Why chats under a reset's limit stall: they wait for a refill while the reset is kept.
+fn kept_line(
+    kind: &ResetKind,
+    kept: &KeptReset,
+    windows: &[(String, &UsageWindow)],
+    cx: &App,
+) -> AnyElement {
+    let name = refilled(kind, windows)
+        .map_or_else(|| short_kind(kind).to_owned(), |(name, _)| name.to_owned());
+    let refills = i64::try_from(kept.refills)
+        .ok()
+        .and_then(chrono::DateTime::from_timestamp_millis);
+    let wait = ui::time::countdown(refills);
+    let text = match day(kind.use_by) {
+        Some(day) => t!(
+            "{name}: waiting for refill in {wait} · reset kept until {day}",
+            name = name,
+            wait = wait,
+            day = day
+        ),
+        None => t!(
+            "{name}: waiting for refill in {wait} · reset kept",
+            name = name,
+            wait = wait
+        ),
+    };
+    div()
+        .h(px(KEPT_LINE))
+        .flex()
+        .items_center()
+        .child(
+            ui::text(text, TEXT_3XS_H, FontWeight::NORMAL)
+                .truncate()
+                .text_color(Tokens::get(cx).text_secondary),
+        )
+        .into_any_element()
+}
+
+/// What spending a kept reset now gives back: its limit, until it would refill by itself.
+fn returns(kind: &ResetKind, windows: &[(String, &UsageWindow)]) -> Option<String> {
+    let (_, window) = refilled(kind, windows)?;
+    reset_at(window).map(|at| ui::time::countdown(Some(at)))
+}
+
+/// What spending one reset of `kind` does, said before it is spent, and what its button says.
+/// A kept reset also says what spending it now gives back.
+fn reset_says(
+    kind: &ResetKind,
+    windows: &[(String, &UsageWindow)],
+    kept: bool,
+    now: u64,
+) -> (String, String) {
+    let refilled = refilled(kind, windows);
     let after = match kind.left {
         1 => t!(
             "No {kind} resets will be left.",
@@ -1145,7 +1232,16 @@ fn reset_says(kind: &ResetKind, windows: &[(String, &UsageWindow)], now: u64) ->
             t!("Reset all").to_owned(),
         ),
     };
-    (format!("{does} {after}"), button)
+    let back = (kept.then(|| returns(kind, windows)).flatten()).map(|time| {
+        t!(
+            "Spent now, it gives {time} back before the limit refills by itself.",
+            time = time
+        )
+    });
+    match back {
+        Some(back) => (format!("{does} {back} {after}"), button),
+        None => (format!("{does} {after}"), button),
+    }
 }
 
 /// One kind of reset: its name and count, until when, and Use. Use opens the row to say what
@@ -1191,6 +1287,11 @@ fn reset_row(
             let _ = this.update(cx, |bench, cx| act(bench, key, spend, cx));
         }
     };
+    let kept = shown.kept(kind).is_some();
+    let use_label = match kept.then(|| returns(kind, windows)).flatten() {
+        Some(time) => t!("Use · {time} back", time = time),
+        None => t!("Use").to_owned(),
+    };
     if !asking {
         let action = match (busy, kind.usable) {
             (true, _) => ui::text(t!("Resetting…"), TEXT_2XS, FontWeight::MEDIUM)
@@ -1200,7 +1301,7 @@ fn reset_row(
                 .px(px(2.))
                 .text_color(t.text_tertiary)
                 .into_any_element(),
-            (false, true) => ui::text(t!("Use"), TEXT_2XS, FontWeight::MEDIUM)
+            (false, true) => ui::text(use_label.clone(), TEXT_2XS, FontWeight::MEDIUM)
                 .id(SharedString::from(format!(
                     "limits-use-{}",
                     reset_key(shown, kind)
@@ -1223,7 +1324,7 @@ fn reset_row(
             .child(action)
             .into_any_element();
     }
-    let (says, button) = reset_says(kind, windows, view.now);
+    let (says, button) = reset_says(kind, windows, kept, view.now);
     div()
         .my(px(2.))
         .mx(px(-6.))
