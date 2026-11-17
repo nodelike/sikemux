@@ -321,11 +321,12 @@ fn offer_box(
     let declining = (this.clone(), folder.to_owned());
     gpui_kit::div()
         .mt(SPACE_2)
+        .w_full()
         .px(SPACE_2H)
         .py(SPACE_2)
         .flex()
-        .items_center()
-        .gap(SPACE_2H)
+        .flex_col()
+        .gap(SPACE_2)
         .rounded(crate::theme::radius_2())
         .border_1()
         .border_color(t.line_soft)
@@ -333,37 +334,39 @@ fn offer_box(
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
         .child(
-            gpui_kit::div().flex_1().min_w_0().child(
-                gpui_kit::div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(SPACE_2)
-                    .child(gpui_kit::div().text_color(t.text_primary).child("@Chief"))
-                    .child(said),
-            ),
+            gpui_kit::div()
+                .w_full()
+                .child(gpui_kit::div().text_color(t.text_primary).child("@Chief"))
+                .child(said),
         )
         .child(
-            Button::new(
-                SharedString::from(format!("playbook-offer-{id}-move")),
-                t!("Move to {store}", store = store_name(to, project)),
-                Variant::Outline,
-            )
-            .icon(Icon::Move)
-            .on_click(move |_, _, cx| {
-                let (this, folder) = &moving;
-                this.update(cx, |bench, cx| move_entry(bench, folder, id, to, cx))
-            }),
-        )
-        .child(
-            Button::new(
-                SharedString::from(format!("playbook-offer-{id}-not-now")),
-                t!("Not now"),
-                Variant::Ghost,
-            )
-            .on_click(move |_, _, cx| {
-                let (this, folder) = &declining;
-                this.update(cx, |bench, cx| not_now(bench, folder, id, cx))
-            }),
+            gpui_kit::div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    Button::new(
+                        SharedString::from(format!("playbook-offer-{id}-move")),
+                        t!("Move to {store}", store = store_name(to, project)),
+                        Variant::Outline,
+                    )
+                    .icon(Icon::Move)
+                    .on_click(move |_, _, cx| {
+                        let (this, folder) = &moving;
+                        this.update(cx, |bench, cx| move_entry(bench, folder, id, to, cx))
+                    }),
+                )
+                .child(
+                    Button::new(
+                        SharedString::from(format!("playbook-offer-{id}-not-now")),
+                        t!("Not now"),
+                        Variant::Ghost,
+                    )
+                    .on_click(move |_, _, cx| {
+                        let (this, folder) = &declining;
+                        this.update(cx, |bench, cx| not_now(bench, folder, id, cx))
+                    }),
+                ),
         )
         .into_any_element()
 }
