@@ -79,6 +79,7 @@ impl World {
             claude.join("fake-usage.json"),
             usage(args.world.pointer("/account/usage").unwrap_or(&Value::Null)).to_string(),
         )?;
+        std::fs::write(home.join(".claude.json"), signed_in("edon"))?;
         let socket = work.join("core.sock");
         let _ = std::fs::remove_file(&socket);
         let log = std::fs::File::create(work.join("core.log"))?;
@@ -465,6 +466,7 @@ impl World {
             },
         });
         std::fs::write(folder.join("fake-usage.json"), usage(&limits).to_string())?;
+        std::fs::write(folder.join(".claude.json"), signed_in(&id))?;
         let book = self.call("agentAccounts", json!({}))?;
         let mut profiles = (book.get("profiles").and_then(Value::as_array))
             .cloned()
@@ -785,4 +787,9 @@ fn setting(key: &str, value: &Value) -> Vec<(&'static str, Value)> {
             .collect(),
         _ => vec![("setPreference", json!({ "key": key, "value": value }))],
     }
+}
+
+/// The `.claude.json` a Claude login leaves, which the core reads to know an account is signed in.
+fn signed_in(account: &str) -> String {
+    json!({ "oauthAccount": { "accountUuid": account } }).to_string()
 }
