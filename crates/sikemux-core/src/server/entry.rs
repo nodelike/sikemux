@@ -29,6 +29,10 @@ struct CoreArgs {
     update_patience: Option<Duration>,
     cli_endpoint: Option<PathBuf>,
     data_dir: Option<PathBuf>,
+    /// A core a film starts for a while: it reaches other hosts on this computer alone and
+    /// keeps its key beside its socket, out of the person's Keychain.
+    #[cfg(debug_assertions)]
+    throwaway: bool,
     upgrade_info: bool,
     #[cfg(target_os = "macos")]
     watch_handover: Option<PathBuf>,
@@ -91,6 +95,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
                 )?));
             }
             "--no-idle-exit" => parsed.idle_exit = Some(NEVER_IDLE_EXIT),
+            #[cfg(debug_assertions)]
+            "--throwaway" => parsed.throwaway = true,
             "--idle-exit-ms" => {
                 parsed.idle_exit = Some(Duration::from_millis(number(
                     args.next(),
@@ -237,6 +243,8 @@ pub fn main(
     };
     std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
     sikemux_process::jobs::own();
+    #[cfg(debug_assertions)]
+    let throwaway = args.throwaway;
     let production = ServerConfig::production(
         socket,
         args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
@@ -246,6 +254,12 @@ pub fn main(
         build,
         plugins,
     );
+    #[cfg(debug_assertions)]
+    let production = ServerConfig {
+        remote_direct_only: production.remote_direct_only || throwaway,
+        secret_store: production.secret_store && !throwaway,
+        ..production
+    };
     let exit = exit_code(super::run(ServerConfig {
         handover_settle: args.handover_settle.unwrap_or(production.handover_settle),
         update_patience: args.update_patience.unwrap_or(production.update_patience),

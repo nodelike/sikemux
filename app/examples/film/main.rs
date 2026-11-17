@@ -19,6 +19,13 @@
 //!                               its orgs, what teammates share and its copies of their boards;
 //!                               each project gets ORIGIN as its remote, so it is the shared one
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
+//!   signed-in                   signs the film's core in to a local accounts API, as the
+//!                               person and with the orgs the world's sikemuxAccount names
+//!   host NAME                   signs in another host on the same account, a throwaway core
+//!                               of its own holding a copy of the last project
+//!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST
+//!                               or `here`
+//!   asleep HOST                 stops HOST answering, as a computer gone to sleep
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
 //!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS
@@ -58,12 +65,14 @@
 //!                               project of its project's name, raised its raisedAt ms ago
 
 mod director;
+mod linked;
 #[cfg(target_os = "macos")]
 mod native;
 mod scene;
 mod world;
 
 use director::*;
+use linked::*;
 use scene::*;
 use sikemux_process::command::{Child, ChildStdin, Stdio};
 use sikemux_wire::protocol::ask;
@@ -179,7 +188,15 @@ fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.work)?;
     let clock = args.work.join("clock");
     std::fs::write(&clock, "0")?;
-    let mut world = World::start(&args, replies, team, &clock)?;
+    let account = (steps.iter())
+        .any(|step| matches!(step.verb.as_str(), "signed-in" | "host"))
+        .then(|| {
+            let account = (args.world.get("sikemuxAccount"))
+                .ok_or_else(|| anyhow!("the world names no sikemuxAccount"))?;
+            Account::start(&args.work, account)
+        })
+        .transpose()?;
+    let mut world = World::start(&args, replies, team, &clock, account)?;
 
     let bench = Rc::new(RefCell::new(None));
     let kept = bench.clone();

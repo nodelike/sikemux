@@ -127,6 +127,12 @@ const cargoPath = {
   PATH: `${join(checkout, "scripts/bin")}:${process.env.PATH}`,
 };
 
+/** Whether a scene signs in to the film's local accounts API, which runs from `server/`. */
+const signsIn = (scene) =>
+  /^(signed-in|host)\b/m.test(
+    readFileSync(join(checkout, `film/scenes/${scene}.film`), "utf8"),
+  );
+
 function shootMac(side) {
   const built =
     run(
@@ -142,6 +148,8 @@ function shootMac(side) {
         "sikemux-host",
         "--bin",
         "sikemux-fake-claude",
+        "--features",
+        "sikemux-core/host-addresses-file",
       ],
       checkout,
       cargoPath,
@@ -155,10 +163,19 @@ function shootMac(side) {
         "app/Cargo.toml",
         "--example",
         "film",
+        "--features",
+        "drive",
       ],
       checkout,
       cargoPath,
-    );
+    ) +
+    (scenes.some(signsIn)
+      ? run(
+          "pnpm",
+          ["install", "--silent", "--frozen-lockfile", "--prefer-offline"],
+          join(checkout, "server"),
+        )
+      : 0);
   say(`${side}: built in ${Math.round(built)} s`);
   const bin = join(checkout, "target/debug");
   for (const scene of scenes) {

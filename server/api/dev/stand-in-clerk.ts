@@ -48,7 +48,7 @@ const jwks = {
 };
 
 function token(userId: string) {
-  return new SignJWT({ sid: `sess_${userId}`, azp: appOrigin })
+  return new SignJWT({ sid: `sess_${userId}`, azp: appOrigin, fva: [0, -1] })
     .setProtectedHeader({ alg: "RS256", kid: "stand-in", typ: "JWT" })
     .setIssuer(issuer)
     .setSubject(userId)
