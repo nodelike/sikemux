@@ -4,7 +4,6 @@
 
 pub mod acp;
 pub mod agent_accounts;
-#[rustfmt::skip]
 pub mod agent_catalog;
 pub mod agent_ops;
 pub mod agent_shell;
