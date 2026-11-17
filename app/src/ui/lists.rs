@@ -619,18 +619,35 @@ impl RenderOnce for Tab {
         let marks = beside(self.mark.is_some(), 22.)
             + beside(self.tail.is_some(), 20.)
             + beside(self.counts.is_some(), 22.);
-        let tight = (self.width).is_some_and(|width| width - 8. - 26. - marks < self.label_width);
+        let label_drawn = match closable && self.width.is_some() {
+            true => f32::from(super::text_width(
+                &self.label,
+                TEXT_XS,
+                FontWeight::MEDIUM,
+                window,
+                cx,
+            ))
+            .min(self.label_width),
+            false => self.label_width,
+        };
+        let tight = (self.width).is_some_and(|width| width - 8. - 26. - marks < label_drawn);
         let end_with = |room: bool| match (self.tail.is_some(), room) {
             (true, _) => 3.,
             (false, true) => 26.,
             (false, false) => 8.,
         };
-        // A tab too narrow for its whole label gives the close button room only under the pointer.
-        let end = end_with(closable && (!tight || closing.is_some()));
         let resting = 8. + end_with(closable && !tight) + marks;
         let titled = self
             .width
             .is_none_or(|width| width - resting >= LEAST_LABEL);
+        // A tab too narrow for its whole label keeps no room for the close button at rest; under
+        // the pointer the button takes its room from the label, so the tab keeps its width.
+        let trade = closing.is_some() && tight && titled;
+        let end = end_with(closable && (!tight || trade));
+        let label_most = match trade {
+            true => (label_drawn - (end_with(true) - end_with(false))).max(0.),
+            false => self.label_width,
+        };
         div()
             .id(wrap_id)
             .relative()
@@ -672,7 +689,7 @@ impl RenderOnce for Tab {
                         tab.child(
                             text(self.label, TEXT_XS, FontWeight::MEDIUM)
                                 .min_w_0()
-                                .max_w(px(self.label_width))
+                                .max_w(px(label_most))
                                 .overflow_hidden()
                                 .text_ellipsis()
                                 .when(self.italic, |label| label.italic()),

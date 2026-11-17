@@ -9,8 +9,8 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::theme::Theme as KitTheme;
 use gpui_kit::component::{h_flex, WindowExt};
 use gpui_kit::{
-    canvas, div, px, relative, App, EntityId, Global, InteractiveElement, IntoElement,
-    ParentElement, Pixels, SharedString, StyleRefinement, Styled, TextRun, WeakEntity, Window,
+    canvas, div, px, relative, App, EntityId, FontWeight, Global, InteractiveElement, IntoElement,
+    ParentElement, Pixels, SharedString, StyleRefinement, Styled, WeakEntity, Window,
 };
 
 use crate::icons::Icon;
@@ -120,9 +120,12 @@ fn toast(kind: Kind, text: SharedString, action: Option<Action>) -> Notification
         let t = Tokens::get(cx);
         *note.style() = island(t);
         let rem = window.rem_size();
-        let said = measure(&text, TEXT, rem, window, cx);
+        let said = ui::text_width(&text, TEXT, FontWeight::NORMAL, window, cx);
         let button = action.as_ref().map_or(px(0.), |action| {
-            measure(&action.label.into(), TEXT_XS, rem, window, cx) + px(BUTTON_PADDING * 2.) + GAP
+            let label = action.label.into();
+            ui::text_width(&label, TEXT_XS, FontWeight::NORMAL, window, cx)
+                + px(BUTTON_PADDING * 2.)
+                + GAP
         });
         let (id, laid) = (cx.entity_id(), KitTheme::global(cx).notification.width);
         let close = cx.listener(|note, _, window, cx| note.dismiss(window, cx));
@@ -188,22 +191,6 @@ fn toast(kind: Kind, text: SharedString, action: Option<Action>) -> Notification
             )
             .into_any_element()
     })
-}
-
-fn measure(text: &SharedString, size: f32, rem: Pixels, window: &mut Window, cx: &App) -> Pixels {
-    let run = TextRun {
-        len: text.len(),
-        font: gpui_kit::font(theme::ui_font()),
-        color: Tokens::get(cx).text_primary,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let size = theme::ui_text(size).to_pixels(rem);
-    window
-        .text_system()
-        .shape_line(text.clone(), size, &[run], None)
-        .width
 }
 
 /// The Mac's toast: a raised island with a hairline and a soft shadow. Its row draws all of

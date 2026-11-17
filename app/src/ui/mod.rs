@@ -304,6 +304,32 @@ pub fn text(value: impl Into<SharedString>, size: f32, weight: FontWeight) -> Di
         .child(value.into())
 }
 
+/// How wide `value` draws as `text` sets it at `size` and `weight`.
+pub fn text_width(
+    value: &SharedString,
+    size: f32,
+    weight: FontWeight,
+    window: &mut Window,
+    cx: &App,
+) -> gpui_kit::Pixels {
+    let run = gpui_kit::TextRun {
+        len: value.len(),
+        font: gpui_kit::Font {
+            weight,
+            ..gpui_kit::font(crate::theme::ui_font())
+        },
+        color: Tokens::get(cx).text_primary,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let size = crate::theme::ui_text(size).to_pixels(window.rem_size());
+    window
+        .text_system()
+        .shape_line(value.clone(), size, &[run], None)
+        .width
+}
+
 /// What a row says about itself after its title: 11px in the tertiary ink.
 pub fn meta(value: impl Into<SharedString>, cx: &App) -> Div {
     text(value, TEXT_2XS, FontWeight::NORMAL).text_color(Tokens::get(cx).text_tertiary)
