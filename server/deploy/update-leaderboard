@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Names the people on PostHog's "People leaderboard" tile. The app reports each account only as
 // sha256("sikemux-usage|<account id>"), so this hashes every account the same way, looks up its
-// name in Clerk and rewrites the tile's transform(...) lookup with the result.
+// name in Clerk and rewrites the tile's transform(...) lookup with the result. People it can't name
+// stay on the tile under the query's own fallback.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
@@ -33,7 +34,6 @@ for (const id of ids) {
   const name =
     [user.first_name, user.last_name].filter(Boolean).join(" ") ||
     user.username ||
-    user.email_addresses?.[0]?.email_address?.split("@")[0] ||
     id;
   hashes.push(
     quoted(createHash("sha256").update(`sikemux-usage|${id}`).digest("hex")),
@@ -47,15 +47,15 @@ const headers = {
 };
 const tile = await (await fetch(posthog, { headers })).json();
 const source = tile.query?.source;
-const lookup = /transform\(properties\.user, \[[^\]]*\], \[[^\]]*\],/;
+const lookup = /transform\(([^[]+), \[[^\]]*\], \[[^\]]*\],/;
 if (!source?.query || !lookup.test(source.query)) {
   throw new Error(
-    `insight ${insight} has no transform(properties.user, [...], [...], ...) lookup to rewrite`,
+    `insight ${insight} has no transform(person, [...], [...], ...) lookup to rewrite`,
   );
 }
 source.query = source.query.replace(
   lookup,
-  () => `transform(properties.user, [${hashes}], [${names}],`,
+  (_, person) => `transform(${person}, [${hashes}], [${names}],`,
 );
 const saved = await fetch(posthog, {
   method: "PATCH",
