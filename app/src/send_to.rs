@@ -5,11 +5,13 @@ use std::future::Future;
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::{AppContext, Context, SharedString, Task, WeakEntity, Window};
-use sikemux_wire::protocol::{LauncherInfo, PaneKind};
+use sikemux_view::layout::PaneKind;
+use sikemux_view::workspace::LauncherInfo;
 use tokio::sync::oneshot;
 
 use crate::icons::Icon;
-use crate::workbench::{shows, Strip, Workbench};
+use crate::tabs::shows;
+use crate::workbench::{Strip, Workbench};
 
 /// An agent text can go to.
 #[derive(Clone)]
@@ -58,7 +60,7 @@ pub fn choices(bench: &Workbench) -> Vec<Choice> {
         .iter()
         .filter(installed)
         .map(|launcher| Choice {
-            label: format!("New {} chat", launcher.label).into(),
+            label: t!("New {agent} chat", agent = launcher.label).into(),
             provider: launcher.provider.clone(),
             to: Recipient::NewChat {
                 launcher: launcher.id.clone(),
@@ -119,7 +121,7 @@ pub fn submenu(
         cx,
         crate::ui::menu(move |mut menu, _, _| {
             if choices.is_empty() {
-                return menu.item(PopupMenuItem::new("No agents available").disabled(true));
+                return menu.item(PopupMenuItem::new(t!("No agents available")).disabled(true));
             }
             for choice in &choices {
                 let (bench, chosen, to) = (bench.clone(), chosen.clone(), choice.to.clone());

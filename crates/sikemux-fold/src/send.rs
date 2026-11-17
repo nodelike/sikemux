@@ -4,19 +4,19 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde_json::{json, Map, Value};
-use sikemux_markdown::{Doc, Op, Options};
+use serde_json::{Map, Value};
+use sikemux_markdown::{Doc, MarkdownOptions, MdChange, MdOp, Patch};
 
-use sikemux_wire::chat::{
-    ChatChange, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, PartTree, SubagentCard,
-    ToolStatus,
+use sikemux_view::chat::{
+    ChatActivity, ChatChange, ChatConnection, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
+    PartTree, SubagentCard, ToolStatus,
 };
 
 use super::event::ChatEvent;
 use super::{Fold, Row, Side, Transcript};
 
 /// How an agent's answers are read as markdown.
-const ANSWER: Options = Options {
+const ANSWER: MarkdownOptions = MarkdownOptions {
     gfm: true,
     html_as_text: false,
     file_links: true,
@@ -24,17 +24,18 @@ const ANSWER: Options = Options {
     html_layout: false,
     references: true,
     file_paths: true,
+    math: true,
 };
 
 /// What the person sent reads as the agent's text does, but shows any markup they typed as they
 /// typed it.
-const TYPED: Options = Options {
+const TYPED: MarkdownOptions = MarkdownOptions {
     html_as_text: true,
+    math: false,
     ..ANSWER
 };
 
-/// How a role's texts are read into trees.
-fn reading(role: ChatRole) -> Options {
+fn reading(role: ChatRole) -> MarkdownOptions {
     match role {
         ChatRole::Assistant => ANSWER,
         ChatRole::User => TYPED,
@@ -108,8 +109,9 @@ fn within(rows: &mut Vec<ChatMessage>, budget: usize, newest: bool) -> bool {
 
 /// The head's fields a client drops when they are absent, so a catch-up
 /// names each one.
-const OPTIONAL_HEAD: [&str; 12] = [
+const OPTIONAL_HEAD: [&str; 21] = [
     "sessionId",
+    "changingMode",
     "turnOpening",
     "retrying",
     "error",
@@ -118,21 +120,40 @@ const OPTIONAL_HEAD: [&str; 12] = [
     "title",
     "usage",
     "plan",
+    "compactions",
+    "placed",
+    "model",
+    "effort",
+    "speed",
+    "sessionMode",
     "activeTool",
+    "activity",
     "ended",
     "draft",
+    "goal",
 ];
 
-/// A flush's changes and the rows they touched.
 pub type Flushed = Vec<ChatChange>;
 
-fn tree_of(patch: Vec<Op>, n: usize) -> PartTree {
+/// What a head field left out of the JSON stands for, as a client must read it.
+fn unset(field: &str) -> Value {
+    match field {
+        "changingMode" => Value::Bool(false),
+        _ => Value::Null,
+    }
+}
+
+fn md_change(n: usize, o: Patch) -> Value {
+    serde_json::to_value(MdChange { n, o }).unwrap_or_default()
+}
+
+fn tree_of(patch: Vec<MdOp>, n: usize) -> PartTree {
     let blocks = patch
         .into_iter()
         .next()
         .and_then(|op| match op {
-            Op::List { c, .. } => Some(Value::Array(c)),
-            Op::Text { .. } => None,
+            MdOp::List { c, .. } => Some(Value::Array(c)),
+            MdOp::Text { .. } => None,
         })
         .unwrap_or_else(|| Value::Array(Vec::new()));
     PartTree {
@@ -146,11 +167,11 @@ fn units(text: &str) -> usize {
 }
 
 /// The whole tree of the agent's `text`, read from scratch.
-pub(super) fn read(text: &str) -> PartTree {
+pub(crate) fn read(text: &str) -> PartTree {
     read_as(text, ANSWER)
 }
 
-fn read_as(text: &str, options: Options) -> PartTree {
+fn read_as(text: &str, options: MarkdownOptions) -> PartTree {
     tree_of(Doc::read(text, options), units(text))
 }
 
@@ -267,9 +288,11 @@ fn field(row: &ChatMessage, name: &str) -> Value {
         "opensTurn" => serde_json::to_value(&row.opens_turn),
         "meta" => serde_json::to_value(&row.meta),
         "fold" => serde_json::to_value(&row.fold),
+        "team" => serde_json::to_value(&row.team),
         "context" => serde_json::to_value(&row.context),
         "letters" => serde_json::to_value(&row.letters),
-        "reactions" => serde_json::to_value(&row.reactions),
+        "chips" => serde_json::to_value(&row.chips),
+        "leftOut" => serde_json::to_value(&row.left_out),
         _ => Ok(Value::Null),
     };
     value.unwrap_or_default()
@@ -284,7 +307,6 @@ fn fields(row: &ChatMessage, names: impl IntoIterator<Item = &'static str>) -> V
     )
 }
 
-/// The changes to one row since the last flush.
 fn row_changes(
     transcript: &mut Transcript,
     position: usize,
@@ -354,7 +376,7 @@ fn row_changes(
                 doc.push(text);
                 doc
             });
-            json!({ "n": doc.units(), "o": doc.patch() })
+            md_change(doc.units(), doc.patch())
         });
         side.sent = len;
         out.push(ChatChange::Text {
@@ -406,7 +428,7 @@ fn flush_transcript(
                     row: row.msg.id.clone(),
                     part: row.msg.parts[at].id().to_owned(),
                     text: String::new(),
-                    md: Some(json!({ "n": doc.units(), "o": patch })),
+                    md: Some(md_change(doc.units(), patch)),
                     within: within.clone(),
                 });
             }
@@ -418,9 +440,10 @@ fn flush_transcript(
 }
 
 impl Fold {
-    /// What changed since the last flush.
     pub fn flush(&mut self) -> Flushed {
         self.settle_runs();
+        self.settle_active_tool();
+        self.settle_activity();
         let mut out = Vec::new();
         if let Some(from) = self.dropped.take() {
             out.push(ChatChange::Drop { from });
@@ -432,20 +455,12 @@ impl Fold {
                 .map(|name| {
                     (
                         name.to_owned(),
-                        whole.get(name).cloned().unwrap_or(Value::Null),
+                        whole.get(name).cloned().unwrap_or_else(|| unset(name)),
                     )
                 })
                 .collect();
             out.push(ChatChange::Head {
                 set: Value::Object(set),
-                follows: None,
-            });
-        }
-        let active = self.active_tool();
-        if active != self.head.active_tool {
-            self.head.active_tool = active.clone();
-            out.push(ChatChange::Head {
-                set: json!({ "activeTool": active }),
                 follows: None,
             });
         }
@@ -466,7 +481,6 @@ impl Fold {
         out
     }
 
-    /// Whether anything waits to go out.
     pub fn is_dirty(&self) -> bool {
         !self.head_dirty.is_empty()
             || self.dropped.is_some()
@@ -485,6 +499,53 @@ impl Fold {
             ),
             _ => None,
         })?
+    }
+
+    /// What a client says the chat is doing, from what the head and the last row hold: while
+    /// the person's message waits for an agent still on its way, that it starts or connects.
+    fn activity(&self) -> Option<ChatActivity> {
+        if !self.head.permissions.is_empty() || !self.head.running {
+            return None;
+        }
+        if let Some(retrying) = &self.head.retrying {
+            return Some(ChatActivity::Retrying {
+                attempt: retrying.attempt,
+                connection: retrying.connection,
+                reason: retrying.reason.clone(),
+            });
+        }
+        let waits = (self.main.rows.last()).is_some_and(|row| row.msg.role == ChatRole::User);
+        match self.head.connection {
+            ChatConnection::Starting if waits => return Some(ChatActivity::Starting),
+            ChatConnection::Connecting | ChatConnection::Initializing if waits => {
+                return Some(ChatActivity::Connecting)
+            }
+            _ => {}
+        }
+        let running = self.head.active_tool.as_ref().and_then(|active| {
+            let row = self.main.rows.last()?;
+            row.msg.parts.iter().find_map(|part| match part {
+                ChatPart::Tool { id, tool, .. } if id == active => Some(tool.row.clone()),
+                _ => None,
+            })
+        });
+        Some(running.map_or(ChatActivity::Thinking, |row| ChatActivity::Call { row }))
+    }
+
+    fn settle_active_tool(&mut self) {
+        let active = self.active_tool();
+        if self.head.active_tool != active {
+            self.head.active_tool = active;
+            self.set_head("activeTool");
+        }
+    }
+
+    fn settle_activity(&mut self) {
+        let activity = self.activity();
+        if self.head.activity != activity {
+            self.head.activity = activity;
+            self.set_head("activity");
+        }
     }
 
     /// Lets go of the oldest turns once the fold holds more than it should.
@@ -637,6 +698,7 @@ impl Fold {
             .filter(|_| start > 0 || older)
             .map(|row| row.index);
         let mut head = self.head.clone();
+        head.activity = self.activity();
         head.active_tool = self.active_tool();
         ChatView {
             head,
@@ -655,23 +717,37 @@ impl Fold {
         if rows.first().is_some_and(|row| row.v > since) {
             return None;
         }
+        Some(self.changes_since(since, start, true))
+    }
+
+    /// What a client that goes on holding its rows missed, for when the window holds none of
+    /// them. None when more changed than the window holds, and it needs the view whole.
+    pub fn added_since(&self, since: u64) -> Option<Vec<ChatChange>> {
+        let start = self.window_start();
+        let within = !self.main.rows[..start].iter().any(|row| row.v > since);
+        within.then(|| self.changes_since(since, start, false))
+    }
+
+    fn changes_since(&self, since: u64, start: usize, keep: bool) -> Vec<ChatChange> {
+        let rows = &self.main.rows[start..];
         let mut head = self.head.clone();
+        head.activity = self.activity();
         head.active_tool = self.active_tool();
         let mut set = serde_json::to_value(&head).unwrap_or_default();
         if let Some(fields) = set.as_object_mut() {
             for name in OPTIONAL_HEAD {
-                fields.entry(name).or_insert(Value::Null);
+                fields.entry(name).or_insert_with(|| unset(name));
             }
         }
-        let mut out = vec![
-            ChatChange::Head {
-                set,
-                follows: Some(since),
-            },
-            ChatChange::Keep {
+        let mut out = vec![ChatChange::Head {
+            set,
+            follows: Some(since),
+        }];
+        if keep {
+            out.push(ChatChange::Keep {
                 rows: rows.iter().map(|row| row.msg.id.clone()).collect(),
-            },
-        ];
+            });
+        }
         for row in rows.iter().filter(|row| row.v > since) {
             out.push(ChatChange::Row {
                 row: whole_row(row),
@@ -687,7 +763,7 @@ impl Fold {
                 });
             }
         }
-        Some(out)
+        out
     }
 
     /// The rows `events` hold that `wanted` asks for, folded from the whole turns they ran
@@ -703,9 +779,12 @@ impl Fold {
         budget: usize,
         beyond: Option<u64>,
         session: Option<&str>,
+        ask: Option<u64>,
     ) -> ChatPage {
         let mut fold = Fold::new(self.head.permission_mode);
         fold.head.session_id = self.head.session_id.clone();
+        fold.agents = self.agents.clone();
+        fold.answering(ask);
         for (index, event) in events {
             let at = event
                 .payload

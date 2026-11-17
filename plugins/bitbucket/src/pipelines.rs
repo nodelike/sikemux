@@ -1,4 +1,4 @@
-// Pipelines, in the words the Git pane uses for every host's CI: a pipeline is
+// Pipelines, in the words every host's CI uses: a pipeline is
 // a run, its steps are jobs, and each pipeline the repository's
 // bitbucket-pipelines.yml defines is a workflow.
 
@@ -7,6 +7,7 @@ use std::path::Path;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
     Dispatch, ExcerptQuery, JobRef, RepoRef, Rerun, RunQuery, RunRef, WorkflowRef,
 };
@@ -14,6 +15,8 @@ use sikemux_plugin_api::codehost::{
     Job, JobLog, LogExcerpt, LogLine, Outcome, Run, RunDetail, RunPage, RunTiming, Workflow,
     WorkflowFile,
 };
+
+use sikemux_plugin_api::http::Read;
 
 use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
@@ -203,8 +206,9 @@ pub async fn list(data_dir: &Path, input: RunQuery) -> BitbucketResult<RunPage> 
     if let Some(branch) = &input.branch {
         query.push(("target.branch", branch.clone()));
     }
-    let found: client::Page<PipelineRow> =
-        client::get(data_dir, &input.repo.path("/pipelines/")?, &query).await?;
+    let found: client::Page<PipelineRow> = client::API
+        .get(data_dir, &input.repo.path("/pipelines/")?, &query)
+        .await?;
     let runs: Vec<Run> = found
         .values
         .iter()
@@ -233,7 +237,9 @@ fn pipeline_path(repo: &RepoRef, run_id: &str, rest: &str) -> BitbucketResult<St
 }
 
 async fn pipeline(data_dir: &Path, repo: &RepoRef, run_id: &str) -> BitbucketResult<PipelineRow> {
-    client::get(data_dir, &pipeline_path(repo, run_id, "")?, &[]).await
+    client::API
+        .get(data_dir, &pipeline_path(repo, run_id, "")?, &[])
+        .await
 }
 
 /// Bitbucket finds a pipeline by its build number only when reading it, so
@@ -268,7 +274,7 @@ fn split_job<'a>(job_id: &'a str, run_id: Option<&'a str>) -> BitbucketResult<(&
         .or_else(|| run_id.map(|run_id| (run_id, job_id)))
         .ok_or_else(|| {
             BitbucketError::BadArg(format!(
-                "`{job_id}` is a step without its pipeline: pass runId too, or the pipeline:step id bitbucket_pipeline gives"
+                "`{job_id}` is a step without its pipeline: pass runId too, or the pipeline:step id bitbucket pipeline gives"
             ))
         })
 }
@@ -320,7 +326,7 @@ pub async fn timing(data_dir: &Path, input: RunRef) -> BitbucketResult<RunTiming
 pub async fn cancel(data_dir: &Path, input: RunRef) -> BitbucketResult<()> {
     let run_id = run_uuid(data_dir, &input.repo, &input.run_id).await?;
     let path = pipeline_path(&input.repo, &run_id, "/stopPipeline")?;
-    client::post_empty(data_dir, &path, None).await
+    client::API.write(data_dir, Method::POST, &path, None).await
 }
 
 /// The parts of a pipeline's target that say what to build, without the
@@ -357,13 +363,14 @@ pub async fn rerun(data_dir: &Path, input: Rerun) -> BitbucketResult<()> {
     }
     let row = pipeline(data_dir, &input.run.repo, &input.run.run_id).await?;
     let body = json!({ "target": target_to_repeat(&row.target) });
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.run.repo.path("/pipelines/")?,
-        &body,
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.run.repo.path("/pipelines/")?,
+            &body,
+        )
+        .await?;
     Ok(())
 }
 
@@ -383,34 +390,10 @@ fn lines_of(text: &str, truncated: bool) -> Vec<LogLine> {
         .collect()
 }
 
-const DEFAULT_TAIL: usize = 200;
-const MAX_TAIL: usize = 2000;
-
 /// The end of a step's log for an agent, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> BitbucketResult<LogExcerpt> {
     let whole = log(data_dir, input.job).await?;
-    let needle = input
-        .grep
-        .map(|grep| grep.to_lowercase())
-        .filter(|grep| !grep.is_empty());
-    let mut lines: Vec<LogLine> = whole
-        .lines
-        .into_iter()
-        .filter(|line| {
-            needle
-                .as_deref()
-                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
-        })
-        .collect();
-    let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
-    let cut = lines.len() > tail;
-    if cut {
-        lines.drain(..lines.len() - tail);
-    }
-    Ok(LogExcerpt {
-        lines,
-        truncated: cut || whole.truncated,
-    })
+    Ok(answers::log_excerpt(whole, input.pick))
 }
 
 /// A step that has not started yet has no log, which reads as an empty one.
@@ -422,22 +405,30 @@ pub async fn log(data_dir: &Path, input: JobRef) -> BitbucketResult<JobLog> {
         &run_id,
         &format!("/steps/{}/log", uuid_segment(step_id)?),
     )?;
-    let (status, bytes, truncated) =
-        client::send_limited(data_dir, Method::GET, &path, &[], None, MAX_LOG_BYTES, true).await?;
-    if status.as_u16() == 404 {
+    let answer = client::API
+        .send(
+            data_dir,
+            Method::GET,
+            &path,
+            &[],
+            None,
+            Read::Tail(MAX_LOG_BYTES),
+        )
+        .await?;
+    if answer.status.as_u16() == 404 {
         return Ok(JobLog {
             lines: Vec::new(),
             expired: false,
             truncated: false,
         });
     }
-    if !status.is_success() {
-        return Err(client::classify(status, &bytes));
+    if !answer.status.is_success() {
+        return Err(answer.refused());
     }
     Ok(JobLog {
-        lines: lines_of(&String::from_utf8_lossy(&bytes), truncated),
+        lines: lines_of(&String::from_utf8_lossy(&answer.bytes), answer.cut),
         expired: false,
-        truncated,
+        truncated: answer.cut,
     })
 }
 
@@ -513,12 +504,13 @@ fn pipelines_in(file: &str) -> Vec<(String, String)> {
 
 pub async fn file(data_dir: &Path, repo: &RepoRef) -> BitbucketResult<String> {
     let branch = repo::default_branch(data_dir, repo).await?;
-    client::get_text(
-        data_dir,
-        &repo.path(&format!("/src/{branch}/{PIPELINES_FILE}"))?,
-        &[],
-    )
-    .await
+    client::API
+        .get_text(
+            data_dir,
+            &repo.path(&format!("/src/{branch}/{PIPELINES_FILE}"))?,
+            &[],
+        )
+        .await
 }
 
 pub async fn workflows(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Vec<Workflow>> {
@@ -590,13 +582,14 @@ fn dispatch_body(input: &Dispatch) -> BitbucketResult<Value> {
 
 pub async fn dispatch(data_dir: &Path, input: Dispatch) -> BitbucketResult<()> {
     let body = dispatch_body(&input)?;
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/pipelines/")?,
-        &body,
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/pipelines/")?,
+            &body,
+        )
+        .await?;
     Ok(())
 }
 

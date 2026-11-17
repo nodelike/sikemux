@@ -5,13 +5,14 @@
 use std::path::Path;
 
 use serde::Deserialize;
+use sikemux_plugin_api::codehost::asks::numeric;
 use sikemux_plugin_api::codehost::asks::CheckRunRef;
 use sikemux_plugin_api::codehost::{Annotation, JobSummary};
 
 use crate::client;
 use crate::common::LIST_PAGES;
 use crate::error::GithubResult;
-use crate::repo::{number, RepoPath};
+use crate::repo::RepoPath;
 
 #[derive(Deserialize)]
 struct AnnotationRow {
@@ -40,7 +41,7 @@ impl From<AnnotationRow> for Annotation {
 }
 
 fn check_run_path(input: &CheckRunRef, rest: &str) -> GithubResult<String> {
-    let id = number(&input.check_run_id)?;
+    let id = numeric(&input.check_run_id)?;
     input.repo.path(&format!("/check-runs/{id}{rest}"))
 }
 
@@ -67,7 +68,7 @@ struct CheckRunRow {
 /// table, whatever it wanted read rather than dug out of the log.
 pub async fn summary(data_dir: &Path, input: CheckRunRef) -> GithubResult<Option<JobSummary>> {
     let path = check_run_path(&input, "")?;
-    let row: CheckRunRow = client::get(data_dir, &path, &[]).await?;
+    let row: CheckRunRow = client::API.get(data_dir, &path, &[]).await?;
     let output = match row.output {
         Some(output) => output,
         None => return Ok(None),

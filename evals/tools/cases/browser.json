@@ -613,10 +613,10 @@
       "forbid": [
         {
           "tool": "browser_evaluate",
-          "why": "drove the composer with a script instead of typing and clicking",
           "args": {
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=[^=]|nativeInputValueSetter|execCommand|requestSubmit|\\.submit\\(/"
-          }
+          },
+          "why": "drove the composer with a script instead of typing and clicking"
         }
       ],
       "limit": [
@@ -1903,10 +1903,10 @@
         },
         {
           "tool": "browser_evaluate",
-          "why": "used a script to mark or move the element",
           "args": {
             "script": "/setAttribute|classList\\.(?:add|toggle)|\\.id\\s*=[^=]|dataset\\.\\w+\\s*=[^=]|scrollIntoView|scroll(?:To|By)\\(/"
-          }
+          },
+          "why": "used a script to mark or move the element"
         }
       ]
     },
@@ -2201,10 +2201,10 @@
         },
         {
           "tool": "browser_evaluate",
-          "why": "picked the brand with a script",
           "args": {
             "script": "/\\.click\\(|dispatchEvent|\\.value\\s*=[^=]|selectedIndex\\s*=[^=]/"
-          }
+          },
+          "why": "picked the brand with a script"
         },
         {
           "tool": [
@@ -2506,10 +2506,10 @@
       "forbid": [
         {
           "tool": "browser_evaluate",
-          "why": "tried to hand the files over with a script",
           "args": {
             "script": "/DataTransfer|new File\\(|\\.files\\s*=[^=]|dispatchEvent|\\.click\\(/"
-          }
+          },
+          "why": "tried to hand the files over with a script"
         },
         {
           "tool": "browser_upload",

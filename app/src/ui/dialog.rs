@@ -13,7 +13,7 @@ use gpui_kit::{
 use super::{icon, text};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_4, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    self, radius_2, radius_4, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
     SPACE_3H, SPACE_4, SPACE_5, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
     TEXT_XL, TEXT_XS,
 };
@@ -139,12 +139,12 @@ pub(crate) fn field(name: &'static str, input: &Entity<InputState>, mono: bool, 
                 .px(SPACE_2H)
                 .flex()
                 .items_center()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border_strong)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(t.surface_sunken)
                 .text_size(crate::theme::ui_text(TEXT_XS))
-                .when(mono, |field| field.font_family(theme::MONO))
+                .when(mono, |field| field.font_family(theme::mono_font()))
                 .child(Input::new(input).appearance(false)),
         )
 }
@@ -173,7 +173,6 @@ pub(crate) fn marked_body() -> Div {
         .flex_col()
 }
 
-/// A paragraph of a marked sheet's body.
 pub(crate) fn prose(words: impl Into<SharedString>, t: &Tokens) -> Div {
     div()
         .text_size(crate::theme::ui_text(TEXT_SM))
@@ -201,7 +200,7 @@ fn head(tile: Option<Tile>, title: SharedString, cx: &App) -> Div {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(ground)
                 .child(icon(tile.icon, 15.).text_color(ink))
         }))
@@ -228,7 +227,7 @@ fn framed(
             .pr(SPACE_3)
             .pb(SPACE_3)
             .pl(SPACE_4)
-            .border_t_1()
+            .border_t(crate::theme::border())
             .border_color(t.border)
             .bg(t.surface_sunken),
     );
@@ -270,9 +269,9 @@ pub(crate) fn floating(
                 .flex_col()
                 .overflow_hidden()
                 .bg(t.surface_overlay)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
-                .rounded(RADIUS_4)
+                .rounded(radius_4())
                 .shadow(t.shadow_float())
                 .child(content),
         )
@@ -291,8 +290,8 @@ pub(crate) fn button(
         .accessibility_label(label.clone())
         .h(px(30.))
         .px(SPACE_3)
-        .rounded(RADIUS_2)
-        .border_1()
+        .rounded(radius_2())
+        .border(crate::theme::border())
         .text_size(crate::theme::ui_text(TEXT_SM))
         .font_weight(FontWeight::MEDIUM)
         .on_click(move |_, window, cx| answer(window, cx))
@@ -397,10 +396,10 @@ impl RenderOnce for Confirm {
                 .gap(SPACE_2)
                 .children(lines.map(|line| prose(line.to_owned(), &t)))
                 .into_any_element();
-            let foot = hinted_foot(escape("cancel", cx), cx)
+            let foot = hinted_foot(escape(t!("cancel"), cx), cx)
                 .child(button(
                     "confirm-no",
-                    "Cancel".into(),
+                    t!("Cancel").into(),
                     None,
                     on_no.clone(),
                     cx,
@@ -427,7 +426,7 @@ impl RenderOnce for Confirm {
         let foot = div()
             .child(button(
                 "confirm-no",
-                "cancel".into(),
+                t!("cancel").into(),
                 None,
                 on_no.clone(),
                 cx,
@@ -512,24 +511,24 @@ impl RenderOnce for Prompt {
                 .px(SPACE_2)
                 .flex()
                 .items_center()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(t.surface_sunken)
                 .text_size(crate::theme::ui_text(TEXT_SM))
                 .text_color(t.text_primary)
                 .child(Input::new(&self.field).appearance(false));
-            let foot = hinted_foot(escape("cancel", cx), cx)
+            let foot = hinted_foot(escape(t!("cancel"), cx), cx)
                 .child(button(
                     "prompt-no",
-                    "Cancel".into(),
+                    t!("Cancel").into(),
                     None,
                     self.on_no.clone(),
                     cx,
                 ))
                 .child(button(
                     "prompt-yes",
-                    "Save".into(),
+                    t!("Save").into(),
                     Some(t.accent),
                     yes.clone(),
                     cx,
@@ -548,14 +547,14 @@ impl RenderOnce for Prompt {
         let foot = div()
             .child(button(
                 "prompt-no",
-                "cancel".into(),
+                t!("cancel").into(),
                 None,
                 self.on_no.clone(),
                 cx,
             ))
             .child(button(
                 "prompt-yes",
-                "ok".into(),
+                t!("ok").into(),
                 Some(t.accent),
                 yes.clone(),
                 cx,
@@ -571,11 +570,11 @@ impl RenderOnce for Prompt {
                         .px(SPACE_2H)
                         .flex()
                         .items_center()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.border_strong)
-                        .rounded(RADIUS_2)
+                        .rounded(radius_2())
                         .bg(t.surface_sunken)
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_XS))
                         .child(Input::new(&self.field).appearance(false)),
                 )
@@ -688,7 +687,7 @@ impl RenderOnce for Choices {
                 .items_center()
                 .justify_start()
                 .gap(SPACE_2H)
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(ink)
                 .when(choice.disabled, |row| row.opacity(0.6))
@@ -701,7 +700,7 @@ impl RenderOnce for Choices {
                         .w(px(18.))
                         .flex_none()
                         .text_center()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(if choice.destructive {
                             t.danger.opacity(0.3)
                         } else {
@@ -752,7 +751,7 @@ impl RenderOnce for Choices {
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
-                .child("esc  cancel"),
+                .child(t!("esc  cancel")),
             no.clone(),
             no,
             cx,
@@ -802,14 +801,16 @@ impl RenderOnce for Cheatsheet {
                     .pt(SPACE_2)
                     .pb(SPACE_3)
                     .when(index + 1 < count, |section| {
-                        section.border_b_1().border_color(t.border)
+                        section
+                            .border_b(crate::theme::border())
+                            .border_color(t.border)
                     })
                     .child(
                         div()
                             .mb(SPACE_1H)
                             .text_size(crate::theme::ui_text(TEXT_3XS))
                             .text_color(t.text_tertiary)
-                            .child(title.to_uppercase()),
+                            .child(crate::i18n::tr(title).to_uppercase()),
                     )
                     .children(rows.iter().map(|(keys, label)| {
                         div()
@@ -825,7 +826,11 @@ impl RenderOnce for Cheatsheet {
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(*keys),
                             )
-                            .child(div().text_color(t.text_secondary).child(*label))
+                            .child(
+                                div()
+                                    .text_color(t.text_secondary)
+                                    .child(crate::i18n::tr(label)),
+                            )
                     }))
             });
         let close = held.back(self.on_close.clone());
@@ -837,13 +842,13 @@ impl RenderOnce for Cheatsheet {
                 .py(SPACE_1)
                 .max_h(px(560.))
                 .overflow_y_scroll()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .children(sections)
                 .into_any_element(),
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
-                .child("esc  close"),
+                .child(t!("esc  close")),
             close.clone(),
             close,
             cx,

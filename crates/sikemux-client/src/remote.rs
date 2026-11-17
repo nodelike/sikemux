@@ -16,7 +16,6 @@ pub const CORE_ALPN: &[u8] = b"sikemux/core/1";
 /// The code a core closes a connection with when it does not know the device.
 pub const NOT_PAIRED: u32 = 1;
 
-/// Opens a session with the core at `core` from a device it has paired with.
 pub async fn connect_with(
     endpoint: &Endpoint,
     core: impl Into<EndpointAddr>,

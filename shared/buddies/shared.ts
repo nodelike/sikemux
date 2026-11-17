@@ -82,7 +82,7 @@ export function blobFace(f: BlobFace, state: BuddyState, blush = "#ff5f8f"): str
     }
 }
 
-export interface EyeballOptions {
+interface EyeballOptions {
     /** Pupils sit high, as if looking up over an edge. */
     up?: boolean;
 }

@@ -1,0 +1,10 @@
+name: Stop when a Linux check fails
+description: Ends this job as soon as one of the run's quick Linux checks fails, so a broken push frees its runner and, on main, the queue behind it. The job then fails, and so does the run.
+inputs:
+  token:
+    description: Reads the run's jobs
+    default: ${{ github.token }}
+runs:
+  using: node24
+  main: start.mjs
+  post: explain.mjs

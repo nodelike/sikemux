@@ -1,0 +1,47 @@
+{
+  "allowance": {
+    "plan": "team",
+    "features": [
+      "sync",
+      "move_work",
+      "history_search",
+      "own_triggers",
+      "org_hosts",
+      "org_shared_setup",
+      "org_model_keys",
+      "org_github",
+      "org_bot_triggers",
+      "chat_handover",
+      "org_roles",
+      "org_policy"
+    ],
+    "boxes": [
+      {
+        "product": "shed",
+        "quantity": 1
+      }
+    ],
+    "seatOrgs": ["3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"]
+  },
+  "subscriptions": [
+    {
+      "id": "5b1d6c2e-8f3a-4b7e-9c1d-2a3b4c5d6e7f",
+      "product": "team",
+      "interval": "month",
+      "quantity": 5,
+      "status": "active",
+      "currentPeriodEnd": "2026-12-16T09:30:00.000Z",
+      "cancelAtPeriodEnd": false,
+      "startedAt": "2026-11-16T09:30:00.000Z"
+    }
+  ],
+  "live": false,
+  "canBuy": true,
+  "payer": "you",
+  "card": {
+    "brand": "visa",
+    "last4": "4242",
+    "expMonth": 12,
+    "expYear": 2029
+  }
+}

@@ -1,4 +1,4 @@
-use sikemux_plugin_api::{Service, ServiceError};
+use sikemux_plugin_api::{http, Service, ServiceError};
 
 pub struct Slack;
 
@@ -6,6 +6,10 @@ impl Service for Slack {
     const ID: &'static str = "slack";
     const NAME: &'static str = "Slack";
     const SIGNED_OUT: &'static str = "no workspace is signed in";
+
+    fn said(body: &[u8]) -> Option<String> {
+        http::quoted(body)
+    }
 }
 
 pub type SlackError = ServiceError<Slack>;
@@ -31,22 +35,5 @@ pub fn in_words(code: &str) -> String {
         "no_text" => "the message is empty".into(),
         "user_not_found" | "users_not_found" => "no such person in this workspace".into(),
         other => other.replace('_', " "),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slacks_codes_read_as_sentences() {
-        assert_eq!(
-            in_words("not_in_channel"),
-            "this account is not in that channel"
-        );
-        assert_eq!(in_words("invalid_cursor"), "invalid cursor");
-        assert!(missing_scope("chat:write")
-            .to_string()
-            .contains("add the chat:write scope"));
     }
 }

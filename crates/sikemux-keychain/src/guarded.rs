@@ -55,8 +55,19 @@ pub(crate) fn settle(keep: bool) {
                 .map(|_| Mutex::new(send))
         });
         drop_group_on_this_thread();
+        if !keep {
+            become_dumpable();
+        }
         keeper.flatten()
     });
+}
+
+/// Starting setgid leaves a run undumpable, and so its open files hidden from
+/// the core, which tells which agent made a call by the process holding its
+/// socket. A run holding nothing of the group any more is safe to show again.
+fn become_dumpable() {
+    // SAFETY: PR_SET_DUMPABLE takes one plain flag and changes only this process.
+    unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 1 as libc::c_ulong) };
 }
 
 pub(crate) fn active() -> bool {

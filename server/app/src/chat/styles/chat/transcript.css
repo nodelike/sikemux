@@ -1,10 +1,4 @@
 .agent-chat-pane {
-  /* Not multiplied by the app-wide text scale, so ⌘0 always returns the
-       transcript to exactly its designed size. */
-  --chat-text-em: var(--chat-text-scale, 1);
-  --text-3xs: calc(10px * var(--chat-text-em));
-  --text-2xs: calc(11px * var(--chat-text-em));
-  --text-xs: calc(12px * var(--chat-text-em));
   position: relative;
   display: grid;
   /* Without a column of its own the grid widens to the longest unbreakable
@@ -56,6 +50,13 @@
   padding-bottom: 10px;
 }
 
+.chat-sent-chip {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--surface-active);
+  color: var(--acc);
+}
+
 /* The header sits above the bubble and spans the row, so the bubble is the
    only thing that hugs the right edge. */
 .chat-message.user .chat-markdown {
@@ -66,7 +67,7 @@
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: var(--radius-3);
   background: color-mix(in srgb, var(--rail-2) 72%, transparent);
-  font-size: calc(13.5px * var(--chat-text-em, 1));
+  font-size: 13.5px;
 }
 
 .chat-message.agent-letter {
@@ -83,7 +84,7 @@
 
 .chat-letter-top {
   margin-bottom: 8px;
-  font-size: calc(12.5px * var(--chat-text-em, 1));
+  font-size: 12.5px;
 }
 
 .chat-letter-top::after {
@@ -104,19 +105,9 @@
 }
 
 .chat-letter-name {
-  padding: 0;
-  border: 0;
-  background: none;
   color: var(--acc);
-  font: inherit;
   font-weight: var(--weight-semibold);
-  cursor: pointer;
-}
-
-.chat-letter-name:hover,
-.chat-letter-name:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  letter-spacing: normal;
 }
 
 .chat-ask-who {
@@ -159,7 +150,7 @@
   flex: 1 1 auto;
   min-width: 0;
   color: var(--ink);
-  font-size: calc(14px * var(--chat-text-em, 1));
+  font-size: 14px;
   line-height: 1.65;
   user-select: text;
   cursor: auto;
@@ -207,7 +198,7 @@
 }
 
 .chat-message-time {
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
 }
@@ -215,7 +206,7 @@
 .chat-message-rate {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   font-style: italic;
   letter-spacing: 0.02em;
   color: var(--ink-dim);
@@ -270,7 +261,6 @@
 }
 
 .chat-markdown pre,
-.chat-plan pre,
 .chat-unknown-part {
   overflow: auto;
   max-height: 420px;
@@ -280,7 +270,7 @@
   background: color-mix(in srgb, var(--void) 72%, transparent);
   color: var(--ink-dim);
   font-family: var(--mono);
-  font-size: calc(12px * var(--chat-text-em, 1));
+  font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -379,7 +369,7 @@
 .chat-table table {
   border-collapse: collapse;
   width: 100%;
-  font-size: calc(13.5px * var(--chat-text-em, 1));
+  font-size: 13.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -431,25 +421,6 @@
   text-decoration: underline;
 }
 
-.chat-link-lead {
-  white-space: nowrap;
-}
-
-/* Sized to the text around it, and centred on it the way a file link's icon is. */
-.chat-link-mark {
-  display: inline-block;
-  margin-right: 4px;
-  line-height: 0;
-  vertical-align: middle;
-  user-select: none;
-}
-
-.chat-link-mark > * {
-  display: block;
-  width: 0.93em;
-  height: 0.93em;
-}
-
 /* A file the message names: the icon the rest of the app gives that file, the
    name as it was written, and somewhere to click. It takes the look of
    whatever it interrupts, so a row still reads as a row and a sentence as a
@@ -457,6 +428,7 @@
 .chat-file-ref {
   display: inline-block;
   max-width: 100%;
+  letter-spacing: normal;
   text-align: left;
   vertical-align: baseline;
 }
@@ -475,10 +447,6 @@
    now is. */
 .chat-file-ref.link {
   color: var(--acc);
-}
-
-.chat-file-ref:hover .chat-file-ref-name {
-  text-decoration: underline;
 }
 
 /* The tree gives its glyphs a column to line up in. Beside words the glyph is
@@ -502,7 +470,7 @@
 .chat-thought {
   margin: 9px 0;
   color: var(--ink-faint);
-  font-size: calc(12.5px * var(--chat-text-em, 1));
+  font-size: 12.5px;
   font-style: italic;
 }
 
@@ -510,7 +478,7 @@
   width: min(100%, 800px);
   margin: 8px auto 4px;
   padding: 0 22px;
-  font-size: calc(12.5px * var(--chat-text-em, 1));
+  font-size: 12.5px;
 }
 
 .chat-work::after {
@@ -519,6 +487,79 @@
   height: 1px;
   margin-top: 4px;
   background: color-mix(in oklab, var(--ink) 14%, transparent);
+}
+
+.chat-team {
+  width: min(100%, 800px);
+  margin: 6px auto 2px;
+  padding: 0 22px;
+  font-size: 12.5px;
+}
+
+.chat-team-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% + 12px);
+  min-width: 0;
+  height: 26px;
+  margin-inline: -6px;
+  padding: 0 6px;
+  border-radius: var(--radius-2);
+  color: var(--ink-dim);
+  text-align: start;
+}
+
+.chat-team-row:hover,
+.chat-team-earlier:hover {
+  background: var(--surface-hover);
+}
+
+.chat-team-row[aria-expanded="true"] .chat-tools-chevron {
+  transform: rotate(90deg);
+}
+
+.chat-team-marks {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-team-more {
+  margin-inline-start: 2px;
+  font-size: var(--text-2xs);
+}
+
+.chat-team-count {
+  flex: none;
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
+}
+
+.chat-team-words {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-team-words[data-wanting] {
+  color: var(--danger);
+}
+
+.chat-team-took {
+  flex: none;
+}
+
+.chat-team-earlier {
+  display: block;
+  margin: 4px 0 0 12px;
+  padding: 2px 6px;
+  border-radius: var(--radius-2);
+  color: var(--ink-dim);
+  font-size: var(--text-2xs);
 }
 
 .chat-work-mark {
@@ -550,6 +591,21 @@
   margin-bottom: 8px;
 }
 
+.chat-plan-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chat-plan-steps li[data-status="in_progress"] {
+  color: var(--ink);
+}
+
+.chat-plan-steps li[data-status="completed"] {
+  color: var(--ink-faint);
+}
+
 .chat-earlier {
   display: flex;
   align-items: center;
@@ -573,5 +629,101 @@
 }
 
 .chat-earlier button:hover {
+  color: var(--text-primary);
+}
+
+.chat-left-out {
+  margin-top: var(--space-2);
+  color: var(--text-tertiary);
+}
+
+.chat-left-out-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+}
+
+.chat-left-out button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-left-out button:hover {
+  color: var(--text-primary);
+}
+
+.chat-left-out-text {
+  margin: var(--space-2) 0 0;
+}
+
+.md-faint {
+  color: var(--text-tertiary);
+}
+
+/* A `why` link the core checked, drawn in the answer's line as the Mac's chip. */
+.chat-why-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 300px;
+  padding: 0 6px 0 4px;
+  border-radius: var(--radius-2);
+  background: var(--surface-active);
+  color: var(--text-primary);
+  line-height: 1.5;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.chat-why-chip > svg {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.chat-why-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+}
+
+/* The chief's chat: an Overrule and the week's count, as quiet lines. */
+.chat-chief-line {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 2px 0 2px 12px;
+}
+
+.chat-chief-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.chat-chief-quoted {
+  color: var(--text-primary);
+}
+
+.chat-chief-why,
+.chat-chief-when {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.chat-chief-week {
+  margin: 12px 0;
+}
+
+.chat-chief-count {
+  margin-top: 4px;
   color: var(--text-primary);
 }

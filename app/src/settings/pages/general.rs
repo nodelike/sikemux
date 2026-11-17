@@ -7,16 +7,41 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, Subscription, Window,
 };
-use serde_json::json;
-use sikemux_wire::protocol::{ProjectRoot, MAX_PROJECT_DEPTH};
+use sikemux_calls::call;
+use sikemux_calls::project_roots::ResolveParams;
+use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::prefs::{ProjectRoot, MAX_PROJECT_DEPTH};
 
 use crate::core;
 use crate::icons::Icon;
+use crate::settings::index::Page::General;
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(
+        General,
+        "Project folders",
+        "repos repositories directories roots scan depth index picker",
+    ),
+    section(General, "Startup", ""),
+    row(
+        General,
+        "Startup",
+        "Restore agent tabs",
+        "resume reopen startup",
+    ),
+    section(
+        General,
+        "Session transfer",
+        "send move copy host machine chats tabs another server transfer",
+    ),
+];
 
 /// How wide the project folders' "Index itself" and depth columns are.
 const INDEX_COLUMN: f32 = 104.;
@@ -52,7 +77,7 @@ pub fn sent(bench: &mut Workbench, said: Option<SharedString>, cx: &mut App) {
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let path =
-        cx.new(|cx| InputState::new(window, cx).placeholder("~/proj    or    /Users/me/work"));
+        cx.new(|cx| InputState::new(window, cx).placeholder(t!("~/proj    or    /Users/me/work")));
     let entering = cx.subscribe_in(&path, window, |bench, _, event: &InputEvent, window, cx| {
         if matches!(event, InputEvent::PressEnter { .. }) {
             add_typed(bench, window, cx);
@@ -72,11 +97,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
 fn change(bench: &Workbench, edit: impl FnOnce(&mut Vec<ProjectRoot>)) {
     let mut roots = bench.preferences().project_roots.clone();
     edit(&mut roots);
-    crate::settings::set(
-        bench,
-        "projectRoots",
-        serde_json::to_value(roots).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::ProjectRoots(roots));
 }
 
 /// Changes the add row and the project's move, and draws the pages again.
@@ -123,16 +144,15 @@ fn add_typed(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
     }
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
-        let Ok(resolved) = core::request(&asks, "resolvePath", json!({ "path": typed })).await
-        else {
+        let asked = core::Target::here(&asks)
+            .request_typed::<call::ResolvePath>(ResolveParams { path: typed });
+        let Ok(resolved) = asked.await else {
             return;
         };
-        if resolved["kind"].as_str() != Some("dir") {
+        if resolved.kind.as_deref() != Some("dir") {
             return;
         }
-        let Some(path) = resolved["path"].as_str().map(str::to_owned) else {
-            return;
-        };
+        let path = resolved.path;
         let _ = bench.update_in(cx, |bench, window, cx| add(bench, path, window, cx));
     })
     .detach();
@@ -157,7 +177,7 @@ fn stepper(
             ui::IconButton::new(
                 SharedString::from(format!("{id}-less-{key}")),
                 Icon::Minus,
-                "One level less",
+                t!("One level less"),
             )
             .small()
             .on_click(move |_, _, cx| less(depth.saturating_sub(1), cx)),
@@ -174,7 +194,7 @@ fn stepper(
             ui::IconButton::new(
                 SharedString::from(format!("{id}-more-{key}")),
                 Icon::Plus,
-                "One level more",
+                t!("One level more"),
             )
             .small()
             .on_click(move |_, _, cx| more((depth + 1).min(MAX_PROJECT_DEPTH), cx)),
@@ -204,14 +224,14 @@ pub fn render(
             .gap(SPACE_3)
             .px(SPACE_4)
             .py(SPACE_2)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.text_primary)
                     .child(crate::ui::path::tilde(
@@ -222,7 +242,7 @@ pub fn render(
             .child(
                 div().w(px(INDEX_COLUMN)).flex().justify_center().child(
                     Checkbox::new(SharedString::from(format!("root-itself-{key}")))
-                        .accessibility_label("Index itself")
+                        .accessibility_label(t!("Index itself"))
                         .checked(root.self_index)
                         .on_click(move |on: &bool, _, cx| {
                             let (on, path) = (*on, path_a.clone());
@@ -264,7 +284,7 @@ pub fn render(
                         ui::IconButton::new(
                             SharedString::from(format!("root-remove-{key}")),
                             Icon::Close,
-                            "Remove",
+                            t!("Remove"),
                         )
                         .small()
                         .on_click(move |_, _, cx| {
@@ -303,7 +323,7 @@ pub fn render(
                         cx,
                     ))
                     .child(
-                        ui::IconButton::new("root-browse", Icon::Folder, "Browse…").on_click(
+                        ui::IconButton::new("root-browse", Icon::Folder, t!("Browse…")).on_click(
                             move |_, window, cx| {
                                 browse.update(cx, |_, cx| {
                                     let picked = cx.prompt_for_paths(PathPromptOptions {
@@ -328,7 +348,7 @@ pub fn render(
                         ),
                     )
                     .child(
-                        ui::Button::new("root-add", "Add", ui::Variant::Outline)
+                        ui::Button::new("root-add", t!("Add"), ui::Variant::Outline)
                             .icon(Icon::Plus)
                             .disabled(empty)
                             .on_click(move |_, window, cx| {
@@ -338,7 +358,7 @@ pub fn render(
             )
             .child(
                 Checkbox::new("root-add-itself")
-                    .label("Index the folder itself as a project")
+                    .label(t!("Index the folder itself as a project"))
                     .checked(fields.itself)
                     .on_click(move |on: &bool, _, cx| {
                         let on = *on;
@@ -357,46 +377,51 @@ pub fn render(
             .px(SPACE_4)
             .pt(SPACE_2H)
             .pb(SPACE_1)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
-            .child(div().flex_1().child(ui::caps("Folder", cx)))
+            .child(div().flex_1().child(ui::caps(t!("Folder"), cx)))
             .child(
                 div()
                     .w(px(INDEX_COLUMN))
                     .flex()
                     .justify_center()
-                    .child(ui::caps("Index itself", cx)),
+                    .child(ui::caps(t!("Index itself"), cx)),
             )
-            .child(div().w(px(DEPTH_COLUMN)).child(ui::caps("Depth", cx)))
+            .child(div().w(px(DEPTH_COLUMN)).child(ui::caps(t!("Depth"), cx)))
     });
     let body = div()
         .children(heads)
         .children(listed)
         .child(adding)
         .child(rows::note(
-            "Indexing a folder itself offers it in the picker even when it is not a repo — useful for a scratch directory.",
+            t!("Indexing a folder itself offers it in the picker even when it is not a repo — useful for a scratch directory."),
             cx,
         ));
     vec![
         rows::section(
-            "Project folders",
-            Some(format!("{count} {}", if count == 1 { "folder" } else { "folders" }).into()),
-            Some("Each folder is scanned for git repos, as deep as its depth allows.".into()),
+            n!("Project folders"),
+            Some(match count {
+                1 => t!("1 folder").into(),
+                count => t!("{count} folders", count = count).into(),
+            }),
+            Some(t!("Each folder is scanned for git repos, as deep as its depth allows.").into()),
             lit("Project folders"),
             body,
             cx,
         ),
         rows::section(
-            "Startup",
+            n!("Startup"),
             None,
             None,
             lit("Startup"),
             rows::row(
-                "Restore agent tabs",
-                Some("Resumable tabs come back asleep and start only when selected."),
+                t!("Restore agent tabs"),
+                Some(t!(
+                    "Resumable tabs come back asleep and start only when selected."
+                )),
                 rows::switch(
                     "restore-agent-tabs",
-                    "restoreAgentTabs",
+                    PreferenceChange::RestoreAgentTabs,
                     bench.preferences().restore_agent_tabs,
                     this,
                 ),
@@ -405,9 +430,9 @@ pub fn render(
             cx,
         ),
         rows::section(
-            "Session transfer",
-            None,
-            Some("Send the project in front to another host, with its chats and tabs.".into()),
+            n!("Session transfer"),
+            bench.pro_free(),
+            Some(t!("Send the project in front to another host, with its chats and tabs.").into()),
             lit("Session transfer"),
             transfer(bench, &fields.transfer, this, cx),
             cx,
@@ -415,7 +440,6 @@ pub fn render(
     ]
 }
 
-/// Changes how the project in front is to go.
 fn set_transfer(this: &Entity<Workbench>, change: impl FnOnce(&mut Transfer), cx: &mut App) {
     this.update(cx, |bench, cx| {
         change_fields(bench, cx, |fields, _| change(&mut fields.transfer));
@@ -429,7 +453,7 @@ fn transfer(
     cx: &App,
 ) -> AnyElement {
     let Some(project) = bench.project().cloned() else {
-        return rows::note("Open a project to send it to another host.", cx);
+        return rows::note(t!("Open a project to send it to another host."), cx);
     };
     let hosts: Vec<_> = bench
         .other_hosts()
@@ -438,7 +462,7 @@ fn transfer(
         .collect();
     if hosts.is_empty() {
         return rows::note(
-            "Link another Sikemux host under Devices, then send projects there.",
+            t!("Sign in to your account on another Sikemux host to link it, then send projects there."),
             cx,
         );
     }
@@ -452,7 +476,6 @@ fn transfer(
     let (pick_host, pick_way, pick_changes, send) =
         (this.clone(), this.clone(), this.clone(), this.clone());
     let moving = transfer.moving;
-    let verb = if moving { "Move" } else { "Copy" };
     let name = project.name.clone();
     let body = div()
         .flex()
@@ -479,7 +502,7 @@ fn transfer(
                 .child(
                     ui::Segmented::words(
                         "transfer-way",
-                        vec![("Copy".into(), None), ("Move".into(), None)],
+                        vec![(t!("Copy").into(), None), (t!("Move").into(), None)],
                         usize::from(moving),
                     )
                     .on_select(move |at: &usize, _, cx| {
@@ -490,7 +513,7 @@ fn transfer(
         )
         .child(
             Checkbox::new("transfer-uncommitted")
-                .label("Bring uncommitted changes")
+                .label(t!("Bring uncommitted changes"))
                 .checked(transfer.uncommitted)
                 .on_click(move |on: &bool, _, cx| {
                     let on = *on;
@@ -501,40 +524,30 @@ fn transfer(
             div().flex().child(
                 ui::Button::new(
                     "transfer-send",
-                    format!("{verb} {name} to {label}"),
+                    match moving {
+                        true => t!("Move {name} to {host}", name = name, host = label),
+                        false => t!("Copy {name} to {host}", name = name, host = label),
+                    },
                     ui::Variant::Primary,
                 )
                 .disabled(transfer.sending)
                 .on_click({
                     let uncommitted = transfer.uncommitted;
                     move |_, _, cx| {
+                        let from = send.read(cx).place();
                         let sending = crate::hosts::Sending {
+                            from,
                             project: project.id.clone(),
                             name: project.name.clone(),
                             host: host.clone(),
                             label: label.clone(),
-                            after: after.clone(),
+                            after: Some(after.clone()),
                             moving,
                             uncommitted,
                         };
-                        send.update(cx, |bench, cx| {
-                            if !sending.moving {
-                                return bench.send_session(sending, cx);
-                            }
-                            let title = format!("Move {} to {}?", sending.name, sending.label);
-                            let held = std::cell::RefCell::new(Some(sending));
-                            bench.confirm(
-                                title,
-                                "Its chats are closed here and their saved conversations removed, once the other host has every chat and tab. If anything does not arrive whole, nothing here changes.",
-                                "Move",
-                                true,
-                                move |bench, yes, _, cx| {
-                                    if let Some(sending) = held.borrow_mut().take().filter(|_| yes) {
-                                        bench.send_session(sending, cx);
-                                    }
-                                },
-                                cx,
-                            );
+                        send.update(cx, |bench, cx| match sending.moving {
+                            true => bench.move_session_asking(sending, cx),
+                            false => bench.send_session(sending, cx),
                         })
                     }
                 }),
@@ -542,7 +555,7 @@ fn transfer(
         )
         .children(transfer.said.clone().map(|said| rows::note(said, cx)))
         .child(rows::note(
-            "Chats come along when their agent keeps them in files, as Claude and Codex do; the others stay here. A chat that came along starts on the other host's sign-in when you next send to it.",
+            t!("Chats come along when their agent keeps them in files, as Claude and Codex do; the others stay here. A chat that came along starts on the other host's sign-in when you next send to it."),
             cx,
         ));
     body.into_any_element()

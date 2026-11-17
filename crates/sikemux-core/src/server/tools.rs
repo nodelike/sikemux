@@ -3,7 +3,10 @@
 //! names the port and a token; before a client sends the token it makes the
 //! core prove it holds the same one.
 
+use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use std::net::{Ipv4Addr, SocketAddrV4};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,25 +24,26 @@ use crate::cli::auth::{same_secret, server_proof};
 use crate::cli::endpoint::{remove_owned_endpoint, write_endpoint};
 use crate::cli::protocol::{
     CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenOutcome,
-    CliServerResponse, CLI_PROTOCOL_VERSION, MAX_CLI_FRAME_BYTES, MAX_CLI_RESPONSE_BYTES,
+    CliServerResponse, CLI_PROTOCOL_VERSION, CUT_BY_UPDATE, MAX_CLI_FRAME_BYTES,
+    MAX_CLI_RESPONSE_BYTES,
 };
-use crate::protocol::WindowCall;
+use sikemux_wire::protocol::WindowCall;
 
 use super::{harness, Core};
 
-const MAX_CONNECTIONS: usize = 128;
+const MAX_CONNECTIONS: usize = 4096;
 /// One deadline for the whole request, so a client sending a byte every few
 /// seconds cannot hold its connection forever.
 const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPEN_ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
-/// Items a plugin stream may get ahead of the window by before it is ended.
-const CUT_SHORT: &str = "Sikemux started updating its background process while answering this call, so it may already have happened; check before trying it again";
 
 pub(crate) struct ToolEndpoint {
     path: PathBuf,
     token: String,
+    #[cfg(unix)]
     fd: RawFd,
+    #[cfg(unix)]
     open: Arc<AtomicUsize>,
     task: JoinHandle<()>,
 }
@@ -52,7 +56,7 @@ impl Drop for Slot {
     }
 }
 
-fn new_token() -> String {
+pub(super) fn new_token() -> String {
     format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -66,7 +70,7 @@ fn descriptor(core: &Core, port: u16, token: &str) -> CliEndpointDescriptor {
         pid: std::process::id(),
         port,
         token: token.to_owned(),
-        version: core.build.version.clone(),
+        version: core.config().build.version.clone(),
     }
 }
 
@@ -84,6 +88,7 @@ impl ToolEndpoint {
         Ok(Self::serve(core, listener, path, port, token))
     }
 
+    #[cfg(unix)]
     /// Keeps serving a listener an earlier core handed over, with its port and
     /// token, and publishes it again if the endpoint file no longer says so.
     pub(crate) async fn adopt(
@@ -118,6 +123,7 @@ impl ToolEndpoint {
         port: u16,
         token: String,
     ) -> Self {
+        #[cfg(unix)]
         let fd = listener.as_raw_fd();
         let secret: Arc<str> = token.clone().into();
         let open = Arc::new(AtomicUsize::new(0));
@@ -148,25 +154,31 @@ impl ToolEndpoint {
         Self {
             path,
             token,
+            #[cfg(unix)]
             fd,
+            #[cfg(unix)]
             open,
             task,
         }
     }
 
+    #[cfg(unix)]
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
     }
 
+    #[cfg(unix)]
     pub(crate) fn token(&self) -> &str {
         &self.token
     }
 
+    #[cfg(unix)]
     pub(crate) fn fd(&self) -> RawFd {
         self.fd
     }
 
     /// How many calls are being answered right now.
+    #[cfg(unix)]
     pub(crate) fn open_calls(&self) -> Arc<AtomicUsize> {
         self.open.clone()
     }
@@ -237,7 +249,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
         return;
     };
     let (read_half, mut writer) = stream.into_split();
-    if core.updating.is_frozen() {
+    if core.updating().is_frozen() {
         write(
             &mut writer,
             &CliServerResponse::Error {
@@ -283,8 +295,8 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
         CliClientCommand::Ping { protocol, token } => {
             authenticate(protocol, &token, secret).map(|()| CliServerResponse::Pong {
                 protocol: CLI_PROTOCOL_VERSION,
-                version: core.build.version.clone(),
-                window: core.window.is_open(),
+                version: core.config().build.version.clone(),
+                window: core.window().is_open(),
             })
         }
         CliClientCommand::Harness {
@@ -295,7 +307,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             Ok(()) => {
                 let answer = tokio::select! {
                     answer = harness::call(&core, request, peer, port) => answer,
-                    () = core.updating.until_frozen() => Err(CUT_SHORT.into()),
+                    () = core.updating().until_frozen() => Err(CUT_BY_UPDATE.into()),
                 };
                 Ok(match answer {
                     Ok(value) => CliServerResponse::Result { value },
@@ -304,6 +316,21 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             }
             Err(message) => Err(message),
         },
+        CliClientCommand::Build {
+            protocol,
+            token,
+            request,
+        } => {
+            if let Err(message) = authenticate(protocol, &token, secret) {
+                write(&mut writer, &CliServerResponse::Error { message }).await;
+                return;
+            }
+            tokio::select! {
+                () = build(&core, &mut reader, &mut writer, request) => {}
+                () = core.updating().until_frozen() => {}
+            }
+            return;
+        }
         CliClientCommand::Open {
             protocol,
             token,
@@ -317,7 +344,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             }
             let closed = tokio::select! {
                 () = open(&core, &mut writer, request) => false,
-                () = core.updating.until_frozen() => true,
+                () = core.updating().until_frozen() => true,
             };
             if closed {
                 write(
@@ -335,6 +362,125 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
     write(&mut writer, &response).await;
 }
 
+/// Gives a heavy command its turn once the host has room, saying while it waits, and holds
+/// the turn until the command closes the connection. A caller of a command already running
+/// follows its output instead, and an agent's own command that would wait long is sent away.
+async fn build(
+    core: &Arc<Core>,
+    reader: &mut BufReader<OwnedReadHalf>,
+    writer: &mut OwnedWriteHalf,
+    request: crate::cli::protocol::BuildRequest,
+) {
+    use super::line::Place;
+    let typed_by_its_agent = request
+        .started_by
+        .zip(request.agent_id.as_deref())
+        .is_some_and(|((pid, started), agent_id)| {
+            super::callers::is_root_of(pid, started, agent_id)
+        });
+    let may_come_back = request.may_come_back && typed_by_its_agent;
+    let turn = super::line::Turn::ask(core, request);
+    let mut told = false;
+    let mut following = false;
+    loop {
+        let answer = match turn.place() {
+            Place::Running { log } => {
+                if write(writer, &CliServerResponse::Building { log }).await {
+                    hold(&turn, reader, writer).await;
+                }
+                return;
+            }
+            Place::Following { log } if !following => {
+                following = true;
+                Some(CliServerResponse::Joined { log })
+            }
+            Place::Following { .. } => None,
+            Place::Ended { code, log } => {
+                if let (false, Some(log)) = (following, log) {
+                    if !write(writer, &CliServerResponse::Joined { log }).await {
+                        return;
+                    }
+                }
+                write(writer, &CliServerResponse::Ended { code }).await;
+                return;
+            }
+            Place::Waiting {
+                ahead,
+                running,
+                why,
+                expected_ms,
+            } if !told => {
+                told = true;
+                let long = expected_ms.filter(|ms| *ms > super::line::COME_BACK_AFTER_MS);
+                match long.filter(|_| may_come_back) {
+                    Some(ms) => match turn.send_away(ahead, ms) {
+                        Some(said) => {
+                            write(writer, &CliServerResponse::Parked { said }).await;
+                            return;
+                        }
+                        None => Some(CliServerResponse::Queued {
+                            ahead,
+                            building: running,
+                            why,
+                        }),
+                    },
+                    None => Some(CliServerResponse::Queued {
+                        ahead,
+                        building: running,
+                        why,
+                    }),
+                }
+            }
+            Place::Waiting { .. } => None,
+        };
+        if let Some(answer) = answer {
+            if !write(writer, &answer).await {
+                return;
+            }
+        }
+        tokio::select! {
+            () = turn.changed() => {}
+            () = closed(reader) => return,
+        }
+    }
+}
+
+/// Holds a heavy command's turn while it runs: hears that what it built runs now and how it
+/// ended, and tells it when the core stops it.
+async fn hold(
+    turn: &super::line::Turn,
+    reader: &mut BufReader<OwnedReadHalf>,
+    writer: &mut OwnedWriteHalf,
+) {
+    use crate::cli::protocol::BuildNote;
+    let mut lines = (&mut *reader).lines();
+    let mut told_stop = false;
+    loop {
+        if let (false, Some(why)) = (told_stop, turn.stopped()) {
+            told_stop = true;
+            if !write(writer, &CliServerResponse::Stopped { why }).await {
+                return;
+            }
+        }
+        tokio::select! {
+            line = lines.next_line() => match line {
+                Ok(Some(line)) => match serde_json::from_str::<BuildNote>(&line) {
+                    Ok(BuildNote::Released) => turn.released(),
+                    Ok(BuildNote::Exited { code }) => turn.exited(code),
+                    Err(_) => {}
+                },
+                _ => return,
+            },
+            () = turn.changed() => {}
+        }
+    }
+}
+
+async fn closed(reader: &mut BufReader<OwnedReadHalf>) {
+    let mut ignored = [0; 64];
+    while matches!(reader.read(&mut ignored).await, Ok(read) if read > 0) {}
+}
+
 /// Answers once the window has opened every target, and for `--wait` again
 /// once their tabs have closed.
 async fn open(
@@ -347,7 +493,7 @@ async fn open(
     let call = match serde_json::to_value(&request)
         .map_err(|error| error.to_string())
         .and_then(|request| {
-            core.window
+            core.window()
                 .call(WindowCall::Open { request }, "open files", wait, None)
         }) {
         Ok(call) => call,
@@ -367,7 +513,7 @@ async fn open(
     let outcome = match accepted {
         Ok(outcome) => outcome,
         Err(message) => {
-            core.window.forget(call_id);
+            core.window().forget(call_id);
             write(writer, &CliServerResponse::Error { message }).await;
             return;
         }
@@ -382,7 +528,7 @@ async fn open(
     )
     .await;
     if !sent || !wait {
-        core.window.forget(call_id);
+        core.window().forget(call_id);
         return;
     }
     let reason = match call.closed.await {

@@ -1,0 +1,1635 @@
+//! The Limits panel: how much of its plan each agent's account has used, drawn as a ruler per
+//! agent, with every account in a float over the rows and in the top bar's popover.
+
+use crate::ui::Clicks;
+use std::cell::Cell;
+use std::f32::consts::TAU;
+use std::sync::Arc;
+use std::time::Duration;
+
+use gpui_kit::base::Popover;
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{
+    anchored, canvas, deferred, div, fill, point, px, size, Anchor, AnchoredPositionMode,
+    Animation, AnimationExt, AnyElement, App, Bounds, Context, Div, FontWeight, Hsla, Image,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
+};
+use sikemux_agents::agent_accounts::usage::ResetKind;
+use sikemux_agents::agent_accounts::usage::ResetOutcome;
+use sikemux_agents::agent_accounts::usage::UsageWindow;
+use sikemux_agents::agent_accounts::Profile;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::agent_accounts::Unpicking;
+use sikemux_calls::agent_accounts::UsedReset;
+use sikemux_calls::agent_accounts::UsingReset;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_view::workspace::LauncherInfo;
+
+use crate::core::Target;
+use crate::icons::Icon;
+use crate::rail::Rail;
+use crate::theme::{
+    radius_1, radius_2, radius_3, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS,
+    TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H,
+};
+use crate::ui::IconButton;
+use crate::workbench::Workbench;
+use crate::{motion, theme, toast, ui};
+
+const OPEN_AFTER: Duration = Duration::from_millis(120);
+const CLOSE_AFTER: Duration = Duration::from_millis(180);
+const UNDO_FOR: Duration = Duration::from_secs(6);
+/// A read that never answers, as when the core restarts, stops spinning after this.
+const READING_AT_MOST: Duration = Duration::from_secs(60);
+/// How old a reading may be when limits come into view, as claude.ai reads its own on every look.
+const FRESH_FOR: Duration = Duration::from_secs(20);
+
+const ROW: f32 = 30.;
+const ROW_COMPACT: f32 = 28.;
+const ROW_GAP: f32 = 2.;
+const HEADER: f32 = 24.;
+const AGENT_HEAD: f32 = 34.;
+const ACCOUNT_LINE: f32 = 24.;
+const NAME_LINE: f32 = 20.;
+const NAME_GAP: f32 = 5.;
+const WINDOW_LINE: f32 = 17.;
+const ACCOUNT_PAD: f32 = 8.;
+const RESETS_HEAD: f32 = 22.;
+const RESET_ROW: f32 = 24.;
+const RESET_ASKING: f32 = 84.;
+const LABEL_WIDTH: f32 = 44.;
+const AVATAR: f32 = 18.;
+const FLOAT_GAP: f32 = 6.;
+/// The smallest float worth scrolling, and what it leaves of the rail above it.
+const FLOAT_LEAST: f32 = 120.;
+const RAIL_HEAD: f32 = 41.;
+const FLOAT_MARGIN: f32 = 52.;
+const POPOVER_WIDTH: f32 = 300.;
+const POPOVER_MARGIN: f32 = 60.;
+
+/// What the Limits float and popover hold while they are on screen.
+#[derive(Default)]
+pub struct Reveal {
+    open: bool,
+    over_rows: bool,
+    over_panel: bool,
+    over_float: bool,
+    settling: Option<Task<()>>,
+    popover: bool,
+    undo: Option<Undo>,
+    reading: Option<Task<()>>,
+    /// The reset pressed once, by account and kind, waiting for the press that spends it.
+    arming: Option<String>,
+    /// The reset being spent, by account and kind.
+    resetting: Option<String>,
+    /// Whether the rail's last draw held the panel, which only drawing it can say.
+    panel_drawn: Cell<bool>,
+}
+
+/// A pick, offered back for a few seconds with the chats it moved.
+struct Undo {
+    undoing: Unpicking,
+    _expires: Task<()>,
+}
+
+/// One account as the Limits panel shows it.
+struct Shown<'a> {
+    /// The account, or none for an agent the person never added an account to.
+    profile: Option<&'a Profile>,
+    name: String,
+    avatar: Arc<Image>,
+    usage: Option<&'a AccountUsage>,
+    signed_out: bool,
+    /// Its agent has not yet said whether it is signed in.
+    checking: bool,
+}
+
+impl Shown<'_> {
+    fn id(&self) -> Option<&str> {
+        self.profile.map(|profile| profile.id.as_str())
+    }
+
+    fn key(&self, provider: &str) -> String {
+        self.id().unwrap_or(provider).to_owned()
+    }
+
+    fn stale(&self, now: u64) -> bool {
+        self.usage.is_some_and(|usage| usage.is_stale(now))
+    }
+
+    fn week(&self) -> Option<&UsageWindow> {
+        self.usage?.usage.as_ref()?.week()
+    }
+
+    fn session(&self) -> Option<&UsageWindow> {
+        self.usage?.usage.as_ref()?.session()
+    }
+
+    /// The windows an account draws, labelled: the session's, the week's, then each model's.
+    fn windows(&self) -> Vec<(String, &UsageWindow)> {
+        let Some(usage) = self.usage.and_then(|usage| usage.usage.as_ref()) else {
+            return Vec::new();
+        };
+        let plan = [(t!("Session"), usage.session()), (t!("Week"), usage.week())]
+            .into_iter()
+            .filter_map(|(label, window)| Some((label.to_owned(), window?)));
+        let models =
+            (usage.windows.iter()).filter_map(|window| Some((window.scope.clone()?, window)));
+        plan.chain(models).collect()
+    }
+
+    fn tier(&self) -> Option<&str> {
+        self.usage?.usage.as_ref()?.tier.as_deref()
+    }
+
+    fn resets(&self) -> &[ResetKind] {
+        (self.usage)
+            .and_then(|usage| usage.usage.as_ref()?.resets.as_ref())
+            .map_or(&[], |resets| resets.kinds.as_slice())
+    }
+
+    /// How long ago its numbers were read, once that is worth saying.
+    fn age(&self, now: u64) -> Option<String> {
+        let read = self.usage?.read_at?;
+        self.stale(now).then(|| ui::time::ago(read))
+    }
+
+    /// Why there is nothing to draw for a signed-in account.
+    fn nothing(&self) -> String {
+        if self.checking {
+            return t!("Checking sign-in…").into();
+        }
+        let Some(usage) = self.usage else {
+            return t!("Not read yet").into();
+        };
+        match (&usage.problem, &usage.usage) {
+            (Some(_), _) => t!("Could not read").into(),
+            (None, Some(_)) => t!("No plan limits").into(),
+            (None, None) => t!("Not read yet").into(),
+        }
+    }
+
+    /// The core's own explanation of why there are no limits to draw, too long for the row.
+    fn no_limits_reason(&self) -> Option<String> {
+        let usage = self.usage?;
+        (usage.problem.clone()).or_else(|| usage.usage.as_ref()?.unavailable_reason.clone())
+    }
+}
+
+/// An agent that reports plan limits, with its accounts in the order they were added.
+struct Agent<'a> {
+    provider: &'a str,
+    name: &'a str,
+    accounts: Vec<Shown<'a>>,
+    in_use: usize,
+}
+
+impl<'a> Agent<'a> {
+    fn read(bench: &'a Workbench, launcher: &'a LauncherInfo) -> Self {
+        let provider = launcher.provider.as_str();
+        let name = bench.agent_name(provider);
+        let profiles = bench.accounts.of(provider);
+        let accounts: Vec<Shown<'a>> = if profiles.is_empty() {
+            vec![Shown {
+                profile: None,
+                name: name.to_owned(),
+                avatar: super::marble::avatar(provider, 0),
+                usage: bench.usage_of(&launcher.id),
+                signed_out: launcher.status.as_deref() == Some("signedOut"),
+                checking: launcher.status.is_none(),
+            }]
+        } else {
+            (profiles.into_iter())
+                .map(|profile| {
+                    let asked = crate::accounts::status(bench, profile);
+                    let status = asked.and_then(|status| status.as_ref().ok());
+                    Shown {
+                        profile: Some(profile),
+                        name: profile.shown_name(status),
+                        avatar: bench.accounts.avatar(profile),
+                        usage: crate::accounts::usage(bench, profile),
+                        signed_out: status.is_some_and(|status| !status.signed_in),
+                        checking: asked.is_none(),
+                    }
+                })
+                .collect()
+        };
+        let current = bench.accounts.current(provider).map(|profile| &profile.id);
+        let next = accounts
+            .iter()
+            .position(|shown| shown.usage.is_some_and(|usage| usage.next));
+        let in_use = next
+            .or_else(|| {
+                (accounts.iter())
+                    .position(|shown| shown.profile.map(|profile| &profile.id) == current)
+            })
+            .unwrap_or(0);
+        Self {
+            provider,
+            name,
+            accounts,
+            in_use,
+        }
+    }
+
+    /// Whether the account goes unnamed, because it is only the agent's own.
+    fn unnamed(&self, shown: &Shown) -> bool {
+        shown.profile.is_none() || shown.name == self.name
+    }
+}
+
+/// Whether the agent has limits to show. One without accounts shows them only once the core
+/// has read some, as only some of its sign-ins have any.
+fn reports_limits(bench: &Workbench, provider: &str) -> bool {
+    let Some(agent) = sikemux_agents::agent_catalog::agent(provider) else {
+        return false;
+    };
+    let read = || (bench.reads.usage.iter()).any(|account| account.provider == provider);
+    agent.usage && bench.has_agent(provider) && (agent.accounts || read())
+}
+
+/// The agents the panel has a row for, in the rail's own order: every one that reports limits,
+/// or the agent the rail is showing.
+fn launchers(bench: &Workbench, every: bool) -> Vec<&LauncherInfo> {
+    if !every {
+        return (bench.launcher().into_iter())
+            .filter(|launcher| reports_limits(bench, &launcher.provider))
+            .collect();
+    }
+    let mut found: Vec<&LauncherInfo> = Vec::new();
+    for launcher in bench.launchers() {
+        if reports_limits(bench, &launcher.provider)
+            && found.iter().all(|seen| seen.provider != launcher.provider)
+        {
+            found.push(
+                bench
+                    .launcher_of_kind(&launcher.provider)
+                    .unwrap_or(launcher),
+            );
+        }
+    }
+    found
+}
+
+fn agents(bench: &Workbench, every: bool) -> Vec<Agent<'_>> {
+    (launchers(bench, every).into_iter())
+        .map(|launcher| Agent::read(bench, launcher))
+        .collect()
+}
+
+/// What every piece of the panel draws from.
+struct View {
+    this: WeakEntity<Workbench>,
+    now: u64,
+    solo: bool,
+    compact: bool,
+    reading: bool,
+    arming: Option<String>,
+    resetting: Option<String>,
+    /// The account a pick came from, with Undo on its row.
+    undo: Option<String>,
+    /// How tall the float's list may grow before it scrolls.
+    room: f32,
+    /// Whether smart accounts places new chats, so a pick pins them rather than moving any.
+    smart: bool,
+}
+
+impl View {
+    fn on<E>(
+        &self,
+        act: impl Fn(&mut Workbench, &mut Window, &mut Context<Workbench>) + 'static,
+    ) -> impl Fn(&E, &mut Window, &mut App) + 'static {
+        let this = self.this.clone();
+        move |_, window, cx| {
+            let _ = this.update(cx, |bench, cx| act(bench, window, cx));
+        }
+    }
+}
+
+/// The panel at the foot of the rail: the rows, and the float while the pointer rests on them.
+pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoElement> {
+    let every = bench.rails.all_harnesses;
+    let agents = agents(bench, every);
+    if agents.is_empty() {
+        return None;
+    }
+    bench.accounts.limits.panel_drawn.set(true);
+    let compact = bench.rail_compact();
+    let rows = rest_accounts(&agents, !every).len();
+    let row = if compact { ROW_COMPACT } else { ROW };
+    let tall = HEADER + rows as f32 * row + (rows as f32 - 1.) * ROW_GAP;
+    let room = (bench.rails.frame.get()[3] - RAIL_HEAD - tall - FLOAT_MARGIN).max(FLOAT_LEAST);
+    let view = view(bench, !every, compact, room, cx.weak_entity());
+    let open = bench.accounts.limits.open;
+    let hovered = |this: WeakEntity<Workbench>, over: fn(&mut Reveal) -> &mut bool| {
+        move |inside: &bool, _: &mut Window, cx: &mut App| {
+            let inside = *inside;
+            let _ = this.update(cx, |bench, cx| {
+                *over(&mut bench.accounts.limits) = inside;
+                settle_hover(bench, cx);
+            });
+        }
+    };
+    Some(
+        div()
+            .id("limits")
+            .relative()
+            .flex_none()
+            .mt(px(if compact { 10. } else { 12. }))
+            .mx(SPACE_2H)
+            .mb(px(if compact { 8. } else { 12. }))
+            .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_panel))
+            .child(header(&view, &agents, cx))
+            .child(
+                div()
+                    .id("limits-rows")
+                    .flex()
+                    .flex_col()
+                    .gap(px(ROW_GAP))
+                    .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_rows))
+                    .children(rest_rows(&view, &agents, cx)),
+            )
+            .when(open, |panel| {
+                let float = div()
+                    .id("limits-float")
+                    .w(px(POPOVER_WIDTH))
+                    .pb(px(FLOAT_GAP))
+                    .occlude()
+                    .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_float))
+                    .child(
+                        floating(cx)
+                            .child(every_account(&view, &agents, cx))
+                            .with_animation(
+                                "limits-float-in",
+                                motion::entrance(motion::POP_UP),
+                                |float, shown| {
+                                    float.opacity(shown).relative().top(px(4. * (1. - shown)))
+                                },
+                            ),
+                    );
+                panel.child(
+                    div().absolute().top_0().right_0().child(
+                        deferred(
+                            anchored()
+                                .position_mode(AnchoredPositionMode::Local)
+                                .anchor(Anchor::BottomRight)
+                                .snap_to_window_with_margin(px(8.))
+                                .child(float),
+                        )
+                        .with_priority(1),
+                    ),
+                )
+            }),
+    )
+}
+
+fn view(
+    bench: &Workbench,
+    solo: bool,
+    compact: bool,
+    room: f32,
+    this: WeakEntity<Workbench>,
+) -> View {
+    let reveal = &bench.accounts.limits;
+    View {
+        this,
+        now: ui::time::now_ms(),
+        solo,
+        compact,
+        reading: reveal.reading.is_some(),
+        arming: reveal.arming.clone(),
+        resetting: reveal.resetting.clone(),
+        undo: reveal
+            .undo
+            .as_ref()
+            .map(|undo| undo.undoing.back_to.clone()),
+        room,
+        smart: bench.accounts.smart(),
+    }
+}
+
+fn floating(cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .bg(t.surface_overlay)
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .rounded(radius_4())
+        .shadow(t.shadow_float())
+}
+
+fn small_button(id: impl Into<gpui_kit::ElementId>, icon: Icon, label: String) -> IconButton {
+    IconButton::new(id, icon, label)
+        .small()
+        .width(20.)
+        .height(20.)
+        .glyph(13.)
+}
+
+fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    let add = (view.solo).then(|| add_button(view, &agents[0]));
+    div()
+        .h(px(20.))
+        .mb(SPACE_1)
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(
+            ui::text(t!("LIMITS"), TEXT_2XS, FontWeight::MEDIUM)
+                .letter_spacing(0.08)
+                .text_color(t.text_tertiary),
+        )
+        .child(div().flex_1().h(px(1.)).bg(t.border))
+        .children(resets_badge(view, agents, cx))
+        .child(refresh_button(view, agents, cx))
+        .children(add)
+}
+
+/// How many limit resets the accounts shown hold between them, when any.
+fn resets_badge(view: &View, agents: &[Agent], cx: &App) -> Option<Stateful<Div>> {
+    let left: u32 = (rest_accounts(agents, view.solo).into_iter())
+        .flat_map(|(agent, place)| agent.accounts[place].resets())
+        .map(|kind| kind.left)
+        .sum();
+    if left == 0 {
+        return None;
+    }
+    let t = Tokens::get(cx);
+    let says = match left {
+        1 => t!("1 limit reset across these accounts").to_owned(),
+        left => t!("{count} limit resets across these accounts", count = left),
+    };
+    Some(
+        div()
+            .id("limits-resets")
+            .h(px(18.))
+            .px(px(5.))
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .rounded(radius_1())
+            .bg(t.surface_hover)
+            .text_color(t.text_secondary)
+            .tooltip(ui::tooltip(says))
+            .child(ui::icon(Icon::Refresh, 10.).text_color(t.text_secondary))
+            .child(ui::text(left.to_string(), TEXT_3XS_H, FontWeight::MEDIUM)),
+    )
+}
+
+fn add_button(view: &View, agent: &Agent) -> IconButton {
+    let provider = agent.provider.to_owned();
+    small_button(
+        SharedString::from(format!("add-account-{provider}")),
+        Icon::Plus,
+        t!("Add a {name} account", name = agent.name),
+    )
+    .on_click(view.on(move |bench, window, cx| {
+        crate::accounts::open_sign_in(bench, &provider, None, window, cx);
+    }))
+}
+
+fn refresh_button(view: &View, agents: &[Agent], cx: &App) -> AnyElement {
+    let providers: Vec<String> = agents.iter().map(|a| a.provider.to_owned()).collect();
+    let button = small_button(
+        "refresh-limits",
+        Icon::Refresh,
+        t!("Refresh plan limits").into(),
+    )
+    .on_click(view.on(move |bench, _, cx| {
+        if bench.accounts.limits.reading.is_none() {
+            start_reading(bench, cx);
+            for provider in &providers {
+                crate::accounts::ask_again(bench, provider, cx);
+            }
+        }
+    }));
+    if !view.reading || cx.reduce_motion() {
+        return button.into_any_element();
+    }
+    let t = Tokens::get(cx);
+    div()
+        .size(px(20.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            ui::icon(Icon::Refresh, 13.)
+                .text_color(t.text_primary)
+                .with_animation(
+                    "limits-reading",
+                    Animation::new(Duration::from_millis(800))
+                        .repeat()
+                        .with_max_fps(30.),
+                    |glyph, turned| {
+                        glyph.with_transformation(Transformation::rotate(gpui_kit::Radians(
+                            turned * TAU,
+                        )))
+                    },
+                ),
+        )
+        .into_any_element()
+}
+
+/// Reads every account's limits, with the refresh button turning until the core answers.
+fn start_reading(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    if bench.accounts.limits.reading.is_some() {
+        return;
+    }
+    bench.read_usage();
+    bench.accounts.limits.reading = Some(cx.spawn(async move |bench, cx| {
+        cx.background_executor().timer(READING_AT_MOST).await;
+        let _ = bench.update(cx, |bench, cx| usage_read(bench, cx));
+    }));
+    redraw(bench, cx);
+}
+
+/// Whether a signed-in account's reading is older than the reads made while limits show.
+fn reading_is_old(bench: &Workbench, now: u64) -> bool {
+    let every = FRESH_FOR.as_millis() as u64;
+    (bench.reads.usage.iter())
+        .filter(|account| account.signed_in)
+        .any(|account| {
+            account
+                .read_at
+                .is_none_or(|read| now.saturating_sub(read) >= every)
+        })
+}
+
+/// One of an agent's windows, added up over the accounts that have read it.
+struct Total {
+    /// Points left, out of 100 for each account counted.
+    left: f64,
+    accounts: usize,
+}
+
+type Pick = for<'b, 'c> fn(&'b Shown<'c>) -> Option<&'b UsageWindow>;
+
+impl Total {
+    fn of(agent: &Agent, now: u64, window: Pick) -> Option<Self> {
+        let left: Vec<f64> = (agent.accounts.iter())
+            .filter(|shown| !shown.signed_out)
+            .filter_map(|shown| Some(100. - window(shown)?.used_at(now)))
+            .collect();
+        (!left.is_empty()).then(|| Self {
+            left: left.iter().sum(),
+            accounts: left.len(),
+        })
+    }
+
+    /// How much of the whole is used, as one window would say it.
+    fn used(&self) -> f64 {
+        100. - self.left / self.accounts as f64
+    }
+}
+
+/// The accounts the rail lists, each by its agent and its place among that agent's accounts.
+fn rest_accounts<'b, 'a>(agents: &'b [Agent<'a>], solo: bool) -> Vec<(&'b Agent<'a>, usize)> {
+    let shown = if solo { &agents[..1] } else { agents };
+    (shown.iter())
+        .flat_map(|agent| (0..agent.accounts.len()).map(move |place| (agent, place)))
+        .collect()
+}
+
+/// What an account's rail row draws: its session over its week, else its week alone. A model's
+/// own week, such as Fable's, is left to the card.
+fn rail_limits<'s>(shown: &'s Shown) -> Vec<(&'static str, &'s UsageWindow)> {
+    [(t!("Session"), shown.session()), (t!("Week"), shown.week())]
+        .into_iter()
+        .filter_map(|(name, window)| Some((name, window?)))
+        .collect()
+}
+
+fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
+    let accounts = rest_accounts(agents, view.solo);
+    let two =
+        (accounts.iter()).any(|(agent, place)| rail_limits(&agent.accounts[*place]).len() > 1);
+    let numbers = if two { 66. } else { 36. };
+    (accounts.into_iter())
+        .map(|(agent, place)| rest_row(view, agent, place, numbers, cx))
+        .collect()
+}
+
+/// How low a limit is, in the colour of its number: quiet until it nears its end.
+fn left_ink(used: f64, t: &Tokens, quiet: Hsla) -> Hsla {
+    match used {
+        used if used < 70. => quiet,
+        used => signal(used, t),
+    }
+}
+
+/// A resting row: an account's face and name, its session over its week, and how much of
+/// each is used, every ruler as long as the others so the accounts compare at a glance.
+fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let shown = &agent.accounts[place];
+    let limits = rail_limits(shown);
+    let id = SharedString::from(format!(
+        "limit-{}-{}",
+        agent.provider,
+        shown.key(agent.provider)
+    ));
+    let name = ui::text(shown.name.clone(), TEXT_2XS, FontWeight::NORMAL)
+        .flex_none()
+        .w(px(76.))
+        .truncate()
+        .text_color(t.text_secondary);
+    let row = div()
+        .id(id)
+        .h(px(row_height(view)))
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(radius_2())
+        .child(crate::accounts::face(
+            shown.avatar.clone(),
+            agent.provider,
+            16.,
+            cx,
+        ))
+        .child(name);
+    if shown.signed_out {
+        return row
+            .hover(|row| row.bg(t.surface_hover))
+            .clicks(sign_in(view, agent.provider, shown))
+            .child(div().flex_1())
+            .child(go(t!("Sign in"), cx))
+            .into_any_element();
+    }
+    let Some((_, main)) = limits.first() else {
+        return row
+            .tooltip(ui::tooltip(
+                shown.no_limits_reason().unwrap_or_else(|| shown.nothing()),
+            ))
+            .child(ruler(None, t).flex_1().min_w_0().h(px(8.)))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(numbers))
+                    .flex()
+                    .justify_end()
+                    .child(note("–".into(), cx)),
+            )
+            .into_any_element();
+    };
+    let second = limits.get(1).map(|(_, window)| *window);
+    let rulers = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .child(ruler(Some(main.used_at(view.now)), t).h(px(8.)))
+        .children(second.map(|window| ruler(Some(window.used_at(view.now)), t).h(px(3.))));
+    let percent = |window: &UsageWindow| format!("{}%", window.used_at(view.now).round());
+    let figures = div()
+        .flex_none()
+        .w(px(numbers))
+        .flex()
+        .justify_end()
+        .items_baseline()
+        .gap(px(4.))
+        .font_features(theme::tabular())
+        .child(
+            ui::text(percent(main), TEXT_2XS, FontWeight::MEDIUM).text_color(left_ink(
+                main.used_at(view.now),
+                t,
+                t.text_primary,
+            )),
+        )
+        .children(second.map(|window| {
+            ui::text(percent(window), TEXT_2XS, FontWeight::NORMAL).text_color(left_ink(
+                window.used_at(view.now),
+                t,
+                t.text_tertiary,
+            ))
+        }));
+    row.child(rulers).child(figures).into_any_element()
+}
+
+fn row_height(view: &View) -> f32 {
+    if view.compact {
+        ROW_COMPACT
+    } else {
+        ROW
+    }
+}
+
+/// A window's short name, such as Week, at the start of its line.
+fn window_label(label: impl Into<SharedString>, width: f32, cx: &App) -> Div {
+    ui::text(label.into(), TEXT_3XS, FontWeight::MEDIUM)
+        .flex_none()
+        .w(px(width))
+        .text_color(Tokens::get(cx).text_tertiary)
+}
+
+fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    let used = window.used_at(now);
+    ui::text(used_label(used), TEXT_2XS, FontWeight::NORMAL)
+        .flex_none()
+        .text_color(match used {
+            used if used < 70. => t.text_primary,
+            used => signal(used, t),
+        })
+}
+
+/// How much of a window is used, as every limit says it.
+fn used_label(used: f64) -> String {
+    t!("{percent}% used", percent = used.round().min(100.))
+}
+
+/// When the window is back. Past its reset with reads failing it says how old the reading is,
+/// as "resetting now" would stay true for as long as the reads keep failing.
+fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div {
+    let text = match (reset_at(window), age.filter(|_| window.is_past_reset(now))) {
+        (_, Some(age)) => t!("read {age}", age = age),
+        (None, _) => String::new(),
+        (reset, None) => ui::time::countdown(reset),
+    };
+    ui::text(text, TEXT_3XS, FontWeight::NORMAL)
+        .flex_none()
+        .text_color(Tokens::get(cx).text_tertiary)
+}
+
+fn note(text: String, cx: &App) -> Div {
+    ui::text(text, TEXT_3XS_H, FontWeight::NORMAL)
+        .flex_none()
+        .text_color(Tokens::get(cx).text_tertiary)
+}
+
+fn go(text: &'static str, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    ui::text(text, TEXT_3XS_H, FontWeight::NORMAL)
+        .flex_none()
+        .underline()
+        .text_color(t.text_secondary)
+}
+
+fn sign_in(
+    view: &View,
+    provider: &str,
+    shown: &Shown,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+    let provider = provider.to_owned();
+    let id = shown.id().map(str::to_owned);
+    view.on(move |bench, window, cx| {
+        crate::accounts::open_sign_in(bench, &provider, id.as_deref(), window, cx);
+    })
+}
+
+/// Every account of every agent, each across the float's full width between hairlines, the one
+/// in use lifted.
+fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
+    let t = Tokens::get(cx);
+    let hairline = || div().h(px(1.)).flex_none().bg(t.border);
+    let mut heights = Vec::new();
+    let mut items: Vec<AnyElement> = Vec::new();
+    for (at, agent) in agents.iter().enumerate() {
+        if at > 0 {
+            heights.push(1.);
+            items.push(hairline().into_any_element());
+        }
+        heights.push(AGENT_HEAD + 1.);
+        items.push(agent_head(view, agent, cx).into_any_element());
+        items.push(hairline().into_any_element());
+        for (index, shown) in agent.accounts.iter().enumerate() {
+            if index > 0 {
+                heights.push(1.);
+                items.push(hairline().into_any_element());
+            }
+            let last = at + 1 == agents.len() && index + 1 == agent.accounts.len();
+            heights.push(account_height(view, shown));
+            items.push(account_line(view, agent, shown, index, last, cx));
+        }
+    }
+    let total: f32 = heights.iter().sum();
+    let mut fits = 0.;
+    let mut down = 0.;
+    for height in heights {
+        down += height;
+        if down <= view.room {
+            fits = down;
+        }
+    }
+    let shown_height = match (total > view.room, fits > 0.) {
+        (true, true) => Some(fits),
+        (true, false) => Some(view.room),
+        (false, _) => None,
+    };
+    div()
+        .id("limits-accounts")
+        .flex()
+        .flex_col()
+        .overflow_y_scroll()
+        .when_some(shown_height, |list, height| list.h(px(height)))
+        .children(items)
+}
+
+fn agent_head(view: &View, agent: &Agent, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .h(px(AGENT_HEAD))
+        .px(SPACE_2H)
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(ui::mark(agent.provider, 13.))
+        .child(
+            ui::text(agent.name.to_owned(), TEXT_2XS, FontWeight::MEDIUM)
+                .flex_1()
+                .text_color(t.text_primary),
+        )
+        .child(add_button(view, agent))
+}
+
+/// Whether an account draws as one short line rather than its name over its windows.
+fn one_line(view: &View, shown: &Shown) -> bool {
+    shown.signed_out || (shown.id().is_some() && view.undo.as_deref() == shown.id())
+}
+
+fn account_height(view: &View, shown: &Shown) -> f32 {
+    if one_line(view, shown) {
+        return ACCOUNT_LINE + ACCOUNT_PAD;
+    }
+    let resets = shown.resets();
+    let asking =
+        (resets.iter()).any(|kind| view.arming.as_deref() == Some(reset_key(shown, kind).as_str()));
+    let resets_height = match resets.is_empty() {
+        true => 0.,
+        false => {
+            RESETS_HEAD
+                + resets.len() as f32 * RESET_ROW
+                + if asking { RESET_ASKING - RESET_ROW } else { 0. }
+        }
+    };
+    NAME_LINE
+        + NAME_GAP
+        + shown.windows().len().max(1) as f32 * WINDOW_LINE
+        + resets_height
+        + ACCOUNT_PAD * 2.
+}
+
+/// An account: its avatar, name and plan, a ruler for each of its limits, then the limit resets
+/// it holds. Clicking one not in use moves the agent's chats onto it; while smart accounts is on,
+/// clicking one pins new chats to it, or unpins it.
+fn account_line(
+    view: &View,
+    agent: &Agent,
+    shown: &Shown,
+    place: usize,
+    last: bool,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let in_use = place == agent.in_use;
+    let key = shown.key(agent.provider);
+    let id = SharedString::from(format!("limits-account-{}-{key}", agent.provider));
+    let group = SharedString::from(format!("limits-line-{key}"));
+    let line = |height: f32| div().h(px(height)).flex().items_center().gap(SPACE_2);
+    let name = |text: String| {
+        ui::text(text, TEXT_2XS_H, FontWeight::SEMIBOLD)
+            .min_w_0()
+            .truncate()
+            .text_color(t.text_primary)
+    };
+    let meta = |text: String| {
+        ui::text(text, TEXT_3XS, FontWeight::NORMAL)
+            .flex_none()
+            .text_color(t.text_tertiary)
+    };
+    let frame = || {
+        div()
+            .id(id.clone())
+            .px(SPACE_2H)
+            .py(px(ACCOUNT_PAD))
+            .flex()
+            .flex_col()
+            .when(last, |account| account.rounded_b(radius_4()))
+    };
+    if one_line(view, shown) {
+        let short = line(ACCOUNT_LINE);
+        if shown.signed_out {
+            let names = match agent.unnamed(shown) && in_use {
+                true => short.child(name(t!("Signed out").into()).flex_1()),
+                false => short
+                    .child(name(shown.name.clone()))
+                    .child(meta(t!("Signed out").into()).flex_1()),
+            };
+            return frame()
+                .py(px(ACCOUNT_PAD / 2.))
+                .hover(|account| account.bg(t.surface_hover))
+                .clicks(sign_in(view, agent.provider, shown))
+                .child(names.child(go(t!("Sign in"), cx)))
+                .into_any_element();
+        }
+        return frame()
+            .py(px(ACCOUNT_PAD / 2.))
+            .child(
+                short.child(name(shown.name.clone()).flex_1()).child(
+                    go(t!("Undo"), cx)
+                        .id(SharedString::from(format!("limits-undo-{key}")))
+                        .hover(|link| link.text_color(t.text_primary))
+                        .clicks(view.on(move |bench, _, cx| undo_pick(bench, cx))),
+                ),
+            )
+            .into_any_element();
+    }
+    let windows = shown.windows();
+    let age = shown.age(view.now);
+    let window_line = |label: Option<&str>, window: Option<&UsageWindow>| {
+        line(WINDOW_LINE)
+            .font_features(theme::tabular())
+            .when_some(label, |line, label| {
+                line.child(window_label(label.to_owned(), LABEL_WIDTH, cx))
+            })
+            .child(
+                ruler(window.map(|window| window.used_at(view.now)), t)
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(8.)),
+            )
+            .map(|line| match window {
+                Some(window) => line
+                    .child(
+                        percent_cell(window, view.now, cx)
+                            .min_w(px(50.))
+                            .text_right(),
+                    )
+                    .child(
+                        when_cell(window, view.now, age.as_deref(), cx)
+                            .min_w(px(40.))
+                            .text_right(),
+                    ),
+                None => line.child(note(shown.nothing(), cx)),
+            })
+    };
+    let lines: Vec<Div> = match windows.is_empty() {
+        true => vec![window_line(None, None)],
+        false => (windows.iter())
+            .map(|(label, window)| window_line(Some(label.as_str()), Some(*window)))
+            .collect(),
+    };
+    let smart = view.smart && agent.accounts.len() > 1;
+    let target = shown.profile.filter(|_| !smart && !in_use).cloned();
+    let pickable = target.is_some();
+    let names = line(NAME_LINE)
+        .mb(px(NAME_GAP))
+        .child(crate::accounts::avatar(shown.avatar.clone(), AVATAR))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(name(shown.name.clone()))
+                .children(shown.tier().map(|tier| tier_pill(tier, cx))),
+        )
+        .when(pickable, |names| {
+            names.child(
+                ui::text(t!("Move chats here"), TEXT_3XS, FontWeight::NORMAL)
+                    .flex_none()
+                    .text_color(t.text_primary)
+                    .opacity(0.)
+                    .group_hover(group.clone(), |offer| offer.opacity(1.)),
+            )
+        });
+    frame()
+        .group(group)
+        .when_some(target, |account, target| {
+            account
+                .hover(|account| account.bg(t.surface_hover))
+                .clicks(view.on(move |bench, _, cx| pick(bench, &target, cx)))
+        })
+        .child(names)
+        .children(lines)
+        .children(resets_list(view, shown, &windows, cx))
+        .into_any_element()
+}
+
+/// The plan an account is on, as its provider names it.
+fn tier_pill(tier: &str, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    ui::text(tier.to_owned(), TEXT_3XS, FontWeight::MEDIUM)
+        .flex_none()
+        .h(px(16.))
+        .px(px(5.))
+        .flex()
+        .items_center()
+        .rounded(radius_1())
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .bg(t.surface_hover)
+        .text_color(t.text_secondary)
+}
+
+/// The account's limit resets under its rulers: one row for each kind, with how many it holds,
+/// until when, and Use.
+fn resets_list(
+    view: &View,
+    shown: &Shown,
+    windows: &[(String, &UsageWindow)],
+    cx: &App,
+) -> Option<Div> {
+    let resets = shown.resets();
+    if resets.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx);
+    let left: u32 = resets.iter().map(|kind| kind.left).sum();
+    let head = div()
+        .h(px(RESETS_HEAD))
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(
+            ui::text(t!("RESETS"), TEXT_3XS, FontWeight::MEDIUM)
+                .letter_spacing(0.08)
+                .text_color(t.text_tertiary),
+        )
+        .child(div().flex_1().h(px(1.)).bg(t.border))
+        .child(
+            ui::text(t!("{left} left", left = left), TEXT_3XS, FontWeight::NORMAL)
+                .text_color(t.text_tertiary),
+        );
+    Some(
+        div().flex().flex_col().child(head).children(
+            resets
+                .iter()
+                .map(|kind| reset_row(view, shown, kind, windows, cx)),
+        ),
+    )
+}
+
+fn reset_key(shown: &Shown, kind: &ResetKind) -> String {
+    let launcher = shown.usage.map_or("", |usage| usage.launcher.as_str());
+    format!("{launcher}/{}", kind.label)
+}
+
+/// A reset kind as the person says it: Weekly, Fable, Full.
+fn short_kind(kind: &ResetKind) -> &str {
+    match kind.label.strip_suffix(" reset") {
+        Some("5-hour") => t!("Session"),
+        Some(short) => short,
+        None => &kind.label,
+    }
+}
+
+/// The colour of a reset's last day: red within a week, amber within a month, else quiet.
+fn expiry_ink(use_by: u64, now: u64, t: &Tokens) -> Hsla {
+    const DAY: u64 = 86_400_000;
+    match use_by.saturating_sub(now) / DAY {
+        0..7 => t.danger,
+        7..31 => t.warn,
+        _ => t.text_tertiary,
+    }
+}
+
+fn until(use_by: Option<u64>, now: u64, cx: &App) -> Option<Div> {
+    let t = Tokens::get(cx);
+    let at = chrono::DateTime::from_timestamp_millis(i64::try_from(use_by?).ok()?)?;
+    let day = at.with_timezone(&chrono::Local).format("%b %-d");
+    Some(
+        ui::text(t!("until {day}", day = day), TEXT_3XS_H, FontWeight::NORMAL)
+            .flex_none()
+            .text_color(expiry_ink(use_by?, now, t)),
+    )
+}
+
+/// What spending one reset of `kind` does, said before it is spent, and what its button says.
+fn reset_says(kind: &ResetKind, windows: &[(String, &UsageWindow)], now: u64) -> (String, String) {
+    let refilled = (kind.window.as_deref())
+        .and_then(|label| windows.iter().find(|(_, window)| window.label == label))
+        .map(|(name, window)| (name.as_str(), *window));
+    let after = match kind.left {
+        1 => t!(
+            "No {kind} resets will be left.",
+            kind = short_kind(kind).to_lowercase()
+        ),
+        left => t!("{count} will be left.", count = left - 1),
+    };
+    let (does, button) = match refilled {
+        Some((name, window)) if window.scope.is_some() => (
+            t!(
+                "Refills your {name} allowance and gives back what {name} used of your week.",
+                name = name
+            ),
+            t!("Reset {name}", name = name),
+        ),
+        Some((name, window)) => {
+            let used = window.used_at(now).round();
+            let what = name.to_lowercase();
+            (
+                t!(
+                    "Refills your whole {what} now, from {used}% used back to 0%.",
+                    what = what,
+                    used = used
+                ),
+                t!("Reset {what}", what = what),
+            )
+        }
+        None => (
+            t!("Starts every used-up limit over.").to_owned(),
+            t!("Reset all").to_owned(),
+        ),
+    };
+    (format!("{does} {after}"), button)
+}
+
+/// One kind of reset: its name and count, until when, and Use. Use opens the row to say what
+/// spending one does, with Cancel and the button that spends it.
+fn reset_row(
+    view: &View,
+    shown: &Shown,
+    kind: &ResetKind,
+    windows: &[(String, &UsageWindow)],
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let key = reset_key(shown, kind);
+    let asking = view.arming.as_deref() == Some(key.as_str());
+    let busy = view.resetting.as_deref() == Some(key.as_str());
+    let spend = Spend {
+        launcher: shown
+            .usage
+            .map_or_else(String::new, |usage| usage.launcher.clone()),
+        kind: kind.id.clone(),
+        account: shown.name.clone(),
+        what: kind.label.clone(),
+    };
+    let title = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_baseline()
+        .child(
+            ui::text(short_kind(kind).to_owned(), TEXT_2XS, FontWeight::MEDIUM)
+                .text_color(t.text_primary),
+        )
+        .child(
+            ui::text(format!(" ×{}", kind.left), TEXT_2XS, FontWeight::NORMAL)
+                .text_color(t.text_tertiary),
+        );
+    let this = view.this.clone();
+    let tap = move |act: fn(&mut Workbench, String, Spend, &mut Context<Workbench>)| {
+        let (this, key, spend) = (this.clone(), key.clone(), spend.clone());
+        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
+            cx.stop_propagation();
+            let (key, spend) = (key.clone(), spend.clone());
+            let _ = this.update(cx, |bench, cx| act(bench, key, spend, cx));
+        }
+    };
+    if !asking {
+        let action = match (busy, kind.usable) {
+            (true, _) => ui::text(t!("Resetting…"), TEXT_2XS, FontWeight::MEDIUM)
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+            (false, false) => ui::text(t!("Not yet"), TEXT_2XS, FontWeight::NORMAL)
+                .px(px(2.))
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+            (false, true) => ui::text(t!("Use"), TEXT_2XS, FontWeight::MEDIUM)
+                .id(SharedString::from(format!(
+                    "limits-use-{}",
+                    reset_key(shown, kind)
+                )))
+                .px(px(2.))
+                .text_color(t.accent)
+                .clicks(tap(|bench, key, _, cx| {
+                    bench.accounts.limits.arming = Some(key);
+                    redraw(bench, cx);
+                }))
+                .into_any_element(),
+        };
+        return div()
+            .h(px(RESET_ROW))
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(title)
+            .children(until(kind.use_by, view.now, cx))
+            .child(action)
+            .into_any_element();
+    }
+    let (says, button) = reset_says(kind, windows, view.now);
+    div()
+        .my(px(2.))
+        .mx(px(-6.))
+        .p(SPACE_2)
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .rounded(radius_3())
+        .bg(Hsla {
+            a: 0.08,
+            ..t.accent
+        })
+        .border(crate::theme::border())
+        .border_color(Hsla {
+            a: 0.25,
+            ..t.accent
+        })
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(title)
+                .children(until(kind.use_by, view.now, cx)),
+        )
+        .child(
+            ui::text(says, TEXT_3XS_H, FontWeight::NORMAL)
+                .whitespace_normal()
+                .line_height(px(15.))
+                .text_color(t.text_secondary),
+        )
+        .child(
+            div()
+                .mt(px(4.))
+                .flex()
+                .justify_end()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    ui::text(t!("Cancel"), TEXT_2XS, FontWeight::NORMAL)
+                        .id(SharedString::from(format!(
+                            "limits-cancel-{}",
+                            reset_key(shown, kind)
+                        )))
+                        .px(px(4.))
+                        .text_color(t.text_secondary)
+                        .hover(|cancel| cancel.text_color(t.text_primary))
+                        .clicks(tap(|bench, _, _, cx| {
+                            bench.accounts.limits.arming = None;
+                            redraw(bench, cx);
+                        })),
+                )
+                .child(
+                    ui::Button::new(
+                        SharedString::from(format!("limits-spend-{}", reset_key(shown, kind))),
+                        button,
+                        ui::Variant::Primary,
+                    )
+                    .sized(22., 9., TEXT_2XS)
+                    .on_click(tap(use_reset)),
+                ),
+        )
+        .into_any_element()
+}
+
+/// A reset to spend, and the names a toast says it by.
+#[derive(Clone)]
+struct Spend {
+    launcher: String,
+    kind: Option<String>,
+    account: String,
+    what: String,
+}
+
+/// Spends one of the account's resets and says how it went. The core reads its limits again.
+fn use_reset(bench: &mut Workbench, key: String, spend: Spend, cx: &mut Context<Workbench>) {
+    let limits = &mut bench.accounts.limits;
+    limits.arming = None;
+    limits.resetting = Some(key);
+    redraw(bench, cx);
+    let asked = Target::here(&bench.asks).request_typed::<call::UseAgentReset>(UsingReset {
+        launcher: spend.launcher,
+        kind: spend.kind,
+    });
+    let Spend { account, what, .. } = spend;
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            bench.accounts.limits.resetting = None;
+            let note = match answer {
+                Ok(UsedReset {
+                    outcome: ResetOutcome::Reset,
+                    left,
+                }) => toast::success(match left {
+                    Some(left) => t!(
+                        "{what} used on {account} · {left} left",
+                        what = what,
+                        account = account,
+                        left = left
+                    ),
+                    None => t!("{what} used on {account}", what = what, account = account),
+                }),
+                Ok(UsedReset {
+                    outcome: ResetOutcome::NothingToReset,
+                    ..
+                }) => toast::info(t!(
+                    "Nothing to reset on {account} yet, so none was used",
+                    account = account
+                )),
+                Ok(UsedReset {
+                    outcome: ResetOutcome::NoReset,
+                    ..
+                }) => toast::info(t!(
+                    "{account} has no {what} left",
+                    account = account,
+                    what = what
+                )),
+                Err(error) => toast::error(t!(
+                    "Couldn't reset {account}: {error}",
+                    account = account,
+                    error = error
+                )),
+            };
+            bench.notify(note, cx);
+            redraw(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Puts the agent on `profile`, which moves its open chats, and offers the way back.
+fn pick(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>) {
+    crate::accounts::pick(bench, profile, cx, |bench, undoing, cx| {
+        bench.accounts.limits.undo = Some(Undo {
+            undoing,
+            _expires: cx.spawn(async move |bench, cx| {
+                cx.background_executor().timer(UNDO_FOR).await;
+                let _ = bench.update(cx, |bench, cx| {
+                    bench.accounts.limits.undo = None;
+                    redraw(bench, cx);
+                });
+            }),
+        });
+        redraw(bench, cx);
+    });
+}
+
+fn undo_pick(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(undo) = bench.accounts.limits.undo.take() else {
+        return;
+    };
+    crate::accounts::unpick(bench, undo.undoing, cx);
+    redraw(bench, cx);
+}
+
+/// Opens or closes the float a moment after the pointer settles, so that crossing the gap, the
+/// header or the rows on the way to it never closes it.
+fn settle_hover(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let reveal = &mut bench.accounts.limits;
+    let wanted = reveal.over_rows || (reveal.open && (reveal.over_panel || reveal.over_float));
+    if wanted == reveal.open {
+        reveal.settling = None;
+        return;
+    }
+    if reveal.settling.is_some() {
+        return;
+    }
+    let delay = if wanted { OPEN_AFTER } else { CLOSE_AFTER };
+    reveal.settling = Some(cx.spawn(async move |bench, cx| {
+        cx.background_executor().timer(delay).await;
+        let _ = bench.update(cx, |bench, cx| {
+            let reveal = &mut bench.accounts.limits;
+            reveal.settling = None;
+            reveal.open = wanted;
+            if !wanted {
+                reveal.arming = None;
+            }
+            if wanted && reading_is_old(bench, ui::time::now_ms()) {
+                start_reading(bench, cx);
+            }
+            bench.parts.redraw(&bench.parts.agents, cx);
+        });
+    }));
+}
+
+impl Reveal {
+    pub(crate) fn drawing_rail(&mut self) {
+        *self.panel_drawn.get_mut() = false;
+    }
+
+    /// Forgets the pointer: a panel that stops being drawn never hears it leave.
+    fn pointer_gone(&mut self) {
+        self.open = false;
+        self.arming = None;
+        self.over_rows = false;
+        self.over_panel = false;
+        self.over_float = false;
+        self.settling = None;
+    }
+}
+
+/// Draws what shows the plan limits again: the rail's panel and the top bar's popover.
+pub(crate) fn redraw(bench: &Workbench, cx: &mut App) {
+    bench.parts.redraw(&bench.parts.agents, cx);
+    bench.parts.redraw(&bench.parts.bar, cx);
+}
+
+/// Reads the limits again when the window comes to the front with them on screen and the last
+/// reading is a little old, so they are current whenever the person looks.
+pub(crate) fn window_came_forward(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    if bench.limits_shown() && reading_is_old(bench, ui::time::now_ms()) {
+        start_reading(bench, cx);
+    }
+}
+
+/// Stops the refresh spinning: the core has answered, or never will.
+pub(crate) fn usage_read(bench: &mut Workbench, cx: &mut App) {
+    if bench.accounts.limits.reading.take().is_some() {
+        redraw(bench, cx);
+    }
+}
+
+/// The top bar's chip: every agent's mark, then how much of their weeks they have used together,
+/// opening the accounts card in a popover. It only draws what was read already.
+pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoElement> {
+    let agents = agents(bench, true);
+    if agents.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let now = ui::time::now_ms();
+    let this = cx.weak_entity();
+    let open_this = this.clone();
+    let week: Pick = |shown| shown.week();
+    let pairs: Vec<(String, Option<Total>)> = (agents.iter())
+        .map(|agent| (agent.provider.to_owned(), Total::of(agent, now, week)))
+        .collect();
+    drop(agents);
+    Some(
+        Popover::new("limits-chip")
+            .anchor(Anchor::TopRight)
+            .offset(SPACE_1H)
+            .trigger_with(move |open, _, _| {
+                let read: Vec<(f64, f64)> = (pairs.iter())
+                    .filter_map(|(_, week)| week.as_ref())
+                    .map(|week| (week.used(), week.accounts as f64))
+                    .collect();
+                let worst = read
+                    .iter()
+                    .map(|(used, _)| *used)
+                    .fold(None, |worst, used| {
+                        Some(worst.map_or(used, |worst: f64| worst.max(used)))
+                    });
+                let (text, ink) = match worst {
+                    Some(worst) => {
+                        let used: f64 = read.iter().map(|(used, accounts)| used * accounts).sum();
+                        let caps: f64 = read.iter().map(|(_, accounts)| accounts * 100.).sum();
+                        let ink = if worst < 70. {
+                            t.text_secondary
+                        } else {
+                            signal(worst, &t)
+                        };
+                        (format!("{}% / {}%", used.round(), caps), ink)
+                    }
+                    None => ("–".to_owned(), t.text_tertiary),
+                };
+                let marks = pairs.iter().enumerate().rev().map(|(at, (provider, _))| {
+                    div()
+                        .size(px(18.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(t.surface)
+                        .when(at > 0, |disc| disc.ml(px(-5.)))
+                        .child(ui::mark(provider, 12.))
+                });
+                div()
+                    .id("limits-chip-button")
+                    .h(px(26.))
+                    .px(px(5.))
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_1H)
+                    .rounded(radius_2())
+                    .cursor_pointer()
+                    .when(open, |chip| chip.bg(t.surface_chosen))
+                    .when(!open, |chip| chip.hover(|chip| chip.bg(t.surface_hover)))
+                    .child(div().flex().flex_row_reverse().children(marks))
+                    .child(
+                        ui::text(text, TEXT_2XS, FontWeight::NORMAL)
+                            .font_features(theme::tabular())
+                            .text_color(ink),
+                    )
+                    .into_any_element()
+            })
+            .on_open_change(move |open: &bool, _: &mut Window, cx: &mut App| {
+                let open = *open;
+                let _ = open_this.update(cx, |bench, cx| {
+                    bench.accounts.limits.popover = open;
+                    bench.accounts.limits.arming = None;
+                    if open && reading_is_old(bench, ui::time::now_ms()) {
+                        start_reading(bench, cx);
+                    }
+                    redraw(bench, cx);
+                });
+            })
+            .content(move |_, window, cx| {
+                let Some(bench) = this.upgrade() else {
+                    return div().into_any_element();
+                };
+                let bench = bench.read(cx);
+                let agents = self::agents(bench, true);
+                let room = f32::from(window.viewport_size().height) - POPOVER_MARGIN;
+                let view = self::view(bench, false, false, room.max(FLOAT_LEAST), this);
+                floating(cx)
+                    .w(px(POPOVER_WIDTH))
+                    .child(every_account(&view, &agents, cx))
+                    .into_any_element()
+            }),
+    )
+}
+
+/// One window's ruler: a tick for each 4 points, lit for as much as is used, or none lit when
+/// nothing was read.
+fn ruler(used: Option<f64>, t: &Tokens) -> gpui_kit::Canvas<()> {
+    let color = signal(used.unwrap_or(0.), t);
+    let unlit = Hsla {
+        a: 0.10,
+        ..t.text_primary
+    };
+    let used = used.map_or(0., |used| used.clamp(0., 100.));
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let lit = f32::from(bounds.size.width) * (used / 100.) as f32;
+            let mut x = 0.;
+            while x < f32::from(bounds.size.width) - 1. {
+                window.paint_quad(fill(
+                    Bounds::new(
+                        point(bounds.origin.x + px(x), bounds.origin.y),
+                        size(px(1.5), bounds.size.height),
+                    ),
+                    if x < lit { color } else { unlit },
+                ));
+                x += 4.;
+            }
+        },
+    )
+}
+
+/// When a window resets, as a person would say it: today, tomorrow, a weekday or a date.
+pub(crate) fn day_and_time(at: chrono::DateTime<chrono::Utc>) -> String {
+    let at = at.with_timezone(&chrono::Local);
+    let days = (at.date_naive() - chrono::Local::now().date_naive()).num_days();
+    let time = at.format("%-I:%M %p");
+    match days {
+        ..=0 => t!("today {time}", time = time),
+        1 => t!("tomorrow {time}", time = time),
+        2..=6 => format!("{} {time}", at.format("%a")),
+        _ => format!("{}, {time}", at.format("%b %-d")),
+    }
+}
+
+/// The colour of a window used `percent` full: quiet until it nears its limit.
+pub(crate) fn signal(percent: f64, t: &Tokens) -> Hsla {
+    if percent >= 90. {
+        t.danger
+    } else if percent >= 70. {
+        t.warn
+    } else {
+        Hsla {
+            a: 0.62,
+            ..t.text_primary
+        }
+    }
+}
+
+/// When a window starts again: Unix seconds, as a number or digits, or an ISO time.
+pub(crate) fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::Utc>> {
+    let at = window.resets_at.as_ref()?.unix_ms()?;
+    chrono::DateTime::from_timestamp_millis(i64::try_from(at).ok()?)
+}
+
+impl Workbench {
+    /// Whether the rail is up and its last draw held the panel. On an SSH host the
+    /// rail draws something else, and a peeking rail draws it with the rail kept closed.
+    fn limits_panel_shown(&self) -> bool {
+        (self.rails.tab_open || self.rails.peeking == Some(Rail::Agents))
+            && self.accounts.limits.panel_drawn.get()
+    }
+
+    /// Whether plan limits are on screen: the panel or the top bar's popover. The chip alone
+    /// never counts, since each read boots the agent's CLI.
+    pub(crate) fn limits_shown(&self) -> bool {
+        self.limits_panel_shown() || self.accounts.limits.popover
+    }
+
+    /// Lets go of what a panel or chip no longer on screen was holding open.
+    pub(crate) fn settle_limits(&mut self) {
+        if !self.limits_panel_shown() {
+            self.accounts.limits.pointer_gone();
+        }
+        if self.accounts.limits.popover && launchers(self, true).is_empty() {
+            self.accounts.limits.popover = false;
+        }
+    }
+
+    /// Reads the plan limits again: each lookup reaches the agent's service on the person's
+    /// sign-in, so it runs as the app starts, every few minutes while they show, and when the
+    /// person asks.
+    pub fn read_usage(&self) {
+        Target::here(&self.asks).call_typed::<call::ReadAgentUsages>(NoParams {});
+    }
+}

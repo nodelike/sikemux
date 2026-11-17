@@ -1,4 +1,3 @@
-/* ---- Tooltip ------------------------------------------------------------ */
 .tip {
   position: fixed;
   z-index: var(--layer-tooltip);
@@ -26,10 +25,6 @@
 }
 .tip-right {
   transform: translate(0, -50%);
-}
-.tip .kbd {
-  font-family: var(--kbd);
-  color: var(--text-secondary);
 }
 
 @keyframes tipIn {

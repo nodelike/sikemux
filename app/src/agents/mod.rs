@@ -1,3 +1,19 @@
+use crate::agents::limits::limits;
+use crate::agents::terminal_pages::ssh_page;
+use crate::agents::terminal_pages::terminals_page;
+use crate::core::Target;
+use crate::hosts::Place;
+use crate::ui::Clicks;
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
+use sikemux_calls::agent_view::AgentViewKind;
+use sikemux_calls::agent_view::AgentViewParams;
+use sikemux_calls::call;
+use sikemux_calls::saved_sessions::RecentChat;
+use sikemux_calls::saved_sessions::RecentRenamed;
+use sikemux_calls::workspace::PinChatParams;
+use sikemux_wire::protocol::{AgentGroup, SessionId};
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -5,25 +21,26 @@ use gpui_kit::base::Button as BaseButton;
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, fill, point, px, radians, relative, size, Anchor, AnyElement, App, Bounds,
-    ClickEvent, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
+    canvas, div, px, radians, relative, Anchor, AnyElement, App, Bounds, ClickEvent, Context,
+    Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
+    StatefulInteractiveElement, Styled, Transformation, Window,
 };
-use sikemux_core::agent_accounts::usage::{Usage, UsageWindow};
-use sikemux_core::agent_accounts::Profile;
-use sikemux_core::server::AccountUsage;
-use sikemux_wire::protocol::{LauncherInfo, PaneKind, RecentInfo};
+use sikemux_view::device::RecentInfo;
+use sikemux_view::workspace::{LauncherInfo, ProjectInfo, ProjectStanding};
 
 use crate::agents::menu::AgentMenu;
+use crate::agents::rows::AgentRow;
 use crate::icons::Icon;
 use crate::motion;
+use crate::rail::{Rail, RailWidth};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_6, TEXT_2XS,
-    TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM, TEXT_XS,
+    TEXT_3XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
-use crate::workbench::{AgentRow, Edge, RailPage, RailWidth, Strip, TeamLink, Workbench};
-use sikemux_wire::inbox::RemoteAgent;
+use crate::workbench::Workbench;
+use sikemux_view::inbox::RemoteAgent;
+use sikemux_view::prefs::TabRailPage;
 
 pub const TAB_RAIL: RailWidth = RailWidth {
     min: 240.,
@@ -32,17 +49,26 @@ pub const TAB_RAIL: RailWidth = RailWidth {
 };
 
 pub mod card;
+pub(crate) mod limits;
+pub(crate) mod marble;
 pub mod menu;
 pub mod palette;
+pub(crate) mod retitle;
 pub mod review;
+pub mod rows;
+pub mod settled;
 pub mod setup;
+pub(crate) mod tags;
+mod terminal_pages;
+pub(crate) mod tree;
 
 pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let frame = bench.rails.frame.clone();
-    ui::panel(cx)
+    let rail = ui::panel(cx)
         .relative()
-        .w(px(bench.rail_width(Edge::End)))
-        .flex_none()
+        .w(px(bench.rail_width(Rail::Agents)))
+        .flex_none();
+    crate::rail::keyed_rail(rail, Rail::Agents, bench, cx)
         .child(
             canvas(
                 |_, _, _| {},
@@ -72,21 +98,20 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
 
 /// What one of the rail's pages holds; the rail's frame and its page switch stay put while
 /// the pages slide inside it.
-fn page_body() -> gpui_kit::Div {
+pub(crate) fn page_body() -> gpui_kit::Div {
     div().size_full().flex().flex_col().overflow_hidden()
 }
 
-/// One of the tab rail's pages, whole.
-fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) -> AnyElement {
+fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>) -> AnyElement {
     match page {
-        RailPage::Files => {
+        TabRailPage::Files => {
             return page_body()
-                .child(page_header("Files", bench, cx))
+                .child(files_header(bench, cx))
                 .child(crate::files::page(bench, cx))
                 .into_any_element();
         }
-        RailPage::Terminals => return terminals_page(bench, cx),
-        RailPage::Agents => {}
+        TabRailPage::Terminals => return terminals_page(bench, cx),
+        TabRailPage::Agents => {}
     }
     if let crate::hosts::HostChoice::Ssh(alias) = bench.chosen_host() {
         return ssh_page(bench, alias, cx);
@@ -96,47 +121,138 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
         .filter(|_| !bench.rails.all_projects)
         .map(|project| bench.pinned_of(&project.id))
         .unwrap_or_default();
-    let (held, agents): (Vec<_>, Vec<_>) = bench.listed_agents().into_iter().partition(|agent| {
-        pins.iter()
-            .any(|pin| pin.agent_id.as_deref() == Some(agent.id.as_str()))
-    });
-    let (copy, rows) = team_rows(bench, &agents, cx);
+    let mut listed = bench.listed_agents();
+    let chiefs: HashSet<String> = (listed.iter())
+        .filter(|agent| agent.chief)
+        .map(|agent| agent.id.clone())
+        .collect();
+    let mut chief_led = HashSet::new();
+    for agent in &mut listed {
+        if (agent.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
+            agent.lead = None;
+            chief_led.insert(agent.id.clone());
+        }
+    }
+    let pinned_ids: HashSet<&str> = (pins.iter())
+        .filter_map(|pin| pin.agent_id.as_deref())
+        .collect();
+    let held_ids = tree::under(&listed, &pinned_ids);
+    let (held, agents): (Vec<_>, Vec<_>) =
+        (listed.into_iter()).partition(|agent| held_ids.contains(&agent.id));
+    let away = |agent: &AgentRow| agent.snoozed_until.is_some() || agent.settled_at.is_some();
+    let working: HashSet<&str> = (agents.iter())
+        .filter(|agent| !away(agent))
+        .map(|agent| agent.id.as_str())
+        .collect();
+    let leading = tree::above(&agents, &working);
+    let (gone, agents): (Vec<_>, Vec<_>) =
+        (agents.into_iter()).partition(|agent| away(agent) && !leading.contains(&agent.id));
+    let snoozed: Vec<_> = (gone.into_iter())
+        .filter(|agent| agent.settled_at.is_none())
+        .collect();
+    let away_rows = |agents: &[AgentRow], cx: &mut Context<Workbench>| -> Vec<AnyElement> {
+        (tree::tree(agents, 0, &HashSet::new()).into_iter())
+            .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
+            .collect()
+    };
+    let unseen = out_of_sight(bench, &agents);
+    let snoozed = away_rows(&snoozed, cx);
+    let projects: Vec<ProjectInfo> = match bench.rails.all_projects {
+        true => ranked_projects(bench),
+        false => bench.project().cloned().into_iter().collect(),
+    };
+    let heads: Vec<(String, AnyElement)> = (projects.iter())
+        .map(|project| {
+            let chief = chief_of(project, &agents);
+            let row = chief_row(bench, project, chief, bench.rails.all_projects, cx);
+            (project.id.clone(), row)
+        })
+        .collect();
+    let leading: Vec<String> = (projects.iter())
+        .filter_map(|project| chief_of(project, &agents))
+        .map(|chief| chief.id.clone())
+        .collect();
+    let place = bench.place();
+    let mut agents: Vec<AgentRow> = (agents.into_iter())
+        .filter(|agent| !agent.chief || (agent.place != place && !leading.contains(&agent.id)))
+        .collect();
+    let homes = home_projects(bench);
+    if bench.rails.all_projects {
+        let at = |project: &str| heads.iter().position(|(id, _)| id == project);
+        agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
+    }
+    let (copy, rows) = team_rows(bench, &agents, &homes, heads, (&chiefs, chief_led), cx);
+    let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
+    let tagged = bench.rails.tag.is_some();
     let pinned: Vec<_> = pins
         .iter()
-        .map(|pin| {
-            match held
-                .iter()
-                .find(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
-            {
-                Some(agent) => agent_row(bench, agent, None, None, false, cx).into_any_element(),
-                None => recent_row(bench, pin, cx),
-            }
+        .enumerate()
+        .filter(|(_, pin)| {
+            !tagged
+                || held
+                    .iter()
+                    .any(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
+        })
+        .filter_map(|(index, pin)| {
+            let row = match pin.agent_id.as_deref() {
+                Some(id) if held.iter().any(|agent| agent.id == id) => {
+                    let mine = tree::under(&held, &HashSet::from([id]));
+                    let team: Vec<AgentRow> = (held.iter())
+                        .filter(|agent| mine.contains(&agent.id))
+                        .cloned()
+                        .collect();
+                    let placed = tree::tree(&team, 0, &bench.rails.folded_teams);
+                    if placed.first().is_none_or(|top| top.row.id != id) {
+                        return None;
+                    }
+                    let rows = (placed.into_iter()).map(|placed| {
+                        let fold = (placed.below > 0).then(|| Fold {
+                            open: !bench.rails.folded_teams.contains(&placed.row.id),
+                            count: placed.below,
+                        });
+                        agent_row(bench, &placed.row, &placed.hang, fold, false, cx)
+                    });
+                    div().flex().flex_col().children(rows).into_any_element()
+                }
+                _ => recent_row(bench, pin, cx),
+            };
+            Some(crate::drag::pinned(row, &pin.id, index, moving, &cx.entity()).into_any_element())
         })
         .collect();
     let mut recent: Vec<_> = project
         .map(|project| bench.recent_of(&project.id))
         .unwrap_or_default()
         .into_iter()
-        .filter(|recent| !recent.pinned || bench.rails.all_projects)
+        .filter(|recent| !tagged && (!recent.pinned || bench.rails.all_projects))
         .map(|recent| recent_row(bench, recent, cx))
         .collect();
-    if bench.has_older() && !recent.is_empty() {
+    if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
-    let empty = (rows.is_empty() && pinned.is_empty() && recent.is_empty()).then(|| {
+    let quiet = rows.is_empty() && snoozed.is_empty();
+    let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
         let shown = (project.zip(other_host(bench)))
             .filter(|_| bench.filter_text().is_empty())
             .map(|(project, host)| match bench.rails.all_projects {
-                true => format!("No chats on {host}"),
-                false => format!("No chats in {} on {host}", project.name),
+                true => t!("No chats on {host}", host = host),
+                false => t!(
+                    "No chats in {project} on {host}",
+                    project = project.name,
+                    host = host
+                ),
             });
         if let Some(title) = shown {
-            rail_empty(Icon::Agent, title, Some(("agent.new", "start one")), cx)
+            rail_empty(
+                Icon::Agent,
+                title,
+                Some((actions::NewChat::ID, t!("to start one"))),
+                cx,
+            )
         } else if project.is_none() {
             rail_empty(
                 Icon::Agent,
-                "No project open",
-                Some(("project.open", "open one")),
+                t!("No project open"),
+                Some((actions::OpenProject::ID, t!("to open one"))),
                 cx,
             )
         } else if bench.launchers().is_empty() {
@@ -144,28 +260,28 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
                 .flex()
                 .flex_col()
                 .items_center()
-                .child(rail_empty(Icon::Agent, "No agents set up", None, cx))
+                .child(rail_empty(Icon::Agent, t!("No agents set up"), None, cx))
                 .child(
-                    ui::Button::new("set-up-agent", "Set one up", ui::Variant::Outline).on_click(
-                        cx.listener(|bench, _, window, cx| {
+                    ui::Button::new("set-up-agent", t!("Set one up"), ui::Variant::Outline)
+                        .on_click(cx.listener(|bench, _, window, cx| {
                             bench.open_settings(crate::settings::Page::Installed, window, cx)
-                        }),
-                    ),
+                        })),
                 )
                 .into_any_element()
-        } else if !bench.filter_text().is_empty() {
-            rail_empty(Icon::Search, "No chats match", None, cx)
+        } else if !bench.filter_text().is_empty() || tagged {
+            rail_empty(Icon::Search, t!("No chats match"), None, cx)
         } else {
             rail_empty(
                 Icon::Agent,
-                "No agents yet",
-                Some(("agent.new", "start one")),
+                t!("No agents yet"),
+                Some((actions::NewChat::ID, t!("to start one"))),
                 cx,
             )
         }
     });
     page_body()
         .child(header(bench, cx))
+        .children(tags::pill(bench, cx))
         .children(bench.filter.as_ref().map(|filter| {
             div()
                 .flex_none()
@@ -179,90 +295,131 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
                 .flex_none()
                 .pt(SPACE_1)
                 .px(SPACE_2H)
-                .children(
-                    other_host(bench)
-                        .map(|host| ui::meta(format!("on {host}"), cx).px(SPACE_2).pt(SPACE_1)),
-                )
                 .child(
-                    new_row("new-chat", Icon::Plus, "New chat", "agent.new", cx)
-                        .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
+                    new_row(
+                        "new-chat",
+                        Icon::Plus,
+                        t!("New chat"),
+                        actions::NewChat::ID,
+                        cx,
+                    )
+                    .children(elsewhere_chip("new-chat-copy", bench, cx))
+                    .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
                     new_row(
                         "new-terminal",
                         Icon::Terminal,
-                        "New terminal",
-                        "terminal.new",
+                        t!("New terminal"),
+                        actions::NewTerminal::ID,
                         cx,
                     )
+                    .children(elsewhere_chip("new-terminal-copy", bench, cx))
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
                 )
                 .child(
                     new_row(
                         "new-browser",
                         Icon::Globe,
-                        "New browser",
-                        "browser.tabNew",
+                        t!("New browser"),
+                        actions::NewPage::ID,
                         cx,
                     )
                     .on_click(|_, window, cx| {
-                        crate::keymap::dispatch("browser.tabNew", window, cx)
+                        crate::keymap::dispatch(actions::NewPage::ID, window, cx)
                     }),
                 )
                 .child(div().mt(SPACE_2).child(scope_switch(bench, cx))),
         )
-        .child(faded(
-            div()
-                .id("tab-rail-scroll")
-                .track_scroll(&bench.rails.scroll)
-                .on_scroll(cx.listener(|bench, _, _, cx| bench.hold_card(cx)))
-                .size_full()
-                .pt(px(EDGE_FADE))
-                .px(SPACE_2H)
-                .pb(px(EDGE_FADE))
-                .overflow_y_scroll()
-                .children(empty)
-                .child({
-                    let glide = bench.rails.glide.borrow();
-                    let skip = usize::from(copy.is_some());
-                    div().on_children_prepainted(glide.keep_origin()).child(
-                        div()
-                            .relative()
-                            .flex()
-                            .flex_col()
-                            .gap(SPACE_0)
-                            .children(copy)
-                            .children(rows)
-                            .on_children_prepainted(glide.keep_items(skip)),
-                    )
-                })
-                .when(!pinned.is_empty(), |scroll| {
-                    scroll.child(Group::new("Pinned", "").children(pinned))
-                })
-                .when(!recent.is_empty(), |scroll| {
-                    scroll.child(Group::new("Recent", "").children(recent))
-                }),
-            cx,
-        ))
+        .child(
+            faded(
+                div()
+                    .id("tab-rail-scroll")
+                    .track_scroll(&bench.rails.scroll)
+                    .on_scroll(cx.listener(|bench, _, _, cx| bench.hold_card(cx)))
+                    .size_full()
+                    .pt(px(EDGE_FADE))
+                    .px(SPACE_2H)
+                    .pb(px(EDGE_FADE))
+                    .overflow_y_scroll()
+                    .children(empty)
+                    .child({
+                        let glide = bench.rails.glide.borrow();
+                        let skip = usize::from(copy.is_some());
+                        div().on_children_prepainted(glide.keep_origin()).child(
+                            div()
+                                .relative()
+                                .flex()
+                                .flex_col()
+                                .gap(SPACE_0)
+                                .children(copy)
+                                .children(rows)
+                                .on_children_prepainted(glide.keep_items(skip)),
+                        )
+                    })
+                    .when(!snoozed.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Snoozed"), ""), SNOOZED, bench, cx)
+                                .children(snoozed),
+                        )
+                    })
+                    .when(!pinned.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Pinned"), ""), PINNED, bench, cx)
+                                .children(pinned),
+                        )
+                    })
+                    .when(!recent.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Recent"), ""), RECENT, bench, cx)
+                                .total(project.and_then(|project| bench.recent_total(project)))
+                                .children(recent),
+                        )
+                    }),
+                cx,
+            )
+            .children(unseen.chip(true, cx))
+            .children(unseen.chip(false, cx)),
+        )
         .children(limits(bench, cx))
         .into_any_element()
+}
+
+/// The keys the agent rail's groups are kept folded under.
+const PINNED: &str = "pinned";
+const RECENT: &str = "recent";
+const SNOOZED: &str = "snoozed";
+
+/// `group` folding on a click on its heading, and staying folded under `key` across restarts.
+pub(crate) fn folding(
+    group: Group,
+    key: &'static str,
+    bench: &Workbench,
+    cx: &mut Context<Workbench>,
+) -> Group {
+    group.folds(
+        bench.rails.folded(key),
+        cx.listener(move |bench, _, _, cx| bench.fold_group(key, cx)),
+    )
 }
 
 fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     header_frame(
         picker(bench, cx),
-        [
-            IconButton::new("search", Icon::Search, "Filter recent chats")
+        tags::button(bench, cx).into_iter().chain([
+            IconButton::new("search", Icon::Search, t!("Filter recent chats"))
                 .pressed(bench.filter.is_some())
                 .on_click(cx.listener(|bench, _, window, cx| {
                     bench.toggle_filter(window, cx);
                     cx.notify();
                 }))
                 .into_any_element(),
-            IconButton::new("start-agent", Icon::Plus, "Choose agent")
-                .on_click(|_, window, cx| crate::keymap::dispatch("agent.choose", window, cx))
+            IconButton::new("start-agent", Icon::Plus, t!("Choose agent"))
+                .on_click(|_, window, cx| {
+                    crate::keymap::dispatch(actions::ChooseAgent::ID, window, cx)
+                })
                 .into_any_element(),
-        ],
+        ]),
         bench,
         cx,
     )
@@ -282,7 +439,7 @@ fn header_frame(
         .pr(SPACE_1H)
         .pb(SPACE_1H)
         .pl(SPACE_2H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             div()
@@ -298,12 +455,14 @@ fn header_frame(
                             "hide-tab-rail",
                             Icon::PanelRight,
                             if bench.rails.tab_open {
-                                "Hide agents rail"
+                                t!("Hide agents rail")
                             } else {
-                                "Keep agents rail open"
+                                t!("Keep agents rail open")
                             },
                         )
-                        .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Edge::End, cx))),
+                        .on_click(
+                            cx.listener(|bench, _, _, cx| bench.toggle_rail(Rail::Agents, cx)),
+                        ),
                     ),
                 ),
         )
@@ -318,16 +477,16 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             ui::icon(Icon::Inbox, 16.)
                 .text_color(t.text_secondary)
                 .into_any_element(),
-            "All harnesses".to_owned(),
+            t!("All harnesses").to_owned(),
         ),
         Some(launcher) => (
             ui::mark(&launcher.provider, 16.),
             harness_label(bench, launcher),
         ),
         None => {
-            return ui::text("Agents", TEXT_SM, FontWeight::SEMIBOLD)
+            return ui::text(t!("Agents"), TEXT_SM, FontWeight::SEMIBOLD)
                 .text_color(t.text_primary)
-                .into_any_element()
+                .into_any_element();
         }
     };
     let name = ui::text(label, TEXT_SM, FontWeight::SEMIBOLD)
@@ -373,14 +532,14 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         "agent-picker",
         Anchor::TopLeft,
         BaseButton::new("agent-picker-button")
-            .accessibility_label("Agent provider")
+            .accessibility_label(t!("Agent provider"))
             .h(px(28.))
             .ml(px(-6.))
             .px(SPACE_1H)
             .flex()
             .items_center()
             .gap(px(7.))
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .hover(move |style| style.bg(t.surface_hover))
             .child(mark)
             .child(name)
@@ -397,7 +556,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     .on_click(move |_, window, cx| choose(&choice, window, cx))
             };
             popup = popup.item(item(
-                ui::MenuRow::new("All harnesses")
+                ui::MenuRow::new(t!("All harnesses"))
                     .mark(move || ui::icon(Icon::Inbox, 13.).text_color(glyph_ink)),
                 None,
                 cx,
@@ -423,11 +582,21 @@ fn harness_label(bench: &Workbench, launcher: &LauncherInfo) -> String {
     bench.agent_name(&launcher.provider).to_owned()
 }
 
-/// A saved chat no agent holds, to take up again: how long ago it ran, or a pin when it is
-/// pinned, and Pin or Unpin on a right-click.
+/// A saved chat no agent holds, to take up again: how many triggers wait for it, else how long
+/// ago it ran, or a pin when it is pinned, and Pin or Unpin on a right-click. Resting on a chat
+/// whose triggers wait shows them in a card.
 fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
+    let waiting = recent.triggers.len();
     let tail = match recent.pinned {
+        _ if waiting > 0 => div()
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .text_color(t.text_tertiary)
+            .child(ui::icon(Icon::Timer, 11.).text_color(t.text_tertiary))
+            .child(ui::mono(waiting.to_string(), TEXT_2XS, cx))
+            .into_any_element(),
         true => ui::gives_way(
             RECENT_ROW,
             ui::icon(Icon::Pin, 11.).text_color(t.text_tertiary),
@@ -441,22 +610,29 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
     )
     .mark(22., ui::mark(&recent.provider, 20.))
     .compact(bench.rail_compact())
+    .when_some(bench.said_in(&recent.id), |row, said| {
+        row.subtitle(crate::pickers::recent::said_line(said, cx))
+    })
     .child(tail)
     .on_click(cx.listener({
         let recent = recent.clone();
-        move |bench, _, _, cx| bench.resume_chat(&recent, cx)
+        move |bench, _, _, cx| bench.take_up_chat(&recent, cx)
     }));
     let pin = pin_chat(&cx.entity(), recent);
     let unpin = recent.pinned.then(|| {
         let unpin = pin.1.clone();
         ui::hover_actions(RECENT_ROW)
             .top_0()
-            .h(px(if bench.rail_compact() { 27. } else { 28. }))
+            .h(px(crate::theme::dense(if bench.rail_compact() {
+                27.
+            } else {
+                28.
+            })))
             .child(
                 IconButton::new(
                     SharedString::from(format!("unpin-{}", recent.id)),
                     Icon::Pin,
-                    format!("Unpin {}", recent.title),
+                    t!("Unpin {title}", title = recent.title),
                 )
                 .small()
                 .pressed(true)
@@ -469,12 +645,33 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         .kind(&recent.provider)
         .is_some_and(|kind| kind.deletable_chats);
     let (this, chat) = (cx.weak_entity(), recent.clone());
-    div()
+    let key = crate::agents::card::paused_key(&recent.id);
+    let card = crate::agents::card::paused(bench, recent, cx);
+    let dragged = crate::drag::DraggedChat {
+        agent: None,
+        recent: Some(recent.id.clone()),
+        pinned: recent.pinned,
+        label: recent.title.clone().into(),
+    };
+    let wrap = div()
         .id(SharedString::from(format!("recent-menu-{}", recent.id)))
         .group(RECENT_ROW)
-        .relative()
+        .relative();
+    let (keyed_id, label) = (format!("recent-{}", recent.id), recent.title.clone());
+    let row = crate::drag::chat(wrap, dragged, cx.weak_entity())
+        .when(waiting > 0, |wrap| {
+            let rest = key.clone();
+            wrap.on_hover(cx.listener(move |bench, inside: &bool, _, cx| {
+                bench.rest_on_agent(&rest, *inside, cx)
+            }))
+            .on_mouse_move(cx.listener(move |bench, _, _, cx| bench.move_on_agent(&key, cx)))
+        })
         .child(row)
         .children(unpin)
+        .when(card.is_some(), |wrap| {
+            wrap.child(crate::agents::card::follow_row(cx.entity()))
+        })
+        .children(card.map(|card| div().absolute().top_0().left_0().child(card)))
         .context_menu(ui::menu(move |popup, _, cx| {
             let (label, pin) = pin.clone();
             let pin = PopupMenuItem::new(label)
@@ -491,12 +688,12 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
             };
             let popup = popup
                 .item(
-                    PopupMenuItem::new("Open")
+                    PopupMenuItem::new(t!("Open"))
                         .icon(Icon::Message)
                         .on_click(on(|bench, chat, cx| bench.resume_chat(chat, cx))),
                 )
                 .item(
-                    PopupMenuItem::new("Rename…")
+                    PopupMenuItem::new(t!("Rename…"))
                         .icon(Icon::Pencil)
                         .on_click(on(rename_recent)),
                 )
@@ -505,14 +702,14 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
                 return popup;
             }
             popup.separator().item(
-                ui::MenuRow::new("Delete…")
+                ui::MenuRow::new(t!("Delete…"))
                     .icon(Icon::Trash)
                     .danger(true)
                     .item(cx)
                     .on_click(on(delete_recent)),
             )
-        }))
-        .into_any_element()
+        }));
+    (bench.rails.keyed(Rail::Agents)).row(keyed_id, label, row, cx)
 }
 
 /// The foot of Recent, which brings the next page of older chats once it scrolls into view.
@@ -523,7 +720,7 @@ fn older_when_seen(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
             if bounds.top() <= scroll.bounds().bottom() {
                 cx.defer(move |cx| {
                     let _ = this.update(cx, |bench, cx| {
-                        bench.look_for_older(true, crate::recent::PAGE, cx)
+                        bench.look_for_older(true, crate::pickers::recent::PAGE, cx)
                     });
                 });
             }
@@ -539,14 +736,17 @@ fn older_when_seen(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
 fn rename_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Workbench>) {
     let (recent, cwd) = (chat.id.clone(), chat.cwd.clone());
     bench.prompt(
-        "Rename chat",
+        t!("Rename chat"),
         chat.title.clone(),
         move |bench, title, _, _| {
             if !title.trim().is_empty() {
-                bench.call(
-                    "renameRecent",
-                    serde_json::json!({ "recent": recent, "title": title.trim(), "cwd": cwd }),
-                );
+                bench
+                    .target()
+                    .call_typed::<call::RenameRecent>(RecentRenamed {
+                        recent: recent.clone(),
+                        title: title.trim().to_owned(),
+                        cwd: Some(cwd.clone()),
+                    });
                 bench.retitle_older(&recent, title.trim());
             }
         },
@@ -558,19 +758,19 @@ fn rename_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
 fn delete_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Workbench>) {
     let (recent, cwd) = (chat.id.clone(), chat.cwd.clone());
     bench.confirm(
-        "Delete this chat?",
-        format!(
-            "“{}” will be removed from disk for good and can no longer be resumed.",
-            chat.title
+        t!("Delete this chat?"),
+        t!(
+            "“{title}” will be removed from disk for good and can no longer be resumed.",
+            title = chat.title
         ),
-        "Delete",
+        t!("Delete"),
         true,
         move |bench, yes, _, _| {
             if yes {
-                bench.call(
-                    "deleteRecent",
-                    serde_json::json!({ "recent": recent, "cwd": cwd }),
-                );
+                bench.target().call_typed::<call::DeleteRecent>(RecentChat {
+                    recent: recent.clone(),
+                    cwd: Some(cwd.clone()),
+                });
                 bench.forget_older(&recent);
             }
         },
@@ -578,21 +778,45 @@ fn delete_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
     );
 }
 
-/// Something a click on the rail does.
 type Click = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// "Pin" or "Unpin" for the saved chat, and what does it.
 fn pin_chat(this: &Entity<Workbench>, recent: &RecentInfo) -> (&'static str, Click) {
     let (this, id, pinned) = (this.clone(), recent.id.clone(), recent.pinned);
-    let label = if pinned { "Unpin" } else { "Pin" };
+    let label = if pinned { t!("Unpin") } else { t!("Pin") };
     let pin = move |_: &mut Window, cx: &mut App| {
-        let params = serde_json::json!({ "recent": id, "pinned": !pinned });
-        this.update(cx, |bench, _| bench.call("pinChat", params));
+        let params = PinChatParams {
+            recent: id.clone(),
+            pinned: !pinned,
+        };
+        this.update(cx, |bench, _| {
+            bench.target().call_typed::<call::PinChat>(params)
+        });
     };
     (label, Rc::new(pin))
 }
 
-fn new_row(id: &'static str, glyph: Icon, label: &'static str, command: &str, cx: &App) -> Row {
+/// The copy switch, while the copy in front is on another host.
+fn elsewhere_chip(
+    id: &'static str,
+    bench: &Workbench,
+    cx: &Context<Workbench>,
+) -> Option<AnyElement> {
+    if bench.place() == Place::This {
+        return None;
+    }
+    let folded = bench.folded_in_front()?;
+    crate::copies::copy_chip(id, bench, &folded, cx)
+        .map(|chip| div().pr(SPACE_1).child(chip).into_any_element())
+}
+
+fn new_row(
+    id: &'static str,
+    glyph: Icon,
+    label: &'static str,
+    command: CommandId,
+    cx: &App,
+) -> Row {
     let t = Tokens::get(cx).clone();
     Row::new(id, label)
         .mark(
@@ -609,77 +833,108 @@ fn new_row(id: &'static str, glyph: Icon, label: &'static str, command: &str, cx
 pub type RailSeen = crate::motion::ListMemory<AgentRow>;
 
 /// The rows, each lead's workers under it on a tree the lead folds, unless the list is
-/// filtered and a team may have lost its lead.
+/// filtered and a team may have lost its lead. Only the agents a chief started hang under its
+/// head; those the person started stand at the root below it.
 fn team_rows(
     bench: &Workbench,
     agents: &[AgentRow],
+    homes: &HashMap<(Place, String), String>,
+    heads: Vec<(String, AnyElement)>,
+    (chiefs, mut chief_led): (&HashSet<String>, HashSet<String>),
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
-    let chosen = bench.agent().map(|agent| agent.id.clone());
+    let chosen = bench.agent().map(|agent| agent.id);
     let glided = bench
         .rails
         .glide
         .borrow_mut()
         .choose(chosen, cx.reduce_motion());
     let teams = bench.filter_text().is_empty();
-    let remote = if teams {
-        remote_workers(bench)
-    } else {
-        Vec::new()
-    };
-    let remote_of = |members: &[&AgentRow]| -> Vec<&RemoteAgent> {
-        remote
-            .iter()
-            .copied()
-            .filter(|worker| {
-                members
-                    .iter()
-                    .any(|member| worker.lead.as_deref() == Some(member.id.as_str()))
+    let mut rows: Vec<AgentRow> = agents.to_vec();
+    match teams {
+        true => {
+            let workers: Vec<AgentRow> = (remote_workers(bench, agents).into_iter())
+                .filter_map(|worker| {
+                    let mut row = (agents.iter())
+                        .find(|agent| agent.id == worker.shown.agent_id)
+                        .cloned()
+                        .or_else(|| crate::agents::rows::worker(worker))?;
+                    row.lead = worker.shown.lead.clone();
+                    if (row.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
+                        row.lead = None;
+                        chief_led.insert(row.id.clone());
+                    }
+                    Some(row)
+                })
+                .collect();
+            rows.retain(|row| !workers.iter().any(|worker| worker.id == row.id));
+            rows.extend(workers);
+        }
+        false => rows.iter_mut().for_each(|row| row.lead = None),
+    }
+    let home: Vec<(String, bool)> = {
+        let at: HashMap<&str, &AgentRow> = rows.iter().map(|row| (row.id.as_str(), row)).collect();
+        (rows.iter())
+            .map(|row| {
+                let mut top = row;
+                for _ in 0..rows.len() {
+                    match top.lead.as_deref().and_then(|lead| at.get(lead)) {
+                        Some(lead) => top = lead,
+                        None => break,
+                    }
+                }
+                (home_of(homes, top).to_owned(), chief_led.contains(&top.id))
             })
             .collect()
     };
-    let mut folded = false;
-    let mut team_members: Vec<&AgentRow> = Vec::new();
-    let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
+    let folded = &bench.rails.folded_teams;
+    let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(rows.len() + heads.len());
     let mut shown = Vec::new();
-    for (ix, agent) in agents.iter().enumerate() {
-        let team = agent.team.filter(|_| teams);
-        let continues = |at: usize| {
-            agents
-                .get(at)
-                .is_some_and(|next| matches!(next.team, Some(TeamLink::Member | TeamLink::Last)))
-        };
-        let fold = match team {
-            Some(TeamLink::Head) => {
-                let members: Vec<&AgentRow> = std::iter::once(agent)
-                    .chain(agents[ix + 1..].iter().take_while(|worker| {
-                        matches!(worker.team, Some(TeamLink::Member | TeamLink::Last))
-                    }))
-                    .collect();
-                let count = members.len() - 1 + remote_of(&members).len();
-                folded = bench.rails.folded_teams.contains(&agent.id);
-                team_members = members;
-                Some(Fold {
-                    open: !folded,
-                    count,
-                })
-            }
-            Some(_) if folded => continue,
-            Some(_) => None,
-            None => {
-                folded = false;
-                None
-            }
-        };
-        shown.push((agent.id.clone(), agent.clone()));
-        let row = agent_row(bench, agent, team, fold, glided, cx);
-        drawn.push((agent.id.clone(), row.into_any_element()));
-        if team.is_some() && !folded && !continues(ix + 1) {
-            for worker in remote_of(&team_members) {
-                drawn.push((String::new(), remote_row(worker, cx)));
-            }
+    let mut place = |placed: Vec<tree::Placed>,
+                     drawn: &mut Vec<(String, AnyElement)>,
+                     cx: &mut Context<Workbench>| {
+        for placed in placed {
+            let fold = (teams && placed.below > 0).then(|| Fold {
+                open: !folded.contains(&placed.row.id),
+                count: placed.below,
+            });
+            let row = agent_row(bench, &placed.row, &placed.hang, fold, glided, cx);
+            drawn.push((placed.row.id.clone(), row));
+            shown.push((placed.row.id.clone(), placed.row));
         }
+    };
+    let mut headed = HashSet::new();
+    for (project, head) in heads {
+        let (team, own): (Vec<_>, Vec<_>) = (rows.iter().zip(&home))
+            .filter(|(_, (home, _))| *home == project)
+            .partition(|(_, (_, chief_led))| *chief_led);
+        let team: Vec<AgentRow> = team.into_iter().map(|(row, _)| row.clone()).collect();
+        let own: Vec<AgentRow> = own.into_iter().map(|(row, _)| row.clone()).collect();
+        let placed = tree::tree(&team, 1, folded);
+        let head = match placed.is_empty() {
+            true => head,
+            false => div()
+                .relative()
+                .child(head)
+                .children(hang_lines(
+                    &tree::Hang {
+                        open: true,
+                        ..Default::default()
+                    },
+                    cx,
+                ))
+                .into_any_element(),
+        };
+        drawn.push((format!("chief:{project}"), head));
+        place(placed, &mut drawn, cx);
+        place(tree::tree(&own, 0, folded), &mut drawn, cx);
+        headed.insert(project);
     }
+    let loose: Vec<AgentRow> = (rows.iter().zip(&home))
+        .filter(|(_, (home, _))| !headed.contains(home))
+        .map(|(row, _)| row.clone())
+        .collect();
+    place(tree::tree(&loose, 0, folded), &mut drawn, cx);
     let view = format!(
         "{}:{}:{}",
         bench.rails.all_projects,
@@ -704,7 +959,7 @@ fn team_rows(
         })
         .collect();
     for gone in left {
-        let row = agent_row(bench, &gone.item, None, None, false, cx);
+        let row = agent_row(bench, &gone.item, &tree::Hang::default(), None, false, cx);
         let key = SharedString::from(format!("depart:{}", gone.id));
         let row = crate::motion::departing(key, gone.since, crate::motion::ROW_DEPARTURE, row);
         rows.insert(gone.at.min(rows.len()), row.into_any_element());
@@ -713,95 +968,82 @@ fn team_rows(
     let mut glide = bench.rails.glide.borrow_mut();
     glide.set_order(order);
     let chosen = Tokens::get(cx).surface_chosen;
-    let copy = glide.copy(move |copy| copy.rounded(theme::RADIUS_2).bg(chosen));
+    let copy = glide.copy(move |copy| copy.rounded(theme::radius_2()).bg(chosen));
     (copy, rows)
 }
 
-/// The spine and tick that hang a team's rows under its lead.
-fn team_lines(team: Option<TeamLink>, open_head: bool, cx: &App) -> Vec<AnyElement> {
+/// The spines, ticks and corners that hang a row under its lead, level by level, and the line
+/// dropping from its mark to the rows under it.
+fn hang_lines(hang: &tree::Hang, cx: &App) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let spine = |line: gpui_kit::Div| line.absolute().left(px(14.)).w(px(1.)).bg(t.tree_spine);
-    match (team, open_head) {
-        (Some(TeamLink::Head), true) => {
-            vec![spine(div()).top(px(26.)).bottom(px(-2.)).into_any_element()]
+    let at = |level: usize| px(14. + INDENT * level as f32);
+    let spine = |level: usize| div().absolute().left(at(level)).w(px(1.)).bg(t.tree_spine);
+    let mut lines: Vec<AnyElement> = Vec::new();
+    for (level, line) in hang.lines.iter().enumerate() {
+        match line {
+            tree::Line::Blank => {}
+            tree::Line::Through => {
+                lines.push(spine(level).top(px(-2.)).bottom(px(-2.)).into_any_element())
+            }
+            tree::Line::Tick => {
+                lines.push(spine(level).top(px(-2.)).bottom(px(-2.)).into_any_element());
+                lines.push(
+                    div()
+                        .absolute()
+                        .top(px(14.))
+                        .left(at(level))
+                        .w(px(7.))
+                        .h(px(1.))
+                        .bg(t.tree_tick)
+                        .into_any_element(),
+                );
+            }
+            tree::Line::Corner => lines.push(
+                div()
+                    .absolute()
+                    .top(px(-2.))
+                    .left(at(level))
+                    .w(px(8.))
+                    .h(px(17.))
+                    .border_l(crate::theme::border())
+                    .border_b(crate::theme::border())
+                    .border_color(t.tree_spine)
+                    .rounded_bl(px(4.))
+                    .into_any_element(),
+            ),
         }
-        (Some(TeamLink::Member), _) => vec![
-            spine(div()).top(px(-2.)).bottom(px(-2.)).into_any_element(),
-            div()
-                .absolute()
-                .top(px(14.))
-                .left(px(14.))
-                .w(px(7.))
-                .h(px(1.))
-                .bg(t.tree_tick)
-                .into_any_element(),
-        ],
-        (Some(TeamLink::Last), _) => vec![div()
-            .absolute()
-            .top(px(-2.))
-            .left(px(14.))
-            .w(px(8.))
-            .h(px(17.))
-            .border_l_1()
-            .border_b_1()
-            .border_color(t.tree_spine)
-            .rounded_bl(px(4.))
-            .into_any_element()],
-        _ => Vec::new(),
     }
+    if hang.open {
+        lines.push(
+            spine(hang.depth)
+                .top(px(26.))
+                .bottom(px(-2.))
+                .into_any_element(),
+        );
+    }
+    lines
 }
 
-/// The workers agents here started on linked hosts, as the core lists them in team order.
-fn remote_workers(bench: &Workbench) -> Vec<&RemoteAgent> {
-    bench
-        .shown()
-        .into_iter()
+/// How far each level of a tree sits to the right of the one above.
+const INDENT: f32 = 18.;
+
+/// The workers the agents listed started on linked hosts, as each lead's core lists them in team
+/// order.
+fn remote_workers<'a>(bench: &'a Workbench, agents: &[AgentRow]) -> Vec<&'a RemoteAgent> {
+    let mut places: Vec<&Place> = Vec::new();
+    for agent in agents {
+        if !places.contains(&&agent.place) {
+            places.push(&agent.place);
+        }
+    }
+    (places.into_iter())
+        .filter_map(|place| bench.view_at(place))
         .flat_map(|view| &view.inbox.remote_agents)
-        .filter(|worker| worker.team.is_some())
+        .filter(|worker| worker.shown.lead.is_some())
         .collect()
 }
 
-/// A worker on a linked host, in its lead's team. It has no chat here to open.
-fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
-    let team = match worker.team {
-        Some(TeamLink::Last) => Some(TeamLink::Last),
-        _ => Some(TeamLink::Member),
-    };
-    let reachable = worker.reachable;
-    let host = &worker.host;
-    let title = format!(
-        "@{} on {host}{}",
-        worker.name,
-        if reachable { "" } else { ", out of reach" }
-    );
-    let status = reachable.then_some(worker.status);
-    let tip = if reachable {
-        format!("Runs on {host}")
-    } else {
-        format!("{host} is out of reach")
-    };
-    div()
-        .id(SharedString::from(format!("remote-{}", worker.agent_id)))
-        .relative()
-        .pl(px(18.))
-        .tooltip(ui::tooltip(tip))
-        .child(
-            Row::new(
-                SharedString::from(format!("remote-row-{}", worker.agent_id)),
-                title,
-            )
-            .mark(22., ui::mark(&worker.cli, 20.))
-            .quiet()
-            .when_some(status, |row, status| {
-                row.status(ui::status_mark(&worker.agent_id, status, cx))
-            }),
-        )
-        .children(team_lines(team, false, cx))
-        .into_any_element()
-}
-
 impl Workbench {
-    /// Folds a lead's team away, or brings it back.
     pub fn fold_team(&mut self, lead: &str, cx: &mut Context<Self>) {
         if !self.rails.folded_teams.remove(lead) {
             self.rails.folded_teams.insert(lead.to_owned());
@@ -819,26 +1061,21 @@ struct Fold {
 fn agent_row(
     bench: &Workbench,
     agent: &AgentRow,
-    team: Option<TeamLink>,
+    hang: &tree::Hang,
     fold: Option<Fold>,
     glided: bool,
     cx: &mut Context<Workbench>,
-) -> impl IntoElement {
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
+    let elsewhere = agent.place != bench.place();
     let project = bench
         .rails
         .all_projects
-        .then(|| {
-            bench
-                .projects()
-                .iter()
-                .find(|project| project.id == agent.project)
-        })
+        .then(|| bench.project_on(&agent.place, &agent.project))
         .flatten()
         .map(|project| project.name.clone());
     let chosen = bench.agent().is_some_and(|front| front.id == agent.id);
     let id = agent.id.clone();
-    let menu = AgentMenu::new(bench, &agent.id, cx);
     let mark = match &fold {
         Some(fold) => div()
             .relative()
@@ -858,7 +1095,7 @@ fn agent_row(
                     .justify_center()
                     .opacity(0.)
                     .group_hover(ui::ROW, |chevron| chevron.opacity(1.))
-                    .on_click(cx.listener({
+                    .clicks(cx.listener({
                         let id = agent.id.clone();
                         move |bench, _, _, cx| {
                             cx.stop_propagation();
@@ -875,10 +1112,20 @@ fn agent_row(
             .into_any_element(),
         None => agent.mark(20., cx),
     };
-    let status = ui::status_mark(&agent.id, agent.status, cx);
+    let worker = !agent.chief
+        && (bench.project_on(&agent.place, &agent.project))
+            .is_some_and(|project| project.chief.is_some());
+    let away = agent.snoozed_until.is_some() || agent.settled_at.is_some() || !agent.reachable;
+    let mark = match away {
+        true => div().opacity(0.55).child(mark).into_any_element(),
+        false => mark,
+    };
+    let status = (agent.reachable)
+        .then(|| ui::turn_mark(&agent.id, agent.turn.as_ref()))
+        .flatten();
     let fades = status.is_none();
-    let pin = bench
-        .chat_of(&agent.id)
+    let pin = (bench.chat_of(&agent.id))
+        .filter(|_| !elsewhere)
         .map(|chat| (chat.pinned, pin_chat(&cx.entity(), chat).1));
     let editing = bench
         .overlays
@@ -886,28 +1133,22 @@ fn agent_row(
         .as_ref()
         .filter(|retitling| retitling.agent == agent.id && retitling.in_rail)
         .map(|retitling| crate::home::retitle_field(retitling, 13., cx).w_full());
+    let said = (bench.chat_of(&agent.id)).and_then(|chat| bench.said_in(&chat.id));
     let row = Row::new(
         SharedString::from(format!("agent-{}", agent.id)),
         agent.title.clone(),
     )
     .title_view(editing)
+    .when_some(said, |row, said| {
+        row.subtitle(crate::pickers::recent::said_line(said, cx))
+    })
     .mark(22., mark)
     .hover_padding(AGENT_ROW, if pin.is_some() { 48. } else { 28. })
     .chosen(chosen)
     .glided(glided && chosen)
     .compact(bench.rail_compact())
-    .when_some(project.clone(), |row, project| {
-        row.subtitle(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .line_height(crate::theme::ui_text(TEXT_MD))
-                .child(ui::icon(Icon::Folder, 11.).text_color(t.live))
-                .child(ui::meta(project, cx)),
-        )
-    })
     .status(status)
+    .when(away, Row::quiet)
     .on_click(cx.listener({
         let id = id.clone();
         move |bench, event: &ClickEvent, window, cx| {
@@ -921,11 +1162,23 @@ fn agent_row(
             }
             match event.click_count() {
                 2 => bench.retitle(&id, true, window, cx),
-                _ => bench.open_agent(&id),
+                _ => {
+                    if worker {
+                        crate::keymap::counted("chat.openWorker", cx);
+                    }
+                    bench.open_found_agent(&id, cx)
+                }
             }
         }
     }))
-    .children(agent.name.clone().map(|name| {
+    .children(host_tag(bench, agent, cx))
+    .children(
+        (hang.lead_apart.as_deref())
+            .and_then(|lead| bench.agent_by_id(lead))
+            .and_then(|lead| lead.name)
+            .map(|lead| ui::meta(format!("@{lead} ›"), cx).pl(SPACE_2)),
+    )
+    .children(agent.handle().map(|name| {
         let name = ui::meta(format!("@{name}"), cx).pl(SPACE_2).pr(SPACE_1);
         match fades {
             true => ui::gives_way(AGENT_ROW, name).into_any_element(),
@@ -944,18 +1197,29 @@ fn agent_row(
             .font_features(crate::theme::tabular())
             .child(format!("+{}", fold.count))
     }))
+    .children((agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx)))
+    .children(ui::turn_time(&agent.id, agent.turn.as_ref()))
     .children(counts(agent, cx).map(|counts| match fades {
         true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
         false => counts.into_any_element(),
     }));
-    let lines = team_lines(team, matches!(fold, Some(Fold { open: true, .. })), cx);
-    let card = crate::agents::card::view(bench, agent, project.as_deref(), cx);
+    let lines = hang_lines(hang, cx);
+    let card = (!elsewhere)
+        .then(|| crate::agents::card::view(bench, agent, project.as_deref(), cx))
+        .flatten();
     let close = agent.id.clone();
     let actions = ui::hover_actions(AGENT_ROW)
         .top_0()
-        .h(px(if bench.rail_compact() { 27. } else { 28. }))
+        .h(px(crate::theme::dense(if bench.rail_compact() {
+            27.
+        } else {
+            28.
+        })))
         .children(pin.map(|(pinned, pin)| {
-            let label = format!("{} {}", if pinned { "Unpin" } else { "Pin" }, agent.title);
+            let label = match pinned {
+                true => t!("Unpin {title}", title = agent.title),
+                false => t!("Pin {title}", title = agent.title),
+            };
             IconButton::new(
                 SharedString::from(format!("pin-{}", agent.id)),
                 Icon::Pin,
@@ -967,18 +1231,37 @@ fn agent_row(
         }))
         .child(ui::close_button(
             SharedString::from(format!("close-{}", agent.id)),
-            format!("Close {}", agent.title),
-            cx.listener(move |bench, _, _, cx| bench.close_agents(vec![close.clone()], cx)),
+            t!("Close {title}", title = agent.title),
+            cx.listener({
+                let row = agent.clone();
+                move |bench, _, _, cx| match elsewhere {
+                    true => bench.close_elsewhere(&row, cx),
+                    false => bench.close_agents(vec![close.clone()], cx),
+                }
+            }),
             cx,
         ));
-    div()
+    let chat = bench.chat_of(&agent.id);
+    let dragged = crate::drag::DraggedChat {
+        agent: (agent.name.clone())
+            .filter(|_| !elsewhere)
+            .map(|name| (agent.id.clone(), name)),
+        recent: chat.filter(|_| !elsewhere).map(|chat| chat.id.clone()),
+        pinned: chat.is_some_and(|chat| chat.pinned),
+        label: agent.title.clone().into(),
+    };
+    let (menu_bench, menu_row) = (cx.weak_entity(), agent.clone());
+    let wrap = div()
         .id(SharedString::from(format!("agent-menu-{}", agent.id)))
         .group(AGENT_ROW)
-        .relative()
-        .when(
-            matches!(team, Some(TeamLink::Member | TeamLink::Last)),
-            |wrap| wrap.pl(px(18.)),
-        )
+        .relative();
+    let label = match &agent.name {
+        Some(name) if agent.titled => format!("{}, @{name}", agent.title),
+        _ => agent.title.clone(),
+    };
+    let keyed_id = format!("agent-{}", agent.id);
+    let row = crate::drag::chat(wrap, dragged, cx.weak_entity())
+        .pl(px(INDENT * hang.depth as f32))
         .on_hover({
             let id = id.clone();
             cx.listener(move |bench, inside: &bool, _, cx| bench.rest_on_agent(&id, *inside, cx))
@@ -996,10 +1279,172 @@ fn agent_row(
             wrap.child(crate::agents::card::follow_row(cx.entity()))
         })
         .children(card.map(|card| div().absolute().top_0().left_0().child(card)))
-        .context_menu(ui::menu(move |popup, _, _| match &menu {
-            Some(menu) => menu.build(popup),
-            None => popup,
-        }))
+        .context_menu(ui::menu(move |popup, window, cx| {
+            match menu_bench.update(cx, |bench, cx| AgentMenu::of_row(bench, &menu_row, cx)) {
+                Ok(Some(menu)) => menu.build(popup, window, cx),
+                _ => popup,
+            }
+        }));
+    (bench.rails.keyed(Rail::Agents)).row(keyed_id, label, row, cx)
+}
+
+/// The projects a list of every project shows, each led by its @Chief: those with a chief's chat
+/// or agents, the one that most needs the person first. A project with an open call or an agent
+/// that needs the person comes first, then one with work under way, then the rest, each rank in
+/// the order the core lists projects.
+fn ranked_projects(bench: &Workbench) -> Vec<ProjectInfo> {
+    let rank = |project: &ProjectInfo| match project.standing {
+        ProjectStanding::NeedsYou => 0,
+        ProjectStanding::AtWork => 1,
+        ProjectStanding::AtRest | ProjectStanding::Unknown => 2,
+    };
+    let mut projects: Vec<ProjectInfo> = (bench.projects().iter())
+        .filter(|project| {
+            project.chief.is_some() || project.chief_home.is_some() || project.agents > 0
+        })
+        .cloned()
+        .collect();
+    projects.sort_by_key(rank);
+    projects
+}
+
+/// This host's project that each other host's copy of it folds into, keyed by that copy's host
+/// and project there.
+fn home_projects(bench: &Workbench) -> HashMap<(Place, String), String> {
+    (bench.folded().into_iter())
+        .filter_map(|folded| Some((folded.own?.id, folded.copies)))
+        .flat_map(|(own, copies)| {
+            (copies.into_iter())
+                .filter(|copy| copy.place != Place::This)
+                .map(move |copy| ((copy.place, copy.project), own.clone()))
+        })
+        .collect()
+}
+
+/// The project whose @Chief leads the agent's row: this host's copy of its project.
+fn home_of<'a>(homes: &'a HashMap<(Place, String), String>, agent: &'a AgentRow) -> &'a str {
+    (homes.get(&(agent.place.clone(), agent.project.clone()))).map_or(&agent.project, |home| home)
+}
+
+/// The project's chief, here or on its home host, while its chat is open.
+fn chief_of<'a>(project: &ProjectInfo, agents: &'a [AgentRow]) -> Option<&'a AgentRow> {
+    let home = project
+        .chief_home
+        .as_ref()
+        .map(|home| home.agent_id.as_str());
+    (home.or(project.chief.as_deref())).and_then(|id| agents.iter().find(|agent| agent.id == id))
+}
+
+/// A project's @Chief row: Sikemux's mark, @Chief, "Chief of staff", the project's name where
+/// projects mix, the host it lives on when that is another, and how its turn stands. Opening it
+/// opens the chief's chat, made the first time on the host it lives on.
+fn chief_row(
+    bench: &Workbench,
+    project: &ProjectInfo,
+    chief: Option<&AgentRow>,
+    named: bool,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let chosen = chief.is_some_and(|chief| bench.agent().is_some_and(|front| front.id == chief.id));
+    let place = named.then(|| {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(3.))
+            .pl(SPACE_2)
+            .text_color(t.text_tertiary)
+            .child(ui::icon(Icon::Folder, 11.))
+            .child(ui::text(project.name.clone(), TEXT_2XS, FontWeight::MEDIUM))
+    });
+    let home = project.chief_home.as_ref().map(|home| {
+        let said = match home.away_since {
+            Some(since) => t!(
+                "Runs on {host}, out of reach since {at}",
+                host = home.host_name,
+                at = ui::time::clock(since)
+            ),
+            None => t!("Runs on {host}", host = home.host_name),
+        };
+        host_mark(format!("chief-home-{}", project.id), said.into(), cx)
+    });
+    let take_over = (project.chief_home.as_ref())
+        .filter(|home| home.away_since.is_some())
+        .map(|_| {
+            let project_id = project.id.clone();
+            ui::Button::new(
+                SharedString::from(format!("chief-take-over-{}", project.id)),
+                t!("Take over here"),
+                ui::Variant::Outline,
+            )
+            .sized(18., 6., TEXT_2XS)
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                cx.stop_propagation();
+                bench.take_over_chief(&project_id, cx);
+            }))
+        });
+    let away = (project.chief_home.as_ref()).and_then(|home| {
+        let since = home.away_since?;
+        let said = t!(
+            "{host}, out of reach since {at}",
+            host = home.host_name,
+            at = ui::time::clock(since)
+        );
+        Some(ui::text(said, TEXT_2XS, FontWeight::NORMAL).text_color(t.text_tertiary))
+    });
+    let (id, project_id) = (chief.map(|chief| chief.id.clone()), project.id.clone());
+    let home_project = project.chief_home.as_ref().and_then(|home| {
+        let copy = (project.copies.iter()).find(|copy| copy.host == home.host)?;
+        Some((home.host.clone(), copy.project.clone()))
+    });
+    Row::new(
+        SharedString::from(format!("chief-{}", project.id)),
+        rows::CHIEF.to_owned(),
+    )
+    .mark(22., ui::chief_mark(20.))
+    .chosen(chosen)
+    .compact(bench.rail_compact())
+    .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
+    .detail(rows::chief_role())
+    .children(place)
+    .children(home)
+    .children(take_over)
+    .when_some(away, |row, away| row.subtitle(away))
+    .on_click(
+        cx.listener(move |bench, _, _, cx| match (&id, &home_project) {
+            (Some(id), _) => bench.open_agent(id, cx),
+            (None, Some((host, project))) => {
+                let on = Target::new(&bench.asks, bench.place_of(host));
+                bench.open_chief_on(on, project, cx);
+            }
+            (None, None) => bench.open_chief(&project_id, cx),
+        }),
+    )
+    .into_any_element()
+}
+
+/// The host an agent runs on, on its row, while that is not this host.
+fn host_tag(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement> {
+    let Place::Account(key) = &agent.place else {
+        return None;
+    };
+    let host = bench.host_name(key);
+    let said = match agent.reachable {
+        true => t!("Runs on {host}", host = host),
+        false => t!("Runs on {host}, out of reach", host = host),
+    };
+    Some(host_mark(format!("host-of-{}", agent.id), said.into(), cx))
+}
+
+fn host_mark(id: String, said: SharedString, cx: &App) -> AnyElement {
+    div()
+        .id(SharedString::from(id))
+        .flex_none()
+        .pl(SPACE_2)
+        .tooltip(ui::tooltip(said))
+        .child(ui::icon(Icon::Laptop, 11.).text_color(Tokens::get(cx).host))
+        .into_any_element()
 }
 
 /// A band of light that passes once over the row each time the agent is named with `@` or
@@ -1030,7 +1475,7 @@ pub fn called(agent: &AgentRow, cx: &App) -> Option<AnyElement> {
                 div()
                     .absolute()
                     .inset_0()
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .overflow_hidden()
                     .when(through > 0. && through < 1., |light| {
                         light.child(
@@ -1058,16 +1503,29 @@ const AGENT_ROW: &str = "agent-row";
 /// The hover group of a saved chat's rail row, whose unpin button shows on hover.
 const RECENT_ROW: &str = "recent-row";
 
+/// The thing an agent waits for while another holds it, cut short so the task keeps its room, with
+/// the whole name on hover.
+fn thing_waited(agent_id: &str, label: String, color: Hsla) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("thing-waited-{agent_id}")))
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .min_w_0()
+        .tooltip(ui::tooltip(label.clone()))
+        .child(ui::icon(Icon::Hourglass, 11.).text_color(color))
+        .child(
+            ui::text(label, TEXT_2XS, FontWeight::MEDIUM)
+                .max_w(px(56.))
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis(),
+        )
+}
+
 pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
     let t = Tokens::get(cx).clone();
-    let waits = !matches!(
-        agent.status,
-        sikemux_wire::protocol::AgentStatus::Working
-            | sikemux_wire::protocol::AgentStatus::Blocked
-            | sikemux_wire::protocol::AgentStatus::Starting
-    );
-    let trigger = agent.next_trigger.filter(|_| waits);
-    (agent.subagents > 0 || agent.tasks > 0 || trigger.is_some()).then(|| {
+    (agent.subagents > 0 || agent.tasks > 0 || agent.line.is_some()).then(|| {
         let count = |glyph: Icon, size: f32, color, value: u32| {
             div()
                 .flex()
@@ -1076,6 +1534,17 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
                 .child(ui::icon(glyph, size).text_color(color))
                 .child(
                     ui::text(value.to_string(), TEXT_2XS, FontWeight::MEDIUM)
+                        .font_features(crate::theme::tabular()),
+                )
+        };
+        let labelled = |glyph: Icon, color, label: String| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(3.))
+                .child(ui::icon(glyph, 11.).text_color(color))
+                .child(
+                    ui::text(label, TEXT_2XS, FontWeight::MEDIUM)
                         .font_features(crate::theme::tabular()),
                 )
         };
@@ -1089,586 +1558,15 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
             .when(agent.tasks > 0, |row| {
                 row.child(count(Icon::Command, 11., t.warn, agent.tasks))
             })
-            .children(trigger.map(|at| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(3.))
-                    .child(ui::icon(Icon::Timer, 11.).text_color(t.cmd))
-                    .child(
-                        ui::text(ui::time::until(at), TEXT_2XS, FontWeight::MEDIUM)
-                            .font_features(crate::theme::tabular()),
-                    )
-            }))
+            .when_some(agent.line.as_ref(), |row, line| match line.by {
+                Some(_) => row.child(thing_waited(&agent.id, line.what.clone(), t.warn)),
+                None => row.child(labelled(
+                    Icon::Hourglass,
+                    t.warn,
+                    crate::turn_line::in_line(line.place),
+                )),
+            })
     })
-}
-
-/// The account new chats here start with, and the person's other accounts with the agent, which
-/// open below it while the pointer rests on the panel.
-fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoElement> {
-    let t = Tokens::get(cx).clone();
-    if bench.rails.all_harnesses {
-        return None;
-    }
-    let launcher = bench.launcher()?;
-    let compact = bench.rail_compact();
-    let provider = launcher.provider.clone();
-    let agent = bench.agent_name(&provider).to_owned();
-    let current = bench.accounts.current(&provider);
-    let seen = |profile: &Profile| {
-        let status =
-            crate::accounts::status(bench, profile).and_then(|status| status.as_ref().ok());
-        Shown {
-            id: Some(profile.id.clone()),
-            profile: Some(profile.clone()),
-            name: crate::accounts::name(bench, profile, status),
-            usage: crate::accounts::usage(bench, profile).cloned(),
-            signed_out: status.is_some_and(|status| !status.signed_in),
-        }
-    };
-    let top = match current {
-        Some(profile) => seen(profile),
-        None => Shown {
-            id: None,
-            profile: None,
-            name: agent.clone(),
-            usage: bench.usage_of(&launcher.id).cloned(),
-            signed_out: launcher.status.as_deref() == Some("signedOut"),
-        },
-    };
-    let others: Vec<Shown> = bench
-        .accounts
-        .of(&provider)
-        .into_iter()
-        .filter(|profile| Some(&profile.id) != current.map(|current| &current.id))
-        .map(seen)
-        .collect();
-    let open = bench.accounts.limits_open && !others.is_empty();
-    let (top_label, top_signed_out) = (top.name.clone(), top.signed_out);
-    let top = if top.signed_out {
-        let title = match top.id {
-            Some(_) => format!("Sign in to {}", top.name),
-            None => format!("Sign in to {agent}"),
-        };
-        let line = match top.id {
-            Some(_) => "This account is signed out",
-            None => "See your 5-hour and weekly limits",
-        };
-        let (provider, id) = (provider.clone(), top.id.clone());
-        sign_in_card(&launcher.provider, title, line, cx)
-            .on_click(cx.listener(move |bench, _, window, cx| {
-                crate::accounts::open_sign_in(bench, &provider, id.as_deref(), window, cx)
-            }))
-            .into_any_element()
-    } else {
-        limit_rows(&top, compact, cx)
-    };
-    let top_name = (!top_signed_out).then(|| {
-        ui::text(top_label.clone(), TEXT_2XS, FontWeight::MEDIUM)
-            .px(px(3.))
-            .truncate()
-            .text_color(t.text_primary)
-    });
-    let more = (!others.is_empty()).then(|| {
-        let tall: f32 = others
-            .iter()
-            .map(|shown| shown.height(compact) + BLOCK_GAP)
-            .sum();
-        let blocks: Vec<AnyElement> = others
-            .iter()
-            .map(|shown| account_block(shown, &provider, compact, cx))
-            .collect();
-        let reveal = motion::animated(
-            "limits-others",
-            if open { 1. } else { 0. },
-            motion::UNFOLD,
-            move |share| {
-                div()
-                    .h(px(tall * share))
-                    .overflow_hidden()
-                    .opacity(share)
-                    .flex()
-                    .flex_col()
-                    .pt(px(BLOCK_GAP))
-                    .gap(px(BLOCK_GAP))
-                    .children(blocks)
-                    .into_any_element()
-            },
-        );
-        let chevron = motion::turn(
-            "limits-more",
-            if open { -FRAC_PI_2 } else { FRAC_PI_2 },
-            motion::LIST_FOLD,
-            ui::icon(Icon::Chevron, 9.).text_color(t.text_tertiary),
-        );
-        (
-            reveal,
-            div()
-                .h(px(14.))
-                .mt(SPACE_0)
-                .flex()
-                .justify_center()
-                .items_center()
-                .child(chevron),
-        )
-    });
-    let (reveal, chevron) = more.unzip();
-    let bottom = match (chevron.is_some(), compact) {
-        (true, true) => 4.,
-        (true, false) => 6.,
-        (false, true) => 12.,
-        (false, false) => 16.,
-    };
-    let header = div()
-        .h(px(18.))
-        .mb(px(if compact { 8. } else { 9. }))
-        .px(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .child(
-            ui::text("LIMITS", TEXT_2XS, FontWeight::MEDIUM)
-                .letter_spacing(0.08)
-                .text_color(t.text_tertiary),
-        )
-        .child(div().flex_1().h(px(1.)).bg(t.border))
-        .children(top_name)
-        .child({
-            let provider = provider.clone();
-            IconButton::new(
-                "refresh-limits",
-                Icon::Refresh,
-                format!("Refresh {agent} plan limits"),
-            )
-            .small()
-            .on_click(cx.listener(move |bench, _, _, cx| {
-                bench.read_usage();
-                crate::accounts::ask_again(bench, &provider, cx);
-            }))
-        })
-        .child({
-            let provider = provider.clone();
-            IconButton::new("add-account", Icon::Plus, format!("Add a {agent} account"))
-                .small()
-                .on_click(cx.listener(move |bench, _, window, cx| {
-                    crate::accounts::open_sign_in(bench, &provider, None, window, cx)
-                }))
-        });
-    Some(
-        div()
-            .flex_none()
-            .mt(px(if compact { 10. } else { 12. }))
-            .mx(SPACE_2H)
-            .mb(px(bottom))
-            .child(header)
-            .child(
-                div()
-                    .id("limits-content")
-                    .on_hover(cx.listener(|bench, inside: &bool, _, cx| {
-                        if bench.accounts.limits_open != *inside {
-                            bench.accounts.limits_open = *inside;
-                            cx.notify();
-                        }
-                    }))
-                    .child(top)
-                    .children(reveal)
-                    .children(chevron),
-            ),
-    )
-}
-
-const BLOCK_GAP: f32 = 10.;
-const BLOCK_PAD_TOP: f32 = 7.;
-const BLOCK_PAD_BOTTOM: f32 = 9.;
-const NAME_LINE: f32 = 16.;
-const NAME_GAP: f32 = 6.;
-const LIMIT_ROW: f32 = 18.;
-const SIGNED_OUT_LINE: f32 = 30.;
-
-fn row_gap(compact: bool) -> f32 {
-    if compact {
-        2.
-    } else {
-        3.
-    }
-}
-
-/// One account as the Limits panel shows it.
-struct Shown {
-    /// The account, or none for an agent the person never added an account to.
-    id: Option<String>,
-    profile: Option<Profile>,
-    name: String,
-    usage: Option<AccountUsage>,
-    signed_out: bool,
-}
-
-impl Shown {
-    fn reading(&self) -> Option<&Usage> {
-        self.usage.as_ref()?.usage.as_ref()
-    }
-
-    fn windows(&self) -> &[UsageWindow] {
-        self.reading()
-            .map_or(&[][..], |usage| usage.windows.as_slice())
-    }
-
-    /// How tall its block draws, so the panel can open onto every account at its full height.
-    fn height(&self, compact: bool) -> f32 {
-        if self.signed_out {
-            return SIGNED_OUT_LINE;
-        }
-        let rows = self.windows().len().max(1) as f32;
-        BLOCK_PAD_TOP
-            + NAME_LINE
-            + NAME_GAP
-            + rows * LIMIT_ROW
-            + (rows - 1.) * row_gap(compact)
-            + BLOCK_PAD_BOTTOM
-    }
-
-    /// When a used-up window of the account's plan is back.
-    fn back(&self) -> Option<String> {
-        let full = self
-            .windows()
-            .iter()
-            .find(|window| window.used_percent >= 100.)?;
-        let label = &full.label;
-        let back = reset_at(full).map(day_and_time)?;
-        Some(format!("{label} full · back {back}"))
-    }
-}
-
-/// What an account's plan reports: a row for each window, or why there are none.
-fn limit_rows(shown: &Shown, compact: bool, cx: &App) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let problem = shown
-        .usage
-        .as_ref()
-        .and_then(|usage| usage.problem.as_ref());
-    let windows = shown.windows();
-    let quiet = |text: String| {
-        ui::text(text, TEXT_3XS_H, FontWeight::NORMAL)
-            .h(px(LIMIT_ROW))
-            .px(SPACE_2)
-            .truncate()
-            .italic()
-            .text_color(t.text_tertiary)
-    };
-    if shown.reading().is_none() && problem.is_none() {
-        quiet("Refresh to read plan limits.".into()).into_any_element()
-    } else if problem.is_some() {
-        quiet("Could not read plan limits. Refresh to try again.".into()).into_any_element()
-    } else if windows.is_empty() {
-        let reason = (shown.reading())
-            .and_then(|usage| usage.unavailable_reason.as_deref())
-            .unwrap_or("This account did not report plan limits.");
-        quiet(reason.to_owned()).into_any_element()
-    } else {
-        let key = shown.id.clone().unwrap_or_default();
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(row_gap(compact)))
-            .children(windows.iter().map(|window| limit_row(window, &key, cx)))
-            .into_any_element()
-    }
-}
-
-/// Another of the person's accounts: its name, when a full window is back, and its rows; a click
-/// starts new chats on it.
-fn account_block(
-    shown: &Shown,
-    provider: &str,
-    compact: bool,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let key = shown.id.clone().unwrap_or_else(|| provider.to_owned());
-    let group = SharedString::from(format!("limits-account-{key}"));
-    let id = SharedString::from(format!("limits-block-{key}"));
-    if shown.signed_out {
-        let (provider, account) = (provider.to_owned(), shown.id.clone());
-        return div()
-            .id(id)
-            .h(px(SIGNED_OUT_LINE))
-            .px(SPACE_2)
-            .flex()
-            .items_center()
-            .child(
-                ui::text(shown.name.clone(), TEXT_2XS, FontWeight::MEDIUM)
-                    .flex_1()
-                    .truncate()
-                    .text_color(t.text_tertiary),
-            )
-            .child(
-                ui::text("Sign in", TEXT_3XS_H, FontWeight::NORMAL)
-                    .id(SharedString::from(format!("limits-sign-in-{key}")))
-                    .cursor_pointer()
-                    .text_color(t.text_secondary)
-                    .underline()
-                    .hover(|link| link.text_color(t.text_primary))
-                    .on_click(cx.listener(move |bench, _, window, cx| {
-                        crate::accounts::open_sign_in(
-                            bench,
-                            &provider,
-                            account.as_deref(),
-                            window,
-                            cx,
-                        )
-                    })),
-            )
-            .into_any_element();
-    }
-    let line = div()
-        .h(px(NAME_LINE))
-        .mb(px(NAME_GAP))
-        .px(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .child(
-            ui::text(shown.name.clone(), TEXT_2XS, FontWeight::MEDIUM)
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_primary),
-        )
-        .child(
-            div()
-                .relative()
-                .flex_none()
-                .children(shown.back().map(|back| {
-                    ui::text(back, TEXT_3XS, FontWeight::NORMAL)
-                        .font_features(theme::tabular())
-                        .text_color(t.danger)
-                        .group_hover(group.clone(), |note| note.opacity(0.))
-                }))
-                .child(
-                    ui::text("Use for new chats", TEXT_3XS, FontWeight::NORMAL)
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .whitespace_nowrap()
-                        .opacity(0.)
-                        .text_color(t.text_primary)
-                        .group_hover(group.clone(), |text| text.opacity(1.)),
-                ),
-        );
-    let profile = shown.profile.clone();
-    div()
-        .id(id)
-        .group(group.clone())
-        .h(px(shown.height(compact)))
-        .overflow_hidden()
-        .pt(px(BLOCK_PAD_TOP))
-        .rounded(theme::RADIUS_2)
-        .cursor_pointer()
-        .hover(|block| block.bg(t.surface_hover))
-        .on_click(cx.listener(move |bench, _, _, cx| {
-            if let Some(profile) = profile.as_ref() {
-                crate::accounts::select(bench, profile, cx);
-            }
-        }))
-        .child(line)
-        .child(limit_rows(shown, compact, cx))
-        .into_any_element()
-}
-
-/// One of a plan's rolling windows: how much of it is used, and when it starts again.
-fn limit_row(window: &UsageWindow, key: &str, cx: &App) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let label = window.label.clone();
-    let percent = window.used_percent.clamp(0., 100.);
-    let signal = signal(percent, &t);
-    let reset = reset_at(window);
-    let note = match reset {
-        Some(at) => format!(
-            "Resets {}",
-            at.with_timezone(&chrono::Local)
-                .format("%-m/%-d/%Y, %-I:%M:%S %p")
-        ),
-        None => "Reset time unavailable".into(),
-    };
-    div()
-        .id(SharedString::from(format!("limit-{key}-{label}")))
-        .h(px(LIMIT_ROW))
-        .px(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2H)
-        .tooltip(ui::tooltip(format!(
-            "{label}: {}% used. {note}",
-            percent.round()
-        )))
-        .child(
-            ui::meta(label, cx)
-                .w(px(58.))
-                .flex_none()
-                .overflow_hidden()
-                .text_ellipsis()
-                .whitespace_nowrap(),
-        )
-        .child(ticks(percent, signal, &t).flex_1().h(px(10.)))
-        .child(
-            ui::text(
-                format!("{}%", percent.round()),
-                TEXT_2XS,
-                FontWeight::NORMAL,
-            )
-            .w(px(28.))
-            .flex_none()
-            .text_right()
-            .font_features(theme::tabular())
-            .text_color(if percent < 70. {
-                t.text_primary
-            } else {
-                signal
-            }),
-        )
-        .child(
-            ui::text(ui::time::countdown(reset), TEXT_3XS, FontWeight::NORMAL)
-                .w(px(42.))
-                .flex_none()
-                .text_right()
-                .font_features(theme::tabular())
-                .text_color(t.text_tertiary),
-        )
-}
-
-/// A bar of thin ticks, lit as far as `percent`.
-fn ticks(percent: f64, signal: Hsla, t: &Tokens) -> gpui_kit::Canvas<()> {
-    let unlit = Hsla {
-        a: 0.10,
-        ..t.text_primary
-    };
-    canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            let lit = bounds.size.width * (percent / 100.) as f32;
-            let mut x = px(0.);
-            while x < bounds.size.width {
-                let tick = Bounds::new(
-                    point(bounds.origin.x + x, bounds.origin.y),
-                    size(px(1.5), bounds.size.height),
-                );
-                window.paint_quad(fill(tick, if x < lit { signal } else { unlit }));
-                x += px(4.);
-            }
-        },
-    )
-}
-
-/// When a window resets, as a person would say it: today, tomorrow, a weekday or a date.
-pub(crate) fn day_and_time(at: chrono::DateTime<chrono::Utc>) -> String {
-    let at = at.with_timezone(&chrono::Local);
-    let days = (at.date_naive() - chrono::Local::now().date_naive()).num_days();
-    let time = at.format("%-I:%M %p");
-    match days {
-        ..=0 => format!("today {time}"),
-        1 => format!("tomorrow {time}"),
-        2..=6 => format!("{} {time}", at.format("%a")),
-        _ => format!("{}, {time}", at.format("%b %-d")),
-    }
-}
-
-/// The call to sign in, in the agent's own colours: its mark, what signing in shows, and a button.
-fn sign_in_card(
-    provider: &str,
-    title: String,
-    line: &'static str,
-    cx: &App,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx).clone();
-    let brand = theme::brand(provider);
-    let tint = |a: f32| Hsla { a, ..brand };
-    div()
-        .id("limits-sign-in")
-        .mx(SPACE_0)
-        .py(SPACE_2H)
-        .px(px(11.))
-        .flex()
-        .items_center()
-        .gap(px(11.))
-        .rounded(theme::RADIUS_3)
-        .border_1()
-        .border_color(tint(0.22))
-        .bg(gpui_kit::linear_gradient(
-            100.,
-            gpui_kit::linear_color_stop(tint(0.13), 0.),
-            gpui_kit::linear_color_stop(
-                Hsla {
-                    a: 0.02,
-                    ..t.text_primary
-                },
-                0.7,
-            ),
-        ))
-        .cursor_pointer()
-        .child(
-            div()
-                .size(px(30.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme::RADIUS_2)
-                .bg(tint(0.16))
-                .child(ui::mark(provider, 18.)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(SPACE_0)
-                .child(
-                    ui::text(title, TEXT_XS, FontWeight::SEMIBOLD)
-                        .truncate()
-                        .text_color(t.text_primary),
-                )
-                .child(
-                    ui::text(line, TEXT_3XS_H, FontWeight::NORMAL)
-                        .truncate()
-                        .text_color(t.text_tertiary),
-                ),
-        )
-        .child(
-            ui::text("Sign in", TEXT_2XS, FontWeight::SEMIBOLD)
-                .flex_none()
-                .h(px(24.))
-                .px(px(11.))
-                .flex()
-                .items_center()
-                .rounded(theme::RADIUS_2)
-                .bg(brand)
-                .text_color(if brand.l > 0.7 {
-                    gpui_kit::black()
-                } else {
-                    gpui_kit::white()
-                }),
-        )
-}
-
-/// The colour of a window used `percent` full: quiet until it nears its limit.
-fn signal(percent: f64, t: &Tokens) -> Hsla {
-    if percent >= 90. {
-        t.danger
-    } else if percent >= 70. {
-        t.warn
-    } else {
-        Hsla {
-            a: 0.62,
-            ..t.text_primary
-        }
-    }
-}
-
-/// When a window starts again: Unix seconds, as a number or digits, or an ISO time.
-fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::Utc>> {
-    let at = window.resets_at.as_ref()?.unix_ms()?;
-    chrono::DateTime::from_timestamp_millis(i64::try_from(at).ok()?)
 }
 
 fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
@@ -1676,7 +1574,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let page = |id: &'static str,
                 glyph: Icon,
                 label: &'static str,
-                shown: RailPage,
+                shown: TabRailPage,
                 cx: &mut Context<Workbench>| {
         IconButton::new(id, glyph, label)
             .width(32.)
@@ -1693,27 +1591,50 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .flex()
         .justify_center()
         .gap(SPACE_1)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(border)
         .child(page(
             "page-agents",
             Icon::Agents,
-            "Agents",
-            RailPage::Agents,
+            t!("Agents"),
+            TabRailPage::Agents,
             cx,
         ))
         .child(page(
             "page-terminals",
             Icon::Terminal,
-            "Terminals",
-            RailPage::Terminals,
+            t!("Terminals"),
+            TabRailPage::Terminals,
             cx,
         ))
-        .child(page("page-files", Icon::File, "Files", RailPage::Files, cx))
+        .child(page(
+            "page-files",
+            Icon::File,
+            t!("Files"),
+            TabRailPage::Files,
+            cx,
+        ))
 }
 
-/// A rail page's title bar.
-fn page_header(
+/// The Files page's head, with the copy switch while the project has more than one copy.
+fn files_header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
+    let t = Tokens::get(cx).clone();
+    let title = ui::text(t!("Files"), TEXT_XS, FontWeight::MEDIUM).text_color(t.text_primary);
+    let chip = (bench.folded_in_front())
+        .filter(|folded| folded.copies.len() > 1)
+        .and_then(|folded| crate::copies::copy_chip("files-copy", bench, &folded, cx));
+    let title = div()
+        .flex()
+        .flex_1()
+        .items_center()
+        .justify_between()
+        .gap(SPACE_2)
+        .child(title)
+        .children(chip);
+    header_frame(title, [], bench, cx)
+}
+
+pub(crate) fn page_header(
     title: impl Into<SharedString>,
     bench: &Workbench,
     cx: &mut Context<Workbench>,
@@ -1723,7 +1644,6 @@ fn page_header(
     header_frame(title, [], bench, cx)
 }
 
-/// A rail page with nothing to list: a faint mark, what is missing, and the key that fills it.
 /// The account host chosen in front, by its name; none for this host or an SSH host.
 fn other_host(bench: &Workbench) -> Option<SharedString> {
     match bench.chosen_host() {
@@ -1732,10 +1652,11 @@ fn other_host(bench: &Workbench) -> Option<SharedString> {
     }
 }
 
-fn rail_empty(
+/// A rail page with nothing to list: a faint mark, what is missing, and the key that fills it.
+pub(crate) fn rail_empty(
     glyph: Icon,
     title: impl Into<SharedString>,
-    press: Option<(&str, &'static str)>,
+    press: Option<(CommandId, &'static str)>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
@@ -1748,9 +1669,9 @@ fn rail_empty(
                 .gap(SPACE_1)
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_tertiary)
-                .child("Press")
+                .child(t!("Press"))
                 .child(ui::kbd(keys, cx))
-                .child(format!("to {doing}")),
+                .child(doing),
         )
     });
     div()
@@ -1766,176 +1687,107 @@ fn rail_empty(
         .into_any_element()
 }
 
-/// The project's terminal tabs, or every project's, to bring forward or start.
-fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let strips: Vec<Strip> = if bench.rails.all_projects {
-        bench
-            .projects()
-            .iter()
-            .map(|project| Strip::Project(project.id.clone()))
-            .collect()
-    } else {
-        bench.strip().into_iter().collect()
-    };
-    let rows = terminal_rows(bench, &strips, cx);
-    let empty = rows.is_empty().then(|| {
-        if strips.is_empty() {
-            rail_empty(
-                Icon::Terminal,
-                "No project open",
-                Some(("project.open", "open one")),
-                cx,
-            )
-        } else {
-            let title = match (bench.rails.all_projects, bench.project(), other_host(bench)) {
-                (false, Some(project), Some(host)) => {
-                    format!("No terminals in {} on {host}", project.name)
-                }
-                _ => "No terminals open".to_owned(),
-            };
-            rail_empty(
-                Icon::Terminal,
-                title,
-                Some(("terminal.new", "start one")),
-                cx,
-            )
-        }
-    });
-    page_body()
-        .child(page_header("Terminals", bench, cx))
-        .child(
-            div()
-                .flex_none()
-                .pt(SPACE_1)
-                .px(SPACE_2H)
-                .child(
-                    new_row(
-                        "new-terminal",
-                        Icon::Plus,
-                        "New terminal",
-                        "terminal.new",
-                        cx,
-                    )
-                    .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
-                )
-                .child(div().mt(SPACE_2).child(scope_switch(bench, cx))),
-        )
-        .child(faded(
-            div()
-                .id("terminals-scroll")
-                .size_full()
-                .pt(px(EDGE_FADE))
-                .px(SPACE_2H)
-                .pb(px(EDGE_FADE))
-                .overflow_y_scroll()
-                .children(empty)
-                .child(div().flex().flex_col().gap(SPACE_0).children(rows)),
-            cx,
-        ))
-        .into_any_element()
+/// The rows that need the person but are scrolled out of the rail, where each was drawn last.
+#[derive(Default)]
+struct OutOfSight {
+    above: Vec<Bounds<Pixels>>,
+    below: Vec<Bounds<Pixels>>,
 }
 
-/// A row for each terminal tab of `strips`, which brings it to the front.
-fn terminal_rows(
-    bench: &Workbench,
-    strips: &[Strip],
-    cx: &mut Context<Workbench>,
-) -> Vec<AnyElement> {
-    let t = Tokens::get(cx).clone();
-    let front = bench.tab().map(|tab| tab.id.clone());
-    let mut rows = Vec::new();
-    for strip in strips {
-        let project = match strip {
-            Strip::Project(id) if bench.rails.all_projects => bench
-                .projects()
-                .iter()
-                .find(|project| &project.id == id)
-                .map(|project| project.name.clone()),
-            _ => None,
+/// Reads where the rows were drawn last, so it comes before the rows are laid out again.
+fn out_of_sight(bench: &Workbench, agents: &[AgentRow]) -> OutOfSight {
+    let view = bench.rails.scroll.bounds();
+    let mut unseen = OutOfSight::default();
+    if view.size.height <= px(0.) {
+        return unseen;
+    }
+    let glide = bench.rails.glide.borrow();
+    for agent in agents
+        .iter()
+        .filter(|agent| agent.group == AgentGroup::Blocked)
+    {
+        let id = match agent.chief {
+            true => format!("chief:{}", agent.project),
+            false => agent.id.clone(),
         };
-        for tab in bench.tabs(strip) {
-            if !matches!(
-                crate::tabs::first_view(&tab.pane),
-                Some((PaneKind::Terminal, _))
-            ) {
-                continue;
-            }
-            let (shown, id) = (strip.clone(), tab.id.clone());
-            let row = Row::new(
-                SharedString::from(format!("terminal-{}", tab.id)),
-                crate::tabs::label(bench, tab),
-            )
-            .mark(22., ui::icon(Icon::Terminal, 15.).text_color(t.live))
-            .chosen(front.as_deref() == Some(tab.id.as_str()))
-            .when_some(project.clone(), |row, project| {
-                row.subtitle(ui::meta(project, cx))
-            })
-            .on_click(cx.listener(move |bench, _, _, _| bench.activate_tab(&shown, &id)));
-            rows.push(
-                div()
-                    .id(SharedString::from(format!("terminal-menu-{}", tab.id)))
-                    .child(row)
-                    .context_menu(ui::menu(crate::tabs::tab_menu(bench, strip, tab, cx)))
-                    .into_any_element(),
-            );
+        let Some(row) = glide.drawn_at(&id) else {
+            continue;
+        };
+        if row.bottom() <= view.top() + px(EDGE_FADE) {
+            unseen.above.push(row);
+        } else if row.top() >= view.bottom() - px(EDGE_FADE) {
+            unseen.below.push(row);
         }
     }
-    rows
+    unseen
 }
 
-/// What an SSH host without Sikemux offers: a login there, or installing Sikemux, over its
-/// terminals (ADR 0019).
-fn ssh_page(bench: &Workbench, alias: String, cx: &mut Context<Workbench>) -> AnyElement {
-    let rows = terminal_rows(bench, &[Strip::Host(alias.clone())], cx);
-    let empty = rows.is_empty().then(|| {
-        rail_empty(
-            Icon::Terminal,
-            "No terminals open",
-            Some(("terminal.new", "start one")),
-            cx,
+impl OutOfSight {
+    /// A chip at the rail's top edge, or its bottom one, counting the rows past it that need
+    /// the person, which scrolls the nearest of them into sight.
+    fn chip(&self, above: bool, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+        let (rows, glyph) = match above {
+            true => (&self.above, Icon::ArrowUp),
+            false => (&self.below, Icon::ArrowDown),
+        };
+        let nearest = match above {
+            true => rows
+                .iter()
+                .max_by(|a, b| f32::from(a.top()).total_cmp(&f32::from(b.top()))),
+            false => rows
+                .iter()
+                .min_by(|a, b| f32::from(a.top()).total_cmp(&f32::from(b.top()))),
+        }
+        .copied()?;
+        let t = Tokens::get(cx).clone();
+        let pill = div()
+            .id(match above {
+                true => "needs-you-above",
+                false => "needs-you-below",
+            })
+            .rounded(px(10.))
+            .bg(t.surface)
+            .shadow(theme::shadow_small())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_1)
+                    .h(px(20.))
+                    .px(SPACE_2)
+                    .rounded(px(10.))
+                    .bg(t.warn.opacity(0.2))
+                    .text_color(t.warn)
+                    .child(ui::icon(glyph, 11.).text_color(t.warn))
+                    .child(ui::text(t!("Needs you"), TEXT_3XS, FontWeight::MEDIUM))
+                    .when(rows.len() > 1, |pill| {
+                        pill.child(
+                            ui::text(rows.len().to_string(), TEXT_3XS, FontWeight::MEDIUM)
+                                .font_features(theme::tabular()),
+                        )
+                    }),
+            )
+            .clicks(cx.listener(move |bench, _, _, cx| {
+                let scroll = &bench.rails.scroll;
+                let view = scroll.bounds();
+                let by = match above {
+                    true => view.top() + px(EDGE_FADE) - nearest.top(),
+                    false => view.bottom() - px(EDGE_FADE) - nearest.bottom(),
+                };
+                let offset = scroll.offset();
+                scroll.set_offset(gpui_kit::point(offset.x, offset.y + by));
+                cx.notify();
+            }));
+        let at = div().absolute().left_0().right_0().flex().justify_center();
+        Some(
+            match above {
+                true => at.top(px(4.)),
+                false => at.bottom(px(4.)),
+            }
+            .child(pill)
+            .into_any_element(),
         )
-    });
-    page_body()
-        .child(page_header(alias.clone(), bench, cx))
-        .child(
-            div()
-                .flex_none()
-                .pt(SPACE_1)
-                .px(SPACE_2H)
-                .child(
-                    new_row(
-                        "new-terminal",
-                        Icon::Terminal,
-                        "New terminal",
-                        "terminal.new",
-                        cx,
-                    )
-                    .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
-                )
-                .child(
-                    new_row(
-                        "install-sikemux",
-                        Icon::Download,
-                        "Install Sikemux",
-                        "agent.new",
-                        cx,
-                    )
-                    .on_click(cx.listener(move |bench, _, _, _| bench.open_install_pane(&alias))),
-                ),
-        )
-        .child(faded(
-            div()
-                .id("ssh-terminals-scroll")
-                .size_full()
-                .pt(px(EDGE_FADE))
-                .px(SPACE_2H)
-                .pb(px(EDGE_FADE))
-                .overflow_y_scroll()
-                .children(empty)
-                .child(div().flex().flex_col().gap(SPACE_0).children(rows)),
-            cx,
-        ))
-        .into_any_element()
+    }
 }
 
 /// How deep a rail list's ends fade; the list is padded as deep, so rows at rest sit clear of it.
@@ -1975,7 +1827,7 @@ fn scope_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElem
                     .unwrap_or_default(),
             ),
         ),
-        (Icon::Stack, SharedString::from("All projects")),
+        (Icon::Stack, SharedString::from(t!("All projects"))),
     ];
     Segmented::new("scope", scope, usize::from(bench.rails.all_projects))
         .waiting(1, waiting_elsewhere(bench))
@@ -1996,4 +1848,53 @@ fn waiting_elsewhere(bench: &Workbench) -> usize {
         .filter(|(project, _)| **project != here.id && **project != path)
         .map(|(_, count)| count)
         .sum()
+}
+
+impl Workbench {
+    /// The terminal an agent runs in, and the host it is on, while it runs in one rather than
+    /// as a chat.
+    pub fn agent_terminal(&self, agent: &str) -> Option<(Place, SessionId)> {
+        let place = self.chat_target(agent).place().clone();
+        let session = self.kept_agent(agent)?.pty_id?;
+        Some((place, session))
+    }
+
+    /// Whether the agent runs in its CLI in a terminal, there now or starting again.
+    pub fn in_terminal(&self, agent: &str) -> bool {
+        self.kept_agent(agent)
+            .is_some_and(|kept| kept.terminal || kept.pty_id.is_some())
+    }
+
+    /// Whether the agent is asleep with its terminal ended, to start again on its session.
+    pub fn terminal_asleep(&self, agent: &str) -> bool {
+        self.kept_agent(agent)
+            .is_some_and(|kept| kept.terminal && kept.asleep && kept.pty_id.is_none())
+    }
+
+    /// The agent as the core of the host it runs on keeps it.
+    pub(crate) fn kept_agent(
+        &self,
+        agent: &str,
+    ) -> Option<&sikemux_view::workspace::WorkspaceAgent> {
+        self.view_at(self.chat_target(agent).place())?
+            .workspace
+            .agents
+            .iter()
+            .find(|kept| kept.id == agent)
+    }
+
+    /// Moves an agent between its chat and its own CLI in a terminal, carrying what was
+    /// typed and not sent.
+    pub fn switch_view(&self, agent: &str, terminal: bool) {
+        let to = if terminal {
+            AgentViewKind::Terminal
+        } else {
+            AgentViewKind::Chat
+        };
+        self.chat_target(agent)
+            .call_typed::<call::SwitchAgentView>(AgentViewParams {
+                agent_id: agent.to_owned(),
+                to,
+            });
+    }
 }

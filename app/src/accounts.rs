@@ -3,6 +3,7 @@
 //! opens the browser on this host.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::InputState;
@@ -10,31 +11,38 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
-    div, px, AppContext, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement,
+    div, img, px, AppContext, Context, Entity, Hsla, Image, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
-use serde::Deserialize;
-use serde_json::{json, Value};
-use sikemux_core::agent_accounts::{Book, Profile};
-use sikemux_core::server::AccountUsage;
+use sikemux_agents::agent_accounts::status::AccountStatus;
+use sikemux_agents::agent_accounts::Book;
+use sikemux_agents::agent_accounts::Profile;
+use sikemux_agents::agent_catalog::AgentKind;
+use sikemux_calls::agent_accounts::Account as AgentAccount;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::agent_accounts::Adding;
+use sikemux_calls::agent_accounts::ChatAccounts;
+use sikemux_calls::agent_accounts::ChatAccountsParams;
+use sikemux_calls::agent_accounts::Choosing;
+use sikemux_calls::agent_accounts::Forget;
+use sikemux_calls::agent_accounts::InProject;
+use sikemux_calls::agent_accounts::MoveChatParams;
+use sikemux_calls::agent_accounts::Removing;
+use sikemux_calls::agent_accounts::Saving;
+use sikemux_calls::agent_accounts::Smart;
+use sikemux_calls::agent_accounts::Unpicking;
+use sikemux_calls::agent_sign_in::Account as SignInAccount;
+use sikemux_calls::agent_sign_in::AfterSignIn;
+use sikemux_calls::agent_sign_in::Code;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::Call;
 
-use crate::core;
+use crate::core::{typed_call, Target};
 use crate::theme;
 use crate::theme::{SPACE_2, TEXT_3XS_H};
 use crate::workbench::Workbench;
-
-/// Who one account is signed in as, in its agent's own words.
-#[derive(Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub signed_in: bool,
-    pub name: Option<String>,
-    pub email: Option<String>,
-    pub plan: Option<String>,
-    pub organization: Option<String>,
-    /// Where the account keeps its chats: accounts that share it can take over each other's chats.
-    pub sessions: Option<String>,
-}
+use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// An account's sign-in while it runs or after it failed.
 pub enum SignIn {
@@ -47,7 +55,6 @@ pub enum SignIn {
     Failed(String),
 }
 
-/// The add-account dialog: a name for a new account, then its sign-in.
 pub struct Dialog {
     pub provider: String,
     pub name: Entity<InputState>,
@@ -62,15 +69,15 @@ pub struct Dialog {
 pub struct Accounts {
     pub book: Option<Book>,
     asked_book: bool,
-    status: HashMap<(String, Option<String>), Result<Status, String>>,
+    status: HashMap<(String, Option<String>), Result<AccountStatus, String>>,
     asking: HashSet<(String, Option<String>)>,
     pub signing: HashMap<String, SignIn>,
     pub dialog: Option<Dialog>,
-    /// The chats that failed for want of an account's sign-in, by that account, to move onto
-    /// it once it signs in.
-    pub waiting_chats: HashMap<String, Vec<String>>,
-    /// Whether the Limits panel is open onto every account, while the pointer rests on it.
-    pub limits_open: bool,
+    /// What the core says each chat may move to, by the chat and the account it is on.
+    takers: HashMap<(String, String), ChatAccounts>,
+    asking_takers: HashSet<(String, String)>,
+    /// What the Limits panel and popover are holding open.
+    pub limits: crate::agents::limits::Reveal,
     /// When coming back to the app last had the core check every agent's sign-in.
     checked_on_return: Option<Instant>,
 }
@@ -89,26 +96,41 @@ pub fn accent(profile: &Profile) -> Hsla {
         .unwrap_or_else(|| theme::brand(&profile.provider))
 }
 
-/// The account's first letter on its colour.
-pub fn avatar(profile: &Profile, name: &str, size: f32) -> impl IntoElement {
+/// An account's avatar picture at `size`, as every list of accounts draws it.
+pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
+    img(picture).size(px(size)).flex_none()
+}
+
+/// An account's avatar with its agent's mark on its corner, as the limits list draws it.
+pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let t = crate::theme::Tokens::get(cx);
+    let badge = (size * 0.7).round();
     div()
-        .size(px(size))
+        .relative()
         .flex_none()
-        .rounded_full()
-        .bg(accent(profile))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(size * 0.5))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(gpui_kit::white())
+        .size(px(size))
+        .child(avatar(picture, size))
         .child(
-            name.trim()
-                .chars()
-                .next()
-                .map(|letter| letter.to_uppercase().to_string())
-                .unwrap_or_else(|| "?".into()),
+            div()
+                .absolute()
+                .right(px(-size * 0.19))
+                .bottom(px(-size * 0.19))
+                .size(px(badge))
+                .rounded_full()
+                .bg(t.surface)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(crate::ui::mark(provider, (badge * 0.72).round())),
         )
+}
+
+/// The account of `provider` a chat names by `label`, the name it is shown by.
+pub fn named<'a>(bench: &'a Workbench, provider: &str, label: &str) -> Option<&'a Profile> {
+    bench.accounts.of(provider).into_iter().find(|profile| {
+        let shown = status(bench, profile).and_then(|status| status.as_ref().ok());
+        profile.shown_name(shown) == label || profile.name == label
+    })
 }
 
 /// An account as a row of a menu, as the Mac draws one: its letter, its name with a tick on the
@@ -116,6 +138,7 @@ pub fn avatar(profile: &Profile, name: &str, size: f32) -> impl IntoElement {
 pub fn popup_item(
     profile: &Profile,
     name: &str,
+    picture: Arc<Image>,
     detail: Option<String>,
     used: Option<f64>,
     current: bool,
@@ -131,7 +154,7 @@ pub fn popup_item(
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .child(avatar(&profile, &name, 16.))
+            .child(avatar(picture.clone(), 16.))
             .child(
                 div()
                     .flex_1()
@@ -163,7 +186,7 @@ pub fn popup_item(
             .children(used.map(|used| {
                 div()
                     .flex_none()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(theme::ui_text(TEXT_3XS_H))
                     .text_color(t.text_tertiary)
                     .child(format!("{}%", used.round()))
@@ -177,6 +200,7 @@ fn key(profile: &Profile) -> (String, Option<String>) {
 
 fn redraw(bench: &Workbench, cx: &mut Context<Workbench>) {
     bench.parts.redraw_stage(cx);
+    crate::agents::limits::redraw(bench, cx);
 }
 
 impl Accounts {
@@ -186,6 +210,15 @@ impl Accounts {
             .profiles
             .iter()
             .find(|profile| profile.id == id)
+    }
+
+    /// The account's avatar: drawn from its id, so a rename keeps it, in the palette for its
+    /// place among its agent's accounts, so accounts listed together never share one.
+    pub fn avatar(&self, profile: &Profile) -> Arc<Image> {
+        let place = (self.of(&profile.provider).iter())
+            .position(|account| account.id == profile.id)
+            .unwrap_or_default();
+        crate::agents::marble::avatar(&profile.id, place)
     }
 
     /// The accounts `provider` has, in the order they were added.
@@ -207,11 +240,10 @@ impl Accounts {
             .copied()
     }
 
-    pub fn auto_switch(&self, provider: &str) -> bool {
-        self.book
-            .as_ref()
-            .and_then(|book| book.auto_switch.get(provider).copied())
-            .unwrap_or(false)
+    /// Whether new chats go to the account whose week ends soonest, as they do unless the person
+    /// turned it off.
+    pub fn smart(&self) -> bool {
+        self.book.as_ref().is_none_or(|book| book.smart)
     }
 }
 
@@ -232,7 +264,9 @@ pub fn book_moved(bench: &Workbench, cx: &mut Context<Workbench>) {
 fn fetch(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let book = core::request(&asks, "agentAccounts", json!({})).await;
+        let book = Target::here(&asks)
+            .request_typed::<call::AgentAccounts>(NoParams {})
+            .await;
         let _ = bench.update(cx, |bench, cx| {
             adopt(bench, book.unwrap_or_default(), cx);
         });
@@ -240,44 +274,117 @@ fn fetch(bench: &Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
+/// The accounts the core says the chat `agent`, on the account `on`, may carry on in. Asks the
+/// core the first time something shows them.
+pub fn takers<'a>(
+    bench: &'a Workbench,
+    agent: &str,
+    on: &str,
+    cx: &mut Context<Workbench>,
+) -> Option<&'a ChatAccounts> {
+    let key = (agent.to_owned(), on.to_owned());
+    let known = bench.accounts.takers.get(&key);
+    if known.is_none() && !bench.accounts.asking_takers.contains(&key) {
+        let this = cx.entity();
+        cx.defer(move |cx| this.update(cx, |bench, cx| ask_takers(bench, key, cx)));
+    }
+    known
+}
+
+fn ask_takers(bench: &mut Workbench, key: (String, String), cx: &mut Context<Workbench>) {
+    if bench.accounts.takers.contains_key(&key) || !bench.accounts.asking_takers.insert(key.clone())
+    {
+        return;
+    }
+    let params = ChatAccountsParams {
+        agent_id: key.0.clone(),
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::ChatAccounts>(params);
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            bench.accounts.asking_takers.remove(&key);
+            let answer = answer.unwrap_or_else(|why| ChatAccounts {
+                none_because: Some(why),
+                ..ChatAccounts::default()
+            });
+            bench.accounts.takers.insert(key, answer);
+            redraw(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Carries the chat `agent` on to `profile`; a turn at work stops and carries on there. Says why
+/// when the core keeps it where it is.
+pub fn move_chat(bench: &Workbench, agent: &str, profile: &Profile, cx: &mut Context<Workbench>) {
+    let params = MoveChatParams {
+        agent_id: agent.to_owned(),
+        account_id: profile.id.clone(),
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::MoveChatAccount>(params);
+    let name = profile.name.clone();
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            bench.accounts.takers.clear();
+            if let Err(why) = answer {
+                let note = crate::toast::error(t!(
+                    "The chat stayed off {name}: {why}",
+                    name = name,
+                    why = why
+                ));
+                bench.notify(note, cx);
+            }
+            redraw(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Has the core move the chat onto the account once it signs in, then opens its sign-in.
+pub fn sign_in_then_move(
+    bench: &mut Workbench,
+    agent: &str,
+    profile_id: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let after = AfterSignIn {
+        agent_id: agent.to_owned(),
+        account_id: profile_id.to_owned(),
+    };
+    let _ = bench
+        .asks
+        .send(typed_call::<call::MoveChatAfterSignIn>(after));
+    let provider = bench
+        .accounts
+        .profile(profile_id)
+        .map(|profile| profile.provider.clone());
+    if let Some(provider) = provider {
+        open_sign_in(bench, &provider, Some(profile_id), window, cx);
+    }
+}
+
 /// Keeps the accounts as the core answered them after a change.
-fn adopt(bench: &mut Workbench, book: Value, cx: &mut Context<Workbench>) {
-    let mut book = serde_json::from_value::<Book>(book).unwrap_or_default();
-    with_built_ins(bench, &mut book);
+fn adopt(bench: &mut Workbench, book: Book, cx: &mut Context<Workbench>) {
+    bench.accounts.takers.clear();
     bench.accounts.book = Some(book);
     ask_statuses(bench, cx);
     redraw(bench, cx);
 }
 
-/// Puts first the account each agent starts with, where the core has none for it yet:
-/// it keeps only what the person changed.
-fn with_built_ins(bench: &Workbench, book: &mut Book) {
-    let built_ins: Vec<Profile> = bench
-        .reads
-        .catalog
-        .agents()
-        .filter(|kind| kind.accounts)
-        .filter_map(|kind| {
-            let id = format!("builtin-{}", kind.kind);
-            (!book.profiles.iter().any(|profile| profile.id == id)).then(|| Profile {
-                id,
-                name: kind.label.clone(),
-                provider: kind.kind.clone(),
-                accent: kind.brand.clone(),
-                executable_path: None,
-                config_path: None,
-                environment_keys: Vec::new(),
-            })
-        })
-        .collect();
-    book.profiles.splice(0..0, built_ins);
-}
-
-/// Changes the accounts in the core with `method`, then keeps what it answers.
-fn change(bench: &Workbench, method: &'static str, params: Value, cx: &mut Context<Workbench>) {
-    let asks = bench.asks.clone();
+/// Changes the accounts in the core with the call `C`, then keeps what it answers.
+fn change<C: Call<Answer = Book> + 'static>(
+    bench: &Workbench,
+    params: C::Params,
+    cx: &mut Context<Workbench>,
+) where
+    C::Params: serde::Serialize,
+{
+    let asked = Target::here(&bench.asks).request_typed::<C>(params);
     cx.spawn(async move |bench, cx| {
-        let Ok(book) = core::request(&asks, method, params).await else {
+        let Ok(book) = asked.await else {
             return;
         };
         let _ = bench.update(cx, |bench, cx| adopt(bench, book, cx));
@@ -286,37 +393,92 @@ fn change(bench: &Workbench, method: &'static str, params: Value, cx: &mut Conte
 }
 
 pub fn save(bench: &Workbench, profile: &Profile, cx: &mut Context<Workbench>) {
-    change(bench, "saveAgentAccount", json!({ "profile": profile }), cx);
+    let profile = profile.clone();
+    change::<call::SaveAgentAccount>(bench, Saving { profile }, cx);
 }
 
 pub fn remove(bench: &Workbench, id: &str, cx: &mut Context<Workbench>) {
-    change(bench, "removeAgentAccount", json!({ "id": id }), cx);
+    let id = id.to_owned();
+    change::<call::RemoveAgentAccount>(bench, Removing { id }, cx);
 }
 
 /// Makes the account the one its agent runs on; the core moves open chats there.
 pub fn select(bench: &Workbench, profile: &Profile, cx: &mut Context<Workbench>) {
-    let params = json!({ "provider": profile.provider, "id": profile.id });
-    change(bench, "selectAgentAccount", params, cx);
+    let params = Choosing {
+        provider: profile.provider.clone(),
+        id: profile.id.clone(),
+    };
+    change::<call::SelectAgentAccount>(bench, params, cx);
 }
 
-pub fn set_auto_switch(bench: &Workbench, provider: &str, on: bool, cx: &mut Context<Workbench>) {
-    let params = json!({ "provider": provider, "on": on });
-    change(bench, "setAccountAutoSwitch", params, cx);
+/// Makes the account the one its agent runs on, as `select` does, and answers with what the
+/// core needs handed back to take the pick back.
+pub fn pick(
+    bench: &Workbench,
+    profile: &Profile,
+    cx: &mut Context<Workbench>,
+    then: impl FnOnce(&mut Workbench, Unpicking, &mut Context<Workbench>) + 'static,
+) {
+    let params = Choosing {
+        provider: profile.provider.clone(),
+        id: profile.id.clone(),
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::PickAgentAccount>(params);
+    cx.spawn(async move |bench, cx| {
+        let Ok(picked) = asked.await else {
+            return;
+        };
+        let _ = bench.update(cx, |bench, cx| {
+            adopt(bench, picked.book, cx);
+            then(bench, picked.undo, cx);
+            if let Some(first) = picked.stayed.first() {
+                let note = crate::toast::info(match picked.stayed.len() {
+                    1 => t!("A chat stayed put: {why}", why = first.why),
+                    many => t!(
+                        "{count} chats stayed put: {why}",
+                        count = many,
+                        why = first.why
+                    ),
+                });
+                bench.notify(note, cx);
+            }
+        });
+    })
+    .detach();
 }
 
-/// What the account is called: who it is signed in as while it still has its agent's own
-/// name, else the name the person gave it.
-pub fn name(bench: &Workbench, profile: &Profile, status: Option<&Status>) -> String {
-    let unnamed = profile.id.starts_with("builtin-")
-        && bench
-            .reads
-            .catalog
-            .kind(&profile.provider)
-            .is_some_and(|kind| kind.label == profile.name);
-    status
-        .and_then(|status| status.name.clone())
-        .filter(|_| unnamed)
-        .unwrap_or_else(|| profile.name.clone())
+/// Takes a pick back, each chat it moved returning to the account it was on.
+pub fn unpick(bench: &Workbench, undoing: Unpicking, cx: &mut Context<Workbench>) {
+    change::<call::UndoAgentAccountPick>(bench, undoing, cx);
+}
+
+pub fn set_smart(bench: &Workbench, on: bool, cx: &mut Context<Workbench>) {
+    change::<call::SetSmartAccounts>(bench, Smart { on }, cx);
+}
+
+/// Lets new chats in the project at `folder` start on the account, or keeps them off it. Says why
+/// when the core refuses, such as for the project's last account of an agent.
+pub fn set_in_project(
+    bench: &Workbench,
+    id: &str,
+    folder: &str,
+    allowed: bool,
+    cx: &mut Context<Workbench>,
+) {
+    let params = InProject {
+        account_id: id.to_owned(),
+        project: folder.to_owned(),
+        allowed,
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::SetAccountInProject>(params);
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| match answer {
+            Ok(book) => adopt(bench, book, cx),
+            Err(why) => bench.notify(crate::toast::error(why), cx),
+        });
+    })
+    .detach();
 }
 
 /// The launcher that starts agents on the account: its own, or the agent's for a built-in
@@ -324,7 +486,7 @@ pub fn name(bench: &Workbench, profile: &Profile, status: Option<&Status>) -> St
 fn launcher_of(bench: &Workbench, profile: &Profile) -> String {
     let own = format!("{}:{}", profile.provider, profile.id);
     match bench.usage_of(&own) {
-        None if profile.id.starts_with("builtin-") => profile.provider.clone(),
+        None if profile.id.starts_with(BUILT_IN) => profile.provider.clone(),
         _ => own,
     }
 }
@@ -356,7 +518,10 @@ pub fn open_sign_in(
 }
 
 /// Who the account is signed in as, once its agent has said.
-pub fn status<'a>(bench: &'a Workbench, profile: &Profile) -> Option<&'a Result<Status, String>> {
+pub fn status<'a>(
+    bench: &'a Workbench,
+    profile: &Profile,
+) -> Option<&'a Result<AccountStatus, String>> {
     bench.accounts.status.get(&key(profile))
 }
 
@@ -392,15 +557,18 @@ fn ask(
     for asked in unasked {
         bench.accounts.asking.insert(asked.clone());
         let asks = bench.asks.clone();
-        let params = json!({ "provider": asked.0, "configPath": asked.1 });
+        let params = AgentAccount {
+            provider: asked.0.clone(),
+            config_path: asked.1.clone(),
+        };
         cx.spawn(async move |bench, cx| {
-            let answer = core::request(&asks, "agentAccountStatus", params).await;
-            let status = answer.and_then(|status| {
-                serde_json::from_value::<Status>(status).map_err(|error| error.to_string())
-            });
+            let status = Target::here(&asks)
+                .request_typed::<call::AgentAccountStatus>(params)
+                .await;
             let _ = bench.update(cx, |bench, cx| {
                 bench.accounts.asking.remove(&asked);
                 bench.accounts.status.insert(asked, status);
+                bench.accounts.takers.clear();
                 redraw(bench, cx);
             });
         })
@@ -438,7 +606,9 @@ pub fn check_on_return(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench.accounts.checked_on_return = Some(now);
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let _ = core::request(&asks, "forgetAgentStatus", json!({})).await;
+        let forgot =
+            Target::here(&asks).request_typed::<call::ForgetAgentStatus>(Forget::default());
+        let _ = forgot.await;
         let _ = bench.update(cx, statuses_moved);
     })
     .detach();
@@ -449,22 +619,34 @@ fn forget(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>)
     let key = key(profile);
     bench.accounts.status.remove(&key);
     let asks = bench.asks.clone();
-    let params = json!({ "provider": key.0, "configPath": key.1 });
+    let params = Forget {
+        provider: Some(key.0),
+        config_path: key.1,
+    };
     cx.spawn(async move |bench, cx| {
-        let _ = core::request(&asks, "forgetAgentStatus", params).await;
+        let forgot = Target::here(&asks).request_typed::<call::ForgetAgentStatus>(params);
+        let _ = forgot.await;
         let _ = bench.update(cx, |bench, cx| {
             ask_statuses(bench, cx);
+            bench.read_usage();
             redraw(bench, cx);
         });
     })
     .detach();
 }
 
-fn account_params(profile: &Profile) -> Value {
-    json!({
-        "agent": profile.provider,
-        "executablePath": profile.executable_path,
-        "configPath": profile.config_path,
+/// The account as its sign-in calls name it; none for an agent the core has no sign-in for.
+fn signing_in(profile: &Profile) -> Result<SignInAccount, String> {
+    let agent = AgentKind::from_name(&profile.provider).ok_or_else(|| {
+        t!(
+            "{agent} is not an agent Sikemux knows",
+            agent = profile.provider
+        )
+    })?;
+    Ok(SignInAccount {
+        agent,
+        executable_path: profile.executable_path.clone(),
+        config_path: profile.config_path.clone(),
     })
 }
 
@@ -484,10 +666,13 @@ pub fn sign_in(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
         },
     );
     redraw(bench, cx);
-    let asks = bench.asks.clone();
-    let params = account_params(&profile);
+    let target = Target::here(&bench.asks);
+    let params = signing_in(&profile);
     cx.spawn(async move |bench, cx| {
-        let answer = core::request(&asks, "agentSignIn", params).await;
+        let answer = match params {
+            Ok(params) => target.request_typed::<call::AgentSignIn>(params).await,
+            Err(error) => Err(error),
+        };
         let _ = bench.update(cx, |bench, cx| {
             match answer {
                 Err(message) if message != "Sign-in stopped" => {
@@ -501,10 +686,6 @@ pub fn sign_in(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
                 }
                 Ok(_) => {
                     bench.accounts.signing.remove(&profile.id);
-                    let chats = bench.accounts.waiting_chats.remove(&profile.id);
-                    for chat in chats.into_iter().flatten() {
-                        crate::account_picker::move_chat(bench, &chat, &profile);
-                    }
                 }
             }
             forget(bench, &profile, cx);
@@ -525,27 +706,27 @@ pub fn pages_moved(bench: &Workbench, cx: &mut Context<Workbench>) {
     }
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let Ok(pages) = core::request(&asks, "agentSignIns", json!({})).await else {
+        let asked = Target::here(&asks).request_typed::<call::AgentSignIns>(NoParams {});
+        let Ok(pages) = asked.await else {
             return;
         };
         let _ = bench.update(cx, |bench, cx| {
             let Workbench { accounts, .. } = bench;
-            for page in pages.as_array().into_iter().flatten() {
-                let config = page["configPath"].as_str();
+            for page in pages {
                 let opened_for =
                     accounts
                         .book
                         .iter()
                         .flat_map(|book| &book.profiles)
                         .find(|profile| {
-                            page["agent"] == profile.provider.as_str()
-                                && profile.config_path.as_deref() == config
+                            page.agent == profile.provider
+                                && profile.config_path == page.config_path
                         });
                 let Some(id) = opened_for.map(|profile| profile.id.clone()) else {
                     continue;
                 };
                 if let Some(SignIn::Waiting { url, .. }) = accounts.signing.get_mut(&id) {
-                    *url = page["url"].as_str().map(str::to_owned);
+                    *url = Some(page.url);
                 }
             }
             redraw(bench, cx);
@@ -558,10 +739,11 @@ pub fn cancel_sign_in(bench: &Workbench, id: &str) {
     let Some(profile) = bench.accounts.profile(id) else {
         return;
     };
-    let _ = bench.asks.send(core::Ask::Call {
-        method: "cancelAgentSignIn",
-        params: json!({ "agent": profile.provider, "configPath": profile.config_path }),
-    });
+    if let Ok(account) = signing_in(profile) {
+        let _ = bench
+            .asks
+            .send(typed_call::<call::CancelAgentSignIn>(account));
+    }
 }
 
 pub fn dismiss_failure(bench: &mut Workbench, id: &str) {
@@ -572,7 +754,7 @@ pub fn dismiss_failure(bench: &mut Workbench, id: &str) {
 
 /// Opens the field for the code the sign-in page showed.
 pub fn ask_code(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Context<Workbench>) {
-    let field = cx.new(|cx| InputState::new(window, cx).placeholder("Code from the page"));
+    let field = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Code from the page")));
     field.update(cx, |field, cx| field.focus(window, cx));
     if let Some(SignIn::Waiting { code, .. }) = bench.accounts.signing.get_mut(id) {
         *code = Some(field);
@@ -595,14 +777,13 @@ pub fn submit_code(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>)
     if code.is_empty() {
         return;
     }
-    let asks = bench.asks.clone();
-    let params =
-        json!({ "agent": profile.provider, "configPath": profile.config_path, "code": code });
+    let Ok(account) = signing_in(&profile) else {
+        return;
+    };
+    let asked =
+        Target::here(&bench.asks).request_typed::<call::AgentSignInCode>(Code { account, code });
     cx.spawn(async move |bench, cx| {
-        if core::request(&asks, "agentSignInCode", params)
-            .await
-            .is_ok()
-        {
+        if asked.await.is_ok() {
             let _ = bench.update(cx, |bench, cx| {
                 if let Some(SignIn::Waiting { code, .. }) =
                     bench.accounts.signing.get_mut(&profile.id)
@@ -620,10 +801,12 @@ pub fn sign_out(bench: &Workbench, id: &str, cx: &mut Context<Workbench>) {
     let Some(profile) = bench.accounts.profile(id).cloned() else {
         return;
     };
-    let asks = bench.asks.clone();
-    let params = account_params(&profile);
+    let Ok(account) = signing_in(&profile) else {
+        return;
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::AgentSignOut>(account);
     cx.spawn(async move |bench, cx| {
-        let _ = core::request(&asks, "agentSignOut", params).await;
+        let _ = asked.await;
         let _ = bench.update(cx, |bench, cx| forget(bench, &profile, cx));
     })
     .detach();
@@ -636,7 +819,7 @@ pub fn open_dialog(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let name = cx.new(|cx| InputState::new(window, cx).placeholder("Work"));
+    let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Work")));
     name.update(cx, |name, cx| name.focus(window, cx));
     bench.accounts.dialog = Some(Dialog {
         provider: provider.to_owned(),
@@ -673,8 +856,13 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
     cx.spawn(async move |bench, cx| {
         let made = async {
-            let added = json!({ "provider": provider, "name": name });
-            let folder = core::request(&asks, "addAgentAccount", added).await?;
+            let here = Target::here(&asks);
+            let folder = here
+                .request_typed::<call::AddAgentAccount>(Adding {
+                    provider: provider.clone(),
+                    name: name.clone(),
+                })
+                .await?;
             let now = chrono::Utc::now().timestamp_millis();
             let profile = Profile {
                 id: format!("profile-{now:x}"),
@@ -682,12 +870,14 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
                 provider,
                 accent: brand,
                 executable_path: None,
-                config_path: folder.as_str().map(str::to_owned),
+                config_path: Some(folder),
                 environment_keys: Vec::new(),
             };
-            let book =
-                core::request(&asks, "saveAgentAccount", json!({ "profile": profile })).await?;
-            Ok::<_, String>((profile.id, book))
+            let id = profile.id.clone();
+            let book = here
+                .request_typed::<call::SaveAgentAccount>(Saving { profile })
+                .await?;
+            Ok::<_, String>((id, book))
         }
         .await;
         let _ = bench.update(cx, |bench, cx| {

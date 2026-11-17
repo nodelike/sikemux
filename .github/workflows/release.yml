@@ -1,37 +1,45 @@
 name: Release
-run-name: Release ${{ github.ref_name }}
+run-name: Release ${{ github.event_name == 'workflow_run' && format('nightly from {0}', github.event.workflow_run.head_sha) || github.ref_name }}
 
-# A release only ever starts from a v* tag, and only the owner may push one.
+# A stable release starts from a v* tag, which only the owner may push, and publishes a candidate
+# that only the staff feed serves; the Ship workflow makes it stable once it soaked there. A
+# nightly is built from each push to main as CI starts checking it, and once CI passes goes to the
+# staff feed at once and to nightly after a soak.
 on:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [in_progress]
+    branches: [main]
 
 permissions:
   actions: read
   contents: read
   checks: write
 
+# Of the pushes to main that wait for a run, only the newest gets one.
 concurrency:
-  group: release
+  group: release-${{ github.event_name }}
   cancel-in-progress: false
 
-jobs:
-  approve:
-    name: Approve the stable release
-    if: ${{ !contains(github.ref_name, '-nightly.') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: approval
-    steps:
-      - name: Approved
-        run: echo "Approved ${GITHUB_REF_NAME}" >>"$GITHUB_STEP_SUMMARY"
+# Published builds send crashes to these Sentry projects; the addresses are public client keys.
+# The binaries this workflow starts to check them send nothing.
+env:
+  RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  SIKEMUX_SENTRY_DSN: https://f980bd76fa1efc1c3446bbebf4ef1a69@o4512409824919552.ingest.de.sentry.io/4512409865814096
+  SIKEMUX_NOTCH_SENTRY_DSN: https://6bd8fd04db6ded3d067200c485966e66@o4512409824919552.ingest.de.sentry.io/4512409865945168
+  DO_NOT_TRACK: "1"
 
+jobs:
   pushed-checks:
     name: Checks already run on this commit
+    needs: plan
+    if: ${{ needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
-      actions: read
+      actions: write
     outputs:
       passed: ${{ steps.wait.outputs.passed }}
     steps:
@@ -40,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&head_sha=$GITHUB_SHA"
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&head_sha=$RELEASE_SHA"
           while :; do
             run="$(gh api "$runs" --jq '.workflow_runs | sort_by(.created_at) | last | "\(.status) \(.conclusion)"')"
             case "$run" in
@@ -52,26 +60,64 @@ jobs:
           echo "passed=$passed" >>"$GITHUB_OUTPUT"
           echo "CI from the push passed: $passed" >>"$GITHUB_STEP_SUMMARY"
 
+      # A nightly builds while CI checks its commit, so once CI fails the builds have nothing to ship.
+      - name: Stop a nightly whose commit failed CI
+        if: github.event_name == 'workflow_run' && steps.wait.outputs.passed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+          sleep 60
+
   checks:
     name: Checks
-    needs: pushed-checks
-    if: needs.pushed-checks.outputs.passed != 'true'
+    needs: [plan, pushed-checks]
+    # Also when the wait above timed out, so a slow CI run costs time, never the release. A nightly
+    # from main has only CI's verdict: a red one ends it, and the next push gets its own build.
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.result == 'success' && needs.pushed-checks.outputs.passed != 'true' }}
     uses: ./.github/workflows/ci.yml
 
   plan:
     name: Plan the release
+    # Only pushes to main of this repository, while nightlies are not held by `scripts/nightly.sh hold`.
+    if: >-
+      github.event_name == 'push' || (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository && vars.NIGHTLY_HOLD == '')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: write
       contents: read
     outputs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
     steps:
+      # CI reports a run in progress more than once, and a re-run does again; the earliest Release keeps it.
+      - name: Stop if this commit already has a nightly run
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          earlier="$(gh run list -R "$GITHUB_REPOSITORY" --workflow release.yml --event workflow_run --limit 50 \
+            --json databaseId,displayTitle,conclusion \
+            --jq "[.[] | select(.databaseId < $GITHUB_RUN_ID and .displayTitle == \"Release nightly from $RELEASE_SHA\" and .conclusion != \"cancelled\" and .conclusion != \"skipped\")] | length")"
+          if (( earlier > 0 )); then
+            echo "Run for $RELEASE_SHA already started; stopping this one" >>"$GITHUB_STEP_SUMMARY"
+            gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+            sleep 60
+          fi
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
+
+      - name: Give a push to main its nightly version and notes
+        if: github.event_name == 'workflow_run'
+        run: scripts/stamp-nightly.sh
 
       - name: Resolve version, channel, and notes
         id: plan
@@ -79,35 +125,66 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package version $version"
-            exit 1
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match package version $version"
+              exit 1
+            fi
+            if [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/v$version" --jq .sha)" != "$RELEASE_SHA" ]]; then
+              echo "::error::The remote tag v$version is not on $RELEASE_SHA"
+              exit 1
+            fi
           fi
           heading="$(head -n 1 RELEASE_NOTES.md)"
           if [[ "$heading" != "# Sikemux v$version" ]]; then
             echo "::error::RELEASE_NOTES.md is headed '$heading', not '# Sikemux v$version'"
             exit 1
           fi
-          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/v$version" --jq .sha)" != "$GITHUB_SHA" ]]; then
-            echo "::error::The remote tag v$version is not on $GITHUB_SHA"
-            exit 1
-          fi
           if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::GitHub release v$version already exists"
             exit 1
           fi
-          if [[ "${version%%+*}" == *-* ]]; then channel=nightly; else channel=stable; fi
+          case "${version%%+*}" in
+            *-nightly.*) channel=nightly ;;
+            *-*)
+              echo "::error::v$version is neither a nightly nor a stable version"
+              exit 1
+              ;;
+            *) channel=stable ;;
+          esac
           echo "version=$version" >>"$GITHUB_OUTPUT"
           echo "channel=$channel" >>"$GITHUB_OUTPUT"
-          echo "Releasing $channel v$version from $GITHUB_SHA" >>"$GITHUB_STEP_SUMMARY"
+          echo "Releasing $channel v$version from $RELEASE_SHA" >>"$GITHUB_STEP_SUMMARY"
+
+      # Windows builds slower than the Mac, so it runs apart and joins the nightly once both are done.
+      - name: Start the Windows installers
+        if: steps.plan.outputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          gh workflow run windows-release.yml -R "$GITHUB_REPOSITORY" --ref main \
+            -f "version=$VERSION" -f "ref=$RELEASE_SHA" -f "release_run=$GITHUB_RUN_ID"
+
+      # Every job builds and describes the release from these, so a push's version reaches them all.
+      - name: Keep the version and notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-plan
+          if-no-files-found: error
+          path: |
+            package.json
+            Cargo.toml
+            Cargo.lock
+            RELEASE_NOTES.md
 
   # Nothing that builds holds signing material, and nothing that signs runs the
   # build's dependencies or what it signs. The app is compiled with the hashes of
   # the voice and simulator helpers it downloads, so they are signed first.
   helpers:
     name: Build the helpers
-    needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
+    if: &planned ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
@@ -116,8 +193,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - &plan_files
+        name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-plan
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -125,7 +209,7 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
 
       - name: Install XcodeGen
         # The simulator helper builds FBControlCore with it.
@@ -139,7 +223,8 @@ jobs:
           flags=(--stage helpers)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          (cd packaging/binaries && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" sikemux-voice-* sikemux-sim-*)
+          source scripts/release-shape.sh
+          (cd packaging/binaries && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" "${PUBLISHED_HELPER_FILES[@]}")
 
       - name: Keep the unsigned helpers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -151,33 +236,62 @@ jobs:
   # The core is not compiled with the helpers' hashes, so it builds alongside them.
   mac-core:
     name: Build the Mac core
-    needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
+    if: *planned
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
       contents: read
+    # What the core compiles in. The app starts a core rather than running one, and links no plugin.
+    env: &compiled_into_core
+      CARGO_PROFILE_RELEASE_LTO: &lto ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
+      BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
+      JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
+      VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
+      KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
+      - *plan_files
+
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
+
+      # Stable keeps fat LTO and no cache; a nightly trades a little size for half the build.
+      - &cache_nightly
+        name: Cache compiled crates for a nightly
+        if: needs.plan.outputs.channel == 'nightly'
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
+      - &compile_through_cache
+        name: Compile through the cache
+        if: needs.plan.outputs.channel == 'nightly'
+        run: printf 'SCCACHE_GHA_ENABLED=true\nRUSTC_WRAPPER=sccache\n' >>"$GITHUB_ENV"
+
+      # The core and the app are stripped here, once their symbols are in a debug file published
+      # beside the release, with the line tables of Sikemux's own crates. Those add about a tenth to
+      # the build; every crate's would need more memory than a runner has, and double it.
+      - &keep_symbols
+        name: Leave the symbols in for the dSYM
+        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.release]\nstrip = "none"\ndebug = "line-tables-only"\n[profile.release.package."*"]\ndebug = false\n[profile.release.package.sikemux-gpui]\nstrip = "none"\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
 
       - name: Build the core
         env:
           SIKEMUX_USAGE_REPORTING: app
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
-          # Line tables go to a dSYM published beside the release, never into the app.
-          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
-          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
-        run: cargo build --locked --release -p sikemux-host --bin sikemux-host
+        run: |
+          cargo build --locked --release -p sikemux-host --bin sikemux-host
+          dsymutil target/release/sikemux-host -o target/release/sikemux-host.dSYM
+          strip target/release/sikemux-host
+
+      - &cache_stats
+        name: Say what the cache saved
+        if: needs.plan.outputs.channel == 'nightly'
+        run: sccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the core
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -215,7 +329,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
 
       - name: Fetch helpers-unsigned
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -225,22 +345,10 @@ jobs:
 
       - name: Import the Developer ID certificate
         if: vars.RELEASE_NOTARIZED == '1'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/release.keychain-db"
-          password="$(openssl rand -base64 24)"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          base64 --decode <<<"$APPLE_CERTIFICATE" >"$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/certificate.p12"
-          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
-          keychains=("$keychain")
-          while read -r existing; do keychains+=("${existing//\"/}"); done < <(security list-keychains -d user)
-          security list-keychains -d user -s "${keychains[@]}"
+        uses: ./.github/actions/developer-id
+        with:
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Sign the helpers
         env:
@@ -253,10 +361,9 @@ jobs:
           fi
           mkdir "$RUNNER_TEMP/helpers"
           tar -xf "$RUNNER_TEMP/unsigned/helpers.tar" -C "$RUNNER_TEMP/helpers"
-          helpers=("$RUNNER_TEMP"/helpers/*)
-          [[ ${#helpers[@]} -eq 2 ]] || { echo "::error::Expected the voice and simulator helpers, found ${#helpers[@]} files"; exit 1; }
-          ./scripts/sign-helper.sh "${helpers[@]}"
-          (cd "$RUNNER_TEMP/helpers" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" sikemux-voice-* sikemux-sim-*)
+          source scripts/release-shape.sh
+          ./scripts/sign-helper.sh "${PUBLISHED_HELPER_FILES[@]/#/$RUNNER_TEMP/helpers/}"
+          (cd "$RUNNER_TEMP/helpers" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" "${PUBLISHED_HELPER_FILES[@]}")
 
       - name: Keep the signed helpers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -267,11 +374,14 @@ jobs:
 
   # The build runs alongside the checks; only publishing waits for them.
   # Starts with the helpers rather than after them: only the helper crates and the app take
-  # their hashes, so everything else compiles while they are signed.
+  # their hashes, so everything else compiles while they are signed. The core goes into the
+  # app only when it is packed, so the app compiles while the core does.
   build:
     name: Build the app
-    needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
+    if: *planned
+    env:
+      CARGO_PROFILE_RELEASE_LTO: *lto
     runs-on: macos-26
     timeout-minutes: 90
     permissions:
@@ -281,8 +391,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -295,23 +408,25 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
+
+      - *cache_nightly
+
+      - *compile_through_cache
 
       # release.sh refreshes Cargo.lock offline, which needs every crate
       # already on disk; a fresh runner has none.
       - name: Fetch Rust dependencies
         run: cargo fetch --locked
 
+      - *keep_symbols
+
       - name: Compile the app around the signed helpers
         env:
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
-          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
-          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p packaging/binaries
@@ -329,16 +444,12 @@ jobs:
           flags=(--publish --stage compile)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/compiled.tar" target/release/sikemux
+          dsymutil target/release/sikemux -o target/release/sikemux.dSYM
+          strip target/release/sikemux
           mkdir -p "$RUNNER_TEMP/symbols"
           ditto -c -k --keepParent target/release/sikemux.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.app.dSYM.zip"
 
-      - name: Keep the compiled app
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: app-compiled
-          if-no-files-found: error
-          path: ${{ runner.temp }}/compiled.tar
+      - *cache_stats
 
       - name: Keep the app's symbols
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -347,55 +458,10 @@ jobs:
           if-no-files-found: error
           path: ${{ runner.temp }}/symbols/*.dSYM.zip
 
-  # The core goes into the app only here, so the app compiles while the core does.
-  package:
-    name: Pack the app
-    needs: [plan, sign-helpers, build, mac-core]
-    if: ${{ !cancelled() && needs.sign-helpers.result == 'success' && needs.build.result == 'success' && needs.mac-core.result == 'success' }}
-    runs-on: macos-26
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-        with:
-          run_install: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-
-      - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
-
-      - name: Fetch Rust dependencies
-        run: cargo fetch --locked
-
-      - name: Fetch helpers
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: helpers
-          path: ${{ runner.temp }}/helpers
-
       - name: Fetch the core
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: mac-core
-          path: ${{ runner.temp }}/core
-
-      - name: Fetch the compiled app
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: app-compiled
-          path: ${{ runner.temp }}/compiled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/wait-for-artifact.sh mac-core "$RUNNER_TEMP/core" "Build the Mac core"
 
       - name: Pack the app around the core and the signed helpers
         env:
@@ -403,13 +469,18 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
         run: |
-          mkdir -p packaging/binaries
-          tar -xf "$RUNNER_TEMP/helpers/helpers.tar" -C packaging/binaries
-          tar -xf "$RUNNER_TEMP/compiled/compiled.tar"
           flags=(--publish --stage package)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
           COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/app.tar" -C target/release/bundle macos/Sikemux.app dmg
+          ditto -c -k --keepParent target/notch/sikemux-notch.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.notch.dSYM.zip"
+
+      - name: Keep the notch helper's symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mac-symbols-notch
+          if-no-files-found: error
+          path: ${{ runner.temp }}/symbols/*.notch.dSYM.zip
 
       - name: Keep the unsigned app
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -420,8 +491,9 @@ jobs:
 
   sign:
     name: Sign and notarize the app
-    needs: [plan, sign-helpers, package]
-    if: ${{ !cancelled() && needs.package.result == 'success' }}
+    # The app job takes the core as soon as it is kept; this waits for the core's job to end well too.
+    needs: [plan, sign-helpers, build, mac-core]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.mac-core.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 60
     environment: release
@@ -431,6 +503,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Setup Node
@@ -446,22 +519,10 @@ jobs:
 
       - name: Import the Developer ID certificate
         if: needs.sign-helpers.outputs.notarized == '1'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/release.keychain-db"
-          password="$(openssl rand -base64 24)"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          base64 --decode <<<"$APPLE_CERTIFICATE" >"$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/certificate.p12"
-          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
-          keychains=("$keychain")
-          while read -r existing; do keychains+=("${existing//\"/}"); done < <(security list-keychains -d user)
-          security list-keychains -d user -s "${keychains[@]}"
+        uses: ./.github/actions/developer-id
+        with:
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Sign, notarize and pack the app
         env:
@@ -499,8 +560,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -543,24 +607,89 @@ jobs:
             target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/macos/*.app.tar.gz.sig
             target/release/bundle/latest.json
-            packaging/binaries/sikemux-voice-*
-            packaging/binaries/sikemux-sim-*
+            packaging/binaries/*
             latest.json
 
+  # The packages' core builds beside their app, as the Mac's does, on the same machines with the same libraries.
+  linux-core:
+    name: Build the core of the Linux packages (${{ matrix.arch }})
+    needs: plan
+    if: *planned
+    strategy:
+      matrix:
+        include: &linux_machines
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    # The oldest runners GitHub still supports; their glibc decides the oldest distribution the packages run on.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env: *compiled_into_core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+
+      - *plan_files
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Install what the app builds with
+        run: |
+          sudo apt-get update
+          xargs sudo apt-get install -y <packaging/linux/build-packages.txt
+
+      - *keep_symbols
+
+      - name: Build the core
+        env:
+          SIKEMUX_USAGE_REPORTING: app
+        run: |
+          cargo build --locked --release -p sikemux-host --bin sikemux-host
+          scripts/keep-linux-symbols.sh target/release/sikemux-host "$RUNNER_TEMP/symbols/sikemux-host-app-${{ matrix.arch }}.debug"
+
+      - name: Keep the core
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-core-${{ matrix.arch }}
+          if-no-files-found: error
+          path: target/release/sikemux-host
+
+      - name: Keep the core's symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-symbols-core-${{ matrix.arch }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/symbols/*.debug
+
   build-linux:
-    name: Build Linux packages
-    needs: approve
-    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
-    # The oldest runner GitHub still supports; its glibc decides the oldest distribution the packages run on.
-    runs-on: ubuntu-24.04
+    name: Build Linux packages (${{ matrix.arch }})
+    needs: plan
+    if: *planned
+    strategy:
+      matrix:
+        include: *linux_machines
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_PROFILE_RELEASE_LTO: *lto
     timeout-minutes: 90
     permissions:
+      actions: read
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -573,36 +702,96 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
 
       - name: Install what the app builds and packs with
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev libfontconfig-dev libfreetype-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good dpkg-dev rpm patchelf file
+          cat packaging/linux/build-packages.txt packaging/linux/pack-packages.txt | xargs sudo apt-get install -y
 
-      - name: Build the deb, rpm and AppImage
+      - *keep_symbols
+
+      - name: Compile the app while the core builds
         env:
           SIKEMUX_USAGE_REPORTING: app
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
+          BUILD_STEP: compile
+        run: |
+          pnpm build:linux
+          scripts/keep-linux-symbols.sh target/release/sikemux "$RUNNER_TEMP/symbols/sikemux-app-${{ matrix.arch }}.debug"
+
+      - name: Keep the app's symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-symbols-app-${{ matrix.arch }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/symbols/*.debug
+
+      - name: Fetch the core
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/wait-for-artifact.sh "linux-core-${{ matrix.arch }}" "$RUNNER_TEMP/core" "Build the core of the Linux packages (${{ matrix.arch }})"
+
+      - name: Build the deb, tarball and AppImage
+        env:
+          SIKEMUX_USAGE_REPORTING: app
+          PREBUILT_CORE: ${{ runner.temp }}/core/sikemux-host
+          BUILD_STEP: package
         run: pnpm build:linux
 
       - name: Keep the built packages on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          name: sikemux-linux-${{ matrix.arch }}-${{ github.ref_name }}
           if-no-files-found: error
           path: |
             target/release/bundle/deb/*.deb
-            target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
+            target/release/bundle/tar/*.tar.gz
+
+  # Made from the tarball the deb is packed from, on Arch itself, where it is installed
+  # and upgraded once to check the core keeps its setgid bit.
+  build-arch:
+    name: Build the Arch package
+    needs: [plan, build-linux]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.build-linux.result == 'success' }}
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Install makepkg and namcap
+        run: pacman -Syu --noconfirm --needed base-devel namcap
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+
+      - name: Fetch the Linux packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-linux-x86_64-${{ github.ref_name }}
+          path: target/release/bundle
+
+      - name: Build, install and upgrade the package
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: packaging/arch/build-release.sh "$VERSION" "target/release/bundle/tar/Sikemux_${VERSION}_amd64.tar.gz" target/release/bundle/arch
+
+      - name: Keep the package and its AUR recipe on the run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sikemux-arch-${{ github.ref_name }}
+          if-no-files-found: error
+          include-hidden-files: true
+          path: target/release/bundle/arch
 
   build-host:
     name: Build the Linux host core (${{ matrix.arch }})
-    needs: approve
-    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
+    if: *planned
     strategy:
       matrix:
         include:
@@ -611,25 +800,48 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    # Debian 12's glibc is older than the runner's, so building there lets the core run on both.
-    container: rust:1.99-bookworm
+    # A core runs on the glibc it was built against and newer. AlmaLinux 9 has 2.34, the oldest
+    # hosts get (RHEL 9, Amazon Linux 2023), so the install check below runs on that oldest too.
+    container: almalinux:9
     timeout-minutes: 60
     permissions:
       contents: read
+    env: *compiled_into_core
     steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False gcc make binutils git-core pkgconf-pkg-config zlib-devel tar gzip findutils shadow-utils
+
+      - name: Install rustup
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal --no-modify-path
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - *keep_symbols
 
       - name: Build the core
         env:
           SIKEMUX_USAGE_REPORTING: host
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
-        run: cargo build --locked --release -p sikemux-host --bin sikemux-host
+        run: |
+          cargo build --locked --release -p sikemux-host --bin sikemux-host
+          scripts/keep-linux-symbols.sh target/release/sikemux-host "$RUNNER_TEMP/symbols/sikemux-host-host-${{ matrix.arch }}.debug"
+
+      - name: Keep the core's symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-symbols-host-${{ matrix.arch }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/symbols/*.debug
 
       - name: Check it runs without a window
         run: scripts/package-host.sh "${{ matrix.arch }}"
@@ -645,7 +857,7 @@ jobs:
           path: target/host/*.tar.gz
 
   sign-host:
-    name: Sign the Linux host cores and the AppImage
+    name: Sign the Linux host cores and the AppImages
     needs: [plan, build-host, build-linux]
     if: ${{ !cancelled() && needs.build-host.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -657,6 +869,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Setup Node
@@ -674,7 +887,8 @@ jobs:
       - name: Fetch the Linux packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          pattern: sikemux-linux-*-${{ github.ref_name }}
+          merge-multiple: true
           path: target/release/bundle
 
       - name: Sign them
@@ -690,31 +904,123 @@ jobs:
           if-no-files-found: error
           path: target/host/*.tar.gz.sig
 
-      - name: Keep the AppImage's signature on the run
+      - name: Keep the AppImages' signatures on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: appimage-signature-${{ github.ref_name }}
           if-no-files-found: error
           path: target/release/bundle/appimage/*.AppImage.sig
 
+      - name: Install the package signing tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends apt-utils >/dev/null
+
+      - name: Write the signed apt indexes
+        env:
+          PACKAGES_SIGNING_KEY: ${{ secrets.PACKAGES_SIGNING_KEY }}
+          PACKAGES_SIGNING_KEY_PASSWORD: ${{ secrets.PACKAGES_SIGNING_KEY_PASSWORD }}
+        run: ./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle
+
+      - name: Keep the apt indexes on the run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-packages-index-${{ github.ref_name }}
+          if-no-files-found: error
+          path: target/packages/packages-index-*.tar
+
+  # Holds the Sentry token, so it runs nothing a build does. Sentry names the frames of a
+  # release's crashes from these files, so they go before the release does.
+  sentry:
+    name: Send the symbols to Sentry
+    needs: [plan, mac-core, build, linux-core, build-linux, build-host]
+    if: >-
+      !cancelled() && needs.mac-core.result == 'success' && needs.build.result == 'success' &&
+      needs.linux-core.result == 'success' && needs.build-linux.result == 'success' &&
+      needs.build-host.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Fetch the Mac symbols
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mac-symbols-*
+          merge-multiple: true
+          path: target/symbols
+
+      - name: Fetch the Linux symbols
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: linux-symbols-*
+          merge-multiple: true
+          path: target/symbols
+
+      - name: Make the release and send its symbols
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: scripts/sentry-release.sh "$VERSION" target/symbols
+
+  rehearsal:
+    name: Rehearse the update
+    needs: [plan, sign-host]
+    if: ${{ !cancelled() && needs.sign-host.result == 'success' }}
+    uses: ./.github/workflows/update-rehearsal.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      artifacts: true
+
   publish:
     name: Publish
     needs:
-      [plan, verify, build-linux, build-host, sign-host, pushed-checks, checks]
+      [
+        plan,
+        verify,
+        build-linux,
+        build-arch,
+        build-host,
+        sign-host,
+        rehearsal,
+        sentry,
+        pushed-checks,
+        checks,
+      ]
     if: >-
       !cancelled() && needs.verify.result == 'success' && needs.build-linux.result == 'success' &&
+      needs.build-arch.result == 'success' && needs.sentry.result == 'success' &&
       needs.build-host.result == 'success' && needs.sign-host.result == 'success' &&
-      needs.pushed-checks.result == 'success' &&
+      needs.rehearsal.result == 'success' &&
       (needs.pushed-checks.outputs.passed == 'true' || needs.checks.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      # Makes a nightly's tag and starts its soak.
+      actions: write
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
 
       - name: Fetch the verified build
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -724,8 +1030,21 @@ jobs:
       - name: Fetch the Linux packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          pattern: sikemux-linux-*-${{ github.ref_name }}
+          merge-multiple: true
           path: target/release/bundle
+
+      - name: Fetch the apt indexes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-packages-index-${{ github.ref_name }}
+          path: target/packages
+
+      - name: Fetch the Arch package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-arch-${{ github.ref_name }}
+          path: target/release/bundle/arch
 
       - name: Fetch the Linux host cores
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -740,7 +1059,7 @@ jobs:
           name: host-signatures-${{ github.ref_name }}
           path: target/host
 
-      - name: Fetch the AppImage's signature
+      - name: Fetch the AppImages' signatures
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: appimage-signature-${{ github.ref_name }}

@@ -62,7 +62,7 @@ export function keptChat(core: string, agentId: string): ChatStore {
 }
 
 /** What was written in a chat's composer here and not saved on the host yet, with the host's revision it was written over. */
-export type UnsavedDraft = { text: string; attachments: Attachment[]; chips?: ContextChip[]; extra: Record<string, unknown>; rev?: number };
+type UnsavedDraft = { text: string; attachments: Attachment[]; chips?: ContextChip[]; extra: Record<string, unknown>; rev?: number };
 
 export type DraftStore = { load: () => UnsavedDraft | undefined; save: (draft: UnsavedDraft) => void; clear: () => void };
 

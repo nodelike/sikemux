@@ -1,17 +1,14 @@
 //! What an agent did in its worktree, opened from its card in the rail: its branch, what it
 //! said it did, the files it changed, its tests and the server it runs, as the core reads them.
 
-use std::path::PathBuf;
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, App, AppContext, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    WeakEntity, Window,
+    KeyDownEvent, ParentElement, Render, SharedString, Styled, WeakEntity, Window,
 };
-use serde::Deserialize;
-use serde_json::json;
 
 use crate::core::Target;
 use crate::editor::OpenAt;
@@ -22,32 +19,18 @@ use crate::theme::{
 };
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_calls::worktree::WorktreeParams;
+use sikemux_calls::worktree::WorktreeReview;
 
 const SHOWN_FILES: usize = 6;
 
-/// Closes the review.
 type Dismiss = Rc<dyn Fn(&mut Window, &mut App)>;
-
-/// What the core's `agentReview` answers.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Found {
-    branch: String,
-    path: PathBuf,
-    summary: Option<String>,
-    changed: Vec<String>,
-    uncommitted: usize,
-    tested: bool,
-    passed: u64,
-    failed: u64,
-    url: Option<String>,
-    failures: Option<String>,
-}
 
 pub struct AgentReview {
     bench: WeakEntity<Workbench>,
     agent: String,
-    found: Option<Result<Found, SharedString>>,
+    found: Option<Result<WorktreeReview, SharedString>>,
     close: Dismiss,
     /// Takes the keyboard while the review shows, so Escape closes it.
     focus: FocusHandle,
@@ -63,11 +46,11 @@ impl AgentReview {
         close: Dismiss,
         cx: &mut Context<Self>,
     ) -> Self {
-        let read = core.request("agentReview", json!({ "agentId": agent }));
+        let read = core.request_typed::<call::AgentReview>(WorktreeParams {
+            agent_id: agent.clone(),
+        });
         cx.spawn(async move |review, cx| {
-            let found = read.await.map_err(SharedString::from).and_then(|value| {
-                serde_json::from_value(value).map_err(|error| error.to_string().into())
-            });
+            let found = read.await.map_err(SharedString::from);
             review
                 .update(cx, |review, cx| {
                     review.found = Some(found);
@@ -139,22 +122,26 @@ impl Render for AgentReview {
         });
         let title = agent
             .as_ref()
-            .map(|agent| agent.name.clone().unwrap_or_else(|| agent.title.clone()))
-            .unwrap_or_else(|| "Agent".into());
+            .map(|agent| {
+                agent
+                    .handle()
+                    .map_or_else(|| agent.title.clone(), str::to_owned)
+            })
+            .unwrap_or_else(|| t!("Agent").into());
         let mut body = div().flex().flex_col().gap(SPACE_2);
         let mut actions = div().flex().flex_wrap().gap(SPACE_1H).child(
-            Button::new("review-show", "Show agent", Variant::Outline).on_click(cx.listener(
+            Button::new("review-show", t!("Show agent"), Variant::Outline).on_click(cx.listener(
                 |review, _, window, cx| {
                     let agent = review.agent.clone();
-                    review.then(window, cx, move |bench, _, _| bench.open_agent(&agent));
+                    review.then(window, cx, move |bench, _, cx| bench.open_agent(&agent, cx));
                 },
             )),
         );
         match &self.found {
-            None => body = body.child(ui::meta("Reading the worktree…", cx)),
+            None => body = body.child(ui::meta(t!("Reading the worktree…"), cx)),
             Some(Err(error)) => {
                 body = body.child(ui::meta(
-                    format!("Could not read the worktree: {error}"),
+                    t!("Could not read the worktree: {error}", error = error),
                     cx,
                 ))
             }
@@ -170,16 +157,19 @@ impl Render for AgentReview {
                             .child(summary)
                     }));
                 let changes = if found.changed.is_empty() {
-                    "No changes yet".to_owned()
+                    t!("No changes yet").to_owned()
                 } else {
-                    let count = found.changed.len();
-                    let mut words = format!("{count} file{}", if count == 1 { "" } else { "s" });
+                    let mut words = match found.changed.len() {
+                        1 => t!("1 file").to_owned(),
+                        count => t!("{count} files", count = count),
+                    };
                     if found.uncommitted > 0 {
-                        words.push_str(&format!(" · {} not committed", found.uncommitted));
+                        words.push_str(" · ");
+                        words.push_str(&t!("{count} not committed", count = found.uncommitted));
                     }
                     words
                 };
-                body = body.child(row("Changes").child(changes));
+                body = body.child(row(t!("Changes")).child(changes));
                 body = body.children(found.changed.iter().take(SHOWN_FILES).enumerate().map(
                     |(index, file)| {
                         let path = found.path.join(file);
@@ -187,12 +177,11 @@ impl Render for AgentReview {
                             .id(("review-file", index))
                             .pl(px(72.))
                             .truncate()
-                            .cursor_pointer()
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(crate::theme::ui_text(TEXT_2XS))
                             .text_color(t.accent)
                             .hover(|style| style.underline())
-                            .on_click(cx.listener(move |review, _, window, cx| {
+                            .clicks(cx.listener(move |review, _, window, cx| {
                                 let at = OpenAt {
                                     path: path.clone(),
                                     line: 1,
@@ -206,10 +195,10 @@ impl Render for AgentReview {
                 ));
                 if found.changed.len() > SHOWN_FILES {
                     let more = found.changed.len() - SHOWN_FILES;
-                    body = body.child(ui::meta(format!("and {more} more"), cx).pl(px(72.)));
+                    body = body.child(ui::meta(t!("and {more} more", more = more), cx).pl(px(72.)));
                 }
                 let tests = if !found.tested {
-                    ui::meta("No results yet", cx)
+                    ui::meta(t!("No results yet"), cx)
                 } else if found.failed > 0 {
                     div()
                         .flex()
@@ -217,7 +206,11 @@ impl Render for AgentReview {
                         .gap(SPACE_1)
                         .text_color(t.danger)
                         .child(ui::icon(Icon::Close, 11.).text_color(t.danger))
-                        .child(format!("{} failed · {} passed", found.failed, found.passed))
+                        .child(t!(
+                            "{failed} failed · {passed} passed",
+                            failed = found.failed,
+                            passed = found.passed
+                        ))
                 } else {
                     div()
                         .flex()
@@ -225,21 +218,21 @@ impl Render for AgentReview {
                         .gap(SPACE_1)
                         .text_color(t.live)
                         .child(ui::icon(Icon::Check, 11.).text_color(t.live))
-                        .child(format!("{} passed", found.passed))
+                        .child(t!("{passed} passed", passed = found.passed))
                 };
-                body = body.child(row("Tests").child(tests));
+                body = body.child(row(t!("Tests")).child(tests));
                 body = body.child(
-                    row("Running").child(match &found.url {
+                    row(t!("Running")).child(match &found.url {
                         Some(url) => {
                             ui::mono(url.trim_start_matches("http://").to_owned(), TEXT_2XS_H, cx)
                                 .text_color(t.text_primary)
                         }
-                        None => ui::meta("Nothing running", cx),
+                        None => ui::meta(t!("Nothing running"), cx),
                     }),
                 );
                 if let Some(url) = found.url.clone() {
                     actions = actions.child(
-                        Button::new("review-preview", "Open preview", Variant::Outline)
+                        Button::new("review-preview", t!("Open preview"), Variant::Outline)
                             .icon(Icon::Globe)
                             .on_click(cx.listener(move |review, _, window, cx| {
                                 let (agent, url) = (review.agent.clone(), url.clone());
@@ -253,7 +246,7 @@ impl Render for AgentReview {
                     actions = actions.child(
                         Button::new(
                             "review-failures",
-                            "Send failures to agent",
+                            t!("Send failures to agent"),
                             Variant::Primary,
                         )
                         .on_click(cx.listener(
@@ -305,7 +298,6 @@ impl Render for AgentReview {
     }
 }
 
-/// Opens the review of `agent`'s worktree over the window.
 pub fn open(bench: &mut Workbench, agent: &str, cx: &mut Context<Workbench>) {
     let weak = cx.entity().downgrade();
     let closing = weak.clone();

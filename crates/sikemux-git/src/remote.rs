@@ -1,0 +1,675 @@
+use std::path::Path;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+
+use super::{default_remote, git_ok, open_repo, run_blocking, run_git};
+
+/// A remote's address with its scheme, user, default port and `.git` left out, an SSH host
+/// alias read as the host it stands for, and the code hosts' own SSH names read as the host, so
+/// the same repository reads the same however it was cloned. A port that is not the default
+/// stays, so two servers on one machine stay apart.
+pub fn normalized_remote(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    let (scheme, rest) = match url.split_once("://") {
+        Some((scheme, rest)) => (Some(scheme.to_lowercase()), rest),
+        None => (None, url),
+    };
+    let rest = match rest.split_once('@') {
+        Some((user, host)) if !user.contains('/') => host,
+        _ => rest,
+    };
+    let (host, path) = match scheme {
+        Some(_) => rest.split_once('/').unwrap_or((rest, "")),
+        None => match rest.split_once(':') {
+            Some((host, path)) if !host.contains('/') => (host, path),
+            _ => return rest.to_lowercase(),
+        },
+    };
+    let (host, port) = match host.split_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().ok()),
+        None => (host, None),
+    };
+    let path = path.trim_start_matches('/');
+    let ssh = scheme
+        .as_deref()
+        .is_none_or(|scheme| scheme.contains("ssh"));
+    let (host, port, default) = match (ssh, scheme.as_deref()) {
+        (true, _) => {
+            let (real, set) = ssh_target(host).unwrap_or_else(|| (host.to_lowercase(), 22));
+            (real, port.or(Some(set)), 22)
+        }
+        (false, Some("http")) => (host.to_lowercase(), port, 80),
+        (false, Some("git")) => (host.to_lowercase(), port, 9418),
+        (false, _) => (host.to_lowercase(), port, 443),
+    };
+    let (host, port) = match code_host(&host) {
+        Some(host) => (host.to_owned(), None),
+        None => (host, port.filter(|port| *port != default)),
+    };
+    let host = match port {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    };
+    format!("{host}/{path}").to_lowercase()
+}
+
+/// The code host behind one of its own SSH names, such as GitHub's `ssh.github.com` on port 443.
+fn code_host(host: &str) -> Option<&'static str> {
+    match host {
+        "github.com" | "ssh.github.com" => Some("github.com"),
+        "bitbucket.org" | "ssh.bitbucket.org" | "altssh.bitbucket.org" => Some("bitbucket.org"),
+        "gitlab.com" | "altssh.gitlab.com" => Some("gitlab.com"),
+        _ => None,
+    }
+}
+
+/// The host and port an SSH host name stands for in this host's ssh settings, as `ssh -G`
+/// reads them, kept once found; none when ssh could not say.
+fn ssh_target(alias: &str) -> Option<(String, u16)> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static KNOWN: OnceLock<Mutex<HashMap<String, (String, u16)>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(Mutex::default);
+    let alias = alias.to_lowercase();
+    if let Some(found) = known
+        .lock()
+        .ok()
+        .and_then(|known| known.get(&alias).cloned())
+    {
+        return Some(found);
+    }
+    if alias.starts_with('-') {
+        return None;
+    }
+    let mut command = sikemux_process::user_environment::command("ssh");
+    command.args(["-G", &alias]);
+    let output =
+        sikemux_process::run(&mut command, None, GIT_TIMEOUT, GIT_OUTPUT_LIMIT, None).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let settings = String::from_utf8_lossy(&output.stdout);
+    let setting = |name: &str| {
+        settings
+            .lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(' '))
+            .map(|value| value.trim().to_lowercase())
+    };
+    let host = setting("hostname").filter(|host| !host.is_empty())?;
+    let port = setting("port")
+        .and_then(|port| port.parse().ok())
+        .unwrap_or(22);
+    if let Ok(mut known) = known.lock() {
+        known.insert(alias, (host.clone(), port));
+    }
+    Some((host, port))
+}
+
+/// The address of the remote a repository is known by.
+pub fn identity_url(path: &str) -> Option<String> {
+    identity_remote(path)
+        .and_then(|remote| git_ok(path, &["remote", "get-url", &remote]).ok())
+        .filter(|url| !url.trim().is_empty())
+}
+
+/// Whether any remote of the repository at `path` is `wanted`, as [`normalized_remote`] reads
+/// both.
+pub fn has_remote(path: &str, wanted: &str) -> bool {
+    let wanted = normalized_remote(wanted);
+    git_ok(path, &["remote", "-v"]).is_ok_and(|listed| {
+        listed
+            .lines()
+            .filter_map(|line| line.split_whitespace().nth(1))
+            .any(|url| normalized_remote(url) == wanted)
+    })
+}
+
+/// The remote a repository is known by: `upstream`, else `origin`, else the first by name.
+fn identity_remote(path: &str) -> Option<String> {
+    let mut names: Vec<String> = git_ok(path, &["remote"])
+        .ok()?
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+    ["upstream", "origin"]
+        .into_iter()
+        .find(|wanted| names.iter().any(|name| name == wanted))
+        .map(str::to_owned)
+        .or_else(|| names.into_iter().next())
+}
+
+/// The URL of the repository's `origin`, or of the only remote it has.
+pub fn main_remote(path: &str) -> Option<String> {
+    if let Ok(origin) = open_repo(path).ok()?.find_remote("origin") {
+        return origin.url().ok().map(str::to_owned);
+    }
+    let remote = default_remote(path).ok()?;
+    git_ok(path, &["remote", "get-url", &remote]).ok()
+}
+
+/// What a project is known by on every host (ADR 0023): its `upstream`, else
+/// `origin`, else first remote, normalised, else its repository's first commit, which every copy shares,
+/// then its folder within the repository when it is not the top, so one
+/// package of a monorepo stays a project of its own. A folder outside git has
+/// none.
+pub fn project_identity(path: &str) -> Option<String> {
+    let remote = identity_url(path);
+    let repository = match remote {
+        Some(url) => normalized_remote(&url),
+        None => git_ok(path, &["rev-list", "--max-parents=0", "HEAD"])
+            .ok()?
+            .lines()
+            .map(str::trim)
+            .filter(|root| !root.is_empty())
+            .min()?
+            .to_owned(),
+    };
+    let within = git_ok(path, &["rev-parse", "--show-prefix"]).unwrap_or_default();
+    match within.trim().trim_end_matches('/') {
+        "" => Some(repository),
+        within => Some(format!("{repository}//{within}")),
+    }
+}
+
+/// The repository's origin and its current branch, which a new pull request
+/// comes from.
+pub async fn origin_and_branch(repo: String) -> Result<(String, String), String> {
+    run_blocking(move || -> Result<(String, String), String> {
+        let r = open_repo(&repo)?;
+        let remote_url = r
+            .find_remote("origin")
+            .map_err(|e| e.message().to_string())?
+            .url()
+            .map_err(|e| e.message().to_string())?
+            .to_string();
+
+        let branch = r
+            .head()
+            .ok()
+            .and_then(|h| h.shorthand().ok().map(String::from))
+            .ok_or("no current branch (detached HEAD?)")?;
+
+        Ok((remote_url.trim().to_owned(), branch))
+    })
+    .await
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct GitRemote {
+    pub name: String,
+    /// Fetch URL — the one we display + use for cloning context.
+    pub url: String,
+}
+
+pub async fn git_remotes(repo: String) -> Result<Vec<GitRemote>, String> {
+    run_blocking(move || -> Result<Vec<GitRemote>, String> {
+        let repo = open_repo(&repo)?;
+        let names = repo.remotes().map_err(|e| e.message().to_string())?;
+        let mut list: Vec<GitRemote> = names
+            .iter()
+            .flatten()
+            .flatten()
+            .filter_map(|name| {
+                let remote = repo.find_remote(name).ok()?;
+                let url = remote.url().ok()?.trim();
+                (!url.is_empty()).then(|| GitRemote {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                })
+            })
+            .collect();
+        list.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(list)
+    })
+    .await
+}
+
+pub async fn git_remote_add(repo: String, name: String, url: String) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        git_ok(&repo, &["remote", "add", "--end-of-options", &name, &url])?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn git_remote_remove(repo: String, name: String) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        git_ok(&repo, &["remote", "remove", "--end-of-options", &name])?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn git_remote_rename(
+    repo: String,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        git_ok(
+            &repo,
+            &["remote", "rename", "--end-of-options", &old_name, &new_name],
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+pub async fn git_remote_set_url(repo: String, name: String, url: String) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        git_ok(
+            &repo,
+            &["remote", "set-url", "--end-of-options", &name, &url],
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+/// Fetch a single remote when `remote` is set, otherwise `--all`. Always
+/// passes `--prune` so stale remote-tracking branches get reaped — this
+/// matches lazygit's default and avoids the "branch shows up after it was
+/// deleted upstream" trap.
+pub async fn git_fetch(repo: String, remote: Option<String>) -> Result<String, String> {
+    run_blocking(move || -> Result<String, String> {
+        let out = match remote {
+            Some(r) if !r.is_empty() => {
+                git_ok(&repo, &["fetch", "--prune", "--end-of-options", &r])?
+            }
+            _ => git_ok(&repo, &["fetch", "--all", "--prune"])?,
+        };
+        Ok(out)
+    })
+    .await
+}
+
+/// Fetches one ref from a remote into a local branch, such as a pull request
+/// from a fork, which exists only as `pull/N/head` on the remote it was opened on.
+pub async fn git_fetch_ref(
+    repo: String,
+    remote: String,
+    source: String,
+    branch: String,
+) -> Result<String, String> {
+    run_blocking(move || -> Result<String, String> {
+        for part in [&remote, &source, &branch] {
+            if !plain_ref_part(part) {
+                return Err(format!("{part:?} cannot be fetched"));
+            }
+        }
+        let spec = format!("+{source}:refs/heads/{branch}");
+        git_ok(&repo, &["fetch", "--end-of-options", &remote, &spec])
+    })
+    .await
+}
+
+/// The files commit `head` and the remote's branch `base` both changed in ways git cannot
+/// merge, worked out without touching the checkout. `head` is fetched first when this
+/// clone lacks it, as a pull request's head on the host may be.
+pub async fn git_conflicts(
+    repo: String,
+    base: String,
+    head: String,
+) -> Result<Vec<String>, String> {
+    run_blocking(move || -> Result<Vec<String>, String> {
+        for part in [&base, &head] {
+            if !plain_ref_part(part) {
+                return Err(format!("{part:?} cannot be merged"));
+            }
+        }
+        let remote = default_remote(&repo)?;
+        let commit = format!("{head}^{{commit}}");
+        if git_ok(&repo, &["cat-file", "-e", &commit]).is_err() {
+            git_ok(
+                &repo,
+                &[
+                    "fetch",
+                    "--no-tags",
+                    "--quiet",
+                    "--end-of-options",
+                    &remote,
+                    &head,
+                ],
+            )?;
+        }
+        let base = format!("refs/remotes/{remote}/{base}");
+        let (merged, out, err) = run_git(
+            &repo,
+            &[
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                "--no-messages",
+                &base,
+                &head,
+            ],
+        )?;
+        if merged {
+            return Ok(Vec::new());
+        }
+        let mut files: Vec<String> = out
+            .lines()
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if files.is_empty() {
+            return Err(err.trim().to_owned());
+        }
+        files.dedup();
+        Ok(files)
+    })
+    .await
+}
+
+/// A remote, ref or branch name that cannot be read as an option or a second refspec.
+fn plain_ref_part(part: &str) -> bool {
+    !part.is_empty()
+        && !part.starts_with('-')
+        && !part.contains(':')
+        && !part.contains("..")
+        && !part
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || "~^?*[\\".contains(c))
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct GitRemoteBranch {
+    /// Branch name WITHOUT the remote prefix (`main` not `origin/main`).
+    pub name: String,
+    /// Full ref form (`origin/main`) — what `git checkout --track` expects.
+    pub full_ref: String,
+    /// True if this is the symbolic HEAD pointer for the remote (e.g.
+    /// `origin/HEAD -> origin/main`). UI shows it differently and skips
+    /// it from most ops.
+    pub is_head_pointer: bool,
+    /// Local branch currently tracking this remote ref, if any.
+    pub tracked_by: Option<String>,
+    /// Tip subject line for the branch (best-effort).
+    pub subject: Option<String>,
+}
+
+/// List branches under `refs/remotes/<remote>/`. We use `for-each-ref` so
+/// we can extract the upstream-of mapping + the tip subject in a single
+/// command instead of fanning out N `log -1` calls.
+pub async fn git_remote_branches(
+    repo: String,
+    remote: String,
+) -> Result<Vec<GitRemoteBranch>, String> {
+    run_blocking(move || -> Result<Vec<GitRemoteBranch>, String> {
+        let prefix = format!("refs/remotes/{remote}/");
+        let format = "%(refname:short)%09%(symref)%09%(subject)";
+        let out = git_ok(
+            &repo,
+            &[
+                "for-each-ref",
+                "--sort=refname",
+                &format!("--format={format}"),
+                &prefix,
+            ],
+        )?;
+
+        // Build the local-branch → upstream map once so we can annotate each
+        // remote branch with its tracking local. The cheap form:
+        // `git for-each-ref refs/heads --format='%(refname:short)\t%(upstream:short)'`.
+        let mut upstreams: std::collections::HashMap<String, String> = Default::default();
+        if let Ok(locals) = git_ok(
+            &repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname:short)\t%(upstream:short)",
+                "refs/heads/",
+            ],
+        ) {
+            for line in locals.lines() {
+                let mut p = line.splitn(2, '\t');
+                let local = p.next().unwrap_or("").to_string();
+                let upstream = p.next().unwrap_or("").trim().to_string();
+                if !upstream.is_empty() {
+                    upstreams.insert(upstream, local);
+                }
+            }
+        }
+
+        let mut list = Vec::new();
+        for line in out.lines() {
+            let mut p = line.splitn(3, '\t');
+            let full_ref = p.next().unwrap_or("").to_string();
+            let symref = p.next().unwrap_or("").trim().to_string();
+            let subject = p.next().unwrap_or("").to_string();
+            if full_ref.is_empty() {
+                continue;
+            }
+            let name = full_ref
+                .strip_prefix(&format!("{remote}/"))
+                .unwrap_or(&full_ref)
+                .to_string();
+            let is_head_pointer = !symref.is_empty() || name == "HEAD";
+            list.push(GitRemoteBranch {
+                name,
+                full_ref: full_ref.clone(),
+                is_head_pointer,
+                tracked_by: upstreams.get(&full_ref).cloned(),
+                subject: if subject.is_empty() {
+                    None
+                } else {
+                    Some(subject)
+                },
+            });
+        }
+        Ok(list)
+    })
+    .await
+}
+
+/// Check out a remote branch into a new local tracking branch. If
+/// `local_name` is omitted, uses the remote branch's leaf name (so
+/// `origin/feat/foo` → local `feat/foo`).
+pub async fn git_checkout_remote_branch(
+    repo: String,
+    remote: String,
+    branch: String,
+    local_name: Option<String>,
+) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        let full_ref = format!("{remote}/{branch}");
+        let local = local_name.unwrap_or_else(|| branch.clone());
+        let exists = git_ok(
+            &repo,
+            &[
+                "show-ref",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{local}"),
+            ],
+        )
+        .is_ok();
+        if exists {
+            git_ok(&repo, &["checkout", "--end-of-options", &local])?;
+        } else {
+            git_ok(
+                &repo,
+                &[
+                    "checkout",
+                    "-b",
+                    &local,
+                    "--track",
+                    "--end-of-options",
+                    &full_ref,
+                ],
+            )?;
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Delete a remote branch by pushing the empty ref. Strict form
+/// `git push <remote> --delete <branch>` — the one lazygit invokes.
+pub async fn git_delete_remote_branch(
+    repo: String,
+    remote: String,
+    branch: String,
+) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        git_ok(
+            &repo,
+            &["push", "--delete", "--end-of-options", &remote, &branch],
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+/// Point a local branch's upstream at the given remote ref. Pass `null` /
+/// empty `upstream` to clear the upstream entirely (matches lazygit's
+/// "unset upstream" flow).
+pub async fn git_set_upstream(
+    repo: String,
+    branch: String,
+    upstream: Option<String>,
+) -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
+        match upstream {
+            Some(u) if !u.is_empty() => {
+                git_ok(
+                    &repo,
+                    &[
+                        "branch",
+                        &format!("--set-upstream-to={u}"),
+                        "--end-of-options",
+                        &branch,
+                    ],
+                )?;
+            }
+            _ => {
+                git_ok(
+                    &repo,
+                    &["branch", "--unset-upstream", "--end-of-options", &branch],
+                )?;
+            }
+        }
+        Ok(())
+    })
+    .await
+}
+
+const GIT_TIMEOUT: Duration = Duration::from_secs(10);
+const GIT_OUTPUT_LIMIT: usize = 1024 * 1024;
+
+/// The URL of every remote of the repository `path` is in. A folder that is
+/// not in one but holds repositories gets the remotes of those.
+pub fn remote_urls(path: &Path) -> Vec<String> {
+    if let Some(urls) = urls_of(path) {
+        return urls;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return Vec::new();
+    };
+    let mut urls: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|child| child.join(".git").exists())
+        .filter_map(|child| urls_of(&child))
+        .flatten()
+        .collect();
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
+/// None when `repo` is not inside a repository.
+fn urls_of(repo: &Path) -> Option<Vec<String>> {
+    let listed = crate::Git::at(repo)
+        .timeout(GIT_TIMEOUT)
+        .limit(GIT_OUTPUT_LIMIT)
+        .text(&["remote", "-v"])
+        .ok()?;
+    Some(
+        listed
+            .lines()
+            .filter_map(|line| line.strip_suffix(" (fetch)")?.split_once('\t'))
+            .map(|(_, url)| with_real_ssh_host(url, ssh_hostname))
+            .collect(),
+    )
+}
+
+/// A remote such as `git@github-work:org/repo` names a host alias from
+/// ~/.ssh/config; this swaps in the host it stands for, so a plugin can tell
+/// which service the remote lives on.
+pub fn with_real_ssh_host(remote_url: &str, resolve: impl Fn(&str) -> Option<String>) -> String {
+    if let Ok(mut parsed) = url::Url::parse(remote_url) {
+        if !matches!(parsed.scheme(), "ssh" | "git+ssh") {
+            return remote_url.to_owned();
+        }
+        let Some(real) = parsed.host_str().and_then(&resolve) else {
+            return remote_url.to_owned();
+        };
+        return match parsed.set_host(Some(&real)) {
+            Ok(()) => parsed.into(),
+            Err(_) => remote_url.to_owned(),
+        };
+    }
+    let Some((user_host, path)) = remote_url.split_once(':') else {
+        return remote_url.to_owned();
+    };
+    if user_host.contains('/') {
+        return remote_url.to_owned();
+    }
+    let (user, host) = match user_host.rsplit_once('@') {
+        Some((user, host)) => (Some(user), host),
+        None => (None, user_host),
+    };
+    let Some(real) = resolve(host) else {
+        return remote_url.to_owned();
+    };
+    match user {
+        Some(user) => format!("{user}@{real}:{path}"),
+        None => format!("{real}:{path}"),
+    }
+}
+
+/// `ssh -G` prints the settings ssh would use for a host without connecting.
+fn ssh_hostname(host: &str) -> Option<String> {
+    if host.starts_with('-') {
+        return None;
+    }
+    let mut command = sikemux_process::user_environment::command("ssh");
+    command.args(["-G", host]);
+    let output =
+        sikemux_process::run(&mut command, None, GIT_TIMEOUT, GIT_OUTPUT_LIMIT, None).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("hostname "))
+        .map(str::to_owned)
+        .filter(|real| real != host)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_repository_on_bitbucket_is_the_same_project_over_its_new_ssh_host() {
+        assert_eq!(
+            super::normalized_remote("git@ssh.bitbucket.org:team/repo.git"),
+            super::normalized_remote("git@bitbucket.org:team/repo.git"),
+        );
+    }
+
+    #[test]
+    fn a_fetched_ref_part_cannot_smuggle_an_option_or_a_second_refspec() {
+        for good in ["origin", "pull/12/head", "pr-12", "feat/thing"] {
+            assert!(super::plain_ref_part(good), "{good}");
+        }
+        for bad in ["", "-u", "a:b", "a b", "a..b", "a~1", "a^", "*"] {
+            assert!(!super::plain_ref_part(bad), "{bad}");
+        }
+    }
+}

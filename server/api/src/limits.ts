@@ -1,6 +1,8 @@
 import { isIPv6 } from "node:net";
 import type { Context, MiddlewareHandler } from "hono";
 
+import type { AuthEnv } from "./auth.ts";
+
 import { ApiFailure, type Env } from "./http.ts";
 
 /**
@@ -64,6 +66,19 @@ export function limit<E extends Env>(
     }
     await next();
   };
+}
+
+export function perUser(
+  limiter: RateLimiter,
+  name: string,
+  perMinute: number,
+): MiddlewareHandler<AuthEnv> {
+  return limit<AuthEnv>(
+    limiter,
+    name,
+    perMinute,
+    (c) => c.get("identity").userId,
+  );
 }
 
 /**

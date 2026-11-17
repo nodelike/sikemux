@@ -1,18 +1,15 @@
 import { useContext, type ReactNode } from "react";
-import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import {
-  AgentIcon,
   IconCheck,
   IconChevron,
-  IconClock,
   IconClose,
   IconCommand,
+  IconMessage,
   IconTimer,
   IconWorkflow,
 } from "@shared/ui/Icons";
+import { AgentMark } from "../agents/AgentMark";
 import { ChatAgentContext } from "./chatAgent";
-import { queuedLabel } from "@shared/chat/queuedMessages";
-import type { QueuedMessage } from "@shared/chat/types";
 import { Shimmer } from "../ui/Shimmer";
 import {
   groupTasks,
@@ -25,25 +22,21 @@ import {
 } from "@shared/chat/transcript";
 import type {
   AsyncTask,
+  GuestMessage,
   SubagentCard,
   WorkflowAgent,
-} from "@shared/chat/types";
+} from "@shared/wire.generated";
 
-export type GroupFolds = {
+type GroupFolds = {
   folded: ReadonlySet<string>;
   toggle: (kind: string) => void;
 };
 
 function BackgroundTasks({
   tasks,
-  stopping,
-  onStop,
   folds,
 }: {
   tasks: AsyncTask[];
-  stopping: string[];
-  /** Without it, as in a shared chat, a task cannot be stopped from here. */
-  onStop?: (taskId: string) => void;
   folds: GroupFolds;
 }) {
   if (tasks.length === 0) return null;
@@ -74,16 +67,6 @@ function BackgroundTasks({
                   {workflowAgentCount(task.agents)}
                 </span>
               )}
-              {task.canStop && onStop && (
-                <button
-                  type="button"
-                  aria-label={`Stop ${task.name}`}
-                  disabled={stopping.includes(task.asyncTaskId)}
-                  onClick={() => onStop(task.asyncTaskId)}
-                >
-                  <IconClose size={10} />
-                </button>
-              )}
             </div>,
             ...(task.agents ?? []).map((agent) => (
               <WorkflowAgentRow
@@ -99,7 +82,7 @@ function BackgroundTasks({
 }
 
 function WorkflowAgentRow({ agent }: { agent: WorkflowAgent }) {
-  const agentType = useContext(ChatAgentContext).type;
+  const agentType = useContext(ChatAgentContext);
   const running = agent.state === "running";
   const detail = workflowAgentDetail(agent);
   const cost = workflowAgentCost(agent);
@@ -107,11 +90,7 @@ function WorkflowAgentRow({ agent }: { agent: WorkflowAgent }) {
     <div
       className={`chat-task chat-task-agent chat-workflow-agent state-${agent.state}`}
     >
-      <AgentIcon
-        type={agentType}
-        size={16}
-        className={`agent-glyph ${agentType}`}
-      />
+      <AgentMark type={agentType} size={16} />
       <span className="chat-task-name">{agent.label}</span>
       <span className={`chat-task-detail${running ? " chat-shimmer" : ""}`}>
         {running && detail ? <Shimmer>{detail}</Shimmer> : detail}
@@ -141,15 +120,9 @@ function RunningSubagents({
   subagents: SubagentCard[];
   folds: GroupFolds;
 }) {
-  const agentType = useContext(ChatAgentContext).type;
+  const agentType = useContext(ChatAgentContext);
   if (subagents.length === 0) return null;
-  const icon = (
-    <AgentIcon
-      type={agentType}
-      size={16}
-      className={`agent-glyph ${agentType}`}
-    />
-  );
+  const icon = <AgentMark type={agentType} size={16} />;
   return (
     <Group
       label="subagent"
@@ -198,38 +171,21 @@ type Fold = {
 };
 
 /* One kind of running work, under a label that counts it. The label is what
-   makes a stack of eight rows readable, so it stays even for a group of one.
-   `plural` is for the kinds that are not a noun with an s on the end. */
+   makes a stack of eight rows readable, so it stays even for a group of one. */
 function Group({
   label,
-  plural,
   count,
-  action,
   agent,
   fold,
   children,
 }: {
   label: string;
-  plural?: string;
   count: number;
-  action?: ReactNode;
   agent?: boolean;
-  fold?: Fold;
+  fold: Fold;
   children: ReactNode;
 }) {
-  const word = count === 1 ? label : (plural ?? `${label}s`);
-  if (!fold) {
-    return (
-      <div className="chat-group" aria-label={`${count} ${word}`}>
-        <div className="chat-group-label">
-          <span>{word}</span>
-          <span className="chat-group-count">{count}</span>
-          {action}
-        </div>
-        {children}
-      </div>
-    );
-  }
+  const word = count === 1 ? label : `${label}s`;
   return (
     <div
       className={`chat-group${fold.folded ? " is-folded" : ""}${agent ? " chat-group-agent" : ""}`}
@@ -259,106 +215,56 @@ function Group({
   );
 }
 
-function QueuedMessages({
-  messages,
-  steerable,
-  onSteer,
-  onDrop,
+/** Messages a shared chat's viewers wrote, waiting for the sharer to send or dismiss them. */
+function WaitingGuests({
+  guests,
+  folds,
 }: {
-  messages: QueuedMessage[];
-  steerable: boolean;
-  onSteer: (messages: QueuedMessage[]) => void;
-  onDrop: (id: string) => void;
+  guests: GuestMessage[];
+  folds: GroupFolds;
 }) {
-  if (messages.length === 0) return null;
-  const steerAll = steerable && messages.length > 1 && (
-    <button
-      type="button"
-      className="chat-queued-steer chat-queued-steer-all"
-      aria-label="Steer the running turn with every queued message"
-      onClick={() => onSteer(messages)}
-    >
-      Steer all
-      <kbd className="chat-queued-steer-key">{PRIMARY_SHORTCUT}↵</kbd>
-    </button>
-  );
+  if (guests.length === 0) return null;
   return (
     <Group
-      label="queued"
-      plural="queued"
-      count={messages.length}
-      action={steerAll}
+      label="waiting message"
+      count={guests.length}
+      fold={{
+        folded: folds.folded.has("guests"),
+        onToggle: () => folds.toggle("guests"),
+        icon: <IconMessage size={12} />,
+        peek: guests.map((guest) => guest.text),
+      }}
     >
-      {messages.map((message) => {
-        const label = queuedLabel(message);
-        return (
-          <div className="chat-queued-message" key={message.id}>
-            <IconClock size={12} />
-            <span className="chat-queued-text">{label}</span>
-            {steerable && (
-              <button
-                type="button"
-                className="chat-queued-steer"
-                aria-label={`Steer the running turn with ${label}`}
-                onClick={() => onSteer([message])}
-              >
-                Steer
-                {messages.length === 1 && (
-                  <kbd className="chat-queued-steer-key">
-                    {PRIMARY_SHORTCUT}↵
-                  </kbd>
-                )}
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label={`Drop ${label} from the queue`}
-              onClick={() => onDrop(message.id)}
-            >
-              <IconClose size={10} />
-            </button>
-          </div>
-        );
-      })}
+      {guests.map((guest) => (
+        <div className="chat-task" key={guest.id}>
+          <IconMessage size={12} />
+          <span className="chat-task-name">
+            {guest.name ? `${guest.name} · guest` : "Guest"}
+          </span>
+          <span className="chat-task-detail">{guest.text}</span>
+        </div>
+      ))}
     </Group>
   );
 }
 
-/** What is still going on under the transcript: questions waiting on the person, running subagents, background tasks and messages waiting their turn. */
+/** What is still going on under the transcript: guests' waiting messages, running subagents and background tasks. */
 export default function LiveStack({
-  questions,
+  guests,
   subagents,
   tasks,
   folds,
-  stopping = [],
-  onStop,
-  queue,
 }: {
-  questions?: ReactNode;
+  guests: GuestMessage[];
   subagents: SubagentCard[];
   tasks: AsyncTask[];
   folds: GroupFolds;
-  stopping?: string[];
-  onStop?: (taskId: string) => void;
-  /** Without it, as in a shared chat, nothing can be queued here. */
-  queue?: {
-    messages: QueuedMessage[];
-    steerable: boolean;
-    onSteer: (messages: QueuedMessage[]) => void;
-    onDrop: (id: string) => void;
-  };
 }) {
   return (
     <div className="chat-live-stack">
-      {questions}
+      <WaitingGuests guests={guests} folds={folds} />
       <RunningSubagents subagents={subagents} folds={folds} />
-      <BackgroundTasks
-        tasks={tasks}
-        stopping={stopping}
-        onStop={onStop}
-        folds={folds}
-      />
-      {queue && <QueuedMessages {...queue} />}
+      <BackgroundTasks tasks={tasks} folds={folds} />
     </div>
   );
 }

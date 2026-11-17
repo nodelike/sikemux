@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useSSO } from '@clerk/expo';
-import { useSignInWithApple } from '@clerk/expo/apple';
+import { isClerkAPIResponseError, useSSO } from '@clerk/expo';
 import { useSignInWithGoogle } from '@clerk/expo/google';
 import Constants from 'expo-constants';
 import * as AuthSession from 'expo-auth-session';
@@ -11,7 +10,8 @@ import * as WebBrowser from 'expo-web-browser';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { problem as problemOf } from '@/core/problem';
-import { AppleMark, GitHubMark, GoogleG } from '@/ui/brands';
+import { useT } from '@/i18n';
+import { GitHubMark, GoogleG } from '@/ui/brands';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
 import { useBottomGap } from '@/ui/screen';
@@ -20,7 +20,9 @@ import { defaultPalette as colors, fonts, typeFor } from '@/ui/theme';
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Provider = 'oauth_apple' | 'oauth_google' | 'oauth_github';
+type Provider = 'oauth_google' | 'oauth_github';
+
+const PROVIDER_NAME: Record<Provider, string> = { oauth_google: 'Google', oauth_github: 'GitHub' };
 
 // Shown before any host is paired, so it is drawn in the default theme.
 const type = typeFor(colors);
@@ -39,6 +41,7 @@ const ROW = 56;
 const REEL_HEIGHT = 340;
 
 function ReelRow({ row }: { row: (typeof REEL)[number] }) {
+  const t = useT();
   return (
     <View style={styles.row}>
       <AgentIcon provider={row.provider} size={22} />
@@ -48,7 +51,7 @@ function ReelRow({ row }: { row: (typeof REEL)[number] }) {
         </Text>
         <View style={styles.rowPlace}>
           <Icon name="IconFolder" size={11} color={colors.live} />
-          <Text style={styles.rowDetail}>{`${row.place} · ${row.doing}`}</Text>
+          <Text style={styles.rowDetail}>{`${row.place} · ${t(row.doing)}`}</Text>
         </View>
       </View>
       <View style={styles.state}>
@@ -102,41 +105,34 @@ function Reel() {
 /** Builds with their own Google clients sign in natively; the others use Google's page in an in-app sheet. */
 const NATIVE_GOOGLE = Boolean(Constants.expoConfig?.extra?.EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID);
 
-/** Apple's sheet fails with codes like ERR_REQUEST_UNKNOWN, even when the iPhone has no Apple Account to sign in with. */
-function describe(error: unknown): string {
-  const code = (error as { code?: unknown } | undefined)?.code;
-  if (typeof code === 'string' && code.startsWith('ERR_REQUEST'))
-    return 'Apple did not sign you in. Check this iPhone is signed in to an Apple Account in Settings, then try again.';
-  return problemOf(error);
-}
-
-/** Apple signs in with the system's sheet, so it is offered only on iPhones. */
-const APPLE = Platform.OS === 'ios';
-
 /**
- * Apple and Google sign in with the system's own sheets where this build can; GitHub, which has no
+ * Google signs in with the system's own sheet where this build can; GitHub, which has no
  * native sign-in, opens its page in a sheet inside the app that hands back when done.
  */
 function useProviderSignIn() {
   const { startSSOFlow } = useSSO();
-  const { startAppleAuthenticationFlow } = useSignInWithApple();
   const { startGoogleAuthenticationFlow } = useSignInWithGoogle();
   const [busy, setBusy] = useState<Provider>();
   const [problem, setProblem] = useState<string>();
+  const t = useT();
   const start = async (strategy: Provider) => {
     if (busy) return;
     setBusy(strategy);
     setProblem(undefined);
     try {
       const { createdSessionId, setActive } =
-        strategy === 'oauth_apple'
-          ? await startAppleAuthenticationFlow()
-          : strategy === 'oauth_google' && NATIVE_GOOGLE
-            ? await startGoogleAuthenticationFlow()
-            : await startSSOFlow({ strategy, redirectUrl: AuthSession.makeRedirectUri({ path: 'sso-callback' }) });
+        strategy === 'oauth_google' && NATIVE_GOOGLE
+          ? await startGoogleAuthenticationFlow()
+          : await startSSOFlow({ strategy, redirectUrl: AuthSession.makeRedirectUri({ path: 'sso-callback' }) });
       if (createdSessionId && setActive) await setActive({ session: createdSessionId });
     } catch (error) {
-      setProblem(describe(error));
+      console.warn(error);
+      // Only what the accounts server said is meant for the person; Clerk's own errors are addressed to us.
+      setProblem(
+        isClerkAPIResponseError(error)
+          ? problemOf(error)
+          : t('Could not sign in with {provider}. Try again, or continue with email.', { provider: PROVIDER_NAME[strategy] }),
+      );
     } finally {
       setBusy(undefined);
     }
@@ -147,6 +143,7 @@ function useProviderSignIn() {
 export function Welcome() {
   const bottom = useBottomGap();
   const provider = useProviderSignIn();
+  const t = useT();
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <Reel />
@@ -155,34 +152,25 @@ export function Welcome() {
           <Icon name="Logo" size={22} color={colors.ink} />
           <Text style={styles.markText}>Sikemux</Text>
         </View>
-        <Text style={styles.title}>Your agents,{'\n'}on your phone.</Text>
+        <Text style={styles.title}>{t('Your agents,\non your phone.')}</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: bottom }]}>
-        {APPLE ? (
-          <Button
-            title="Continue with Apple"
-            icon={<AppleMark color={colors.ink} />}
-            busy={provider.busy === 'oauth_apple'}
-            onPress={() => provider.start('oauth_apple')}
-            style={styles.provider}
-          />
-        ) : null}
         <Button
-          title="Continue with Google"
+          title={t('Continue with {provider}', { provider: PROVIDER_NAME.oauth_google })}
           icon={<GoogleG />}
           busy={provider.busy === 'oauth_google'}
           onPress={() => provider.start('oauth_google')}
           style={styles.provider}
         />
         <Button
-          title="Continue with GitHub"
+          title={t('Continue with {provider}', { provider: PROVIDER_NAME.oauth_github })}
           icon={<GitHubMark color={colors.ink} />}
           busy={provider.busy === 'oauth_github'}
           onPress={() => provider.start('oauth_github')}
           style={styles.provider}
         />
         <Pressable onPress={() => router.push('/sign-in')} style={styles.paste} accessibilityRole="button">
-          <Text style={styles.pasteText}>Continue with email</Text>
+          <Text style={styles.pasteText}>{t('Continue with email')}</Text>
         </Pressable>
         {provider.problem ? <Text style={styles.problem}>{provider.problem}</Text> : null}
       </View>

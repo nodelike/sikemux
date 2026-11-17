@@ -4,21 +4,27 @@
 //! LatencyProbe measures on screen.
 //!
 //!   HOME=/tmp/sx-stress/home SIKEMUX_CORE_SOCKET=/tmp/sx-stress/core.sock \
-//!   SIKEMUX_SIDECAR_PATH=<release sikemux-host> STRESS_AGENT=<sikemux-fake-acp-agent> \
+//!   SIKEMUX_CORE_PATH=<release sikemux-host> STRESS_AGENT=<sikemux-fake-acp-agent> \
 //!     <core's folder>/sikemux <scenario> [minutes]
 //!
 //! Copied beside the core as `sikemux`, as a core trusts its app by where it lives.
 //! Scenarios: `agents` (ten chats streaming, one in front, then the front one
 //! changing), `long` (a chat of thousands of rows scrolled, searched and streamed
 //! into), `flood` (a terminal flooding beside a streaming chat), `repo <folder>` (a
-//! large repository's Git tab, files, search and finder), `newchat` (⌘N beside three
+//! large repository's Git tab, files, search and finder), `resize` (the window resized and the side
+//! rail dragged every frame while twenty chats stream), `newchat` (⌘N beside three
 //! open chats), `soak` (`agents` for `minutes`, ten by default, watching memory), and
 //! `windowed` (a chat filled to `STRESS_WINDOWED_ROWS` rows, its memory once settled, its
 //! first message found by the core and then by the find bar, asleep with
-//! `STRESS_WINDOWED_SLEEP`).
+//! `STRESS_WINDOWED_SLEEP`), and `ademark` (ADEMark's speed tests against its replay server,
+//! with `STRESS_PROVIDER=claude`, `STRESS_AGENT` a real Claude Code, and `ANTHROPIC_BASE_URL`
+//! and `ADEMARK_REPLAY_LOG` naming the server and its request log).
 //! Each ends by typing in the front chat's composer while its load runs. `make-repo <folder> [files]` writes a
 //! generated repository to stress `repo` with.
 
+mod common;
+
+use sikemux_wire::protocol::ask;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -26,25 +32,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::usage::{thread_cpu_ms, uptime_ns};
+use common::{spread, Pace, Timed, DRAWS};
 use gpui::{
-    point, px, size, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context, Element,
-    ElementId, Entity, Focusable, GlobalElementId, HeadlessAppContext, InspectorElementId,
-    IntoElement, Keystroke, LayoutId, ParentElement, Pixels, PlatformInput, Render, ScrollDelta,
-    ScrollEvent, Styled, Window, WindowBounds, WindowOptions,
+    point, px, size, AnyWindowHandle, AppContext, Bounds, Context, Entity, Focusable,
+    HeadlessAppContext, IntoElement, Keystroke, ParentElement, Pixels, PlatformInput, Render,
+    ScrollDelta, ScrollEvent, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_transcript::Row as _;
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
-use sikemux_gpui::workbench::Workbench;
+use sikemux_gpui::workbench::actions::{self, CommandId};
+use sikemux_gpui::workbench::{Rail, Workbench};
 use sikemux_gpui::{core, icons, memory, theme, WINDOW_SIZE};
-use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, Pane, SpawnTarget, TerminalSpawn};
+use sikemux_view::layout::Pane;
+use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, SpawnTarget, TerminalSpawn};
 
-const FRAME: Duration = Duration::from_micros(8_333);
 const PROJECT: &str = "stress";
 
 thread_local! {
-    /// Each drawn frame's CPU from render to paint, in ms.
-    static DRAWS: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
     /// The transcript's work counters as each frame began, beside `DRAWS`, with `counts` on.
     static COUNTED: RefCell<Vec<Vec<(&'static str, u64)>>> = const { RefCell::new(Vec::new()) };
 }
@@ -62,71 +68,6 @@ impl Render for Probe {
         gpui::div()
             .size_full()
             .child(Timed(self.bench.clone().into_any_element()))
-    }
-}
-
-struct Timed(AnyElement);
-
-impl IntoElement for Timed {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
-impl Element for Timed {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, ()) {
-        let began = Instant::now();
-        let layout = self.0.request_layout(window, cx);
-        add_to_draw(began);
-        (layout, ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let began = Instant::now();
-        self.0.prepaint(window, cx);
-        add_to_draw(began);
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let began = Instant::now();
-        self.0.paint(window, cx);
-        add_to_draw(began);
     }
 }
 
@@ -156,23 +97,6 @@ fn counted_in(frame: usize) -> String {
     })
 }
 
-fn add_to_draw(began: Instant) {
-    DRAWS.with_borrow_mut(|draws| {
-        if let Some(draw) = draws.last_mut() {
-            *draw += began.elapsed().as_secs_f64() * 1e3;
-        }
-    });
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
-}
-
 /// Resident memory of a process, in MB, as `ps` reads it.
 fn rss_mb(pid: u32) -> Option<f64> {
     let out = sikemux_process::user_environment::command("/bin/ps")
@@ -200,21 +124,10 @@ fn core_pid(socket: &str) -> Option<u32> {
         .ok()
 }
 
-fn spread(mut values: Vec<f64>) -> String {
-    values.sort_by(f64::total_cmp);
-    let at = |q: f64| {
-        values
-            .get(((values.len().max(1) - 1) as f64 * q).round() as usize)
-            .copied()
-            .unwrap_or(0.)
-    };
-    format!(
-        "p50 {:.2} ms, p95 {:.2}, max {:.2} ({} frames)",
-        at(0.5),
-        at(0.95),
-        at(1.),
-        values.len()
-    )
+/// The agent the chats run: the fake ACP agent, or with `STRESS_PROVIDER=claude` and
+/// `STRESS_AGENT` naming a real Claude Code, that one.
+fn provider() -> String {
+    std::env::var("STRESS_PROVIDER").unwrap_or_else(|_| "omp".into())
 }
 
 /// What the core and its fake agents are asked to do, from a thread of their own.
@@ -233,7 +146,7 @@ impl Driver {
     }
 
     fn setup(&self, project_folder: &Path) {
-        let profile = json!({ "id": "fake", "name": "Fake", "provider": "opencode", "accent": "#a277ff", "executablePath": self.agent });
+        let profile = json!({ "id": "fake", "name": "Fake", "provider": provider(), "accent": "#a277ff", "executablePath": self.agent });
         self.call("setAgentAccounts", json!({ "profiles": [profile] }));
         self.call(
             "setPreference",
@@ -250,7 +163,7 @@ impl Driver {
             .runtime
             .block_on(
                 self.client
-                    .start_chat("opencode:fake".into(), PROJECT.into(), None),
+                    .start_chat(format!("{}:fake", provider()), PROJECT.into(), None),
             )
             .expect("a chat starts");
         self.front(&chat, "agent");
@@ -268,17 +181,19 @@ impl Driver {
     /// does before it sends to a sleeping chat.
     fn prompt(&self, chat: &str, text: String) {
         let send = |text: String| {
-            self.runtime.block_on(self.client.acp_prompt(
-                chat.to_owned(),
-                None,
+            self.runtime.block_on(self.client.ask(ask::AcpPrompt {
+                agent_id: chat.to_owned(),
+                message_id: None,
                 text,
-                Vec::new(),
-                Vec::new(),
-            ))
+                paths: Vec::new(),
+                context: Vec::new(),
+            }))
         };
         let sent = match send(text.clone()) {
             Err(error) if error.to_string().contains("not running") => {
-                if let Err(error) = self.runtime.block_on(self.client.acp_wake(chat.to_owned())) {
+                if let Err(error) = self.runtime.block_on(self.client.ask(ask::AcpWake {
+                    agent_id: chat.to_owned(),
+                })) {
                     eprintln!("wake {chat}: {error}");
                 }
                 send(text)
@@ -326,8 +241,7 @@ struct Run {
     cx: HeadlessAppContext,
     window: AnyWindowHandle,
     bench: Entity<Workbench>,
-    last: Instant,
-    clock: Instant,
+    pace: Pace,
     pid: u32,
     core: Option<u32>,
     shots: PathBuf,
@@ -352,23 +266,12 @@ impl Measured {
 }
 
 impl Run {
-    /// Runs what is ready, as a window's thread would between frames. Never waits
-    /// to park: while chats stream, more is always arriving.
     fn pump(&mut self) {
-        self.cx.advance_clock(self.clock.elapsed());
-        self.clock = Instant::now();
-        let began = Instant::now();
-        while self.cx.background_executor().tick() && began.elapsed() < Duration::from_millis(4) {}
+        self.pace.pump(&mut self.cx);
     }
 
     fn frame(&mut self) {
-        let wait = FRAME.saturating_sub(self.last.elapsed());
-        std::thread::sleep(wait);
-        self.last = Instant::now();
-        self.pump();
-        self.cx
-            .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
-            .ok();
+        self.pace.frame(&mut self.cx, self.window);
     }
 
     fn frames(&mut self, count: usize) {
@@ -410,11 +313,10 @@ impl Run {
         }
     }
 
-    fn act(&mut self, id: &str) {
-        let id = id.to_owned();
+    fn act(&mut self, id: CommandId) {
         self.cx
             .update_window(self.window, |_, window, cx| {
-                if let Ok(action) = cx.build_action(&id, None) {
+                if let Ok(action) = cx.build_action(id.name(), None) {
                     window.dispatch_action(action, cx);
                 }
             })
@@ -525,7 +427,7 @@ impl Run {
                 .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
                 .ok();
             latencies.push(began.elapsed().as_secs_f64() * 1e3);
-            self.last = Instant::now();
+            self.pace.restart();
             self.frames(4);
         }
         for _ in 0..count {
@@ -668,7 +570,7 @@ fn agents(run: &mut Run, driver: &Arc<Driver>, minutes: Option<f64>) {
             .line("10 chats streaming, one in front")
     );
     let changing = {
-        let (driver, chats) = (driver.clone(), chats.clone());
+        let (driver, chats) = (driver.clone(), chats);
         run.measure(30., move |_, index| {
             if index % 360 == 0 {
                 driver.front(&chats[(index / 360) % chats.len()], "agent");
@@ -691,6 +593,60 @@ fn agents(run: &mut Run, driver: &Arc<Driver>, minutes: Option<f64>) {
     if let Some(minutes) = minutes {
         soak(run, minutes);
     }
+    stop.store(true, Ordering::Relaxed);
+}
+
+/// Times the window resized frame after frame, and then the side rail dragged frame after
+/// frame, while twenty chats stream, one of them in front.
+fn resize(run: &mut Run, driver: &Arc<Driver>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let chats: Vec<String> = (0..20).map(|_| driver.chat()).collect();
+    run.until(30, |run| run.front_chat().is_some());
+    for chat in &chats {
+        driver.keep_busy(chat.clone(), 2_500, stop.clone());
+    }
+    run.frames(240);
+    println!(
+        "{}",
+        run.measure(10., |_, _| {})
+            .line("20 chats streaming, one in front")
+    );
+    let wide = window_size();
+    let swing = |index: usize, reach: usize| {
+        let at = index % (reach * 2);
+        at.min(reach * 2 - at) as f32
+    };
+    let set_size = |run: &mut Run, width: Pixels| {
+        run.cx
+            .update_window(run.window, |_, window, cx| {
+                window.resize(size(width, wide.height));
+                window.bounds_changed(cx);
+            })
+            .ok();
+    };
+    let resized = run.steps(600, |run, index| {
+        set_size(run, wide.width - px(swing(index, 100) * 4.));
+    });
+    set_size(run, wide.width);
+    println!(
+        "{}",
+        resized.line("the window resized every frame, 20 chats streaming")
+    );
+    let bench = run.bench.clone();
+    let dragged = run.steps(600, |run, index| {
+        let width = 180. + swing(index, 150) * 2.;
+        run.cx
+            .update_window(run.window, |_, window, cx| {
+                bench.update(cx, |bench, cx| {
+                    bench.resize_rail(Rail::Side, width, window, cx)
+                })
+            })
+            .ok();
+    });
+    println!(
+        "{}",
+        dragged.line("the side rail dragged every frame, 20 chats streaming")
+    );
     stop.store(true, Ordering::Relaxed);
 }
 
@@ -720,7 +676,7 @@ fn new_chats(run: &mut Run, driver: &Arc<Driver>) {
             });
         }
         let began = Instant::now();
-        run.act("agent.new");
+        run.act(actions::NewChat::ID);
         if !run.until(15, |run| run.front_chat() != before) {
             println!("new chat: none came to the front in 15 s");
             return;
@@ -759,6 +715,329 @@ fn new_chats(run: &mut Run, driver: &Arc<Driver>) {
     if !run.until(15, |run| run.rows(&newest) > 1) {
         println!("new chat: its reply never showed");
     }
+}
+
+fn quantiles(mut values: Vec<f64>) -> Value {
+    values.sort_by(f64::total_cmp);
+    let at = |q: f64| {
+        values
+            .get(((values.len().max(1) - 1) as f64 * q).round() as usize)
+            .copied()
+            .unwrap_or(0.)
+    };
+    json!({ "n": values.len(), "p50": at(0.5), "p95": at(0.95), "p99": at(0.99), "max": at(1.) })
+}
+
+/// Grows one project to each count in `STRESS_SCALE` (10, 50, 100, 250, 500 by default) of chats,
+/// or with `terminals` of terminals, each in its own tab behind the first, which stays in front.
+/// At each count it times opening one more, the window idle, typing in the front chat, and the
+/// same with ten chats streaming, or with ten of the terminals flooding, printing one JSON line.
+fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
+    let counts: Vec<usize> = std::env::var("STRESS_SCALE")
+        .unwrap_or_else(|_| "10,50,100,250,500".into())
+        .split(',')
+        .filter_map(|count| count.trim().parse().ok())
+        .collect();
+    let front = driver.chat();
+    run.until(30, |run| run.front_chat().is_some());
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut opened: Vec<String> = Vec::new();
+    let mut busy = 0;
+    for count in counts {
+        let (mut starts, mut tabs, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+        while opened.len() < count {
+            let began = Instant::now();
+            let target = if terminals {
+                driver
+                    .runtime
+                    .block_on(driver.client.spawn(
+                        LaunchIdentity {
+                            version: "0.0.0-stress".into(),
+                            ..LaunchIdentity::default()
+                        },
+                        SpawnTarget::Terminal(TerminalSpawn {
+                            cols: 120,
+                            rows: 40,
+                            cwd: Some(driver.folder.to_string_lossy().into_owned()),
+                            ..TerminalSpawn::default()
+                        }),
+                    ))
+                    .map(|id| id.to_string())
+                    .map_err(|error| error.to_string())
+            } else {
+                driver
+                    .runtime
+                    .block_on(driver.client.start_chat(
+                        format!("{}:fake", provider()),
+                        PROJECT.into(),
+                        None,
+                    ))
+                    .map(|(chat, _)| chat)
+                    .map_err(|error| error.to_string())
+            };
+            let target = match target {
+                Ok(target) => target,
+                Err(error) => {
+                    refused.push(error);
+                    break;
+                }
+            };
+            starts.push(began.elapsed().as_secs_f64() * 1e3);
+            let began = Instant::now();
+            let kind = if terminals { "terminal" } else { "agent" };
+            let tab = driver.runtime.block_on(driver.client.call(
+                "openTab",
+                json!({ "project": PROJECT, "kind": kind, "target": target, "behind": true }),
+            ));
+            match tab {
+                Ok(_) => tabs.push(began.elapsed().as_secs_f64() * 1e3),
+                Err(error) => refused.push(error.to_string()),
+            }
+            opened.push(target);
+            if opened.len().is_multiple_of(10) {
+                run.frames(2);
+            }
+        }
+        run.frames(240);
+        let idle = run.steps(240, |_, _| {});
+        let idle_typing = run.typing(60).unwrap_or_default();
+        while busy < 10.min(opened.len()) {
+            if terminals {
+                let flood = b"while :; do cat /usr/share/dict/words; done\r";
+                if let Ok(id) = opened[busy].parse() {
+                    driver.runtime.block_on(driver.client.write(id, flood)).ok();
+                }
+            } else {
+                driver.keep_busy(opened[busy].clone(), 2_500, stop.clone());
+            }
+            busy += 1;
+        }
+        run.frames(120);
+        let loaded = run.measure(10., |_, _| {});
+        let loaded_typing = run.typing(60).unwrap_or_default();
+        let (app, core) = run.memory();
+        let shown = run.bench.read_with(&run.cx, |bench, _| {
+            bench.strip().map_or(0, |strip| bench.tabs(&strip).len())
+        });
+        let loaded_fps = loaded.frames.len() as f64 / loaded.wall;
+        run.shot(&format!(
+            "scale-{}-{count}",
+            if terminals { "terminals" } else { "chats" }
+        ));
+        println!(
+            "scale {}",
+            json!({
+                "what": if terminals { "terminals" } else { "chats" },
+                "count": opened.len(), "tabsShown": shown, "front": front,
+                "openMs": quantiles(starts), "tabMs": quantiles(tabs), "refused": refused,
+                "idleFrameMs": quantiles(idle.frames), "idleBusy": idle.busy,
+                "idleTypingMs": quantiles(idle_typing),
+                "loadedFrameMs": quantiles(loaded.frames), "loadedBusy": loaded.busy,
+                "loadedFps": loaded_fps,
+                "loadedTypingMs": quantiles(loaded_typing),
+                "appMb": app, "coreMb": core,
+            })
+        );
+        if !refused.is_empty() {
+            break;
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+}
+
+/// When ADEMark's replay server first heard the session `session` after `after`, from its log.
+fn replay_heard(log: &Path, session: &str, after: u64) -> Option<u64> {
+    std::fs::read_to_string(log)
+        .ok()?
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["session"] == session)
+        .filter_map(|line| line["t_ns"].as_f64().map(|t| t as u64))
+        .find(|t| *t > after)
+}
+
+impl Run {
+    /// How many times `text` shows in `chat`'s rows, looking for it from now on.
+    fn found(&mut self, chat: &str, text: &str) -> usize {
+        let (chat, text) = (chat.to_owned(), text.to_owned());
+        self.bench.update(&mut self.cx, |bench, cx| {
+            let Some(chat) = bench.chats.open.get(&chat) else {
+                return 0;
+            };
+            chat.transcript.update(cx, |transcript, cx| {
+                transcript.find(
+                    Some(gpui_transcript::Query {
+                        text,
+                        match_case: true,
+                        whole_word: false,
+                    }),
+                    cx,
+                );
+                transcript.found().1
+            })
+        })
+    }
+
+    fn type_text(&mut self, text: &str) {
+        for letter in text.chars() {
+            self.key(&letter.to_string());
+            self.frames(2);
+        }
+    }
+}
+
+fn ms_since(began: Instant) -> f64 {
+    began.elapsed().as_secs_f64() * 1e3
+}
+
+/// A3 and A4: ⌘N until the new chat's composer holds the keys, then, `ADEMARK_GAP_S` later as
+/// ADEMark waits 1.5 s before it types, Enter until the answer's first word shows.
+fn ademark_a4(run: &mut Run, log: &Path) {
+    let reps: usize = std::env::var("ADEMARK_REPS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(10);
+    let gap = std::env::var("ADEMARK_GAP_S")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1.5);
+    let (mut opens, mut words, mut requests) = (Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..reps {
+        let before = run.front_chat();
+        let began = Instant::now();
+        run.act(actions::NewChat::ID);
+        if !run.until(15, |run| run.front_chat() != before && run.draft_focused()) {
+            println!("A3: no new chat held the keys in 15 s");
+            break;
+        }
+        opens.push(ms_since(began));
+        let chat = run.front_chat().unwrap_or_default();
+        run.measure(gap, |_, _| {});
+        run.type_text("replay:hi");
+        run.found(&chat, "LEDGERMARK");
+        run.frames(4);
+        let (sent, began) = (uptime_ns(), Instant::now());
+        run.key("enter");
+        if !run.until(30, |run| run.found(&chat, "LEDGERMARK") > 0) {
+            println!("A4: the first word never showed");
+            continue;
+        }
+        words.push(ms_since(began));
+        if let Some(heard) = replay_heard(log, "hi", sent) {
+            requests.push((heard - sent) as f64 / 1e6);
+        }
+        run.frames(60);
+    }
+    println!(
+        "A3 new chat to its composer holding the keys: {} [headless, in-app]",
+        spread(opens)
+    );
+    println!(
+        "A4 Enter to the request reaching the replay server: {}",
+        spread(requests)
+    );
+    println!(
+        "A4 Enter to LEDGERMARK in the transcript: {} [headless, in-app]",
+        spread(words)
+    );
+}
+
+/// ADEMark's speed tests against its replay server, with `STRESS_PROVIDER=claude` and the
+/// server's request log at `ADEMARK_REPLAY_LOG`: A3 and A4, A8 typing while five chats stream,
+/// and A11 a chat of 2,000 items opened, scrolled and switched to. `ADEMARK_ONLY_A4` stops
+/// after A4.
+fn ademark(run: &mut Run, driver: &Arc<Driver>) {
+    let log = PathBuf::from(std::env::var("ADEMARK_REPLAY_LOG").expect("ADEMARK_REPLAY_LOG"));
+    let first = driver.chat();
+    run.until(30, |run| run.front_chat().is_some());
+    driver.prompt(&first, "replay:seed".into());
+    run.settle(&first);
+    ademark_a4(run, &log);
+    if std::env::var_os("ADEMARK_ONLY_A4").is_some() {
+        return;
+    }
+
+    for n in 1..=5 {
+        let chat = driver.chat();
+        driver.prompt(&chat, format!("replay:stream-{n}"));
+    }
+    run.measure(8., |_, _| {});
+    println!(
+        "{}",
+        run.measure(20., |_, _| {})
+            .line("A7 five chats streaming, one in front")
+    );
+    let (app, core) = run.memory();
+    println!("A7 five chats streaming: app {app:.0} MB, core {core:.0} MB (resident)");
+    run.shot("ademark-streams");
+    run.type_while("five chats stream (A8)");
+
+    let long = driver.chat();
+    let built = Instant::now();
+    driver.prompt(&long, "replay:long-2000".into());
+    if !run.until(1_200, |run| run.found(&long, "LONGTHREAD-END") > 0) {
+        println!("A11: the long chat never ended in 20 min");
+        return;
+    }
+    println!(
+        "A11 the long chat built in {:.0} s, {} rows held",
+        built.elapsed().as_secs_f64(),
+        run.rows(&long)
+    );
+    let short = driver.chat();
+    driver.prompt(&short, "replay:seed".into());
+    run.settle(&short);
+    run.measure(65., |_, _| {});
+    let transcript = (WINDOW_SIZE.0 / 2., WINDOW_SIZE.1 / 2.);
+    let (mut cold, mut scroll, mut switch) = (Vec::new(), Vec::new(), Vec::new());
+    for rep in 0..5 {
+        let began = Instant::now();
+        driver.front(&long, "agent");
+        if !run.until(15, |run| {
+            run.front_chat().as_deref() == Some(long.as_str())
+                && run.found(&long, "LONGTHREAD-END") > 0
+        }) {
+            println!("A11: the long chat did not show its end in 15 s");
+            return;
+        }
+        match rep {
+            0 => cold.push(ms_since(began)),
+            _ => switch.push(ms_since(began)),
+        }
+        run.frames(30);
+        let wheel = run.steps(40, move |run, index| {
+            if index % 2 == 0 {
+                run.wheel(transcript, 3.);
+            }
+        });
+        scroll.push(wheel.frames.iter().filter(|ms| **ms > 33.).count() as f64);
+        if rep == 0 {
+            println!(
+                "{}",
+                wheel.line("A11 scrolling the long chat up, 20 wheel events")
+            );
+        }
+        run.steps(40, move |run, index| {
+            if index % 2 == 0 {
+                run.wheel(transcript, -30.);
+            }
+        });
+        let began = Instant::now();
+        driver.front(&short, "agent");
+        run.until(15, |run| {
+            run.front_chat().as_deref() == Some(short.as_str())
+        });
+        switch.push(ms_since(began));
+        run.frames(30);
+    }
+    println!(
+        "A11 open, after a minute away: {} [headless, in-app]",
+        spread(cold)
+    );
+    println!("A11 switch: {} [headless, in-app]", spread(switch));
+    println!("A11 scroll frames over 33 ms: {}", spread(scroll));
+    let (app, core) = run.memory();
+    println!("end of A11: app {app:.0} MB, core {core:.0} MB (resident)");
 }
 
 /// Keeps drawing for `minutes`, printing the app's and the core's memory each
@@ -1125,12 +1404,12 @@ fn flood(run: &mut Run, driver: &Arc<Driver>, log: &Path) {
 
 fn repo(run: &mut Run, driver: &Arc<Driver>) {
     run.frames(120);
-    run.act("window.git");
+    run.act(actions::FocusGit::ID);
     run.frames(10);
     let git = run.measure(15., |_, _| {});
     println!("{}", git.line("the Git tab on the large repository"));
     run.shot("repo-git");
-    run.act("window.files");
+    run.act(actions::FocusFiles::ID);
     let files = run.measure(10., move |run, index| {
         if index % 30 == 0 {
             run.wheel((WINDOW_SIZE.0 - 150., WINDOW_SIZE.1 / 2.), -8.)
@@ -1138,7 +1417,7 @@ fn repo(run: &mut Run, driver: &Arc<Driver>) {
     });
     println!("{}", files.line("the Files rail on the large repository"));
     run.shot("repo-files");
-    run.act("window.search");
+    run.act(actions::FocusSearchWindow::ID);
     run.frames(20);
     for key in ["n", "e", "e", "d", "l", "e"] {
         run.key(key);
@@ -1149,7 +1428,7 @@ fn repo(run: &mut Run, driver: &Arc<Driver>) {
         searched.line("searching the large repository for \"needle\"")
     );
     run.shot("repo-search");
-    run.act("palette.files");
+    run.act(actions::OpenFile::ID);
     run.frames(20);
     let finder = run.measure(10., |run, index| {
         let typed = ["m", "o", "d", "4", "2", "backspace", "7"];
@@ -1236,7 +1515,18 @@ fn make_repo(folder: &Path, files: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The window's size, `STRESS_WINDOW` as `1440x900` when set.
+fn window_size() -> gpui::Size<Pixels> {
+    let sized = std::env::var("STRESS_WINDOW").ok().and_then(|sized| {
+        let (width, height) = sized.split_once('x')?;
+        Some((width.parse().ok()?, height.parse().ok()?))
+    });
+    let (width, height) = sized.unwrap_or(WINDOW_SIZE);
+    size(px(width), px(height))
+}
+
 fn main() -> anyhow::Result<()> {
+    let launched = Instant::now();
     core::search_path_only_for_own_core();
     let mut args = std::env::args().skip(1);
     let scenario = args.next().unwrap_or_else(|| "agents".into());
@@ -1255,7 +1545,7 @@ fn main() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    let socket = std::env::var(sikemux_core::SOCKET_ENV)
+    let socket = std::env::var(sikemux_corekit::SOCKET_ENV)
         .map_err(|_| anyhow::anyhow!("set SIKEMUX_CORE_SOCKET and a HOME of its own"))?;
     let agent = std::env::var("STRESS_AGENT")
         .map_err(|_| anyhow::anyhow!("set STRESS_AGENT to sikemux-fake-acp-agent"))?;
@@ -1276,7 +1566,7 @@ fn main() -> anyhow::Result<()> {
     unsafe {
         libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
     };
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let runtime = tokio::runtime::Runtime::new()?;
     let started = Instant::now();
     let client = loop {
@@ -1313,7 +1603,7 @@ fn main() -> anyhow::Result<()> {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: point(px(0.), px(0.)),
-                    size: size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)),
+                    size: window_size(),
                 })),
                 focus: true,
                 show: false,
@@ -1334,22 +1624,35 @@ fn main() -> anyhow::Result<()> {
         cx,
         window: window.into(),
         bench,
-        last: Instant::now(),
-        clock: Instant::now(),
+        pace: Pace::new(),
         pid: std::process::id(),
         core: core_pid(&socket),
         shots: base.join("shots"),
     };
     std::fs::create_dir_all(&run.shots)?;
-    run.frames(120);
+    let mut chat_shown = None;
+    for _ in 0..120 {
+        run.frame();
+        if chat_shown.is_none() && run.front_chat().is_some() {
+            chat_shown = Some(launched.elapsed());
+        }
+    }
+    if let Some(shown) = chat_shown {
+        println!(
+            "start: a chat in front {:.0} ms after launch",
+            shown.as_secs_f64() * 1e3
+        );
+    }
     let (app, core) = run.memory();
     println!("start: app {app:.0} MB, core {core:.0} MB");
 
     match scenario.as_str() {
         "agents" => agents(&mut run, &driver, None),
+        "resize" => resize(&mut run, &driver),
         "soak" => agents(&mut run, &driver, Some(minutes.unwrap_or(10.))),
         "long" => long(&mut run, &driver),
         "newchat" => new_chats(&mut run, &driver),
+        "ademark" => ademark(&mut run, &driver),
         "windowed" => windowed(&mut run, &driver),
         "flood" => {
             let log = base.join("flood.log");
@@ -1362,6 +1665,8 @@ fn main() -> anyhow::Result<()> {
             flood(&mut run, &driver, &log)
         }
         "repo" => repo(&mut run, &driver),
+        "scale" => scale(&mut run, &driver, false),
+        "scale-terminals" => scale(&mut run, &driver, true),
         other => anyhow::bail!("no scenario named {other}"),
     }
     let (app, core) = run.memory();

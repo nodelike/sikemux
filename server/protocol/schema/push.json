@@ -83,9 +83,9 @@
       "additionalProperties": false
     },
     "PushKind": {
-      "description": "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority.",
+      "description": "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it.",
       "type": "string",
-      "enum": ["alert", "clear"]
+      "enum": ["alert", "clear", "activity", "activity_end"]
     },
     "PushResult": {
       "description": "What became of a push. sent: the platform accepted it. no_token: the phone has notifications off. not_allowed: the target is not a phone on the sender's account. throttled: over a limit, dropped. expired: its expiresAt had passed. not_set_up: this server cannot reach the phone's platform. failed: the platform refused it or could not be reached.",

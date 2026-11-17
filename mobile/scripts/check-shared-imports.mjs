@@ -1,12 +1,12 @@
-// The phone and the share page both bundle shared/. Metro cannot load Tauri or the DOM, and neither
-// client has the desktop app's code, so this walks everything shared/ imports at runtime and fails
-// if any of it reaches a desktop-only package or a file outside shared/ and the server's protocol.
+// The phone and the share page both bundle shared/. Metro cannot load the DOM, and neither client
+// has the desktop app's code, so this walks everything shared/ imports at runtime and fails if any
+// of it reaches a DOM-only package or a file outside shared/ and the server's protocol.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
 import { repo } from './native-build.mjs';
 
-const DESKTOP_ONLY = [/^@tauri-apps\//, /^react-dom(\/|$)/];
+const DOM_ONLY = /^react-dom(\/|$)/;
 const shared = join(repo, 'shared');
 const allowed = [shared, join(repo, 'server/protocol')];
 const IMPORT =
@@ -35,7 +35,7 @@ const problems = [];
 for (const file of files) {
   for (const specifier of runtimeImports(file)) {
     const from = relative(repo, file);
-    if (DESKTOP_ONLY.some((pattern) => pattern.test(specifier))) {
+    if (DOM_ONLY.test(specifier)) {
       problems.push(`${from} imports ${specifier}`);
       continue;
     }
@@ -50,4 +50,4 @@ if (problems.length) {
   console.error(`shared/ reaches code the phone and the share page cannot bundle:\n${problems.join('\n')}`);
   process.exit(1);
 }
-console.log(`✓ the ${files.length} shared modules import nothing desktop-only`);
+console.log(`✓ the ${files.length} shared modules import nothing DOM-only`);

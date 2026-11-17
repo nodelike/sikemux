@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { problem } from '@/core/problem';
+import { translate } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { StashedToast } from './StashedToast';
 
@@ -37,7 +38,7 @@ export function usePromptStash({
       })
       .catch((error: unknown) => {
         setShown(null);
-        report(`could not stash it: ${problem(error)}`);
+        report(translate('could not stash it: {problem}', { problem: problem(error) }));
       });
   };
 
@@ -45,7 +46,7 @@ export function usePromptStash({
     const id = shown?.id;
     if (!id) return;
     setShown(null);
-    undo(id).catch((error: unknown) => report(`could not put it back: ${problem(error)}`));
+    undo(id).catch((error: unknown) => report(translate('could not put it back: {problem}', { problem: problem(error) })));
   };
 
   return { stash: run, toast: shown ? <StashedToast done={shown.id !== undefined} onUndo={back} /> : null };

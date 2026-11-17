@@ -1,13 +1,7 @@
 //! This host, the devices paired with it, and what the core builds for them.
 
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use super::{Attention, ChatInfo, FaceStyle, Layout, RecentInfo, SessionInfo, Workspace};
-
-/// What a paired device was approved to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceAccess {
@@ -15,31 +9,6 @@ pub enum DeviceAccess {
     Full,
     /// Read sessions and answer agents' permission requests.
     Watch,
-}
-
-/// How busy a host is, for the rows clients show it in.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HostLoad {
-    /// The last minute's load as a share of the host's cores, in percent.
-    pub cpu: u32,
-    /// Memory in use, in bytes, where the host says.
-    pub memory_used: Option<u64>,
-}
-
-/// The computer a core runs on, as a person would recognise it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HostInfo {
-    /// The name set in System Settings, such as "Kishore's MacBook Pro".
-    pub name: String,
-    /// The kind of computer, such as "MacBook Pro" or "Mac mini".
-    pub model: String,
-    /// The Sikemux release running there, such as "0.4.3-nightly.5".
-    pub version: String,
-    pub channel: BuildChannel,
-    /// The home folder of the person the core runs as, so a client can shorten its paths.
-    pub home: PathBuf,
 }
 
 /// Which kind of Sikemux build a core belongs to. Each keeps its own key and
@@ -83,6 +52,9 @@ pub struct DeviceInfo {
     /// Milliseconds since the Unix epoch.
     pub paired_at: u64,
     pub last_seen: Option<u64>,
+    /// The host whose own app this is, by its key, for an app that joined through it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// A phone the person lets in ahead of it asking, by its account key.
@@ -126,6 +98,24 @@ pub struct RemoteStatus {
     /// let in whatever their account signed in (ADR 0018).
     #[serde(default)]
     pub require_approval: bool,
+    /// What the remote file trusted when this host found it changed by
+    /// something else, set aside until the person trusts it again or lets it
+    /// go. Remote access stays off meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<HeldTrust>,
+}
+
+/// The devices and hosts a remote file named when it failed its check.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldTrust {
+    pub devices: Vec<DeviceInfo>,
+    /// What this host called each linked host.
+    pub hosts: Vec<String>,
+    /// Whether the file named the account this host belongs to.
+    pub signed_in: bool,
+    /// Milliseconds since the Unix epoch.
+    pub at: u64,
 }
 
 /// What a phone wants to hear about from this host. The phone owns these
@@ -236,7 +226,7 @@ pub struct PendingDevice {
     pub expires_at: u64,
 }
 
-/// Which build of the sidecar a core runs. `source` fingerprints the code
+/// Which build of the core's program a core runs. `source` fingerprints the code
 /// the core is compiled from, so two compilations of the same code are the
 /// same build although they finished at different times.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,29 +238,7 @@ pub struct BuildIdentity {
     pub source: String,
 }
 
-/// Makes a build pass for another one, so tests can upgrade a core to the
-/// binary it already runs: the value replaces the commit and the source, and
-/// the build time is zero.
-pub const BUILD_ID_OVERRIDE_ENV: &str = "SIKEMUX_BUILD_ID_OVERRIDE";
-
 impl BuildIdentity {
-    pub fn new(version: &str, commit: &str, built_at: u64, source: &str) -> Self {
-        match std::env::var(BUILD_ID_OVERRIDE_ENV) {
-            Ok(id) if !id.is_empty() => Self {
-                version: version.into(),
-                commit: id.clone(),
-                built_at: 0,
-                source: id,
-            },
-            _ => Self {
-                version: version.into(),
-                commit: commit.into(),
-                built_at,
-                source: source.into(),
-            },
-        }
-    }
-
     /// Whether both run the same code, whenever and from whichever commit
     /// each was compiled.
     pub fn same_build(&self, other: &Self) -> bool {
@@ -278,7 +246,6 @@ impl BuildIdentity {
     }
 }
 
-/// What happened to this host's network.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NetworkChange {
@@ -288,40 +255,4 @@ pub enum NetworkChange {
     Changed,
     /// The Mac woke from sleep.
     Woke,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceView {
-    pub workspace: Workspace,
-    pub sessions: Vec<SessionInfo>,
-    pub chats: Vec<ChatInfo>,
-    pub attentions: Vec<Attention>,
-    /// The newest saved chats in this host's projects, none of them open.
-    pub recent: Vec<RecentInfo>,
-    /// What waits on the person, ranked.
-    pub inbox: crate::inbox::Inbox,
-    /// Which project is in front, and each project's tabs.
-    pub layout: Box<Layout>,
-    /// Who this host is signed in to Sikemux as; none while nobody is.
-    pub account: Option<Box<AccountInfo>>,
-    pub face_style: Box<FaceStyle>,
-    /// How busy this host is, while a client that shows it is attached.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub load: Option<HostLoad>,
-    /// How this host keeps its core current, as the core's update status, on
-    /// a host that updates itself. Kept as JSON so a change to its shape
-    /// reaches phones over the air.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updates: Option<Value>,
-}
-
-/// The Sikemux account this host is signed in to, as clients show it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountInfo {
-    pub name: Option<String>,
-    pub email: Option<String>,
-    /// Names the picture `accountPicture` answers, which changes with it.
-    pub picture_hash: Option<String>,
 }

@@ -1,7 +1,6 @@
 // SQLite: a file on this Mac, opened in place. Every call runs on a thread
 // meant for blocking, since SQLite does its work on the calling thread.
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -21,18 +20,10 @@ pub struct Session {
     alive: Arc<AtomicBool>,
 }
 
-/// `~/data/app.db` is the person's own home folder, as it would be in a terminal.
-fn expand(path: &str) -> PathBuf {
-    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ => PathBuf::from(path),
-    }
-}
-
 impl Session {
     /// Opens the file without ever creating it, so a mistyped path is an error rather than an empty database.
     pub async fn open(path: &str, read_only: bool) -> DatabaseResult<Self> {
-        let file = expand(path);
+        let file = sikemux_process::paths::expand_home(path);
         tokio::task::spawn_blocking(move || {
             if !file.is_file() {
                 return Err(DatabaseError::Connect(format!(
@@ -83,15 +74,6 @@ impl Session {
         })
         .await
         .map_err(|error| DatabaseError::Query(error.to_string()))?
-    }
-
-    pub async fn version(&self) -> DatabaseResult<String> {
-        let version = self
-            .with(|connection| {
-                connection.query_row("select sqlite_version()", [], |row| row.get::<_, String>(0))
-            })
-            .await?;
-        Ok(format!("SQLite {version}"))
     }
 
     /// `main`, and any database attached to it.
@@ -164,7 +146,6 @@ fn run(connection: &Connection, sql: &str, limit: usize) -> rusqlite::Result<Vec
     while let Some(mut statement) = batch.next()? {
         let mut columns: Vec<Column> = statement
             .columns()
-            .iter()
             .map(|column| {
                 let type_name = column.decl_type().unwrap_or_default().to_string();
                 Column {
@@ -310,6 +291,7 @@ fn describe(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// A fresh database file with a small table in it.
     pub fn fixture(name: &str) -> PathBuf {
@@ -329,22 +311,6 @@ pub mod tests {
             )
             .unwrap();
         path
-    }
-
-    #[tokio::test]
-    async fn it_opens_a_file_and_reads_its_version() {
-        let path = fixture("open");
-        let session = Session::open(path.to_str().unwrap(), false).await.unwrap();
-        assert!(session.version().await.unwrap().starts_with("SQLite 3."));
-        let count = session
-            .with(|connection| {
-                connection.query_row("select count(*) from customers", [], |row| {
-                    row.get::<_, i64>(0)
-                })
-            })
-            .await
-            .unwrap();
-        assert_eq!(count, 2);
     }
 
     #[tokio::test]
@@ -532,23 +498,16 @@ pub mod tests {
                 )
                 .await
         });
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        session.cancel();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), endless)
-            .await
-            .unwrap()
-            .unwrap();
+        // A cancel reaches only a query already running, and nothing says when this one starts.
+        while !endless.is_finished() {
+            session.cancel();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let outcome = endless.await.unwrap();
         let Err(DatabaseError::Query(message)) = outcome else {
             panic!("expected the query to be interrupted")
         };
         assert!(message.contains("interrupt"), "{message}");
         assert!(session.query("select 1".into(), 1).await.is_ok());
-    }
-
-    #[test]
-    fn a_tilde_is_the_home_folder() {
-        let home = std::env::var("HOME").unwrap();
-        assert_eq!(expand("~/a.db"), PathBuf::from(home).join("a.db"));
-        assert_eq!(expand("/tmp/a.db"), PathBuf::from("/tmp/a.db"));
     }
 }

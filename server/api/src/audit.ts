@@ -6,7 +6,7 @@ import type { Tables } from "./db.ts";
 export type Actor =
   `user:${string}` | `device:${string}` | "clerk" | "system" | "deploy";
 
-export type AuditAction =
+type AuditAction =
   | "device.registered"
   | "device.updated"
   | "device.renamed"
@@ -26,9 +26,29 @@ export type AuditAction =
   | "update.published"
   | "update.promoted"
   | "update.withdrawn"
-  | "update.rolled_back";
+  | "update.rolled_back"
+  | "vault.created"
+  | "vault.rotated"
+  | "vault.key_added"
+  | "vault.entry_written"
+  | "vault.entry_removed"
+  | "mods.purged"
+  | "billing.checkout_opened"
+  | "billing.subscription_changed"
+  | "billing.change_taken_back"
+  | "billing.subscription_canceled"
+  | "billing.subscription_resumed"
+  | "billing.refund_requested"
+  | "org.created"
+  | "org.deleted"
+  | "org.joined"
+  | "org.left"
+  | "org.member_removed"
+  | "org.role_changed"
+  | "org.invite_created"
+  | "org.invite_revoked";
 
-export interface AuditEntry {
+interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */
   userId: string | null;
   actor: Actor;

@@ -1,0 +1,779 @@
+//! The colour themes: the Sikemux themes and Ghostty's catalogue, with the app's colours worked
+//! out from each terminal palette.
+
+pub mod backdrop;
+mod own;
+
+use std::sync::OnceLock;
+
+use base64::Engine;
+pub use own::{from_ghostty_file, made, Shelf};
+use sikemux_grid::TerminalColors;
+use sikemux_view::backdrop::{BackdropKind, ThemeBackdrop};
+use sikemux_view::prefs::{Contrast, PaneBackdrop, Preferences, DEFAULT_THEME_ID};
+use sikemux_view::theme::{
+    Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeStyle,
+    ThemeSummary, ThemeTerminal, UiStyle, UiTokens,
+};
+
+struct Catalogue {
+    sikemux: Vec<Theme>,
+    ghostty: Vec<Theme>,
+}
+
+fn catalogue() -> &'static Catalogue {
+    static CATALOGUE: OnceLock<Catalogue> = OnceLock::new();
+    CATALOGUE.get_or_init(|| {
+        let sikemux: Vec<Theme> = serde_json::from_str(include_str!("themes/curated.json"))
+            .expect("the Sikemux themes parse");
+        let taken: Vec<String> = sikemux
+            .iter()
+            .map(|theme| slugify(&theme.name).replace('-', ""))
+            .collect();
+        let packed: Vec<(String, String)> =
+            serde_json::from_str(include_str!("themes/ghostty.json"))
+                .expect("Ghostty's catalogue parses");
+        let ghostty = packed
+            .into_iter()
+            .filter(|(name, _)| !taken.contains(&slugify(name).replace('-', "")))
+            .filter_map(|(name, packed)| ghostty_theme(&name, &unpack(&packed)?, None))
+            .collect();
+        Catalogue { sikemux, ghostty }
+    })
+}
+
+/// The theme with `theme_id`, or the default when it is gone.
+pub fn resolve(shelf: &Shelf, theme_id: &str) -> Theme {
+    find(shelf, theme_id)
+        .or_else(|| find(shelf, DEFAULT_THEME_ID))
+        .expect("the default theme is in the catalogue")
+}
+
+/// The default theme's palette, for an app to draw with before its core answers.
+pub fn default_palette() -> Palette {
+    palette(&Shelf::default(), &Preferences::default())
+}
+
+pub fn palette(shelf: &Shelf, preferences: &Preferences) -> Palette {
+    let mut palette = palette_of(resolve(shelf, &preferences.theme_id), preferences.contrast);
+    let picked = match preferences.pane_backdrop {
+        PaneBackdrop::Grain => Some(BackdropKind::Grain),
+        PaneBackdrop::Gradient => Some(BackdropKind::Gradient),
+        PaneBackdrop::Stars => Some(BackdropKind::Stars),
+        PaneBackdrop::Grid => Some(BackdropKind::Grid),
+        PaneBackdrop::Theme | PaneBackdrop::Picture | PaneBackdrop::None => None,
+    };
+    if let Some(kind) = picked {
+        let own = ThemeBackdrop {
+            kind,
+            mood: palette.backdrop.look.mood,
+            moments: palette.backdrop.look.moments,
+            ..ThemeBackdrop::default()
+        };
+        palette.backdrop = backdrop::worn(&own, &palette.tokens, &palette.theme.terminal.magenta);
+    }
+    palette
+}
+
+/// The theme with `id` among every theme to pick from; the person's own files come first.
+pub fn find(shelf: &Shelf, id: &str) -> Option<Theme> {
+    (shelf.own.kept())
+        .find(|(_, theme)| theme.id == id)
+        .map(|(_, theme)| theme.clone())
+        .or_else(|| shelf.not_own(id))
+}
+
+/// DESIGN.md's corner radii at a theme's corners, with its density, borders and shadows.
+fn style(theme: &Theme) -> UiStyle {
+    let worn = &theme.style;
+    let corners = worn.corners.clamp(0., MOST_CORNERS);
+    UiStyle {
+        density: worn.density.clamp(DENSITY.0, DENSITY.1),
+        border: worn.borders.clamp(BORDERS.0, BORDERS.1),
+        shadows: worn.shadows.clamp(SHADOWS.0, SHADOWS.1),
+        gap: worn.gap.clamp(SPACING.0, SPACING.1),
+        inset: worn.inset.clamp(SPACING.0, SPACING.1),
+        corners,
+        radius1: 4. * corners,
+        radius2: 5. * corners,
+        radius3: 10. * corners,
+        radius4: 14. * corners,
+    }
+}
+
+/// The tokens DESIGN.md names, worked out from a theme's colours as the Mac's
+/// stylesheet and theme code work them out.
+fn tokens(theme: &Theme, contrast: Contrast) -> UiTokens {
+    let (c, h) = (&theme.chrome, &theme.highlight);
+    let more = contrast == Contrast::More;
+    let step = |normal: f64, stronger: f64| if more { stronger } else { normal };
+    let (ink, bg, acc, bg_dim, ink_dim, line) = (
+        rgba(&c.ink),
+        rgba(&c.bg),
+        rgba(&c.acc),
+        rgba(&c.bg_dim),
+        rgba(&c.ink_dim),
+        rgba(&c.line),
+    );
+    let gray = |percent: f64| mix_oklab(ink, bg, percent / 100.);
+    let least = step(4.6, 7.);
+    let readable_on = |color: &str, grounds: &[&str]| readable_css(color, grounds, &c.ink, least);
+    let grounds = [c.bg.as_str(), c.bg_dim.as_str(), c.bg_raised.as_str()];
+    let near = [c.bg.as_str(), c.bg_raised.as_str()];
+    let seed = |dark: &str, light: &str| {
+        if theme.dark {
+            dark.to_owned()
+        } else {
+            light.to_owned()
+        }
+    };
+    let muted = readable_on(&c.ink_dim, &grounds);
+    let live = readable_on(&seed("#78dca1", "#247345"), &near);
+    let git_modified = readable_on(&seed("#e2c08d", "#875508"), &grounds);
+    let git_deleted = readable_on(&seed("#ed806b", "#aa3824"), &grounds);
+    let git_renamed = readable_on(&seed("#94b1ef", "#345bad"), &grounds);
+    let cmd = rgba(&h.function);
+    let toward_dim = |color: &str, amount: f64| show(mix_oklab(rgba(color), ink_dim, amount));
+    UiTokens {
+        sunken: show(bg_dim),
+        ground: show(bg),
+        raised: show(gray(7.)),
+        overlay: show(gray(4.)),
+        composer: show(gray(5.)),
+        surface_composer: show(mix_srgb(gray(7.), bg_dim, 0.55)),
+        hover: show(with_alpha(ink, step(0.06, 0.1))),
+        chosen: show(with_alpha(ink, 0.09)),
+        active: show(with_alpha(ink, 0.10)),
+        selected: show(with_alpha(acc, 0.14)),
+        tooltip: show(mix_srgb([1., 1., 1., 1.], gray(7.), 0.06 / 1.03)),
+        border: show(gray(step(11., 26.))),
+        border_strong: show(gray(step(22., 42.))),
+        border_selected: show(with_alpha(acc, 0.42)),
+        line: show(line),
+        line_soft: show(rgba(&c.bg_raised)),
+        ink: show(ink),
+        secondary: show(gray(step(76., 88.))),
+        tertiary: muted.clone(),
+        disabled: show(gray(step(32., 52.))),
+        ink_dim: show(ink_dim),
+        ink_faint: muted.clone(),
+        rest: show(gray(step(32., 52.))),
+        icon_quiet: show(gray(step(42., 62.))),
+        accent: show(acc),
+        accent_soft: show(with_alpha(acc, 0.10)),
+        on_accent: show(bg_dim),
+        warn: readable_on(&seed("#e9ba6c", "#875508"), &near),
+        danger: readable_on(&c.danger, &grounds),
+        cmd: show(cmd),
+        host: show(mix_oklab(acc, ink_dim, 0.8)),
+        ssh: show(mix_oklab(cmd, ink_dim, 0.7)),
+        tree_spine: show(mix_srgb(acc, line, 0.52)),
+        tree_tick: show(with_alpha(acc, 0.72)),
+        git_added: readable_on(&seed("#81b88b", "#247345"), &grounds),
+        git_untracked: readable_on(&seed("#73c991", "#247345"), &grounds),
+        tool_read: toward_dim(&git_renamed, 0.76),
+        tool_edit: toward_dim(&git_modified, 0.76),
+        tool_delete: toward_dim(&git_deleted, 0.76),
+        tool_run: show(mix_oklab(cmd, ink_dim, 0.70)),
+        tool_mcp: toward_dim(&live, 0.66),
+        shader_dot: if theme.dark {
+            show(rgba(&c.bg_raised))
+        } else {
+            show(mix_srgb(line, rgba(&muted), 0.9))
+        },
+        git_modified,
+        git_deleted,
+        git_renamed,
+        live,
+    }
+}
+
+/// [`readable`] for CSS colours; any that is not `#rgb` or `#rrggbb` gives `ink`.
+fn readable_css(color: &str, grounds: &[&str], ink: &str, minimum: f64) -> String {
+    let parsed = (
+        hex(color),
+        hex(ink),
+        grounds
+            .iter()
+            .map(|ground| hex(ground))
+            .collect::<Option<Vec<_>>>(),
+    );
+    match parsed {
+        (Some(color), Some(ink), Some(grounds)) => css(readable(color, &grounds, ink, minimum)),
+        _ => ink.to_owned(),
+    }
+}
+
+/// Red, green, blue and alpha, each 0 to 1.
+type Rgba = [f64; 4];
+
+/// A CSS colour as themes write them: `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`,
+/// `rgba()` or `transparent`; anything else reads as opaque black.
+fn rgba(color: &str) -> Rgba {
+    let color = color.trim();
+    if color == "transparent" {
+        return [0.; 4];
+    }
+    if let Some([r, g, b]) = hex(color) {
+        let alpha = color
+            .strip_prefix('#')
+            .filter(|digits| digits.len() == 8)
+            .and_then(|digits| u8::from_str_radix(&digits[6..], 16).ok())
+            .map_or(1., |alpha| f64::from(alpha) / 255.);
+        return [
+            f64::from(r) / 255.,
+            f64::from(g) / 255.,
+            f64::from(b) / 255.,
+            alpha,
+        ];
+    }
+    let inside = color
+        .strip_prefix("rgba(")
+        .or_else(|| color.strip_prefix("rgb("))
+        .and_then(|rest| rest.strip_suffix(')'));
+    let parts: Vec<f64> = inside
+        .into_iter()
+        .flat_map(|rest| rest.split(','))
+        .filter_map(|part| part.trim().parse().ok())
+        .collect();
+    match parts.as_slice() {
+        [r, g, b, rest @ ..] => [
+            r / 255.,
+            g / 255.,
+            b / 255.,
+            rest.first().copied().unwrap_or(1.),
+        ],
+        _ => [0., 0., 0., 1.],
+    }
+}
+
+/// How a phone draws a colour: `#rrggbb`, or `rgba(r, g, b, a)` when see-through.
+fn show([r, g, b, a]: Rgba) -> String {
+    let byte = |channel: f64| (channel.clamp(0., 1.) * 255.).round() as u8;
+    let alpha = byte(a);
+    if alpha == 255 {
+        return css([byte(r), byte(g), byte(b)]);
+    }
+    let alpha = (f64::from(alpha) / 255. * 100.).round() / 100.;
+    format!("rgba({}, {}, {}, {alpha})", byte(r), byte(g), byte(b))
+}
+
+fn with_alpha([r, g, b, _]: Rgba, alpha: f64) -> Rgba {
+    [r, g, b, alpha]
+}
+
+/// CSS `color-mix(in srgb, a amount, b)`.
+fn mix_srgb(a: Rgba, b: Rgba, amount: f64) -> Rgba {
+    std::array::from_fn(|index| a[index] * amount + b[index] * (1. - amount))
+}
+
+/// CSS `color-mix(in oklab, a amount, b)`.
+fn mix_oklab(a: Rgba, b: Rgba, amount: f64) -> Rgba {
+    let (from, to) = (oklab(a), oklab(b));
+    let mixed: [f64; 3] =
+        std::array::from_fn(|index| from[index] * amount + to[index] * (1. - amount));
+    let [r, g, bl] = from_oklab(mixed);
+    [r, g, bl, a[3] * amount + b[3] * (1. - amount)]
+}
+
+fn oklab([r, g, b, _]: Rgba) -> [f64; 3] {
+    let linear = |c: f64| {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let (r, g, b) = (linear(r), linear(g), linear(b));
+    let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+    let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+    let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+    [
+        0.210_454_255_3 * l + 0.793_617_785_0 * m - 0.004_072_046_8 * s,
+        1.977_998_495_1 * l - 2.428_592_205_0 * m + 0.450_593_709_9 * s,
+        0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766_0 * s,
+    ]
+}
+
+fn from_oklab([l, a, b]: [f64; 3]) -> [f64; 3] {
+    let l_ = (l + 0.396_337_777_4 * a + 0.215_803_757_3 * b).powi(3);
+    let m_ = (l - 0.105_561_345_8 * a - 0.063_854_172_8 * b).powi(3);
+    let s_ = (l - 0.089_484_177_5 * a - 1.291_485_548_0 * b).powi(3);
+    let gamma = |c: f64| {
+        let c = c.clamp(0., 1.);
+        if c <= 0.003_130_8 {
+            12.92 * c
+        } else {
+            1.055 * c.powf(1. / 2.4) - 0.055
+        }
+    };
+    [
+        gamma(4.076_741_662_1 * l_ - 3.307_711_591_3 * m_ + 0.230_969_929_2 * s_),
+        gamma(-1.268_438_004_6 * l_ + 2.609_757_401_1 * m_ - 0.341_319_396_5 * s_),
+        gamma(-0.004_196_086_3 * l_ - 0.703_418_614_7 * m_ + 1.707_614_701_0 * s_),
+    ]
+}
+
+/// The colours and corner radii by name, as a device view carries them to phones.
+pub fn by_name(palette: &Palette) -> std::collections::BTreeMap<String, String> {
+    let mut named: std::collections::BTreeMap<String, String> =
+        serde_json::to_value(&palette.tokens)
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+    let s = &palette.style;
+    for (name, radius) in [
+        ("radius1", s.radius1),
+        ("radius2", s.radius2),
+        ("radius3", s.radius3),
+        ("radius4", s.radius4),
+    ] {
+        named.insert(name.to_owned(), radius.to_string());
+    }
+    named
+}
+
+/// The palette a theme draws with, saved or not, as a theme editor previews it.
+pub fn palette_of(theme: Theme, contrast: Contrast) -> Palette {
+    let tokens = tokens(&theme, contrast);
+    Palette {
+        backdrop: backdrop::worn(&theme.backdrop, &tokens, &theme.terminal.magenta),
+        style: style(&theme),
+        tokens,
+        theme,
+    }
+}
+
+/// The roundest a theme's corners can be, as a share of the default.
+pub const MOST_CORNERS: f64 = 2.;
+/// How tight to how roomy a theme's rows can be, as a share of the default.
+pub const DENSITY: (f64, f64) = (0.85, 1.3);
+/// The thinnest and widest a theme's borders can be, in points.
+pub const BORDERS: (f64, f64) = (1., 2.);
+/// The lightest and darkest a theme's shadows can be, as a share of the default.
+pub const SHADOWS: (f64, f64) = (0., 2.);
+/// The least and most room a theme can leave between panes, and inside the window's edge, in points.
+pub const SPACING: (f64, f64) = (0., 24.);
+/// The most themes of the person's own that are kept.
+pub const MOST_CUSTOM_THEMES: usize = 64;
+/// The longest a theme's id or name can be, in characters.
+pub const MOST_NAME_CHARS: usize = 64;
+/// How readable a theme's ink must be on its ground, as a contrast ratio.
+pub const LEAST_INK_CONTRAST: f64 = 4.5;
+
+/// `theme` with every colour parsed and written again as `#rrggbb` or `rgba()`, and its style
+/// within range, with what was changed to fit; or why it cannot be a theme at all.
+pub fn checked(theme: Theme) -> Result<(Theme, Vec<String>), String> {
+    let fits = |text: &str| !text.trim().is_empty() && text.chars().count() <= MOST_NAME_CHARS;
+    if !fits(&theme.name) {
+        return Err(format!(
+            "a theme's name is 1 to {MOST_NAME_CHARS} characters"
+        ));
+    }
+    let id_fits = fits(&theme.id)
+        && (theme.id.chars()).all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if !id_fits {
+        return Err(format!(
+            "a theme's id is 1 to {MOST_NAME_CHARS} letters, digits, dashes, dots or underscores"
+        ));
+    }
+    let mut clamped = Vec::new();
+    let mut value = serde_json::to_value(&theme).map_err(|error| error.to_string())?;
+    for part in ["chrome", "editor", "highlight", "terminal"] {
+        let Some(colours) = value.get_mut(part).and_then(|part| part.as_object_mut()) else {
+            continue;
+        };
+        for (key, colour) in colours.iter_mut() {
+            let written = colour.as_str().and_then(written);
+            let Some(written) = written else {
+                return Err(format!(
+                    "{part}.{key} is {colour}, not a colour: use #rrggbb, #rrggbbaa, rgb(), rgba() or transparent"
+                ));
+            };
+            *colour = written.into();
+        }
+    }
+    let mut theme: Theme = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let style = &mut theme.style;
+    for (key, value, (least, most)) in [
+        ("corners", &mut style.corners, (0., MOST_CORNERS)),
+        ("density", &mut style.density, DENSITY),
+        ("borders", &mut style.borders, BORDERS),
+        ("shadows", &mut style.shadows, SHADOWS),
+        ("gap", &mut style.gap, SPACING),
+        ("inset", &mut style.inset, SPACING),
+    ] {
+        let within = (value.clamp(least, most) * 100.).round() / 100.;
+        if within != *value {
+            clamped.push(format!(
+                "style.{key} {value} is outside {least} to {most}, used {within}"
+            ));
+            *value = within;
+        }
+    }
+    for (key, family) in [
+        ("uiFont", &mut style.ui_font),
+        ("monoFont", &mut style.mono_font),
+    ] {
+        *family = family.trim().to_owned();
+        let named = family.chars().count() <= MOST_NAME_CHARS
+            && !family.contains(['/', '\\', ':', '"', ';', '{', '}'])
+            && !family.chars().any(char::is_control);
+        if !named {
+            return Err(format!(
+                "style.{key} is a font family installed on the Mac, by its name: no files, paths or URLs"
+            ));
+        }
+    }
+    let tokens = tokens(&theme, Contrast::default());
+    let (fitted, notes) = backdrop::within(theme.backdrop, &tokens)?;
+    clamped.extend(notes);
+    let (readable, notes) = backdrop::readable(fitted, &tokens);
+    clamped.extend(notes);
+    theme.backdrop = readable;
+    Ok((theme, clamped))
+}
+
+/// The id a theme saved by an agent under `name` keeps, so saving the same name again replaces it.
+pub fn custom_id(name: &str) -> String {
+    format!("custom-{}", slugify(name))
+}
+
+/// Refuses a theme whose ink would be hard to read on its ground.
+pub fn ink_reads(theme: &Theme) -> Result<(), String> {
+    let (ink, ground) = (hex(&theme.chrome.ink), hex(&theme.chrome.bg));
+    let ratio = ink
+        .zip(ground)
+        .map_or(0., |(ink, ground)| contrast(ink, ground));
+    if ratio < LEAST_INK_CONTRAST {
+        return Err(format!(
+            "chrome.ink on chrome.bg is {ratio:.1}:1, and needs {LEAST_INK_CONTRAST}:1 to read"
+        ));
+    }
+    Ok(())
+}
+
+/// A colour as a theme may write it, written back the one way the core writes it; none for
+/// anything else, such as a `url()` that would fetch a file.
+fn written(colour: &str) -> Option<String> {
+    let colour = colour.trim();
+    if colour == "transparent" {
+        return Some(show([0.; 4]));
+    }
+    if let Some(digits) = colour.strip_prefix('#') {
+        let hex_digits = digits.chars().all(|digit| digit.is_ascii_hexdigit());
+        return (hex_digits && matches!(digits.len(), 3 | 6 | 8)).then(|| show(rgba(colour)));
+    }
+    let inside = colour
+        .strip_prefix("rgba(")
+        .or_else(|| colour.strip_prefix("rgb("))?
+        .strip_suffix(')')?;
+    let parts: Vec<f64> = inside
+        .split(',')
+        .map(|part| {
+            part.trim()
+                .parse()
+                .ok()
+                .filter(|value: &f64| value.is_finite())
+        })
+        .collect::<Option<_>>()?;
+    let channels = |values: &[f64]| values.iter().all(|value| (0. ..=255.).contains(value));
+    match parts.as_slice() {
+        [r, g, b] if channels(&[*r, *g, *b]) => Some(show([r / 255., g / 255., b / 255., 1.])),
+        [r, g, b, a] if channels(&[*r, *g, *b]) && (0. ..=1.).contains(a) => {
+            Some(show([r / 255., g / 255., b / 255., *a]))
+        }
+        _ => None,
+    }
+}
+
+/// A theme worked out from a terminal palette as Ghostty's are: background,
+/// foreground, cursor, cursor text, selection (or empty) and the 16 ANSI
+/// colours, each `#rrggbb`, with the accent when the caller picked one.
+pub fn from_colours(name: &str, colours: &[String], accent: Option<&str>) -> Option<Theme> {
+    let colours: Vec<Option<[u8; 3]>> = colours.iter().map(|colour| hex(colour)).collect();
+    (colours.len() == 21).then_some(())?;
+    ghostty_theme(name, &colours, accent.and_then(hex))
+}
+
+/// Every theme to pick from: the person's own first, then Omarchy's, then Sikemux's, then
+/// Ghostty's. A theme sharing an id with one listed before it is hidden by it.
+pub fn summaries(shelf: &Shelf) -> Vec<ThemeSummary> {
+    let catalogue = catalogue();
+    let own = shelf
+        .own
+        .kept()
+        .map(|(_, theme)| (ThemeSource::Custom, theme));
+    let omarchy = (shelf.omarchy.iter()).map(|theme| (ThemeSource::Omarchy, theme));
+    let sikemux = (catalogue.sikemux.iter()).map(|theme| (ThemeSource::Sikemux, theme));
+    let ghostty = (shelf.ghostty.kept().map(|(_, theme)| theme))
+        .chain(&catalogue.ghostty)
+        .map(|theme| (ThemeSource::Ghostty, theme));
+    let mut listed = std::collections::HashSet::new();
+    own.chain(omarchy)
+        .chain(sikemux)
+        .chain(ghostty)
+        .filter(|(_, theme)| listed.insert(theme.id.as_str()))
+        .map(|(source, theme)| summary(theme, source))
+        .collect()
+}
+
+fn summary(theme: &Theme, source: ThemeSource) -> ThemeSummary {
+    let t = &theme.terminal;
+    ThemeSummary {
+        id: theme.id.clone(),
+        name: theme.name.clone(),
+        dark: theme.dark,
+        source,
+        bg: theme.chrome.bg.clone(),
+        line: theme.chrome.line.clone(),
+        acc: theme.chrome.acc.clone(),
+        swatches: [&t.red, &t.green, &t.yellow, &t.blue, &t.magenta, &t.cyan]
+            .into_iter()
+            .cloned()
+            .collect(),
+    }
+}
+
+/// The colours the core answers programs' colour queries with.
+pub fn terminal_colors(theme: &Theme) -> TerminalColors {
+    let t = &theme.terminal;
+    let fallback = TerminalColors::default();
+    let ansi = [
+        &t.black,
+        &t.red,
+        &t.green,
+        &t.yellow,
+        &t.blue,
+        &t.magenta,
+        &t.cyan,
+        &t.white,
+        &t.bright_black,
+        &t.bright_red,
+        &t.bright_green,
+        &t.bright_yellow,
+        &t.bright_blue,
+        &t.bright_magenta,
+        &t.bright_cyan,
+        &t.bright_white,
+    ];
+    TerminalColors {
+        foreground: hex(&t.foreground).unwrap_or(fallback.foreground),
+        background: hex(&t.background).unwrap_or(fallback.background),
+        cursor: hex(&t.cursor),
+        ansi: std::array::from_fn(|index| hex(ansi[index]).unwrap_or(fallback.ansi[index])),
+    }
+}
+
+/// `#rgb`, `#rrggbb` or `#rrggbbaa`, ignoring the alpha.
+fn hex(color: &str) -> Option<[u8; 3]> {
+    let digits = color.trim().strip_prefix('#')?;
+    let digits: String = match digits.len() {
+        3 => digits.chars().flat_map(|digit| [digit, digit]).collect(),
+        6 | 8 => digits[..6].to_owned(),
+        _ => return None,
+    };
+    let channel = |at: usize| u8::from_str_radix(&digits[at..at + 2], 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?])
+}
+
+fn slugify(name: &str) -> String {
+    let mut slug = String::new();
+    for character in name.to_lowercase().chars() {
+        if character.is_ascii_lowercase() || character.is_ascii_digit() {
+            slug.push(character);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_matches('-').to_owned()
+}
+
+/// The catalogue keeps each theme's colours as base64 bytes, three to a
+/// colour; a theme with no selection colour has 20 colours instead of 21.
+fn unpack(packed: &str) -> Option<Vec<Option<[u8; 3]>>> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(packed)
+        .ok()?;
+    let mut colours: Vec<Option<[u8; 3]>> = bytes
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|rgb| Some(*rgb))
+        .collect();
+    if colours.len() == 20 {
+        colours.insert(4, None);
+    }
+    (colours.len() == 21).then_some(colours)
+}
+
+fn css([r, g, b]: [u8; 3]) -> String {
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+fn mix(from: [u8; 3], to: [u8; 3], amount: f64) -> [u8; 3] {
+    std::array::from_fn(|index| {
+        let (a, b) = (f64::from(from[index]), f64::from(to[index]));
+        (a + (b - a) * amount).round() as u8
+    })
+}
+
+fn alpha([r, g, b]: [u8; 3], amount: f64) -> String {
+    format!("rgba({r},{g},{b},{amount})")
+}
+
+fn luminance(rgb: [u8; 3]) -> f64 {
+    let linear = |channel: u8| {
+        let c = f64::from(channel) / 255.;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
+}
+
+fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
+    let (first, second) = (luminance(a), luminance(b));
+    (first.max(second) + 0.05) / (first.min(second) + 0.05)
+}
+
+/// `color` moved toward `ink` just far enough to read at `minimum` contrast on every background.
+fn readable(color: [u8; 3], backgrounds: &[[u8; 3]], ink: [u8; 3], minimum: f64) -> [u8; 3] {
+    let toward = |step: u8| -> [u8; 3] {
+        std::array::from_fn(|index| {
+            let (a, b) = (f64::from(color[index]), f64::from(ink[index]));
+            (a + (b - a) * f64::from(step) / 100.).round() as u8
+        })
+    };
+    (0..=100)
+        .map(toward)
+        .find(|candidate| {
+            backgrounds
+                .iter()
+                .all(|background| contrast(*candidate, *background) >= minimum)
+        })
+        .unwrap_or(ink)
+}
+
+fn saturation([r, g, b]: [u8; 3]) -> f64 {
+    let (r, g, b) = (
+        f64::from(r) / 255.,
+        f64::from(g) / 255.,
+        f64::from(b) / 255.,
+    );
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    if max == min {
+        return 0.;
+    }
+    (max - min) / (1. - (max + min - 1.).abs())
+}
+
+/// The app's, editor's and syntax colours worked out from a terminal palette,
+/// the way the Mac app worked them out for Ghostty's themes.
+fn ghostty_theme(
+    name: &str,
+    colours: &[Option<[u8; 3]>],
+    accent: Option<[u8; 3]>,
+) -> Option<Theme> {
+    let (bg, raw_fg, cursor, cursor_text) = (colours[0]?, colours[1]?, colours[2]?, colours[3]?);
+    let raw_selection = colours[4];
+    let ansi: Vec<[u8; 3]> = colours[5..].iter().copied().collect::<Option<_>>()?;
+    let (white, black) = ([0xff; 3], [0; 3]);
+    let dark = contrast(white, bg) >= contrast(black, bg);
+    let bg_dim = mix(bg, black, if dark { 0.22 } else { 0.035 });
+    let bg_raised = mix(bg, raw_fg, if dark { 0.06 } else { 0.045 });
+    let fg = readable(
+        raw_fg,
+        &[bg, bg_dim, bg_raised],
+        if dark { white } else { black },
+        5.,
+    );
+    let acc = accent.unwrap_or_else(|| {
+        [
+            ansi[4], ansi[12], ansi[5], ansi[13], ansi[6], ansi[14], ansi[3], ansi[11],
+        ]
+        .into_iter()
+        .find(|&candidate| saturation(candidate) >= 0.35 && contrast(candidate, bg) >= 3.)
+        .unwrap_or(fg)
+    });
+    let line = mix(bg, fg, if dark { 0.11 } else { 0.13 });
+    let selection = raw_selection
+        .filter(|&selection| contrast(selection, fg) >= 2.)
+        .unwrap_or_else(|| mix(bg, acc, 0.28));
+    let ink_dim = mix(fg, bg, 0.38);
+    let tone = |color: [u8; 3]| css(readable(color, &[bg], fg, 3.));
+    let terminal = |index: usize| css(ansi[index]);
+    Some(Theme {
+        id: format!("ghostty-{}", slugify(name)),
+        name: name.to_owned(),
+        dark,
+        chrome: ThemeChrome {
+            bg: css(bg),
+            bg_dim: css(bg_dim),
+            bg_raised: css(bg_raised),
+            ink: css(fg),
+            ink_dim: css(ink_dim),
+            ink_muted: css(mix(fg, bg, 0.5)),
+            acc: css(acc),
+            acc_line: alpha(acc, 0.3),
+            acc_dim: alpha(acc, 0.1),
+            line: css(line),
+            hl: alpha(acc, 0.055),
+            danger: terminal(1),
+        },
+        editor: ThemeEditor {
+            fg: css(fg),
+            bg: "transparent".to_owned(),
+            caret: css(cursor),
+            selection: css(selection),
+            active_line: alpha(acc, 0.055),
+            gutter: css(mix(fg, bg, 0.62)),
+            gutter_active: css(acc),
+            indent: css(line),
+            indent_active: css(mix(bg, fg, 0.2)),
+        },
+        highlight: ThemeHighlight {
+            keyword: tone(ansi[5]),
+            string: tone(ansi[2]),
+            comment: tone(ansi[8]),
+            number: tone(ansi[3]),
+            function: tone(ansi[4]),
+            kind: tone(ansi[11]),
+            variable: css(fg),
+            property: tone(ansi[6]),
+            tag: tone(ansi[1]),
+            operator: css(ink_dim),
+            link: tone(ansi[6]),
+            invalid: tone(ansi[9]),
+            meta: css(ink_dim),
+            heading: css(acc),
+        },
+        terminal: ThemeTerminal {
+            background: css(bg),
+            foreground: css(raw_fg),
+            cursor: css(cursor),
+            cursor_accent: css(cursor_text),
+            selection_background: css(selection),
+            black: terminal(0),
+            red: terminal(1),
+            green: terminal(2),
+            yellow: terminal(3),
+            blue: terminal(4),
+            magenta: terminal(5),
+            cyan: terminal(6),
+            white: terminal(7),
+            bright_black: terminal(8),
+            bright_red: terminal(9),
+            bright_green: terminal(10),
+            bright_yellow: terminal(11),
+            bright_blue: terminal(12),
+            bright_magenta: terminal(13),
+            bright_cyan: terminal(14),
+            bright_white: terminal(15),
+        },
+        style: ThemeStyle::default(),
+        backdrop: Default::default(),
+    })
+}

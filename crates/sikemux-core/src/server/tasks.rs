@@ -3,6 +3,21 @@
 //! person's own list hold, whether the person trusts commands someone else
 //! wrote, and what stops a task from starting.
 
+use super::access::Peer;
+pub(crate) use super::trust_ask::{Grant, TrustAsk, TrustedConfig, TrustedTask};
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
+use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
+use crate::server::ServerCore;
+pub use sikemux_calls::tasks::{ConfigStatus, JavaView, Source, TaskList, TaskView};
+pub use sikemux_calls::tasks::{
+    ProjectConfigRead, ProjectParams, RerunParams, RerunStarted, RunView, TrustAnswerParams,
+    TrustProjectParams, TrustQuestion,
+};
+pub use sikemux_calls::tasks::{TaskStartParams, TaskStarted};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -16,19 +31,30 @@ use tokio::time::Instant;
 use super::changed::Topic;
 use crate::harness::runs::Run;
 use crate::launch::PermissionMode;
-use crate::protocol::{SessionId, SpawnTarget};
 use crate::tasks::check::{self, Check, CheckItem, Checked, Listening};
-use crate::tasks::config::{self, ConfigLoad, TrustCommand};
+use crate::tasks::config::{self, ConfigLoad, Stated, TrustCommand};
 use crate::tasks::detect::{self, AddedTask, PERSONAL_PREFIX};
 use crate::tasks::java::{self, JavaChoice};
 use crate::tasks::results::{self, TestResults};
 use crate::tasks::tools;
 use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
+use sikemux_wire::protocol::{SessionId, SpawnTarget};
 
 use super::connection::blocking;
 use super::kept::Kept;
 use super::ports::{self, PortOwner};
 use super::{session, Core, CoreResult};
+
+mod build_errors;
+mod test_results;
+mod trust;
+mod writing;
+
+pub(crate) use test_results::module_tests;
+use test_results::*;
+use trust::*;
+pub(crate) use trust::{answer_trust, ask_person, asks, config_needs, config_trusted};
+pub use writing::*;
 
 const TRUST_FILE: &str = "task-trust.json";
 const MAX_TRUSTED: usize = 256;
@@ -39,21 +65,6 @@ const TRUST_WAIT: Duration = Duration::from_secs(10 * 60);
 const MAX_RERUNS: usize = 16;
 const INSTALL_WAIT: Duration = Duration::from_secs(10 * 60);
 const INSTALL_OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrustedConfig {
-    path: String,
-    fingerprint: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrustedTask {
-    project: String,
-    cwd: String,
-    command: String,
-}
 
 /// Commands the person trusts on this host, newest last.
 #[derive(Default, Serialize, Deserialize)]
@@ -73,19 +84,6 @@ struct Granted<T> {
     answered_by: Option<String>,
 }
 
-/// What a start asks the person before it runs commands someone else wrote.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TrustAsk {
-    title: String,
-    body: String,
-    commands: Vec<TrustCommand>,
-    confirm_label: String,
-    #[serde(skip)]
-    grant: Grant,
-}
-
-/// A trust question put to the person.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Asked {
@@ -96,12 +94,6 @@ struct Asked {
     execution_id: Option<String>,
     #[serde(flatten)]
     ask: TrustAsk,
-}
-
-#[derive(Clone, Debug)]
-enum Grant {
-    Config(TrustedConfig),
-    Personal(TrustedTask),
 }
 
 #[derive(Default)]
@@ -120,6 +112,7 @@ struct State {
 pub(crate) struct Tasks {
     state: Mutex<State>,
     kept: Kept,
+    pub(crate) setups: super::setup_check::Setups,
 }
 
 impl Tasks {
@@ -131,6 +124,7 @@ impl Tasks {
                 ..State::default()
             }),
             kept,
+            setups: super::setup_check::Setups::new(data_dir),
         }
     }
 
@@ -194,26 +188,10 @@ impl Tasks {
         self.state.locked().tests.get(execution_id).cloned()
     }
 
-    /// Forgets what is kept for runs no longer known.
     fn retain(&self, known: impl Fn(&str) -> bool) {
         let mut state = self.state.locked();
         state.tests.retain(|id, _| known(id));
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Source {
-    /// From `sikemux.json`.
-    Project,
-    /// From the person's `.sikemux/tasks.json`.
-    Personal,
-    /// Suggested by the build files.
-    Detected,
-    /// A failed test run narrowed to its failures.
-    Rerun,
-    /// A shell command an agent gave.
-    Command,
 }
 
 #[derive(Clone, Debug)]
@@ -225,6 +203,8 @@ pub(crate) struct Definition {
     env: Vec<(String, String)>,
     source: Source,
     java: Option<JavaChoice>,
+    /// The project's things only so many use at once that it holds while it runs.
+    needs: Vec<String>,
 }
 
 impl Definition {
@@ -261,6 +241,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
                 env: task.env.clone(),
                 source: Source::Project,
                 java: None,
+                needs: task.needs.clone(),
             })
             .collect(),
         _ => Vec::new(),
@@ -274,7 +255,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
         .any(|task| task.java.is_some())
         .then(java::runtimes);
     let project_key = project.to_string_lossy().into_owned();
-    let state = core.tasks.state.locked();
+    let state = core.tasks().state.locked();
     let mut found: Vec<Definition> = found
         .into_iter()
         .map(|task| {
@@ -303,6 +284,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
                 env,
                 source,
                 java,
+                needs: Vec::new(),
             }
         })
         .chain(
@@ -334,83 +316,6 @@ fn relative(project: &Path, path: &Path) -> String {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JavaView {
-    pub required: u32,
-    pub runs_on: Option<u32>,
-    pub current: Option<u32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskView {
-    pub id: String,
-    pub label: String,
-    pub command: String,
-    /// Relative to the project, `.` for its root.
-    pub cwd: String,
-    pub source: Source,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub java: Option<JavaView>,
-    /// A run of it the person started is going.
-    pub running: bool,
-    /// The terminal that run shows in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<u64>,
-}
-
-/// Whether the project's `sikemux.json` is there, and whether it reads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ConfigStatus {
-    Absent,
-    Invalid,
-    Valid,
-}
-
-/// Everything a project can run, as the `tasks` call answers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskList {
-    pub project: PathBuf,
-    pub config_status: ConfigStatus,
-    /// What is wrong with an invalid `sikemux.json`.
-    pub config_errors: Option<Vec<config::ConfigError>>,
-    pub trusted: bool,
-    pub tasks: Vec<TaskView>,
-    /// The task to offer first: the one the person has running, else the first.
-    pub default: Option<String>,
-}
-
-/// A trust question waiting on the person, as the `trustAsks` call answers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrustQuestion {
-    pub id: String,
-    pub project: String,
-    /// The run that waits on the answer, when one does.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_id: Option<String>,
-    pub title: String,
-    pub body: String,
-    pub commands: Vec<TrustCommand>,
-    pub confirm_label: String,
-}
-
-/// A run as clients show it, with the agent that started it and the test results it left,
-/// as the `taskRuns` call answers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunView {
-    #[serde(flatten)]
-    pub run: Run,
-    pub agent_id: Option<String>,
-    pub terminal_key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tests: Option<TestResults>,
-}
-
 fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {
     TaskView {
         running: run.is_some(),
@@ -428,71 +333,19 @@ fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {
     }
 }
 
-fn config_ask(path: &str, fingerprint: &str, config: &config::ProjectConfig) -> TrustAsk {
-    TrustAsk {
-        title: "Trust this sikemux.json?".into(),
-        body: "It lets Sikemux run these commands in this project. Trust lasts until the file changes.".into(),
-        commands: config::trust_commands(config),
-        confirm_label: "Trust project".into(),
-        grant: Grant::Config(TrustedConfig {
-            path: path.to_owned(),
-            fingerprint: fingerprint.to_owned(),
-        }),
-    }
-}
-
-/// What the person must trust before `config` runs, or none.
-pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk> {
-    let ConfigLoad::Valid {
-        path,
-        config,
-        fingerprint,
-        trust,
-    } = config
-    else {
-        return None;
-    };
-    let ask = config_ask(path, fingerprint, config);
-    (trust.requires_approval && !core.tasks.trusts(&ask.grant)).then_some(ask)
-}
-
-fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
-    let cwd = task.cwd.to_string_lossy().into_owned();
-    let command = if task.cwd == project {
-        task.command.clone()
-    } else {
-        format!("cd {cwd} && {}", task.command)
-    };
-    TrustAsk {
-        title: format!("Run {}?", task.label),
-        body: "This task comes from the project's .sikemux/tasks.json. Trust lasts until the task changes.".into(),
-        commands: vec![TrustCommand {
-            label: task.label.clone(),
-            command,
-        }],
-        confirm_label: "Run task".into(),
-        grant: Grant::Personal(TrustedTask {
-            project: project.to_string_lossy().into_owned(),
-            cwd,
-            command: task.command.clone(),
-        }),
-    }
-}
-
-/// `sikemux.json` as read now, and whether the person trusts it on this host.
-pub(crate) async fn project_config(core: &Arc<Core>, project: String) -> CoreResult<Value> {
+pub(crate) async fn project_config(
+    core: &Arc<Core>,
+    project: String,
+) -> CoreResult<ProjectConfigRead> {
     let core = core.clone();
     blocking(move || {
-        let config = config::load(Path::new(&project));
-        let ask = config_needs(&core, &config);
-        let mut value = serde_json::to_value(&config)?;
-        if let Some(object) = value.as_object_mut() {
-            object.insert("trusted".into(), ask.is_none().into());
-            if let Some(ask) = ask {
-                object.insert("trustAsk".into(), serde_json::to_value(ask)?);
-            }
-        }
-        Ok(value)
+        let load = config::load(Path::new(&project));
+        let ask = config_needs(&core, &load);
+        Ok(ProjectConfigRead {
+            load,
+            trusted: ask.is_none(),
+            trust_ask: ask.map(serde_json::to_value).transpose()?,
+        })
     })
     .await
 }
@@ -501,7 +354,7 @@ pub(crate) async fn project_config(core: &Arc<Core>, project: String) -> CoreRes
 /// own, once the person trusts the file. Answers the tab.
 pub(crate) async fn start_preview(core: &Arc<Core>, project: String) -> CoreResult<String> {
     let info = core
-        .workspaces
+        .workspaces()
         .project_info(&project)
         .ok_or("that project is not on this host")?;
     let config = {
@@ -513,7 +366,9 @@ pub(crate) async fn start_preview(core: &Arc<Core>, project: String) -> CoreResu
     };
     let command = config
         .preview
-        .and_then(|preview| preview.command)
+        .as_ref()
+        .and_then(Stated::given)
+        .and_then(|preview| preview.command.clone())
         .filter(|command| !command.is_empty())
         .ok_or("sikemux.json has no preview command")?;
     if !config_trusted(core, &info.path, None).await {
@@ -543,12 +398,12 @@ pub(crate) async fn trust_project(
         if now != fingerprint {
             return Err("sikemux.json changed; look at it again".into());
         }
-        core.tasks.grant(
+        core.tasks().grant(
             Grant::Config(TrustedConfig { path, fingerprint }),
             answered_by,
         );
-        core.harness.changed();
-        core.changes.changed(Topic::Tasks, Some(&project), None);
+        core.harness().changed();
+        core.changed(What::ReadIn(Topic::Tasks, Some(&project), None));
         Ok(())
     })
     .await
@@ -559,7 +414,7 @@ pub(crate) async fn list(core: &Arc<Core>, project: String) -> CoreResult<TaskLi
     let core = core.clone();
     blocking(move || {
         let project = PathBuf::from(project);
-        let runs = core.harness.all_runs();
+        let runs = core.harness().all_runs();
         let person_run = |task: &Definition| {
             runs.iter().rev().find(|run| {
                 run.agent_id.is_none()
@@ -631,12 +486,15 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
             entry
         })
         .collect();
-    let ports: Vec<Value> = ports::for_project(ports::listening_now(core), project)
+    let listening = ports::listening_now(core);
+    let checkout =
+        ports::checkout::here(core, project).map(|here| ports::checkout::about(&here, &listening));
+    let ports: Vec<Value> = ports::for_project(core, listening, project)
         .into_iter()
         .map(|port| {
             let (kind, label) = match &port.listening.owner {
                 PortOwner::Terminal { .. } => ("terminal", "terminal".to_owned()),
-                PortOwner::Task { label, .. } => ("task", label.clone()),
+                PortOwner::Task { label, .. } => ("process", label.clone()),
                 PortOwner::Agent { label, .. } => ("agent", label.clone()),
             };
             json!({
@@ -644,11 +502,12 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
                 "address": port.listening.address,
                 "process": port.listening.process,
                 "owner": { "kind": kind, "label": label },
+                "checkout": port.checkout,
             })
         })
         .collect();
     let mut value = json!({
-        "tasks": listed,
+        "processes": listed,
         "configStatus": match &config {
             ConfigLoad::Absent { .. } => "absent",
             ConfigLoad::Invalid { .. } => "invalid",
@@ -657,71 +516,37 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
         "ports": ports,
     });
     if let Some(object) = value.as_object_mut() {
-        if let ConfigLoad::Invalid { errors, .. } = &config {
+        match &config {
+            ConfigLoad::Invalid { errors, .. } => {
+                object.insert(
+                    "configErrors".into(),
+                    serde_json::to_value(errors).unwrap_or_default(),
+                );
+            }
+            ConfigLoad::Valid { warnings, .. } if !warnings.is_empty() => {
+                object.insert(
+                    "configWarnings".into(),
+                    serde_json::to_value(warnings).unwrap_or_default(),
+                );
+            }
+            _ => {}
+        }
+        if let Some(checkout) = checkout {
             object.insert(
-                "configErrors".into(),
-                serde_json::to_value(errors).unwrap_or_default(),
+                "checkout".into(),
+                serde_json::to_value(checkout).unwrap_or_default(),
             );
         }
         let found = test_results(project, &tasks);
         if !found.is_empty() {
             object.insert("testResults".into(), found.into());
         }
+        let errors = build_errors::for_agent(project);
+        if !errors.is_empty() {
+            object.insert("buildErrors".into(), errors.into());
+        }
     }
     value
-}
-
-/// The latest results each module's test task left in `project`, worded as
-/// `workspace_inspect` gives them.
-pub(crate) async fn module_tests(core: &Arc<Core>, project: String) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        let project = PathBuf::from(project);
-        let Offered { tasks, .. } = offered(&core, &project);
-        Ok(Value::Array(test_results(&project, &tasks)))
-    })
-    .await
-}
-
-fn test_modules(tasks: &[Definition]) -> Vec<&Path> {
-    let mut modules: Vec<&Path> = tasks
-        .iter()
-        .filter(|task| detect::is_test_task(&task.id))
-        .map(|task| task.cwd.as_path())
-        .collect();
-    modules.dedup();
-    modules
-}
-
-/// The latest test results each module's test task left, failures first.
-fn test_results(project: &Path, tasks: &[Definition]) -> Vec<Value> {
-    test_modules(tasks)
-        .into_iter()
-        .filter_map(|cwd| {
-            let found = results::read(cwd)?;
-            Some(json!({
-                "cwd": relative(project, cwd),
-                "passed": found.passed,
-                "failed": found.failed,
-                "skipped": found.skipped,
-                "failures": found.failures.iter().map(|failure| {
-                    let mut entry = json!({
-                        "test": if results::is_file_path(&failure.class_name) {
-                            format!("{} › {}", failure.class_name, failure.name)
-                        } else {
-                            format!("{}.{}", failure.class_name, failure.name)
-                        },
-                        "message": crate::text::clipped(&failure.message, 1000),
-                    });
-                    if let (Some(file), Some(object)) = (&failure.file, entry.as_object_mut()) {
-                        object.insert("file".into(), relative(project, Path::new(file)).into());
-                        object.insert("line".into(), failure.line.into());
-                    }
-                    entry
-                }).collect::<Vec<_>>(),
-            }))
-        })
-        .collect()
 }
 
 /// The terminal a task's runs share, so a rerun shows in the same one.
@@ -780,6 +605,7 @@ fn resolve(
             env: Vec::new(),
             source: Source::Command,
             java: None,
+            needs: spec.needs.clone(),
         };
         return Ok((
             definition,
@@ -793,162 +619,19 @@ fn resolve(
         return Ok((task, config));
     }
     if task_id.starts_with(detect::DETECTED_PREFIX) || task_id.starts_with(PERSONAL_PREFIX) {
-        return Err("No task with this id in the project's build files; call workspace_inspect for the current list".into());
+        return Err("No process with this id in the project's build files; call workspace_inspect for the current list".into());
     }
     Err(match config {
         ConfigLoad::Absent { .. } => {
-            "Project has no sikemux.json; add one that defines tasks".into()
+            "Project has no sikemux.json; add one that defines processes".into()
         }
-        ConfigLoad::Invalid { errors, .. } => format!(
-            "sikemux.json is invalid: {}",
-            errors
-                .iter()
-                .map(|error| format!("{} {}", error.path, error.message))
-                .collect::<Vec<_>>()
-                .join(" · ")
-        ),
-        ConfigLoad::Valid { .. } => "Task is not defined in sikemux.json".into(),
+        ConfigLoad::Invalid { errors, .. } => config::invalid_words(&errors),
+        ConfigLoad::Valid { .. } => "Process is not defined in sikemux.json".into(),
     })
 }
 
-/// The person let this agent run anything, so its tasks skip the trust question.
-fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
-    agent_id
-        .and_then(|agent_id| core.workspaces.run_of(agent_id))
-        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass.as_str())
-}
-
-fn trust_for(
-    core: &Core,
-    project: &Path,
-    task: &Definition,
-    config: &ConfigLoad,
-) -> Option<TrustAsk> {
-    match task.source {
-        Source::Project => config_needs(core, config),
-        Source::Personal => {
-            let ask = personal_ask(project, task);
-            (!core.tasks.trusts(&ask.grant)).then_some(ask)
-        }
-        Source::Detected | Source::Rerun | Source::Command => None,
-    }
-}
-
-/// Puts `ask` to the person and waits for the answer. False when they
-/// refused, the run waiting on it was stopped, or nobody answered in time.
-async fn ask_person(
-    core: &Arc<Core>,
-    project: &str,
-    ask: TrustAsk,
-    execution_id: Option<&str>,
-) -> bool {
-    let id = uuid::Uuid::new_v4().to_string();
-    let grant = ask.grant.clone();
-    core.tasks.state.locked().asking.insert(
-        id.clone(),
-        Asked {
-            id: id.clone(),
-            project: project.to_owned(),
-            execution_id: execution_id.map(str::to_owned),
-            ask,
-        },
-    );
-    if let Some(execution_id) = execution_id {
-        core.harness.awaiting_trust(execution_id);
-    }
-    core.changes.changed(Topic::Trust, None, None);
-    let until = Instant::now() + TRUST_WAIT;
-    let answer = loop {
-        let mut changed = core.harness.subscribe();
-        if core.tasks.trusts(&grant) {
-            break true;
-        }
-        let waiting = core.tasks.state.locked().asking.contains_key(&id)
-            && execution_id.is_none_or(|execution_id| {
-                core.harness
-                    .run_of(execution_id)
-                    .is_some_and(|run| run.status.is_active())
-            });
-        if !waiting || Instant::now() >= until {
-            break false;
-        }
-        tokio::select! {
-            _ = changed.changed() => {}
-            _ = tokio::time::sleep_until(until) => {}
-        }
-    };
-    core.tasks.state.locked().asking.remove(&id);
-    core.changes.changed(Topic::Trust, None, None);
-    answer
-}
-
-/// Whether `agent_id`, or the person when there is none, may run the
-/// commands in `project`'s `sikemux.json`, asking the person when they have
-/// not trusted it on this host yet.
-pub(crate) async fn config_trusted(
-    core: &Arc<Core>,
-    project: &Path,
-    agent_id: Option<&str>,
-) -> bool {
-    if bypasses(core, agent_id) {
-        return true;
-    }
-    let config = {
-        let project = project.to_path_buf();
-        blocking(move || Ok(config::load(&project))).await
-    };
-    let Ok(config) = config else {
-        return false;
-    };
-    match config_needs(core, &config) {
-        Some(ask) => ask_person(core, &project.to_string_lossy(), ask, None).await,
-        None => true,
-    }
-}
-
-/// The trust questions waiting on the person.
-pub(crate) fn asks(core: &Core) -> Vec<TrustQuestion> {
-    (core.tasks.state.locked().asking.values())
-        .map(|asked| TrustQuestion {
-            id: asked.id.clone(),
-            project: asked.project.clone(),
-            execution_id: asked.execution_id.clone(),
-            title: asked.ask.title.clone(),
-            body: asked.ask.body.clone(),
-            commands: asked.ask.commands.clone(),
-            confirm_label: asked.ask.confirm_label.clone(),
-        })
-        .collect()
-}
-
-/// The person answers a trust question, from `answered_by` when it is another device.
-pub(crate) fn answer_trust(
-    core: &Core,
-    id: &str,
-    trust: bool,
-    answered_by: Option<String>,
-) -> CoreResult<()> {
-    let asked = core
-        .tasks
-        .state
-        .locked()
-        .asking
-        .remove(id)
-        .ok_or("Nothing waits on that answer any more")?;
-    if trust {
-        core.tasks.grant(asked.ask.grant, answered_by);
-        core.changes
-            .changed(Topic::Tasks, Some(&asked.project), None);
-    } else if let Some(execution_id) = &asked.execution_id {
-        core.harness
-            .launch_failed(execution_id, "Project configuration was not approved");
-    }
-    core.harness.changed();
-    Ok(())
-}
-
 async fn spawn(core: &Arc<Core>, request: TaskSpawnRequest) -> Result<SessionId, String> {
-    let task = super::connection::spawn(
+    let task = super::launching::spawn(
         core.clone(),
         core.launch_identity(),
         Box::new(SpawnTarget::Task { request }),
@@ -959,7 +642,7 @@ async fn spawn(core: &Arc<Core>, request: TaskSpawnRequest) -> Result<SessionId,
     let id = task.id();
     let stopped = task
         .task()
-        .is_some_and(|task| core.harness.session_started(id, task));
+        .is_some_and(|task| core.harness().session_started(id, task));
     task.start(core);
     if stopped {
         if let Some(target) = core.take_session_for_kill(id) {
@@ -984,7 +667,10 @@ pub(crate) async fn launch(
     previous: Option<String>,
     checked: bool,
 ) -> Result<Option<String>, String> {
-    let run = core.harness.run_of(execution_id).ok_or("The run is gone")?;
+    let run = core
+        .harness()
+        .run_of(execution_id)
+        .ok_or("The run is gone")?;
     let project = PathBuf::from(&run.project);
     let resolved = {
         let (core, project, task_id, spec) = (
@@ -1012,14 +698,47 @@ pub(crate) async fn launch(
             }
         }
     }
+    if let Some(agent_id) = &run.agent_id {
+        super::ship::check_process(core, agent_id, &task.command, &task.env, &task.cwd).await?;
+    }
+    let here = {
+        let (core, cwd) = (core.clone(), task.cwd.clone());
+        blocking(move || Ok(ports::checkout::here(&core, &cwd)))
+            .await
+            .map_err(|error| error.to_string())?
+    };
     let mut preview_url = match &config {
         ConfigLoad::Valid { config, .. } if task.source == Source::Project => config
             .preview
             .as_ref()
+            .and_then(Stated::given)
             .filter(|preview| preview.command.as_deref() == Some(task.command.as_str()))
-            .and_then(|preview| preview.url.clone()),
+            .and_then(|preview| preview.url.as_deref())
+            .map(|url| {
+                here.as_ref()
+                    .map_or_else(|| url.to_owned(), |here| here.fill(url))
+            }),
         _ => None,
     };
+    if let Some(here) = here.as_ref().filter(|_| task.source == Source::Project) {
+        task.env = here.task_environment(&task.id);
+    }
+    let own_port = (here.as_ref())
+        .filter(|here| here.first_port.is_some() && task.source == Source::Project)
+        .and_then(|here| here.task_port(&task.id));
+    if let Some(port) = own_port {
+        let (core, task_id) = (core.clone(), task.id.clone());
+        let held = blocking(move || Ok(listening(&ports::listening_now(&core), &task_id, port)))
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Listening::Held(by) = held {
+            return Err(format!(
+                "{} can't start: this checkout's port {port} is taken by {by}",
+                task.label
+            ));
+        }
+    }
+    let in_own_checkout = here.as_ref().is_some_and(|here| here.first_port.is_some());
     if !checked && task.source != Source::Command {
         let found = {
             let (core, task) = (core.clone(), task.clone());
@@ -1036,17 +755,17 @@ pub(crate) async fn launch(
             } => Some((variable.clone(), *port)),
             _ => None,
         });
+        let moved = moved.filter(|_| !in_own_checkout);
         let rest: Vec<Check> = found
             .into_iter()
-            .filter(|check| {
-                !matches!(
-                    check.item,
-                    CheckItem::Port {
-                        free_port: Some(_),
-                        env_var: Some(_),
-                        ..
-                    }
-                )
+            .filter(|check| match check.item {
+                CheckItem::Port { .. } if in_own_checkout => false,
+                CheckItem::Port {
+                    free_port: Some(_),
+                    env_var: Some(_),
+                    ..
+                } => false,
+                _ => true,
             })
             .collect();
         if let Some(problems) = check::problems(&rest) {
@@ -1060,6 +779,20 @@ pub(crate) async fn launch(
     }
     if let Some(previous) = previous {
         let _ = super::harness::stop_run(core, &previous).await;
+    }
+    if !task.needs.is_empty() {
+        let needs = super::line::resolve(&run.project, &task.cwd, &task.needs)?;
+        let agent_id = run.agent_id.clone();
+        (core.line())
+            .wait_for_needs(
+                core,
+                execution_id,
+                agent_id,
+                &run.project,
+                &task.label,
+                needs,
+            )
+            .await?;
     }
     let source = match task.source {
         Source::Project | Source::Command => TaskSource::Project,
@@ -1091,21 +824,6 @@ pub(crate) async fn launch(
     Ok(preview_url)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct StartParams {
-    project: String,
-    task_id: String,
-    /// Start whatever the checks found.
-    #[serde(default)]
-    force: bool,
-    /// Install what the checks found missing and move the app off a taken
-    /// port first.
-    #[serde(default)]
-    fix: bool,
-}
-
-/// Puts right what the checks found, so the task can start.
 fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Result<(), String> {
     for check in found.iter().filter(|check| !check.item.ok()) {
         match &check.item {
@@ -1123,7 +841,7 @@ fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Resul
                 env_var: Some(variable),
                 ..
             } => {
-                core.tasks.state.locked().moved.insert(
+                core.tasks().state.locked().moved.insert(
                     (project.to_string_lossy().into_owned(), task.id.clone()),
                     (variable.clone(), *port),
                 );
@@ -1137,11 +855,11 @@ fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Resul
 fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
     let mut words = install.split(' ');
     let program = words.next().ok_or("nothing to install with")?;
-    let mut command = sikemux_process::user_environment::agent_command(program);
+    let mut command = sikemux_process::user_environment::agent_command_in_own_cgroup(program);
     command
         .args(words)
         .current_dir(cwd)
-        .stdin(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null());
     let output = sikemux_process::run(&mut command, None, INSTALL_WAIT, INSTALL_OUTPUT_LIMIT, None)
         .map_err(|error| format!("{install} did not finish: {error}"))?;
     if output.status.success() {
@@ -1153,9 +871,7 @@ fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
     ))
 }
 
-/// The person starts a task: it replaces the one their project is running.
-/// Answers the checks that stopped it, or the run it started.
-pub(crate) async fn start(core: &Arc<Core>, params: StartParams) -> CoreResult<Value> {
+pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResult<TaskStarted> {
     let project = PathBuf::from(&params.project);
     if !params.force {
         let (core, project, task_id, fixing) = (
@@ -1174,145 +890,24 @@ pub(crate) async fn start(core: &Arc<Core>, params: StartParams) -> CoreResult<V
         })
         .await?;
         if found.iter().any(|check| !check.item.ok()) {
-            return Ok(json!({ "checks": found }));
+            return Ok(TaskStarted::Held { checks: found });
         }
     }
     let execution_id = super::harness::start_for_person(core, &params.project, &params.task_id)?;
-    Ok(json!({ "executionId": execution_id }))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AddParams {
-    project: String,
-    label: String,
-    command: String,
-    cwd: Option<String>,
-    /// For the team in `sikemux.json`, or for this person only.
-    team: bool,
-    /// The task this one is an edit of, which goes when its id or place changes.
-    replaces: Option<String>,
-}
-
-/// Saves a task the person wrote; answers its id.
-pub(crate) async fn add(
-    core: &Arc<Core>,
-    params: AddParams,
-    answered_by: Option<String>,
-) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        let project = PathBuf::from(&params.project);
-        let cwd = params
-            .cwd
-            .as_deref()
-            .map(|cwd| cwd.trim().trim_start_matches("./").trim_matches('/'))
-            .filter(|cwd| !cwd.is_empty())
-            .unwrap_or(".")
-            .to_owned();
-        let task = AddedTask {
-            label: params.label.trim().to_owned(),
-            command: params.command.trim().to_owned(),
-            cwd: cwd.clone(),
-        };
-        let task_id = if params.team {
-            detect::save_team(&project, &task)?
-        } else {
-            let task_id = detect::save_personal(&project, &task)?;
-            core.tasks.grant(
-                Grant::Personal(TrustedTask {
-                    project: params.project.clone(),
-                    cwd: if cwd == "." {
-                        params.project.clone()
-                    } else {
-                        project.join(&cwd).to_string_lossy().into_owned()
-                    },
-                    command: task.command.clone(),
-                }),
-                answered_by,
-            );
-            task_id
-        };
-        if let Some(old) = params.replaces.filter(|old| *old != task_id) {
-            detect::remove_saved(&project, &old)?;
-        }
-        core.changes
-            .changed(Topic::Tasks, Some(&params.project), None);
-        Ok(json!({ "taskId": task_id }))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CheckParams {
-    project: String,
-    command: String,
-}
-
-/// Names the project's check command in its `sikemux.json`. A file the person
-/// trusted stays trusted, since they wrote this change themselves.
-pub(crate) async fn set_check(core: &Arc<Core>, params: CheckParams) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        let project = PathBuf::from(&params.project);
-        let trusted = match config::load(&project) {
-            ConfigLoad::Absent { .. } => true,
-            load @ ConfigLoad::Valid { .. } => config_needs(&core, &load).is_none(),
-            ConfigLoad::Invalid { .. } => false,
-        };
-        detect::save_check(&project, &params.command)?;
-        if let (
-            true,
-            ConfigLoad::Valid {
-                path, fingerprint, ..
-            },
-        ) = (trusted, config::load(&project))
-        {
-            core.tasks
-                .grant(Grant::Config(TrustedConfig { path, fingerprint }), None);
-        }
-        core.harness.changed();
-        core.changes
-            .changed(Topic::Tasks, Some(&params.project), None);
-        Ok(Value::Null)
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemoveParams {
-    project: String,
-    task_id: String,
-}
-
-/// Takes a task the person added off the project.
-pub(crate) async fn remove(core: &Arc<Core>, params: RemoveParams) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        detect::remove_saved(Path::new(&params.project), &params.task_id)?;
-        core.changes
-            .changed(Topic::Tasks, Some(&params.project), None);
-        Ok(Value::Null)
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RerunParams {
-    execution_id: String,
+    Ok(TaskStarted::Running { execution_id })
 }
 
 /// Adds a task that runs only the tests a finished run failed, and starts it.
-pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreResult<Value> {
+pub(crate) async fn rerun_failed(
+    core: &Arc<Core>,
+    params: RerunParams,
+) -> CoreResult<RerunStarted> {
     let run = core
-        .harness
+        .harness()
         .run_of(&params.execution_id)
         .ok_or("That run is gone")?;
     let failures = core
-        .tasks
+        .tasks()
         .tests_of(&params.execution_id)
         .map(|tests| tests.failures)
         .unwrap_or_default();
@@ -1350,25 +945,28 @@ pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreR
     .await?;
     let task_id = rerun.id.clone();
     {
-        let mut state = core.tasks.state.locked();
+        let mut state = core.tasks().state.locked();
         let reruns = state.reruns.entry(run.project.clone()).or_default();
         reruns.retain(|known| known.id != task_id);
         reruns.push(rerun);
         let over = reruns.len().saturating_sub(MAX_RERUNS);
         reruns.drain(..over);
     }
-    core.changes.changed(Topic::Tasks, Some(&run.project), None);
+    core.changed(What::ReadIn(Topic::Tasks, Some(&run.project), None));
     let execution_id = super::harness::start_for_person(core, &run.project, &task_id)?;
-    Ok(json!({ "taskId": task_id, "executionId": execution_id }))
+    Ok(RerunStarted {
+        task_id,
+        execution_id,
+    })
 }
 
 /// Every run as clients show it, with what it waits on the person for and
 /// the test results it left.
 pub(crate) fn runs(core: &Core) -> Vec<RunView> {
-    let runs = core.harness.all_runs();
-    core.tasks
+    let runs = core.harness().all_runs();
+    core.tasks()
         .retain(|id| runs.iter().any(|run| run.execution_id == id));
-    let state = core.tasks.state.locked();
+    let state = core.tasks().state.locked();
     runs.into_iter()
         .map(|run| RunView {
             agent_id: run.agent_id.clone(),
@@ -1379,38 +977,90 @@ pub(crate) fn runs(core: &Core) -> Vec<RunView> {
         .collect()
 }
 
-/// A task session ended: a test task's results are read for the person to see.
+/// A task session ended: a Gradle build's errors go beside the language
+/// servers' diagnostics, and a test task's results are read for the person to see.
 pub(crate) fn ended(core: &Core, pty_id: SessionId) {
-    let Some(run) = core.harness.run_on(pty_id) else {
+    let Some(run) = core.harness().run_on(pty_id) else {
         return;
     };
     let (Some(cwd), Some(core)) = (run.cwd.clone(), core.arc()) else {
         return;
     };
-    if !detect::is_test_task(&run.task_id) {
+    let gradle = run.command.as_deref().is_some_and(detect::runs_gradle) && run.signal.is_none();
+    let lines = if gradle {
+        core.session(pty_id)
+            .and_then(|session| session::task_lines(&session))
+    } else {
+        None
+    };
+    let tests = detect::is_test_task(&run.task_id);
+    if lines.is_none() && !tests {
         return;
     }
     tokio::task::spawn_blocking(move || {
-        if let Some(found) = results::read(Path::new(&cwd)) {
-            core.tasks
+        if let Some(lines) = lines {
+            build_errors::publish(&core, &run.project, Path::new(&cwd), &lines);
+        }
+        if !tests {
+            return;
+        }
+        let started = run
+            .started_at
+            .map(|ms| std::time::UNIX_EPOCH + Duration::from_millis(ms));
+        if let Some(found) = results::read(Path::new(&cwd), started) {
+            core.tasks()
                 .state
                 .locked()
                 .tests
                 .insert(run.execution_id, found);
-            core.harness.changed();
+            core.harness().changed();
         }
     });
 }
 
 /// Tells clients when a run changes, which they read again with `taskRuns`.
 pub(crate) async fn publish_runs(core: Arc<Core>) {
-    let mut changes = core.harness.subscribe();
+    let mut changes = core.harness().subscribe();
     let mut last = Value::Array(Vec::new());
     while changes.changed().await.is_ok() {
         let now = serde_json::to_value(runs(&core)).unwrap_or_default();
         if now != last {
             last = now;
-            core.changes.changed(Topic::Runs, None, None);
+            core.changed(What::Read(Topic::Runs));
         }
+    }
+}
+
+/// The name of the device the person acted from, when it was not this host's own window.
+pub(crate) fn answered_by(core: &Core, peer: &Peer) -> Option<String> {
+    let device = peer.device_id()?;
+    Some(core.remote().device_name(&device).unwrap_or(device))
+}
+
+pub(crate) async fn trust_project_for(
+    core: &Arc<Core>,
+    peer: &Peer,
+    params: TrustProjectParams,
+) -> CoreResult<()> {
+    trust_project(
+        core,
+        params.project,
+        params.fingerprint,
+        answered_by(core, peer),
+    )
+    .await
+}
+
+pub(crate) fn answer_trust_for(
+    core: &Core,
+    peer: &Peer,
+    params: TrustAnswerParams,
+) -> CoreResult<()> {
+    answer_trust(core, &params.id, params.trust, answered_by(core, peer))
+}
+
+impl super::part::Part for Tasks {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![tokio::spawn(publish_runs(core.clone()))]
     }
 }

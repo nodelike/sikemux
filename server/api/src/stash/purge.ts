@@ -10,7 +10,7 @@ const BATCH = 1_000;
 
 /**
  * Deletes items taken more than 30 days ago, telling their accounts, and prompts whose
- * attachments never all arrived, then every file no item holds: those of the attachments
+ * attachments never all arrived, then every file no item or mod holds: those of the attachments
  * deleted with their prompts, and of accounts purged before this ran.
  */
 export async function purgeStash(
@@ -82,6 +82,12 @@ export async function purgeStash(
             .selectFrom("stash_items")
             .select("id")
             .where("id", "in", ids)
+            .union(
+              db
+                .selectFrom("mod_files")
+                .select("stored_as as id")
+                .where("stored_as", "in", ids),
+            )
             .execute()
         ).map((row) => row.id),
       ),

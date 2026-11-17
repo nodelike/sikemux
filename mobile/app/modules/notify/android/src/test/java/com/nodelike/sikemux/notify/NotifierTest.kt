@@ -58,4 +58,6 @@ class NotifierTest {
     rejectOptionId = "reject",
     at = 0,
     expiresAt = expiresAt,
+    callId = null,
+    options = null,
   )}

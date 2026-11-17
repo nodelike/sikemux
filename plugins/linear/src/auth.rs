@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use sikemux_plugin_api::oauth::Tokens;
 use sikemux_plugin_api::store::{self, Accounts};
-use sikemux_plugin_api::{SignInStatus, StreamSink};
+use sikemux_plugin_api::{signin, SignInStatus, SignedInAs, StreamSink};
 
 use crate::client::{self, at, Session};
 use crate::config::{self, LinearConfig, SignIn, Workspace};
@@ -43,6 +43,16 @@ pub struct Signed {
 }
 
 pub type Status = SignInStatus<Signed>;
+
+impl SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        signin::people_in(
+            self.workspaces
+                .iter()
+                .map(|workspace| (workspace.user.as_str(), workspace.name.as_str())),
+        )
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,7 +93,6 @@ pub struct KeySignIn {
     pub key: String,
 }
 
-/// Adds the workspace the key belongs to, and says which one it is.
 pub async fn sign_in(data_dir: &Path, input: KeySignIn) -> LinearResult<String> {
     let key = input.key.trim().to_string();
     if key.is_empty() {
@@ -135,24 +144,14 @@ pub struct WorkspaceRef {
     pub workspace: Option<String>,
 }
 
-/// Signs out the workspace named, or the default one.
 pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> LinearResult<()> {
-    let removed = store::update(data_dir, move |config: &mut LinearConfig| {
-        let Some(id) = config
-            .account(input.workspace.as_deref())
-            .map(|workspace| workspace.id.clone())
-        else {
-            return Ok(None);
-        };
-        let Some(workspace) = config.remove(&id) else {
-            return Ok(None);
-        };
+    let removed = store::sign_out::<LinearConfig, _, _>(data_dir, input.workspace, |workspace| {
         let refresh_token = match workspace.sign_in {
             SignIn::Browser => config::KEYCHAIN.read(&workspace.id)?,
             SignIn::Key => None,
         };
         config::KEYCHAIN.delete(&workspace.id)?;
-        Ok(Some((workspace, refresh_token)))
+        Ok(refresh_token)
     })
     .await?;
     if let Some((workspace, refresh_token)) = removed {
@@ -163,18 +162,6 @@ pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> LinearResult<()> 
         }
     }
     Ok(())
-}
-
-/// Makes the workspace named the one calls use when they name none.
-pub async fn set_default(data_dir: &Path, input: WorkspaceRef) -> LinearResult<()> {
-    store::update(data_dir, move |config: &mut LinearConfig| {
-        let id = config
-            .account(input.workspace.as_deref())
-            .map(|workspace| workspace.id.clone())
-            .ok_or_else(|| LinearError::NotFound("no such Linear workspace is signed in".into()))?;
-        config.set_default(&id)
-    })
-    .await
 }
 
 #[cfg(test)]

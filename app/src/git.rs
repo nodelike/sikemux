@@ -1,48 +1,58 @@
 //! Git as the window shows it: a file's diff, and what an editor's text changed since
 //! a revision.
 
-use std::cell::Cell;
+use crate::ui::Clicks;
+use sikemux_calls::call;
+use sikemux_calls::drafts::DraftsParams;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::collections::HashMap;
 use std::future::Future;
 use std::ops::Range;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, font, list, px, Action, App, Context, Div, HighlightStyle, Hsla,
-    InteractiveElement, IntoElement, ListAlignment, ListState, ParentElement, Pixels, Render,
-    ScrollEvent, SharedString, StatefulInteractiveElement, Styled, StyledText, Task, Window,
+    div, px, Action, App, AppContext, Context, Div, HighlightStyle, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
+    StyledText, Task, Window,
 };
-use serde_json::{json, Value};
-use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
-use sikemux_core::git::log::GitOverview;
-use tokio::sync::mpsc::UnboundedSender;
+use sikemux_agents::git::diff::changes;
+use sikemux_agents::git::diff::DiffRow;
+use sikemux_agents::git::diff::ROW_ADDED;
+use sikemux_agents::git::diff::ROW_DELETED;
+use sikemux_agents::git::diff::ROW_HIDDEN;
+use sikemux_agents::git::log::GitOverview;
+use sikemux_agents::git::status::DiscoveredRepo;
+use sikemux_view::layout::PaneKind;
+use sikemux_view::workspace::ProjectCodeHost;
 
-use crate::core::{request, Ask};
+use sikemux_view::owners::{CommitLines, FileOwners, Owners};
+
 use crate::editor::OpenAt;
-use crate::syntax::{self, LineRuns};
-use crate::theme::{self, Tokens, SPACE_2, SPACE_3, TEXT_2XS};
-use crate::ui;
+use crate::keyboard::TakesKeys;
+use crate::reads::Read;
+use crate::syntax::LineRuns;
+use crate::theme::{Tokens, TEXT_2XS};
+use crate::workbench::Workbench;
+use crate::{syntax, tabs, theme, ui};
+use sikemux_calls::git::call as git_call;
 
-/// What the Git tab shows and holds: the local workbench pane or one of the code host's areas.
+/// What the Git tab holds: the local workbench pane.
+#[derive(Default)]
 pub struct GitTab {
     /// The Git pane of the project whose Git tab was last in front.
     pub(crate) pane: Option<gpui_kit::Entity<GitPane>>,
-    /// What the Git tab shows: the local workbench, or one of the code host's areas.
-    pub(crate) area: crate::codehost::Area,
-    /// The code host's areas of the project whose Git tab last showed one.
-    pub(crate) host: Option<gpui_kit::Entity<crate::codehost::HostArea>>,
     /// The repository picked from the list inside a project folder, by the folder.
     pub(crate) picked: Option<(String, String)>,
     /// The list of repositories inside the project folder shows in the Git tab.
     pub(crate) listing: bool,
-    /// A pull request or issue to open once the code host's area shows.
-    pub(crate) opening: Option<(crate::codehost::Area, u64, String)>,
     /// The repository changed while the Git pane was out of sight, so it reads it and its
     /// review again once it shows rather than on every change.
     pub(crate) behind: bool,
+    /// A commit to show once the Git pane is made.
+    pub(crate) wanted: Option<String>,
 }
 
 impl GitTab {
@@ -72,21 +82,44 @@ impl GitTab {
             pane.update(cx, |pane, cx| pane.catalog(catalog, cx));
         }
     }
-
-    /// Hands the code host's areas what the core read for them under `key`.
-    pub fn host_read(&self, key: &str, value: &Value, cx: &mut App) {
-        if let Some(host) = &self.host {
-            host.update(cx, |host, cx| host.read(key, value, cx));
-        }
-    }
 }
 
-pub use crate::codehost::{Area, OpenArea};
-pub use pane::{FocusGit, GitPane};
-pub use sikemux_core::git::diff::DiffKind;
+pub use pane::GitPane;
+pub use sikemux_agents::git::diff::DiffKind;
 
 pub(crate) mod pane;
 pub mod repos;
+
+/// The key the core keeps `repo`'s commit message under.
+fn draft_key(repo: &str) -> String {
+    format!("git:{repo}")
+}
+
+/// The project's Git view: the repository picker while none is chosen, else its pane, which
+/// takes the keys when it was just opened.
+pub(crate) fn pane(
+    bench: &Workbench,
+    window: &gpui_kit::Window,
+    cx: &mut gpui_kit::Context<Workbench>,
+) -> gpui_kit::AnyElement {
+    if bench.git_repo().is_none() && bench.git_repos().is_some() {
+        return ui::pane(cx)
+            .child(repos::picker(bench, cx))
+            .into_any_element();
+    }
+    match &bench.git.pane {
+        Some(pane) => {
+            if bench.claims_keys(crate::keyboard::TakesKeys::Git) {
+                let focused = pane.clone();
+                cx.defer_in(window, move |_, window, cx| {
+                    focused.update(cx, |pane, cx| pane.take_keys(window, cx));
+                });
+            }
+            pane.clone().into_any_element()
+        }
+        None => ui::pane(cx).into_any_element(),
+    }
+}
 mod review;
 
 /// A diff side longer than this is drawn without colours.
@@ -102,23 +135,16 @@ pub struct Hunk {
     /// The run in the editor's text, counted from 0. A deletion's is empty, at the line
     /// it sits above.
     pub lines: Range<u32>,
-    /// What the run was in the revision.
-    pub old: SharedString,
 }
 
 /// What changed from `base` to `live`, worked out off the main thread.
 pub fn hunks(base: SharedString, live: String, cx: &App) -> Task<Vec<Hunk>> {
     cx.background_executor().spawn(async move {
-        let old: Vec<&str> = base.split_inclusive('\n').collect();
         changes(&base, &live)
             .into_iter()
             .map(|change| Hunk {
                 kind: change.kind(),
                 lines: change.new_start as u32..(change.new_start + change.new_len) as u32,
-                old: old
-                    .get(change.old_start..change.old_start + change.old_len)
-                    .map_or_else(String::new, |lines| lines.concat())
-                    .into(),
             })
             .collect()
     })
@@ -131,16 +157,11 @@ pub fn file_at(
     rev: &str,
     path: &str,
 ) -> impl Future<Output = Result<String, String>> {
-    let answer = target.request(
-        "git.fileAt",
-        json!({ "repo": repo, "rev": rev, "path": path }),
-    );
-    async move {
-        match answer.await? {
-            Value::String(text) => Ok(text),
-            other => Err(format!("the core answered git.fileAt with {other}")),
-        }
-    }
+    target.request_typed::<git_call::FileAt>(git_call::FileAt {
+        repo: repo.to_owned(),
+        rev: rev.to_owned(),
+        path: path.to_owned(),
+    })
 }
 
 /// Which file a diff compares, and between what.
@@ -220,18 +241,8 @@ impl Diff {
         }
     }
 
-    pub fn row(&self, index: usize) -> Option<&DiffRow> {
-        self.rows.get(index)
-    }
-
     pub fn len(&self) -> usize {
         self.rows.len()
-    }
-
-    /// How many lines it adds and how many it takes out.
-    pub fn stat(&self) -> (u64, u64) {
-        let count = |kind| self.rows.iter().filter(|row| row.0 == kind).count() as u64;
-        (count(ROW_ADDED), count(ROW_DELETED))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -399,16 +410,18 @@ pub fn row(
     let DiffRow(kind, number, text) = &diff.rows[index];
     if *kind == ROW_HIDDEN {
         let hover = look.hover;
-        let lines = if *number == 1 { "line" } else { "lines" };
+        let shown = match *number {
+            1 => t!("Show 1 unchanged line").to_owned(),
+            number => t!("Show {number} unchanged lines", number = number),
+        };
         return div().child(
             div()
                 .id(id)
                 .h(HIDDEN_HEIGHT)
                 .w_full()
-                .cursor_pointer()
                 .hover(move |bar| bar.bg(hover))
-                .tooltip(ui::tooltip(format!("Show {number} unchanged {lines}")))
-                .on_click(move |_, window, cx| expand(window, cx)),
+                .tooltip(ui::tooltip(shown))
+                .clicks(move |_, window, cx| expand(window, cx)),
         );
     }
     let tint = match *kind {
@@ -441,11 +454,7 @@ pub fn row(
                 .text_color(tint.unwrap_or(look.number))
                 .when_some(open, |gutter, open| {
                     gutter
-                        .cursor_pointer()
-                        .tooltip(ui::tooltip(format!("Open at line {}", open.line + 1)))
-                        .on_click(move |_, window, cx| {
-                            window.dispatch_action(open.boxed_clone(), cx)
-                        })
+                        .clicks(move |_, window, cx| window.dispatch_action(open.boxed_clone(), cx))
                 })
                 .child(number.to_string()),
         )
@@ -470,7 +479,7 @@ pub fn row(
                             code.child(
                                 div()
                                     .ml(look.advance * 4.)
-                                    .font_family(theme::UI)
+                                    .font_family(theme::ui_font())
                                     .text_size(crate::theme::ui_text(TEXT_2XS))
                                     .text_color(look.number)
                                     .child(note),
@@ -478,6 +487,37 @@ pub fn row(
                         }),
                 ),
         )
+}
+
+/// Who wrote which lines, as the core said of a checkout or of a commit.
+#[derive(Default)]
+pub struct WhoWrote<'a> {
+    names: Vec<&'a str>,
+    files: &'a [FileOwners],
+}
+
+impl<'a> WhoWrote<'a> {
+    pub fn of_checkout(owners: &'a Owners) -> Self {
+        Self {
+            names: owners
+                .authors
+                .iter()
+                .map(|author| author.name.as_str())
+                .collect(),
+            files: &owners.files,
+        }
+    }
+
+    pub fn of_commit(lines: &'a CommitLines) -> Self {
+        Self {
+            names: lines
+                .authors
+                .iter()
+                .map(|author| author.name.as_str())
+                .collect(),
+            files: &lines.files,
+        }
+    }
 }
 
 /// What the core says to note beside a file's changed lines, in the app's words: who
@@ -489,50 +529,29 @@ pub struct Notes {
 }
 
 impl Notes {
-    /// The notes for `path` in what `changeOwners` answered.
-    pub fn of(owners: &Value, path: &str) -> Self {
-        let names: Vec<&str> = owners["authors"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|author| author["name"].as_str().unwrap_or_default())
-            .collect();
-        let name = |author: &Value| {
-            author
-                .as_u64()
-                .and_then(|author| names.get(author as usize))
-                .copied()
-        };
-        let Some(file) = owners["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|file| file["path"] == path)
-        else {
+    /// The notes for `path` in what the core said of who wrote what.
+    pub fn of(owners: &WhoWrote<'_>, path: &str) -> Self {
+        let name = |author: usize| owners.names.get(author).copied();
+        let Some(file) = owners.files.iter().find(|file| file.path == path) else {
             return Self::default();
         };
-        let lines = file["notes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|note| {
+        let lines = (file.notes.iter())
+            .map(|note| {
                 let mut said = Vec::new();
-                if note["named"] == true {
-                    said.push(name(&note["author"]).unwrap_or("unattributed").to_owned());
+                if note.named {
+                    let author = note.author.and_then(name);
+                    said.push(author.unwrap_or(t!("unattributed")).to_owned());
                 }
-                if let Some(over) = name(&note["over"]) {
-                    said.push(format!("changed {over}'s edit"));
+                if let Some(over) = note.over.and_then(name) {
+                    said.push(t!("changed {over}'s edit", over = over));
                 }
-                Some((note["line"].as_u64()? as u32, said.join(" · ").into()))
+                (note.line as u32, said.join(" · ").into())
             })
             .collect();
-        let gaps = file["removed"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let gaps = (file.removed.iter())
             .filter_map(|removal| {
-                let name = name(&removal["author"])?;
-                Some((removal["at"].as_u64()? as u32, name.to_owned().into()))
+                let name = name(removal.author)?;
+                Some((removal.at as u32, name.to_owned().into()))
             })
             .collect();
         Self { lines, gaps }
@@ -543,189 +562,187 @@ impl Notes {
     }
 }
 
-/// One file's diff in a pane of its own, read from the core and coloured as the file's
-/// language, drawn only as far as it shows.
-pub struct DiffView {
-    asks: UnboundedSender<Ask>,
-    compared: Compared,
-    language: Option<String>,
-    /// Asks for every unchanged line, after the person opened a hidden run.
-    whole: bool,
-    diff: Option<Result<Diff, String>>,
-    colours: Colours,
-    rows: ListState,
-    scrolled: Pixels,
-    /// How wide the pane last drew.
-    shown: Rc<Cell<Pixels>>,
-    _reading: Task<()>,
-}
-
-impl DiffView {
-    pub fn new(asks: UnboundedSender<Ask>, compared: Compared, cx: &mut Context<Self>) -> Self {
-        let language = crate::file_icons::language(&compared.path, cx)
-            .filter(|language| syntax::knows(language));
-        let mut view = Self {
-            asks,
-            compared,
-            language,
-            whole: false,
-            diff: None,
-            colours: Colours::default(),
-            rows: ListState::new(0, ListAlignment::Top, px(600.)),
-            scrolled: px(0.),
-            shown: Rc::default(),
-            _reading: Task::ready(()),
-        };
-        view.read(cx);
-        view
-    }
-
-    /// Reads the diff again, as after the file or the repository changed.
-    pub fn read(&mut self, cx: &mut Context<Self>) {
-        let Compared {
-            repo,
-            path,
-            base,
-            head,
-        } = &self.compared;
-        let params = json!({ "repo": repo, "path": path, "baseRev": base, "headRev": head, "full": self.whole });
-        let answer = request(&self.asks, "git.fileDiff", params);
-        self._reading = cx.spawn(async move |view, cx| {
-            let diff = answer.await.and_then(|rows| {
-                serde_json::from_value::<Vec<DiffRow>>(rows).map_err(|error| error.to_string())
-            });
-            view.update(cx, |view, cx| view.read_as(diff.map(Diff::new), cx))
-                .ok();
-        });
-    }
-
-    fn read_as(&mut self, diff: Result<Diff, String>, cx: &mut Context<Self>) {
-        if let Ok(diff) = &diff {
-            let first = self.rows.logical_scroll_top();
-            self.rows.reset(diff.len());
-            self.rows.scroll_to(first);
-            self.colours = Colours::default();
-        }
-        self.diff = Some(diff);
-        cx.notify();
-    }
-
-    fn expand(&mut self, cx: &mut Context<Self>) {
-        if !self.whole {
-            self.whole = true;
-            self.read(cx);
-        }
-    }
-
-    fn wheel(&mut self, event: &ScrollEvent, window: &Window, width: Pixels) -> bool {
-        let delta = event.delta.pixel_delta(window.line_height());
-        if delta.x == px(0.) || delta.x.abs() < delta.y.abs() {
-            return false;
-        }
-        let widest = (width - self.shown.get()).max(px(0.));
-        let scrolled = (self.scrolled - delta.x).clamp(px(0.), widest);
-        let moved = scrolled != self.scrolled;
-        self.scrolled = scrolled;
-        moved
-    }
-}
-
 /// The width of a character of code, which every character of the code font has.
 pub(crate) fn advance(window: &Window) -> Pixels {
     let text = window.text_system();
-    let id = text.resolve_font(&font(theme::MONO));
+    let id = text.resolve_font(&theme::mono());
     text.advance(id, CODE_SIZE, 'm')
         .map_or(CODE_SIZE * 0.6, |size| size.width)
 }
 
-impl Render for DiffView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = Tokens::get(cx).clone();
-        let message = |text: String, color| {
-            div()
-                .p(SPACE_3)
-                .text_size(crate::theme::ui_text(TEXT_2XS))
-                .text_color(color)
-                .child(text)
-                .into_any_element()
-        };
-        let diff = match &self.diff {
-            None => return message("loading diff...".into(), t.text_tertiary),
-            Some(Err(error)) => return message(format!("x {error}"), t.danger),
-            Some(Ok(diff)) if diff.is_empty() => {
-                return message("No changes.".into(), t.text_tertiary)
-            }
-            Some(Ok(diff)) => diff,
-        };
-        self.colours
-            .ask(diff, self.language.as_deref(), cx, |view: &mut Self| {
-                Some(&mut view.colours)
+impl Workbench {
+    /// Tells the Git pane whether its host is in reach, and its repository's code host.
+    pub(crate) fn tell_reach(&self, cx: &mut Context<Self>) {
+        let away = self.out_of_reach();
+        if let Some(pane) = &self.git.pane {
+            let host = self.code_host_of(&pane.read(cx).repo);
+            pane.update(cx, |pane, cx| {
+                pane.set_out_of_reach(away, cx);
+                pane.set_code_host(host, cx);
             });
-        let advance = advance(window);
-        let width = diff.width(advance);
-        let view = cx.entity();
-        let scrolled = self.scrolled;
-        let file = Path::new(&self.compared.repo).join(&self.compared.path);
-        let rows = list(self.rows.clone(), move |index, _, cx| {
-            let this = view.read(cx);
-            let Some(Ok(diff)) = &this.diff else {
-                return div().into_any_element();
-            };
-            let look = RowLook::new(Tokens::get(cx), advance, scrolled);
-            let expanding = view.clone();
-            row(
-                diff,
-                &this.colours,
-                index,
-                &look,
-                SharedString::from(format!("diff-row-{index}")),
-                Some(&file),
-                move |_, cx| expanding.update(cx, |view, cx| view.expand(cx)),
-            )
-            .into_any_element()
-        });
-        let shown = self.shown.clone();
-        div()
-            .id("diff")
-            .size_full()
-            .py(SPACE_2)
-            .font_family(theme::MONO)
-            .text_size(CODE_SIZE)
-            .line_height(ROW_HEIGHT)
-            .on_scroll(cx.listener(move |view, event: &ScrollEvent, window, cx| {
-                if view.wheel(event, window, width) {
-                    cx.notify();
-                }
-            }))
-            .child(
-                canvas(
-                    move |bounds, _, _| shown.set(bounds.size.width),
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .size_full(),
-            )
-            .child(rows.size_full())
-            .into_any_element()
+        }
     }
-}
 
-/// Tells `list` only the run of `old` that `new` replaced, so what is in view stays put.
-pub(crate) fn relist<T: PartialEq>(list: &ListState, old: &[T], new: &[T]) {
-    if list.item_count() != old.len() {
-        list.reset(new.len());
-        return;
+    /// The code host of the project holding `repo`, with the account chosen for it there.
+    pub(crate) fn code_host_of(&self, repo: &str) -> Option<(ProjectCodeHost, Option<String>)> {
+        let project = self
+            .projects()
+            .iter()
+            .filter(|project| Path::new(repo).starts_with(&project.path))
+            .max_by_key(|project| project.path.as_os_str().len())?;
+        let host = project.code_host.clone()?;
+        let account = project
+            .code_hosts
+            .get(&host.host)
+            .and_then(|choice| choice.account.clone());
+        Some((host, account))
     }
-    let start = old
-        .iter()
-        .zip(new)
-        .take_while(|(old, new)| old == new)
-        .count();
-    let end = old[start..]
-        .iter()
-        .rev()
-        .zip(new[start..].iter().rev())
-        .take_while(|(old, new)| old == new)
-        .count();
-    list.splice(start..old.len() - end, new.len() - start - end);
+
+    /// The repository the Git views of the project in front open on: one picked from the
+    /// list, else the core's pick, the folder when it is one or the one chosen among those
+    /// inside it. None while the person has to pick.
+    pub(crate) fn git_repo(&self) -> Option<String> {
+        let folder = self.watched.project.as_ref()?;
+        if self.git.listing {
+            return None;
+        }
+        if let Some((at, repo)) = &self.git.picked {
+            if at == folder {
+                return Some(repo.clone());
+            }
+        }
+        let found = self.feeds.in_front().git_project_repo.as_ref()?;
+        match &found.repo {
+            Some(repo) => Some(repo.clone()),
+            None if found.repos.is_some() => None,
+            None => Some(folder.clone()),
+        }
+    }
+
+    /// The repositories directly inside the project folder, while it is not one itself.
+    pub(crate) fn git_repos(&self) -> Option<&Vec<DiscoveredRepo>> {
+        self.feeds
+            .in_front()
+            .git_project_repo
+            .as_ref()?
+            .repos
+            .as_ref()
+    }
+
+    /// Opens `repo` in the project's Git views until the project changes.
+    pub(crate) fn pick_git_repo(&mut self, repo: String, cx: &mut Context<Self>) {
+        let was = self.git_repo();
+        self.git.picked = self.watched.project.clone().map(|folder| (folder, repo));
+        self.git.listing = false;
+        self.follow_git_repo(was, cx);
+    }
+
+    /// Shows the repositories inside the project folder again.
+    pub(crate) fn list_git_repos(&mut self, cx: &mut Context<Self>) {
+        let was = self.git_repo();
+        self.git.listing = true;
+        self.follow_git_repo(was, cx);
+    }
+
+    /// Points the git overview at the repository shown, when it moved from `was`.
+    pub(crate) fn follow_git_repo(&mut self, was: Option<String>, cx: &mut Context<Self>) {
+        let repo = self.git_repo();
+        if let Some(repo) = repo.as_ref().filter(|repo| {
+            Some(*repo) != was.as_ref() || self.feeds.in_front().git_overview.as_ref().is_none()
+        }) {
+            let target = self.target();
+            target.watch_folder::<git_call::Overview>(
+                Read::GitOverview,
+                git_call::Overview { repo: repo.clone() },
+                repo.clone(),
+            );
+            let draft = draft_key(repo);
+            target.watch::<call::Drafts>(
+                Read::GitDraft,
+                Some(DraftsParams {
+                    keys: Some(vec![draft]),
+                }),
+            );
+        }
+        self.parts.redraw_stage(cx);
+    }
+
+    pub(crate) fn git_in_front(&self) -> bool {
+        self.tab()
+            .and_then(|tab| tabs::first_view(&tab.pane))
+            .is_some_and(|(kind, _)| kind == PaneKind::Git)
+    }
+
+    /// Makes the Git pane when the project's Git tab comes to the front.
+    pub(crate) fn git_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        let Some(repo) = self.git_repo() else {
+            return;
+        };
+        if project.path.to_string_lossy() != *self.watched.project.as_deref().unwrap_or_default() {
+            return;
+        }
+        let target = self.target();
+        if let Some(pane) = self.git.pane.as_ref().filter(|pane| {
+            let pane = pane.read(cx);
+            pane.repo == repo && pane.place() == target.place()
+        }) {
+            if std::mem::take(&mut self.git.behind) {
+                let overview = self.feeds.in_front().git_overview.as_ref();
+                pane.update(cx, |pane, cx| {
+                    if let Some(overview) = overview {
+                        pane.overview(overview, cx);
+                    }
+                    pane.git_moved(None, None, cx);
+                });
+            }
+            return;
+        }
+        self.git.behind = false;
+        let bench = cx.entity().downgrade();
+        let away = self.out_of_reach();
+        let host = self.code_host_of(&repo);
+        let pane = cx.new(|cx| GitPane::new(target, repo, bench, window, cx));
+        pane.update(cx, |pane, cx| {
+            pane.set_out_of_reach(away, cx);
+            pane.set_code_host(host, cx);
+        });
+        if let Some(overview) = self.feeds.in_front().git_overview.as_ref() {
+            pane.update(cx, |pane, cx| pane.overview(overview, cx));
+        }
+        if !self.reads.catalog.is_empty() {
+            let catalog = &self.reads.catalog;
+            pane.update(cx, |pane, cx| pane.catalog(catalog, cx));
+        }
+        if let Some(drafts) = self.feeds.in_front().git_draft.as_ref() {
+            pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
+        }
+        if let Some(hash) = self.git.wanted.take() {
+            pane.update(cx, |pane, cx| pane.show_named_commit(hash, cx));
+        }
+        self.git.pane = Some(pane);
+    }
+
+    /// Brings the project's Git tab forward on the commit `hash`.
+    pub(crate) fn open_commit(&mut self, hash: String, cx: &mut Context<Self>) {
+        match self.git.pane.clone() {
+            Some(pane) => pane.update(cx, |pane, cx| pane.show_named_commit(hash, cx)),
+            None => self.git.wanted = Some(hash),
+        }
+        self.open_git(cx);
+    }
+
+    /// Brings the project's Git tab to the front, opening one when it has none.
+    pub fn open_git(&mut self, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Git, cx);
+        if let Some(project) = self.project() {
+            self.open_in_front(OpenTab::new(
+                At::project(&project.id),
+                PaneKind::Git,
+                project.path.to_string_lossy(),
+            ));
+        }
+    }
 }

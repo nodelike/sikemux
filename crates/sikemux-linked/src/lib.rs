@@ -4,13 +4,14 @@
 //! is taken up again whenever it drops, until the host is no longer linked.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use iroh::EndpointAddr;
 use serde_json::{json, Value};
 use sikemux_client::client::{ClientError, ClientEvent, CoreClient, EventSink};
-use sikemux_client::device::{host_addr, Device};
+use sikemux_client::device::Device;
 use sikemux_client::join::{JoinHello, JoinReply};
 use sikemux_client::remote::{PublicKey, SecretKey};
 use sikemux_wire::accounts::protocol::{JoinTicket, Relay};
@@ -34,7 +35,6 @@ pub fn key_from_text(text: &str) -> Option<SecretKey> {
     Some(SecretKey::from_bytes(&<[u8; 32]>::try_from(bytes).ok()?))
 }
 
-/// A new device key for an app that has none yet.
 pub fn new_key() -> SecretKey {
     SecretKey::generate()
 }
@@ -51,12 +51,14 @@ pub enum Happened {
 /// The account's other hosts this app keeps connections to.
 pub struct Linked {
     device: Device,
-    relays: Vec<Relay>,
     /// What the account calls this app, before " on <host>".
     app: String,
     platform: String,
     own: Mutex<Option<Arc<CoreClient>>>,
     hosts: Mutex<HashMap<String, Host>>,
+    /// Whether the account has taken this app as a device since it started. The relay carries
+    /// only devices on an account, so until then no host can be reached to say it is unknown.
+    registered: AtomicBool,
     happened: mpsc::UnboundedSender<Happened>,
 }
 
@@ -80,15 +82,15 @@ impl Linked {
         app: impl Into<String>,
         platform: impl Into<String>,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Happened>), ClientError> {
-        let device = Device::bind(key, relays.clone()).await?;
+        let device = Device::bind(key, relays).await?;
         let (happened, heard) = mpsc::unbounded_channel();
         let linked = Arc::new(Self {
             device,
-            relays,
             app: app.into(),
             platform: platform.into(),
             own: Mutex::new(None),
             hosts: Mutex::new(HashMap::new()),
+            registered: AtomicBool::new(false),
             happened,
         });
         Ok((linked, heard))
@@ -104,8 +106,9 @@ impl Linked {
     pub async fn follow(self: &Arc<Self>, own: Arc<CoreClient>) -> Result<(), ClientError> {
         *lock(&self.own) = Some(own.clone());
         let pairing = own.call("pairing", json!({})).await?;
-        let links: Vec<(String, String)> = pairing["links"]
-            .as_array()
+        let links: Vec<(String, String)> = pairing
+            .get("links")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|link| {
@@ -142,16 +145,19 @@ impl Linked {
 
     /// The connection to `host`, waiting a while for one that is reconnecting.
     pub async fn client(&self, host: &str) -> Result<Arc<CoreClient>, ClientError> {
-        let mut client = lock(&self.hosts)
+        let (name, mut client) = lock(&self.hosts)
             .get(host)
-            .map(|host| host.client.clone())
+            .map(|host| (host.name.clone(), host.client.clone()))
             .ok_or_else(|| ClientError::Core("that host is not linked with this one".into()))?;
+        let name = match name.is_empty() {
+            true => "that host".to_owned(),
+            false => name,
+        };
+        let unreached = || ClientError::Core(format!("{name} is not reachable now"));
         let reached = tokio::time::timeout(REACH, client.wait_for(Option::is_some)).await;
         match reached {
-            Ok(Ok(client)) => client
-                .clone()
-                .ok_or_else(|| ClientError::Core("that host is not reachable now".into())),
-            _ => Err(ClientError::Core("that host is not reachable now".into())),
+            Ok(Ok(client)) => client.clone().ok_or_else(unreached),
+            _ => Err(unreached()),
         }
     }
 
@@ -162,7 +168,13 @@ impl Linked {
             .clone()
             .ok_or_else(|| ClientError::Core("this host's core is not connected".into()))?;
         let challenge = own.call("deviceChallenge", json!({})).await?;
-        let text = |key: &str| challenge[key].as_str().unwrap_or_default().to_owned();
+        let text = |key: &str| {
+            challenge
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
         let signature = self
             .device
             .sign_registration(&text("nonce"), &text("userId"))
@@ -176,6 +188,7 @@ impl Linked {
             "host": host,
         });
         let ticket: Value = own.call("deviceJoinTicket", params).await?;
+        self.registered.store(true, Ordering::Release);
         Ok(serde_json::from_value(ticket)?)
     }
 
@@ -184,7 +197,7 @@ impl Linked {
     fn addr(&self, host: PublicKey) -> EndpointAddr {
         kit_addresses(&host.to_string())
             .into_iter()
-            .fold(host_addr(host, &self.relays), EndpointAddr::with_ip_addr)
+            .fold(self.device.addr(host), EndpointAddr::with_ip_addr)
     }
 
     async fn join(&self, host: &str, key: PublicKey) -> Result<(), ClientError> {
@@ -237,6 +250,11 @@ async fn stay_connected(
                     continue;
                 }
             }
+            Err(_) if !linked.registered.load(Ordering::Acquire) => {
+                if linked.join(&host, key).await.is_ok() {
+                    continue;
+                }
+            }
             Err(_) => {}
         }
         tokio::time::sleep(wait).await;
@@ -257,6 +275,12 @@ impl EventSink for HostSink {
 
     fn event(&self, event: Event) {
         let _ = self.0.send(Some(ClientEvent::Event(event)));
+    }
+
+    fn device_view(&self, view_json: &str) {
+        let _ = self
+            .0
+            .send(Some(ClientEvent::DeviceView(view_json.to_owned())));
     }
 
     fn window_call(&self, call_id: CallId, call: WindowCall) {

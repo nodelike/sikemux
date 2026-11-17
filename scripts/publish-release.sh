@@ -17,6 +17,8 @@ fail() {
 [[ -n "$VERSION" && -n "$NOTES" ]] || { echo "Usage: $0 <version> <notes> [--nightly]" >&2; exit 2; }
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] || fail "releases publish from the Release workflow"
 
+# shellcheck source=scripts/release-shape.sh
+source "$ROOT/scripts/release-shape.sh"
 BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
@@ -28,42 +30,38 @@ else
 fi
 shopt -s nullglob
 DMGS=("$BUNDLE"/dmg/*.dmg)
-VOICES=("$ROOT"/packaging/binaries/sikemux-voice-*)
-SIMS=("$ROOT"/packaging/binaries/sikemux-sim-*)
 DEBS=("$BUNDLE"/deb/*.deb)
-RPMS=("$BUNDLE"/rpm/*.rpm)
 APPIMAGES=("$BUNDLE"/appimage/*.AppImage)
+TARBALLS=("$BUNDLE"/tar/*.tar.gz)
+PACMAN_PACKAGES=("$BUNDLE"/arch/*.pkg.tar.zst)
 HOSTS=("$ROOT"/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
 SYMBOLS=("$ROOT"/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
-[[ ${#VOICES[@]} -eq 1 ]] || fail "expected exactly one voice helper, found ${#VOICES[@]}"
-[[ ${#SIMS[@]} -eq 1 ]] || fail "expected exactly one simulator helper, found ${#SIMS[@]}"
-[[ ${#DEBS[@]} -eq 1 ]] || fail "expected exactly one deb, found ${#DEBS[@]}"
-[[ ${#RPMS[@]} -eq 1 ]] || fail "expected exactly one rpm, found ${#RPMS[@]}"
-[[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected exactly one AppImage, found ${#APPIMAGES[@]}"
+[[ ${#DEBS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 debs, found ${#DEBS[@]}"
+[[ ${#APPIMAGES[@]} -eq 2 ]] || fail "expected the amd64 and arm64 AppImages, found ${#APPIMAGES[@]}"
+[[ ${#TARBALLS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 Linux tarballs, found ${#TARBALLS[@]}"
+[[ ${#PACMAN_PACKAGES[@]} -eq 1 ]] || fail "expected exactly one Arch package, found ${#PACMAN_PACKAGES[@]}"
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
-[[ ${#SYMBOLS[@]} -eq 2 ]] || fail "expected the Mac app's and core's symbols, found ${#SYMBOLS[@]}"
+[[ ${#SYMBOLS[@]} -eq 3 ]] || fail "expected the Mac app's, core's and notch helper's symbols, found ${#SYMBOLS[@]}"
 HOST_SIGS=("${HOSTS[@]/%/.sig}")
 DMG="${DMGS[0]}"
-VOICE="${VOICES[0]}"
-SIM="${SIMS[0]}"
-DEB="${DEBS[0]}"
-RPM="${RPMS[0]}"
-APPIMAGE="${APPIMAGES[0]}"
-APPIMAGE_SIG="$APPIMAGE.sig"
+HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
+APPIMAGE_SIGS=("${APPIMAGES[@]/%/.sig}")
+PACMAN_PACKAGE="${PACMAN_PACKAGES[0]}"
 INSTALLER="$ROOT/scripts/install.sh"
-for file in "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$MANIFEST"; do
+PACKAGES_INDEX="$ROOT/target/packages/packages-index-$VERSION.tar"
+for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
-for signed in "${HOSTS[@]}" "$APPIMAGE"; do
+for signed in "${HOSTS[@]}" "${APPIMAGES[@]}"; do
   node scripts/verify-updater-signature.mjs "$signed" "$signed.sig" || fail "$signed is not signed by the updater key"
 done
-# The Linux app updates itself only as an AppImage, so only the AppImage joins the
+# The Linux app updates itself only as an AppImage, so only the AppImages join the
 # feed the macOS build wrote, beside each host core, which root installs on a host.
 RELEASE_URL="https://github.com/nodelike/sikemux/releases/download/v$VERSION" \
-  APPIMAGE="$APPIMAGE" MANIFEST="$MANIFEST" python3 - "${HOSTS[@]}" <<'PY'
+  MANIFEST="$MANIFEST" python3 - "${APPIMAGES[@]}" "${HOSTS[@]}" <<'PY'
 import json, os, pathlib, re, sys
 path = pathlib.Path(os.environ["MANIFEST"])
 manifest = json.loads(path.read_text())
@@ -75,32 +73,42 @@ def entry(file):
         "url": f'{os.environ["RELEASE_URL"]}/{file.name}',
     }
 
-manifest["platforms"]["linux-x86_64"] = entry(os.environ["APPIMAGE"])
-for host in sys.argv[1:]:
-    arch = re.search(r"-linux-([a-z0-9_]+)\.tar\.gz$", host).group(1)
-    manifest["platforms"][f"host-linux-{arch}"] = entry(host)
+for file in sys.argv[1:]:
+    if file.endswith(".AppImage"):
+        arch = {"amd64": "x86_64", "arm64": "aarch64"}[re.search(r"_([a-z0-9]+)\.AppImage$", file).group(1)]
+        manifest["platforms"][f"linux-{arch}"] = entry(file)
+    else:
+        arch = re.search(r"-linux-([a-z0-9_]+)\.tar\.gz$", file).group(1)
+        manifest["platforms"][f"host-linux-{arch}"] = entry(file)
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-STABLE_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$MANIFEST")
-NIGHTLY_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}")
-POINTER_NOTES="Update feed for the nightly channel.
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
+# The staff feed takes a nightly unless it serves a newer build, or a stable candidate that
+# has not shipped yet: staff machines keep running the candidate the owner is asked about.
+staff_feed_takes() {
+  local serving
+  serving="$(gh release download staff -p latest.json -O - 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null)" || return 0
+  if [[ "$serving" != *-* ]] &&
+    [[ "$(gh release view "v$serving" --json isPrerelease,name --jq '.isPrerelease and (.name | endswith("(pulled)") | not)')" == true ]]; then
+    echo "  the staff feed keeps the candidate v$serving until it ships or is pulled"
+    return 1
+  fi
+  node scripts/newer-version.mjs "$1" "$serving" || { echo "  the staff feed already serves v$serving"; return 1; }
+}
 
-The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).
-
-This release carries only \`latest.json\`. Its \`nightly\` tag is a fixed URL anchor that shipped clients resolve against, not a source revision — do not attach builds here."
 if [[ "$CHANNEL" == "stable" ]]; then
-  echo "→ Publishing stable v$VERSION"
-  "${STABLE_GH_CMD[@]}"
-  echo "✓ Released stable v$VERSION"
+  echo "→ Publishing stable v$VERSION as a candidate for staff"
+  "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
+  scripts/move-feed.sh staff "$VERSION"
+  echo "✓ v$VERSION is on the staff feed; the Ship workflow makes it stable once it has soaked"
 else
   echo "→ Publishing nightly v$VERSION"
-  "${NIGHTLY_GH_CMD[@]}"
-  if gh release view nightly >/dev/null 2>&1; then
-    gh release upload nightly "$MANIFEST" --clobber
-    gh release edit nightly --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease
-  else
-    gh release create nightly --target "$(git rev-parse HEAD)" --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease "$MANIFEST"
-  fi
-  echo "✓ Released nightly v$VERSION; nightly feed now points at v$VERSION"
+  # A push to main brings no tag, so Release makes it; the owner may still push one by hand.
+  gh api "repos/{owner}/{repo}/git/ref/tags/v$VERSION" >/dev/null 2>&1 ||
+    gh api -X POST "repos/{owner}/{repo}/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$(git rev-parse HEAD)" >/dev/null
+  "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
+  if staff_feed_takes "$VERSION"; then scripts/move-feed.sh staff "$VERSION"; fi
+  gh workflow run nightly-soak.yml -f "version=$VERSION"
+  echo "✓ Released nightly v$VERSION; the nightly feed follows once it has soaked"
 fi

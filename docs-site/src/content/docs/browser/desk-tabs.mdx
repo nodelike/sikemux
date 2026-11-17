@@ -3,19 +3,39 @@ title: Desk tabs
 description: "Each agent's browser tabs, beside its chat."
 ---
 
-Every agent has a **desk**: the pane beside its chat where it opens pages, files and task terminals for you. `⌘J` shows or hides the desk of the agent in front.
+Every agent has a **desk**: the pane beside its chat where it opens pages, files and process terminals for you. `⌘J` shows or hides the desk of the agent in front.
 
-The switch at the desk's top left picks what it shows: **Browser**, **Files**, **Terminals** or **iOS Simulator**. The strip lists that kind's tabs only, and a kind you go back to shows the tab it last showed. **Files** and **Terminals** are greyed while the agent has opened none, and a kind the agent is working in while you look at another takes the agent's colour.
+The switch at the desk's top left picks what it shows: **Browser**, **Files**, **Terminals** or, on a Mac, **Simulators**. The strip lists that kind's tabs only, and a kind you go back to shows the tab it last showed. **Files** and **Terminals** are greyed while the agent has opened none, and **Browser** takes the agent's colour while the agent works in a page and you look at something else.
 
-**iOS Simulator** shows the device the agent attached. Before it attaches one, the desk shows a device already running, else an iPhone; click the device's name to pick another, and **Start** to boot one that is off. Beside Home, Lock and Turn, its bar saves a screenshot to the Desktop and shuts the device down, asking first while an agent is using it. The agent's simulator tools then use the device you picked.
+**Simulators** shows the iOS simulator or Android device the agent attached. Before it attaches one, the desk shows a device already running, else an iPhone, else an Android device; click the device's name to pick another, and **Start** to boot one that is off. Beside Home, Lock and Turn (and Back on Android), its bar saves a screenshot to the Desktop and shuts the device down, asking first while an agent is using it. The agent's device tools then use the device you picked.
 
-A page's tab shows a spinner in place of its site icon while it loads. Right-click a tab to close it, copy a page's link, or copy a file's path, relative path or reveal it in Finder.
+An agent that asks for a simulator without naming one takes the warmest free device: one already running, else one booted before, else its project's own. How many simulators run at once follows your Mac, counting every one that runs, whoever started it: about one for every three cores, fewer when free memory would not hold another, and none more while the Mac is busy. A device that was never booted boots alone, since a first boot is the heaviest. When there is no room, the agent waits in line and is told its place, for up to five minutes; an agent that has not used its device for ten minutes gives it up to one waiting.
+
+Android emulators run with no window of their own and show only on the desk. Phones plugged in with USB debugging on are listed too. With no Android SDK on your computer, the device menu offers **Set up Android Emulator**: Sikemux downloads Google's platform tools, emulator and one Google Play system image, about 2.6 GB, into its own folder, makes a Pixel to run them on and starts it, with no Android Studio or Java. An SDK you already have, such as Android Studio's, is used instead. Settings, on its **Simulators** page, shows the same setup in an Android Emulator section.
+
+A page's tab shows a spinner in place of its site icon while it loads. The bar over the page has back, forward and reload (`⌘[`, `⌘]`, `⌘R`) and the page's address, and **+** beside the tabs (`⌘⇧T`) opens a new one. Right-click a tab to close it, copy a page's link, or copy a file's path or relative path, or reveal it in Finder.
 
 `⌘L` opens an address field over the middle of the page, which dims under it. As you type, it finishes a site you have visited before and lists the pages that match, with a Google search when what you typed reads as one. With nothing typed it lists the sites you visit most. The arrow keys pick a row, Return opens it, and Escape or a click anywhere else closes the field.
 
 When you ask an agent to open, show or preview a page, it opens the page on its desk rather than in your own browser, so you watch the same page it reads.
 
-A link in an agent's reply opens on its desk too; `⌘`-click opens it in your own browser instead. A link to a pull request on GitHub, Bitbucket or GitLab opens as the pull request itself, drawn as the Git tab draws one, among the Browser tabs: its files, commits, checks, conversation and diffs, with review, merge and, for the project's own repository, Check out. When no account is signed in to that host, or it can't read the pull request, the link opens as its web page. Links to an issue on those hosts, or to a run of GitHub Actions, open the same way, as the issue or the run with its jobs and logs. A link to a Jira issue on a site you're signed in to opens the same way, as the issue itself.
+A link in an agent's reply opens on its desk too, as a web page among the Browser tabs; `⌘`-click opens it in your own browser instead.
+
+## Snips
+
+The snip button at the right of the address bar (`⌘⇧X`) turns on snip mode. Drag a box over the page and it goes straight into the draft of the project's chat in front, as a picture at the cursor, like a pasted one, so where you put it in your message says what it is about. The agent also gets the page's address and the elements inside the box. Snip mode stays on, so each drag adds another; press Escape on the page or the button again to turn it off. With no chat open, Sikemux starts one with your first agent.
+
+## Pins
+
+In snip mode a click, rather than a drag, pins a note on the element under the pointer. The element is outlined as you move over it; click it, write what to change, and press Enter. The pin goes to the agent whose desk it is, as your message: a line naming what you pinned, the page and its width, then your note. The agent also gets where the element is, its markup, a picture of the spot and the commit the page ran from.
+
+A pin stays on the page until it is answered. While the agent works on it, a dashed ring sits on the spot with who has it and for about how long. When the agent's turn ends, the ring becomes a purple check; click it to see what the agent said and the spot before and after. **Looks right** takes the pin off the page, and **Still off? Say what…** sends another note to the same agent and puts the ring back. Click a ring to read the pin's notes so far.
+
+A pin says where and what to change. It tests nothing: the agent still has to drive the page to check its work.
+
+## Tabs agents leave behind
+
+An agent goes back to its own tab on a site rather than opening another. When its turn ends, Sikemux closes the agent's tabs but the one in front and those showing a page or file from your Mac, such as pages it made for you; the one in front stays open until a later turn moves on from it, and closing the chat or teammate closes them all. Tabs you opened, clicked or typed in are yours: the agent can still use them, but they stay open until you close them or the agent takes one to another site. An agent holding six tabs of its own closes the one it used least recently before opening another. `⌘⌥T` opens the tab closed last on the desk in front again.
 
 ## What tabs open
 
@@ -24,8 +44,10 @@ A link in an agent's reply opens on its desk too; `⌘`-click opens it in your o
 
 ## Downloads
 
-Files a page downloads wait in a folder of Sikemux's own, marked as downloaded from the internet, and Sikemux shows a notice for each. Click **Keep in Downloads** to move it into your Downloads folder; files you don't keep are cleared after a week. A page that starts more than eight downloads in half a minute is stopped.
+Files a page downloads wait in a folder of Sikemux's own, marked as downloaded from the internet, and Sikemux shows a notice for each. Click **Keep in Downloads** to move it into your Downloads folder and show it in Finder; files you don't keep are cleared after a week. A page that starts more than eight downloads in half a minute is stopped.
 
 ## Size
 
-A tab's page follows the pane's size. An agent can hold a tab at a set size, such as phone (390×844), tablet (820×1180) or desktop (1280×800), to check a layout. The page is scaled down to fit the pane, never up. The phone size also sends iPhone Safari's user agent, so sites serve their phone version.
+A tab's page follows the pane's size. The width chip at the right of the address bar names the size the page lays out at. Its menu, or an agent checking a layout, holds the tab at a set size instead: **Phone** (390×844), **Tablet** (820×1180) or **Desktop** (1440×900). **Fit** lets it follow the pane again. The page is scaled down to fit the pane, never up. The phone size also sends iPhone Safari's user agent, so sites serve their phone version. Each tab keeps its size.
+
+**All three** keeps the page live at one width, the phone's unless the tab was held at another, and shows pictures of it at the other two widths beside it, each with the time it was taken. Sikemux takes them in a view of its own off screen, loading the page again at each width, so the live page and whatever you're typing in are left alone. It takes them again once the page has loaded anew and stayed still for a moment, so a dev server reloading on every save is taken once its reloads stop. Click a picture to make that width the live one. When the agent's turns took the page in front, as a chat shows under its replies, All shows those pictures and when they were taken in place of its own.

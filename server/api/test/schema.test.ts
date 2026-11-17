@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { expect, it } from "vitest";
 
+import { openDatabase } from "../src/db.ts";
 import { migrate, readMigrations } from "../src/migrations.ts";
 import { freshDatabase, log } from "./support.ts";
 
@@ -211,9 +212,9 @@ async function render(url: string): Promise<string> {
 
 it("schema.dbml matches the migrations", async () => {
   const fresh = await freshDatabase();
-  const pool = new pg.Pool({ connectionString: fresh.url });
+  const database = openDatabase(fresh.url, log);
   try {
-    await migrate(pool, await readMigrations(MIGRATIONS), log);
+    await migrate(database.pool, await readMigrations(MIGRATIONS), log);
     const rendered = await render(fresh.url);
     if (process.env.UPDATE_SCHEMA) writeFileSync(SCHEMA, rendered);
     expect(
@@ -221,7 +222,7 @@ it("schema.dbml matches the migrations", async () => {
       "schema.dbml is stale: run `pnpm schema:generate` in server/",
     ).toBe(readFileSync(SCHEMA, "utf8"));
   } finally {
-    await pool.end();
+    await database.close();
     await fresh.drop();
   }
 });

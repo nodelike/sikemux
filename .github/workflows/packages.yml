@@ -1,0 +1,38 @@
+name: Package repository
+
+# Publishing a release and moving the nightly feed start it, to point a suite of the apt
+# repository at the release its feed names. One move per suite runs at a time, so two
+# can never mix their files. It holds no key: what it serves was signed by the Release workflow's signing job.
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: stable or nightly
+        required: true
+        type: choice
+        options: [stable, nightly]
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    name: Move the ${{ inputs.suite }} suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: packages-${{ inputs.suite }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Move the suite
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUITE: ${{ inputs.suite }}
+        run: scripts/move-package-suite.sh "$SUITE"

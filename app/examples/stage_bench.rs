@@ -12,20 +12,30 @@
 //! It runs offscreen on a simulated clock at 120 Hz and prints, for each phase, the main
 //! thread's CPU for each frame: the window's work and, when something changed, its draw.
 
+mod common;
+
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::usage::thread_cpu_ms;
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, Focusable, HeadlessAppContext, Keystroke,
 };
-use serde_json::json;
-use sikemux_core::harness::runs::RunStatus;
+use sikemux_agents::harness::runs::RunStatus;
+use sikemux_calls::call;
+use sikemux_calls::layout::Side;
+use sikemux_calls::layout::SplitPane;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::spare::NewTerminal;
+use sikemux_calls::tasks::TrustAnswerParams;
 use sikemux_gpui::hosts::Place;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, terminal, theme, WINDOW_SIZE};
-use sikemux_wire::protocol::{Pane, PaneKind, SessionId};
+use sikemux_view::layout::{At, Pane, PaneKind};
+use sikemux_view::prefs::PreferenceChange;
+use sikemux_wire::protocol::SessionId;
 
 const FRAME: Duration = Duration::from_micros(8_333);
 /// What the fake agent answers with a stream of that many words.
@@ -144,7 +154,7 @@ fn main() -> anyhow::Result<()> {
         Arc::new(icons::Icons),
         gpui_platform::current_headless_renderer,
     );
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let held = Rc::new(Cell::new(None));
     let kept = held.clone();
     let window = cx.update(|cx| {
@@ -175,10 +185,8 @@ fn main() -> anyhow::Result<()> {
         frames: Vec::new(),
     };
     run.bench.update(&mut run.cx, |bench, _| {
-        bench.call(
-            "setPreference",
-            json!({ "key": "onboardingComplete", "value": true }),
-        )
+        sikemux_gpui::core::Target::here(&bench.asks)
+            .call_typed::<call::SetPreference>(PreferenceChange::OnboardingComplete(true))
     });
     if !run.until(600, |bench| bench.agent().is_some()) {
         anyhow::bail!("the core's tab in front holds no chat");
@@ -207,24 +215,27 @@ fn main() -> anyhow::Result<()> {
         })
         .ok_or_else(|| anyhow::anyhow!("the tab in front shows no chat"))?;
     let runtime = tokio::runtime::Runtime::new()?;
+    let here = core::Target::here(&asks);
     let already = run.bench.read_with(&run.cx, |bench, _| shown(bench).len());
     for count in already + 1..=2 {
         let opened = runtime
-            .block_on(core::request(
-                &asks,
-                "newTerminal",
-                json!({ "project": project }),
-            ))
+            .block_on(here.request_typed::<call::NewTerminal>(NewTerminal {
+                project: project.clone(),
+                terminals: false,
+            }))
             .map_err(anyhow::Error::msg)?;
-        let params = json!({
-            "project": project,
-            "tab": tab,
-            "pane": view,
-            "side": "right",
-            "fromTab": opened,
-        });
+        let split = SplitPane {
+            at: At::project(&project),
+            tab: tab.clone(),
+            pane: view.clone(),
+            side: Side::Right,
+            kind: None,
+            target: None,
+            from_tab: Some(opened),
+            keep_front: false,
+        };
         runtime
-            .block_on(core::request(&asks, "splitPane", params))
+            .block_on(here.request_typed::<call::SplitPane>(split))
             .map_err(anyhow::Error::msg)?;
         if !run.until(600, |bench| {
             let found = shown(bench);
@@ -362,7 +373,17 @@ fn main() -> anyhow::Result<()> {
         let task = run
             .bench
             .read_with(&run.cx, |bench, _| {
-                Some(bench.reads.tasks.as_ref()?.tasks.first()?.id.clone())
+                Some(
+                    bench
+                        .feeds
+                        .in_front()
+                        .tasks
+                        .as_ref()?
+                        .tasks
+                        .first()?
+                        .id
+                        .clone(),
+                )
             })
             .ok_or_else(|| anyhow::anyhow!("the project lists no task"))?;
         run.bench
@@ -375,13 +396,14 @@ fn main() -> anyhow::Result<()> {
         };
         for _ in 0..600 {
             let waiting = runtime
-                .block_on(core::request(&asks, "trustAsks", json!({})))
+                .block_on(here.request_typed::<call::TrustAsks>(NoParams {}))
                 .unwrap_or_default();
-            for ask in waiting.as_array().into_iter().flatten() {
-                if let Some(ask) = ask["id"].as_str() {
-                    let answer = json!({ "id": ask, "trust": true });
-                    let _ = runtime.block_on(core::request(&asks, "answerTrust", answer));
-                }
+            for ask in waiting {
+                let answer = TrustAnswerParams {
+                    id: ask.id,
+                    trust: true,
+                };
+                let _ = runtime.block_on(here.request_typed::<call::AnswerTrust>(answer));
             }
             run.frame();
             if run.bench.read_with(&run.cx, |bench, _| running(bench)) {
@@ -625,14 +647,4 @@ fn press(run: &mut Bench, keys: &[&str]) {
             }
         })
         .ok();
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime only writes the struct it is handed.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
 }

@@ -12,10 +12,38 @@ use gpui_kit::base::animation::cubic_bezier;
 use gpui_kit::base::motion::Interpolate;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
-    Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
-    Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
+    div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, Global,
+    GlobalElementId, Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId,
+    ParentElement, Pixels, Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
 };
+use sikemux_view::prefs::Motion;
+
+/// The person's Motion choice in Appearance, over macOS's own.
+struct Chosen(Motion);
+
+impl Global for Chosen {}
+
+/// Moves the interface as the person chose: as macOS says, less, or not at all.
+pub fn set_motion(motion: Motion, cx: &mut App) {
+    if cx
+        .try_global::<Chosen>()
+        .is_some_and(|chosen| chosen.0 == motion)
+    {
+        return;
+    }
+    cx.set_global(Chosen(motion));
+    crate::ui::grain::follow_reduced_motion(cx);
+}
+
+/// Whether the interface moves less than macOS says, or the same.
+pub fn chosen(cx: &App) -> Motion {
+    cx.try_global::<Chosen>()
+        .map_or(Motion::System, |chosen| chosen.0)
+}
+
+fn nothing_moves(cx: &App) -> bool {
+    chosen(cx) == Motion::Off
+}
 
 /// How a value moves to a new target: over how long, on which curve, and whether it moves
 /// while macOS asks for less motion.
@@ -56,6 +84,11 @@ impl Ease {
         self
     }
 
+    /// Whether this moves now, as macOS and the person's Motion choice allow.
+    pub fn moves(self, cx: &App) -> bool {
+        !cx.reduce_motion() || (self.moves_when_reduced && !nothing_moves(cx))
+    }
+
     /// Where the curve is a share `t` of the way through.
     pub fn at(self, t: f32) -> f32 {
         match self.curve {
@@ -83,7 +116,6 @@ pub const LIST_FOLD: Ease = Ease::new(90, Curve::CSS);
 /// A team in the agents rail, or a lane on the board.
 pub const LANE_FOLD: Ease = Ease::new(90, Curve::CSS_OUT);
 
-/// A tooltip fading in.
 pub const TOOLTIP_IN: Ease = Ease::new(110, Curve::CSS_OUT);
 
 /// A docked rail tucking under the stage or coming out from under it, as a drawer does.
@@ -102,6 +134,9 @@ pub const SECOND_RING: Duration = Duration::from_millis(380);
 
 /// The light that passes over an agent's row when it is named or messaged.
 pub const CALLED: Ease = Ease::new(700, Curve::Bezier(0.3, 0., 0.2, 1.));
+
+/// A file's tile lit as it is attached, fading out.
+pub const ATTACHED: Ease = Ease::new(700, Curve::CSS_OUT);
 
 /// An animation that plays once as its element first draws, on `ease`. It holds still while
 /// macOS asks for less motion, so it is only for what the Mac stills then too.
@@ -125,6 +160,9 @@ pub const TEXT_SWAP: Ease = Ease::new(140, Curve::OUT);
 /// A small control coming up over what it floats on, and going again, as the way back to a
 /// chat's latest message.
 pub const POP_UP: Ease = Ease::new(150, Curve::OUT);
+/// A new chat's welcome leaving once its first message is sent, at the rails' pace: the
+/// composer settling to the bottom, the welcome fading and the glow handing over to the pane field.
+pub const WELCOME_LEAVES: Ease = RAIL_DRAWER;
 
 /// The angle of a fold's chevron, open or shut.
 pub fn fold_angle(open: bool) -> f32 {
@@ -186,7 +224,7 @@ fn follow_over<T: Interpolate + PartialEq + 'static>(
         over: Duration::ZERO,
     });
     if state.read(cx).to != target {
-        let still = cx.reduce_motion() && !ease.moves_when_reduced;
+        let still = !ease.moves(cx);
         let shown = state.read(cx).at(now, ease);
         let from = if still { target.clone() } else { shown };
         let over = over(&from, &target);
@@ -368,7 +406,7 @@ impl<K: PartialEq + Clone + 'static> Element for Replay<K> {
         let kept = key.clone();
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| (kept, None::<Instant>));
         if state.read(cx).0 != key {
-            let moves = !cx.reduce_motion() || ease.moves_when_reduced;
+            let moves = ease.moves(cx);
             let since = moves.then(Instant::now);
             state.update(cx, |state, _| *state = (key, since));
         }
@@ -652,6 +690,13 @@ impl GlideTrack {
         }
         self.chosen = chosen;
         self.glide.is_some()
+    }
+
+    /// Where the item `id` was drawn last, in the window; read it before `set_order` takes this
+    /// frame's order.
+    pub fn drawn_at(&self, id: &str) -> Option<Bounds<Pixels>> {
+        let ix = self.ids.iter().position(|each| each == id)?;
+        self.drawn.borrow().get(ix).copied()
     }
 
     /// Takes the list's items in the order they are drawn, after `choose`.

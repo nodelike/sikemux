@@ -1,0 +1,4 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+  <solid android:color="@color/sikemux_widget_ground" />
+  <corners android:radius="26dp" />
+</shape>

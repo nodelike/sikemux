@@ -5,30 +5,6 @@
 
 import type { DeviceView, HostInfo, Inbox } from '@shared/wire.generated';
 
-export type {
-  AgentFace,
-  AgentGroup,
-  AgentQuestion,
-  AgentStatus,
-  ChatInfo,
-  ChatState,
-  DeviceAccess,
-  DeviceInfo,
-  FaceStyle,
-  HostInfo,
-  Inbox,
-  InboxItem,
-  LauncherInfo,
-  LinkedHost,
-  Preferences,
-  ProjectInfo,
-  RecentInfo,
-  RemoteAgent,
-  RemotePairing,
-  SessionInfo,
-  BuildChannel,
-} from '@shared/wire.generated';
-
 /** Everything the phone shows of one host, as it last sent it. */
 export type Snapshot = DeviceView;
 
@@ -60,15 +36,12 @@ function keepItems<T>(previous: T[], next: T[], key: (item: T) => string | numbe
  */
 export function keepUnchanged(previous: Snapshot | undefined, next: Snapshot): Snapshot {
   if (!previous) return next;
-  const keep = <K extends keyof Snapshot>(key: K): Snapshot[K] => (same(previous[key], next[key]) ? previous[key] : next[key]);
+  const before = previous as unknown as Record<string, unknown>;
+  const kept = Object.fromEntries(
+    Object.entries(next).map(([key, value]) => [key, same(before[key], value) ? before[key] : value]),
+  ) as unknown as Snapshot;
   return {
-    ...next,
-    workspace: keep('workspace'),
-    layout: keep('layout'),
-    account: keep('account'),
-    faceStyle: keep('faceStyle'),
-    load: keep('load'),
-    updates: keep('updates'),
+    ...kept,
     sessions: keepItems(previous.sessions, next.sessions, (session) => session.id),
     chats: keepItems(previous.chats, next.chats, (chat) => chat.agentId),
     attentions: keepItems(previous.attentions, next.attentions, (attention) => attention.id),

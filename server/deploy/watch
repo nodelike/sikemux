@@ -28,6 +28,9 @@ else
   fail health "the API does not answer /v1/health"
 fi
 
+[ "$(cat /srv/sikemux/current/DEPLOY 2>/dev/null)" = "$(cat /usr/local/lib/sikemux/deploy.hash 2>/dev/null)" ] ||
+  fail deploy-files "server/deploy on main differs from what citadel has installed: run setup-citadel.sh"
+
 relay_out="$(/usr/local/lib/sikemux/relay-health 2>&1 >/dev/null)" || fail relay-health "relay-health: ${relay_out:-failed}"
 
 cgroup_percent() {

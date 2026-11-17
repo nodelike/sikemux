@@ -13,7 +13,8 @@
         "detail": "Files in projects, or what the plugin in front offers",
         "category": "Workspace",
         "mac": "Meta+KeyP",
-        "other": "Ctrl+Alt+KeyP"
+        "other": "Ctrl+KeyP",
+        "otherInTerminal": "Ctrl+Alt+KeyP"
     },
     {
         "id": "search.global",
@@ -37,7 +38,8 @@
         "detail": "Hide both rails",
         "category": "Workspace",
         "mac": "Meta+KeyB",
-        "other": "Ctrl+Alt+KeyF"
+        "other": "Ctrl+KeyB",
+        "otherInTerminal": "Ctrl+Alt+KeyF"
     },
     {
         "id": "project.open",
@@ -45,7 +47,8 @@
         "detail": "Open the project picker",
         "category": "Workspace",
         "mac": "Meta+KeyO",
-        "other": "Ctrl+Shift+KeyO"
+        "other": "Ctrl+KeyO",
+        "otherInTerminal": "Ctrl+Shift+KeyO"
     },
     {
         "id": "session.open",
@@ -67,6 +70,14 @@
         "id": "palette.newTab",
         "label": "New…",
         "detail": "Choose what to open: terminal, agent, browser, editor, Git or search",
+        "category": "Workspace",
+        "mac": null,
+        "other": null
+    },
+    {
+        "id": "palette.mods",
+        "label": "Open mod…",
+        "detail": "Open a panel you or an agent made, or ask an agent for a new one",
         "category": "Workspace",
         "mac": null,
         "other": null
@@ -117,7 +128,8 @@
         "detail": "Start the agent you launched last in this project, ready to type to",
         "category": "Agents",
         "mac": "Meta+KeyN",
-        "other": "Ctrl+Shift+KeyN"
+        "other": "Ctrl+KeyN",
+        "otherInTerminal": "Ctrl+Shift+KeyN"
     },
     {
         "id": "agent.choose",
@@ -133,7 +145,17 @@
         "detail": "The agent's pages, files and terminals, beside it",
         "category": "Agents",
         "mac": "Meta+KeyJ",
-        "other": "Ctrl+Shift+KeyJ"
+        "other": "Ctrl+KeyJ",
+        "otherInTerminal": "Ctrl+Shift+KeyJ"
+    },
+    {
+        "id": "desk.alone",
+        "label": "Show desk alone",
+        "detail": "Hide the agent beside its desk, or bring it back",
+        "category": "Agents",
+        "mac": "Meta+KeyK",
+        "other": "Ctrl+KeyK",
+        "otherInTerminal": "Ctrl+Shift+KeyK"
     },
     {
         "id": "agent.permissions",
@@ -144,12 +166,21 @@
         "other": "Ctrl+Shift+KeyY"
     },
     {
+        "id": "sikemux.triage",
+        "label": "Triage Sikemux",
+        "detail": "Hand Sikemux's logs, secrets taken out, to Claude Code or Codex in a new terminal to find what is wrong",
+        "category": "Workspace",
+        "mac": null,
+        "other": null
+    },
+    {
         "id": "terminal.new",
         "label": "New terminal",
         "detail": "A terminal tab in this project, another login on this host, or a new terminal under Terminals",
         "category": "Panes",
         "mac": "Meta+KeyT",
-        "other": "Ctrl+Shift+KeyT"
+        "other": "Ctrl+KeyT",
+        "otherInTerminal": "Ctrl+Shift+KeyT"
     },
     {
         "id": "session.command",
@@ -157,7 +188,7 @@
         "detail": "Jump to the terminal under Terminals",
         "category": "Panes",
         "mac": "Meta+Ctrl+KeyT",
-        "other": "Ctrl+Alt+Shift+KeyT"
+        "other": "Ctrl+Alt+Digit1"
     },
     {
         "id": "pane.splitRow",
@@ -165,7 +196,8 @@
         "detail": "Create a side-by-side pane",
         "category": "Panes",
         "mac": "Meta+KeyD",
-        "other": "Ctrl+Shift+KeyD"
+        "other": "Ctrl+KeyD",
+        "otherInTerminal": "Ctrl+Shift+KeyD"
     },
     {
         "id": "pane.splitColumn",
@@ -180,7 +212,7 @@
         "label": "Split pane into tabs",
         "detail": "Create a pane in the same place, reached by tab",
         "category": "Panes",
-        "mac": "Meta+Alt+KeyD",
+        "mac": "Meta+Alt+Shift+KeyD",
         "other": "Ctrl+Alt+Shift+KeyD"
     },
     {
@@ -189,7 +221,7 @@
         "detail": "Move focus to the pane on the left",
         "category": "Panes",
         "mac": "Meta+Alt+ArrowLeft",
-        "other": "Ctrl+Alt+ArrowLeft"
+        "other": "Alt+ArrowLeft"
     },
     {
         "id": "pane.focusDown",
@@ -197,7 +229,7 @@
         "detail": "Move focus to the pane below",
         "category": "Panes",
         "mac": "Meta+Alt+ArrowDown",
-        "other": "Ctrl+Alt+ArrowDown"
+        "other": "Alt+ArrowDown"
     },
     {
         "id": "pane.focusUp",
@@ -205,7 +237,7 @@
         "detail": "Move focus to the pane above",
         "category": "Panes",
         "mac": "Meta+Alt+ArrowUp",
-        "other": "Ctrl+Alt+ArrowUp"
+        "other": "Alt+ArrowUp"
     },
     {
         "id": "pane.focusRight",
@@ -213,7 +245,7 @@
         "detail": "Move focus to the pane on the right",
         "category": "Panes",
         "mac": "Meta+Alt+ArrowRight",
-        "other": "Ctrl+Alt+ArrowRight"
+        "other": "Alt+ArrowRight"
     },
     {
         "id": "pane.resizeLeft",
@@ -221,7 +253,7 @@
         "detail": "Grow the active pane toward the left",
         "category": "Panes",
         "mac": "Meta+Ctrl+ArrowLeft",
-        "other": "Ctrl+Alt+Shift+ArrowLeft"
+        "other": "Alt+Shift+ArrowLeft"
     },
     {
         "id": "pane.resizeDown",
@@ -229,7 +261,7 @@
         "detail": "Grow the active pane downward",
         "category": "Panes",
         "mac": "Meta+Ctrl+ArrowDown",
-        "other": "Ctrl+Alt+Shift+ArrowDown"
+        "other": "Alt+Shift+ArrowDown"
     },
     {
         "id": "pane.resizeUp",
@@ -237,7 +269,7 @@
         "detail": "Grow the active pane upward",
         "category": "Panes",
         "mac": "Meta+Ctrl+ArrowUp",
-        "other": "Ctrl+Alt+Shift+ArrowUp"
+        "other": "Alt+Shift+ArrowUp"
     },
     {
         "id": "pane.resizeRight",
@@ -245,7 +277,7 @@
         "detail": "Grow the active pane toward the right",
         "category": "Panes",
         "mac": "Meta+Ctrl+ArrowRight",
-        "other": "Ctrl+Alt+Shift+ArrowRight"
+        "other": "Alt+Shift+ArrowRight"
     },
     {
         "id": "pane.zoom",
@@ -261,7 +293,24 @@
         "detail": "Close the page, file, pane or tab in front, asking first if an agent is mid-turn",
         "category": "Panes",
         "mac": "Meta+KeyW",
-        "other": "Ctrl+Shift+KeyW"
+        "other": "Ctrl+KeyW",
+        "otherInTerminal": "Ctrl+Shift+KeyW"
+    },
+    {
+        "id": "window.nextArea",
+        "label": "Next area",
+        "detail": "Move the keys to the next area: the side rail, the view in front, the tab rail",
+        "category": "Navigation",
+        "mac": "F6",
+        "other": "F6"
+    },
+    {
+        "id": "window.previousArea",
+        "label": "Previous area",
+        "detail": "Move the keys back to the area before",
+        "category": "Navigation",
+        "mac": "Shift+F6",
+        "other": "Shift+F6"
     },
     {
         "id": "window.previous",
@@ -376,6 +425,24 @@
         "other": "Ctrl+Alt+KeyU"
     },
     {
+        "id": "navigation.back",
+        "label": "Go back",
+        "detail": "Go back to the tab you had in front before this one, in any project or host; on a browser page, go back in the page",
+        "category": "Navigation",
+        "mac": "Meta+BracketLeft",
+        "other": "Ctrl+BracketLeft",
+        "otherInTerminal": "Ctrl+Shift+BracketLeft"
+    },
+    {
+        "id": "navigation.forward",
+        "label": "Go forward",
+        "detail": "Go forward again through the tabs you went back from; on a browser page, go forward in the page",
+        "category": "Navigation",
+        "mac": "Meta+BracketRight",
+        "other": "Ctrl+BracketRight",
+        "otherInTerminal": "Ctrl+Shift+BracketRight"
+    },
+    {
         "id": "session.next",
         "label": "Next session",
         "detail": "Cycle forward through sessions; hold Control to keep choosing",
@@ -405,7 +472,8 @@
         "detail": "Jump to the files window",
         "category": "Navigation",
         "mac": "Meta+KeyE",
-        "other": "Ctrl+Alt+KeyE"
+        "other": "Ctrl+KeyE",
+        "otherInTerminal": "Ctrl+Alt+KeyE"
     },
     {
         "id": "window.terminal",
@@ -440,12 +508,28 @@
         "other": "Ctrl+Alt+Digit5"
     },
     {
-        "id": "window.board",
-        "label": "Focus agent board",
-        "detail": "Jump to the cards the project's agents work from",
+        "id": "window.playbook",
+        "label": "Playbook",
+        "detail": "Open the project's Playbook: its rules, places, landing and what runs with nobody asking",
         "category": "Navigation",
         "mac": "Meta+Alt+Digit6",
         "other": "Ctrl+Alt+Digit6"
+    },
+    {
+        "id": "window.board",
+        "label": "Agent Board",
+        "detail": "Open the project's Agent Board on its chief's desk: everything you asked, by who has it",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit7",
+        "other": "Ctrl+Alt+Digit7"
+    },
+    {
+        "id": "window.hosts",
+        "label": "Devices",
+        "detail": "Open the Devices page: how busy each host is, what needs you, and the phones paired here",
+        "category": "Navigation",
+        "mac": "Meta+Shift+KeyH",
+        "other": "Ctrl+Shift+KeyH"
     },
     {
         "id": "browser.tabNew",
@@ -456,12 +540,36 @@
         "other": "Ctrl+Shift+KeyB"
     },
     {
+        "id": "browser.tabReopen",
+        "label": "Reopen closed browser tab",
+        "detail": "Open the tab closed last on the desk in front again, including ones Sikemux closed after an agent's turn",
+        "category": "Browser",
+        "mac": "Meta+Alt+KeyT",
+        "other": "Ctrl+Alt+Shift+KeyT"
+    },
+    {
         "id": "browser.address",
         "label": "Open browser address",
         "detail": "Type an address or a search over the page on the desk in front",
         "category": "Browser",
         "mac": "Meta+KeyL",
-        "other": "Ctrl+Shift+KeyL"
+        "other": "Ctrl+KeyL",
+        "otherInTerminal": "Ctrl+Shift+KeyL"
+    },
+    {
+        "id": "browser.snip",
+        "label": "Snip page to chat",
+        "detail": "Turn snip mode on or off: each box dragged over the page on the desk in front goes to the chat as a picture",
+        "category": "Browser",
+        "mac": "Meta+Shift+KeyX",
+        "other": "Ctrl+Shift+KeyX"
+    },
+    {
+        "id": "chat.snapshot",
+        "label": "SnapShot window to chat",
+        "detail": "Take the window you work in, in another app, to the chat as a picture with its app, title and text. Works from any app",
+        "category": "Agents",
+        "mac": "Meta+Shift+Digit2"
     },
     {
         "id": "browser.reload",
@@ -474,7 +582,7 @@
     {
         "id": "browser.back",
         "label": "Browser back",
-        "detail": "Go back in the active embedded browser tab",
+        "detail": "Go back in the active embedded browser tab, while it has the keys",
         "category": "Browser",
         "mac": "Meta+BracketLeft",
         "other": "Ctrl+BracketLeft"
@@ -482,7 +590,7 @@
     {
         "id": "browser.forward",
         "label": "Browser forward",
-        "detail": "Go forward in the active embedded browser tab",
+        "detail": "Go forward in the active embedded browser tab, while it has the keys",
         "category": "Browser",
         "mac": "Meta+BracketRight",
         "other": "Ctrl+BracketRight"

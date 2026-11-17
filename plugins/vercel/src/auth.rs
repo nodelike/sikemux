@@ -4,17 +4,39 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sikemux_plugin_api::store;
-use sikemux_plugin_api::{SignInStatus, StreamSink};
-use sikemux_plugin_vercel_views::{Signed, Team};
+use sikemux_plugin_api::{SignInStatus, SignedInAs, StreamSink};
 
 use crate::client::{self, at, text, Session};
 use crate::config::{self, Account, Install, SignIn, VercelConfig};
 use crate::error::{VercelError, VercelResult};
 use crate::oauth;
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Team {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+}
+
+/// Who is signed in and the teams it can see, as the plugin's `status` says.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Signed {
+    pub account: Option<Account>,
+    pub teams: Vec<Team>,
+    /// The team calls use when they name none, by id; none for the account's own projects.
+    pub team: Option<String>,
+    /// Whether the account has projects of its own beside its teams. Newer accounts
+    /// keep theirs in a default team instead, which is then the team chosen.
+    pub personal: bool,
+    /// Whether this build can sign in through the browser.
+    pub browser_sign_in: bool,
+}
 
 /// Who a token belongs to, as `/v2/user` says.
 pub fn account_of(data: &Value) -> VercelResult<Account> {
@@ -49,6 +71,16 @@ pub fn teams_of(data: &Value) -> Vec<Team> {
 }
 
 pub type Status = SignInStatus<Signed>;
+
+impl SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        let account = self.account.as_ref()?;
+        [&account.name, &account.username]
+            .into_iter()
+            .find(|named| !named.is_empty())
+            .cloned()
+    }
+}
 
 /// Who is signed in, whether its token still works, and the teams it can see.
 pub async fn status(data_dir: &Path) -> Status {
@@ -282,29 +314,6 @@ pub async fn sign_out(data_dir: &Path) -> VercelResult<()> {
     let removed = store::update(data_dir, clear_account).await?;
     finish(removed).await;
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct TeamChoice {
-    /// A team's id, or empty for the account's own projects.
-    #[serde(default)]
-    pub team: Option<String>,
-}
-
-/// Makes the team named the one calls use when they name none.
-pub async fn set_team(data_dir: &Path, input: TeamChoice) -> VercelResult<()> {
-    let team = input
-        .team
-        .map(|team| team.trim().to_string())
-        .filter(|team| !team.is_empty());
-    store::update(data_dir, move |config: &mut VercelConfig| {
-        if config.account.is_none() {
-            return Err(VercelError::Unconfigured);
-        }
-        config.team = team;
-        Ok(())
-    })
-    .await
 }
 
 #[cfg(test)]

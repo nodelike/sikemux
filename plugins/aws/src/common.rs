@@ -1,18 +1,11 @@
 // Shared CLI plumbing for every AWS module.
-//
-//   run_aws_cli         — spawn `aws ...` with PAGER/COLOR scrubbed
-//   aws_json            — run + parse stdout as JSON
-//   classify_cli_err    — map stderr text → typed AwsError
-//   describe_in_chunks  — run N AWS calls in parallel, splitting `arns` into
-//                         chunks (AWS describe-* commands cap at 10/100/etc)
 
 use std::time::Duration;
 
 use futures::future::try_join_all;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use sikemux_plugin_api::process;
-use sikemux_plugin_api::process::{ProcessCancellation, ProcessRunError};
+use sikemux_process::{ProcessCancellation, ProcessRunError};
 use tokio::task;
 
 use crate::error::{AwsError, AwsResult};
@@ -37,7 +30,7 @@ pub(crate) fn last_segment(arn: &str) -> String {
 }
 
 pub(crate) fn aws_bin() -> String {
-    process::user_environment::var("AWS_CLI").unwrap_or_else(|| "aws".to_string())
+    sikemux_process::user_environment::var("AWS_CLI").unwrap_or_else(|| "aws".to_string())
 }
 
 /// Which credentials and region a call runs with. No profile leaves the choice
@@ -61,8 +54,8 @@ impl Target {
     }
 }
 
-pub(crate) fn aws_command(target: &Target) -> std::process::Command {
-    let mut cmd = process::user_environment::command(aws_bin());
+pub(crate) fn aws_command(target: &Target) -> sikemux_process::command::Command {
+    let mut cmd = sikemux_process::user_environment::command(aws_bin());
     if let Some(profile) = &target.profile {
         cmd.env("AWS_PROFILE", profile);
     }
@@ -89,7 +82,7 @@ fn run_aws_cli(
     } else {
         AWS_COMMAND_TIMEOUT
     };
-    let out = process::run(
+    let out = sikemux_process::run(
         &mut cmd,
         None,
         timeout,
@@ -137,8 +130,6 @@ pub(crate) async fn run_aws_cli_async(
     .map_err(|e| AwsError::Aws(format!("join error: {e}")))?
 }
 
-/// Map AWS CLI stderr text into a typed AwsError.
-///
 /// Prefers structured JSON when the CLI ran `--output json` and surfaced
 /// an error envelope (`{"Error": {"Code": "ExpiredToken", ...}}`). Falls
 /// back to substring matching the human stderr when no structured form is

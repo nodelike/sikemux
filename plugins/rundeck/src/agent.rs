@@ -1,4 +1,4 @@
-// What agents reach through their rundeck_* tools: jobs named by their
+// What agents reach through their rundeck tool: jobs named by their
 // group/name path, runs that wait for their end, and bounded log excerpts.
 
 use std::collections::{BTreeMap, HashMap};
@@ -9,9 +9,7 @@ use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
-use sikemux_plugin_api::process;
-
-use crate::client::{get_json, seg, Session, HTTP};
+use crate::client::{get_json, seg, Session};
 use crate::error::{RundeckError, RundeckResult};
 use crate::executions::{self, branch_from_options, Execution, ExecutionList, RunRequest};
 use crate::jobs::{self, JobDetail, JobOption};
@@ -33,8 +31,6 @@ fn path_of(detail: &JobDetail) -> String {
         _ => detail.name.clone(),
     }
 }
-
-// ---- jobs -----------------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,7 +104,7 @@ async fn definitions(session: &Session, project: Option<&str>) -> RundeckResult<
     let fetched = join_all(
         projects
             .iter()
-            .map(|project| HTTP.limited(jobs::definitions(session, &project.name))),
+            .map(|project| jobs::definitions(session, &project.name)),
     )
     .await;
     let mut found = Vec::new();
@@ -270,7 +266,7 @@ pub async fn resolve(
             let place =
                 project.map_or_else(|| "any project".to_string(), |p| format!("project {p}"));
             Err(RundeckError::BadArg(if near.is_empty() {
-                format!("no job in {place} is named {wanted}; rundeck_jobs lists them")
+                format!("no job in {place} is named {wanted}; rundeck jobs lists them")
             } else {
                 format!(
                     "no job in {place} is named {wanted}; the closest are {}",
@@ -288,8 +284,6 @@ pub async fn resolve(
         ))),
     }
 }
-
-// ---- runs -----------------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,7 +333,7 @@ fn duration_secs(execution: &Execution) -> Option<i64> {
     let started = execution.date_started.as_ref()?.unixtime? / 1000;
     let ended = match execution.date_ended.as_ref().and_then(|date| date.unixtime) {
         Some(ended) => ended / 1000,
-        None => process::clock::epoch_secs() as i64,
+        None => sikemux_process::clock::epoch_secs() as i64,
     };
     Some((ended - started).max(0))
 }
@@ -400,7 +394,7 @@ async fn awaited(
             .unwrap_or_default();
     } else {
         outcome.note = Some(format!(
-            "still {} after {}s; rundeck_execution with wait keeps waiting",
+            "still {} after {}s; to wait longer, trigger_add with rundeck set to its id and end your turn",
             outcome.status,
             WAIT_LIMIT.as_secs()
         ));
@@ -474,6 +468,25 @@ fn check_options(detail: &JobDetail, given: &HashMap<String, String>) -> Rundeck
     Ok(())
 }
 
+/// Where a job asked to run lands, read as the run itself reads it.
+#[derive(Serialize)]
+pub struct Place {
+    path: String,
+    production: bool,
+}
+
+pub async fn place(session: &Session, ask: RunAsk, prod_envs: &[String]) -> RundeckResult<Place> {
+    let detail = resolve(session, &ask.job, ask.project.as_deref()).await?;
+    Ok(Place {
+        production: crate::shape::is_production(
+            &detail.project,
+            detail.group.as_deref(),
+            prod_envs,
+        ),
+        path: path_of(&detail),
+    })
+}
+
 pub async fn run(session: &Session, ask: RunAsk, prod_envs: &[String]) -> RundeckResult<Outcome> {
     let deadline = Instant::now() + WAIT_LIMIT;
     let detail = resolve(session, &ask.job, ask.project.as_deref()).await?;
@@ -514,8 +527,6 @@ pub async fn execution(session: &Session, execution_id: u64, wait: bool) -> Rund
     }
     Ok(outcome(execution))
 }
-
-// ---- history --------------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -603,8 +614,6 @@ pub async fn history(
         .map(|execution| row(execution, branch_options))
         .collect())
 }
-
-// ---- plan -----------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

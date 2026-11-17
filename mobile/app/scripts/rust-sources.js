@@ -78,7 +78,6 @@ function workspaceSettings(manifest, links = () => true) {
     .join('\n');
 }
 
-/** Where each workspace crate lives under `crates`, by its package name. */
 function crateDirs(crates) {
   const dirs = new Map();
   for (const dir of readdirSync(crates)) {

@@ -1,0 +1,146 @@
+//! Where the `sikemux` CLI lives and where its endpoint file is published.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// The endpoint file a command the person runs reads: the one Sikemux handed
+/// it, else the one this build of Sikemux publishes.
+pub fn endpoint_to_read() -> Result<PathBuf, String> {
+    sikemux_process::paths::handed_cli_endpoint()
+        .or_else(|| sikemux_process::paths::config_file("cli", "json"))
+        .ok_or_else(|| "home directory is unavailable".into())
+}
+
+/// The core this app ships: inside a macOS release bundle, or beside the app's
+/// executable. An AppImage's own core cannot keep secrets, so it runs the one the
+/// installer set up for it instead. `SIKEMUX_BIN_PATH` is not read here: every
+/// Sikemux terminal sets it, so an app started from one would run another build's
+/// core. Tests point the app elsewhere with `SIKEMUX_CORE_PATH`.
+pub fn cli_executable_path() -> Option<PathBuf> {
+    if let Some(path) = sikemux_process::paths::env_path("SIKEMUX_CORE_PATH") {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    let current = std::env::current_exe().ok()?;
+    let installed = Path::new(sikemux_corekit::host_update::INSTALLED_CORE);
+    let in_appimage =
+        sikemux_process::paths::env_path("APPDIR").is_some_and(|mount| current.starts_with(mount));
+    if in_appimage && installed.is_file() {
+        return Some(installed.to_path_buf());
+    }
+    let directory = current.parent()?;
+    let bundled = directory
+        .parent()
+        .and_then(Path::parent)
+        .filter(|bundle| {
+            bundle
+                .extension()
+                .is_some_and(|extension| extension == "app")
+        })
+        .map(|bundle| bundle.join(sikemux_process::paths::BUNDLED_CORE));
+    let filename = sikemux_process::names::CORE_EXECUTABLE;
+    bundled
+        .into_iter()
+        .chain([directory.join(filename)])
+        .find(|path| path.is_file())
+}
+
+static CLI_ON_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Agents shell out to `sikemux`, but the packaged CLI is named
+/// `sikemux-host`, so a `sikemux` link to it goes first on PATH for every
+/// process this app launches. Call once at startup.
+pub fn link_cli_for_children() {
+    let Some(executable) = cli_executable_path() else {
+        return;
+    };
+    let Some(directory) = sikemux_process::paths::config_file("state", "json").and_then(|path| {
+        Some(path.parent()?.join(if cfg!(debug_assertions) {
+            "bin-dev"
+        } else {
+            "bin"
+        }))
+    }) else {
+        return;
+    };
+    if let Ok(link) = link_cli(&executable, &directory) {
+        let _ = CLI_ON_PATH.set(link);
+    }
+}
+
+pub fn cli_link_directory() -> Option<&'static Path> {
+    CLI_ON_PATH.get()?.parent()
+}
+
+fn link_cli(executable: &Path, directory: &Path) -> std::io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    let link = directory.join(sikemux_process::names::APP_EXECUTABLE);
+    #[cfg(unix)]
+    {
+        if fs::read_link(&link).is_ok_and(|target| target == executable) {
+            return Ok(link);
+        }
+        let staging = directory.join(format!(".sikemux-{}", std::process::id()));
+        let _ = fs::remove_file(&staging);
+        std::os::unix::fs::symlink(executable, &staging)?;
+        fs::rename(&staging, &link)?;
+    }
+    #[cfg(windows)]
+    fs::copy(executable, &link)?;
+    Ok(link)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sikemux_process::sync::Locked;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cli_is_linked_as_sikemux_and_relinked_when_it_moves() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("first/sikemux-host");
+        let second = root.path().join("second/sikemux-host");
+        let directory = root.path().join("bin");
+        let link = link_cli(&first, &directory).unwrap();
+        assert_eq!(link, directory.join("sikemux"));
+        assert_eq!(fs::read_link(&link).unwrap(), first);
+        assert_eq!(link_cli(&first, &directory).unwrap(), link);
+        link_cli(&second, &directory).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), second);
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    }
+
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn a_second_app_started_from_our_terminal_keeps_its_own_endpoint() {
+        let _guard = ENV_GUARD.locked();
+        // What a terminal we spawned carries, so a Sikemux launched there
+        // inherits it. Publishing to it would steal our agents' endpoint.
+        std::env::set_var("SIKEMUX_CLI_ENDPOINT", "/tmp/sikemux-other-instance.json");
+        std::env::remove_var("SIKEMUX_CLI_ENDPOINT_PUBLISH");
+
+        let published =
+            sikemux_corekit::cli::endpoint::default_endpoint_path().expect("an endpoint path");
+
+        assert_ne!(published, Path::new("/tmp/sikemux-other-instance.json"));
+        std::env::remove_var("SIKEMUX_CLI_ENDPOINT");
+    }
+
+    #[test]
+    fn the_publish_override_is_honoured() {
+        let _guard = ENV_GUARD.locked();
+        std::env::set_var(
+            "SIKEMUX_CLI_ENDPOINT_PUBLISH",
+            "/tmp/sikemux-published-here.json",
+        );
+
+        let published =
+            sikemux_corekit::cli::endpoint::default_endpoint_path().expect("an endpoint path");
+
+        assert_eq!(published, Path::new("/tmp/sikemux-published-here.json"));
+        std::env::remove_var("SIKEMUX_CLI_ENDPOINT_PUBLISH");
+    }
+}

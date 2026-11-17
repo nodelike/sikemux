@@ -1,21 +1,43 @@
 ---
 title: Your phone
-description: "Sikemux on iPhone and Android: your account's devices, the lock, and adding a host with a code."
+description: "Sikemux on iPhone and Android: your account's devices, glances and widgets, the lock, and adding a host with a code."
 ---
 
 Sikemux on your phone signs in to the same account as your Mac and reaches every host on it.
 
+## Getting started
+
+Sign in to your Sikemux account in **Settings → Account**, with Google, GitHub or your email. Then open the **Devices** page from **Devices** in the account menu, ⌘⇧H, or **Devices** under **New…**, and choose **Pair device**. Scan the code it shows with your phone's camera, then sign in on the phone with the same account. **Remote access**, beside the page's **Devices** heading, lets your devices reach this host; it turns on when you sign in.
+
+Each phone then has a row under **Devices**, with when it was last connected and what it may do: **Full access** lets it do everything on this host that you can; **Watch** lets it read chats and answer agents' permission requests, nothing more. On the phone, a host where it may only watch says **Watch only** on its card. Its **⋯** switches between the two, **Rename…** renames it on your account, **Remove from this host** takes it off this host only: it waits for you to allow it the next time it asks, even with approval off, and comes back with no more than it had. **Remove from account** signs it out and takes it off every host at once.
+
+Another host's own Sikemux app, once it reaches this one, is not listed with the phones: its host's card on the **Devices** page has an **App** line saying whether it is connected and what it may do, with the same **⋯** less the account actions, since it stays on your account as long as its host does. This host's card says its own app is always allowed.
+
+If something other than Sikemux changes this host's list of devices, the host stops trusting it and pauses remote access. The **Devices** section then names what the list held: **Bring back those on your account** lets in again the devices and hosts your account still has, and **Start over** forgets them.
+
 ## Your account is the key
 
-Every device and host signed in to your account reaches every host on it with full access, with nothing to approve: signing in is the proof. When a new device or host joins your account, each of your other devices says so, **New device on your account**, with its name; **Remove** takes it off your account and off every host at once.
+Every device and host signed in to your account reaches every host on it with full access, with nothing to approve: signing in is the proof. Your phone connects to each host on your account by itself; its card on **Devices** reads **Connecting…** until it is in, or says why it could not get in, with **Try again**. A host you forget on the phone stays off it until you tap **Try again**. When a new device or host joins your account, each of your other devices says so, **New device on your account**, with its name; **Remove** takes it off your account and off every host at once.
 
-A host you want to guard more can ask first instead: turn on **Require approval for new devices** for it, in the **⋯** beside it under **Hosts** in the app, in **Settings → Hosts**, or at the top of its **Paired devices** on your phone. A new device or host then waits there, and your phone gets a notification to allow it, for ten minutes, even if the device gives up waiting sooner.
+A host you want to guard more can ask first instead: turn on **Require approval for new devices** for it, in the **⋯** beside it under **Hosts** in the app or on its card's detail on the **Devices** page, or at the top of its **Paired devices** on your phone. A new device or host then waits there, and your phone gets a notification to allow it, for ten minutes, even if the device gives up waiting sooner. A phone waiting on such a host says so on its card: **Waiting for** the host **to allow this phone**.
+
+## Calls and how agents stand
+
+Each agent on a host's **Agents** tab ends its row with how its turn stands, as your Mac's tab rail marks it: the working squares, a pink ring with the minutes left while it waits on CI, an amber dot with how long a call has waited on you, a purple dot once it is done, red once it failed, a hollow ring once it stopped. The **Calls** tab lists what agents wait on you for and what came of what you answered; see [When the agent asks you something](/agents/chats/#when-the-agent-asks-you-something).
+
+## At a glance
+
+While an agent works or needs you, your phone shows it outside the app. On iPhone a Live Activity for each host holds the lock screen and the Dynamic Island, however many agents you run: how many need you, how many work and how many finished that you have not seen, then up to three of those that need you, as your rail ranks them, and how many more. A lead and its team are one row, with how many of the team work; tapping it opens the agent that asks. With nothing waiting on you, it shows the projects most at work instead. The Dynamic Island shows only the counts until you hold it. It starts when you open Sikemux while an agent works, and with notifications on, the host keeps it current while your phone is locked, sealed like its notifications so Sikemux's servers can't read it. It says **May be out of date** once it has heard nothing for fifteen minutes, and goes a few minutes after the last agent stops. Live Activities can be turned off for Sikemux in the iPhone's **Settings → Sikemux**.
+
+Two widgets go on the home screen: **Needs you**, with how many agents wait on you across your hosts and the first of them, updated as notifications arrive, and **Limits**, with how much of each agent account's plan is used and when it resets, as your Mac's Limits panel shows it; the small one shows the account nearest its limit. On Android an ongoing notification gives the same counts and the first agent that needs you, else the project most at work, until nothing works or waits, and the **Limits** widget lists each account's windows.
+
+With the lock on, none of these shows what an agent works on or its name, only its host and the counts.
 
 ## The lock
 
 Sikemux can ask for Face ID, Touch ID or your phone's passcode each time it opens, before it shows any host or chat. It is off until you turn on **Lock Sikemux** in the account sheet, which asks once to check it works; your phone needs a passcode for it.
 
-With the lock on, Sikemux asks again once the app has been in the background for a minute, and while it is away the app switcher shows a blank screen in its place. A link or a notification you tap opens after you unlock. On iPhone, **Allow** or **Reject** on a notification is sent only then; on Android they answer from the notification itself, and **Allow** first asks for the phone's own lock. Signing out turns the lock off.
+With the lock on, Sikemux asks again once the app has been in the background for a minute, and while it is away the app switcher shows a blank screen in its place. A link or a notification you tap opens after you unlock. On iPhone, **Allow** or **Reject**, or an answer to a call, on a notification is sent only then; on Android they answer from the notification itself, and **Allow** and a call's answers first ask for the phone's own lock; on Android 11 and older, which can't ask for it there, they open the app instead. Signing out turns the lock off.
 
 ## Adding a host with a code
 

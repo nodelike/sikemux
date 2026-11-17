@@ -1,0 +1,22 @@
+[package]
+name = "sikemux-calls"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-git = { path = "../sikemux-git" }
+sikemux-plugin-api = { path = "../sikemux-plugin-api" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

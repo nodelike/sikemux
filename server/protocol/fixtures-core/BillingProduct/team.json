@@ -1,0 +1,18 @@
+{
+  "id": "team",
+  "name": "Team",
+  "kind": "plan",
+  "plan": "team",
+  "unit": "seat",
+  "payer": "org",
+  "maxQuantity": 1000,
+  "prices": [
+    {
+      "interval": "month",
+      "unit": {
+        "amount": 2000,
+        "currency": "usd"
+      }
+    }
+  ]
+}

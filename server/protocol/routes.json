@@ -55,12 +55,12 @@
       "auth": "signedIn",
       "request": "DeviceRegistration",
       "responses": {
-        "201": {
-          "description": "The device was added.",
-          "body": "Device"
-        },
         "200": {
           "description": "The device was already yours and is updated.",
+          "body": "Device"
+        },
+        "201": {
+          "description": "The device was added.",
           "body": "Device"
         }
       }
@@ -70,7 +70,7 @@
       "path": "/v1/devices",
       "operationId": "listDevices",
       "summary": "Your devices",
-      "auth": "sessionOrHost",
+      "auth": "sessionHostOrMac",
       "query": {
         "role": "DeviceRole"
       },
@@ -158,7 +158,7 @@
       "path": "/v1/devices/{key}/join",
       "operationId": "createJoinTicket",
       "summary": "A ticket for this phone to join one of your hosts without a code",
-      "auth": "sessionOrHost",
+      "auth": "sessionHostOrMac",
       "request": "JoinRequest",
       "responses": {
         "200": {
@@ -223,12 +223,12 @@
       "auth": "none",
       "request": "HostSignInFinish",
       "responses": {
-        "201": {
-          "description": "The host is on the account. The code is used up.",
-          "body": "Device"
-        },
         "200": {
           "description": "The host was already on the account and is updated. The code is used up.",
+          "body": "Device"
+        },
+        "201": {
+          "description": "The host is on the account. The code is used up.",
           "body": "Device"
         },
         "400": {
@@ -276,12 +276,12 @@
         "204": {
           "description": "Approved. The host finishes on its next ask."
         },
-        "404": {
-          "description": "The code is unknown, was refused, or has expired.",
-          "body": "ApiError"
-        },
         "403": {
           "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
           "body": "ApiError"
         }
       }
@@ -373,6 +373,10 @@
         "403": {
           "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
           "body": "ApiError"
+        },
+        "409": {
+          "description": "You are the only owner of an org: make someone else its owner, or delete it, first.",
+          "body": "ApiError"
         }
       }
     },
@@ -403,6 +407,296 @@
         "200": {
           "description": "The profile, read from the account's sign-in.",
           "body": "AccountProfile"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/account/allowance",
+      "operationId": "getAccountAllowance",
+      "summary": "The plan of the account a host is on, and what it may use",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The allowance; plan.changed says when to read it again. Until billing is live, every feature is allowed.",
+          "body": "Allowance"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs",
+      "operationId": "createOrg",
+      "summary": "Make an org, with you as its owner",
+      "auth": "session",
+      "request": "OrgCreate",
+      "responses": {
+        "201": {
+          "description": "The new org. It has no seats beyond its owner until it has a Team plan.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgCreate.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs",
+      "operationId": "listOrgs",
+      "summary": "The orgs you are in",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Each org with your role and its seats.",
+          "body": "OrgList"
+        },
+        "404": {
+          "description": "Your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/join",
+      "operationId": "joinOrg",
+      "summary": "Accept an invite and join its org",
+      "auth": "session",
+      "request": "OrgJoin",
+      "responses": {
+        "200": {
+          "description": "You are in the org, with the invite's role. The invite is used up.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgJoin.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No invite has that token, or it was used, revoked or has expired.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "You are already in the org, or it has no free seat because its Team plan lapsed or its seats were cut.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/name",
+      "operationId": "renameOrg",
+      "summary": "Rename an org, as its owner or an admin",
+      "auth": "session",
+      "request": "OrgRename",
+      "responses": {
+        "200": {
+          "description": "The org under its new name.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a valid OrgRename.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}",
+      "operationId": "deleteOrg",
+      "summary": "Delete an org, as its owner",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The org, its members and its invites are gone."
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org still has a subscription that has not ended; cancel it first.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/members",
+      "operationId": "listOrgMembers",
+      "summary": "Everyone in an org",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The members with their roles.",
+          "body": "OrgMemberList"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/members/{memberId}/role",
+      "operationId": "setOrgMemberRole",
+      "summary": "Change a member's role",
+      "auth": "session",
+      "request": "OrgRoleChange",
+      "responses": {
+        "200": {
+          "description": "The member with the new role. An admin changes admins and users; only an owner makes or unmakes an owner.",
+          "body": "OrgMember"
+        },
+        "400": {
+          "description": "The body is not a valid OrgRoleChange.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "It would leave the org with no owner.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/members/{memberId}",
+      "operationId": "removeOrgMember",
+      "summary": "Take someone out of an org",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "They are no longer in the org, and their seat is free. An admin removes admins and users; only an owner removes an owner."
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "It would leave the org with no owner.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/leave",
+      "operationId": "leaveOrg",
+      "summary": "Leave an org",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "You are no longer in the org, and your seat is free."
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "You are its only owner: make someone else an owner, or delete the org.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/invites",
+      "operationId": "createOrgInvite",
+      "summary": "Make an invite link, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgInviteCreate",
+      "responses": {
+        "201": {
+          "description": "The invite and its link, shown only now. It holds a seat until it is accepted, revoked or expires in 7 days.",
+          "body": "OrgInviteCreated"
+        },
+        "400": {
+          "description": "The body is not a valid OrgInviteCreate.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it. Only an owner invites an owner.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/invites",
+      "operationId": "listOrgInvites",
+      "summary": "An org's pending invites, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The invites not yet accepted, revoked or expired.",
+          "body": "OrgInviteList"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/invites/{inviteId}",
+      "operationId": "revokeOrgInvite",
+      "summary": "Revoke an invite, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The link no longer works and its seat is free. Revoking one already used, revoked or expired changes nothing."
+        },
+        "403": {
+          "description": "Your role in the org does not allow it. Only an owner revokes an invite to be an owner.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no invite with that id.",
+          "body": "ApiError"
         }
       }
     },
@@ -674,6 +968,728 @@
         },
         "429": {
           "description": "Too many connections from this address.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/share",
+      "operationId": "openShare",
+      "summary": "One connection per host publishing shared chats, and one per viewer watching one",
+      "auth": "sessionOrHost",
+      "upgrade": "websocket",
+      "messages": {
+        "send": "ShareClientMessage",
+        "receive": "ShareServerMessage"
+      },
+      "responses": {
+        "101": {
+          "description": "The connection is open. The server sends a challenge; the client answers with hello within 10 seconds. Its close codes are ShareCloseCode."
+        },
+        "429": {
+          "description": "Too many connections from this address.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/vault",
+      "operationId": "getVault",
+      "summary": "The account's vault as this host sees it: its entries, the key sealed for this host, and the hosts still waiting for it",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The vault, or null when the account has none yet.",
+          "body": "VaultState"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/vault",
+      "operationId": "createVault",
+      "summary": "Make the account's vault, with its key sealed for this host and for the recovery key",
+      "auth": "host",
+      "request": "VaultCreate",
+      "responses": {
+        "201": {
+          "description": "The vault, at generation 1. Every host hears vault.changed.",
+          "body": "VaultState"
+        },
+        "409": {
+          "description": "The account already has a vault.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/vault/keys",
+      "operationId": "addVaultKeys",
+      "summary": "Seal the vault key for hosts on the account: a holder for any of them, a host restoring the vault from its recovery key only for itself",
+      "auth": "host",
+      "request": "VaultKeysAdd",
+      "responses": {
+        "200": {
+          "description": "The vault with the new holders. Every host hears vault.changed.",
+          "body": "VaultState"
+        },
+        "400": {
+          "description": "A key is for a device that is not a host on the account.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the key at that generation, and the keys are not only for itself.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/vault/rotate",
+      "operationId": "rotateVault",
+      "summary": "Replace the vault key, sealing every entry again under the new one",
+      "auth": "host",
+      "request": "VaultRotate",
+      "responses": {
+        "200": {
+          "description": "The vault at the next generation. Every host hears vault.changed.",
+          "body": "VaultState"
+        },
+        "400": {
+          "description": "A key is for a device that is not a host on the account, or leaves out this host.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the key at that generation.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/vault/entries/{id}",
+      "operationId": "putVaultEntry",
+      "summary": "Add an entry to the vault, or replace one",
+      "auth": "host",
+      "request": "VaultEntryPut",
+      "responses": {
+        "200": {
+          "description": "The entry as it is now. Every host hears vault.changed.",
+          "body": "VaultEntry"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/vault/entries/{id}",
+      "operationId": "deleteVaultEntry",
+      "summary": "Take an entry out of the vault",
+      "auth": "host",
+      "query": {
+        "revision": "VaultRevisionParam"
+      },
+      "responses": {
+        "204": {
+          "description": "Removed. Every host hears vault.changed."
+        },
+        "400": {
+          "description": "The revision is missing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No entry with that id is in the vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The revision is not the entry's current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/vault/uses",
+      "operationId": "addVaultUses",
+      "summary": "Report the uses this host's agents made of the vault's entries",
+      "auth": "host",
+      "request": "VaultUsesAdd",
+      "responses": {
+        "204": {
+          "description": "Recorded."
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/vault/uses",
+      "operationId": "listVaultUses",
+      "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
+      "auth": "sessionDeviceOrMac",
+      "query": {
+        "entry": "VaultEntryId"
+      },
+      "responses": {
+        "200": {
+          "description": "Up to 500 uses, the most recent first.",
+          "body": "VaultUses"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/mods/documents",
+      "operationId": "pushModDocuments",
+      "summary": "Store the mod documents this host changed, each only if its revision is still the server's",
+      "auth": "host",
+      "request": "ModsPush",
+      "responses": {
+        "200": {
+          "description": "What was stored and what conflicted. When anything was stored, the account's other hosts hear mods.changed.",
+          "body": "ModsPushed"
+        },
+        "400": {
+          "description": "A document is named twice.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the vault key at that generation.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one.",
+          "body": "ApiError"
+        },
+        "413": {
+          "description": "Storing the push would take the account past 64 MiB of sealed mod documents, or the request is over 4 MiB.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "This host pushed more than 30 times in the last minute.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/mods/documents",
+      "operationId": "pullModDocuments",
+      "summary": "The mod documents and purges after a seq, a page at a time",
+      "auth": "host",
+      "query": {
+        "since": "ModSeqParam"
+      },
+      "responses": {
+        "200": {
+          "description": "Up to 500 documents or 4 MiB of sealed text, oldest first, with the purges among them.",
+          "body": "ModsPulled"
+        },
+        "400": {
+          "description": "since is missing.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/mods/{mod}/files",
+      "operationId": "listModFiles",
+      "summary": "The ids of the files the account holds for one mod",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "Every file of the mod, in no order.",
+          "body": "ModFiles"
+        },
+        "400": {
+          "description": "The mod id is not valid.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/mods/{mod}/files/{file}",
+      "operationId": "putModFile",
+      "summary": "Store one of a mod's files, such as a picture, sealed under the vault key by the host",
+      "auth": "host",
+      "bytes": "request",
+      "responses": {
+        "200": {
+          "description": "Stored, or held already. When stored, the account's other hosts hear mods.changed.",
+          "body": "ModFileStored"
+        },
+        "400": {
+          "description": "The mod or file id is not valid, or the body does not match its X-Body-Sha256.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "413": {
+          "description": "The file is over 25 MiB sealed, or the account's mod files would be over 256 MiB (message names which).",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "This host stored more than 120 files in the last minute.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "The server keeps no files.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/mods/{mod}/files/{file}",
+      "operationId": "getModFile",
+      "summary": "One of a mod's files, as the host sealed it",
+      "auth": "host",
+      "bytes": "response",
+      "responses": {
+        "200": {
+          "description": "The sealed bytes."
+        },
+        "404": {
+          "description": "The account holds no such file.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/mods/{mod}/files/{file}",
+      "operationId": "removeModFile",
+      "summary": "Remove one of a mod's files no host's copy of the mod names any more",
+      "auth": "host",
+      "responses": {
+        "204": {
+          "description": "The account no longer holds the file, whether or not it did."
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/mods/{mod}/documents",
+      "operationId": "purgeModDocuments",
+      "summary": "Remove every document of one mod from the account, when the person removes the mod",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "Purged, with the mod's files. The account's other hosts hear mods.changed and see the purge in their next pull.",
+          "body": "ModsPurged"
+        },
+        "400": {
+          "description": "The mod id is not valid.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/catalog",
+      "operationId": "getBillingCatalog",
+      "summary": "Every plan and product on sale, with prices",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The catalog.",
+          "body": "BillingCatalog"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing",
+      "operationId": "getBilling",
+      "summary": "Your plan, or an org's, and what it pays for",
+      "auth": "session",
+      "query": {
+        "org": "OrgId"
+      },
+      "responses": {
+        "200": {
+          "description": "The plan, what it allows and its subscriptions.",
+          "body": "BillingOverview"
+        },
+        "403": {
+          "description": "Only the org's owner reads its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/checkout",
+      "operationId": "startCheckout",
+      "summary": "Open the provider's page to buy a product",
+      "auth": "session",
+      "request": "CheckoutRequest",
+      "responses": {
+        "200": {
+          "description": "Where to pay. Nothing changes until the provider says the payment went through.",
+          "body": "Checkout"
+        },
+        "400": {
+          "description": "The product is not sold by that interval, for that payer or in that quantity.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owner buys for it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The payer already holds this plan, or a Shed product not yet on sale outside staff.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "patch",
+      "path": "/v1/billing/subscriptions/{subscriptionId}",
+      "operationId": "changeSubscription",
+      "summary": "Change a subscription's quantity, product or interval, now and prorated or at renewal",
+      "auth": "session",
+      "request": "SubscriptionChange",
+      "responses": {
+        "200": {
+          "description": "The subscription as it stands once the provider has taken the change; one at renewal shows in atRenewal.",
+          "body": "Subscription"
+        },
+        "400": {
+          "description": "The change is not one this subscription can make.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended, a refund of it is waiting, or the payment for a change now did not go through and nothing changed.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/preview",
+      "operationId": "previewSubscriptionChange",
+      "summary": "What a change would charge now and at the next renewal, changing nothing",
+      "auth": "session",
+      "request": "SubscriptionChange",
+      "responses": {
+        "200": {
+          "description": "The charge now and at renewal, as the provider works them out.",
+          "body": "ChangePreview"
+        },
+        "400": {
+          "description": "The change is not one this subscription can make.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended, a refund of it is waiting, or its payment method cannot be charged mid-period.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/cancel",
+      "operationId": "cancelSubscription",
+      "summary": "End a subscription when its paid period ends",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The subscription, set to end at currentPeriodEnd. Repeating it changes nothing.",
+          "body": "Subscription"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/resume",
+      "operationId": "resumeSubscription",
+      "summary": "Take back a cancellation before the period ends",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The subscription, renewing again.",
+          "body": "Subscription"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended, or a refund of it is waiting.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/refund",
+      "operationId": "refundSubscription",
+      "summary": "Refund a plan in its first days and end it",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The subscription with the refund asked for. It stops renewing at once; it ends, and its payments turn refunded, when the provider pays the refund, which may be later. Asking again changes nothing.",
+          "body": "Subscription"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended, or its refund is not open: a plan is refunded within the catalog's refundDays of first paying for it, once for each kind of plan.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/invoices",
+      "operationId": "listInvoices",
+      "summary": "Your payments, or an org's",
+      "auth": "session",
+      "query": {
+        "org": "OrgId"
+      },
+      "responses": {
+        "200": {
+          "description": "Every payment, newest first.",
+          "body": "InvoiceList"
+        },
+        "403": {
+          "description": "Only the org's owner reads its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/invoices/{invoiceId}/refund",
+      "operationId": "refundInvoice",
+      "summary": "Refund the plan an invoice paid for, in its first days, and end it",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The invoice with its plan's refund asked for, as refundSubscription does. It turns refunded, and the plan ends, when the provider says the refund is made, which may be later.",
+          "body": "Invoice"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such invoice of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The invoice is not one the plan's refund returns: a plan is refunded within the catalog's refundDays of first paying for it, once for each kind of plan.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/invoices/{invoiceId}/receipt",
+      "operationId": "getInvoiceReceipt",
+      "summary": "Where one payment's receipt is",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The provider's receipt page for the payment.",
+          "body": "BillingLink"
+        },
+        "404": {
+          "description": "No such invoice of the account's, the provider has no receipt for it, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/portal",
+      "operationId": "getBillingPortal",
+      "summary": "The provider's own page for payment methods and receipts",
+      "auth": "session",
+      "query": {
+        "org": "OrgId"
+      },
+      "responses": {
+        "200": {
+          "description": "Where the provider's page is.",
+          "body": "BillingLink"
+        },
+        "403": {
+          "description": "Only the org's owner reads its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The provider has no such page, the payer has never paid, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/paddle",
+      "operationId": "getPaddleCheckout",
+      "summary": "What the checkout page opens Paddle's checkout with",
+      "auth": "none",
+      "responses": {
+        "200": {
+          "description": "Paddle's public client token and which of its environments it is for.",
+          "body": "PaddleCheckout"
+        },
+        "404": {
+          "description": "Billing does not go through Paddle.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "Paddle is not set up yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/provider",
+      "operationId": "receiveBillingEvent",
+      "summary": "The payment provider telling the API what it billed",
+      "auth": "webhook",
+      "responses": {
+        "204": {
+          "description": "Handled, already handled, or not an event the API acts on."
+        },
+        "401": {
+          "description": "The provider's signature is missing or wrong.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
           "body": "ApiError"
         }
       }

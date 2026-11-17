@@ -45,7 +45,6 @@ enum Handover {
         return true
     }
 
-    /// Whether Sikemux Dev's helper is running now.
     static func devIsRunning(stateDir: String) -> Bool {
         let descriptor = open(lockPath(stateDir: stateDir, dev: true), O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return false }

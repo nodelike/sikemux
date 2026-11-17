@@ -3,24 +3,28 @@
  * showcase: one Mac is already paired and answers from the demo world instead
  * of the network.
  */
+import type { MdElement } from '@shared/markdown/types';
 import AGENT_CATALOG from '../../shared/agents/catalog.generated.json';
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage, CoreCalls } from '@shared/wire.generated';
 import { ChatAttachment, CoreEvent, MobileError } from '../app/test/mocks/sikemux-native';
 import {
-  BOARDS,
   CHATS,
   CORE,
   HOST,
   LAUNCHERS,
-  MESSAGES,
   PANE_PICTURE,
   PROJECTS,
   PROJECT_FILES,
   QUESTIONS,
+  CALLS,
+  TURNS,
+  LINES,
   RECENT,
+  RECORDED,
   SESSIONS,
   TRACKED,
   chatHead,
+  recordedView,
   chatRows,
   permissionPayload,
 } from './world';
@@ -51,29 +55,38 @@ type Listener = {
 
 const projectPath = (id: string) => PROJECTS.find((project) => project.id === id)?.path ?? '/';
 
-/** The words a core shows for each group. */
 const GROUP_LABELS = { blocked: 'Needs input', working: 'Working', done: 'Done', idle: 'Idle' } as const;
 
 /** How the core shows each demo chat, in the order it lists them. */
 function shown() {
-  return CHATS.map((chat) => {
-    const asks = chat.asking || QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked);
-    const group = asks ? 'blocked' : chat.running ? 'working' : 'idle';
-    return {
-      agentId: chat.agentId,
-      cli: chat.provider,
-      title: chat.title,
-      status: group,
-      group,
-      label: GROUP_LABELS[group],
-      unread: false,
-      subagents: 0,
-      tasks: 0,
-      busy: group !== 'idle',
-      background: false,
-      activeAt: Date.now(),
-    };
-  }).sort((a, b) => Object.keys(GROUP_LABELS).indexOf(a.group) - Object.keys(GROUP_LABELS).indexOf(b.group));
+  return CHATS.filter((chat) => !chat.unlisted)
+    .map((chat) => {
+      const asks = chat.asking || QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked);
+      const group = asks ? 'blocked' : chat.running ? 'working' : 'idle';
+      return {
+        agentId: chat.agentId,
+        name: chat.name,
+        cli: chat.provider,
+        title: chat.title,
+        titled: true,
+        project: chat.project,
+        projectName: PROJECTS.find((project) => project.id === chat.project)?.name,
+        status: group,
+        group,
+        label: GROUP_LABELS[group],
+        unread: false,
+        subagents: 0,
+        tasks: 0,
+        busy: group !== 'idle',
+        failed: false,
+        background: false,
+        activeAt: Date.now(),
+        turn: TURNS[chat.agentId],
+        line: LINES[chat.agentId],
+        chief: PROJECTS.some((project) => 'chief' in project && project.chief === chat.agentId) || undefined,
+      };
+    })
+    .sort((a, b) => Object.keys(GROUP_LABELS).indexOf(a.group) - Object.keys(GROUP_LABELS).indexOf(b.group));
 }
 
 /** The host's inbox as its core would rank the demo world. */
@@ -85,6 +98,7 @@ function inbox() {
     project: chat.project,
     title: chat.title,
     feed: chat.agentId,
+    heading: chat.title,
     recordings: [],
   });
   const chat = (agentId: string) => CHATS.find((known) => known.agentId === agentId) ?? CHATS[0];
@@ -117,7 +131,7 @@ function inbox() {
     id: `agent:${known.agentId}`,
     tier: 'review',
     kind: 'changes',
-    what: 'Finished, with changes to review',
+    what: 'Finished, changed 3 files',
     at: Date.now() - 1_800_000,
     handoff: { answer: known.handoff?.answer, files: known.handoff?.files, edited: known.handoff?.files.length },
     recordings: known.handoff?.recording
@@ -142,13 +156,34 @@ function inbox() {
     agentMessages: {},
     remoteAgents: [],
     agents: shown(),
+    projects: {},
+    needs: {},
   };
+}
+
+/** How a project stands and how many calls of its wait, as the core works them out. */
+function standingOf(project: { id: string; path: string }) {
+  const calls = CALLS.filter((call) => call.state === 'open' && call.project === project.path).length;
+  const states = CHATS.filter((chat) => chat.project === project.id).map((chat) => TURNS[chat.agentId]?.state);
+  const standing =
+    calls || states.includes('needsYou')
+      ? 'needsYou'
+      : states.some((state) => state === 'working' || state === 'waiting')
+        ? 'atWork'
+        : undefined;
+  return { standing, calls: calls || undefined };
 }
 
 function view() {
   return {
+    calls: CALLS,
     workspace: {
-      projects: PROJECTS,
+      projects: PROJECTS.map((project) => ({
+        ...project,
+        codeHost: project.codeHost && { ...project.codeHost, plugin: 'sikemux.github', label: 'GitHub' },
+        agents: CHATS.filter((chat) => !chat.unlisted && chat.project === project.id).length || undefined,
+        ...standingOf(project),
+      })),
       agents: CHATS.map((chat) => ({
         id: chat.agentId,
         provider: chat.provider,
@@ -158,7 +193,7 @@ function view() {
         title: chat.title,
         permissionMode: chat.permissionMode,
       })),
-      launchers: LAUNCHERS,
+      launchers: LAUNCHERS.map((launcher) => ({ ...launcher, configOptions: null })),
       palette: {},
       backdrop: { texture: true, image: 'pane' },
     },
@@ -168,9 +203,17 @@ function view() {
       running: true,
       cols: 120,
       rows: 34,
+      attached: 0,
       project: session.project,
-      task: session.task,
+      task: session.task && {
+        ...session.task,
+        executionId: `run-${session.id}`,
+        terminalKey: `task-${session.id}`,
+        taskId: session.task.label,
+        source: 'project',
+      },
       killed: false,
+      unread: false,
     })),
     chats: CHATS.map((chat) => ({
       agentId: chat.agentId,
@@ -184,6 +227,7 @@ function view() {
       launcher: chat.provider,
       permissionMode: chat.permissionMode,
       asleep: chat.asleep ?? false,
+      unread: false,
       group: QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked) ? 'blocked' : undefined,
     })),
     attentions: CHATS.flatMap((chat) => {
@@ -192,6 +236,7 @@ function view() {
         ? [
             {
               id: `ask-${chat.agentId}`,
+              kind: 'permission',
               agentId: chat.agentId,
               provider: chat.provider,
               cwd: projectPath(chat.project),
@@ -211,6 +256,9 @@ function view() {
       activeAt: Date.now() - chat.hours * 3_600_000,
     })),
     inbox: inbox(),
+    layout: {},
+    account: null,
+    faceStyle: { on: false, pack: 'all', shape: 'mixed', motion: true },
   };
 }
 
@@ -218,12 +266,35 @@ function view() {
 async function withTrees(rows: ChatMessage[]): Promise<ChatMessage[]> {
   const parts = rows.flatMap((row) => row.parts.flatMap((part) => (part.kind === 'text' || part.kind === 'thought' ? [part] : [])));
   const response = await fetch('/showcase/markdown', { method: 'POST', body: JSON.stringify(parts.map((part) => part.text)) });
-  const trees = (await response.json()) as unknown[][];
+  const trees = (await response.json()) as MdElement[][];
   parts.forEach((part, index) => {
     part.md = { blocks: trees[index], n: part.text.length };
   });
   return rows;
 }
+
+/** What the pretend host answers, by the core's own call names, so a renamed call fails the typecheck. */
+const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) => unknown } = {
+  questions: () => QUESTIONS.map((question) => ({ ...question, multi: false })),
+  agentCatalog: () => AGENT_CATALOG,
+  chatToolDetail: ({ agentId, toolCallId }) => RECORDED.find((chat) => chat.agentId === agentId)?.recorded?.details[toolCallId] ?? {},
+  closedAgents: () => [],
+  agentSessions: () => [],
+  projectEntries: ({ query }) =>
+    PROJECT_FILES.filter((path) => path.toLowerCase().includes((query ?? '').toLowerCase())).map((path) => ({ path, folder: false })),
+  codeHostTracked: () => ({ value: TRACKED }),
+  codeHostTrackedContext: ({ number }) => {
+    const item = TRACKED.find((known) => known.number === number);
+    return { value: { uri: item?.url ?? '', title: `#${number} ${item?.title ?? ''}`, text: item?.title ?? '' } };
+  },
+  promptChat: () => ({}),
+  editMessage: () => null,
+  callSeen: () => null,
+  answerCall: () => null,
+  callNotMine: () => null,
+  takeStep: () => null,
+  openChief: ({ project }) => ({ agentId: PROJECTS.find((known) => known.id === project && 'chief' in known)?.chief ?? CHATS[0].agentId }),
+};
 
 class Connection {
   private open = true;
@@ -247,8 +318,11 @@ class Connection {
   async wakeChat() {}
 
   async attachChat(agentId: string) {
-    const chat = CHATS.find((known) => known.agentId === agentId);
+    const chat = [...CHATS, ...RECORDED].find((known) => known.agentId === agentId);
     if (!chat) return ChatAttachment.Missing.new({});
+    if (chat.recorded) {
+      return ChatAttachment.Live.new({ viewJson: JSON.stringify(recordedView(chat.recorded)), mark: { feed: chat.agentId, seq: 0n } });
+    }
     const rows = await withTrees(chatRows(chat));
     return ChatAttachment.Live.new({
       viewJson: JSON.stringify({ head: chatHead(chat), rows }),
@@ -278,34 +352,9 @@ class Connection {
     return undefined;
   }
   async call(method: string, params: string): Promise<string> {
-    if (method === 'boards') return JSON.stringify(BOARDS);
-    if (method === 'board') {
-      const { project } = JSON.parse(params) as { project: string };
-      const board = BOARDS.find((known) => known.project === project);
-      return JSON.stringify(board ?? { ...BOARDS[0], project, cards: [] });
-    }
-    if (method === 'questions') return JSON.stringify(QUESTIONS);
-    if (method === 'agentCatalog') return JSON.stringify(AGENT_CATALOG);
-    if (method === 'agentMessages') {
-      const { project } = JSON.parse(params) as { project: string };
-      return JSON.stringify({ project, entries: project === BOARDS[0].project ? MESSAGES : [] });
-    }
-    if (method === 'digest') return JSON.stringify({ away: false, finished: [], failed: [], waiting: [] });
-    if (method === 'chatToolDetail') return '{}';
-    if (method === 'closedAgents' || method === 'agentSessions') return '[]';
-    if (method === 'projectEntries') {
-      const { query } = JSON.parse(params) as { query: string };
-      const found = PROJECT_FILES.filter((path) => path.toLowerCase().includes(query.toLowerCase()));
-      return JSON.stringify(found.map((path) => ({ path, folder: false })));
-    }
-    if (method === 'codeHostTracked') return JSON.stringify({ value: TRACKED });
-    if (method === 'codeHostTrackedContext') {
-      const { number } = JSON.parse(params) as { number: number };
-      const item = TRACKED.find((known) => known.number === number);
-      return JSON.stringify({ value: { uri: item?.url ?? '', title: `#${number} ${item?.title ?? ''}`, text: item?.title ?? '' } });
-    }
-    if (method === 'promptChat') return '{}';
-    throw new Error(`the showcase host does not know ${method}`);
+    const answer = HOST_CALLS[method as keyof typeof HOST_CALLS] as ((params: never) => unknown) | undefined;
+    if (!answer) throw new Error(`the showcase host does not know ${method}`);
+    return JSON.stringify(answer(JSON.parse(params) as never));
   }
   async callToFile(method: string): Promise<string> {
     throw new Error(`the showcase host does not know ${method}`);

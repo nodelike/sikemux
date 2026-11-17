@@ -6,8 +6,14 @@
     "first-launch",
     "projects",
     "run",
+    "appearance",
+    "accessibility",
+    "languages",
     "updates",
+    "triage",
     "phone",
-    "stash"
+    "stash",
+    "hosts",
+    "mods"
   ]
 }

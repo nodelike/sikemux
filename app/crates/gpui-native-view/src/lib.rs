@@ -9,10 +9,10 @@
 //! - [`document::Document`] is a surface for a file macOS draws itself: PDFs in
 //!   PDFKit's view, office and iWork files in Quick Look's.
 //!
-//! Native views sit above everything GPUI draws, so a window that holds them
-//! should call `Window::enable_scene_overlay` as it opens: popovers, menus and
-//! anything else drawn deferred then show above the views, and take the
-//! clicks where they sit.
+//! A native view takes its place in paint order, as GPUI's own drawing does: what is
+//! painted after it and over it, such as a fade, a popover or a toast, shows above it,
+//! and takes the clicks where it sits. On macOS that needs `Window::enable_scene_overlay`
+//! as the window opens.
 
 #[cfg(target_os = "macos")]
 pub mod document;
@@ -20,12 +20,14 @@ pub mod document;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(windows)]
+mod windows;
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, HitboxBehavior,
+    App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, Hitbox, HitboxBehavior,
     InspectorElementId, IntoElement, LayoutId, Pixels, Refineable, Style, StyleRefinement, Styled,
     Window,
 };
@@ -33,11 +35,13 @@ use gpui::{
 #[cfg(target_os = "linux")]
 pub use linux::window_x11;
 #[cfg(target_os = "macos")]
-pub use macos::{window_view, OwnedView};
+pub use macos::{stand_in_for_offscreen, window_view, OwnedView};
 #[cfg(target_os = "macos")]
 pub use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
 pub use objc2_app_kit::NSView;
+#[cfg(windows)]
+pub use windows::window_hwnd;
 
 /// Something native shown in an element's place.
 pub trait Surface: 'static {
@@ -51,7 +55,8 @@ pub trait Surface: 'static {
     }
 }
 
-/// Where an element sits, in window points from the top left.
+/// Where an element sits from the window's top left: in points on macOS, and on Linux in the
+/// device pixels X11 places a native window by.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frame {
     pub bounds: Bounds<Pixels>,
@@ -137,7 +142,7 @@ impl IntoElement for NativeView {
 
 impl Element for NativeView {
     type RequestLayoutState = ();
-    type PrepaintState = ();
+    type PrepaintState = Hitbox;
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -167,12 +172,27 @@ impl Element for NativeView {
         _: &mut (),
         window: &mut Window,
         cx: &mut App,
-    ) {
+    ) -> Hitbox {
         if let Some(focus) = &self.focus {
             window.set_focus_handle(focus, cx);
         }
         let visible = bounds.intersect(&window.content_mask().bounds);
-        window.insert_hitbox(visible, HitboxBehavior::BlockMouseExceptScroll);
+        // Native views take no drags, so while one is held GPUI's drop targets under the view
+        // must still be reached.
+        let behavior = if cx.has_active_drag() {
+            HitboxBehavior::Normal
+        } else {
+            HitboxBehavior::BlockMouseExceptScroll
+        };
+        let hitbox = window.insert_hitbox(visible, behavior);
+        #[cfg(target_os = "linux")]
+        let (bounds, visible) = {
+            let scale = window.scale_factor();
+            (
+                bounds.map(|value| value * scale),
+                visible.map(|value| value * scale),
+            )
+        };
         let frame = (!visible.is_empty()).then_some(Frame { bounds, visible });
         let id = id.expect("a native view has an id");
         window.with_element_state(id, |placement: Option<Placement>, window| {
@@ -182,6 +202,7 @@ impl Element for NativeView {
             self.surface.place(placement.mark, frame);
             ((), placement)
         });
+        hitbox
     }
 
     fn paint(
@@ -190,10 +211,11 @@ impl Element for NativeView {
         _: Option<&InspectorElementId>,
         _: Bounds<Pixels>,
         _: &mut (),
-        _: &mut (),
-        _: &mut Window,
+        hitbox: &mut Hitbox,
+        window: &mut Window,
         _: &mut App,
     ) {
+        window.paint_native_view(hitbox);
     }
 }
 
@@ -225,6 +247,8 @@ impl Placement {
         let _ = (focus, window, cx);
         #[cfg(target_os = "macos")]
         macos::reclaim_keyboard_on_click();
+        #[cfg(target_os = "macos")]
+        macos::keep_cursor_rects_off_native_views();
         Self {
             surface: surface.clone(),
             mark,

@@ -1,3 +1,4 @@
+import { AGENT_URI, EARLIER_URI } from '@shared/wire.generated';
 import type { ContextChip } from '@/stash/words';
 
 /**
@@ -132,8 +133,8 @@ export function outgoing(text: string, tokens: readonly DraftToken[], tracked: R
     if (tracked[token.id]) add(tracked[token.id]);
     else if (path !== null) {
       if (!paths.includes(path)) paths.push(path);
-    } else if (token.id.startsWith(AGENT)) add({ uri: `sikemux://agent/${token.id.slice(AGENT.length)}`, title: written, text: '' });
-    else if (token.id.startsWith(EARLIER)) add({ uri: `sikemux://earlier/${token.id.slice(EARLIER.length)}`, title: written, text: '' });
+    } else if (token.id.startsWith(AGENT)) add({ uri: `${AGENT_URI}${token.id.slice(AGENT.length)}`, title: written, text: '' });
+    else if (token.id.startsWith(EARLIER)) add({ uri: `${EARLIER_URI}${token.id.slice(EARLIER.length)}`, title: written, text: '' });
   }
   return { paths, context };
 }

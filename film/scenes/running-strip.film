@@ -1,0 +1,14 @@
+# A chat with a subagent at work: the running strip above the composer names it, says what it
+# is doing and what it has cost, on a wide window.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer paneImage null
+project storefront shop
+chat Wren
+title "Cart total bug"
+say "delegate 600000"
+settle 4
+front Wren
+settle 2
+snap running-strip

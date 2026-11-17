@@ -1,8 +1,8 @@
 import { IconFile, IconIssue, IconPullRequest } from "@shared/ui/Icons";
 import { contextChip } from "@shared/chat/promptContext";
-import type { SentContext } from "@shared/chat/types";
+import type { SentContext } from "@shared/wire.generated";
 
-export function ContextMark({
+function ContextMark({
   kind,
   size,
 }: {

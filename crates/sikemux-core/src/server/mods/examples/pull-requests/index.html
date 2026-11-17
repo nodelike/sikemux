@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Pull requests</title>
+    <style>
+      body {
+        font-size: 13px;
+        padding: 10px 12px 24px;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 2px 4px 6px;
+      }
+      header strong {
+        font-weight: 600;
+      }
+      .quiet {
+        color: var(--faint-foreground);
+      }
+      h2 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 14px 4px 4px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--faint-foreground);
+      }
+      h2::after {
+        content: "";
+        flex: 1;
+        border-top: 1px solid var(--border);
+      }
+      a.row {
+        display: grid;
+        grid-template-columns: 14px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 6px;
+        border-radius: 5px;
+        color: inherit;
+        text-decoration: none;
+      }
+      a.row:hover {
+        background: color-mix(in oklab, var(--foreground) 6%, transparent);
+      }
+      .title {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .meta {
+        color: var(--muted-foreground);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        justify-self: center;
+        background: var(--faint-foreground);
+      }
+      .success {
+        background: var(--success);
+      }
+      .failure {
+        background: var(--destructive);
+      }
+      .running,
+      .queued,
+      .blocked {
+        background: var(--warning);
+      }
+      button {
+        font: inherit;
+        font-size: 11px;
+        color: var(--foreground);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 1px 7px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: color-mix(in oklab, var(--foreground) 6%, transparent);
+      }
+      .empty {
+        padding: 4px 6px;
+        color: var(--faint-foreground);
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app"><p class="quiet">Reading…</p></main>
+    <script>
+      const app = document.getElementById("app");
+      const state = { repo: null, pulls: null, runs: null, problem: null, failed: {}, rerunning: null };
+
+      const escape = (text) =>
+        String(text ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+      const ago = (at) => {
+        const seconds = Math.max(0, (Date.now() - Date.parse(at)) / 1000);
+        if (seconds < 60) return "just now";
+        if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+        return `${Math.floor(seconds / 86400)} d ago`;
+      };
+
+      const latestRunOf = (branch) => state.runs?.find((run) => run.branch === branch);
+
+      const pullRow = (pull) => {
+        const run = latestRunOf(pull.head);
+        const outcome = run?.outcome ?? "unknown";
+        const meta = [pull.draft ? "draft" : null, pull.author, ago(pull.updatedAt)]
+          .filter(Boolean)
+          .join(" · ");
+        return `<a class="row" href="${escape(pull.url)}">
+          <span class="dot ${outcome}" title="${escape(outcome)}"></span>
+          <span class="title">#${pull.number} ${escape(pull.title)}</span>
+          <span class="meta">${escape(meta)}</span>
+        </a>`;
+      };
+
+      const runRow = (run) => {
+        const rerun =
+          run.outcome === "failure"
+            ? `<button data-run="${escape(run.id)}">${state.rerunning === run.id ? "Asking…" : "Re-run"}</button>`
+            : `<span class="meta">${escape(ago(run.createdAt))}</span>`;
+        return `<a class="row" href="${escape(run.url)}">
+          <span class="dot ${run.outcome}" title="${escape(run.outcome)}"></span>
+          <span class="title">${escape(run.title || run.name)} <span class="quiet">${escape(run.name)} · ${escape(run.branch ?? "")}</span></span>
+          ${rerun}
+        </a>`;
+      };
+
+      const section = (title, rows, empty) =>
+        `<h2>${title}</h2>${rows.length ? rows.join("") : `<div class="empty">${escape(empty)}</div>`}`;
+
+      function render() {
+        if (state.problem) {
+          app.innerHTML = `<p class="quiet">${escape(state.problem)}</p>`;
+          return;
+        }
+        if (!state.repo) return;
+        const pulls = state.pulls ?? [];
+        const runs = (state.runs ?? []).slice(0, 12);
+        app.innerHTML = `
+          <header><strong>${escape(state.repo.slug)}</strong><span class="quiet">${escape(state.repo.label)}</span></header>
+          ${section("Pull requests", pulls.map(pullRow), state.failed.pulls ?? (state.pulls ? "No open pull requests" : "Reading…"))}
+          ${section("Runs", runs.map(runRow), state.failed.runs ?? (state.runs ? "No runs yet" : "Reading…"))}`;
+        const failing = pulls.filter((pull) => latestRunOf(pull.head)?.outcome === "failure").length;
+        sikemux.badge(failing ? `${failing} failing` : null);
+      }
+
+      app.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-run]");
+        if (!button) return;
+        event.preventDefault();
+        const { connector, owner, name, account } = state.repo;
+        state.rerunning = button.dataset.run;
+        render();
+        sikemux
+          .write(`${connector}.rerun`, { owner, name, account, runId: button.dataset.run, failedOnly: true })
+          .catch((error) => alert(error.message))
+          .finally(() => {
+            state.rerunning = null;
+            render();
+          });
+      });
+
+      sikemux.read("repo").then(
+        (repo) => {
+          state.repo = repo;
+          const where = { owner: repo.owner, name: repo.name, account: repo.account };
+          const kept = (key) => (value, problem) => {
+            state[key] = value ?? state[key];
+            state.failed[key] = problem;
+            render();
+          };
+          sikemux.watch(`${repo.connector}.pulls`, { ...where, state: "open", perPage: 30 }, kept("pulls"), { every: 60000 });
+          sikemux.watch(`${repo.connector}.runs`, { ...where, perPage: 30 }, (page, problem) => kept("runs")(page?.runs, problem), { every: 60000 });
+          render();
+        },
+        (error) => {
+          state.problem = error.message;
+          render();
+        },
+      );
+    </script>
+  </body>
+</html>

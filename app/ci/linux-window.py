@@ -3,9 +3,9 @@
 python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FAKE_CHAT --out DIR [--browser [--input]]
 
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
-and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page in its
-reply with page_show, which must draw in the chat, and L2 has it open a desk browser tab on a local page
-through the agent browser tool, whose answer must report the desk's page area as its viewport; with --input as well, L4 has it type into the page's field,
+and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page with
+page_show, which must leave a card in the chat that brings its desk tab forward drawn, and L2 has it open a desk browser tab on a local page
+through the agent browser tool, whose answer must report the desktop viewport an agent's tab is held at; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
 with the same tools. L7 starts the app again with a sikemux:// link to
@@ -65,8 +65,11 @@ def page_drawn(run, name, region=None):
         shot = run.out / f"{name}.png"
         if not bounds or not shot.exists():
             return None
+        window = (run.state() or {}).get("window")
+        if not window:
+            return None
         pixels = subprocess.run(["identify", "-format", "%w", shot], capture_output=True, text=True).stdout
-        scale = int(pixels) / (run.state() or {}).get("window", [pixels])[0]
+        scale = int(pixels) / window[0]
         x, y, width, height = (round(value * scale) for value in bounds)
         mean, whole = spread(shot, (width, height, x, y))
         _, heading = spread(shot, (width, min(height, round(80 * scale)), x, y))
@@ -76,22 +79,21 @@ def page_drawn(run, name, region=None):
     return bool(desk.until(look, 10)), seen[0]
 
 
-# The height a chat gives an agent's page until the page reports its own (chat/page.rs).
-DEFAULT_ROW = 320.0
-
-
 def shown_in_chat(run):
     said = run.prompt("show " + json.dumps({"path": str(run.root / "site/shown.html"), "title": "Kit shown"}))
-    row = lambda: next((frame for name, frame in ((run.state() or {}).get("spots") or {}).items()
-                        if name.startswith("chat-page-")), None)
-    # The row keeps the chat's default height until the page has loaded and reported its own.
+    card = lambda: next((frame for name, frame in ((run.state() or {}).get("spots") or {}).items()
+                         if name.startswith("page-card-")), None)
     asked = time.time()
-    loaded = desk.until(lambda: (row() or [0, 0, 0, DEFAULT_ROW])[3] != DEFAULT_ROW, 40)
-    waited = f"the page reported its height {time.time() - asked:.1f} s after it was shown" if loaded else \
-        "the page never reported its height"
-    drawn, seen = page_drawn(run, "L6", row) if loaded else (False, "")
-    run.say("L6", "PASS" if said.startswith("tool answered") and drawn else "FAIL",
-            f"page_show answered {said[:120]!r}; {waited}; the chat's page row {row()}; {seen}")
+    page = desk.until(lambda: (lambda page: page if page.get("title") == "Kit shown page" and not page.get("loading") else None)(desk.active_page(run.desk())), 40) or {}
+    waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
+    carded = desk.until(card, 10)
+    # The tab opens behind the chat, as a person reading it would; clicking the card brings it forward.
+    if carded:
+        x, y, width, height = carded
+        run.drive(f"click {x + width / 2:.0f} {y + height / 2:.0f}", "wait 1")
+    drawn, seen = page_drawn(run, "L6") if page and carded else (False, "")
+    run.say("L6", "PASS" if said.startswith("tool answered") and drawn and carded else "FAIL",
+            f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; {seen}")
 
 
 def page_from_tool(run):
@@ -100,10 +102,12 @@ def page_from_tool(run):
     drawn, seen = page_drawn(run, "L2")
     reported = desk.answered(said).get("viewport") or {}
     frame = run.desk().get("pageBounds") or [0, 0, 0, 0]
-    fits = [reported.get("width"), reported.get("height")] == [round(frame[2]), round(frame[3])]
+    # Linux holds the size by zooming the page, which rounds it by a few pixels.
+    fits = all(abs((reported.get(side) or 0) - wanted) <= wanted / 100
+               for side, wanted in (("width", 1440), ("height", 900)))
     run.say("L2", "PASS" if page and drawn and fits else "FAIL",
             f"browser.navigate answered {said[:160]!r}; the desk's page {page.get('url')} titled {page.get('title')!r}; "
-            f"it reported a {reported.get('width')}x{reported.get('height')} viewport for a "
+            f"it reported a {reported.get('width')}x{reported.get('height')} viewport, wanting 1440x900, in a "
             f"{round(frame[2])}x{round(frame[3])} page area; {seen}")
 
 
@@ -131,9 +135,9 @@ def dialog_from_tool(run):
 
 
 def recording_from_tool(run):
-    started = desk.answered(run.prompt(desk.json_tool("browser.record", {"action": "start"})))
+    started = desk.answered(run.prompt(desk.json_tool("browser.record", {})))
     time.sleep(3)
-    stopped = desk.answered(run.prompt(desk.json_tool("browser.record", {"action": "stop"})))
+    stopped = desk.answered(run.prompt(desk.json_tool("browser.record", {"stop": True})))
     path = stopped.get("path") or ""
     probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
                             "stream=codec_name,nb_read_frames:format=duration", "-of", "json", path],

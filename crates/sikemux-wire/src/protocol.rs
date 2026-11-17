@@ -6,29 +6,23 @@ mod chats;
 mod device;
 mod event;
 mod frame;
-mod layout;
 mod message;
-mod prefs;
 mod session;
-mod workspace;
 
 pub use agent::*;
 pub use chats::*;
 pub use device::*;
 pub use event::*;
 pub use frame::*;
-pub use layout::*;
 pub use message::*;
-pub use prefs::*;
 pub use session::*;
-pub use workspace::*;
 
 pub const PROTOCOL: &str = "sikemux-core";
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 16;
 /// The oldest version a device may speak and still be served. A change a
 /// device from an older release can still read bumps only `PROTOCOL_VERSION`,
 /// so phones waiting on an app store review keep working.
-pub const OLDEST_PROTOCOL_VERSION: u32 = 13;
+pub const OLDEST_PROTOCOL_VERSION: u32 = 14;
 /// How long a core waits for a sleeping chat it was asked to wake to come
 /// back up, its agent's adapter and CLI with it. A device waits longer, so the
 /// core's reason for giving up reaches it.

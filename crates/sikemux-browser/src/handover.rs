@@ -1,6 +1,6 @@
-//! An update restarts the app while agents keep working in the core. Each
-//! agent's tab strip is saved as the old app quits and comes back unloaded in
-//! the new one, so a tab loads its address again once it is shown or used.
+//! Agents keep working in the core while the app quits or restarts. Each
+//! agent's tab strip is saved by the old app and comes back unloaded in the
+//! new one, so a tab loads its address again once it is shown or used.
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -27,8 +27,13 @@ struct SavedTab {
     title: String,
     favicon: Option<String>,
     viewport: Option<SavedViewport>,
+    #[serde(default)]
+    all_widths: bool,
     /// A file shown over a loopback address that dies with the app, shared again under a new one.
     local_file: Option<PathBuf>,
+    /// The person's tab, which tidying up after the agent leaves open.
+    #[serde(default)]
+    yours: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,7 +89,9 @@ impl BrowserManager {
                                 height: fixed.height,
                                 preset: fixed.preset.map(str::to_owned),
                             }),
+                            all_widths: agent.all_widths.contains(id),
                             local_file: self.local_files.path_of(&page.url),
+                            yours: agent.strip.yours(id),
                         })
                     })
                     .collect(),
@@ -128,6 +135,12 @@ impl BrowserManager {
                         ..TabPage::default()
                     },
                 );
+                if tab.all_widths {
+                    agent.all_widths.insert(tab.id.clone());
+                }
+                if tab.yours {
+                    agent.strip.kept.insert(tab.id.clone());
+                }
                 agent.strip.unloaded.insert(tab.id);
             }
             if agent.strip.order.is_empty() {

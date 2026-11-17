@@ -2,17 +2,17 @@
 //! `logout`, `start`, `stop`, `restart`, `enable` and `disable`. They are all
 //! a host with no window needs to join an account and keep its core running.
 
+use sikemux_wire::protocol::ask;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use sikemux_core::client::{
-    probe, wait_for_core, ClientError, ClientEvent, CoreClient, ProbeError,
-};
-use sikemux_core::protocol::{AccountLinkState, Event, RemoteStatus, Request, Response};
+use sikemux_client::client::{ClientError, ClientEvent, CoreClient};
+use sikemux_core::client::{self, probe, wait_for_core, ProbeError};
 use sikemux_core::waiting;
+use sikemux_wire::protocol::{AccountLinkState, Event, RemoteStatus, Request, Response};
 
 use crate::core_start;
 use crate::login_item::{self, CoreLaunch, IDENTIFIER};
@@ -23,6 +23,9 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long `stop` waits for the core to stop its terminals and agents and answer, before it
 /// counts the core as stuck and ends it by signal.
 const SHUT_DOWN_ANSWER: Duration = Duration::from_secs(20);
+/// How long a restart may take to answer and then to come back: the core first checks its
+/// binary starts, then lets its terminals' output and its chats settle.
+const RESTART_TIMEOUT: Duration = Duration::from_secs(20);
 /// What `status` exits with while the core is not running, as `systemctl status` does.
 const NOT_RUNNING: i32 = 3;
 
@@ -31,14 +34,15 @@ pub const COMMANDS: &[&str] = &[
     "update",
 ];
 
-/// Runs `command` with the arguments after it.
 pub fn run(command: &str, args: &[String]) -> i32 {
     crate::install_tls_crypto();
     let result = match command {
         "status" => return status(args.iter().any(|arg| arg == "--json")),
-        "login" => with_core(Work::Login),
+        "login" => with_core(Work::Login {
+            json: args.iter().any(|arg| arg == "--json"),
+        }),
         "logout" => with_core(Work::Logout),
-        "start" => start().map(|_| ()),
+        "start" => start(true).map(|_| ()),
         "stop" => stop(),
         "restart" => restart(),
         "enable" => enable(),
@@ -59,7 +63,11 @@ pub fn run(command: &str, args: &[String]) -> i32 {
 }
 
 enum Work {
-    Login,
+    /// With `json`, says the code and the outcome as one JSON line each, for a core signing
+    /// this host in over SSH.
+    Login {
+        json: bool,
+    },
     Logout,
 }
 
@@ -92,34 +100,46 @@ fn stopped(socket: &Path) -> bool {
 }
 
 /// Starts the core, through the service that starts it at boot when there is
-/// one, so it is never a second core outside it. Answers with its socket.
-fn start() -> Result<PathBuf, String> {
+/// one, so it is never a second core outside it, saying so when `tell` is set. Answers with
+/// its socket.
+fn start(tell: bool) -> Result<PathBuf, String> {
     let launch = launch()?;
     if let Some(pid) = running_pid(&launch.socket) {
-        style::done("The core is already running", &format!("pid {pid}"));
+        if tell {
+            style::done("The core is already running", &format!("pid {pid}"));
+        }
         return Ok(launch.socket);
     }
     if let Some(logs) = launch.log.parent() {
         std::fs::create_dir_all(logs).map_err(|error| error.to_string())?;
     }
     let hello = login_item::start_core(IDENTIFIER, &launch).map_err(|error| error.to_string())?;
-    style::done("Started the core", &format!("pid {}", hello.pid));
+    if tell {
+        style::done("Started the core", &format!("pid {}", hello.pid));
+    }
     Ok(launch.socket)
 }
 
 /// The core's socket, starting the core first when none runs.
 pub(crate) fn running() -> Result<PathBuf, String> {
+    running_telling(true)
+}
+
+/// [`running`], saying it started the core only when `tell` is set, as a command whose output
+/// another program reads keeps quiet.
+fn running_telling(tell: bool) -> Result<PathBuf, String> {
     let socket = launch()?.socket;
     if running_pid(&socket).is_some() {
         return Ok(socket);
     }
-    start()
+    start(tell)
 }
 
 /// Stops the core and everything it runs. A core from another release cannot
 /// take the request, so it is told by signal.
 fn stop() -> Result<(), String> {
     let socket = launch()?.socket;
+    login_item::stop_restarting(IDENTIFIER);
     let pid = match probe(&socket, PROBE_TIMEOUT) {
         Err(ProbeError::Rejected { pid, .. }) => return terminate(pid, &socket),
         Err(probed @ (ProbeError::NotRunning(_) | ProbeError::Unanswered(_))) => {
@@ -154,7 +174,7 @@ fn stop() -> Result<(), String> {
 
 async fn shut_down(socket: &Path) -> Result<(), ClientError> {
     let (client, _events) = CoreClient::connect(socket).await?;
-    client.shutdown(true).await
+    client.ask(ask::Shutdown { stop_all: true }).await
 }
 
 fn end_stuck(pid: u32, socket: &Path) -> Result<(), String> {
@@ -176,10 +196,23 @@ fn terminate(pid: u32, socket: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// What an update needs: the new binary only takes over once the core restarts.
+/// Restarts the core from its binary in the same process, as an update does,
+/// so its terminals and agents run on through it. Starts it when none runs.
 fn restart() -> Result<(), String> {
-    stop()?;
-    start().map(|_| ())
+    let socket = launch()?.socket;
+    if let Err(ProbeError::NotRunning(_)) = probe(&socket, PROBE_TIMEOUT) {
+        return start(true).map(drop);
+    }
+    match client::restart(&socket, RESTART_TIMEOUT).map_err(|error| error.to_string())? {
+        client::Restart::Done { pid } => style::done(
+            "Restarted the core",
+            &format!("pid {pid}, with its terminals and agents still running"),
+        ),
+        client::Restart::Deferred => style::note(
+            "The core restarts once its chats can hand their agents over; they run on until then.",
+        ),
+    }
+    Ok(())
 }
 
 fn enable() -> Result<(), String> {
@@ -191,9 +224,10 @@ fn enable() -> Result<(), String> {
             login_item::start(IDENTIFIER)?;
             wait_for_core(&launch.socket, SETTLE_TIMEOUT).map_err(|error| error.to_string())?;
         }
+        Some(_) if cfg!(windows) => login_item::start(IDENTIFIER)?,
         Some(pid) if starts_by_service(pid) => {}
         Some(pid) => style::note(&format!(
-            "The core running now, pid {pid}, was started another way; `sikemux restart` hands it to the service."
+            "The core running now, pid {pid}, was started another way; `sikemux stop` and `sikemux start` hand it to the service."
         )),
     }
     Ok(())
@@ -216,21 +250,41 @@ fn disable() -> Result<(), String> {
     match login_item::remove(IDENTIFIER).map_err(|error| error.to_string())? {
         true => {
             style::done("The core no longer starts at boot", "");
-            style::note("It keeps running until `sikemux stop`.");
+            if running_pid(&launch()?.socket).is_some() {
+                style::note("It keeps running until `sikemux stop`.");
+            }
         }
         false => style::note("The core was not set to start at boot."),
     }
     Ok(())
 }
 
+/// Under sudo it acts for the person who ran sudo, on their core, which it
+/// never starts as root.
 fn with_core(work: Work) -> Result<(), String> {
-    let socket = running()?;
+    let socket = if crate::update::as_person_of_sudo() {
+        let socket = launch()?.socket;
+        if running_pid(&socket).is_none() {
+            return Err(
+                "no core runs for you; run `sikemux start` without sudo, then try again".into(),
+            );
+        }
+        if let Some(uid) = crate::update::sudo_uid() {
+            if socket_owner(&socket) != Some(uid) {
+                return Err(format!("the core at {} is not yours", socket.display()));
+            }
+        }
+        socket
+    } else {
+        running_telling(!matches!(work, Work::Login { json: true }))?
+    };
     runtime()?.block_on(async {
         let (core, _events) = CoreClient::connect(&socket)
             .await
             .map_err(|error| error.to_string())?;
         match work {
-            Work::Login => login(&core).await,
+            Work::Login { json: false } => login(&core).await,
+            Work::Login { json: true } => login_json(&core).await,
             Work::Logout => {
                 let status = core
                     .remote_status()
@@ -250,6 +304,47 @@ fn with_core(work: Work) -> Result<(), String> {
     })
 }
 
+/// The user whose process answers at `socket`, as the kernel says.
+#[cfg(unix)]
+fn socket_owner(socket: &Path) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    let fd = stream.as_raw_fd();
+    #[cfg(target_os = "macos")]
+    {
+        let (mut uid, mut gid) = (0, 0);
+        // SAFETY: fd is a connected socket and both outputs are writable.
+        let read = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) } == 0;
+        read.then_some(uid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut credentials = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: credentials and length are valid for the size given, which is
+        // what SO_PEERCRED writes.
+        let read = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&raw mut credentials).cast(),
+                &mut length,
+            )
+        } == 0;
+        read.then_some(credentials.uid)
+    }
+}
+
+#[cfg(windows)]
+fn socket_owner(_socket: &Path) -> Option<u32> {
+    None
+}
+
 async fn login(core: &CoreClient) -> Result<(), String> {
     let owner = core
         .remote_status()
@@ -264,8 +359,8 @@ async fn login(core: &CoreClient) -> Result<(), String> {
     let account = crate::account::sign_in_by_code(core, |signing| {
         println!(
             "\n  Open this link to add the host to your account:\n\n    {}\n\n  and enter the code {}, or enter it in Sikemux on your phone.\n",
-            style::accent(&signing.verification_url),
-            style::bold(&signing.user_code)
+            style::accent(&signing.url),
+            style::bold(&signing.code)
         );
         style::note("Waiting for approval…");
     })
@@ -273,6 +368,30 @@ async fn login(core: &CoreClient) -> Result<(), String> {
     style::done("Signed in", &account);
     style::note(
         "Your devices and hosts on this account reach it now: it shows in Sikemux on each of them.",
+    );
+    Ok(())
+}
+
+async fn login_json(core: &CoreClient) -> Result<(), String> {
+    let owner = core
+        .remote_status()
+        .await
+        .map_err(|error| error.to_string())?
+        .owner;
+    if owner.is_none() {
+        crate::account::sign_in_by_code(core, |signing| {
+            println!("{}", json!({ "code": signing.code, "url": signing.url }));
+        })
+        .await?;
+    }
+    let account = core
+        .remote_status()
+        .await
+        .map_err(|error| error.to_string())?
+        .owner;
+    println!(
+        "{}",
+        json!({ "signedIn": account.is_some(), "account": account })
     );
     Ok(())
 }
@@ -287,6 +406,8 @@ struct Status {
     starts_at_boot: Option<PathBuf>,
     /// Whether the app's window is open, when the app runs at all.
     window: Option<bool>,
+    /// That `login --json` signs this host in, which releases before it lack.
+    login_json: bool,
     account: Option<String>,
     /// The host's public key, which the account and its devices know it by.
     core_id: Option<String>,
@@ -301,29 +422,80 @@ struct Status {
     waiting: usize,
     /// How this host keeps its core current, on a host that updates itself.
     updates: Option<Value>,
+    /// On Windows, the integrity the core runs at, the libraries it loaded and its
+    /// environment's names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trust: Option<Value>,
+    /// What is wrong with this host, worst first, each with what fixes it.
+    problems: Vec<crate::problems::Problem>,
 }
 
 fn status(json: bool) -> i32 {
-    let Ok(launch) = launch() else {
+    // Rust ignores SIGPIPE, so `sikemux status | head` panicked on the closed pipe instead of
+    // stopping as other commands do.
+    #[cfg(unix)]
+    // SAFETY: restoring the default action of a signal has no other effect.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    let Some(status) = gather_status() else {
         eprintln!("sikemux status: HOME is not set");
         return 1;
     };
-    let hello = probe(&launch.socket, PROBE_TIMEOUT).ok();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&status).unwrap_or_default()
+        );
+    } else {
+        print_status(&status);
+    }
+    if status.running {
+        0
+    } else {
+        NOT_RUNNING
+    }
+}
+
+/// What `status --json` says, without the account, the host's name or its key.
+pub(crate) fn status_without_identity() -> Value {
+    let Some(status) = gather_status() else {
+        return json!({ "error": "HOME is not set" });
+    };
+    serde_json::to_value(Status {
+        account: None,
+        core_id: None,
+        name: None,
+        ..status
+    })
+    .unwrap_or_default()
+}
+
+fn gather_status() -> Option<Status> {
+    let launch = launch().ok()?;
+    let probed = probe(&launch.socket, PROBE_TIMEOUT);
+    let older = match probed {
+        Err(ProbeError::Rejected { pid, .. }) => Some(pid),
+        _ => None,
+    };
+    let hello = probed.ok();
     let about = hello
         .as_ref()
         .and_then(|_| runtime().ok()?.block_on(about(&launch.socket)).ok());
-    let (remote, name, updates) = about.map_or((None, None, None), |(remote, name, updates)| {
-        (Some(remote), Some(name), updates)
-    });
+    let (remote, name, updates, trust) = about.map_or(
+        (None, None, None, None),
+        |(remote, name, updates, trust)| (Some(remote), Some(name), updates, trust),
+    );
     let status = Status {
-        running: hello.is_some(),
-        pid: hello.as_ref().map(|hello| hello.pid),
+        running: hello.is_some() || older.is_some(),
+        pid: hello.as_ref().map(|hello| hello.pid).or(older),
         version: hello.as_ref().map(|hello| hello.build.version.clone()),
         socket: launch.socket,
         starts_at_boot: starts_at_boot(),
         window: hello
             .as_ref()
             .and_then(|_| crate::cli_client::window_open()),
+        login_json: true,
         account: remote.as_ref().and_then(|remote| remote.owner.clone()),
         core_id: remote
             .as_ref()
@@ -348,20 +520,22 @@ fn status(json: bool) -> i32 {
             .and_then(|remote| remote.update_required.as_ref())
             .map(|required| required.minimum.clone()),
         updates,
+        trust,
+        problems: Vec::new(),
     };
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&status).unwrap_or_default()
-        );
-    } else {
-        print_status(&status);
-    }
-    if status.running {
-        0
-    } else {
-        NOT_RUNNING
-    }
+    let status = Status {
+        problems: crate::problems::find(&crate::problems::Found {
+            running: status.running,
+            other_release: older.is_some(),
+            account: status.account.as_deref(),
+            account_connection: status.account_connection,
+            remote_access: status.remote_access,
+            update_required: status.update_required.as_deref(),
+            updates: status.updates.as_ref(),
+        }),
+        ..status
+    };
+    Some(status)
 }
 
 fn print_status(status: &Status) {
@@ -369,6 +543,12 @@ fn print_status(status: &Status) {
         |label: &str, value: String| println!("  {} {value}", style::dim(&format!("{label:<9}")));
     match (status.pid, &status.version) {
         (Some(pid), Some(version)) => row("Core", format!("running, pid {pid}, version {version}")),
+        (Some(pid), None) => row(
+            "Core",
+            format!(
+                "running, pid {pid}, from another release; `sikemux restart` brings it to this one"
+            ),
+        ),
         _ => row("Core", "not running; start it with `sikemux start`".into()),
     }
     row(
@@ -427,9 +607,19 @@ fn print_status(status: &Status) {
     if let Some(updates) = &status.updates {
         row("Updates", updates_row(updates));
     }
+    if let Some(integrity) = status
+        .trust
+        .as_ref()
+        .and_then(|trust| trust["integrity"].as_str())
+    {
+        row("Runs at", format!("{integrity} integrity"));
+    }
+    let rolled_back = (status.problems.iter()).find(|problem| problem.name == "update-rolled-back");
+    if let Some(problem) = rolled_back {
+        row("Problem", format!("{}; {}", problem.says, problem.fix));
+    }
 }
 
-/// How the core's update status reads in one line.
 fn updates_row(updates: &Value) -> String {
     let text = |key: &str| updates[key].as_str().unwrap_or_default().to_owned();
     if updates["automatic"] == Value::Bool(false) {
@@ -545,7 +735,9 @@ async fn plugin_login(socket: &Path, plugin: &str) -> Result<(), String> {
 
 /// What the core says of remote access, the host's own name, and how it
 /// updates when it updates itself.
-async fn about(socket: &Path) -> Result<(RemoteStatus, String, Option<Value>), String> {
+async fn about(
+    socket: &Path,
+) -> Result<(RemoteStatus, String, Option<Value>, Option<Value>), String> {
     let (core, _events) = CoreClient::connect(socket)
         .await
         .map_err(|error| error.to_string())?;
@@ -564,7 +756,12 @@ async fn about(socket: &Path) -> Result<(RemoteStatus, String, Option<Value>), S
                 .await
                 .ok()
                 .filter(|updates| updates["automatic"].is_boolean());
-            Ok((remote, host.name, updates))
+            let trust = match cfg!(windows) {
+                true => core.call("trustReport", json!({})).await.ok(),
+                false => None,
+            };
+            let name = host["name"].as_str().unwrap_or_default().to_owned();
+            Ok((remote, name, updates, trust))
         }
         _ => Err("the core answered with something else".into()),
     }

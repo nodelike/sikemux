@@ -1,0 +1,12 @@
+[package]
+name = "gpui-clicks"
+version = "0.1.0"
+edition = "2021"
+description = "Click handlers for GPUI elements that show the pointing hand over what they act on"
+license = "MIT OR Apache-2.0"
+keywords = ["gpui", "cursor", "click"]
+categories = ["gui"]
+publish = false
+
+[dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.10" }

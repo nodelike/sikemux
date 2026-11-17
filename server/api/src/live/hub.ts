@@ -3,13 +3,12 @@ import type { Kysely } from "kysely";
 import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import type { LiveOptions } from "./options.ts";
+import { byeAll } from "../sockets/socket.ts";
 
-/** What the hub needs of every open connection. */
 export interface Connection {
   bye(reconnectAfterMs: number): Promise<void>;
 }
 
-/** What the hub needs of a connection that has said who it is. */
 export interface Member {
   readonly userId: string;
   /** The device's key; the web app has none. */
@@ -114,14 +113,7 @@ export class Hub {
     log.debug({ users: users.length, woken }, "swept live connections");
   }
 
-  /** Says bye to every connection, each told to wait a different time so they come back spread out. */
-  async closeAll(spreadMs: number) {
-    const connections = [...this.connections];
-    const least = Math.min(1_000, spreadMs);
-    await Promise.all(
-      connections.map((connection) =>
-        connection.bye(Math.round(least + Math.random() * (spreadMs - least))),
-      ),
-    );
+  closeAll(spreadMs: number) {
+    return byeAll(this.connections, spreadMs);
   }
 }

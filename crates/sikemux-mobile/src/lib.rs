@@ -83,7 +83,11 @@ async fn on_runtime<T: Send + 'static>(
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MobileError {
     #[error("{message}")]
-    Refused { message: String },
+    Refused {
+        message: String,
+        /// What the app branches on, as `ErrorKind` names it. Absent for a failure it only shows.
+        kind: Option<String>,
+    },
     #[error("{message}")]
     Connection { message: String },
     #[error("{message}")]
@@ -105,7 +109,16 @@ fn invalid(message: impl ToString) -> MobileError {
 impl From<ClientError> for MobileError {
     fn from(error: ClientError) -> Self {
         match error {
-            ClientError::Core(message) => MobileError::Refused { message },
+            ClientError::Core(message) => MobileError::Refused {
+                message,
+                kind: None,
+            },
+            ClientError::Refused { kind, message, .. } => MobileError::Refused {
+                message,
+                kind: serde_json::to_value(kind)
+                    .ok()
+                    .and_then(|kind| kind.as_str().map(str::to_owned)),
+            },
             ClientError::VersionMismatch { version, .. } => MobileError::Outdated {
                 mac_is_older: version < OLDEST_PROTOCOL_VERSION,
             },
@@ -334,7 +347,6 @@ impl Device {
     }
 }
 
-/// What the host said to a join ticket.
 #[derive(Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum JoinAnswer {
     /// `full` or `watch`.
@@ -412,10 +424,6 @@ impl EventSink for ListenerSink {
         }
     }
 
-    fn takes_view_json(&self) -> bool {
-        true
-    }
-
     fn device_view(&self, view_json: &str) {
         let view_json = view_json.to_owned();
         let _ = self
@@ -475,7 +483,6 @@ fn flush(listener: &dyn CoreListener, events: &mut Vec<CoreEvent>) {
     }
 }
 
-/// An open session with one host's core.
 #[derive(uniffi::Object)]
 pub struct Connection {
     client: Mutex<Option<Arc<CoreClient>>>,
@@ -614,7 +621,6 @@ impl Connection {
         Ok(records::json(&page))
     }
 
-    /// No more of the chat's events reach this phone.
     pub async fn detach_chat(&self, agent_id: String) -> Result<(), MobileError> {
         self.ask(ask::AcpDetach { agent_id }).await
     }

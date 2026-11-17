@@ -1,0 +1,303 @@
+//! What a chat offers to pick before its agent starts.
+
+use crate::agent_accounts::sign_in;
+use crate::server::chat_state::ChatParts;
+use crate::server::workspace::{launcher_of, ModelPick, OfferRead};
+use crate::server::workspace_state::WorkspaceParts;
+use sikemux_view::workspace::ConfigPicker;
+
+use super::*;
+
+/// The options a chat that waits for the person offers: those its launcher's last session
+/// offered, on the model it will start with and that model's efforts, but not its speed,
+/// which only a running session takes. The model it starts with is always among them, as one
+/// a provider serves is not among its agent's own.
+pub fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
+    let launch = chat.current_launch();
+    let mut options = core
+        .workspaces()
+        .launcher_options(chat.origin.launcher.as_deref()?)
+        .filter(Value::is_array)
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    if let Some(model) = &launch.model {
+        offer_model(core, &launch, &mut options, model);
+    }
+    if let Some(rows) = options.as_array_mut() {
+        rows.retain(|row| row["category"] != sikemux_fold::pickers::SPEED);
+    }
+    if options.as_array().is_none_or(Vec::is_empty) {
+        return None;
+    }
+    if let Some(model) = &launch.model {
+        pickers::pick(&mut options, |row| row["id"] == "model", model);
+    }
+    pickers::fit_effort(&mut options);
+    if let Some(effort) = &launch.effort {
+        pickers::pick(&mut options, sikemux_fold::pickers::is_effort, effort);
+    }
+    Some(options)
+}
+
+/// Puts `model` among the models `options` offer, named as its provider's API names it.
+pub fn offer_model(core: &Core, launch: &ChatLaunch, options: &mut Value, model: &str) {
+    let Some(rows) = options.as_array_mut() else {
+        return;
+    };
+    let name = launch
+        .model_provider
+        .as_deref()
+        .and_then(|id| core.workspaces().providers()?.find(id))
+        .map_or(model, |provider| {
+            provider.api_model(&launch.provider, model)
+        })
+        .to_owned();
+    let choice = serde_json::json!({ "value": model, "name": name });
+    let Some(row) = rows.iter_mut().find(|row| row["id"] == "model") else {
+        rows.push(serde_json::json!({
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": model,
+            "options": [choice],
+        }));
+        return;
+    };
+    if !pickers::choices_offer(&row["options"], model) {
+        match row["options"].as_array_mut() {
+            Some(choices) => choices.insert(0, choice),
+            None => row["options"] = Value::Array(vec![choice]),
+        }
+    }
+}
+
+/// Tells a chat that waits for the person what it offers to pick: what the launcher offered
+/// last, while its agent's CLI is asked again with no session, so the models of a CLI updated
+/// or signed in since then show before a session starts.
+pub fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
+    let Some(launcher) = chat.origin.launcher.clone() else {
+        return;
+    };
+    if let Some(options) = waiting_options(core, chat) {
+        tell_options(chat, options);
+    }
+    ask_offers(core, launcher, chat.current_launch());
+}
+
+/// Asks a waiting chat's agent again what it offers, when the last ask failed or its program
+/// or sign-in changed since, as the person opens its model picker.
+pub fn read_models(core: &Arc<Core>, agent_id: &str) {
+    let Some(chat) = core.chats().get(agent_id).filter(|chat| chat.unstarted()) else {
+        return;
+    };
+    let Some(launcher) = chat.origin.launcher.clone() else {
+        return;
+    };
+    let launch = chat.current_launch();
+    let current = core
+        .workspaces()
+        .last_offer_read(&launcher)
+        .is_some_and(|read| read.unread.is_none() && read.asked_of == asked_of(&launch));
+    if !current {
+        ask_offers(core, launcher, launch);
+    }
+}
+
+fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
+    if !core.workspaces().start_offer_read(&launcher) {
+        return;
+    }
+    let core = core.clone();
+    tokio::spawn(async move {
+        let asked = asked_of(&launch);
+        let read = native::read_options(&launch).await;
+        let unread = unread(&launch, read.as_ref().err());
+        match &read {
+            Ok(options) => core.workspaces().note_config_options(&launcher, options),
+            Err(error) => eprintln!("sikemux core: {launcher} offered nothing to pick: {error}"),
+        }
+        core.workspaces().offer_read(
+            &launcher,
+            OfferRead {
+                asked_of: asked,
+                unread,
+            },
+        );
+        let waiting = core.chats().all().into_iter().filter(|chat| {
+            chat.unstarted() && chat.origin.launcher.as_deref() == Some(launcher.as_str())
+        });
+        for chat in waiting {
+            let options = waiting_options(&core, &chat).unwrap_or(Value::Array(Vec::new()));
+            tell_options(&chat, options);
+        }
+    });
+}
+
+/// The environment `launch`'s agent runs in, its account's included.
+fn account_env(launch: &ChatLaunch) -> std::collections::BTreeMap<String, String> {
+    let mut env = launch.env.clone();
+    if let Some(account) = &launch.account {
+        env.extend(account.env.clone());
+    }
+    env
+}
+
+/// The program `launch` runs and the account it is signed in to, as they stand now.
+fn asked_of(launch: &ChatLaunch) -> String {
+    let program = sikemux_process::files::real_path(&launch.program)
+        .unwrap_or_else(|_| launch.program.clone());
+    let changed = std::fs::metadata(&program)
+        .and_then(|file| file.modified())
+        .ok();
+    let signed_in = sign_in::signed_in(&launch.provider, &account_env(launch));
+    format!("{} {changed:?} {signed_in:?}", program.display())
+}
+
+/// Why `launch`'s agent cannot say what it offers, or cannot run what it says, as a failure:
+/// signed out, or the ask's `error`.
+fn unread(launch: &ChatLaunch, error: Option<&String>) -> Option<Value> {
+    let signed_out = sign_in::signed_in(&launch.provider, &account_env(launch))
+        == Some(sign_in::SignIn::SignedOut);
+    let kind = match (signed_out, error) {
+        (true, _) => "signIn",
+        (false, Some(_)) => "other",
+        (false, None) => return None,
+    };
+    Some(serde_json::json!({
+        "kind": kind,
+        "details": error,
+        "account": launch.account.as_ref().map(|account| &account.id),
+    }))
+}
+
+/// Tells `chat` what it offers to pick, and why its agent could not say, if it could not.
+pub fn tell_options(chat: &Chat, options: Value) {
+    let unread = (chat.core.upgrade())
+        .zip(chat.origin.launcher.as_deref())
+        .and_then(|(core, launcher)| core.workspaces().last_offer_read(launcher)?.unread);
+    tell_update(
+        chat,
+        serde_json::json!({
+            "sessionUpdate": UpdateKind::ConfigOptionUpdate,
+            "configOptions": options,
+            "failure": unread,
+        }),
+    );
+}
+
+/// Says `update` in a chat whose agent may not have started yet.
+pub fn tell_update(chat: &Chat, update: Value) {
+    let session = chat
+        .launch
+        .resume_id
+        .clone()
+        .unwrap_or_else(|| chat.agent_id().to_owned());
+    chat.emit(
+        ChatEventKind::SessionUpdate,
+        serde_json::json!({ "sessionId": session, "update": update }),
+    );
+}
+
+/// Keeps a model or effort chosen before the chat's agent starts, which starts on it.
+pub fn choose_before_start(
+    core: &Core,
+    chat: &Chat,
+    config_id: &str,
+    value: String,
+) -> CoreResult<Value> {
+    let options = waiting_options(core, chat).unwrap_or(Value::Null);
+    let row = options
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["id"] == config_id);
+    let mut launch = chat.current_launch();
+    match row {
+        Some(row) if row["id"] == "model" => launch.model = Some(value),
+        Some(row) if sikemux_fold::pickers::is_effort(row) => launch.effort = Some(value),
+        _ => return Err(format!("{config_id} is chosen once the chat starts").into()),
+    }
+    chat.set_current(launch);
+    let options = waiting_options(core, chat).unwrap_or(Value::Null);
+    keep_model_choice(core, chat.agent_id(), &options);
+    tell_options(chat, options.clone());
+    Ok(serde_json::json!({ "configOptions": options }))
+}
+
+/// Picks the model or effort an asleep chat wakes on: kept with its agent, which it starts with
+/// when it wakes, and shown in its pickers at once.
+pub fn choose_while_asleep(
+    core: &Core,
+    agent_id: &str,
+    config_id: &str,
+    value: String,
+) -> CoreResult<Value> {
+    let (Some(agent), Some(feed)) = (
+        core.workspaces().agent(agent_id),
+        core.chats().heard(agent_id),
+    ) else {
+        return Err(NOT_RUNNING.into());
+    };
+    let mut options = feed
+        .config_options()
+        .or_else(|| core.workspaces().launcher_options(&launcher_of(&agent)))
+        .unwrap_or(Value::Null);
+    let row = (options.as_array_mut().into_iter().flatten())
+        .find(|row| row["id"] == config_id)
+        .filter(|row| row["id"] == "model" || sikemux_fold::pickers::is_effort(row))
+        .ok_or_else(|| CoreError::from(format!("{config_id} is chosen once the chat starts")))?;
+    row["currentValue"] = Value::String(value);
+    keep_model_choice(core, agent_id, &options);
+    let session = agent.resume_id.unwrap_or_else(|| agent_id.to_owned());
+    feed.emit(
+        ChatEventKind::SessionUpdate,
+        serde_json::json!({
+            "sessionId": session,
+            "update": { "sessionUpdate": UpdateKind::ConfigOptionUpdate, "configOptions": options },
+        }),
+    );
+    Ok(serde_json::json!({ "configOptions": options }))
+}
+
+/// Keeps the model and effort a chat now runs on with its agent, so its next
+/// session starts on them, and with its kind of agent, so its new chats do too. An effort its
+/// effort row does not offer is left out.
+pub fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
+    let Some(agent) = core.workspaces().agent(agent_id) else {
+        return;
+    };
+    let (model, effort) = crate::acp::pickers::pickers(options);
+    let model = model
+        .map(|model| model.current)
+        .filter(|model| !model.is_empty());
+    let effort = effort
+        .filter(|effort| (effort.choices.iter()).any(|choice| choice.value == effort.current))
+        .map(|effort| effort.current);
+    if model.is_none() && effort.is_none() {
+        return;
+    }
+    let pick = ModelPick { model, effort };
+    let kept = core.workspaces().edit_agent(agent_id, |agent| {
+        if pick.model.is_some() {
+            agent.model = pick.model.clone();
+        }
+        if pick.effort.is_some() {
+            agent.effort = pick.effort.clone();
+        }
+    });
+    let kept = kept.and_then(|_| core.workspaces().keep_model_pick(&agent.provider, pick));
+    if let Err(error) = kept {
+        eprintln!("sikemux core: the agent's model choice was not kept: {error}");
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct AgentModelsParams {
+    pub agent: String,
+}
+
+/// The model choice `agent` last offered, from any launcher of it.
+pub fn models_of(core: &Core, agent: &str) -> Option<ConfigPicker> {
+    let options = core.workspaces().agent_options(agent)?;
+    pickers::pickers(&options).0
+}

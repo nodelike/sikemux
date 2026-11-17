@@ -36,12 +36,14 @@ pub struct ChatLaunch {
     pub fallbacks: Vec<ChatAccount>,
 }
 
-/// Whether a chat agent asks before it acts outside its workspace, or never asks.
+/// Whether a chat agent asks before it acts outside its workspace, has its own reviewer approve
+/// what is safe and ask the rest, or never asks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionMode {
     #[default]
     WorkspaceWrite,
+    Auto,
     Bypass,
 }
 
@@ -49,6 +51,7 @@ impl PermissionMode {
     pub fn parse(mode: &str) -> Result<Self, String> {
         match mode {
             "workspace-write" => Ok(Self::WorkspaceWrite),
+            "auto" => Ok(Self::Auto),
             "bypass" => Ok(Self::Bypass),
             _ => Err(format!("Unsupported permission mode: {mode}")),
         }
@@ -57,6 +60,7 @@ impl PermissionMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WorkspaceWrite => "workspace-write",
+            Self::Auto => "auto",
             Self::Bypass => "bypass",
         }
     }
@@ -73,33 +77,31 @@ pub struct ChatAccount {
     pub env: BTreeMap<String, String>,
 }
 
-/// What a device learns of a recent chat: never the launcher behind it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentInfo {
-    /// Names it in `ResumeChat`.
-    pub id: String,
-    pub provider: String,
-    pub title: String,
-    /// The app's project it ran in.
-    pub project: String,
-    pub cwd: PathBuf,
-    /// Unix milliseconds.
-    pub active_at: u64,
-    /// The agent in the workspace that holds the chat, open or asleep.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
-    /// The person pinned it, so it shows above the rest however long ago it ran.
-    #[serde(default)]
-    pub pinned: bool,
-}
-
 /// Something read elsewhere and handed to the agent whole, such as an issue.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatContext {
     pub uri: String,
     pub title: String,
     pub text: String,
+}
+
+/// Starts the uri of a context item meant for the agent alone: it goes with the message, and no
+/// client shows it among what the person sent.
+pub const FOR_AGENT_URI: &str = "sikemux://for-agent/";
+
+/// Starts the uri of the context item a reply on one of the person's asks carries, the ask's
+/// number after it.
+pub const ASK_REPLY_URI: &str = "sikemux://for-agent/ask/";
+
+impl ChatContext {
+    pub fn for_agent_only(&self) -> bool {
+        self.uri.starts_with(FOR_AGENT_URI)
+    }
+
+    /// The ask a message carrying this item replies on.
+    pub fn reply_on(&self) -> Option<u64> {
+        self.uri.strip_prefix(ASK_REPLY_URI)?.parse().ok()
+    }
 }
 
 /// The app's `acp_start` answer.
@@ -126,14 +128,14 @@ pub struct ChatMark {
     rename_all_fields = "camelCase"
 )]
 pub enum ChatAttachment {
-    /// The chat as it stands, a [`crate::chat::ChatView`] as JSON. Changes
+    /// The chat as it stands, a `ChatView` as JSON. Changes
     /// follow, numbered from `mark.seq + 1`.
     Live {
         view: Value,
         mark: ChatMark,
     },
     /// What changed since the mark the client attached with, as a list of
-    /// [`crate::chat::ChatChange`] JSON. Changes follow `mark`.
+    /// `ChatChange` JSON. Changes follow `mark`.
     Resumed {
         changes: Value,
         mark: ChatMark,
@@ -204,8 +206,8 @@ pub struct ChatInfo {
     /// milliseconds, so a list can greet it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub called_at: Option<u64>,
-    /// Its place among the open agents, chats and agent terminals together,
-    /// in the order they want the person: 0 first.
+    /// Its place among the open agents, chats and agent terminals together, in the order
+    /// they started: 0 first.
     #[serde(default)]
     pub attention_rank: u32,
 }

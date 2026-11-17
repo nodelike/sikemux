@@ -2,15 +2,21 @@
 //! Codex on this host, through each CLI's own login. The page a sign-in opens
 //! goes to every client, so the person can finish it from any device.
 
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::workspace_state::WorkspaceParts;
+pub use sikemux_calls::agent_sign_in::Page;
+pub use sikemux_calls::agent_sign_in::{Account, Code};
+pub use sikemux_calls::agent_sign_in::{AfterSignIn, LauncherParams};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use sikemux_process::command::AsyncCommand;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 
 use super::changed::Topic;
@@ -24,15 +30,15 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SIGN_IN_TAIL: usize = 12;
 const MAX_PATH_CHARS: usize = 4_096;
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct Account {
-    agent: AgentKind,
-    executable_path: Option<String>,
-    config_path: Option<String>,
+pub(crate) trait AccountExt: Sized {
+    fn check(&self) -> CoreResult<()>;
+
+    fn key(&self) -> String;
+
+    async fn command(&self) -> CoreResult<AsyncCommand>;
 }
 
-impl Account {
+impl AccountExt for Account {
     fn check(&self) -> CoreResult<()> {
         let long = |path: &Option<String>| {
             path.as_ref()
@@ -52,7 +58,7 @@ impl Account {
         )
     }
 
-    async fn command(&self) -> CoreResult<Command> {
+    async fn command(&self) -> CoreResult<AsyncCommand> {
         let program: PathBuf =
             crate::launch::discovery::resolve(self.agent.as_str(), self.executable_path.as_deref())
                 .await?;
@@ -63,15 +69,6 @@ impl Account {
             BTreeMap::new(),
         ))
     }
-}
-
-/// The page a running sign-in opened, for a client to open where no browser did.
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct Page {
-    agent: &'static str,
-    config_path: Option<String>,
-    url: String,
 }
 
 /// A sign-in running for one account, which the person can answer or stop.
@@ -95,7 +92,6 @@ fn first_url(line: &str) -> Option<&str> {
     Some(rest[..end].trim_end_matches(['.', ',', ')']))
 }
 
-/// The pages the sign-ins running now opened.
 pub(super) fn pages() -> Vec<Page> {
     sign_ins()
         .values()
@@ -104,25 +100,62 @@ pub(super) fn pages() -> Vec<Page> {
 }
 
 fn pages_changed(core: &Core) {
-    core.changes.changed(Topic::AgentSignIn, None, None);
+    core.changed(What::Read(Topic::AgentSignIn));
 }
 
-#[derive(Deserialize)]
-pub(super) struct LauncherParams {
-    /// The launcher whose account to sign in to, such as `claude:work`.
-    launcher: String,
+/// The chats waiting for an account's sign-in, by the account's id.
+fn waiting() -> MutexGuard<'static, HashMap<String, Vec<String>>> {
+    static WAITING: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
+    WAITING.get_or_init(Mutex::default).locked()
+}
+
+/// Moves the chat onto the account as soon as a sign-in to it finishes, from whichever client.
+pub(super) fn move_after_sign_in(core: &Core, after: AfterSignIn) -> CoreResult<()> {
+    core.workspaces().agent_or_gone(&after.agent_id)?;
+    let mut waiting = waiting();
+    let chats = waiting.entry(after.account_id).or_default();
+    if !chats.contains(&after.agent_id) {
+        chats.push(after.agent_id);
+    }
+    Ok(())
+}
+
+/// Moves the chats waiting for the account in `config_path` onto it.
+fn signed_in(core: &Arc<Core>, account: &Account) {
+    let book = core
+        .workspaces()
+        .accounts()
+        .unwrap_or_default()
+        .with_built_ins();
+    let profiles = book.profiles.into_iter().filter(|profile| {
+        profile.provider == account.agent.as_str() && profile.config_path == account.config_path
+    });
+    for profile in profiles {
+        let Some(chats) = waiting().remove(&profile.id) else {
+            continue;
+        };
+        let target = crate::agent_accounts::chat_account(&profile);
+        for agent_id in chats {
+            let (core, target) = (core.clone(), target.clone());
+            tokio::spawn(async move {
+                if let Err(error) = super::chat::move_chat(&core, &agent_id, target).await {
+                    eprintln!(
+                        "sikemux core: {agent_id} stayed on its account after sign-in: {error}"
+                    );
+                }
+            });
+        }
+    }
 }
 
 /// Signs the person in to the account a launcher starts agents on, as
 /// [`sign_in`] does.
 pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -> CoreResult<()> {
-    let (provider, profile) = match params.launcher.split_once(':') {
-        Some((provider, profile)) => (provider, Some(profile)),
-        None => (params.launcher.as_str(), None),
-    };
-    let agent = AgentKind::from_name(provider)
+    let launcher = super::workspace::LauncherId::parse(&params.launcher);
+    let agent = AgentKind::from_name(launcher.kind)
         .ok_or_else(|| CoreError::from("that agent is not one Sikemux knows"))?;
-    let profile = profile.and_then(|id| core.workspaces.accounts()?.profile(id).cloned());
+    let profile =
+        (launcher.account).and_then(|id| core.workspaces().accounts()?.profile(id).cloned());
     let account = Account {
         agent,
         executable_path: profile
@@ -143,13 +176,13 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         .agent
         .ops()
         .account_sign_in()
-        .ok_or("Only Claude and Codex keep separate accounts")?;
+        .ok_or(crate::agent_accounts::NO_ACCOUNTS)?;
     let mut command = account.command().await?;
     command.args(args);
     command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(sikemux_process::command::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::piped())
         .kill_on_drop(true);
     let mut child = command
         .spawn()
@@ -203,7 +236,7 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
                             shown_url = true;
                             if let Some(running) = sign_ins().get_mut(&key) {
                                 running.page = Some(Page {
-                                    agent: account.agent.as_str(),
+                                    agent: account.agent.as_str().to_owned(),
                                     config_path: account.config_path.clone(),
                                     url: url.to_owned(),
                                 });
@@ -228,7 +261,10 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
     sign_ins().remove(&key);
     pages_changed(core);
     match ended {
-        Ok(Some(Ok(status))) if status.success() => Ok(()),
+        Ok(Some(Ok(status))) if status.success() => {
+            signed_in(core, &account);
+            Ok(())
+        }
         Ok(Some(_)) => Err(match tail.last() {
             Some(last) => format!("Sign-in did not finish: {last}"),
             None => "Sign-in did not finish".into(),
@@ -237,14 +273,6 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         Ok(None) => Err("Sign-in stopped".into()),
         Err(_) => Err("Sign-in timed out".into()),
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct Code {
-    #[serde(flatten)]
-    account: Account,
-    code: String,
 }
 
 /// Hands a running sign-in the code its page showed, for a CLI that asks
@@ -285,13 +313,13 @@ pub(super) async fn sign_out(account: Account) -> CoreResult<()> {
         .agent
         .ops()
         .account_sign_out()
-        .ok_or("Only Claude and Codex keep separate accounts")?;
+        .ok_or(crate::agent_accounts::NO_ACCOUNTS)?;
     let mut command = account.command().await?;
     command.args(args);
     command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null());
     let status = tokio::time::timeout(SIGN_OUT_TIMEOUT, command.status())
         .await
         .map_err(|_| CoreError::from("Sign-out took too long"))?

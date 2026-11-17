@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Sign the voice or simulator helper the way the bundler signs what it ships:
+# Sign a published helper as a release is signed:
 # hardened runtime and the app's microphone entitlement. APPLE_SIGNING_IDENTITY
 # picks the identity; without it the signature is ad hoc.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
+APP_IDENTIFIER="$(node "$(dirname "$0")/app-metadata.mjs" identifier)"
+# shellcheck source=scripts/release-shape.sh
+source "$ROOT/scripts/release-shape.sh"
 
 for helper in "$@"; do
-  case "$(basename "$helper")" in
-    sikemux-voice-*) identifier=com.nodelike.sikemux.voice ;;
-    sikemux-sim-*) identifier=com.nodelike.sikemux.sim ;;
-    *) echo "not a helper: $helper" >&2; exit 2 ;;
-  esac
+  name="$(basename "$helper" "-$MAC_TARGET")"
+  [[ " ${PUBLISHED_HELPERS[*]} " == *" $name "* ]] || { echo "not a helper: $helper" >&2; exit 2; }
+  identifier="$APP_IDENTIFIER.${name#sikemux-}"
   [[ -f "$helper" && ! -L "$helper" ]] || { echo "missing helper: $helper" >&2; exit 1; }
   timestamp=()
   [[ "$IDENTITY" != "-" ]] && timestamp=(--timestamp)

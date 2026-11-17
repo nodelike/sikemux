@@ -1,8 +1,8 @@
+use crate::command::Command;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use crate::sync::{Locked, Shared};
@@ -26,6 +26,7 @@ struct Source {
 }
 
 static SOURCE: OnceLock<Source> = OnceLock::new();
+static REREADS: AtomicU64 = AtomicU64::new(0);
 static ENVIRONMENT: RwLock<Option<(u64, Arc<UserEnvironment>)>> = RwLock::new(None);
 
 /// Registers how to build the environment, and how to tell it has gone stale.
@@ -33,6 +34,17 @@ static ENVIRONMENT: RwLock<Option<(u64, Arc<UserEnvironment>)>> = RwLock::new(No
 /// inherited.
 pub fn provide(build: fn() -> UserEnvironment, generation: fn() -> u64) {
     let _ = SOURCE.set(Source { build, generation });
+}
+
+/// Builds the environment again at its next use, from the person's settings as they are now,
+/// for a program they installed after it was read.
+pub fn reread() {
+    REREADS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Whether [`reread`] was asked for since this process started.
+pub fn was_reread() -> bool {
+    REREADS.load(Ordering::Relaxed) > 0
 }
 
 /// Builds the environment now so the first spawn does not pay for it.
@@ -44,7 +56,7 @@ fn environment() -> Arc<UserEnvironment> {
     let Some(source) = SOURCE.get() else {
         return Arc::default();
     };
-    let generation = (source.generation)();
+    let generation = (source.generation)() + REREADS.load(Ordering::Relaxed);
     if let Some((built, environment)) = ENVIRONMENT.read_locked().as_ref() {
         if *built == generation {
             return environment.clone();
@@ -85,6 +97,63 @@ pub fn agent_command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
+/// [`agent_command`] for what may run long and use a lot of memory, such as a chat's agent or a
+/// build: it runs in a cgroup of its own, so running out of memory stops it rather than the core.
+pub fn agent_command_in_own_cgroup(program: impl AsRef<OsStr>) -> Command {
+    let mut command = agent_command(program);
+    crate::cgroups::give_own_cgroup(&mut command);
+    command
+}
+
+/// [`agent_command`] for `sh` at low priority, so what it starts never competes with the
+/// person's typing or terminals, on machines with a way to lower it.
+pub fn background_shell() -> Result<Command, String> {
+    let shell = shell_program()?;
+    let lowering: Option<(&str, &[&str])> = match std::env::consts::OS {
+        "macos" => Some(("/usr/sbin/taskpolicy", &["-c", "utility"])),
+        "linux" => Some(("/usr/bin/nice", &["-n", "10"])),
+        _ => None,
+    };
+    Ok(
+        match lowering.filter(|(program, _)| std::path::Path::new(program).exists()) {
+            Some((program, args)) => {
+                let mut command = agent_command_in_own_cgroup(program);
+                command.args(args).arg(shell);
+                command
+            }
+            None => agent_command_in_own_cgroup(shell),
+        },
+    )
+}
+
+#[cfg(not(windows))]
+fn shell_program() -> Result<PathBuf, String> {
+    Ok(PathBuf::from("/bin/sh"))
+}
+
+/// The `sh` that comes with the git the core runs. Never the first on `PATH`: System32's
+/// `bash.exe` starts WSL, which sees other paths.
+#[cfg(windows)]
+fn shell_program() -> Result<PathBuf, String> {
+    git_program()
+        .or_else(|| {
+            reread();
+            git_program()
+        })
+        .and_then(|git| {
+            git.ancestors()
+                .skip(1)
+                .take(3)
+                .flat_map(|dir| [dir.join(r"bin\sh.exe"), dir.join(r"usr\bin\sh.exe")])
+                .find(|sh| sh.is_file())
+        })
+        .ok_or_else(|| {
+            "project commands on Windows run in the sh that comes with Git for Windows, \
+             which isn't installed"
+                .to_owned()
+        })
+}
+
 /// The git a bare `git` runs on the user's `PATH`, found once per `PATH`.
 pub fn git_program() -> Option<PathBuf> {
     static FOUND: Mutex<Option<(OsString, PathBuf)>> = Mutex::new(None);
@@ -108,7 +177,7 @@ fn past_xcode_stub(git: PathBuf) -> PathBuf {
     if git != std::path::Path::new("/usr/bin/git") {
         return git;
     }
-    let output = Command::new("/usr/bin/xcrun")
+    let output = std::process::Command::new("/usr/bin/xcrun")
         .args(["--find", "git"])
         .envs(&environment().variables)
         .stdin(std::process::Stdio::null())

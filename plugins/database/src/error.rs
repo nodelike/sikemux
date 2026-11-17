@@ -1,7 +1,7 @@
 use std::fmt;
 
-use sikemux_plugin_api::store::KeychainError;
-use sikemux_plugin_api::{Category, PluginError};
+use sikemux_plugin_api::store::{KeychainError, SettingsError};
+use sikemux_plugin_api::{FailureCategory, PluginError};
 
 #[derive(Debug)]
 pub enum DatabaseError {
@@ -37,6 +37,12 @@ impl From<KeychainError> for DatabaseError {
     }
 }
 
+impl From<SettingsError> for DatabaseError {
+    fn from(error: SettingsError) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
 impl From<serde_json::Error> for DatabaseError {
     fn from(error: serde_json::Error) -> Self {
         Self::Storage(error.to_string())
@@ -52,12 +58,12 @@ impl From<std::io::Error> for DatabaseError {
 impl From<DatabaseError> for PluginError {
     fn from(error: DatabaseError) -> Self {
         let category = match &error {
-            DatabaseError::BadArg(_) => Category::BadParams,
-            DatabaseError::NotFound(_) => Category::NotFound,
-            DatabaseError::Keychain(_) => Category::Keychain,
-            DatabaseError::Connect(_) => Category::own("connect"),
-            DatabaseError::Query(_) => Category::own("query"),
-            DatabaseError::Storage(_) => Category::own("storage"),
+            DatabaseError::BadArg(_) => FailureCategory::BadParams,
+            DatabaseError::NotFound(_) => FailureCategory::NotFound,
+            DatabaseError::Keychain(_) => FailureCategory::Keychain,
+            DatabaseError::Connect(_) => FailureCategory::own("connect"),
+            DatabaseError::Query(_) => FailureCategory::own("query"),
+            DatabaseError::Storage(_) => FailureCategory::own("storage"),
         };
         PluginError::new(category, error.to_string())
     }

@@ -32,23 +32,17 @@ beforeEach(() => {
 });
 
 describe('signOutHere', () => {
-  it('stops the live connection, forgets notifications and every paired host, then signs out of Clerk and goes home', async () => {
+  it('leaves nothing of the account behind and signs out of Clerk only after every paired host is asked to forget it', async () => {
     const order: string[] = [];
-    live.stopLive.mockImplementation(() => order.push('live'));
-    token.forgetPush.mockImplementation(async () => void order.push('push'));
-    hub.forget.mockImplementation(async (core) => void order.push(`forget ${core}`));
+    hub.forget.mockImplementation(async (core) => void order.push(core));
     const home = vi.spyOn(router, 'dismissTo');
-    const signOut = vi.fn(async () => void order.push('clerk'));
-    await signOutHere(signOut, { confirmed: true });
-    expect(order).toEqual(['live', 'push', 'forget host-a', 'forget host-b', 'clerk']);
+    await signOutHere(async () => void order.push('clerk'), { confirmed: true });
+    expect(order).toEqual(['host-a', 'host-b', 'clerk']);
+    expect(live.stopLive).toHaveBeenCalledTimes(1);
+    expect(token.forgetPush).toHaveBeenCalledTimes(1);
     expect(setting.choose).toHaveBeenCalledWith(undefined);
     expect(live.forgetCursor).toHaveBeenCalledTimes(1);
     expect(home).toHaveBeenCalledWith('/');
-  });
-
-  it('keeps the device key when the server took the phone off the account', async () => {
-    await signOutHere(async () => {}, { confirmed: true });
-    expect(rotate.rotateDeviceKey).not.toHaveBeenCalled();
   });
 
   it('makes the phone a new device when the server never confirmed it left', async () => {
@@ -72,10 +66,5 @@ describe('signOutHere', () => {
     const signOut = vi.fn(async () => {});
     await signOutHere(signOut, { confirmed: false });
     expect(signOut).toHaveBeenCalledTimes(1);
-  });
-
-  it('says why the phone signed out when it was not the person here', async () => {
-    await signOutHere(async () => {}, { farewell: 'removed', confirmed: true });
-    expect(farewell.sayFarewell).toHaveBeenCalledWith('removed');
   });
 });

@@ -1,6 +1,9 @@
 //! The editor's tab: a file read and saved through the core, edited on Kit's
 //! code editor, and opened from anywhere at a line.
 
+use crate::ui::Clicks;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -11,24 +14,28 @@ use gpui_kit::component::input::{
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, AnyElement, AnyWindowHandle, App, AppContext, Context, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
-    Window,
+    Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement, ScrollHandle,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
-use serde_json::{json, Value};
-use sikemux_wire::protocol::{Pane, PaneKind, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
+use sikemux_view::layout::{Pane, PaneKind};
 
-use crate::core::{Ask, Target};
-use crate::hosts::Place as Host;
-use crate::keymap::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
+use crate::core::{Ask, CallError, Target};
+use crate::diagram;
+use crate::hosts::Place;
+use crate::keyboard::TakesKeys;
+use crate::text_size::Surface;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
-use crate::workbench::{Strip, TakesKeys, Workbench};
+use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
+use crate::workbench::{Strip, Workbench};
+use sikemux_calls::call;
+use sikemux_calls::open_files::ShowFiles;
+use sikemux_git::files::FileReadParams;
+use sikemux_git::files::FileWriteParams;
+use sikemux_wire::protocol::ErrorKind;
 
 mod blame;
 mod copies;
-mod dbml;
-pub(crate) mod diagram;
 mod gutter;
 mod insights;
 mod lsp;
@@ -67,10 +74,8 @@ const READ_TRIES: usize = 3;
 /// A save goes in pieces of this many characters, as the core takes them.
 const SAVE_PIECE: usize = 512 * 1024;
 const FONT_SIZE: f32 = 13.;
-const TEXT_SCALE_STEP: f64 = 0.1;
 /// How many places back ⌘[ remembers.
 const MAX_HISTORY: usize = 128;
-/// The most places a peek lists.
 const MAX_PEEKED: usize = 300;
 
 pub fn install(cx: &mut App) {
@@ -97,7 +102,7 @@ pub fn install(cx: &mut App) {
         // ⇧⌘F searches the project from the editor too, rather than Kit's replace.
         KeyBinding::new(
             keys("cmd-shift-f", "ctrl-shift-f"),
-            crate::search::FocusSearch,
+            crate::workbench::actions::FocusSearch,
             text,
         ),
     ]);
@@ -106,12 +111,12 @@ pub fn install(cx: &mut App) {
 /// A file by the host it is on and its path there, since two hosts can hold the same path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FileKey {
-    pub place: Host,
+    pub place: Place,
     pub path: PathBuf,
 }
 
 impl FileKey {
-    pub fn new(place: Host, path: impl Into<PathBuf>) -> Self {
+    pub fn new(place: Place, path: impl Into<PathBuf>) -> Self {
         Self {
             place,
             path: path.into(),
@@ -189,6 +194,7 @@ struct Document {
     /// The find bar over the markdown as it reads, while it is open.
     finding: Option<preview::Finding>,
     preview_focus: FocusHandle,
+    preview_select: gpui_transcript::DocSelect,
     preview_scroll: ScrollHandle,
     /// What changed since the last commit, marked beside the lines.
     gutter: gutter::Gutter,
@@ -243,7 +249,6 @@ impl Editors {
         })
     }
 
-    /// Whether the file has edits not yet saved.
     pub fn is_dirty(&self, key: &FileKey) -> bool {
         self.open.get(key).is_some_and(|document| document.dirty)
     }
@@ -251,7 +256,7 @@ impl Editors {
     /// The files under `root` on `place` with changes not saved.
     pub fn unsaved_under<'a>(
         &'a self,
-        place: &'a Host,
+        place: &'a Place,
         root: &'a Path,
     ) -> impl Iterator<Item = &'a Path> + 'a {
         (self.open.iter())
@@ -262,7 +267,7 @@ impl Editors {
     }
 
     /// The files on `place` its core keeps watching for changes on disk.
-    fn watched(&self, place: &Host) -> Vec<String> {
+    fn watched(&self, place: &Place) -> Vec<String> {
         (self.open.keys())
             .chain(self.viewers.keys())
             .filter(|key| key.place == *place)
@@ -286,7 +291,7 @@ pub fn pane(
         return viewer::pane(bench, this, &key, cx);
     }
     if viewer::not_text(&path) {
-        let opening = key.clone();
+        let opening = key;
         cx.defer_in(window, move |bench, window, cx| {
             let handle = window.window_handle();
             bench
@@ -298,7 +303,7 @@ pub fn pane(
     }
     let Some(loaded) = (bench.editors.read(cx).open.get(&key)).map(|document| document.loaded)
     else {
-        let opening = key.clone();
+        let opening = key;
         cx.defer_in(window, move |bench, window, cx| {
             open(bench, opening, window, cx)
         });
@@ -397,21 +402,23 @@ pub fn pane(
         })
         .on_pinch(
             window.listener_for(&this, |bench, event: &gpui::PinchEvent, _, _| {
-                crate::pinch::resize(bench, crate::pinch::Surface::Editor, event)
+                crate::text_size::resize(bench, crate::text_size::Surface::Editor, event)
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeIncrease, _, _| {
-                rescale(bench, Some(TEXT_SCALE_STEP))
+                Surface::Editor.step(bench, Some(true))
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeDecrease, _, _| {
-                rescale(bench, Some(-TEXT_SCALE_STEP))
+                Surface::Editor.step(bench, Some(false))
             }),
         )
         .on_action(
-            window.listener_for(&this, |bench, _: &TextSizeReset, _, _| rescale(bench, None)),
+            window.listener_for(&this, |bench, _: &TextSizeReset, _, _| {
+                Surface::Editor.step(bench, None)
+            }),
         )
         .when_some(document.notice.clone(), |pane, notice| {
             pane.child(notice_bar(&this, &key, notice, cx))
@@ -425,10 +432,10 @@ pub fn pane(
                     .gap(SPACE_2H)
                     .px(SPACE_3)
                     .py(SPACE_1H)
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.border)
                     .text_size(crate::theme::ui_text(TEXT_XS))
-                    .child(div().text_color(t.text_tertiary).child("Go to line"))
+                    .child(div().text_color(t.text_tertiary).child(t!("Go to line")))
                     .child(
                         Input::new(input)
                             .appearance(false)
@@ -470,6 +477,7 @@ pub fn pane(
                             path: path.clone(),
                             markdown: markdown.clone(),
                             found: finding.and_then(preview::Finding::found),
+                            select: document.preview_select.clone(),
                             scroll: document.preview_scroll.clone(),
                             focus: document.preview_focus.clone(),
                             asks: (bench.place() == crate::hosts::Place::This)
@@ -504,7 +512,7 @@ pub fn pane(
                     .capture_action(window.listener_for(&this, |bench, _: &Replace, _, cx| {
                         bench.parts.redraw_stage(cx)
                     }))
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(size)
                     .text_color(t.text_primary)
                     .child(
@@ -571,10 +579,7 @@ pub fn go_in(
 ) {
     remember_here(bench, cx);
     let target = to.path.to_string_lossy().into_owned();
-    bench.call(
-        "openTab",
-        strip.with(json!({ "kind": "files", "target": target, "title": title })),
-    );
+    bench.open_here(OpenTab::new(strip.at(), PaneKind::Files, target).titled(title));
     bench.editors.update(cx, |editors, cx| {
         editors.reveal = Some(to);
         cx.notify();
@@ -619,7 +624,8 @@ fn here(bench: &Workbench, cx: &App) -> Option<OpenAt> {
     })
 }
 
-/// Goes back to where the editor was before its last jump, or forward again.
+/// Goes back to where the editor was before its last jump, or forward again, or with no jump
+/// left, to the tab visited before or after this one.
 fn step(bench: &mut Workbench, back: bool, cx: &mut Context<Workbench>) {
     let here = here(bench, cx);
     let taken = bench.editors.update(cx, |editors, _| {
@@ -631,8 +637,9 @@ fn step(bench: &mut Workbench, back: bool, cx: &mut Context<Workbench>) {
         to.extend(here);
         Some(taken)
     });
-    if let Some(to) = taken {
-        show(bench, to, cx);
+    match taken {
+        Some(to) => show(bench, to, cx),
+        None => bench.step_visit(if back { -1 } else { 1 }, cx),
     }
 }
 
@@ -788,9 +795,8 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
                 .h(px(24.))
                 .items_center()
                 .px(SPACE_3)
-                .cursor_pointer()
                 .hover(move |style| style.bg(t.surface_hover))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     let at = at.clone();
                     this.update(cx, |bench, cx| {
                         close_peeks(bench, cx);
@@ -820,9 +826,9 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
         .flex()
         .flex_col()
         .max_h(px(320.))
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(
             div()
@@ -831,7 +837,7 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
                 .h(px(30.))
                 .px(SPACE_3)
                 .gap(SPACE_2)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()
@@ -845,7 +851,7 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
                 )
                 .child(div().flex_1())
                 .child(
-                    ui::IconButton::new("peek-close", crate::icons::Icon::Close, "Close — esc")
+                    ui::IconButton::new("peek-close", crate::icons::Icon::Close, t!("Close — esc"))
                         .small()
                         .on_click({
                             let this = this.clone();
@@ -875,7 +881,7 @@ fn open_goto(
     if !bench.editors.read(cx).open.contains_key(key) {
         return;
     }
-    let input = cx.new(|cx| InputState::new(window, cx).placeholder("line[:column]"));
+    let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("line[:column]")));
     let asked_for = key.clone();
     let entered = cx.subscribe_in(
         &input,
@@ -928,11 +934,11 @@ fn close_goto(
     });
 }
 
-/// The bar over an editor saying it could not read or save its file, or
-/// that the file changed on disk under unsaved edits.
 /// Something a notice bar's button does to the open file.
 type Run = dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>);
 
+/// The bar over an editor saying it could not read or save its file, or
+/// that the file changed on disk under unsaved edits.
 fn notice_bar(
     this: &Entity<Workbench>,
     key: &FileKey,
@@ -947,17 +953,20 @@ fn notice_bar(
     );
     let text: SharedString = match &notice {
         Notice::Failed(error) => error.clone().into(),
-        Notice::Conflict(error) => {
-            format!("{name} has an external change. Your editor buffer was preserved. {error}")
-                .into()
-        }
+        Notice::Conflict(error) => t!(
+            "{name} has an external change. Your editor buffer was preserved. {error}",
+            name = name,
+            error = error
+        )
+        .into(),
         Notice::Trust(project) => {
             let folder = Path::new(project).file_name().map_or_else(
                 || project.clone(),
                 |name| name.to_string_lossy().into_owned(),
             );
-            format!(
-                "Start language servers for {folder}? They can run code from this project, such as its build scripts and installed tools. Only allow this for projects you trust."
+            t!(
+                "Start language servers for {folder}? They can run code from this project, such as its build scripts and installed tools. Only allow this for projects you trust.",
+                folder = folder
             )
             .into()
         }
@@ -973,18 +982,9 @@ fn notice_bar(
         let key = key.clone();
         button(
             "editor-reload",
-            "Reload disk",
+            t!("Reload disk"),
             ui::Variant::Outline,
-            Rc::new(move |bench, window, cx| {
-                bench.editors.update(cx, |editors, _| {
-                    if let Some(document) = editors.open.get_mut(&key) {
-                        document.notice = None;
-                        document.dirty = false;
-                        document.version = None;
-                    }
-                });
-                read(bench, key.clone(), window, cx);
-            }),
+            Rc::new(move |bench, window, cx| reload(bench, key.clone(), window, cx)),
         )
     };
     let answers = match &notice {
@@ -1008,10 +1008,15 @@ fn notice_bar(
                     as Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>
             };
             vec![
-                button("editor-trust", "Allow", ui::Variant::Primary, answer(true)),
+                button(
+                    "editor-trust",
+                    t!("Allow"),
+                    ui::Variant::Primary,
+                    answer(true),
+                ),
                 button(
                     "editor-distrust",
-                    "Don't allow",
+                    t!("Don't allow"),
                     ui::Variant::Outline,
                     answer(false),
                 ),
@@ -1024,25 +1029,7 @@ fn notice_bar(
         Notice::Trust(_) => t.text_primary,
         _ => t.warn,
     };
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2H)
-        .px(SPACE_3)
-        .py(SPACE_1H)
-        .border_b_1()
-        .border_color(t.border)
-        .bg(t.surface_sunken)
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_color(tone)
-                .font_weight(FontWeight::MEDIUM)
-                .child(text),
-        )
-        .children(answers)
+    ui::notice_bar(text, tone, answers, cx)
 }
 
 /// Makes the editor for the file `key` and reads the file into it.
@@ -1083,6 +1070,7 @@ fn open(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
         rendered: None,
         finding: None,
         preview_focus: cx.focus_handle(),
+        preview_select: Default::default(),
         preview_scroll: ScrollHandle::new(),
         gutter: gutter::Gutter::default(),
         blame: blame::Blame::default(),
@@ -1095,6 +1083,20 @@ fn open(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
     });
     show_files(bench, &key.place, cx);
     read(bench, key, window, cx);
+}
+
+/// What each per-file feature does once a file's text is first in its editor.
+fn opened(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
+    if key.place == Place::This {
+        lsp::attach(bench, key.path.clone(), window, cx);
+    }
+    git_moved(bench, key, cx);
+}
+
+/// What each per-file feature reads again when git moved under the file.
+fn git_moved(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) {
+    gutter::read_base(bench, key, cx);
+    blame::read(bench, key, cx);
 }
 
 /// Keeps the file `key`'s unsaved mark, language server, gutter and blame in step with its
@@ -1135,7 +1137,7 @@ fn follow_edits(
 /// `to`, with their unsaved edits.
 pub fn renamed(
     bench: &mut Workbench,
-    place: &Host,
+    place: &Place,
     from: &Path,
     to: &Path,
     cx: &mut Context<Workbench>,
@@ -1173,11 +1175,7 @@ pub fn renamed(
         let _ = window.update(cx, |_, window, cx| {
             let _ = this.update(cx, |bench, cx| {
                 for (_, key) in moved {
-                    if key.place == Host::This {
-                        lsp::attach(bench, key.path.clone(), window, cx);
-                    }
-                    gutter::read_base(bench, &key, cx);
-                    blame::read(bench, &key, cx);
+                    opened(bench, &key, window, cx);
                 }
             });
         });
@@ -1186,17 +1184,20 @@ pub fn renamed(
 }
 
 /// Tells the core of `place` which files to watch: every one of its files open in an editor.
-fn show_files(bench: &Workbench, place: &Host, cx: &App) {
-    Target::new(&bench.asks, place.clone()).call(
-        "showFiles",
-        json!({ "paths": bench.editors.read(cx).watched(place) }),
-    );
+/// An account host out of reach hears it once it is back, from [`host_reached`].
+fn show_files(bench: &Workbench, place: &Place, cx: &App) {
+    if !bench.feeds.reaches(place) {
+        return;
+    }
+    Target::new(&bench.asks, place.clone()).call_typed::<call::ShowFiles>(ShowFiles {
+        paths: bench.editors.read(cx).watched(place),
+    });
 }
 
 /// Tells the cores again which files to watch and claims back the files open with language
 /// servers, as a core forgets both for a connection that drops.
 pub fn reconnected(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let mut places: Vec<Host> = Vec::new();
+    let mut places: Vec<Place> = Vec::new();
     let editors = bench.editors.read(cx);
     for key in (editors.open.keys()).chain(editors.viewers.keys()) {
         if !places.contains(&key.place) {
@@ -1210,7 +1211,7 @@ pub fn reconnected(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 /// Tells an account host again which of its files to watch, once it is back in reach.
-pub fn host_reached(bench: &Workbench, place: &Host, cx: &App) {
+pub fn host_reached(bench: &Workbench, place: &Place, cx: &App) {
     if !bench.editors.read(cx).watched(place).is_empty() {
         show_files(bench, place, cx);
     }
@@ -1218,26 +1219,29 @@ pub fn host_reached(bench: &Workbench, place: &Host, cx: &App) {
 
 /// Reads the whole file in the pieces the core gives, starting again when it
 /// changes under the read.
-async fn read_file(target: &Target, path: String) -> Result<(String, String), String> {
+async fn read_file(target: &Target, path: String) -> Result<(String, String), CallError> {
     for _ in 0..READ_TRIES {
         let mut text = String::new();
         let mut at = 0u64;
         let mut stamp: Option<String> = None;
         let moved = loop {
             let piece = target
-                .request("files.read", json!({ "path": path, "at": at }))
+                .try_request_typed::<call::FilesRead>(FileReadParams {
+                    path: path.clone(),
+                    at,
+                })
                 .await?;
-            let piece_stamp = piece["stamp"].as_str().map(str::to_owned);
-            if stamp.is_some() && piece_stamp != stamp {
+            if stamp.as_ref().is_some_and(|stamp| *stamp != piece.stamp) {
                 break true;
             }
-            stamp = piece_stamp;
-            text.push_str(piece["text"].as_str().unwrap_or_default());
-            at = piece["next"].as_u64().unwrap_or(at);
-            if let Some(version) = piece["version"].as_str() {
-                return Ok((text, version.to_owned()));
+            stamp = Some(piece.stamp);
+            let empty = piece.text.is_empty();
+            text.push_str(&piece.text);
+            at = piece.next;
+            if let Some(version) = piece.version {
+                return Ok((text, version));
             }
-            if piece["text"].as_str().is_none_or(str::is_empty) {
+            if empty {
                 break false;
             }
         };
@@ -1245,7 +1249,7 @@ async fn read_file(target: &Target, path: String) -> Result<(String, String), St
             break;
         }
     }
-    Err(format!("{path} kept changing while it was read"))
+    Err(t!("{path} kept changing while it was read", path = path).into())
 }
 
 /// Reads the file into its editor, replacing what it shows.
@@ -1268,7 +1272,8 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                     Ok((_, version)) if document.version.as_ref() == Some(&version) => {}
                     Ok(_) if document.dirty => {
                         document.notice = Some(Notice::Conflict(
-                            "The disk version changed while this editor had unsaved work.".into(),
+                            t!("The disk version changed while this editor had unsaved work.")
+                                .into(),
                         ));
                     }
                     Ok((text, version)) => {
@@ -1280,18 +1285,13 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                         document.loaded = true;
                         document.dirty = false;
                         document.notice = None;
-                        if document.mode == preview::Mode::Preview {
-                            let text = document.saved.clone();
-                            show_rendered(document, &key, &text, &asks, this, window, cx);
-                            preview::refind(document, cx);
-                        }
-                        lsp::changed(document, &asks, cx);
+                        reloaded(document, &key, &asks, this, window, cx);
                     }
-                    Err(error) if error.starts_with("not-text:") => {
+                    Err(error) if error.kind == Some(ErrorKind::NotText) => {
                         editors.open.remove(&key);
                         return Some(None);
                     }
-                    Err(error) => document.notice = Some(Notice::Failed(error)),
+                    Err(error) => document.notice = Some(Notice::Failed(error.into())),
                 }
                 cx.notify();
                 Some(Some((first, document.loaded, document.dirty != was_dirty)))
@@ -1302,35 +1302,56 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                 None => return,
             };
             if first && loaded {
-                if key.place == Host::This {
-                    lsp::attach(bench, key.path.clone(), window, cx);
-                }
-                gutter::read_base(bench, &key, cx);
-                blame::read(bench, &key, cx);
+                opened(bench, &key, window, cx);
             } else {
                 gutter::changed(&bench.editors, &key, cx);
             }
             if flipped {
-                bench.parts.redraw(&bench.parts.top, cx);
+                bench.parts.redraw(&bench.parts.bar, cx);
             }
         });
     })
     .detach();
 }
 
+/// What each per-file feature that follows the text does once new text from disk is in the file's
+/// editor.
+fn reloaded(
+    document: &mut Document,
+    key: &FileKey,
+    asks: &tokio::sync::mpsc::UnboundedSender<Ask>,
+    bench: WeakEntity<Workbench>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if document.mode == preview::Mode::Preview {
+        let text = document.saved.clone();
+        show_rendered(document, key, &text, asks, bench, window, cx);
+        preview::refind(document, cx);
+    }
+    lsp::changed(document, asks, cx);
+}
+
+/// Takes the file's text from disk whatever it was last read as, over any unsaved edits.
+fn reload(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
+    bench.editors.update(cx, |editors, _| {
+        if let Some(document) = editors.open.get_mut(&key) {
+            document.notice = None;
+            document.dirty = false;
+            document.version = None;
+        }
+    });
+    read(bench, key, window, cx);
+}
+
 /// Saves the editor's text over the file, refused by the core when the file
-/// moved on since it was read. A save of an unchanged file reads it again.
+/// moved on since it was read. A save of an unchanged file reloads it.
 fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(document) = bench.editors.read(cx).open.get(key) else {
         return;
     };
     if !document.dirty {
-        bench.editors.update(cx, |editors, _| {
-            if let Some(document) = editors.open.get_mut(key) {
-                document.version = None;
-            }
-        });
-        return read(bench, key.clone(), window, cx);
+        return reload(bench, key.clone(), window, cx);
     }
     let text = document.state.read(cx).value().to_string();
     let version = document.version.clone();
@@ -1351,11 +1372,10 @@ fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Cont
                         document.version = Some(version);
                         document.notice = None;
                     }
-                    Err(error) if error.starts_with("file-conflict:") => {
-                        let error = error.trim_start_matches("file-conflict:").trim().to_owned();
-                        document.notice = Some(Notice::Conflict(error));
+                    Err(error) if error.kind == Some(ErrorKind::FileConflict) => {
+                        document.notice = Some(Notice::Conflict(error.into()));
                     }
-                    Err(error) => document.notice = Some(Notice::Failed(error)),
+                    Err(error) => document.notice = Some(Notice::Failed(error.into())),
                 }
                 document.dirty != was_dirty
             }) else {
@@ -1365,7 +1385,7 @@ fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Cont
                 blame::read(bench, &key, cx);
             }
             if flipped {
-                bench.parts.redraw(&bench.parts.top, cx);
+                bench.parts.redraw(&bench.parts.bar, cx);
             }
         });
     })
@@ -1379,7 +1399,7 @@ async fn write_file(
     path: &str,
     text: &str,
     version: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, CallError> {
     let mut upload: Option<String> = None;
     let mut rest = text;
     loop {
@@ -1390,18 +1410,21 @@ async fn write_file(
         let (piece, after) = rest.split_at(end);
         let more = !after.is_empty();
         let written = target
-            .request(
-                "files.write",
-                json!({ "path": path, "text": piece, "version": version, "upload": upload, "more": more }),
-            )
+            .try_request_typed::<call::FilesWrite>(FileWriteParams {
+                path: path.to_owned(),
+                text: piece.to_owned(),
+                version: version.clone(),
+                new: false,
+                upload: upload.clone(),
+                more,
+            })
             .await?;
         if !more {
-            return written["version"]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| format!("{path} was saved without a version"));
+            return written
+                .version
+                .ok_or_else(|| t!("{path} was saved without a version", path = path).into());
         }
-        upload = written["upload"].as_str().map(str::to_owned);
+        upload = written.upload;
         rest = after;
     }
 }
@@ -1428,13 +1451,12 @@ fn keep_preview(bench: &Workbench, path: &Path) {
 /// Every file a tab or desk shows, once for each view of it.
 fn shown(bench: &Workbench, cx: &App) -> Vec<FileKey> {
     let mut shown = Vec::new();
-    let views = bench.view.iter().map(|view| (Host::This, view)).chain(
-        bench
-            .hosts
-            .views
-            .iter()
-            .map(|(host, view)| (Host::Account(host.clone()), view)),
-    );
+    let views =
+        (bench.this_view().into_iter())
+            .map(|view| (Place::This, view))
+            .chain(bench.feeds.hosts().filter_map(|(host, feed)| {
+                Some((Place::Account(host.clone()), feed.view.as_ref()?))
+            }));
     for (place, view) in views {
         let strips = view
             .layout
@@ -1477,18 +1499,21 @@ pub fn close_unsaved(
     let (title, body) = match lost.as_slice() {
         [] => return close(bench, cx),
         [one] => (
-            format!("Close {} without saving?", name_of(&one.path)),
-            "Its unsaved changes are lost.",
+            t!(
+                "Close {name} without saving?",
+                name = crate::ui::path::file_name(&one.path)
+            ),
+            t!("Its unsaved changes are lost."),
         ),
         many => (
-            format!("Close {} files without saving?", many.len()),
-            "Their unsaved changes are lost.",
+            t!("Close {count} files without saving?", count = many.len()),
+            t!("Their unsaved changes are lost."),
         ),
     };
     bench.confirm(
         title,
         body,
-        "Close",
+        t!("Close"),
         true,
         move |bench, yes, _, cx| {
             if !yes {
@@ -1509,16 +1534,10 @@ pub fn close_unsaved(
 }
 
 /// The files in `pane`, its own or every one of its splits'.
-pub fn files_of(place: &Host, pane: &Pane) -> Vec<FileKey> {
+pub fn files_of(place: &Place, pane: &Pane) -> Vec<FileKey> {
     let mut found = Vec::new();
     files_in(place, pane, &mut found);
     found
-}
-
-fn name_of(path: &Path) -> String {
-    path.file_name()
-        .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
-        .into_owned()
 }
 
 /// Lets go of every file with no unsaved edits that no tab shows any more.
@@ -1534,7 +1553,7 @@ pub fn keep(bench: &mut Workbench, cx: &mut App) {
             .filter(|key| !shown.contains(*key))
             .cloned()
             .collect();
-        let mut places: Vec<Host> = Vec::new();
+        let mut places: Vec<Place> = Vec::new();
         for key in closed {
             editors.viewers.remove(&key);
             editors.copies.forget(&key);
@@ -1561,7 +1580,7 @@ pub fn keep(bench: &mut Workbench, cx: &mut App) {
     }
 }
 
-fn files_in(place: &Host, pane: &Pane, found: &mut Vec<FileKey>) {
+fn files_in(place: &Place, pane: &Pane, found: &mut Vec<FileKey>) {
     found.extend(
         crate::panes::views(pane)
             .filter(|view| view.kind == PaneKind::Files)
@@ -1574,12 +1593,13 @@ fn files_in(place: &Host, pane: &Pane, found: &mut Vec<FileKey>) {
 /// head, or none for anything.
 pub fn git_changed(
     bench: &mut Workbench,
+    place: &Place,
     project: Option<&str>,
     paths: Option<&[String]>,
     cx: &mut Context<Workbench>,
 ) {
     let open: Vec<FileKey> = (bench.editors.read(cx).open.keys())
-        .filter(|key| key.place == Host::This)
+        .filter(|key| key.place == *place)
         .filter(|key| project.is_none_or(|project| key.path.starts_with(project)))
         .filter(|key| {
             paths.is_none_or(|paths| {
@@ -1591,19 +1611,22 @@ pub fn git_changed(
         .cloned()
         .collect();
     for key in open {
-        gutter::read_base(bench, &key, cx);
-        blame::read(bench, &key, cx);
+        git_moved(bench, &key, cx);
     }
 }
 
-/// Reads again the problems of files whose language server said they changed.
 pub fn diagnostics_changed(bench: &mut Workbench, paths: &[String], cx: &mut Context<Workbench>) {
     insights::diagnostics_changed(bench, paths, cx);
 }
 
 /// Files that changed on disk: clean editors take the new text, and one with
 /// unsaved edits says the disk moved on when its version did.
-pub fn changed(bench: &mut Workbench, place: &Host, paths: &[String], cx: &mut Context<Workbench>) {
+pub fn changed(
+    bench: &mut Workbench,
+    place: &Place,
+    paths: &[String],
+    cx: &mut Context<Workbench>,
+) {
     let shown: Vec<FileKey> = paths
         .iter()
         .map(|path| FileKey::new(place.clone(), path))
@@ -1632,7 +1655,6 @@ pub fn changed(bench: &mut Workbench, place: &Host, paths: &[String], cx: &mut C
     .detach();
 }
 
-/// Puts the cursor where `at` says and brings its line into view.
 fn place_cursor(
     bench: &mut Workbench,
     key: &FileKey,
@@ -1704,7 +1726,7 @@ fn show_rendered(
                 page.show(text);
                 return;
             }
-            let file = (key.place == Host::This).then_some(key.path.as_path());
+            let file = (key.place == Place::This).then_some(key.path.as_path());
             let (events, mut heard) = tokio::sync::mpsc::unbounded_channel();
             let page = crate::page_view::open(
                 text,
@@ -1729,8 +1751,8 @@ fn show_rendered(
                 return;
             }
             let host = match &key.place {
-                Host::This => "this".to_owned(),
-                Host::Account(host) => format!("host:{host}"),
+                Place::This => "this".to_owned(),
+                Place::Account(host) => format!("host:{host}"),
             };
             let kept = diagram::Kept {
                 asks: asks.clone(),
@@ -1759,7 +1781,7 @@ fn show_rendered(
             });
             document.rendered = Some(Rendered::Diagram(diagram));
         }
-        _ => document.rendered = Some(Rendered::Markdown(Rc::new(preview::render(text)))),
+        _ => document.rendered = Some(Rendered::Markdown(Rc::new(crate::reading::render(text)))),
     }
 }
 
@@ -1768,27 +1790,34 @@ fn text_scale(bench: &Workbench) -> f64 {
     bench.preferences().editor_text_scale
 }
 
-/// Makes the editors' text bigger or smaller by `step`, or back to its size without one.
-/// Makes the editors' text bigger or smaller a step, or back to the default size without either.
-pub(crate) fn resize_text(bench: &Workbench, grow: Option<bool>) {
-    rescale(
-        bench,
-        grow.map(|grow| {
-            if grow {
-                TEXT_SCALE_STEP
-            } else {
-                -TEXT_SCALE_STEP
-            }
-        }),
-    );
-}
+impl Workbench {
+    /// The file the tab in front shows, when it is an editor.
+    pub fn front_file(&self) -> Option<PathBuf> {
+        let (kind, target) = crate::tabs::first_view(&self.tab()?.pane)?;
+        (kind == PaneKind::Files).then(|| PathBuf::from(target))
+    }
 
-fn rescale(bench: &Workbench, step: Option<f64>) {
-    let scale = step.map_or(DEFAULT_TEXT_SCALE, |step| {
-        ((text_scale(bench) + step) * 10.).round() / 10.
-    });
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: json!({ "key": "editorTextScale", "value": Value::from(scale.clamp(MIN_TEXT_SCALE, MAX_TEXT_SCALE)) }),
-    });
+    /// Brings the file's editor tab to the front, opening one when none shows it.
+    pub fn open_file(&mut self, path: &Path, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::File(path.to_owned()), cx);
+        self.show_file(path, false);
+    }
+
+    /// Opens the file's editor to look at, in place of the one opened that way last.
+    pub fn preview_file(&self, path: &Path) {
+        self.show_file(path, true);
+    }
+
+    pub(crate) fn show_file(&self, path: &Path, preview: bool) {
+        if let Some(project) = self.project() {
+            self.open_in_front(
+                OpenTab::new(
+                    At::project(&project.id),
+                    PaneKind::Files,
+                    path.to_string_lossy(),
+                )
+                .preview(preview),
+            );
+        }
+    }
 }

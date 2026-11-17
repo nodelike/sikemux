@@ -8,6 +8,7 @@ import {
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
@@ -23,29 +24,53 @@ const TYPES: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-/** The core's markdown parser for the browser, built from the same Rust. Needs rustup's cargo, which reads rust-toolchain.toml. */
-function buildMarkdown() {
+const WEB_DEVICE = join(repo, "target/web-device");
+/** Homebrew's LLVM, since Apple's clang cannot build ring's C for wasm. */
+const LLVM = "/opt/homebrew/opt/llvm/bin";
+
+/** Builds a Rust crate for the browser. Needs rustup's cargo, which reads rust-toolchain.toml. */
+function buildWasm(crate: string) {
   const rustup = join(homedir(), ".cargo/bin");
+  const llvm = existsSync(LLVM);
   execFileSync(
     "cargo",
-    [
-      "build",
-      "-p",
-      "sikemux-markdown-wasm",
-      "--target",
-      "wasm32-unknown-unknown",
-      "--release",
-    ],
+    ["build", "-p", crate, "--target", "wasm32-unknown-unknown", "--release"],
     {
       cwd: repo,
       stdio: "inherit",
       env: {
+        ...(llvm
+          ? {
+              CC_wasm32_unknown_unknown: `${LLVM}/clang`,
+              AR_wasm32_unknown_unknown: `${LLVM}/llvm-ar`,
+            }
+          : {}),
         ...process.env,
         PATH: existsSync(rustup)
           ? `${rustup}:${process.env.PATH ?? ""}`
           : process.env.PATH,
       },
     },
+  );
+}
+
+/** The core's markdown parser, and the browser's own device for reading a host's look, built from the same Rust. */
+function buildRust() {
+  buildWasm("sikemux-markdown-wasm");
+  buildWasm("sikemux-web-device");
+  execFileSync(
+    "wasm-bindgen",
+    [
+      "--target",
+      "web",
+      "--out-dir",
+      WEB_DEVICE,
+      join(
+        repo,
+        "target/wasm32-unknown-unknown/release/sikemux_web_device.wasm",
+      ),
+    ],
+    { stdio: "inherit" },
   );
 }
 
@@ -63,10 +88,10 @@ function chatAssets(): Plugin {
   return {
     name: "sikemux-chat-assets",
     buildStart() {
-      buildMarkdown();
+      buildRust();
     },
     configureServer(server) {
-      buildMarkdown();
+      buildRust();
       const files = chatFiles();
       server.middlewares.use((request, response, next) => {
         const path = new URL(request.url ?? "/", "http://app").pathname.slice(
@@ -88,12 +113,50 @@ function chatAssets(): Plugin {
   };
 }
 
+/** On `vite` with VITE_STAND_IN_CLERK set, signs in a made-up person from the API's stand-in sign-in instead of Clerk. Never in a build. */
+function standInClerk(): Plugin {
+  const standIn = fileURLToPath(new URL("dev/clerk.tsx", import.meta.url));
+  return {
+    name: "sikemux-stand-in-clerk",
+    apply: (_, { command }) =>
+      command === "serve" && Boolean(process.env.VITE_STAND_IN_CLERK),
+    enforce: "pre",
+    async resolveId(source, importer) {
+      if (source !== "@clerk/react" || importer === standIn) return null;
+      return standIn;
+    },
+  };
+}
+
+/** Sends the release's source maps to Sentry, when CI builds it with the token to. They are never served. */
+function sentrySourceMaps() {
+  const authToken = process.env.SENTRY_AUTH_TOKEN;
+  const release = process.env.VITE_SENTRY_RELEASE;
+  if (!authToken || !release) return null;
+  return sentryVitePlugin({
+    org: "nodelike",
+    project: "sikemux-web",
+    authToken,
+    release: { name: release, setCommits: false },
+    telemetry: false,
+    // Sentry being down must not hold back a deploy; that release's traces stay minified.
+    errorHandler: (error) =>
+      console.warn(`Sentry upload failed: ${error.message}`),
+  });
+}
+
 export default defineConfig({
-  plugins: [react(), chatAssets()],
+  plugins: [standInClerk(), react(), chatAssets(), sentrySourceMaps()],
   resolve: {
-    alias: [{ find: /^@shared\//, replacement: `${join(repo, "shared")}/` }],
+    alias: [
+      { find: /^@shared\//, replacement: `${join(repo, "shared")}/` },
+      {
+        find: /^@web-device$/,
+        replacement: join(WEB_DEVICE, "sikemux_web_device.js"),
+      },
+    ],
     dedupe: ["react", "react-dom"],
   },
   server: { port: 5173, strictPort: true, fs: { allow: [repo] } },
-  build: { sourcemap: true },
+  build: { sourcemap: "hidden" },
 });

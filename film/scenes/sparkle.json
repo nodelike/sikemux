@@ -1,0 +1,75 @@
+{
+  "theme": {
+    "id": "custom-sparkle-rice",
+    "name": "Sparkle rice",
+    "dark": true,
+    "chrome": {
+      "bg": "#2e3440",
+      "bgDim": "#242933",
+      "bgRaised": "#3b4252",
+      "ink": "#eceff4",
+      "inkDim": "#9aa3b3",
+      "inkMuted": "#4c566a",
+      "acc": "#88c0d0",
+      "accLine": "rgba(136,192,208,0.30)",
+      "accDim": "rgba(136,192,208,0.10)",
+      "line": "#3b4252",
+      "hl": "rgba(136,192,208,0.06)",
+      "danger": "#bf616a"
+    },
+    "editor": {
+      "fg": "#eceff4",
+      "bg": "transparent",
+      "caret": "#88c0d0",
+      "selection": "#434c5e",
+      "activeLine": "rgba(136,192,208,0.06)",
+      "gutter": "#4c566a",
+      "gutterActive": "#88c0d0",
+      "indent": "#3b4252",
+      "indentActive": "#4c566a"
+    },
+    "highlight": {
+      "keyword": "#81a1c1",
+      "string": "#a3be8c",
+      "comment": "#616e88",
+      "number": "#b48ead",
+      "function": "#88c0d0",
+      "type": "#8fbcbb",
+      "variable": "#eceff4",
+      "property": "#d8dee9",
+      "tag": "#81a1c1",
+      "operator": "#81a1c1",
+      "link": "#88c0d0",
+      "invalid": "#bf616a",
+      "meta": "#616e88",
+      "heading": "#88c0d0"
+    },
+    "terminal": {
+      "background": "#2e3440",
+      "foreground": "#eceff4",
+      "cursor": "#88c0d0",
+      "cursorAccent": "#2e3440",
+      "selectionBackground": "#434c5e",
+      "black": "#3b4252",
+      "red": "#bf616a",
+      "green": "#a3be8c",
+      "yellow": "#ebcb8b",
+      "blue": "#81a1c1",
+      "magenta": "#b48ead",
+      "cyan": "#88c0d0",
+      "white": "#e5e9f0",
+      "brightBlack": "#4c566a",
+      "brightRed": "#bf616a",
+      "brightGreen": "#a3be8c",
+      "brightYellow": "#ebcb8b",
+      "brightBlue": "#81a1c1",
+      "brightMagenta": "#b48ead",
+      "brightCyan": "#8fbcbb",
+      "brightWhite": "#eceff4"
+    },
+    "backdrop": {
+      "mood": true,
+      "moments": "full"
+    }
+  }
+}

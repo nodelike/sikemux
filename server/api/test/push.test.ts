@@ -576,6 +576,21 @@ describe("a host's push", () => {
     expect((await storedTokens())[0]?.last_ok_at).not.toBeNull();
   });
 
+  it("sent again after the connection dropped reaches the phone once", async () => {
+    await startLive();
+    const { mac, phone } = await pair();
+    const id = "a".repeat(32);
+    const first = await liveHost(mac);
+    expect(await pushed(first, push(phone.key, { ref: 1, id }))).toBe("sent");
+    first.close();
+    const again = await liveHost(mac);
+    expect(await pushed(again, push(phone.key, { ref: 7, id }))).toBe("sent");
+    expect(
+      await pushed(again, push(phone.key, { ref: 8, id: "b".repeat(32) })),
+    ).toBe("sent");
+    expect(fcm.sent).toHaveLength(2);
+  });
+
   it("reaches an iPhone through the APNs server its token came from", async () => {
     const sent: { origin: string; path: unknown }[] = [];
     await startLive({

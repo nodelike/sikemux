@@ -1,12 +1,5 @@
 // Linear: the person's issues and a search, one issue with its comments, and
-// the changes a person or their agents make, in a pane and as agent tools.
-//
-//   config — the workspaces signed in here, and their keys or tokens in the Keychain
-//   client — the GraphQL client, the key or token, and Linear's errors in words
-//   oauth  — signing in through the browser with a Linear account
-//   auth   — signing in with the browser or a personal API key, and each workspace's status
-//   issues — listing, reading, commenting on, changing and filing issues
-//   views  — what the pane shows, which the core keeps
+// the changes their agents make, as agent tools.
 
 mod auth;
 mod client;
@@ -14,28 +7,18 @@ mod config;
 mod error;
 mod issues;
 mod oauth;
-mod views;
-
-use std::sync::Arc;
 
 use serde_json::Value;
+use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Linear {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Linear {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Linear);
 
 impl Plugin for Linear {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&oauth::BOOK)
     }
 
     fn call<'a>(
@@ -53,15 +36,11 @@ impl Plugin for Linear {
                     reply(auth::status(data_dir).await)
                 }
                 "signOut" => answer(auth::sign_out(data_dir, params(input)?)).await,
-                "setDefault" => answer(auth::set_default(data_dir, params(input)?)).await,
                 "search" => answer(issues::search(data_dir, params(input)?)).await,
                 "issue" => answer(issues::issue(data_dir, params(input)?)).await,
                 "comment" => answer(issues::comment(data_dir, params(input)?)).await,
                 "update" => answer(issues::update(data_dir, params(input)?)).await,
                 "create" => answer(issues::create(data_dir, params(input)?)).await,
-                "teams" => answer(issues::teams(data_dir, params(input)?)).await,
-                "listView" => answer(views::list_view(data_dir, params(input)?)).await,
-                "issueView" => answer(views::issue_view(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })
@@ -92,7 +71,7 @@ impl Plugin for Linear {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir())?.workspaces.is_empty()) })
+        Box::pin(async move { Ok(store::has_account::<config::LinearConfig>(ctx.data_dir())) })
     }
 }
 
@@ -109,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out_and_offers_no_tools() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = scratch("status");
         let status = plugin
             .call(&ctx, "status", Value::Null)
@@ -123,18 +102,24 @@ mod tests {
             .call(&ctx, "search", json!({}))
             .await
             .expect_err("signed out");
-        assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::Unconfigured
+        );
         assert!(!plugin.offers_agent_tools(&ctx, &[]).await.expect("answers"));
     }
 
     #[tokio::test]
     async fn a_key_that_is_not_linears_is_turned_away_before_any_request() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let error = plugin
             .call(&scratch("bad-key"), "signIn", json!({ "key": "xoxp-123" }))
             .await
             .expect_err("not a Linear key");
-        assert_eq!(error.category, sikemux_plugin_api::Category::BadParams);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::BadParams
+        );
         assert!(
             error.message.contains("Personal API keys"),
             "{}",

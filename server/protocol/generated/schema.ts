@@ -22,8 +22,14 @@ export const schema = {
           type: "integer",
           minimum: 1,
         },
+        staff: { $ref: "#/$defs/Staff" },
+        plan: {
+          description:
+            "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
+          $ref: "#/$defs/PlanId",
+        },
       },
-      required: ["status", "restorableDays"],
+      required: ["status", "restorableDays", "staff", "plan"],
       additionalProperties: false,
     },
     AccountDeletion: {
@@ -73,7 +79,8 @@ export const schema = {
         type: { $ref: "#/$defs/AccountEventType" },
         at: { type: "string", format: "date-time" },
         key: {
-          description: "The device the event is about. Only on device events.",
+          description:
+            "The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.",
           $ref: "#/$defs/DeviceKey",
         },
         role: {
@@ -104,6 +111,9 @@ export const schema = {
         "stash.changed",
         "stash.removed",
         "stash.seen",
+        "vault.changed",
+        "mods.changed",
+        "plan.changed",
       ],
     },
     AccountProfile: {
@@ -114,8 +124,9 @@ export const schema = {
         email: { type: ["string", "null"], maxLength: 320 },
         name: { type: ["string", "null"], maxLength: 256 },
         imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
+        staff: { $ref: "#/$defs/Staff" },
       },
-      required: ["email", "name", "imageUrl"],
+      required: ["email", "name", "imageUrl", "staff"],
       additionalProperties: false,
     },
     AccountStatus: {
@@ -123,6 +134,34 @@ export const schema = {
         "Active, or deleting: deleted on request and still restorable until deletesAt.",
       type: "string",
       enum: ["active", "deleting"],
+    },
+    Allowance: {
+      description:
+        "What an account or org may use. Until billing is live, features lists everything for everyone.",
+      type: "object",
+      properties: {
+        plan: { $ref: "#/$defs/PlanId" },
+        features: { type: "array", items: { $ref: "#/$defs/PlanFeature" } },
+        boxes: {
+          description: "The Shed boxes it has bought and paid for.",
+          type: "array",
+          items: { $ref: "#/$defs/ShedBoxes" },
+        },
+        seatOrgs: {
+          description:
+            "For a person: the orgs whose paid Team plan they hold a seat in.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgId" },
+        },
+        giftEnds: {
+          description:
+            "For a person holding the plan as a gift, with nothing paid: when it ends.",
+          type: "string",
+          format: "date-time",
+        },
+      },
+      required: ["plan", "features", "boxes"],
+      additionalProperties: false,
     },
     ApiError: {
       description: "The body of every response that is not a success.",
@@ -181,6 +220,139 @@ export const schema = {
       pattern:
         "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
     },
+    BillingCatalog: {
+      description:
+        "Everything on sale, what it costs and what each plan includes.",
+      type: "object",
+      properties: {
+        products: { type: "array", items: { $ref: "#/$defs/BillingProduct" } },
+        plans: { type: "array", items: { $ref: "#/$defs/BillingPlan" } },
+        refundDays: {
+          description:
+            "How many days after a subscription's first payment it may be refunded in full.",
+          type: "integer",
+          minimum: 1,
+        },
+      },
+      required: ["products", "plans", "refundDays"],
+      additionalProperties: false,
+    },
+    BillingInterval: { type: "string", enum: ["month", "year"] },
+    BillingLink: {
+      description:
+        "A page of the provider's: its portal for payment methods, or one payment's receipt.",
+      type: "object",
+      properties: { url: { type: "string", format: "uri" } },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    BillingOverview: {
+      description:
+        "A person's or an org's plan, what it allows and what it pays for.",
+      type: "object",
+      properties: {
+        allowance: { $ref: "#/$defs/Allowance" },
+        subscriptions: {
+          description:
+            "Every subscription that has not ended, then the ended ones, newest first.",
+          type: "array",
+          items: { $ref: "#/$defs/Subscription" },
+        },
+        live: {
+          description:
+            "Whether plans are enforced and sold to everyone. Until then billing answers only staff.",
+          type: "boolean",
+        },
+        canBuy: {
+          description:
+            "Whether checkouts and changes can be made: a payment provider is set up, and for an org, payer is absent or you.",
+          type: "boolean",
+        },
+        payer: {
+          description:
+            "For an org whose plans have not all ended: who pays for them. Left out for a person, and for an org with nothing open.",
+          $ref: "#/$defs/PlanPayer",
+        },
+        card: {
+          description:
+            "Left out when the provider holds no card for this payer, or could not be asked.",
+          $ref: "#/$defs/PaymentCard",
+        },
+      },
+      required: ["allowance", "subscriptions", "live", "canBuy"],
+      additionalProperties: false,
+    },
+    BillingPayer: {
+      description:
+        "Who a product may be bought by: a person, an org, or either.",
+      type: "string",
+      enum: ["person", "org", "either"],
+    },
+    BillingPlan: {
+      description:
+        "A plan and everything it includes, the plans it includes counted in.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/PlanId" },
+        name: { type: "string" },
+        features: { type: "array", items: { $ref: "#/$defs/PlanFeature" } },
+      },
+      required: ["id", "name", "features"],
+      additionalProperties: false,
+    },
+    BillingPrice: {
+      description: "What one unit costs each interval.",
+      type: "object",
+      properties: {
+        interval: { $ref: "#/$defs/BillingInterval" },
+        unit: { $ref: "#/$defs/Money" },
+      },
+      required: ["interval", "unit"],
+      additionalProperties: false,
+    },
+    BillingProduct: {
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/BillingProductId" },
+        name: { type: "string" },
+        kind: { $ref: "#/$defs/BillingProductKind" },
+        unit: { $ref: "#/$defs/BillingUnit" },
+        payer: { $ref: "#/$defs/BillingPayer" },
+        plan: {
+          description: "Only on plans: the plan it is.",
+          $ref: "#/$defs/PlanId",
+        },
+        maxQuantity: { type: "integer", minimum: 1 },
+        prices: { type: "array", items: { $ref: "#/$defs/BillingPrice" } },
+      },
+      required: [
+        "id",
+        "name",
+        "kind",
+        "unit",
+        "payer",
+        "maxQuantity",
+        "prices",
+      ],
+      additionalProperties: false,
+    },
+    BillingProductId: {
+      description: "What can be bought: a plan, or one of the Shed's boxes.",
+      type: "string",
+      enum: ["pro", "team", "shed", "shed_always_on", "shed_large"],
+    },
+    BillingProductKind: {
+      description:
+        "A plan, held once; or a Shed box, bought by the box on any plan.",
+      type: "string",
+      enum: ["plan", "shed"],
+    },
+    BillingUnit: {
+      description:
+        "What the quantity counts: the one account, a seat in an org, or a box.",
+      type: "string",
+      enum: ["account", "seat", "box"],
+    },
     Challenge: {
       description: "A one-time value a device signs to prove it holds its key.",
       type: "object",
@@ -190,6 +362,30 @@ export const schema = {
       },
       required: ["nonce", "expiresAt"],
       additionalProperties: false,
+    },
+    ChangePreview: {
+      description: "What a change would charge, asked without making it.",
+      type: "object",
+      properties: {
+        now: {
+          description:
+            "Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price.",
+          $ref: "#/$defs/Money",
+        },
+        renewal: {
+          description:
+            "The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period.",
+          $ref: "#/$defs/RenewalCharge",
+        },
+      },
+      required: ["now"],
+      additionalProperties: false,
+    },
+    ChangeWhen: {
+      description:
+        "now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.",
+      type: "string",
+      enum: ["now", "renewal"],
     },
     Channel: {
       description:
@@ -207,6 +403,32 @@ export const schema = {
       },
       required: ["nightly", "stable"],
       additionalProperties: false,
+    },
+    Checkout: {
+      description:
+        "The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns.",
+      type: "object",
+      properties: { url: { type: "string", format: "uri" } },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    CheckoutRequest: {
+      description: "Buy a product. The server sets the price from the catalog.",
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+        orgId: { $ref: "#/$defs/OrgId" },
+      },
+      required: ["product", "interval", "quantity"],
+      additionalProperties: false,
+    },
+    Currency: {
+      description:
+        "An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own.",
+      type: "string",
+      pattern: "^[a-z]{3}$",
     },
     Device: {
       type: "object",
@@ -246,6 +468,11 @@ export const schema = {
         name: { type: "string", minLength: 1, maxLength: 64 },
         platform: { $ref: "#/$defs/Platform" },
         channel: { $ref: "#/$defs/Channel" },
+        handsOnly: {
+          description:
+            "A client whose join tickets say it never signs for the person. Once set it stays set.",
+          type: "boolean",
+        },
         nonce: { type: "string", pattern: "^[0-9a-f]{64}$" },
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
@@ -328,6 +555,25 @@ export const schema = {
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
       required: ["platform", "token", "app", "nonce", "signature"],
+      additionalProperties: false,
+    },
+    Flags: {
+      description:
+        "Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.",
+      type: "object",
+      properties: {
+        off: {
+          description:
+            "The names of the features switched off, such as staffFeed.",
+          type: "array",
+          items: {
+            type: "string",
+            pattern: "^[a-z][A-Za-z0-9]*$",
+            maxLength: 64,
+          },
+        },
+      },
+      required: ["off"],
       additionalProperties: false,
     },
     Health: {
@@ -715,6 +961,77 @@ export const schema = {
       type: "string",
       pattern: "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$",
     },
+    Invoice: {
+      description: "A payment the provider took or tried to take.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/InvoiceId" },
+        lines: {
+          description:
+            "What it paid for, one line for each product the subscription holds.",
+          type: "array",
+          minItems: 1,
+          items: { $ref: "#/$defs/InvoiceLine" },
+        },
+        reason: { $ref: "#/$defs/InvoiceReason" },
+        total: { $ref: "#/$defs/Money" },
+        status: { $ref: "#/$defs/InvoiceStatus" },
+        at: { type: "string", format: "date-time" },
+        refundRequestedAt: {
+          description:
+            "A refund was asked of the provider, which has not made it yet.",
+          type: "string",
+          format: "date-time",
+        },
+        refundableUntil: {
+          description:
+            "Only on a plan's first payment, while the plan may still be refunded.",
+          type: "string",
+          format: "date-time",
+        },
+      },
+      required: ["id", "lines", "reason", "total", "status", "at"],
+      additionalProperties: false,
+    },
+    InvoiceId: {
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    InvoiceLine: {
+      description:
+        "One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.",
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      required: ["product", "quantity"],
+      additionalProperties: false,
+    },
+    InvoiceList: {
+      type: "object",
+      properties: {
+        invoices: {
+          description: "Newest first.",
+          type: "array",
+          items: { $ref: "#/$defs/Invoice" },
+        },
+      },
+      required: ["invoices"],
+      additionalProperties: false,
+    },
+    InvoiceReason: {
+      description:
+        "Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change.",
+      type: "string",
+      enum: ["first_payment", "renewal", "change"],
+    },
+    InvoiceStatus: {
+      description:
+        "disputed: the payer's bank took the payment back, and the plan it paid for ended.",
+      type: "string",
+      enum: ["paid", "failed", "refunded", "disputed"],
+    },
     JoinRequest: {
       description: "Which host on the account the phone wants to join.",
       type: "object",
@@ -724,7 +1041,7 @@ export const schema = {
     },
     JoinTicket: {
       description:
-        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.",
+        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly, then `|look-only` when it has lookOnly.",
       type: "object",
       properties: {
         v: {
@@ -769,6 +1086,16 @@ export const schema = {
           description: "What the account calls the host in via.",
           type: "string",
           maxLength: 64,
+        },
+        handsOnly: {
+          description:
+            "The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away.",
+          type: "boolean",
+        },
+        lookOnly: {
+          description:
+            "The joining device is a browser that may only read the host's look, over ALPN sikemux/look/1; the host never pairs it. A host too old to know it finds the signature wrong and turns the browser away.",
+          type: "boolean",
         },
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
@@ -970,6 +1297,12 @@ export const schema = {
       properties: {
         type: { const: "push" },
         ref: { $ref: "#/$defs/PushRef" },
+        id: {
+          description:
+            "Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result.",
+          type: "string",
+          pattern: "^[0-9a-f]{32}$",
+        },
         to: {
           description: "The phone's device key.",
           $ref: "#/$defs/DeviceKey",
@@ -980,6 +1313,12 @@ export const schema = {
             "Opaque to the server. A later push with the same collapseId replaces or clears the notification this one shows.",
           type: "string",
           pattern: "^[0-9a-f]{32}$",
+        },
+        activityToken: {
+          description:
+            "For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex.",
+          type: "string",
+          pattern: "^[0-9a-f]{16,512}$",
         },
         blob: {
           description: "The sealed notification, in standard base64.",
@@ -1100,6 +1439,223 @@ export const schema = {
       required: ["macos", "linux", "ios", "android"],
       additionalProperties: false,
     },
+    ModConflict: {
+      description:
+        "A document the push did not store, because another host wrote it first or it was purged.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        current: {
+          description:
+            "The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0.",
+          anyOf: [{ $ref: "#/$defs/ModDocument" }, { type: "null" }],
+        },
+      },
+      required: ["mod", "id", "current"],
+      additionalProperties: false,
+    },
+    ModDocument: {
+      description: "The latest sealed copy of one mod document.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        removed: {
+          description:
+            "The document was removed; the sealed copy is its marker.",
+          type: "boolean",
+        },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        seq: { $ref: "#/$defs/ModSeq" },
+        updatedBy: { $ref: "#/$defs/DeviceKey" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "mod",
+        "id",
+        "generation",
+        "sealed",
+        "removed",
+        "revision",
+        "seq",
+        "updatedBy",
+        "updatedAt",
+      ],
+      additionalProperties: false,
+    },
+    ModDocumentId: {
+      description:
+        "A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
+    },
+    ModDocumentPut: {
+      description:
+        "One document a host stores, built on the revision it last saw.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        removed: { type: "boolean" },
+        revision: {
+          description:
+            "The document's revision as the host last saw it, or 0 for one the server does not hold.",
+          type: "integer",
+          minimum: 0,
+          maximum: 999999999,
+        },
+      },
+      required: ["mod", "id", "sealed", "removed", "revision"],
+      additionalProperties: false,
+    },
+    ModFileId: {
+      description:
+        "A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
+    },
+    ModFiles: {
+      description: "The files the account holds for one mod.",
+      type: "object",
+      properties: {
+        files: { type: "array", items: { $ref: "#/$defs/ModFileId" } },
+      },
+      required: ["files"],
+      additionalProperties: false,
+    },
+    ModFileStored: {
+      type: "object",
+      properties: {
+        stored: {
+          description:
+            "False when the account held the file already, and the body was not read.",
+          type: "boolean",
+        },
+      },
+      required: ["stored"],
+      additionalProperties: false,
+    },
+    ModId: {
+      description:
+        "A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.",
+      type: "string",
+      pattern: "^[a-z0-9][a-z0-9-]{0,63}$",
+    },
+    ModPurge: {
+      description:
+        "A mod whose documents were all removed from the account, at that seq.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        seq: { $ref: "#/$defs/ModSeq" },
+      },
+      required: ["mod", "seq"],
+      additionalProperties: false,
+    },
+    ModSeq: {
+      description:
+        "Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw.",
+      type: "integer",
+      minimum: 0,
+      maximum: 9007199254740991,
+    },
+    ModSeqParam: {
+      description: "A ModSeq in a query string.",
+      type: "string",
+      pattern: "^(0|[1-9][0-9]{0,15})$",
+    },
+    ModsPulled: {
+      description:
+        "What changed after the seq asked for, oldest first. Apply documents and purges together in seq order.",
+      type: "object",
+      properties: {
+        documents: { type: "array", items: { $ref: "#/$defs/ModDocument" } },
+        purges: { type: "array", items: { $ref: "#/$defs/ModPurge" } },
+        next: {
+          description: "The seq to ask after next time.",
+          $ref: "#/$defs/ModSeq",
+        },
+        more: {
+          description: "The page was full: ask again after next straight away.",
+          type: "boolean",
+        },
+        reset: {
+          description:
+            "The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list.",
+          type: "boolean",
+        },
+      },
+      required: ["documents", "purges", "next", "more", "reset"],
+      additionalProperties: false,
+    },
+    ModsPurged: {
+      type: "object",
+      properties: {
+        seq: { description: "The purge's seq.", $ref: "#/$defs/ModSeq" },
+      },
+      required: ["seq"],
+      additionalProperties: false,
+    },
+    ModsPush: {
+      description:
+        "Documents a host changed since its last push. Each is stored only if its revision is still the server's.",
+      type: "object",
+      properties: {
+        generation: {
+          description:
+            "The generation of the key every document is sealed under, which must be current.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        documents: {
+          description: "Each document once, at most 4 MiB of request in all.",
+          type: "array",
+          items: { $ref: "#/$defs/ModDocumentPut" },
+          minItems: 1,
+          maxItems: 200,
+        },
+      },
+      required: ["generation", "documents"],
+      additionalProperties: false,
+    },
+    ModsPushed: {
+      type: "object",
+      properties: {
+        seq: {
+          description: "The account's latest seq after the push.",
+          $ref: "#/$defs/ModSeq",
+        },
+        stored: { type: "array", items: { $ref: "#/$defs/ModStored" } },
+        conflicts: { type: "array", items: { $ref: "#/$defs/ModConflict" } },
+      },
+      required: ["seq", "stored", "conflicts"],
+      additionalProperties: false,
+    },
+    ModStored: {
+      description: "A document the push stored.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        seq: { $ref: "#/$defs/ModSeq" },
+      },
+      required: ["mod", "id", "revision", "seq"],
+      additionalProperties: false,
+    },
+    Money: {
+      description: "An amount in the currency's smallest unit, such as cents.",
+      type: "object",
+      properties: {
+        amount: { type: "integer", minimum: 0 },
+        currency: { $ref: "#/$defs/Currency" },
+      },
+      required: ["amount", "currency"],
+      additionalProperties: false,
+    },
     Network: {
       description:
         "How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.",
@@ -1113,8 +1669,205 @@ export const schema = {
           items: { $ref: "#/$defs/Relay" },
         },
         minimumVersions: { $ref: "#/$defs/MinimumVersions" },
+        flags: { $ref: "#/$defs/Flags" },
       },
       required: ["relays", "minimumVersions"],
+      additionalProperties: false,
+    },
+    Org: {
+      description: "An org you are in.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgId" },
+        name: { $ref: "#/$defs/OrgName" },
+        role: { description: "Your role in it.", $ref: "#/$defs/OrgRole" },
+        seats: { $ref: "#/$defs/OrgSeats" },
+        createdAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "name", "role", "seats", "createdAt"],
+      additionalProperties: false,
+    },
+    OrgCreate: {
+      description: "A new org, with you as its owner.",
+      type: "object",
+      properties: { name: { $ref: "#/$defs/OrgName" } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    OrgId: {
+      description: "An org's id, a UUID in lowercase.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgInvite: {
+      description:
+        "An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgInviteId" },
+        role: {
+          description: "The role whoever accepts it joins with.",
+          $ref: "#/$defs/OrgRole",
+        },
+        invitedBy: {
+          description:
+            "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
+          type: ["string", "null"],
+          maxLength: 256,
+        },
+        createdAt: { type: "string", format: "date-time" },
+        expiresAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "role", "invitedBy", "createdAt", "expiresAt"],
+      additionalProperties: false,
+    },
+    OrgInviteCreate: {
+      type: "object",
+      properties: { role: { $ref: "#/$defs/OrgRole" } },
+      required: ["role"],
+      additionalProperties: false,
+    },
+    OrgInviteCreated: {
+      description:
+        "A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.",
+      type: "object",
+      properties: {
+        invite: { $ref: "#/$defs/OrgInvite" },
+        token: { $ref: "#/$defs/OrgInviteToken" },
+        link: { type: "string", format: "uri", maxLength: 2048 },
+      },
+      required: ["invite", "token", "link"],
+      additionalProperties: false,
+    },
+    OrgInviteId: {
+      description: "An invite's id, a UUID in lowercase.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgInviteList: {
+      description: "The org's pending invites, newest first.",
+      type: "object",
+      properties: {
+        invites: { type: "array", items: { $ref: "#/$defs/OrgInvite" } },
+      },
+      required: ["invites"],
+      additionalProperties: false,
+    },
+    OrgInviteToken: {
+      description:
+        "The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.",
+      type: "string",
+      pattern: "^[A-Za-z0-9_-]{43}$",
+    },
+    OrgJoin: {
+      description: "Accepting an invite.",
+      type: "object",
+      properties: { token: { $ref: "#/$defs/OrgInviteToken" } },
+      required: ["token"],
+      additionalProperties: false,
+    },
+    OrgList: {
+      description: "The orgs you are in, oldest first.",
+      type: "object",
+      properties: { orgs: { type: "array", items: { $ref: "#/$defs/Org" } } },
+      required: ["orgs"],
+      additionalProperties: false,
+    },
+    OrgMember: {
+      description:
+        "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgMemberId" },
+        role: { $ref: "#/$defs/OrgRole" },
+        name: { type: ["string", "null"], maxLength: 256 },
+        imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
+        joinedAt: { type: "string", format: "date-time" },
+        you: {
+          description: "True on the row of the person asking.",
+          type: "boolean",
+        },
+      },
+      required: ["id", "role", "name", "imageUrl", "joinedAt", "you"],
+      additionalProperties: false,
+    },
+    OrgMemberId: {
+      description:
+        "A membership's id, a UUID in lowercase: one person's place in one org.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgMemberList: {
+      description: "Everyone in the org, in the order they joined.",
+      type: "object",
+      properties: {
+        members: { type: "array", items: { $ref: "#/$defs/OrgMember" } },
+      },
+      required: ["members"],
+      additionalProperties: false,
+    },
+    OrgName: {
+      description: "What the org is called, as its members see it.",
+      type: "string",
+      minLength: 1,
+      maxLength: 64,
+    },
+    OrgRename: {
+      type: "object",
+      properties: { name: { $ref: "#/$defs/OrgName" } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    OrgRole: {
+      description:
+        "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
+      type: "string",
+      enum: ["owner", "admin", "user"],
+    },
+    OrgRoleChange: {
+      type: "object",
+      properties: { role: { $ref: "#/$defs/OrgRole" } },
+      required: ["role"],
+      additionalProperties: false,
+    },
+    OrgSeats: {
+      description:
+        "Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.",
+      type: "object",
+      properties: {
+        held: { type: "integer", minimum: 0 },
+        limit: { type: "integer", minimum: 0 },
+      },
+      required: ["held", "limit"],
+      additionalProperties: false,
+    },
+    PaddleCheckout: {
+      description:
+        "Paddle.js opens its checkout with a client token, which Paddle makes public by design.",
+      type: "object",
+      properties: {
+        clientToken: { type: "string" },
+        environment: { $ref: "#/$defs/PaddleEnvironment" },
+      },
+      required: ["clientToken", "environment"],
+      additionalProperties: false,
+    },
+    PaddleEnvironment: { type: "string", enum: ["sandbox", "production"] },
+    PaymentCard: {
+      description:
+        "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",
+      type: "object",
+      properties: {
+        brand: {
+          description:
+            "The provider's name for the card's network, such as visa.",
+          type: "string",
+        },
+        last4: { type: "string", pattern: "^[0-9]{4}$" },
+        expMonth: { type: "integer", minimum: 1, maximum: 12 },
+        expYear: { type: "integer", minimum: 2000 },
+      },
+      required: ["brand", "last4", "expMonth", "expYear"],
       additionalProperties: false,
     },
     PendingHost: {
@@ -1163,7 +1916,48 @@ export const schema = {
       ],
       additionalProperties: false,
     },
-    Platform: { type: "string", enum: ["macos", "linux", "ios", "android"] },
+    PlanFeature: {
+      description:
+        "Something a paid plan includes. Free's are everyone's and are not listed.",
+      type: "string",
+      enum: [
+        "sync",
+        "move_work",
+        "history_search",
+        "own_triggers",
+        "org_hosts",
+        "org_shared_setup",
+        "org_model_keys",
+        "org_github",
+        "org_bot_triggers",
+        "chat_handover",
+        "org_roles",
+        "org_policy",
+      ],
+    },
+    PlanId: {
+      description:
+        "A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.",
+      type: "string",
+      enum: ["free", "pro", "team"],
+    },
+    PlanPayer: {
+      description:
+        "you: the person asking pays, and may change seats, resume, see the card and open the payment page. another_owner: another of the org's owners pays, and only they may. departed: whoever paid no longer owns the org, so its plans end at the period's end and can be bought again once ended.",
+      type: "string",
+      enum: ["you", "another_owner", "departed"],
+    },
+    Platform: {
+      description:
+        "A web client is the web app in a browser, which may only read its hosts' look.",
+      type: "string",
+      enum: ["macos", "linux", "ios", "android", "web"],
+    },
+    PluginId: {
+      description: "The connector a sign-in is for, such as sikemux.github.",
+      type: "string",
+      pattern: "^sikemux\\.[a-z0-9-]{1,48}$",
+    },
     PushApp: {
       description:
         "Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.",
@@ -1172,9 +1966,9 @@ export const schema = {
     },
     PushKind: {
       description:
-        "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority.",
+        "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it.",
       type: "string",
-      enum: ["alert", "clear"],
+      enum: ["alert", "clear", "activity", "activity_end"],
     },
     PushPlatform: {
       description:
@@ -1225,6 +2019,12 @@ export const schema = {
       required: ["enabled", "updatedAt"],
       additionalProperties: false,
     },
+    RecoveryKey: {
+      description:
+        "The X25519 public key the person's recovery code makes, in lowercase hex.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
+    },
     Relay: {
       type: "object",
       properties: {
@@ -1249,11 +2049,30 @@ export const schema = {
       required: ["url", "region", "quicPort"],
       additionalProperties: false,
     },
+    RenewalCharge: {
+      type: "object",
+      properties: {
+        at: { type: "string", format: "date-time" },
+        amount: { $ref: "#/$defs/Money" },
+      },
+      required: ["at", "amount"],
+      additionalProperties: false,
+    },
     RevokeReason: {
       description:
         "Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted.",
       type: "string",
       enum: ["removed", "signed_out", "account_deleted"],
+    },
+    ScheduledChange: {
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      required: ["product", "interval", "quantity"],
+      additionalProperties: false,
     },
     Sealed: {
       description:
@@ -1669,6 +2488,20 @@ export const schema = {
       required: ["type", "share"],
       additionalProperties: false,
     },
+    ShedBoxes: {
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      required: ["product", "quantity"],
+      additionalProperties: false,
+    },
+    Staff: {
+      description:
+        "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
+      type: "boolean",
+    },
     StashAdd: {
       description:
         "A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body.",
@@ -1923,6 +2756,372 @@ export const schema = {
         note: { $ref: "#/$defs/StashNote" },
         taken: { type: "boolean" },
       },
+      additionalProperties: false,
+    },
+    Subscription: {
+      description: "One product bought in a quantity, billed each interval.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/SubscriptionId" },
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+        status: { $ref: "#/$defs/SubscriptionStatus" },
+        currentPeriodEnd: { type: "string", format: "date-time" },
+        cancelAtPeriodEnd: {
+          description: "It ends at currentPeriodEnd unless resumed first.",
+          type: "boolean",
+        },
+        startedAt: { type: "string", format: "date-time" },
+        endedAt: { type: "string", format: "date-time" },
+        atRenewal: {
+          description:
+            "A change asked for at renewal, which takes over at currentPeriodEnd.",
+          $ref: "#/$defs/ScheduledChange",
+        },
+        refundableUntil: {
+          description:
+            "While the plan may still be refunded: within the catalog's refundDays of first paying for it, and only once for each kind of plan a payer buys.",
+          type: "string",
+          format: "date-time",
+        },
+        refundRequestedAt: {
+          description:
+            "A refund was asked for and the provider has not settled it yet. The plan ends when it is paid, and cannot be resumed or changed until then.",
+          type: "string",
+          format: "date-time",
+        },
+        refundAmount: {
+          description:
+            "What the refund returns, or returns once paid: every payment on the plan in its first refundDays.",
+          $ref: "#/$defs/Money",
+        },
+      },
+      required: [
+        "id",
+        "product",
+        "interval",
+        "quantity",
+        "status",
+        "currentPeriodEnd",
+        "cancelAtPeriodEnd",
+        "startedAt",
+      ],
+      additionalProperties: false,
+    },
+    SubscriptionChange: {
+      description:
+        "A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.",
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+        when: { description: "Now when left out.", $ref: "#/$defs/ChangeWhen" },
+      },
+      additionalProperties: false,
+    },
+    SubscriptionId: {
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    SubscriptionStatus: {
+      description:
+        "active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.",
+      type: "string",
+      enum: ["active", "lapsed", "ended"],
+    },
+    Vault: {
+      description: "The account's vault, as the host that asked sees it.",
+      type: "object",
+      properties: {
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        recoveryKey: { $ref: "#/$defs/RecoveryKey" },
+        recoveryWrap: {
+          description: "The vault key sealed for the recovery key.",
+          $ref: "#/$defs/VaultSealed",
+        },
+        key: {
+          description:
+            "The vault key sealed for the asking host at the current generation, or null when it has none yet.",
+          anyOf: [{ $ref: "#/$defs/VaultSealed" }, { type: "null" }],
+        },
+        holders: {
+          description: "The hosts holding the key at the current generation.",
+          type: "array",
+          items: { $ref: "#/$defs/DeviceKey" },
+        },
+        waiting: {
+          description:
+            "The account's hosts without the key at the current generation, for a holder to wrap it for.",
+          type: "array",
+          items: { $ref: "#/$defs/DeviceKey" },
+        },
+        rotate: {
+          description:
+            "A host left the account, so a holder should replace the vault key.",
+          type: "boolean",
+        },
+        entries: { type: "array", items: { $ref: "#/$defs/VaultEntry" } },
+      },
+      required: [
+        "generation",
+        "recoveryKey",
+        "recoveryWrap",
+        "key",
+        "holders",
+        "waiting",
+        "rotate",
+        "entries",
+      ],
+      additionalProperties: false,
+    },
+    VaultCreate: {
+      description:
+        "A host makes the account's vault, holding its key at generation 1.",
+      type: "object",
+      properties: {
+        recoveryKey: { $ref: "#/$defs/RecoveryKey" },
+        recoveryWrap: { $ref: "#/$defs/VaultSealed" },
+        key: {
+          description: "The vault key sealed for the asking host.",
+          $ref: "#/$defs/VaultSealed",
+        },
+      },
+      required: ["recoveryKey", "recoveryWrap", "key"],
+      additionalProperties: false,
+    },
+    VaultEntry: {
+      description:
+        "One sign-in in the vault, sealed under the vault key of its generation.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        plugin: { $ref: "#/$defs/PluginId" },
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        updatedBy: { $ref: "#/$defs/DeviceKey" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "id",
+        "plugin",
+        "generation",
+        "sealed",
+        "revision",
+        "updatedBy",
+        "updatedAt",
+      ],
+      additionalProperties: false,
+    },
+    VaultEntryId: {
+      description:
+        "A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it.",
+      type: "string",
+      pattern: "^[0-9a-f]{32}$",
+    },
+    VaultEntryPut: {
+      description: "A host adds or replaces an entry.",
+      type: "object",
+      properties: {
+        plugin: { $ref: "#/$defs/PluginId" },
+        generation: {
+          description:
+            "The generation of the key it is sealed under, which must be current.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: {
+          description:
+            "The entry's revision as the writer last saw it, or 0 to add it.",
+          type: "integer",
+          minimum: 0,
+          maximum: 999999999,
+        },
+      },
+      required: ["plugin", "generation", "sealed", "revision"],
+      additionalProperties: false,
+    },
+    VaultEntryReseal: {
+      description: "An entry sealed again under the new key.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: {
+          description: "The entry's current revision.",
+          $ref: "#/$defs/VaultRevision",
+        },
+      },
+      required: ["id", "sealed", "revision"],
+      additionalProperties: false,
+    },
+    VaultGeneration: {
+      description:
+        "Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key.",
+      type: "integer",
+      minimum: 1,
+      maximum: 999999999,
+    },
+    VaultKeysAdd: {
+      description:
+        "A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself.",
+      type: "object",
+      properties: {
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        keys: {
+          type: "array",
+          items: { $ref: "#/$defs/WrappedKey" },
+          minItems: 1,
+          maxItems: 50,
+        },
+      },
+      required: ["generation", "keys"],
+      additionalProperties: false,
+    },
+    VaultRevision: {
+      description:
+        "How many times an entry was written. It starts at 1 and goes up by one each write.",
+      type: "integer",
+      minimum: 1,
+      maximum: 999999999,
+    },
+    VaultRevisionParam: {
+      description:
+        "An entry's revision, as the writer last saw it, in a query string.",
+      type: "string",
+      pattern: "^[1-9][0-9]{0,8}$",
+    },
+    VaultRotate: {
+      description:
+        "A host replaces the vault key: every wrap and every entry moves to the next generation at once.",
+      type: "object",
+      properties: {
+        from: {
+          description: "The current generation.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        recoveryWrap: { $ref: "#/$defs/VaultSealed" },
+        keys: {
+          description:
+            "The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped.",
+          type: "array",
+          items: { $ref: "#/$defs/WrappedKey" },
+          minItems: 1,
+          maxItems: 50,
+        },
+        entries: {
+          description: "Every entry in the vault, each once.",
+          type: "array",
+          items: { $ref: "#/$defs/VaultEntryReseal" },
+          maxItems: 500,
+        },
+      },
+      required: ["from", "recoveryWrap", "keys", "entries"],
+      additionalProperties: false,
+    },
+    VaultSealed: {
+      description:
+        "What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot.",
+      type: "string",
+      pattern: "^[A-Za-z0-9_-]+$",
+      minLength: 1,
+      maxLength: 87400,
+    },
+    VaultState: {
+      type: "object",
+      properties: {
+        vault: {
+          description: "Null until a host on the account makes the vault.",
+          anyOf: [{ $ref: "#/$defs/Vault" }, { type: "null" }],
+        },
+      },
+      required: ["vault"],
+      additionalProperties: false,
+    },
+    VaultUse: {
+      description: "How often one agent on the signing host used one entry.",
+      type: "object",
+      properties: {
+        entryId: { $ref: "#/$defs/VaultEntryId" },
+        plugin: { $ref: "#/$defs/PluginId" },
+        actor: {
+          description:
+            "Who used it: an agent's name such as @Otter, or Sikemux for the host itself.",
+          type: "string",
+          minLength: 1,
+          maxLength: 80,
+          pattern: "^[^\\u0000-\\u001f\\u007f]+$",
+        },
+        count: { type: "integer", minimum: 1, maximum: 1000000 },
+        firstAt: { type: "string", format: "date-time" },
+        lastAt: { type: "string", format: "date-time" },
+      },
+      required: ["entryId", "plugin", "actor", "count", "firstAt", "lastAt"],
+      additionalProperties: false,
+    },
+    VaultUseRow: {
+      description: "Uses one host reported of one entry by one agent.",
+      type: "object",
+      properties: {
+        entryId: { $ref: "#/$defs/VaultEntryId" },
+        plugin: { $ref: "#/$defs/PluginId" },
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        hostName: {
+          description: "The host's name, or null once it has left the account.",
+          type: ["string", "null"],
+        },
+        actor: { type: "string" },
+        count: { type: "integer", minimum: 1 },
+        firstAt: { type: "string", format: "date-time" },
+        lastAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "entryId",
+        "plugin",
+        "hostKey",
+        "hostName",
+        "actor",
+        "count",
+        "firstAt",
+        "lastAt",
+      ],
+      additionalProperties: false,
+    },
+    VaultUses: {
+      description:
+        "Uses of the vault's entries in the last 30 days, newest first, at most 500.",
+      type: "object",
+      properties: {
+        uses: { type: "array", items: { $ref: "#/$defs/VaultUseRow" } },
+      },
+      required: ["uses"],
+      additionalProperties: false,
+    },
+    VaultUsesAdd: {
+      description:
+        "Uses a host made of the vault's entries since it last reported.",
+      type: "object",
+      properties: {
+        uses: {
+          type: "array",
+          items: { $ref: "#/$defs/VaultUse" },
+          minItems: 1,
+          maxItems: 200,
+        },
+      },
+      required: ["uses"],
+      additionalProperties: false,
+    },
+    WrappedKey: {
+      description: "The vault key, sealed for one host.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        wrapped: { $ref: "#/$defs/VaultSealed" },
+      },
+      required: ["hostKey", "wrapped"],
       additionalProperties: false,
     },
   },

@@ -73,6 +73,57 @@
     return `[${body.constructor ? body.constructor.name : typeof body}]`;
   };
 
+  // While an agent's script runs, a write it makes to a site stops here, so the
+  // person is asked first. A frame of that script has no address on the stack,
+  // unlike the page's own, so the page's requests in those moments go on.
+  const HELD = "Sikemux held this write for the person";
+  let watch = null;
+  const localHost = (host) =>
+    host === "localhost" ||
+    host === "[::1]" ||
+    host.endsWith(".local") ||
+    host.startsWith("127.");
+  const fromAgent = (ownFrames) =>
+    String(new Error().stack)
+      .split("\n")
+      .slice(ownFrames + 2)
+      .some((frame) => frame.endsWith("@"));
+  const held = (method, target, ownFrames = 1) => {
+    if (!watch) return false;
+    const verb = String(method || "GET").toUpperCase();
+    if (verb === "GET" || verb === "HEAD" || verb === "OPTIONS") return false;
+    if (!fromAgent(ownFrames)) return false;
+    let url;
+    try {
+      url = new URL(String(target), document.baseURI);
+    } catch {
+      return false;
+    }
+    if (
+      !/^https?:$/.test(url.protocol) ||
+      localHost(url.hostname) ||
+      watch.allowed.includes(url.origin)
+    )
+      return false;
+    if (!watch.write)
+      watch.write = { method: verb, origin: url.origin, path: url.pathname };
+    return true;
+  };
+  const formHeld = (form, submitter) => {
+    const method =
+      (submitter && submitter.getAttribute("formmethod")) ||
+      form.getAttribute("method") ||
+      "get";
+    if (method.toLowerCase() === "dialog") return false;
+    return held(
+      method,
+      (submitter && submitter.getAttribute("formaction")) ||
+        form.getAttribute("action") ||
+        location.href,
+      2,
+    );
+  };
+
   const nativeFetch = window.fetch;
   if (typeof nativeFetch === "function") {
     window.fetch = function (input, init) {
@@ -80,11 +131,11 @@
         typeof input === "object" && input !== null && "url" in input
           ? input
           : null;
-      const entry = begin(
-        "fetch",
-        (init && init.method) || (request && request.method) || "GET",
-        (request && request.url) || input,
-      );
+      const method =
+        (init && init.method) || (request && request.method) || "GET";
+      const address = (request && request.url) || input;
+      if (held(method, address)) return Promise.reject(new TypeError(HELD));
+      const entry = begin("fetch", method, address);
       entry.requestBody = describeRequest(init && init.body);
       label(entry, (init && init.headers) || (request && request.headers));
       return nativeFetch.apply(this, arguments).then(
@@ -129,6 +180,7 @@
   };
   XMLHttpRequest.prototype.send = function (body) {
     const call = this.__sikemuxCall;
+    if (call && held(call.method, call.url)) throw new TypeError(HELD);
     if (call) {
       const entry = begin("xhr", call.method, call.url);
       entry.requestBody = describeRequest(body);
@@ -166,7 +218,47 @@
     return send.apply(this, arguments);
   };
 
-  window.__sikemuxNet = { entries: () => entries };
+  if (typeof navigator.sendBeacon === "function") {
+    const sendBeacon = Navigator.prototype.sendBeacon;
+    Navigator.prototype.sendBeacon = function (url) {
+      if (held("POST", url)) throw new TypeError(HELD);
+      return sendBeacon.apply(this, arguments);
+    };
+  }
+  const submit = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () {
+    if (formHeld(this, null)) throw new TypeError(HELD);
+    return submit.apply(this, arguments);
+  };
+  const requestSubmit = HTMLFormElement.prototype.requestSubmit;
+  if (typeof requestSubmit === "function") {
+    HTMLFormElement.prototype.requestSubmit = function (submitter) {
+      if (formHeld(this, submitter || null)) throw new TypeError(HELD);
+      return requestSubmit.apply(this, arguments);
+    };
+  }
+  window.addEventListener(
+    "submit",
+    (event) => {
+      if (formHeld(event.target, event.submitter || null)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
+
+  window.__sikemuxNet = {
+    entries: () => entries,
+    watch: (allowed) => {
+      watch = { allowed, write: null };
+    },
+    release: () => {
+      const write = watch && watch.write;
+      watch = null;
+      return write;
+    },
+  };
 })();
 
 (() => {

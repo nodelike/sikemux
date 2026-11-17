@@ -6,10 +6,12 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
-use sikemux_plugin_api::account::{as_account, chosen};
+use serde::Deserialize;
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
+use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::SignInStatus;
 
@@ -31,17 +33,13 @@ pub struct Identity {
 }
 
 pub async fn identify(session: &Session) -> GithubResult<Identity> {
-    let (status, headers, bytes) = client::send(session, Method::GET, "/user", &[], None).await?;
-    if !status.is_success() {
-        return Err(client::classify(
-            &session.account.id,
-            status,
-            &headers,
-            &bytes,
-        ));
-    }
-    let viewer: Viewer = serde_json::from_slice(&bytes)?;
-    let scopes = headers
+    let answer = client::API
+        .send_as(session, Method::GET, "/user", &[], None, Read::ALL)
+        .await?
+        .succeeded()?;
+    let viewer: Viewer = answer.parsed()?;
+    let scopes = answer
+        .headers
         .get("x-oauth-scopes")
         .and_then(|value| value.to_str().ok())
         .map(|value| {
@@ -74,7 +72,6 @@ fn variable_for(source: Option<TokenSource>, host: &str) -> Option<&'static str>
         .flatten()
 }
 
-/// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
     let config = match config::load(data_dir) {
         Ok(config) => config,
@@ -123,35 +120,8 @@ pub async fn status(data_dir: &Path) -> Status {
     let configured =
         signed.token_source.is_some() && !matches!(check, Err(GithubError::Unconfigured));
     let mut status = Status::checked(configured, signed, &check);
-    status.auth_failed |= matches!(check, Err(GithubError::Forbidden(_)));
-    status.details.can_write_ci = status.ok && can_write(&status.details.scopes);
+    status.details.can_write_ci = check.is_ok() && can_write(&status.details.scopes);
     status
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listed {
-    pub id: String,
-    pub host: String,
-    pub login: String,
-    pub source: TokenSource,
-    pub is_default: bool,
-}
-
-/// Every account signed in, the default first.
-pub fn accounts(data_dir: &Path) -> GithubResult<Vec<Listed>> {
-    let config = config::load(data_dir)?;
-    Ok(config
-        .in_order()
-        .into_iter()
-        .map(|account| Listed {
-            is_default: config.default.as_deref() == Some(account.id.as_str()),
-            id: account.id,
-            host: account.host,
-            login: account.login,
-            source: account.source,
-        })
-        .collect())
 }
 
 #[derive(Deserialize)]
@@ -162,7 +132,6 @@ pub struct SignIn {
     pub token: Option<String>,
 }
 
-/// Adds the account the token belongs to, and says which one it is.
 pub async fn sign_in(data_dir: &Path, input: SignIn) -> GithubResult<String> {
     let host = match input.host.as_deref() {
         Some(host) => config::validate_host(host)?,
@@ -191,7 +160,10 @@ pub async fn sign_in(data_dir: &Path, input: SignIn) -> GithubResult<String> {
             source,
             owns_token,
         },
-        token: token.clone(),
+        token: match owns_token {
+            true => store::entered_secret(token.clone()).await?,
+            false => token.clone(),
+        },
     };
     let identity = identify(&probe).await?;
     let account = Account {
@@ -221,8 +193,7 @@ pub async fn sign_in(data_dir: &Path, input: SignIn) -> GithubResult<String> {
     Ok(id)
 }
 
-/// Signs out the account the call named, or the default one. Only a token
-/// Sikemux saved is deleted; one the shell or `gh` provides is left where it is.
+/// Only a token Sikemux saved is deleted; one the shell or `gh` provides is left where it is.
 pub async fn sign_out(data_dir: &Path) -> GithubResult<()> {
     let chosen = chosen();
     let removed = store::update(data_dir, move |config: &mut GithubConfig| {
@@ -244,33 +215,11 @@ pub async fn sign_out(data_dir: &Path) -> GithubResult<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> GithubResult<()> {
-    store::update(data_dir, move |config: &mut GithubConfig| {
-        config.set_default(&input.id)
-    })
-    .await
-}
-
 /// The first account, default first, that can see the repository, so a
 /// project owned by a work organisation opens as the work account by itself.
 pub async fn account_for(data_dir: &Path, repo: RepoRef) -> GithubResult<Option<String>> {
-    let path = repo.path("")?;
-    for account in config::load(data_dir)?.in_order() {
-        let id = account.id.clone();
-        let seen: GithubResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
-        match seen {
-            Ok(_) => return Ok(Some(id)),
-            Err(GithubError::Unconfigured) => return Ok(None),
-            Err(_) => continue,
-        }
-    }
-    Ok(None)
+    let accounts = answers::ids_in_order(&config::load(data_dir)?);
+    answers::first_that_sees(&client::API, data_dir, accounts, &repo.path("")?).await
 }
 
 #[cfg(test)]

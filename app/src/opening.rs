@@ -2,23 +2,62 @@
 //! path's project and opens its tab; the window comes forward to show it, and tells the core
 //! when a waiting `open`'s tabs have all closed.
 
+use crate::core::Target;
+use crate::hosts::Place;
+use crate::tabs::shows;
+use crate::toast;
+use crate::workbench::Strip;
+use gpui_kit::Window;
+use sikemux_calls::layout::HostParams;
+use sikemux_calls::workspace::SessionChoice;
+use sikemux_view::device::DeviceView;
+use sikemux_view::device::RecentInfo;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use gpui_kit::{App, AppContext, Context};
+use gpui_kit::{App, AppContext, Context, Task};
 use serde_json::{json, Value};
-use sikemux_core::cli::protocol::{
-    CliOpenFailure, CliOpenOutcome, CliOpenRequest, CliOpenTarget, CliTargetKind, HarnessRequest,
-    MAX_CLI_TARGETS,
-};
-use sikemux_wire::protocol::CallId;
+use sikemux_calls::call;
+use sikemux_calls::params::AgentParams;
+use sikemux_calls::ship::WebWriteParams;
+use sikemux_corekit::cli::protocol::is_browser_method;
+use sikemux_corekit::cli::protocol::is_sim_method;
+use sikemux_corekit::cli::protocol::CliOpenFailure;
+use sikemux_corekit::cli::protocol::CliOpenOutcome;
+use sikemux_corekit::cli::protocol::CliOpenRequest;
+use sikemux_corekit::cli::protocol::CliOpenTarget;
+use sikemux_corekit::cli::protocol::CliTargetKind;
+use sikemux_corekit::cli::protocol::HarnessRequest;
+use sikemux_corekit::cli::protocol::MAX_CLI_TARGETS;
+use sikemux_view::layout::{At, OpenTab, PaneKind};
+use sikemux_view::prefs::PreferenceChange;
+use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
+use std::pin::Pin;
 
 use crate::core::Ask;
 use crate::editor::OpenAt;
 use crate::workbench::Workbench;
+use sikemux_calls::harness::PageParams;
+use sikemux_calls::layout::OpenPaths;
 
 pub type Answer = Box<dyn FnOnce(Result<Value, String>) + Send>;
+
+/// How long a new theme gets to reach the screen before the window's picture is taken for the agent.
+const THEME_DRAWN: std::time::Duration = std::time::Duration::from_millis(400);
+/// The longest side of that picture, in pixels: enough to judge a look, cheap in an agent's context.
+const THEME_PICTURE_SIDE: f64 = 960.;
+
+fn missed_picture(missed: crate::snapshot::Missed) -> String {
+    use crate::snapshot::Missed;
+    match missed {
+        Missed::NotAllowed => "none: Sikemux may not record the screen".into(),
+        Missed::NoWindow => "none: no Sikemux window is on screen".into(),
+        Missed::Unsupported => "none: needs macOS 14 or later".into(),
+        Missed::Failed(error) => format!("none: {error}"),
+    }
+}
 
 impl Workbench {
     /// The CLI's `open`: answers what opened, and with `--wait` tells the core once every
@@ -66,7 +105,7 @@ impl Workbench {
                     Ok(metadata) if metadata.is_file() => CliTargetKind::File,
                     _ => return None,
                 };
-                let project_root = sikemux_host::cli_client::project_root(&path, kind);
+                let project_root = sikemux_hostkit::opened::project_root(&path, kind);
                 Some((path, kind, project_root))
             })
             .take(MAX_CLI_TARGETS)
@@ -100,7 +139,7 @@ impl Workbench {
     /// once the layout has shown it and then lost it, since the layout that shows a new tab
     /// arrives after the core says it opened.
     pub(crate) fn settle_open_waits(&mut self) {
-        let Some(view) = &self.view else {
+        let Some(view) = &self.feeds.this.view else {
             return;
         };
         let shown: HashSet<&str> = view
@@ -124,8 +163,63 @@ impl Workbench {
         });
     }
 
-    /// An agent's `ui_open`: a file in the editor, the project's changes, a task's terminal,
-    /// or the project's preview on the agent's desk; the window comes forward with `focus`.
+    /// What an agent's `theme_set` changed, said with Undo, which wears the theme, scroll
+    /// bars, contrast and motion from before.
+    pub(crate) fn theme_set(
+        &mut self,
+        request: HarnessRequest,
+        answer: Answer,
+        cx: &mut Context<Self>,
+    ) {
+        let params = &request.params;
+        let said = |key: &str| params[key].as_str().unwrap_or_default().to_owned();
+        let text = t!(
+            "@{agent} changed the theme to {theme}",
+            agent = said("agent"),
+            theme = said("theme")
+        );
+        let undo = &params["undo"];
+        let before: Vec<PreferenceChange> = [
+            serde_json::from_value(undo["theme"].clone()).map(PreferenceChange::ThemeId),
+            serde_json::from_value(undo["adjust"]["scrollbars"].clone())
+                .map(PreferenceChange::Scrollbars),
+            serde_json::from_value(undo["adjust"]["contrast"].clone())
+                .map(PreferenceChange::Contrast),
+            serde_json::from_value(undo["adjust"]["motion"].clone()).map(PreferenceChange::Motion),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let bench = cx.weak_entity();
+        let note = toast::undoable(text, move |_, cx| {
+            let _ = bench.update(cx, |bench, _| {
+                for change in &before {
+                    crate::settings::set(bench, change.clone());
+                }
+            });
+        });
+        self.notify(note, cx);
+        cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(THEME_DRAWN).await;
+            let taken = cx
+                .background_spawn(async { crate::snapshot::own_window(THEME_PICTURE_SIDE) })
+                .await;
+            answer(Ok(match taken {
+                Ok(jpeg) => {
+                    use base64::Engine as _;
+                    json!({
+                        "mimeType": "image/jpeg",
+                        "data": base64::engine::general_purpose::STANDARD.encode(jpeg),
+                    })
+                }
+                Err(missed) => json!({ "picture": missed_picture(missed) }),
+            }));
+        })
+        .detach();
+    }
+
+    /// An agent's `ui_open`: a file in the editor, the project's changes, a task's terminal, a
+    /// mod, or the project's preview on the agent's desk; the window comes forward with `focus`.
     pub(crate) fn ui_open(
         &mut self,
         request: HarnessRequest,
@@ -187,15 +281,45 @@ impl Workbench {
                 let Some(project) = self.project_here(&request.project) else {
                     return answer(Err("That project is not open in Sikemux".into()));
                 };
+                let at = At::project(&project);
                 let tab = if kind == "diff" {
-                    json!({ "project": project, "kind": "git", "target": request.project, "behind": !focus })
+                    OpenTab::new(at, PaneKind::Git, request.project)
                 } else {
                     let Some(session) = params["session"].as_u64() else {
-                        return answer(Err("Task terminal is no longer open".into()));
+                        return answer(Err("The process's terminal is no longer open".into()));
                     };
-                    json!({ "project": project, "kind": "terminal", "target": session.to_string(), "title": params["title"], "behind": !focus })
+                    let tab = OpenTab::new(at, PaneKind::Terminal, session.to_string());
+                    OpenTab {
+                        title: params["title"].as_str().map(str::to_owned),
+                        ..tab
+                    }
                 };
-                let opened = crate::core::request(&self.asks, "openTab", tab);
+                let opened = crate::core::Target::here(&self.asks)
+                    .request_typed::<call::OpenTab>(tab.behind(!focus));
+                cx.background_spawn(async move {
+                    answer(
+                        opened
+                            .await
+                            .map(|tab| json!({ "kind": kind, "windowId": tab })),
+                    );
+                })
+                .detach();
+            }
+            "mod" => {
+                let Some(project) = self.project_here(&request.project) else {
+                    return answer(Err("That project is not open in Sikemux".into()));
+                };
+                let tab = OpenTab::new(
+                    At::project(&project),
+                    PaneKind::Mod,
+                    params["mod"].as_str().unwrap_or_default(),
+                );
+                let tab = OpenTab {
+                    title: params["title"].as_str().map(str::to_owned),
+                    ..tab
+                };
+                let opened = crate::core::Target::here(&self.asks)
+                    .request_typed::<call::OpenTab>(tab.behind(!focus));
                 cx.background_spawn(async move {
                     answer(
                         opened
@@ -222,7 +346,9 @@ impl Workbench {
                     )),
                 }
             }
-            _ => answer(Err("kind must be file, diff, terminal, or preview".into())),
+            _ => answer(Err(
+                "kind must be file, diff, terminal, preview, or mod".into()
+            )),
         }
     }
 
@@ -257,7 +383,7 @@ impl Workbench {
             }
         }
         let ids: Vec<String> = targets.iter().map(|target| target.id.clone()).collect();
-        let asked = target.request("openPaths", json!({ "targets": targets, "behind": behind }));
+        let asked = target.request_typed::<call::OpenPaths>(OpenPaths { targets, behind });
         async move {
             let mut outcome = CliOpenOutcome::default();
             let mut tabs = HashSet::new();
@@ -272,17 +398,14 @@ impl Workbench {
                         .collect();
                 }
                 Ok(answers) => {
-                    for answer in answers.as_array().into_iter().flatten() {
-                        let target_id = answer["targetId"].as_str().unwrap_or_default().to_owned();
-                        match answer["error"].as_str() {
-                            Some(message) => outcome.failed.push(CliOpenFailure {
-                                target_id,
-                                message: message.to_owned(),
-                            }),
+                    for answer in answers {
+                        let target_id = answer.target_id;
+                        match answer.error {
+                            Some(message) => {
+                                outcome.failed.push(CliOpenFailure { target_id, message })
+                            }
                             None => {
-                                if let Some(tab) = answer["tab"].as_str() {
-                                    tabs.insert(tab.to_owned());
-                                }
+                                tabs.extend(answer.tab);
                                 outcome.opened.push(target_id);
                             }
                         }
@@ -295,7 +418,7 @@ impl Workbench {
 
     /// The project at `path` on this host, where the core that asked keeps it, by id.
     fn project_here(&self, path: &str) -> Option<String> {
-        let workspace = &self.view.as_ref()?.workspace;
+        let workspace = &self.this_view()?.workspace;
         workspace
             .projects
             .iter()
@@ -308,5 +431,375 @@ impl Workbench {
         let _ = self
             .window
             .update(cx, |_, window, _| window.activate_window());
+    }
+}
+
+impl Workbench {
+    /// Answers a call the core hands this window: an agent's browser tools run on the
+    /// engine, on a thread of their own, since most answers wait on a page.
+    pub fn answer_window_call(
+        &mut self,
+        call_id: CallId,
+        call: WindowCall,
+        cx: &mut Context<Self>,
+    ) {
+        let asks = self.asks.clone();
+        let answer: crate::opening::Answer = Box::new(move |answer: Result<Value, String>| {
+            let _ = asks.send(Ask::AnswerWindow(call_id, WindowAnswer::from(answer)));
+        });
+        let request = match call {
+            WindowCall::Open { request } => {
+                return self.open_from_cli(call_id, request, answer, cx)
+            }
+            WindowCall::Harness { request } => request,
+        };
+        let request: HarnessRequest = match serde_json::from_value(request) {
+            Ok(request) => request,
+            Err(error) => {
+                return answer(Err(format!(
+                    "Sikemux could not read the tool call: {error}"
+                )))
+            }
+        };
+        match request.method.as_str() {
+            "app.console" => return answer(crate::console::read(&request.params)),
+            "page.show" => return self.show_page(request, answer, cx),
+            "ui.open" => return self.ui_open(request, answer, cx),
+            "theme.set" => return self.theme_set(request, answer, cx),
+            _ => {}
+        }
+        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> =
+            if is_sim_method(&request.method) {
+                let engine = Arc::clone(self.sims.read(cx).engine());
+                Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
+            } else if let Some(engine) = self
+                .desks
+                .read(cx)
+                .engine
+                .clone()
+                .filter(|_| is_browser_method(&request.method))
+            {
+                let core = Target::here(&self.asks);
+                Box::new(move || {
+                    let agent = request.agent_id.clone().unwrap_or_default();
+                    let project = request.project.clone();
+                    let check = move |what: String, origin: String| {
+                        let asked = core.request_typed::<call::CheckWebWrite>(WebWriteParams {
+                            agent: agent.clone(),
+                            project: project.clone(),
+                            what,
+                            origin,
+                        });
+                        Box::pin(async move { asked.await?.map_or(Ok(()), Err) })
+                            as Pin<Box<dyn Future<Output = Result<(), String>>>>
+                    };
+                    sikemux_browser::tools::execute(&engine, &request, &check)
+                })
+            } else {
+                return answer(Err(format!(
+                    "this window cannot answer {} yet",
+                    request.method
+                )));
+            };
+        let spawned = std::thread::Builder::new()
+            .name("sikemux-window-call".into())
+            .spawn(move || answer(run()));
+        if let Err(error) = spawned {
+            eprintln!("sikemux: a tool call could not start: {error}");
+        }
+    }
+
+    /// Opens a page an agent kept in a tab on its desk. A chat's card for the page gets a
+    /// picture of the tab.
+    pub(crate) fn show_page(
+        &self,
+        request: HarnessRequest,
+        answer: impl FnOnce(Result<Value, String>) + Send + 'static,
+        cx: &App,
+    ) {
+        let Some(agent) = request.agent_id else {
+            return answer(Ok(json!({})));
+        };
+        let id = request.params["id"].as_str().unwrap_or_default().to_owned();
+        if !sikemux_base::pages::is_page_id(&id) {
+            return answer(Err("that is not a page the core keeps".into()));
+        }
+        let page =
+            Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
+        let picture = request.params["picture"] == true;
+        let files = self.desks.read(cx).page_files.clone();
+        crate::desk::spawn(async move {
+            let shown = async {
+                let page = page.await?;
+                let url = files.kept_url(&id, &page)?;
+                let engine = files.engine()?;
+                engine
+                    .open_tab(&agent, Some(&url))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if !picture {
+                    return Ok(json!({}));
+                }
+                let taken = engine.front_picture(&agent).await.ok();
+                let picture = taken.and_then(|taken| crate::chat::page::thumbnail(&taken));
+                Ok(json!({ "picture": picture }))
+            };
+            answer(shown.await);
+        });
+    }
+}
+
+impl Workbench {
+    /// Starts a chat in the project in front, or in the one picked when no project is in front,
+    /// or on an SSH host's strip opens its Install Sikemux pane.
+    pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.strip() {
+            Some(Strip::Host(alias)) => self.open_install_pane(&alias),
+            Some(Strip::Project(project)) => self.start_chat_in(&project, window, cx),
+            _ => self.pick_project(crate::pickers::picker::ThenPicked::StartChat, window, cx),
+        }
+    }
+
+    /// Starts a chat in `project` with the agent the rail starts with, or offers every agent when
+    /// none is installed.
+    pub fn start_chat_in(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match self.launcher() {
+            Some(launcher) => {
+                let launcher = self.new_chat_launcher(launcher);
+                self.target()
+                    .open_new_chat(launcher, project.to_owned(), None)
+            }
+            None => self.toggle_agent_palette(window, cx),
+        }
+    }
+
+    /// Takes up a saved chat again, in the project it ran in, and brings its tab forward.
+    /// It goes by the chat's session rather than its place in the core's list, which forgets
+    /// the oldest chats any device paged to.
+    pub fn resume_chat(&self, recent: &RecentInfo, cx: &mut Context<Self>) {
+        self.resume_chat_finding(recent, None, cx);
+    }
+
+    /// As [`Self::resume_chat`], opening the chat's find on `find` once it shows.
+    pub fn resume_chat_finding(
+        &self,
+        recent: &RecentInfo,
+        find: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let session = recent
+            .id
+            .strip_prefix(&format!("{}:", recent.provider))
+            .unwrap_or(&recent.id);
+        let taken = self.resume_session(
+            &recent.project,
+            recent.provider.clone(),
+            session.to_owned(),
+            recent.cwd.clone(),
+            recent.title.clone(),
+            cx,
+        );
+        let Some(find) = find else {
+            return taken.detach();
+        };
+        cx.spawn(async move |bench, cx| {
+            if let Some(agent) = taken.await {
+                let _ = bench.update(cx, |bench, cx| {
+                    bench.find_once_attached(agent, Some(find), cx)
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Takes `provider`'s session up again in the project `project`, in a tab of its own.
+    /// Answers with the agent that took it up.
+    pub fn resume_session(
+        &self,
+        project: &str,
+        provider: String,
+        session_id: String,
+        cwd: PathBuf,
+        title: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
+        let Some(project) = self.projects().iter().find(|known| known.id == project) else {
+            return Task::ready(None);
+        };
+        let asked = SessionChoice {
+            provider,
+            session_id,
+            project: project.path.clone(),
+            cwd: Some(cwd),
+            title: Some(title),
+        };
+        let target = self.target();
+        let taken = target.request_typed::<call::ResumeSession>(asked);
+        cx.spawn(async move |bench, cx| match taken.await {
+            Ok(taken) => {
+                target.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&taken.project),
+                    PaneKind::Agent,
+                    taken.agent_id.clone(),
+                ));
+                Some(taken.agent_id)
+            }
+            Err(error) => {
+                let note = toast::error(t!("The chat did not open: {error}", error = error));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                None
+            }
+        })
+    }
+
+    /// Brings the tab of the agent `id` to the front, in its project, opening one when none
+    /// shows it, with the workbench in place of the goals. A closed agent's chat opens again on
+    /// this host.
+    pub fn open_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.open_agent_from(id, Target::here(&self.asks), cx);
+    }
+
+    /// As [`Self::open_agent`], for an agent named by a record of the core `from`, which opens
+    /// its chat again when it has closed.
+    pub fn open_agent_from(&mut self, id: &str, from: Target, cx: &mut Context<Self>) {
+        self.bring_agent_from(id, from, cx).detach();
+    }
+
+    /// Brings the tab of the agent `id` to the front, in its project, opening one when none
+    /// shows it. A closed agent's chat opens again on this host. Answers with the agent the tab
+    /// shows.
+    pub fn bring_agent(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Option<String>> {
+        self.bring_agent_from(id, Target::here(&self.asks), cx)
+    }
+
+    fn bring_agent_from(
+        &mut self,
+        id: &str,
+        from: Target,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
+        match self.bring_open_agent(id) {
+            true => Task::ready(Some(id.to_owned())),
+            false => Self::reopen_agent(id, from, cx),
+        }
+    }
+
+    /// Asks the core `on` to open the chat of the closed agent `id` again and brings its tab
+    /// forward, answering with the agent it opened as.
+    fn reopen_agent(id: &str, on: Target, cx: &mut Context<Self>) -> Task<Option<String>> {
+        let taken = on.request_typed::<call::ReopenAgent>(AgentParams {
+            agent_id: id.to_owned(),
+        });
+        cx.spawn(async move |bench, cx| match taken.await {
+            Ok(taken) => {
+                on.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&taken.project),
+                    PaneKind::Agent,
+                    taken.agent_id.clone(),
+                ));
+                Some(taken.agent_id)
+            }
+            Err(error) => {
+                let note = toast::error(t!("The chat did not open: {error}", error = error));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                None
+            }
+        })
+    }
+
+    /// Opens the chief of the project `project` in front, making its chat the first time and
+    /// bringing a closed one back as itself.
+    pub fn open_chief(&self, project: &str, cx: &mut Context<Self>) {
+        self.open_chief_on(self.target(), project, cx);
+    }
+
+    /// Opens the chief of `project`, a project of the core `target`, as [`Self::open_chief`].
+    pub fn open_chief_on(&self, target: Target, project: &str, cx: &mut Context<Self>) {
+        let opening =
+            target.request_typed::<call::OpenChief>(sikemux_calls::chief::OpenChiefParams {
+                project: project.to_owned(),
+            });
+        self.show_chief(target, project, opening, cx);
+    }
+
+    /// Takes the chief of `project` over on this host while the host it lives on is out of
+    /// reach, and opens it.
+    pub fn take_over_chief(&self, project: &str, cx: &mut Context<Self>) {
+        let target = self.target();
+        let taking =
+            target.request_typed::<call::TakeOverChief>(sikemux_calls::chief::OpenChiefParams {
+                project: project.to_owned(),
+            });
+        self.show_chief(target, project, taking, cx);
+    }
+
+    fn show_chief(
+        &self,
+        target: Target,
+        project: &str,
+        opening: impl std::future::Future<Output = Result<sikemux_calls::chief::OpenedChief, String>>
+            + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let project = project.to_owned();
+        cx.spawn(async move |bench, cx| match opening.await {
+            Ok(opened) => {
+                target.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&project),
+                    PaneKind::Agent,
+                    opened.agent_id,
+                ));
+            }
+            Err(error) => {
+                let note = toast::error(t!("@Chief did not open: {error}", error = error));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Brings the tab of the open agent `id` forward, and says whether any view lists it.
+    fn bring_open_agent(&mut self, id: &str) -> bool {
+        let project_on = |view: &DeviceView| {
+            view.workspace
+                .agents
+                .iter()
+                .find(|agent| agent.id == id)
+                .map(|agent| agent.project.clone())
+        };
+        let tab = |project: String| OpenTab::new(At::project(&project), PaneKind::Agent, id);
+        let Some(project) = self.shown().and_then(project_on) else {
+            // Opening a tab on a host's layout brings that host forward there.
+            if let Some(project) = self.this_view().and_then(project_on) {
+                self.open_here(tab(project));
+                return true;
+            }
+            if let Some((host, project)) = self
+                .feeds
+                .hosts()
+                .filter(|(_, feed)| feed.reached)
+                .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
+            {
+                Target::here(&self.asks).call_typed::<call::ChooseHost>(HostParams {
+                    host: format!("host:{host}"),
+                });
+                Target::new(&self.asks, Place::Account(host))
+                    .call_typed::<call::OpenTab>(tab(project));
+                return true;
+            }
+            return false;
+        };
+        let strip = Strip::Project(project.clone());
+        let shown = (self.tabs(&strip).iter())
+            .find(|tab| shows(tab, PaneKind::Agent).is_some_and(|shown| shown == id))
+            .map(|tab| tab.id.clone());
+        match shown {
+            Some(shown) => {
+                self.activate_project(&project);
+                self.activate_tab(&strip, &shown);
+            }
+            None => self.open_in_front(tab(project)),
+        }
+        true
     }
 }

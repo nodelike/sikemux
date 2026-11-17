@@ -5,16 +5,14 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./account": "./src/account.ts",
-    "./api": "./src/api.ts",
-    "./live": "./src/live.ts",
     "./stash": "./src/stash.ts",
-    "./openapi.json": "./generated/openapi.json"
+    "./openapi.json": "./generated/openapi.json",
+    "./release.json": "./src/release.json"
   },
   "scripts": {
     "generate": "node scripts/generate.mjs",
     "check": "node scripts/generate.mjs --check",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc6 --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

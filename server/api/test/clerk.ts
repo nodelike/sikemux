@@ -4,7 +4,6 @@ import type { ClerkBackend } from "../src/account/clerk.ts";
 export class FakeClerk implements ClerkBackend {
   readonly deleted: string[] = [];
   readonly revoked: string[] = [];
-  /** The Apple access tokens Clerk holds for each user. */
   readonly appleTokens = new Map<string, string[]>();
   failing = false;
 
@@ -16,6 +15,19 @@ export class FakeClerk implements ClerkBackend {
   async profile() {
     if (this.failing) throw new Error("Clerk answered 500");
     return { email: null, name: null, imageUrl: null };
+  }
+
+  /** Stands in for an address, so no email-shaped text is in the tests. */
+  async verifiedEmail(userId: string): Promise<string | null> {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return `verified address of ${userId}`;
+  }
+
+  async people(userIds: string[]) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return new Map(
+      userIds.map((id) => [id, { name: `Person ${id}`, imageUrl: null }]),
+    );
   }
 
   async revokeSession(sessionId: string) {

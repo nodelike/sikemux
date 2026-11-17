@@ -6,8 +6,8 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::keychain_service;
-use sikemux_plugin_api::process::sync::Locked;
-use sikemux_plugin_api::store::Secrets;
+use sikemux_plugin_api::store::{self, Secrets};
+use sikemux_process::sync::Locked;
 
 use crate::error::{DatabaseError, DatabaseResult};
 
@@ -28,7 +28,6 @@ pub enum Tls {
     VerifyFull,
 }
 
-/// A database server reached over the network.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Server {
@@ -65,10 +64,6 @@ impl Server {
         Ok(())
     }
 
-    fn same_sign_in(&self, other: &Self) -> bool {
-        self.host == other.host && self.port == other.port && self.user == other.user
-    }
-
     fn trimmed(self) -> Self {
         Self {
             host: self.host.trim().to_string(),
@@ -98,15 +93,6 @@ impl Target {
         }
     }
 
-    /// Whether a password saved for one would sign in to the other: the same engine, host, port and user.
-    fn same_sign_in(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Postgres(saved), Self::Postgres(typed))
-            | (Self::Mysql(saved), Self::Mysql(typed)) => saved.same_sign_in(typed),
-            _ => false,
-        }
-    }
-
     fn trimmed(self) -> Self {
         match self {
             Self::Postgres(server) => Self::Postgres(server.trimmed()),
@@ -130,6 +116,10 @@ pub struct Profile {
     /// Lets agents run statements that change data. Without it an agent's connection is read-only.
     #[serde(default)]
     pub agent_writes: bool,
+    /// Marks it as production: while agents may change its data, each statement an agent runs
+    /// here waits for the person to allow it.
+    #[serde(default)]
+    pub production: bool,
     #[serde(default)]
     pub has_password: bool,
     #[serde(flatten)]
@@ -246,11 +236,6 @@ pub struct SaveRequest {
     pub password: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct IdRequest {
-    pub id: String,
-}
-
 fn profiles_path(data_dir: &Path) -> PathBuf {
     data_dir.join("profiles.json")
 }
@@ -261,26 +246,11 @@ static WRITING: Mutex<()> = Mutex::new(());
 /// The saved databases; none when nothing was saved yet. A file that cannot be read is an error, so a save
 /// never writes over connections it could not read.
 pub fn load(data_dir: &Path) -> DatabaseResult<Profiles> {
-    let path = profiles_path(data_dir);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Profiles::default())
-        }
-        Err(error) => return Err(error.into()),
-    };
-    serde_json::from_slice(&bytes).map_err(|error| {
-        DatabaseError::Storage(format!("{} could not be read: {error}", path.display()))
-    })
+    Ok(store::read_file(&profiles_path(data_dir))?)
 }
 
-fn store(data_dir: &Path, profiles: &Profiles) -> DatabaseResult<()> {
-    std::fs::create_dir_all(data_dir)?;
-    let path = profiles_path(data_dir);
-    let staged = path.with_extension("json.tmp");
-    std::fs::write(&staged, serde_json::to_vec_pretty(profiles)?)?;
-    std::fs::rename(&staged, &path)?;
-    Ok(())
+fn write_profiles(data_dir: &Path, profiles: &Profiles) -> DatabaseResult<()> {
+    Ok(store::write_file(&profiles_path(data_dir), profiles)?)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -299,7 +269,6 @@ fn password_change(password: Option<&str>) -> PasswordChange<'_> {
     }
 }
 
-/// Saves the profile and its password, and returns it as saved.
 pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
     let SaveRequest { profile, password } = request;
     let name = profile.name.trim().to_string();
@@ -343,19 +312,40 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
         name,
         read_only: profile.read_only,
         agent_writes: profile.agent_writes && !profile.read_only,
+        production: existing.as_ref().is_some_and(|kept| kept.production),
         has_password,
         target,
     };
     profiles.upsert(saved.clone());
-    store(data_dir, &profiles)?;
+    write_profiles(data_dir, &profiles)?;
     Ok(saved)
+}
+
+pub fn set_agent_writes(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<()> {
+    let _turn = WRITING.locked();
+    let mut profiles = load(data_dir)?;
+    let mut changed = profiles.get(id)?.clone();
+    changed.read_only = !on;
+    changed.agent_writes = on;
+    profiles.upsert(changed);
+    write_profiles(data_dir, &profiles)
+}
+
+/// Marks the database as production, whose changes by agents wait for the person, or not.
+pub fn set_production(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<()> {
+    let _turn = WRITING.locked();
+    let mut profiles = load(data_dir)?;
+    let mut changed = profiles.get(id)?.clone();
+    changed.production = on;
+    profiles.upsert(changed);
+    write_profiles(data_dir, &profiles)
 }
 
 pub fn remove(data_dir: &Path, id: &str) -> DatabaseResult<()> {
     let _turn = WRITING.locked();
     let mut profiles = load(data_dir)?;
     if let Some(removed) = profiles.remove(id) {
-        store(data_dir, &profiles)?;
+        write_profiles(data_dir, &profiles)?;
         if removed.has_password {
             password_delete(&removed.id)?;
         }
@@ -385,26 +375,8 @@ pub fn saved_password(profile: &Profile) -> DatabaseResult<Option<String>> {
     }
 }
 
-/// The password to try a draft with: the one just typed, or else the saved one while the draft still signs in
-/// to the same server as the same user.
-pub fn password_for(
-    data_dir: &Path,
-    draft: &Draft,
-    typed: Option<String>,
-) -> DatabaseResult<Option<String>> {
-    if typed.is_some() {
-        return Ok(typed);
-    }
-    let Some(id) = draft.id.as_deref() else {
-        return Ok(None);
-    };
-    let profiles = load(data_dir)?;
-    match profiles.get(id) {
-        Ok(saved) if saved.target.same_sign_in(&draft.target.clone().trimmed()) => {
-            saved_password(saved)
-        }
-        _ => Ok(None),
-    }
+pub fn password_used(id: &str) {
+    PASSWORDS.used(id);
 }
 
 fn password_write(id: &str, password: &str) -> DatabaseResult<()> {
@@ -419,10 +391,51 @@ fn password_delete(id: &str) -> DatabaseResult<()> {
 pub async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> DatabaseResult<T> + Send + 'static,
 ) -> DatabaseResult<T> {
-    tokio::task::spawn_blocking(work)
+    tokio::task::spawn_blocking(sikemux_plugin_api::vault::carry(work))
         .await
         .map_err(|error| DatabaseError::Storage(error.to_string()))?
 }
+
+impl sikemux_plugin_api::vault::Listing for Profile {
+    fn secret_account(&self) -> Option<String> {
+        self.has_password.then(|| split_id(&self.id).0.to_owned())
+    }
+
+    fn label(&self) -> String {
+        self.name.clone()
+    }
+
+    /// The login, which every database on its server shares, since one password covers them.
+    /// A server on this machine has none, since each host's is a different one.
+    fn identity(&self) -> Option<String> {
+        let (engine, server, port) = match &self.target {
+            Target::Postgres(server) => ("postgres", server, POSTGRES_PORT),
+            Target::Mysql(server) => ("mysql", server, crate::engines::mysql::MYSQL_PORT),
+            Target::Sqlite { .. } => return None,
+        };
+        if is_loopback(&server.host) {
+            return None;
+        }
+        Some(format!(
+            "{engine}:{}@{}:{}",
+            server.user,
+            server.host.to_lowercase(),
+            server.port.unwrap_or(port)
+        ))
+    }
+}
+
+fn is_loopback(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<Profile> =
+    sikemux_plugin_api::vault::Listed::new("profiles.json", "profiles", "id", None, PASSWORDS);
 
 #[cfg(test)]
 mod tests {
@@ -458,21 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn a_typed_password_wins_and_no_saved_one_means_none() {
-        let dir = scratch("password-for");
-        let saved = save(&dir, sqlite("Local", "/tmp/a.db")).unwrap();
-        let mut draft = sqlite("Local", "/tmp/a.db").profile;
-        draft.id = Some(saved.id);
-        assert_eq!(
-            password_for(&dir, &draft, Some("typed".into())).unwrap(),
-            Some("typed".into())
-        );
-        assert_eq!(password_for(&dir, &draft, None).unwrap(), None);
-        draft.id = None;
-        assert_eq!(password_for(&dir, &draft, None).unwrap(), None);
-    }
-
-    #[test]
     fn a_password_is_saved_as_typed_and_only_blank_forgets_it() {
         assert_eq!(password_change(None), PasswordChange::Keep);
         assert_eq!(password_change(Some("   ")), PasswordChange::Forget);
@@ -481,25 +479,6 @@ mod tests {
             password_change(Some(" secret ")),
             PasswordChange::Set(" secret ")
         );
-    }
-
-    #[test]
-    fn a_saved_password_is_reused_only_for_the_same_server_and_user() {
-        let server = |host: &str, port: Option<u16>, user: &str| Server {
-            host: host.into(),
-            port,
-            database: "app".into(),
-            user: user.into(),
-            tls: Tls::Prefer,
-        };
-        let saved = Target::Postgres(server("db", None, "app"));
-        let mut renamed = server("db", None, "app");
-        renamed.database = "other".into();
-        assert!(saved.same_sign_in(&Target::Postgres(renamed)));
-        assert!(!saved.same_sign_in(&Target::Postgres(server("other", None, "app"))));
-        assert!(!saved.same_sign_in(&Target::Postgres(server("db", Some(6543), "app"))));
-        assert!(!saved.same_sign_in(&Target::Postgres(server("db", None, "admin"))));
-        assert!(!saved.same_sign_in(&Target::Mysql(server("db", None, "app"))));
     }
 
     #[test]

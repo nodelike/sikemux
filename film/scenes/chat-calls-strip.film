@@ -1,0 +1,17 @@
+# A chat with three calls open: the calls strip above where the chat is typed.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+project storefront shop
+chat Wren
+title "Cache the product pages"
+say "question {\"questions\":[{\"question\":\"Which store should the product page cache use?\",\"header\":\"Call\",\"options\":[{\"label\":\"Redis\",\"description\":\"\"},{\"label\":\"SQLite\",\"description\":\"\"}]}]}"
+settle 6
+say "question {\"questions\":[{\"question\":\"Should cached pages expire after an hour or a day?\",\"header\":\"Call\",\"options\":[{\"label\":\"An hour\",\"description\":\"\"},{\"label\":\"A day\",\"description\":\"\"}]}]}"
+settle 6
+say "question {\"questions\":[{\"question\":\"Warm the cache on deploy, or let the first visit fill it?\",\"header\":\"Call\",\"options\":[{\"label\":\"Warm on deploy\",\"description\":\"\"},{\"label\":\"First visit\",\"description\":\"\"}]}]}"
+settle 6
+front Wren
+settle 2
+snap chat-calls-strip

@@ -17,14 +17,18 @@ unify-target-host = "none"
 # GPUI's dependencies never reach the core's builds.
 [traversal-excludes]
 workspace-members = [
+    "backdrop-shaders",
     "film-frame",
+    "gpui-clicks",
     "gpui-native-view",
     "gpui-terminal-grid",
     "gpui-transcript",
     "sikemux-client",
+    "sikemux-app",
     "sikemux-gpui",
     "sikemux-linked",
     "sikemux-mobile",
+    "sikemux-web-device",
     "sikemux-wire",
     "textmate-highlight",
 ]

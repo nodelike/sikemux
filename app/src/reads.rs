@@ -1,20 +1,179 @@
-//! What the core's watches last answered, each under a field of its own and decoded once
-//! where it arrives, so a screen reads a field rather than looking an answer up by its key.
+//! What the window waits on from the core, each read named once: what answers it and moves it,
+//! the field it is kept in, what follows an answer, and what clears it. For a new one the compiler
+//! asks for its source and what follows its answer, not for its field or the site that watches it.
 
+use crate::core::Target;
+use sikemux_calls::about::WhatsNew;
+use sikemux_calls::account::SignInPage;
+use sikemux_calls::params::NoParams;
 use std::collections::BTreeMap;
 
+use gpui_kit::Context;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_core::git::log::GitOverview;
-use sikemux_core::git::status::ProjectRepo;
-use sikemux_core::server::{
-    AccountUsage, ActivitySummary, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView,
-    ShownStash, SshHost, TaskList, TrustQuestion, UpdateStatus,
-};
-use sikemux_plugin_api::codehost::PullList;
-use sikemux_plugin_api::{Listed, TokenForm};
-use sikemux_wire::catalog::CatalogAgent;
-use sikemux_wire::theme::ThemeSummary;
+use sikemux_calls::activity_log::ActivitySummary;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::drafts::Draft;
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::outside::OutsideView;
+use sikemux_calls::plugins::PluginOutcome;
+use sikemux_calls::project_roots::RootEntry;
+use sikemux_calls::share::ShareView;
+use sikemux_calls::ssh::SshHost;
+use sikemux_calls::stash::ShownStash;
+use sikemux_view::catalog::CatalogAgent;
+use sikemux_view::changed::Topic;
+use sikemux_view::plugins::{Listed, TokenForm};
+use sikemux_view::prefs::Preferences;
+use sikemux_view::questions::AgentQuestion;
+use sikemux_view::theme::ThemeSummary;
+use sikemux_view::updates::UpdateState;
+use sikemux_view::updates::UpdateStatus;
+
+use crate::chat::Question;
+use crate::hosts::Place;
+use crate::theme;
+use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::Call;
+
+/// One thing the window asks a core and acts on the answer of, kept up by a `Target::watch` or
+/// asked once by a `Target::answer`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Read {
+    Theme,
+    Plugins,
+    Hosts,
+    Update,
+    Trust,
+    Questions,
+    Shares,
+    Stash,
+    Catalog,
+    Usage,
+    SkillsAdded,
+    Preferences,
+    WhatsNew,
+    Picture,
+    Themes,
+    /// Activity across every project, for Settings.
+    ActivityEverywhere,
+    /// What the project in front holds.
+    Activity,
+    Mods,
+    Tasks,
+    Runs,
+    ProjectConfig,
+    Ports,
+    GitProjectRepo,
+    GitOverview,
+    GitDraft,
+    /// The composer drafts kept on a core.
+    Drafts,
+    /// The worktree in front's pull requests.
+    WorktreePulls,
+    SignIn,
+    SignInFinished,
+    ProjectFiles,
+    FilesList,
+    PickerFolders,
+    SshHosts,
+    /// How busy a host is, for the Hosts page while it is in front.
+    HostStats,
+    /// The programs outside Sikemux this host lets in, and those waiting to be.
+    Outside,
+}
+
+impl Read {
+    /// What the window watches from the moment it opens.
+    pub const FROM_THE_START: [Read; 14] = [
+        Read::Theme,
+        Read::Plugins,
+        Read::Hosts,
+        Read::Update,
+        Read::Trust,
+        Read::Questions,
+        Read::Shares,
+        Read::Stash,
+        Read::Catalog,
+        Read::Usage,
+        Read::SkillsAdded,
+        Read::Preferences,
+        Read::WhatsNew,
+        Read::Outside,
+    ];
+
+    /// What the core in front is watched for while its project is in front. A feed's `leave`
+    /// lets go of what they answered.
+    pub const OF_THE_PROJECT_IN_FRONT: [Read; 10] = [
+        Read::Activity,
+        Read::Mods,
+        Read::Tasks,
+        Read::Runs,
+        Read::Ports,
+        Read::ProjectConfig,
+        Read::GitProjectRepo,
+        Read::GitOverview,
+        Read::GitDraft,
+        Read::WorktreePulls,
+    ];
+
+    /// What an account host is watched for only while it is in front; this host's are always.
+    pub const OF_THE_HOST_IN_FRONT: [Read; 3] = [Read::Trust, Read::Questions, Read::Drafts];
+
+    /// The core's method that answers it, and the topics whose changing reads it again.
+    const fn source(self) -> (&'static str, &'static [Topic]) {
+        match self {
+            Read::Theme => (call::Theme::METHOD, &[Topic::Preferences]),
+            Read::Plugins => (call::Plugins::METHOD, &[Topic::Plugins]),
+            Read::Hosts => (call::Hosts::METHOD, &[Topic::Hosts]),
+            Read::Update => (call::UpdateStatus::METHOD, &[Topic::Update]),
+            Read::Trust => (call::TrustAsks::METHOD, &[Topic::Trust]),
+            Read::Questions => (call::Questions::METHOD, &[Topic::Questions]),
+            Read::Shares => (call::Shares::METHOD, &[Topic::Shares]),
+            Read::Stash => (call::Stash::METHOD, &[Topic::Stash, Topic::Account]),
+            Read::Catalog => (call::AgentCatalog::METHOD, &[]),
+            Read::Usage => (call::AgentUsages::METHOD, &[Topic::Usage]),
+            Read::SkillsAdded => (call::SkillsAdded::METHOD, &[Topic::Skills]),
+            Read::Preferences => (call::Preferences::METHOD, &[Topic::Preferences]),
+            Read::WhatsNew => (call::WhatsNew::METHOD, &[Topic::Preferences]),
+            Read::Picture => (call::AccountPicture::METHOD, &[]),
+            Read::Themes => (call::Themes::METHOD, &[Topic::Preferences]),
+            Read::Activity | Read::ActivityEverywhere => {
+                (call::ActivitySummary::METHOD, &[Topic::Activity])
+            }
+            Read::Mods => (call::Mods::METHOD, &[Topic::Mods]),
+            Read::Tasks => (call::Tasks::METHOD, &[Topic::Tasks, Topic::Runs]),
+            Read::Runs => (call::TaskRuns::METHOD, &[Topic::Runs]),
+            Read::ProjectConfig => (call::ProjectConfig::METHOD, &[Topic::Tasks]),
+            Read::Ports => (call::Ports::METHOD, &[Topic::Ports]),
+            Read::GitProjectRepo => (
+                git_call::ProjectRepo::METHOD,
+                &[Topic::Git, Topic::Preferences],
+            ),
+            Read::GitOverview => (git_call::Overview::METHOD, &[Topic::Git]),
+            Read::GitDraft | Read::Drafts => (call::Drafts::METHOD, &[Topic::Drafts]),
+            Read::WorktreePulls => (call::CodeHostPulls::METHOD, &[Topic::CodeHost]),
+            Read::SignIn => (call::AccountSignIn::METHOD, &[]),
+            Read::SignInFinished => (call::AccountSignInFinish::METHOD, &[]),
+            Read::ProjectFiles => (call::ProjectFiles::METHOD, &[]),
+            Read::FilesList => (call::FilesList::METHOD, &[]),
+            Read::PickerFolders => (call::ProjectRoots::METHOD, &[]),
+            Read::SshHosts => (call::SshHosts::METHOD, &[]),
+            Read::HostStats => (call::HostStats::METHOD, &[Topic::HostStats]),
+            Read::Outside => (call::OutsideAccess::METHOD, &[Topic::Outside]),
+        }
+    }
+
+    pub const fn method(self) -> &'static str {
+        self.source().0
+    }
+
+    pub const fn topics(self) -> &'static [Topic] {
+        self.source().1
+    }
+}
 
 /// The agents the core can run, as its catalog lists them.
 #[derive(Default, PartialEq)]
@@ -84,6 +243,8 @@ pub struct Reads {
     pub hosts: Vec<HostRow>,
     /// How updating this app stands, once the core has said.
     pub update: Option<UpdateStatus>,
+    /// The build whose notes the person last read, while a nightly's notes wait unread.
+    pub news_since: Option<String>,
     /// How much of its plan each account has used, as the core last read it.
     pub usage: Vec<AccountUsage>,
     /// The chats this host shares read-only.
@@ -91,66 +252,19 @@ pub struct Reads {
     /// The account's Stash, as this host last listed it.
     pub stash: Option<ShownStash>,
     pub themes: Vec<ThemeSummary>,
-    /// This host's trust questions, and those of the account host in front.
-    pub trust: Vec<TrustQuestion>,
-    pub host_trust: Vec<TrustQuestion>,
-    /// The composer drafts kept on this host, and on the account host in front.
-    pub drafts: Option<Drafts>,
-    pub host_drafts: Option<Drafts>,
-    /// What the project in front holds: its tasks, their runs, what listens on its ports,
-    /// its activity, and the repository its git pane shows.
-    pub tasks: Option<TaskList>,
-    pub runs: Vec<RunView>,
-    pub ports: Vec<ProjectPort>,
-    pub activity: Option<ActivitySummary>,
-    pub git_project_repo: Option<ProjectRepo>,
-    /// The repository's status, branches and log, or why they did not read.
-    pub git_overview: Option<Result<GitOverview, String>>,
-    pub git_draft: Option<Drafts>,
     /// Activity across every project, for Settings; `Some(None)` when the core refused it.
     pub activity_everywhere: Option<Option<ActivitySummary>>,
-    /// The worktree in front's pull requests, and whether its branch is merged.
-    pub worktree_pulls: Option<PullList>,
-    pub worktree_merged: Option<bool>,
     /// What the project and host pickers offer: folders under the project roots, and SSH hosts.
-    pub picker_folders: Vec<ProjectEntry>,
+    pub picker_folders: Vec<RootEntry>,
     pub ssh_hosts: Vec<SshHost>,
+    /// The programs outside Sikemux this host lets in, and those waiting to be.
+    pub outside: Option<OutsideView>,
 }
 
 impl Reads {
-    /// Keeps the agent catalog the core sent, and says whether it differs from the one kept.
-    pub fn keep_catalog(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.catalog.0, value, "agent catalog")
-    }
-
-    /// Keeps the plugins the core listed, and says whether they differ from those kept.
-    pub fn keep_plugins(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.plugins.0, value, "plugins")
-    }
-
-    /// Keeps the themes the core listed, and says whether they differ from those kept.
-    pub fn keep_themes(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.themes, value, "themes")
-    }
-
-    /// Keeps the hosts the core listed, and says whether they differ from those kept.
-    pub fn keep_hosts(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.hosts, value, "hosts")
-    }
-
-    /// Keeps how updating stands, and says whether it differs from what was kept.
-    pub fn keep_update(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.update, value, "update status")
-    }
-
-    /// Keeps the accounts' plan usage, and says whether it differs from what was kept.
-    pub fn keep_usage(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.usage, value, "plan usage")
-    }
-
     /// Keeps the stash the core listed, and says whether it differs from the one kept. When
     /// this window counted the stash seen later than the answer says, its time stands.
-    pub fn keep_stash(&mut self, value: Value) -> bool {
+    fn keep_stash(&mut self, value: Value) -> bool {
         let Some(mut told) = decoded::<ShownStash>(value, "stash") else {
             return false;
         };
@@ -165,103 +279,396 @@ impl Reads {
         }
         keep(&mut self.stash, Some(told))
     }
+}
 
-    /// Keeps the drafts `key`'s watch answered, and says whether they differ from those kept.
-    pub fn keep_drafts(&mut self, key: &str, value: Value) -> bool {
-        let slot = match key {
-            "drafts" => &mut self.drafts,
-            "host-drafts" => &mut self.host_drafts,
-            _ => &mut self.git_draft,
-        };
-        keep_decoded(slot, value, "drafts")
-    }
-
-    /// Keeps what listens on the project's ports, and says whether it differs from what was kept.
-    pub fn keep_ports(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.ports, value, "ports")
-    }
-
-    /// Keeps the activity summary `key`'s watch answered, and says whether it differs from the
-    /// one kept. The project's activity draws empty when the core refused it.
-    pub fn keep_activity(&mut self, key: &str, value: Value) -> bool {
-        let read = match value.is_null() {
-            true => None,
-            false => match decoded::<ActivitySummary>(value, "activity") {
-                Some(summary) => Some(summary),
-                None => return false,
-            },
-        };
-        match key {
-            "activity" => keep(&mut self.activity, Some(read.unwrap_or_default())),
-            _ => keep(&mut self.activity_everywhere, Some(read)),
-        }
-    }
-
-    /// Keeps which repository the project's Git views open on, and those inside its folder.
-    pub fn keep_project_repo(&mut self, value: Value) {
-        if let Some(found) = decoded(value, "project repository") {
-            self.git_project_repo = Some(found);
-        }
-    }
-
-    /// Keeps the repository's overview, even one that does not read, which the Git pane says.
-    pub fn keep_overview(&mut self, value: Value) {
-        self.git_overview = Some(serde_json::from_value(value).map_err(|error| error.to_string()));
-    }
-
-    /// Keeps the chats this host shares, and says whether they differ from those kept.
-    pub fn keep_shares(&mut self, value: Value) -> bool {
-        keep_decoded(&mut self.shares, value, "shares")
-    }
-
-    /// Keeps what the pickers were answered: the folders under the project roots, or this
-    /// host's SSH hosts.
-    pub fn keep_picked(&mut self, key: &str, value: Value) {
-        match key {
-            "pickerFolders" => keep_decoded(&mut self.picker_folders, value, "project folders"),
-            _ => keep_decoded(&mut self.ssh_hosts, value, "SSH hosts"),
-        };
-    }
-
-    /// Keeps what the project's tasks, the runs or a host's trust questions were answered, and
-    /// says whether it differs from what was kept.
-    pub fn keep_tasks(&mut self, key: &str, value: Value) -> bool {
-        match key {
-            "tasks" => keep_decoded(&mut self.tasks, value, "tasks"),
-            "runs" => keep_decoded(&mut self.runs, value, "task runs"),
-            "trust" => keep_decoded(&mut self.trust, value, "trust questions"),
-            _ => keep_decoded(&mut self.host_trust, value, "trust questions"),
-        }
-    }
-
-    /// Keeps what the worktree in front's pull requests or merged check answered.
-    pub fn keep_worktree(&mut self, key: &str, value: Value) {
-        match key {
-            crate::worktree_head::PULLS => {
-                self.worktree_pulls = crate::codehost::answer(&value)
-                    .inspect_err(|error| eprintln!("sikemux: the worktree's pulls: {error}"))
-                    .ok();
+impl Workbench {
+    /// Takes in what the core answered `read`, then does what follows from it.
+    pub(crate) fn read_answered(
+        &mut self,
+        place: Place,
+        read: Read,
+        value: Value,
+        cx: &mut Context<Self>,
+    ) {
+        match read {
+            Read::Hosts => {
+                let changed = keep_decoded(&mut self.reads.hosts, value, "hosts");
+                if self.feeds.this.approval.is_none() {
+                    self.read_approval(None, cx);
+                }
+                if !changed {
+                    return;
+                }
+                self.feeds.keep_linked(&self.reads.hosts);
+                self.follow_folded(cx);
+                self.watch_hosts_page();
             }
-            _ => self.worktree_merged = decoded(value, "worktree merged"),
+            Read::SkillsAdded => {
+                if let Some(added) = decoded(value, "skills added") {
+                    self.offer_skills(added, cx);
+                }
+                return;
+            }
+            Read::Plugins => {
+                if !keep_decoded(&mut self.reads.plugins.0, value, "plugins") {
+                    return;
+                }
+                crate::settings::plugins_changed(self, cx);
+            }
+            Read::Update => {
+                let ready = |status: &UpdateStatus| {
+                    status.state == UpdateState::Ready
+                        && status
+                            .available
+                            .as_ref()
+                            .map(|release| release.version.as_str())
+                            != Some(env!("CARGO_PKG_VERSION"))
+                };
+                let already = self.reads.update.as_ref().is_some_and(ready);
+                let was_put_back =
+                    (self.reads.update.as_ref()).is_some_and(crate::updates::put_back_from_here);
+                if !keep_decoded(&mut self.reads.update, value, "update status") {
+                    return;
+                }
+                let now = self.reads.update.as_ref().is_some_and(ready);
+                crate::screens::whats_new::follow_update(self, cx);
+                if self.over_shown() {
+                    self.parts.redraw(&self.parts.over, cx);
+                }
+                if (self.reads.update.as_ref()).is_some_and(crate::updates::put_back_from_here) {
+                    if !was_put_back {
+                        cx.defer(crate::updates::restart_once);
+                    }
+                    return;
+                }
+                crate::updates::tell_put_back(self, cx);
+                if now && !already {
+                    // The core put the update in place of this app; opening the app again starts it.
+                    // An AppImage runs from a mount that goes with this process, and an unpacked one
+                    // from a folder the update replaced, so each starts again from its own launcher.
+                    if let Some(launcher) = appimage_launcher() {
+                        cx.set_restart_path(launcher);
+                    }
+                    if self
+                        .reads
+                        .update
+                        .as_ref()
+                        .is_some_and(|update| update.forced)
+                    {
+                        crate::core::force_next_core_update();
+                    }
+                    // Restarting runs the restart hooks, which update this workbench.
+                    if (self.reads.update.as_ref()).is_some_and(|update| update.by_itself) {
+                        crate::updates::restart_when_idle(cx);
+                    } else {
+                        let asks = self.asks.clone();
+                        cx.defer(move |cx| crate::updates::restart_when_keys_rest(asks, cx));
+                    }
+                }
+            }
+            Read::Questions => {
+                let Some(asked) = decoded::<Vec<AgentQuestion>>(value, "questions") else {
+                    return cx.notify();
+                };
+                self.feeds.at_mut(&place).questions = (asked.into_iter())
+                    .map(|asked| Question { asked })
+                    .collect();
+            }
+            Read::Theme => {
+                if let Some(palette) = decoded(value, "theme") {
+                    theme::apply(&palette, cx);
+                    crate::syntax::restyle(cx);
+                    for pane in self.mod_panes.values() {
+                        pane.update(cx, |pane, cx| pane.retheme(cx));
+                    }
+                    cx.refresh_windows();
+                }
+            }
+            Read::Picture => self
+                .picture
+                .read(decoded(value, "account picture").flatten()),
+            Read::SignIn => match decoded::<SignInPage>(value, "sign-in page") {
+                Some(page) => {
+                    cx.open_url(&page.url);
+                    Target::here(&self.asks)
+                        .answer::<call::AccountSignInFinish>(Read::SignInFinished, NoParams {});
+                }
+                None => self.signing_in = false,
+            },
+            Read::SignInFinished => {
+                self.signing_in = false;
+                crate::pairing::offer_account_phones(self, cx);
+            }
+            Read::FilesList => {
+                self.files_retry.answered();
+                let listed = decoded(value, "file list").unwrap_or_default();
+                self.files.listed(listed, &self.target());
+                return self.parts.redraw(&self.parts.agents, cx);
+            }
+            Read::GitProjectRepo => {
+                let was = self.git_repo();
+                if let Some(found) = decoded(value, "project repository") {
+                    self.feeds.at_mut(&place).git_project_repo = Some(found);
+                }
+                return self.follow_git_repo(was, cx);
+            }
+            Read::GitOverview => {
+                // An overview that does not read is kept too, which the Git pane says.
+                let in_front = self.git_in_front();
+                let feed = self.feeds.at_mut(&place);
+                feed.git_overview =
+                    Some(serde_json::from_value(value).map_err(|error| error.to_string()));
+                let overview = feed.git_overview.as_ref();
+                if let Some(Ok(overview)) = overview {
+                    self.files.mark(overview);
+                }
+                if let Some(overview) = overview {
+                    self.git.overview(overview, in_front, cx);
+                }
+                self.parts.redraw(&self.parts.bar, cx);
+                return self.parts.redraw(&self.parts.agents, cx);
+            }
+            Read::ProjectFiles => {
+                let answered = decoded(value, "project files")
+                    .is_some_and(|answer| self.project_files.answered(answer));
+                if answered {
+                    self.rank(cx);
+                    self.files_listed(cx);
+                }
+                return;
+            }
+            Read::Preferences => {
+                if let Some(preferences) = decoded::<Preferences>(value, "preferences") {
+                    if self.preferences.as_ref() == Some(&preferences) {
+                        return;
+                    }
+                    crate::keymap::bind(&preferences.keybinding_overrides, cx);
+                    if self.rails.keeping.is_none() {
+                        self.follow_rails(&preferences);
+                    }
+                    self.sims
+                        .read(cx)
+                        .offer_to_agents(preferences.ios_simulator);
+                    let on = preferences.voice_dictation;
+                    self.voice.update(cx, |voice, cx| voice.follow(on, cx));
+                    let scale = preferences.chat_text_scale as f32;
+                    for chat in self.chats.open.values_mut() {
+                        chat.rescale(scale, cx);
+                    }
+                    if crate::chat::column::set(preferences.chat_width, cx) {
+                        for chat in self.chats.open.values() {
+                            chat.widen(cx);
+                        }
+                    }
+                    crate::ui::grain::set(&preferences, cx);
+                    crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
+                    crate::theme::set_scrollbars(preferences.scrollbars, cx);
+                    crate::motion::set_motion(preferences.motion, cx);
+                    if crate::i18n::speak(preferences.language.as_deref()) {
+                        cx.refresh_windows();
+                    }
+                    crate::see_through::set(&preferences, cx);
+                    crate::screens::experience::preferences_read(self, &preferences, cx);
+                    self.preferences = Some(preferences);
+                }
+                self.terminals.redraw_all(cx);
+                crate::notifications::introduce(self, cx);
+                crate::notifications::kept_running(self, cx);
+            }
+            Read::GitDraft => {
+                let feed = self.feeds.at_mut(&place);
+                if !keep_decoded(&mut feed.git_draft, value, "drafts") {
+                    return;
+                }
+                if let Some(drafts) = &feed.git_draft {
+                    self.git.drafts(drafts, cx);
+                }
+            }
+            Read::Stash => {
+                if !self.reads.keep_stash(value) {
+                    return;
+                }
+                let unseen = !crate::stash::Stash::of(self).new_items().is_empty();
+                if unseen && self.stash_in_front() {
+                    self.see_stash();
+                }
+            }
+            Read::Drafts => {
+                let elsewhere = place != Place::This;
+                let feed = self.feeds.at_mut(&place);
+                if !keep_decoded(&mut feed.drafts, value, "drafts") && !elsewhere {
+                    return;
+                }
+                if let Some(drafts) = &feed.drafts {
+                    crate::chat::draft::take(&mut self.chats, drafts, elsewhere, cx);
+                }
+            }
+            Read::Usage => {
+                crate::agents::limits::usage_read(self, cx);
+                if !keep_decoded(&mut self.reads.usage, value, "plan usage") {
+                    return;
+                }
+            }
+            Read::Shares => {
+                if !keep_decoded(&mut self.reads.shares, value, "shares") {
+                    return;
+                }
+            }
+            Read::Mods => {
+                let read = decoded(value, "mods");
+                let kept = &mut self.feeds.at_mut(&place).mods;
+                if !read.is_some_and(|read| keep(kept, Some(read))) {
+                    return;
+                }
+                self.parts.redraw(&self.parts.side, cx);
+            }
+            Read::Themes => {
+                if !keep_decoded(&mut self.reads.themes, value, "themes") {
+                    return;
+                }
+            }
+            Read::Catalog => {
+                if !keep_decoded(&mut self.reads.catalog.0, value, "agent catalog") {
+                    return;
+                }
+                self.git.catalog(&self.reads.catalog, cx);
+            }
+            Read::Trust => {
+                let kept = &mut self.feeds.at_mut(&place).trust;
+                if !keep_decoded(kept, value, "trust questions") && place == Place::This {
+                    return;
+                }
+                self.ask_trust(cx);
+            }
+            Read::Tasks => {
+                if !keep_decoded(&mut self.feeds.at_mut(&place).tasks, value, "tasks") {
+                    return;
+                }
+            }
+            Read::ProjectConfig => {
+                if let Some(config) = decoded(value, "project config") {
+                    crate::keymap::bind_project_actions(&crate::commands::action_keys(&config), cx);
+                }
+            }
+            Read::Runs => {
+                if !keep_decoded(&mut self.feeds.at_mut(&place).runs, value, "process runs") {
+                    return;
+                }
+                self.place_agent_runs(cx);
+                self.show_started_runs();
+            }
+            Read::Activity => {
+                let Some(summary) = decoded(value, "activity") else {
+                    return;
+                };
+                if !keep(&mut self.feeds.at_mut(&place).activity, Some(summary)) {
+                    return;
+                }
+            }
+            Read::ActivityEverywhere => {
+                let Some(summary) = decoded(value, "activity") else {
+                    return;
+                };
+                if !keep(&mut self.reads.activity_everywhere, Some(Some(summary))) {
+                    return;
+                }
+            }
+            Read::Ports => {
+                if !keep_decoded(&mut self.feeds.at_mut(&place).ports, value, "ports") {
+                    return;
+                }
+            }
+            Read::WhatsNew => {
+                let news = decoded::<WhatsNew>(value, "release notes");
+                let unseen = news.as_ref().is_some_and(|news| news.unseen);
+                let since = news.and_then(|news| news.since);
+                if keep(&mut self.reads.news_since, since) {
+                    cx.notify();
+                }
+                crate::screens::experience::whats_new_read(self, unseen, cx);
+            }
+            Read::PickerFolders => {
+                keep_decoded(&mut self.reads.picker_folders, value, "project folders");
+                self.picker_answered(cx);
+            }
+            Read::SshHosts => {
+                keep_decoded(&mut self.reads.ssh_hosts, value, "SSH hosts");
+                self.picker_answered(cx);
+            }
+            Read::WorktreePulls => {
+                self.feeds.at_mut(&place).worktree_pulls =
+                    decoded::<PluginOutcome>(value, "worktree's pulls").and_then(|told| {
+                        told.read()
+                            .inspect_err(|error| {
+                                eprintln!("sikemux: the worktree's pulls: {error}")
+                            })
+                            .ok()
+                    });
+            }
+            Read::Outside => {
+                if !keep_decoded(&mut self.reads.outside, value, "outside access") {
+                    return;
+                }
+                self.outside_read(cx);
+            }
+            Read::HostStats => {
+                if let Some(stats) = decoded(value, "host stats") {
+                    self.host_stats_read(place, stats, cx);
+                }
+                return;
+            }
         }
+        cx.notify();
     }
 
-    /// Forgets what `key` answered, so nothing shows the answer of what it watched before.
-    pub fn forget(&mut self, key: &str) {
-        match key {
-            "tasks" => self.tasks = None,
-            "git-draft" => self.git_draft = None,
-            "runs" => self.runs.clear(),
-            "ports" => self.ports.clear(),
-            "activity" => self.activity = None,
-            "git-project-repo" => self.git_project_repo = None,
-            "trust" => self.trust.clear(),
-            "host-trust" => self.host_trust.clear(),
-            crate::worktree_head::PULLS => self.worktree_pulls = None,
-            crate::worktree_head::MERGED => self.worktree_merged = None,
+    pub(crate) fn read_refused(
+        &mut self,
+        place: Place,
+        read: Read,
+        error: String,
+        cx: &mut Context<Self>,
+    ) {
+        eprintln!("sikemux: the core refused {read:?}: {error}");
+        match read {
+            Read::SignIn | Read::SignInFinished => {
+                if std::mem::take(&mut self.signing_in) {
+                    self.notify(
+                        crate::toast::error(t!(
+                            "Sikemux could not sign in: {error}",
+                            error = error
+                        ))
+                        .autohide(false),
+                        cx,
+                    );
+                }
+            }
+            Read::FilesList => self.files_retry.refused(
+                cx,
+                |bench| &mut bench.files_retry,
+                |bench, _| {
+                    if bench.out_of_reach().is_none() {
+                        bench.files.relist_shown(&bench.target());
+                    }
+                },
+            ),
+            // Both draw empty rather than waiting on an answer that won't come.
+            Read::Activity => {
+                self.feeds.at_mut(&place).activity = Some(ActivitySummary::default());
+            }
+            Read::ActivityEverywhere => {
+                self.reads.activity_everywhere = Some(None);
+                self.parts.redraw_stage(cx);
+            }
             _ => {}
         }
     }
+}
+
+fn appimage_launcher() -> Option<std::path::PathBuf> {
+    if let Some(appimage) = std::env::var_os("APPIMAGE") {
+        return Some(appimage.into());
+    }
+    std::env::var_os("APPDIR").map(|folder| std::path::Path::new(&folder).join("AppRun"))
 }
 
 /// Keeps `value` decoded in `slot`, and says whether it differs from what was kept. An answer

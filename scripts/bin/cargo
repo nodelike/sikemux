@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+import fcntl
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+JOBS_PER_RUN = 6
+BYTES_PER_RUN = 3 << 30
+LIMIT_VARIABLE = "SIKEMUX_CARGO_RUNS"
+PRIORITY_VARIABLE = "SIKEMUX_CARGO_PRIORITY"
+FINAL_CHECKS = {"clippy", "nextest", "t", "test"}
+FINAL_HEAD_START = 15 * 60
+ADMIT_GAP = 20
+SLOTS = os.path.expanduser("~/.cache/sikemux-cargo")
+COMPILING = {"b", "build", "c", "check", "clippy", "d", "doc", "fix", "ndk", "rustc", "rustdoc"}
+COMPILING_THEN_RUNNING = {"bench", "nextest", "r", "run", "t", "test"}
+GLOBAL_OPTIONS_WITH_VALUE = {"--color", "--config", "--explain", "-C", "-Z"}
+COMPILER_CACHES = ("kache", "sccache")
+BUILD_STEPS = {"bash", "clippy-driver", "git", "kache", "rustc", "rustdoc", "sccache", "sh"}
+
+
+def subcommand(args):
+    words = iter(args)
+    for word in words:
+        if word in GLOBAL_OPTIONS_WITH_VALUE:
+            next(words, None)
+        elif not word.startswith(("-", "+")):
+            return word
+    return None
+
+
+def path_without_this_folder():
+    here = os.path.dirname(os.path.realpath(__file__))
+    folders = os.environ.get("PATH", "").split(os.pathsep)
+    return os.pathsep.join(f for f in folders if f and os.path.realpath(f) != here)
+
+
+def real_cargo(path):
+    home = os.environ.get("CARGO_HOME") or os.path.expanduser("~/.cargo")
+    rustup = os.path.join(home, "bin", "cargo")
+    if os.access(rustup, os.X_OK):
+        return rustup
+    return shutil.which("cargo", path=path)
+
+
+def limit_override():
+    try:
+        return max(1, int(os.environ[LIMIT_VARIABLE]))
+    except (KeyError, ValueError):
+        return None
+
+
+def available_memory():
+    try:
+        if sys.platform == "darwin":
+            report = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
+            page = int(re.search(r"page size of (\d+)", report).group(1))
+            kinds = ("free", "inactive", "speculative", "purgeable")
+            pages = sum(int(re.search(rf"Pages {kind}:\s+(\d+)", report).group(1)) for kind in kinds)
+            return pages * page
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, AttributeError):
+        pass
+    return None
+
+
+def memory_under_pressure():
+    if sys.platform != "darwin":
+        return False
+    level = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"], capture_output=True, text=True).stdout
+    return level.strip().isdigit() and int(level) >= 2
+
+
+def runs_allowed(running):
+    override = limit_override()
+    if override:
+        return override
+    cores = os.cpu_count() or 1
+    if memory_under_pressure():
+        return max(1, running)
+    memory = available_memory()
+    if memory is None:
+        return max(1, round(cores / JOBS_PER_RUN))
+    return max(1, min(cores, running + memory // BYTES_PER_RUN))
+
+
+def admitted_lately():
+    try:
+        return time.time() - os.path.getmtime(os.path.join(SLOTS, "admitted")) < ADMIT_GAP
+    except OSError:
+        return False
+
+
+def run_is_final(name):
+    declared = os.environ.get(PRIORITY_VARIABLE)
+    if declared in ("final", "normal"):
+        return declared == "final"
+    return name in FINAL_CHECKS
+
+
+def live_tickets_ahead(waiting, mine):
+    ahead = 0
+    for name in os.listdir(waiting):
+        try:
+            turn = (float(name.split("-")[0]), int(name.split("-")[1]))
+        except (IndexError, ValueError):
+            continue
+        if turn >= mine:
+            continue
+        path = os.path.join(waiting, name)
+        try:
+            with open(path) as ticket:
+                fcntl.flock(ticket, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                os.unlink(path)
+        except BlockingIOError:
+            ahead += 1
+        except OSError:
+            pass
+    return ahead
+
+
+def free_slot():
+    free, running = [], 0
+    for index in range(max(os.cpu_count() or 1, limit_override() or 0)):
+        slot = open(os.path.join(SLOTS, f"slot-{index}"), "a")
+        try:
+            fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            free.append(slot)
+        except BlockingIOError:
+            slot.close()
+            running += 1
+    allowed = runs_allowed(running)
+    paced = running > 0 and admitted_lately() and not limit_override()
+    mine = free.pop(0) if running < allowed and free and not paced else None
+    if mine:
+        open(os.path.join(SLOTS, "admitted"), "w").close()
+    for slot in free:
+        slot.close()
+    return mine, running, allowed
+
+
+def take_slot(final):
+    waiting = os.path.join(SLOTS, "waiting")
+    os.makedirs(waiting, exist_ok=True)
+    since = time.monotonic()
+    mine = (round(time.time() - (FINAL_HEAD_START if final else 0), 3), os.getpid())
+    path = os.path.join(waiting, f"{mine[0]:.3f}-{mine[1]}")
+    ticket = open(f"{path}.new", "w")
+    fcntl.flock(ticket, fcntl.LOCK_EX)
+    os.rename(f"{path}.new", path)
+    told = False
+    try:
+        while True:
+            with open(os.path.join(SLOTS, "turns.lock"), "a") as turns:
+                fcntl.flock(turns, fcntl.LOCK_EX)
+                ahead = live_tickets_ahead(waiting, mine)
+                slot, running, allowed = free_slot() if ahead == 0 else (None, None, None)
+            if slot:
+                if told:
+                    print(f"cargo: started after {time.monotonic() - since:.0f}s in the queue.", file=sys.stderr)
+                return slot
+            if not told and ahead:
+                print(f"cargo: queued behind {ahead} waiting cargo runs; it starts by itself when its turn comes.", file=sys.stderr)
+            elif not told:
+                print(
+                    f"cargo: queued: {running} cargo runs are building and free memory takes {allowed} at once, started 20s apart."
+                    f" It starts by itself when one finishes; {LIMIT_VARIABLE} sets the limit.",
+                    file=sys.stderr,
+                )
+            told = True
+            time.sleep(1)
+    finally:
+        os.unlink(path)
+        ticket.close()
+
+
+def program_started(root):
+    table = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True).stdout
+    children = {}
+    for line in table.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) == 3:
+            children.setdefault(int(fields[1]), []).append((int(fields[0]), os.path.basename(fields[2])))
+    cargos = [root]
+    while cargos:
+        for pid, name in children.get(cargos.pop(), []):
+            if name.startswith("cargo"):
+                cargos.append(pid)
+            elif name not in BUILD_STEPS and not name.startswith("build-script"):
+                return True
+    return False
+
+
+def run(command, env, slot, runs_programs):
+    child = subprocess.Popen(command, env=env)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, lambda signum, _: child.send_signal(signum))
+    while True:
+        try:
+            code = child.wait(timeout=1)
+            break
+        except subprocess.TimeoutExpired:
+            if slot and runs_programs and program_started(child.pid):
+                slot.close()
+                slot = None
+    return 128 - code if code < 0 else code
+
+
+def main():
+    args = sys.argv[1:]
+    path = path_without_this_folder()
+    cargo = real_cargo(path)
+    if not cargo:
+        print("cargo: no cargo found; install rustup from https://rustup.rs", file=sys.stderr)
+        return 127
+    command = [cargo, *args]
+    path = os.pathsep.join([os.path.dirname(cargo), path])
+    if os.environ.get("CI"):
+        os.execve(cargo, command, dict(os.environ, PATH=path))
+    env = dict(os.environ, PATH=path)
+    cache = next(filter(None, (shutil.which(name, path=path) for name in COMPILER_CACHES)), None)
+    if cache and "RUSTC_WRAPPER" not in env:
+        env["RUSTC_WRAPPER"] = cache
+    if os.path.basename(env.get("RUSTC_WRAPPER", "")) == "kache":
+        # kache's own copies of each crate's incremental state in target/*/incremental.kache-auto
+        # go only after 30 days unused, and reached 86 GB in the main checkout.
+        env.setdefault("KACHE_ADAPTIVE_INCREMENTAL", "0")
+    policy = shutil.which("taskpolicy") if sys.platform == "darwin" and "SIKEMUX_AGENT_ID" in env else None
+    if policy:
+        command = [policy, "-c", "utility", *command]
+    name = subcommand(args)
+    if {"-h", "--help", "-V", "--version"} & set(args) or name not in COMPILING | COMPILING_THEN_RUNNING:
+        os.execve(command[0], command, env)
+    try:
+        slot = take_slot(run_is_final(name))
+    except KeyboardInterrupt:
+        return 130
+    # Sikemux's own cargo, which this one stands in front of, marks its runs the same way, so
+    # the git a build or its tests start is the build's own and not the agent's to guard.
+    env["SIKEMUX_BUILD_TURN"] = "1"
+    return run(command, env, slot, name in COMPILING_THEN_RUNNING)
+
+
+sys.exit(main())

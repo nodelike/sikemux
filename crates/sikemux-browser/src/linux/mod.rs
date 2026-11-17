@@ -79,15 +79,15 @@ impl Page {
     }
 
     /// Shows the part of the page that falls in `shown` (x, y, width, height), the page itself
-    /// being at `page`, both top-down in the app's window.
+    /// being at `page`, both in device pixels top-down in the app's window.
     pub(crate) fn place(&self, shown: (f64, f64, f64, f64), page: (f64, f64, f64, f64)) {
         let (x, y, width, height) = shown;
         let (x, y) = (x.max(PARKED), y.max(PARKED));
         let (left, top) = (page.0.max(PARKED), page.1.max(PARKED));
         self.clip.place(x, y, width, height);
         let _ = self.view.set_bounds(wry::Rect {
-            position: wry::dpi::LogicalPosition::new(left - x, top - y).into(),
-            size: wry::dpi::LogicalSize::new(page.2, page.3).into(),
+            position: wry::dpi::PhysicalPosition::new((left - x) as i32, (top - y) as i32).into(),
+            size: wry::dpi::PhysicalSize::new(page.2 as u32, page.3 as u32).into(),
         });
     }
 
@@ -322,6 +322,7 @@ impl Tab {
         let id: Arc<str> = spec.tab_id.into();
         let (agent_id, tab_id) = (spec.agent_id.to_owned(), id.to_string());
         let (url, user_agent, size) = (spec.url.to_owned(), spec.user_agent.to_owned(), spec.size);
+        let private = spec.private;
         let window = NonZeroU32::new(parent.view as usize as u32)
             .ok_or("the window has no X11 id")?
             .get();
@@ -340,6 +341,7 @@ impl Tab {
                 .with_url(&url)
                 .with_user_agent(&user_agent)
                 .with_initialization_script(crate::RECORDER_SCRIPT)
+                .with_incognito(private)
                 .with_focused(false)
                 .with_visible(false)
                 .with_hotkeys_zoom(true)
@@ -430,7 +432,6 @@ impl Tab {
         self.view.with(|page| page.show(false));
     }
 
-    /// Takes the page out of its window.
     pub fn close(&self) {
         let view = self.view.clone();
         on_gtk(move || drop(view.0.locked().take()));

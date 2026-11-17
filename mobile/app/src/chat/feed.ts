@@ -1,7 +1,8 @@
 import { MobileError, type ChatMark, type ConnectionLike } from '@sikemux/native';
 
 import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from '@shared/chat/rows';
-import type { ChatChange, ChatPage, ChatView, ToolDetail } from '@shared/chat/types';
+import type { Say } from '@shared/lib/say';
+import type { ChatChange, ChatPage, ChatView, ToolDetail } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import type { ChatDelivery } from '@/devices/hub';
@@ -25,11 +26,12 @@ function animationFrame(run: () => void): () => void {
 }
 
 type Hooks = {
+  say: Say;
   /** Runs once before the next frame is drawn; returns how to call that off. */
   frame?: (run: () => void) => () => void;
   store?: ChatStore;
-  /** The chat changed from `before`; `live` when the change came as it happened rather than with an attach. */
-  applied: (before: ChatRows, live: boolean) => void;
+  /** The chat changed from `before`. */
+  applied: (before: ChatRows) => void;
   emit: () => void;
   /** Some changes never arrived, so the chat must be attached again from what was taken. */
   fellBehind: () => void;
@@ -88,10 +90,10 @@ export class Feed {
   }
 
   /** Lays changes over the chat. */
-  apply(change: (chat: ChatRows) => ChatRows, live = false) {
+  apply(change: (chat: ChatRows) => ChatRows) {
     const before = this.chat;
     this.chat = change(before);
-    this.hooks.applied(before, live);
+    this.hooks.applied(before);
   }
 
   /** Starts again from the host's whole view, as of `mark`. */
@@ -140,7 +142,7 @@ export class Feed {
     if (!this.pending.length && !advanced) return;
     const batch = this.pending;
     this.pending = [];
-    if (batch.length) this.apply((chat) => applyChanges(chat, batch), true);
+    if (batch.length) this.apply((chat) => applyChanges(chat, batch));
     if (this.mark && this.taken !== undefined) this.mark = { ...this.mark, seq: this.taken };
     this.hooks.emit();
   }
@@ -185,7 +187,7 @@ export class Feed {
     const kept = this.details.get(toolCallId);
     if (kept) return kept;
     const reading = Promise.resolve().then(() => {
-      if (!connection?.isOpen()) throw new Error('the host is not connected');
+      if (!connection?.isOpen()) throw new Error(this.hooks.say('the host is not connected'));
       return callHost(connection, 'chatToolDetail', { agentId, toolCallId });
     });
     if (!done) return reading;

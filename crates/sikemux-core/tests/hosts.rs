@@ -8,6 +8,7 @@
 
 mod folded;
 
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::thread::JoinHandle;
@@ -15,11 +16,12 @@ use std::time::{Duration, Instant};
 
 use folded::Chat;
 use serde_json::{json, Value};
-use sikemux_core::accounts::protocol::JoinTicket;
-use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::RemoteStatus;
-use sikemux_core::remote::SecretKey;
+use sikemux_client::client::CoreClient;
+use sikemux_client::remote::SecretKey;
+use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_wire::accounts::protocol::JoinTicket;
+use sikemux_wire::protocol::RemoteStatus;
 
 const WAIT: Duration = Duration::from_secs(90);
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
@@ -92,7 +94,7 @@ impl Drop for TestCore {
                 let runtime = tokio::runtime::Runtime::new().expect("runtime");
                 runtime.block_on(async {
                     if let Ok((client, _events)) = CoreClient::connect(&socket).await {
-                        let _ = client.shutdown(true).await;
+                        let _ = client.ask(ask::Shutdown { stop_all: true }).await;
                     }
                 });
             })
@@ -114,7 +116,7 @@ fn start_core(dir: &Path) -> TestCore {
         "devices": [],
     });
     std::fs::write(remote, stored.to_string()).expect("remote file");
-    server::trust_remote_file(&socket, &SecretKey::generate()).expect("host key");
+    server::remote::trust_remote_file(&socket, &SecretKey::generate()).expect("host key");
     let config = ServerConfig {
         idle_exit: Duration::from_secs(600),
         cli_endpoint: Some(dir.join("cli.json")),
@@ -142,7 +144,7 @@ async fn publish(app: &CoreClient, project: &Path) {
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": FAKE_AGENT,
         }],
@@ -256,7 +258,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     assert_eq!(studio_links["links"].as_array().map(Vec::len), Some(1));
 
     let (lead, _) = lead_app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the lead starts");
     let mut said = Chat::new(lead_events, &lead);
@@ -264,17 +266,19 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     said.attached(&lead_app.acp_attach(lead.clone()).await.expect("attach"));
     let spawn = json!({
         "host": "studio",
-        "cli": "opencode",
+        "cli": "omp",
+        "uncommitted": true,
+        "title": "Write c.txt",
         "prompt": "run cat b.txt && printf done > c.txt && git add c.txt && git -c user.name=W -c user.email=w@example.com commit -qm worker",
     });
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.spawn {spawn}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.spawn {spawn}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     let answered = said.until_said("tool ").await;
@@ -308,13 +312,13 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
 
     let listed = json!({});
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.list {listed}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.list {listed}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     let list = said.until_said("tool answered").await;
@@ -323,13 +327,13 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     let worker_name = branch.rsplit('/').next().expect("worker name").to_owned();
     let read = json!({ "agent": format!("{worker_name} on studio") });
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.read {read}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.read {read}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     let read = said.until_said("tool answered").await;
@@ -337,14 +341,39 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
 
     let send = json!({ "to": format!("{worker_name} on studio"), "text": "run echo second-task" });
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.send {send}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.send {send}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     said.until_said("second-task").await;
+
+    let inbox = lead_app.call("inbox", Value::Null).await.expect("inbox");
+    let worker = inbox["remoteAgents"][0]["agentId"]
+        .as_str()
+        .expect("the worker's row")
+        .to_owned();
+    lead_app
+        .call("closeAgents", json!({ "agentIds": [lead] }))
+        .await
+        .expect("the person closes the lead");
+    lead_app
+        .call("closeAgents", json!({ "agentIds": [worker] }))
+        .await
+        .expect("the person closes the worker its lead left");
+    let inbox = lead_app.call("inbox", Value::Null).await.expect("inbox");
+    assert_eq!(inbox["remoteAgents"], json!([]), "the worker's row stayed");
+    let studio = studio_app
+        .call("workspace", Value::Null)
+        .await
+        .expect("studio's workspace");
+    let open = studio["agents"].as_array().expect("studio's agents");
+    assert!(
+        open.iter().all(|agent| agent["id"] != worker.as_str()),
+        "the worker still runs on studio"
+    );
 }

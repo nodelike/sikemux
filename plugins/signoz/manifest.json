@@ -1,21 +1,50 @@
 {
   "id": "sikemux.signoz",
   "name": "SigNoz",
-  "version": "0.1.0",
-  "sikemux": ">=0.4",
   "environment": ["SIGNOZ_URL", "SIGNOZ_API_KEY"],
-  "views": {
-    "servicesView": { "everySecs": 30 },
-    "serviceView": { "everySecs": 30 },
-    "logsView": { "everySecs": 10 },
-    "volumeView": { "everySecs": 15 },
-    "tracesView": { "everySecs": 30 },
-    "traceView": { "everySecs": 300 },
-    "dashboardsView": { "everySecs": 300 },
-    "dashboardView": { "everySecs": 300 },
-    "panelView": { "everySecs": 30 }
+  "accountMethods": ["signIn", "useApiKey", "signOut"],
+  "tokenForm": {
+    "method": "useApiKey",
+    "lede": "Tools for your agents to search logs and traces and read service health and dashboards.",
+    "fields": [
+      {
+        "name": "url",
+        "label": "SigNoz address",
+        "placeholder": "https://signoz.example.com"
+      },
+      {
+        "name": "apiKey",
+        "label": "API key",
+        "placeholder": "Your SigNoz API key",
+        "secret": true
+      }
+    ],
+    "otherWay": {
+      "method": "signIn",
+      "offer": "Use an email and password instead",
+      "back": "Use an API key instead",
+      "fields": [
+        {
+          "name": "url",
+          "label": "SigNoz address",
+          "placeholder": "https://signoz.example.com"
+        },
+        {
+          "name": "email",
+          "label": "Email",
+          "placeholder": "you@example.com"
+        },
+        {
+          "name": "password",
+          "label": "Password",
+          "placeholder": "Your SigNoz password",
+          "secret": true,
+          "exact": true
+        }
+      ]
+    }
   },
-  "accountMethods": ["signIn", "signOut"],
+  "family": {"name": "signoz", "description": "SigNoz services, logs and traces."},
   "tools": [
     {
       "name": "signoz_services",
@@ -98,7 +127,7 @@
       "name": "signoz_logs",
       "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["{service}", "trace {traceId}", "all services"], "detail": ["“{text}”", "{expression}", "{severities}"]},
       "method": "searchLogs",
-      "description": "Search logs, newest first. Shared fields come once in `shared`; bodies clip at 1000 characters, and id reads one whole. None for a service? Try aws_logs.",
+      "description": "Search logs, newest first, up to 30,000 characters; nextOffset reads on. Fields every line shares come once in `shared`. None for a service? Try aws_logs.",
       "properties": {
         "service": {
           "type": "string"
@@ -120,7 +149,7 @@
         },
         "id": {
           "type": "string",
-          "description": "One line's id, to read that line whole."
+          "description": "One line's id, to read that line whole; bodies clip at 1000 characters."
         },
         "limit": {
           "type": "integer",
@@ -128,7 +157,7 @@
           "description": "Default 30."
         },
         "offset": {
-          "description": "Lines to skip, for the next page.",
+          "description": "Lines to skip: the nextOffset of the last page.",
           "type": "integer"
         },
         "environment": {

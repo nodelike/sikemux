@@ -6,7 +6,7 @@ use gpui_kit::{Image, ImageFormat};
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::DynamicImage;
-use sikemux_core::protocol::MAX_ATTACHMENT_BYTES;
+use sikemux_wire::protocol::MAX_ATTACHMENT_BYTES;
 
 const JPEG_QUALITY: u8 = 85;
 

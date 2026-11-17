@@ -125,6 +125,13 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .st.subagents { color: var(--live); }
 .st.shells { color: var(--warn); }
 .st .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.st.waiting svg { width: 11px; height: 11px; }
+.st.timer { color: var(--cmd); }
+.st.timer svg { width: 11px; height: 11px; }
+.st.stopped .ring { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--ink-dim); box-sizing: border-box; }
+.clock { flex: 0 0 auto; margin-right: -6px; font-size: 11px; font-weight: 500; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.clock.blocked { color: var(--warn); }
+.clock.timer { color: var(--cmd); }
 .st .ping { position: absolute; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; }
 .st.blocked.fresh .ping { animation: ping 520ms cubic-bezier(0.2, 0.6, 0.3, 1) both; }
 .st.blocked.fresh .ping + .ping { animation-delay: 380ms; }
@@ -171,11 +178,17 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .subagents svg { fill: currentColor; stroke: none; color: var(--live); }
 .shells { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .shells svg { width: 11px; height: 11px; color: var(--warn); }
+.in-line { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.in-line svg { width: 11px; height: 11px; color: var(--warn); }
+.in-line .thing { max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trigger { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .trigger svg { width: 11px; height: 11px; color: var(--cmd); }
 .row:hover { background: rgba(255, 255, 255, 0.07); }
 .mark { width: 20px; height: 20px; flex: 0 0 auto; }
 .mark svg { width: 20px; height: 20px; display: block; }
+.mark.host { display: grid; place-items: center; color: var(--warn); }
+.mark.host.danger { color: var(--danger); }
+.mark.host svg { width: 16px; height: 16px; }
 /* A buddy moves as a whole, as the app's do; its eyes and sparkles stay still, as the island's do. */
 .island svg { overflow: visible; }
 @media (prefers-reduced-motion: no-preference) {
@@ -222,6 +235,78 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .btn.primary { background: var(--acc); color: var(--on-accent); }
 .btn.primary:hover { background: #b08fff; }
 .btn.small { height: 28px; border-radius: 14px; }
+
+/* A call's card, as the Mac's call card draws it (call-card.html option A). */
+.call { width: 418px; padding: 2px 0 0; font-size: 13px; }
+.call .who { display: flex; align-items: center; gap: 7px; height: 20px; font-size: 12px; color: var(--ink-dim); }
+.call .who b { font-weight: 500; color: rgba(231, 229, 239, 0.78); }
+.call .who .tile { width: 20px; height: 20px; }
+.call .who .sep { color: var(--ink-faint); }
+.call h4 { margin: 8px 0 3px; font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--ink); }
+.call .ctx { margin: 0; font-size: 12.5px; line-height: 1.5; color: rgba(231, 229, 239, 0.78); }
+.call .pic { margin: 12px 0 14px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--hairline); background: #f6f6f4; }
+.call .pic.page { height: 148px; }
+.call .pair { display: flex; gap: 6px; margin: 12px 0 14px; }
+.call .pair .pic { flex: 1; margin: 0; position: relative; }
+.call .pair .welcome { transform: scale(0.62); transform-origin: 0 0; width: 161%; height: 161%; }
+.call .pic-label { position: absolute; left: 6px; bottom: 6px; padding: 2px 6px; border-radius: 5px; background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 11px; font-weight: 500; }
+.call .strip { display: flex; gap: 6px; height: 132px; margin: 12px 0 14px; }
+.call .strip .pic { margin: 0; }
+.call .strip .lead { flex: none; width: 286px; }
+.call .strip .rest { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.call .strip .rest .pic { flex: 1; opacity: 0.72; cursor: pointer; }
+.call .gap12 { height: 12px; }
+.call .shown { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-dim); cursor: pointer; }
+.call .shown span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.call .shown b { font-size: 13px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call .shown em { font-style: normal; font-size: 11.5px; color: var(--ink-dim); }
+.call .shown i { font-style: normal; font-size: 12px; color: rgba(231, 229, 239, 0.78); }
+.invoice { padding: 16px 18px; color: #18181b; font-family: var(--sys); }
+.invoice .amt { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.invoice .due { font-size: 11px; color: #71717a; margin-bottom: 10px; }
+.invoice .tabs { display: flex; gap: 4px; padding: 3px; border-radius: 7px; background: #ebeae6; font-size: 11px; font-weight: 600; color: #52525b; }
+.welcome { padding: 14px 18px; height: 100%; color: #18181b; font-family: var(--sys); background: #fffaf5; }
+.welcome .brand { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; color: #c2410c; }
+.welcome .dots { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 10px 0 12px; padding: 10px; border-radius: 9px; background: #fde7d4; }
+.welcome .dots i { border-radius: 50%; }
+.welcome .hi { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.welcome .sub { font-size: 11px; color: #71717a; margin-top: 2px; }
+.invoice .tabs span { flex: 1; text-align: center; padding: 5px 4px; border-radius: 5px; }
+.invoice .tabs span.on { background: #fff; color: #18181b; }
+.strip .rest .invoice { padding: 8px 10px; transform: scale(0.5); transform-origin: 0 0; width: 200%; }
+.call .rows { border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--hairline); }
+.call .rows.lit { box-shadow: inset 0 0 0 1px var(--acc-line); }
+.call .opt { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 12px; color: var(--ink); cursor: pointer; }
+.call .opt + .opt, .call .opt + .fld { box-shadow: inset 0 1px 0 var(--hairline); }
+.call .opt:hover { background: var(--hover); }
+.call .opt.on { background: rgba(255, 255, 255, 0.12); }
+.call .rd { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--ink-faint); flex: none; box-sizing: border-box; }
+.call .opt.on .rd { border: 4px solid var(--acc); background: #fff; }
+.call .pick { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-dim); }
+.call .pick img { width: 12px; height: 12px; }
+.call .fld { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 12px; background: var(--raised); color: var(--ink-faint); }
+.call .fld .val { color: var(--ink); }
+.call .vs { margin: 12px 0 0; font-size: 12.5px; line-height: 1.5; color: rgba(231, 229, 239, 0.78); }
+.call .vs em { font-style: normal; color: var(--ink-dim); }
+.call .runs { margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); cursor: pointer; }
+.call .runs.open svg { transform: rotate(90deg); }
+.call .runs-cmd { margin-top: 6px; font-family: var(--mono); font-size: 12px; color: rgba(231, 229, 239, 0.78); user-select: text; }
+.call .foot { display: flex; align-items: center; gap: 2px; margin-top: 14px; }
+.call .wait { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; }
+.call .lnk { height: 26px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border-radius: 5px; font-size: 12px; font-weight: 500; color: rgba(231, 229, 239, 0.78); }
+.call .lnk:hover { background: var(--hover); color: var(--ink); }
+.call .go { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--acc); color: var(--on-accent); }
+.call .go[disabled] { opacity: 0.5; }
+.group .calls { font-size: 12px; font-weight: 600; color: var(--warn); }
+.call.listed { width: auto; padding-top: 0; }
+.call.listed h4 { margin-top: 10px; }
+.call-box { padding: 0 12px; border-radius: 14px; margin-bottom: 2px; }
+.call-box.open { background: var(--raised); padding: 10px 12px 12px; }
+.call-row { display: flex; align-items: center; gap: 10px; height: 36px; cursor: pointer; font-size: 13px; }
+.call-row .q { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-row .sp { flex: 1; }
+.call-row .proj, .call-row .agent-name { flex: none; }
+.call-row .age { flex: none; font-size: 11.5px; color: var(--warn); font-variant-numeric: tabular-nums; }
 
 .sub svg { flex: 0 0 auto; margin-right: 4px; color: var(--ink-faint); }
 .sub { display: flex; align-items: center; }
@@ -292,12 +377,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
     height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center;
     font: 600 9.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--acc); background: var(--acc-soft);
 }
-.drops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.drops { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
 .drop {
     height: 104px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 7px; font-size: 13px; font-weight: 600; text-align: center; padding: 0 12px;
 }
-.drop .sub { font-weight: 500; }
+.drop .sub { font-weight: 500; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drop.hot, .drop:hover { background: var(--acc-soft); box-shadow: inset 0 0 0 1px var(--acc-line); }
 .drop svg { width: 20px; height: 20px; }
 .file { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-dim); padding-right: 12px; }
@@ -423,7 +508,7 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
         <div class="controls" id="controls">
             <button data-act="start">An agent starts</button>
             <button data-act="block">Claude asks for permission</button>
-            <button data-act="question">Codex asks a question</button>
+            <button data-act="question">Codex puts a call</button>
             <button data-act="finish">Codex finishes</button>
             <button data-act="connect">A phone asks to connect</button>
             <button data-act="drag">A file is dragged in</button>
@@ -451,14 +536,14 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
         <tr><td>Shape</td><td>Top corners curve outward into the menu bar, bottom corners inward. Radii (top / bottom): closed 6 / 14, peek 14 / 22, open 19 / 24.
             Both radii animate with the size.</td></tr>
         <tr><td>Agents</td><td>The list is every open agent in the device view's <code>chats</code> and agent <code>sessions</code>, in their <code>attentionRank</code>,
-            the order the rail and phones show; agents on other hosts the <code>inbox</code> lists follow. The island never ranks them itself. Each takes its state and words
+            the order the rail and phones show, gathered by project, by the <code>project</code> id each agent carries since two projects can share a name, each project's @Chief first, projects in the order of the <code>standing</code> the core gives each (<code>needsYou</code>, <code>atWork</code>, then the rest); agents on other hosts the <code>inbox</code> lists follow. The island never ranks them itself. Each takes its state and words
             from its first <code>inbox</code> item, and the <code>working</code> count still drives the closed wing. It adds what the inbox leaves out: a permission's
             three option ids from <code>attentions</code>, a question's answers and the lead it went to first from the core's <code>questions</code> call,
             and each chat's subagents and shells from <code>chats</code>.</td></tr>
         <tr><td>Closed wings</td><td>Each wing is as wide as what it holds. The left holds the marks of the first three items in the inbox, then +N.
             The right fits a mark for each state some item is in: needs you, then working (the core's count of agents at work), then the subagents and the shells or monitors
             running across every agent, then done (to review or finished), each state with its count above one and the two totals always with theirs, 10 pt apart. The island moves aside by half the difference so the camera stays between them. Bare agent marks at 20 pt, as the project tree draws them, 3 pt apart from overlapping.</td></tr>
-        <tr><td>Open</td><td>680 wide, 560 on a display without a notch, where the header is 38 tall so its controls clear the screen edge; height follows content up to 400, then the list scrolls. Padding: top-radius horizontally, then 12. Rows are one line, 36 tall, radius 12: mark at 20 pt as the rail draws it, task, project, time, state. A label wherever the tier changes.</td></tr>
+        <tr><td>Open</td><td>680 wide, 560 on a display without a notch, where the header is 38 tall so its controls clear the screen edge; height follows content up to 400, then the list scrolls. With a call's card open in the list it grows to hold the card whole, up to the screen's height; past that the list scrolls with the card's footer kept in view. Padding: top-radius horizontally, then 12. Rows are one line, 36 tall, radius 12: mark at 20 pt as the rail draws it, task, project, time, state. A label wherever the tier changes.</td></tr>
         <tr><td>Springs</td><td>Open <code>spring(response: 0.42, dampingFraction: 0.8)</code>. Close <code>spring(response: 0.45, dampingFraction: 1.0)</code>.
             Hover (shadow) <code>interactiveSpring(response: 0.38, dampingFraction: 0.8)</code>.</td></tr>
         <tr><td>Content</td><td>One shape: the band beside the camera swaps the wings for a header in place, out of and into a 20 pt blur; the body
@@ -513,7 +598,9 @@ let GLYPH = {};
 async function loadIcons() {
     const source = await (await fetch("../../../shared/ui/Icons.tsx")).text();
     const pattern = /export const (Icon\w+) = makeSvgIcon\(\s*([\s\S]*?)\s*(?:,\s*(\{[^{}]*\}))?\s*,?\s*\);\n/g;
-    for (const [, name, jsx, opts = ""] of source.matchAll(pattern)) {
+    const grid24 = /export const (Icon\w+) = makeSvgIcon24\(([\s\S]*?)\);\n/g;
+    const drawn = [...source.matchAll(pattern), ...[...source.matchAll(grid24)].map(([all, name, jsx]) => [all, name, jsx, '{ viewBox: "0 0 24 24" }'])];
+    for (const [, name, jsx, opts = ""] of drawn) {
         const body = jsx
             .replace(/^<>|<\/>$/g, "")
             .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
@@ -550,6 +637,13 @@ async function loadIcons() {
         agent: icon("IconAgent", 10),
         command: icon("IconCommand", 11),
         timer: icon("IconTimer", 11),
+        hourglass: icon("IconHourglass", 11),
+        server: icon("IconServer", 16),
+        pencil: icon("IconPencil", 11),
+        clock: icon("IconClock", 11),
+        message: icon("IconMessage", 11, 'stroke-width="2.1"'),
+        chevronSmall: icon("IconChevron", 10),
+        window: icon("IconWindow", 14),
     };
 }
 const MARK = `<img src="../../../brand/mark/mark-white.svg" alt="">`;
@@ -568,32 +662,80 @@ const BUDDY_STATE = { blocked: "waiting", working: "working", done: "done", fail
 
 /** The agent's buddy while buddies are on in the app, otherwise its agent's mark. */
 function face(a, state = a.state) {
+    if (a.chief) return `<span style="width:20px;height:20px;display:grid;place-items:center"><img src="../../../brand/mark/mark-purple.svg" width="15" height="15" alt=""></span>`;
     if (!buddiesOn) return ICON[a.type];
     return BUDDIES.notchBuddy(PUBLISHED, a.id, BUDDY_STATE[state] ?? "idle");
 }
 
 const DISPLAYS = {
-    notch: { width: 1800, menu: 38, notchW: 221, notchH: 38, center: 901.5 },
-    plain: { width: 1920, menu: 24, notchW: 0, notchH: 24, center: 960 },
+    notch: { width: 1800, height: 1169, menu: 38, notchW: 221, notchH: 38, center: 901.5 },
+    plain: { width: 1920, height: 1080, menu: 24, notchW: 0, notchH: 24, center: 960 },
 };
 const RADII = { closed: [6, 14], peek: [14, 22], open: [19, 24] };
 const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
 
-/** Every open agent, in the order the app's rail lists them: what wants you first. An idle one has no tier. */
+/** Every open agent, in the order the app's rail lists them: the order they started. An idle one has no tier. */
+/** An agent asking for a secret, which the island takes no words for. */
+function asksSecret() {
+    return { id: "a15", name: "Rowan", type: "claude", title: "Publish the package", project: "server", tier: "needs", state: "blocked", clock: "1m",
+        what: "Needs you",
+        calls: [{ id: "s1", age: "1m", question: "Paste the npm token so the package can publish", options: [], secret: true }] };
+}
+
+/** The sikemux project's chief asking a call of its own, which wears Sikemux's S as its row does. */
+function chiefAsking() {
+    return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
+        what: "Needs you",
+        calls: [{ id: "c1q", age: "3m", question: "Should the welcome screen say hello by name?", context: "Sign-up already has the name; the screen greets everyone the same today.",
+                about: "Maple", shown: "Welcome greeting, both ways",
+                options: ["Greet them by name", "Keep one greeting"], pick: 0,
+                against: "a name typed in a hurry reads back wrong on the first screen." }] };
+}
+
 function freshAgents() {
     return [
-        { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14",
+        { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "progress", state: "working" },
+        { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14", clock: "2m",
           what: "Needs your permission", ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } },
-        { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01",
-          what: "Asks you", question: { via: "Otter", text: "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
-                      choices: ["Cents", "Decimals"] } },
-        { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago", trigger: "18m", called: true },
+        { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01", clock: "1m",
+          what: "Asks you", question: { text: "Should amounts be stored in cents or as decimals?" },
+          calls: [{ id: "q1", age: "1m", question: "Should amounts be stored in cents or as decimals?", context: "The API sends decimals but the ledger table uses integers.",
+                  options: ["Cents", "Decimals"], pick: 0, against: "every import converts what the API sends." },
+                  { id: "t1", age: "1h", question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
+                  options: ["Bank transfer (2–3 days)", "Pay by bank", "Bank transfer"], pick: 0, pictures: true,
+                  against: "it is the longest, and on a phone it takes two lines beside Card." }] },
+        { id: "a12", name: "Kite", type: "claude", title: "Ship the new welcome screen", project: "storefront", tier: "needs", state: "blocked", time: "0:12", clock: "12m",
+          what: "Needs you",
+          calls: [{ id: "7", age: "12m", question: "Ship the new welcome screen to everyone?",
+                  context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.",
+                  options: ["Ship it to everyone", "Ship to half first", "Not yet"], pick: 0, production: true, page: "welcome",
+                  against: "step 2 still has the old copy.", action: "vercel deploy --prod" },
+                  { id: "m1", age: "3m", question: "Buy the display font, $40?",
+                  context: "The welcome screen's heading uses it. The licence covers the web and the app for good.",
+                  options: ["Buy it", "Use a free font instead"], pick: 0,
+                  against: "a free font is close enough that most people won't see the difference." }] },
+        { id: "a13", name: "Yuki", type: "claude", title: "Add bank transfer to invoices", project: "server", tier: "needs", state: "blocked", time: "0:02", clock: "2m",
+          what: "Needs you",
+          calls: [{ id: "w1", age: "2m", question: "Ship bank transfer on invoices to everyone?", production: true, page: "Bank transfer",
+                  context: "@Wren built it and @Pine checked the totals. On staging since Tuesday, 41 test invoices paid and none failed. If it is rolled back, invoices already paid by transfer stay paid.",
+                  options: ["Ship it to everyone", "Ship to a tenth of customers first", "Not yet"], pick: 0,
+                  against: "the bank's notice of payment has only been seen in its sandbox.", action: "vercel deploy --prod" }] },
+        { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago", called: true },
         { id: "a10", name: "Pine", type: "claude", title: "Rotate the signing keys", project: "server", tier: "finished", state: "failed", time: "5m ago" },
-        { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "done", time: "15m ago" },
+        { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "stopped", time: "15m ago" },
+        { id: "a6", name: "Heron", type: "claude", title: "Profile the terminal flood", project: "sikemux", state: "waiting", time: "3m ago", clock: "4m", through: 0.43 },
+        { id: "a7", name: "Kestrel", type: "claude", title: "Check the rail again", project: "sikemux-front", state: "timer", time: "1m ago", clock: "3h" },
         { id: "a2", name: "Flint", type: "codex", title: "Refactor the auth middleware", project: "server", tier: "progress", state: "working", time: "4:12", subagents: 3 },
         { id: "a3", name: "Wren", type: "opencode", title: "Draft the notch spec", project: "sikemux", tier: "progress", state: "working", time: "0:48", reconnecting: 3 },
         { id: "a5", name: "Cedar", type: "codex", title: "Read the release notes", project: "sikemux", tasks: 2 },
     ];
+}
+
+/** Where a heavy command an agent started stands in the host's line: "next in line", "2nd in line". */
+function inLine(place) {
+    if (place <= 1) return "next in line";
+    const suffix = [11, 12, 13].includes(place % 100) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" })[place % 10] || "th";
+    return `${place}${suffix} in line`;
 }
 
 /** The open agents, already in the rail's order. */
@@ -614,9 +756,35 @@ function agentName(a) {
 
 /** Laid out as the app's tab rail row: the task with how long ago, the project, then the name, counts and state together at the end. */
 function rowLine(a) {
+    if (a.chief) {
+        const end = `${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
+        return `<span class="head"><span class="title">@Chief</span><span class="word">${a.titled ? a.title : "Chief of staff"}</span></span><span class="proj">${GLYPH.folderSmall}${a.project}</span><span class="end">${end}</span>`;
+    }
     const since = a.reconnecting != null ? `<span class="word">Reconnecting…${a.reconnecting ? ` ${a.reconnecting}` : ""}</span>` : a.time ? `<span class="time">${a.time}</span>` : "";
-    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.trigger && (a.state === "idle" || a.state === "done") ? `<span class="trigger">${GLYPH.timer}${a.trigger}</span>` : ""}${stateMark(a.state)}`;
+    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.line ? `<span class="in-line">${GLYPH.hourglass}${typeof a.line === "string" ? `<span class="thing">${a.line}</span>` : inLine(a.line)}</span>` : ""}${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
     return `<span class="head"><span class="title">${a.title}</span>${since}</span><span class="proj">${GLYPH.folderSmall}${a.project}</span>${end ? `<span class="end">${end}</span>` : ""}`;
+}
+
+/**
+ * The exact command with what answers it: Deny, Always allow and Allow for a permission; Refuse, Allow once and
+ * Always allow for an action held for the person, where Always allow leads whenever it is offered.
+ */
+function askActions(a, size) {
+    if (a.hold) {
+        const once = a.hold.letGo ? "" : " primary";
+        return `<div class="cmd">${a.hold.what}</div>
+        <div class="actions">
+            <button class="btn${size}" data-answer="refuse" data-id="${a.id}">Refuse</button>
+            <button class="btn${size}${once}" data-answer="once" data-id="${a.id}">Allow once</button>
+            ${a.hold.letGo ? `<button class="btn${size} primary" data-answer="always" data-id="${a.id}">Always allow ${a.hold.letGo}</button>` : ""}
+        </div>`;
+    }
+    return `<div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
+    <div class="actions">
+        <button class="btn${size}" data-answer="deny" data-id="${a.id}">Deny</button>
+        <button class="btn${size}" data-answer="always" data-id="${a.id}">Always allow</button>
+        <button class="btn${size} primary" data-answer="allow" data-id="${a.id}">Allow</button>
+    </div>`;
 }
 
 /** What answers a question: up to two of its choices, then Answer in Sikemux, which opens the agent's chat. */
@@ -628,7 +796,21 @@ function questionActions(a, size) {
     </div>`;
 }
 
-function stateMark(state, fresh) {
+/**
+ * One state per row, from the turn the core sends: the working grid, a ring that fills as a wait runs, the pink timer
+ * of a wait with a set end, an amber dot for needs you, purple for done, red for failed, and a hollow ring once stopped.
+ */
+function stateMark(state, fresh, through) {
+    if (state === "waiting") {
+        const arc = through == null ? "" : (() => {
+            const turn = Math.min(through, 0.999) * 2 * Math.PI;
+            const x = 6 + 4.5 * Math.sin(turn), y = 6 - 4.5 * Math.cos(turn);
+            return `<path d="M6 1.5A4.5 4.5 0 ${through > 0.5 ? 1 : 0} 1 ${x.toFixed(2)} ${y.toFixed(2)}" fill="none" stroke="var(--ink-dim)" stroke-width="1.6" stroke-linecap="round"/>`;
+        })();
+        return `<span class="st waiting"><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1.6"/>${arc}</svg></span>`;
+    }
+    if (state === "timer") return `<span class="st timer">${GLYPH.timer}</span>`;
+    if (state === "stopped") return `<span class="st stopped"><span class="ring"></span></span>`;
     if (state === "working") {
         const periods = [[0.9, 0], [1.24, -0.52], [1.58, -1.04], [1.07, -0.39], [1.41, -0.91], [0.9, -0.26], [1.24, -0.78], [1.58, -0.13], [1.07, -0.65]];
         return `<span class="st working"><span class="loader">${periods.map(([p, o]) => `<i style="--p:${p}s;--o:${o}s"></i>`).join("")}</span></span>`;
@@ -646,8 +828,9 @@ const TALLIES = new Set(["subagents", "shells"]);
 /** How many items need you, agents work, subagents and shells run across every agent, and items are done, leaving out what is none. */
 function rollups(agents) {
     const sum = (key) => agents.reduce((total, a) => total + (a[key] || 0), 0);
+    const calls = callsOf(agents).length;
     return [
-        { state: "blocked", count: agents.filter((a) => a.tier === "needs").length },
+        calls ? { state: "calls", count: calls } : { state: "blocked", count: agents.filter((a) => a.tier === "needs").length },
         { state: "working", count: agents.filter((a) => a.tier === "progress").length },
         { state: "subagents", count: sum("subagents") },
         { state: "shells", count: sum("tasks") },
@@ -656,6 +839,61 @@ function rollups(agents) {
 }
 
 const showsCount = (group) => group.count > 1 || TALLIES.has(group.state);
+
+/** The calls waiting on the person from every project, newest first, each with the agent that asks. */
+function callsOf(agents) {
+    const minutes = (age) => parseInt(age) * (age.endsWith("h") ? 60 : 1);
+    return agents.flatMap((a) => (a.calls || []).map((call) => ({ ...call, agent: a }))).sort((x, y) => minutes(x.age) - minutes(y.age));
+}
+
+/** The welcome screen as it is now, or the new one as staging shows it: a production call's two evidence pages. */
+function welcome(now = false) {
+    if (now) return `<div class="welcome" style="background:#f6f6f4"><div class="brand" style="color:#18181b">ACME</div>
+        <div class="hi" style="margin-top:12px">Welcome to Acme Store</div><div class="sub">Sign in to continue.</div>
+        <div style="margin-top:10px;padding:5px 7px;border:1px solid #d4d4d0;border-radius:5px;font-size:10px;color:#71717a">Email</div></div>`;
+    return `<div class="welcome"><div class="brand">ACME</div>
+        <div class="dots"><i style="width:22px;height:22px;background:#fdba74"></i><i style="width:17px;height:17px;background:#f9a8d4"></i><i style="width:13px;height:13px;background:#a7f3d0"></i></div>
+        <div class="hi">Hi! Let's find something you'll love.</div><div class="sub">Look around first. No account needed.</div></div>`;
+}
+
+/** An invoice page with its new way to pay named `label`, as a call's picture shows a page. */
+function invoice(label) {
+    return `<div class="invoice"><div class="amt">$2,480.00</div><div class="due">Northwind Studio · due 18 Nov</div>
+        <div class="tabs"><span>Card</span><span class="on">${label}</span></div></div>`;
+}
+
+/**
+ * A call's card, as call-card.html option A draws it. `card` holds what the person did on it. In the agent list
+ * (`listed`) it takes the list's width and its row says who asks.
+ */
+function callCard(call, card, listed = false) {
+    const chosen = card.chosen ?? (call.pick == null ? [] : [call.pick]);
+    const lit = card.focus || !!card.typed;
+    const hint = chosen.length ? "Add a note…" : "Or answer in your own words…";
+    const lead = chosen[0] ?? call.pick ?? 0;
+    const pictures = call.pictures
+        ? `<div class="strip"><div class="pic lead">${invoice(call.options[lead])}</div><div class="rest">${call.options.map((o, i) => i === lead ? "" : `<div class="pic" data-option="${i}">${invoice(o)}</div>`).join("")}</div></div>`
+        : call.page === "welcome" ? `<div class="pair"><div class="pic page">${welcome(true)}<span class="pic-label">Now</span></div><div class="pic page">${welcome()}<span class="pic-label">New</span></div></div>`
+        : call.page ? `<div class="pic page">${invoice(call.page)}</div>` : `<div class="gap12"></div>`;
+    const rows = call.options.map((o, i) => `<div class="opt${chosen.includes(i) ? " on" : ""}" data-option="${i}"><span class="rd"></span>${o}${
+        i === call.pick ? `<span class="pick"><img src="../../../brand/mark/mark-purple.svg" alt="">pick</span>` : ""}</div>`).join("");
+    const field = call.private || call.secret ? "" : `<div class="fld">${GLYPH.pencil}${card.typed ? `<span class="val">${card.typed}</span>` : hint}</div>`;
+    const runs = call.production && call.action
+        ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
+        : "";
+    const ready = chosen.length || card.typed;
+    return `<div class="call${listed ? " listed" : ""}" data-call="${call.id}">
+        ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}${call.about ? `<span class="sep">·</span>about<b>@${call.about}</b>` : ""}</div>`}
+        <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
+        ${call.shown ? `<div class="shown">${GLYPH.window}<span><b>${call.shown}</b><em>@${call.about ?? call.agent.name}'s page</em></span><i>Open</i></div>` : ""}
+        ${pictures}
+        ${rows || field ? `<div class="rows${lit ? " lit" : ""}">${rows}${field}</div>` : ""}
+        ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
+        ${runs}
+        <div class="foot"><span class="wait"></span><button class="lnk">${GLYPH.message}Open chat</button>${
+            call.secret ? `<button class="go">Answer in Sikemux</button>` : `<button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button>`}</div>
+    </div>`;
+}
 
 function notchPath(w, h, t, b) {
     return `M0 0Q${t} 0 ${t} ${t}L${t} ${h - b}Q${t} ${h} ${t + b} ${h}L${w - t - b} ${h}Q${w - t} ${h} ${w - t} ${h - b}L${w - t} ${t}Q${w - t} 0 ${w} 0Z`;
@@ -668,9 +906,14 @@ class Island {
         this.display = opts.display || "notch";
         this.channel = opts.channel || "prod";
         this.agents = opts.agents || freshAgents();
+        this.alerts = opts.alerts || [];
+        this.busy = opts.busy || null;
         this.mode = opts.mode || "closed";
         this.tab = opts.tab || "agents";
         this.peekAgent = opts.peekAgent || null;
+        this.callId = opts.callId || null;
+        this.listCall = opts.listCall || null;
+        this.cards = opts.cards || {};
         this.device = opts.device || null;
         this.hover = !!opts.hover;
         this.freshPing = !!opts.fresh;
@@ -738,6 +981,17 @@ class Island {
 
     get d() { return DISPLAYS[this.display]; }
 
+    /** What the person did on call `id`'s card: the rows chosen, the note or own words, whether what runs shows. */
+    card(id) { return (this.cards[id] ||= {}); }
+
+    /** What opening shows: the newest call while any waits, else the agents. */
+    opening() {
+        const top = callsOf(this.agents)[0];
+        if (!top) return "open";
+        this.callId = top.id;
+        return "call";
+    }
+
     /** Each wing as wide as what it holds, so a quiet right wing stays small. */
     wings() {
         const groups = rollups(this.agents);
@@ -746,7 +1000,7 @@ class Island {
         let left = open ? 14 + 20 + (Math.min(open, 3) - 1) * 17 + 10 : 0;
         if (open > 3) left += 9 + 6.5 * (String(open - 3).length + 1);
         const digits = (n) => String(n).length * 7.5;
-        const held = groups.reduce((sum, g) => sum + (showsCount(g) ? digits(g.count) + 6 : 0) + 16, 0) + (groups.length - 1) * 10;
+        const held = groups.reduce((sum, g) => sum + (g.state === "calls" ? digits(g.count) + (g.count === 1 ? 25 : 31) + 6 + 16 : (showsCount(g) ? digits(g.count) + 6 : 0) + 16), 0) + (groups.length - 1) * 10;
         return { left, right: 10 + held + 14 };
     }
 
@@ -754,10 +1008,12 @@ class Island {
         const d = this.d;
         const plain = d.notchW === 0;
         if (this.mode === "open" || this.mode === "drop") {
-            const h = Math.min(400, this.layers.open.offsetHeight);
+            const callOpen = this.mode === "open" && this.tab !== "new" && listed(this.agents).some((a) => a.calls?.length);
+            const h = Math.min(callOpen ? d.height - d.notchH : 400, this.layers.open.offsetHeight);
             return { w: plain ? 560 : 680, h, r: RADII.open };
         }
         if (this.mode === "peek-ask") return { w: 460, h: this.layers.peek.offsetHeight, r: RADII.peek };
+        if (this.mode === "call") return { w: 418 + 2 * (RADII.open[0] + 17), h: this.layers.peek.offsetHeight, r: RADII.open };
         if (this.mode === "peek-connect") return { w: 560, h: this.layers.peek.offsetHeight, r: RADII.open };
         if (this.mode === "peek-done") {
             const w = plain ? 300 : d.notchW + 2 * 150;
@@ -797,7 +1053,9 @@ class Island {
                         extra > 0 ? `<span class="tile count" style="font-size:10px">+${extra}</span>` : ""}</span></div>
                 ${plain ? "" : `<div class="gap" style="width:${d.notchW}px"></div>`}
                 <div class="wing r" style="width:${wings.right + (plain ? 4 : 0)}px;height:${d.notchH}px">
-                    ${groups.map((g) => `<span class="group">${showsCount(g) ? `<span class="count">${g.count}</span>` : ""}${stateMark(g.state, this.freshPing)}</span>`).join("")}</div>`;
+                    ${groups.map((g) => g.state === "calls"
+                        ? `<span class="group"><span class="calls">${g.count === 1 ? "1 call" : `${g.count} calls`}</span>${stateMark("blocked", this.freshPing)}</span>`
+                        : `<span class="group">${showsCount(g) ? `<span class="count">${g.count}</span>` : ""}${stateMark(g.state, this.freshPing)}</span>`).join("")}</div>`;
             if (plain) this.layers.wings.firstElementChild.nextElementSibling.style.paddingRight = "10px";
         }
 
@@ -816,15 +1074,15 @@ class Island {
                 ${head(`<span class="tile lg">${face(a, "blocked")}</span><span class="lead">${a.name}</span>`,
                        `<span class="trail" style="color:var(--warn)">Needs you</span>${stateMark("blocked", true)}`, inner)}
                 <div style="padding:8px 0 16px">
-                    <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · ${a.question.via} didn't know` : ""}</span></div>
-                    ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : `
-                    <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
-                    <div class="actions">
-                        <button class="btn" data-answer="deny" data-id="${a.id}">Deny</button>
-                        <button class="btn" data-answer="always" data-id="${a.id}">Always allow</button>
-                        <button class="btn primary" data-answer="allow" data-id="${a.id}">Allow</button>
-                    </div>`}
+                    <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · @${a.question.via} raised this` : ""}</span></div>
+                    ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : askActions(a, "")}
                 </div>`;
+        }
+
+        if (this.mode === "call") {
+            const call = callsOf(this.agents).find((c) => c.id === this.callId);
+            this.layers.peek.style.width = "418px";
+            this.layers.peek.innerHTML = call ? `${head("", "", 418)}<div style="padding:0 0 14px">${callCard(call, this.card(call.id))}</div>` : "";
         }
 
         if (this.mode === "peek-connect") {
@@ -860,11 +1118,13 @@ class Island {
 
         let body = "";
         if (this.mode === "drop") {
+            const asking = this.agents.find((a) => a.question);
             const target = this.agents.find((a) => a.tier === "needs" || a.tier === "progress") || listed(this.agents)[0];
             body = `
                 <div class="drops">
                     <div class="drop hot" data-drop="new">${GLYPH.plus}New agent with this file<span class="sub">${NAME[this.selectedType]} in sikemux</span></div>
-                    ${target ? `<div class="drop" data-drop="${target.id}">${face(target)}Send to ${NAME[target.type]}<span class="sub">${target.title}</span></div>` : ""}
+                    ${asking ? `<div class="drop" data-drop="answer">${face(asking)}Answer ${NAME[asking.type]}<span class="sub">${asking.question.text}</span></div>` : ""}
+                    ${target && target !== asking ? `<div class="drop" data-drop="${target.id}">${face(target)}Send to ${NAME[target.type]}<span class="sub">${target.title}</span></div>` : ""}
                 </div>`;
         } else if (this.tab === "agents") {
             if (!listed(this.agents).length) {
@@ -872,20 +1132,31 @@ class Island {
                     <div style="margin-top:14px"><button class="btn primary" data-tab="new">${GLYPH.plus.replace("<svg", '<svg width="12" height="12"')} New agent</button></div></div>`;
             } else {
                 const items = listed(this.agents);
-                body = items.map((a, i) => `
-                    ${a.tier === "needs" ? `
+                const waiting = callsOf(this.agents);
+                const open = waiting.find((c) => c.id === this.listCall) || waiting[0];
+                body = waiting.map((c) => `
+                    <div class="call-box${c === open ? " open" : ""}">
+                        <div class="call-row" data-call-row="${c.id}"><span class="mark">${face(c.agent, "blocked")}</span><span class="q">${c === open ? c.agent.title : c.question}</span><span class="sp"></span>
+                            ${c === open ? `<span class="proj">${GLYPH.folderSmall}${c.agent.project}</span>` : ""}<span class="agent-name">@${c.agent.name}</span><span class="age">${c.age}</span></div>
+                        ${c === open ? callCard(c, this.card(c.id), true) : ""}
+                    </div>`).join("") + (this.busy ? `
+                    <div class="row">
+                        <span class="mark host">${GLYPH.server}</span>
+                        <span class="head"><span class="title">Mac busy</span></span>
+                        <span class="proj">${this.busy}</span>
+                    </div>` : "") + this.alerts.map((h) => `
+                    <div class="row">
+                        <span class="mark host${h.level === "danger" ? " danger" : ""}">${GLYPH.server}</span>
+                        <span class="head"><span class="title">${h.what}</span><span class="time">${h.time}</span></span>
+                        <span class="proj">${h.host}</span>
+                    </div>`).join("") + items.map((a, i) => `
+                    ${a.tier === "needs" && a.ask ? `
                         <div class="ask">
                             <div class="ask-head">
                                 <span class="mark">${face(a, "blocked")}</span>
                                 ${rowLine({ ...a, state: "blocked" })}
                             </div>
-                            ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, " small")}` : `
-                            <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
-                            <div class="actions">
-                                <button class="btn small" data-answer="deny" data-id="${a.id}">Deny</button>
-                                <button class="btn small" data-answer="always" data-id="${a.id}">Always allow</button>
-                                <button class="btn small primary" data-answer="allow" data-id="${a.id}">Allow</button>
-                            </div>`}
+                            ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, " small")}` : askActions(a, " small")}
                         </div>` : `
                         <div class="row${a.called ? " called" : ""}">
                             <span class="mark">${face(a)}</span>
@@ -948,16 +1219,16 @@ class Island {
     render(snap) {
         this.renderContent();
         const isBig = this.mode === "open" || this.mode === "drop";
-        const isAsk = this.mode === "peek-ask" || this.mode === "peek-connect";
+        const isAsk = this.mode === "peek-ask" || this.mode === "peek-connect" || this.mode === "call";
         this.layers.wings.classList.toggle("off", isBig || isAsk);
         this.layers.peek.classList.toggle("off", !isAsk);
         this.layers.open.classList.toggle("off", !isBig);
         const target = this.target();
         const nudge = [0, 0];
         this.goal = [target.w + nudge[0], target.h + nudge[1], target.r[0], target.r[1], target.x ?? 0];
-        const lifted = isBig || this.mode.startsWith("peek") || this.hover;
+        const lifted = isBig || isAsk || this.mode.startsWith("peek") || this.hover;
         this.el.classList.toggle("lifted", lifted);
-        this.spring = isBig || this.mode.startsWith("peek") ? SPRING.open : this.hover ? SPRING.hover : SPRING.close;
+        this.spring = isBig || isAsk || this.mode.startsWith("peek") ? SPRING.open : this.hover ? SPRING.hover : SPRING.close;
         if (snap || !this.geom) {
             this.geom = this.goal.slice();
             this.paint();
@@ -1015,7 +1286,7 @@ class Island {
             this.hover = true;
             if (this.mode === "closed" || this.mode === "peek-done") {
                 this.render();
-                openTimer = setTimeout(() => { this.mode = "open"; this.render(); }, 300);
+                openTimer = setTimeout(() => { this.mode = this.opening(); this.render(); }, 300);
             }
         });
         this.el.addEventListener("mouseleave", () => {
@@ -1023,7 +1294,7 @@ class Island {
             closeTimer = setTimeout(() => {
                 if (this.el.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") return;
                 this.hover = false;
-                if (this.mode === "open") this.mode = "closed";
+                if (this.mode === "open" || this.mode === "call") this.mode = "closed";
                 this.render();
             }, 100);
         });
@@ -1053,13 +1324,39 @@ class Island {
                 this.answerDevice();
                 return;
             }
+            const row = e.target.closest("[data-call-row]");
+            if (row) { this.listCall = row.dataset.callRow; this.render(); return; }
+            const callEl = e.target.closest("[data-call]");
+            const call = callEl && callsOf(this.agents).find((c) => c.id === callEl.dataset.call);
+            const option = e.target.closest("[data-option]");
+            if (option && call) {
+                const card = this.card(call.id);
+                const at = Number(option.dataset.option);
+                const chosen = card.chosen ?? (call.pick == null ? [] : [call.pick]);
+                card.chosen = chosen.includes(at) ? [] : [at];
+                this.render();
+                return;
+            }
+            if (e.target.closest("[data-runs]") && call) { this.card(call.id).runs = !this.card(call.id).runs; this.render(); return; }
+            if (e.target.closest("[data-go]") && call) {
+                call.agent.calls = call.agent.calls.filter((c) => c.id !== call.id);
+                if (!call.agent.calls.length && call.agent.tier === "needs") Object.assign(call.agent, { tier: "progress", state: "working" });
+                if (this.mode === "call") this.mode = this.hover ? this.opening() : "closed";
+                this.render();
+                return;
+            }
+            if (this.mode !== "open" && this.mode !== "drop" && !e.target.closest("button, [data-option], .fld")) {
+                clearTimeout(openTimer);
+                this.mode = "open";
+                this.render();
+                return;
+            }
             const answer = e.target.closest("[data-answer]");
             if (answer) {
                 const a = this.agents.find((x) => x.id === answer.dataset.id);
                 Object.assign(a, { tier: "progress", state: "working" });
                 delete a.ask;
-                delete a.question;
-                if (this.mode === "peek-ask") this.mode = this.hover ? "open" : "closed";
+                if (this.mode === "peek-ask") this.mode = this.hover ? this.opening() : "closed";
                 this.render();
                 return;
             }
@@ -1080,7 +1377,7 @@ class Island {
     /** Answered, or no longer waiting: the next device asks, or the island folds back. */
     answerDevice() {
         this.device = this.queue?.shift() || null;
-        if (!this.device) this.mode = this.hover ? "open" : "closed";
+        if (!this.device) this.mode = this.hover ? this.opening() : "closed";
         this.render();
     }
 
@@ -1094,7 +1391,8 @@ class Island {
     peek(mode, id, ms) {
         clearTimeout(this.peekTimer);
         this.mode = mode;
-        this.peekAgent = id;
+        if (mode === "call") this.callId = id;
+        else this.peekAgent = id;
         this.freshPing = true;
         this.render();
         this.peekTimer = setTimeout(() => {
@@ -1125,9 +1423,12 @@ const SECTIONS = [
             { id: "C2", name: "Working", when: "One or more agents are working and none is waiting for you.",
               shows: "Left: the marks of the first three items in the inbox, in its order. Right: how many agents are working, and the green twinkle grid.",
               opts: { agents: () => only(["a2", "a3"]) } },
-            { id: "C3", name: "Needs you", when: "Any agent is waiting for a permission or an answer.",
-              shows: "An amber dot, first in the right wing, ahead of working and done. It sends out two rings when it arrives, then goes still.",
+            { id: "C3", name: "Calls waiting", when: "Agents wait on the person with calls, in any project.",
+              shows: "First in the right wing, ahead of working and done: an amber N calls with its dot, counting every project's open calls, the number the Mac's title bars add up to. The dot sends out two rings when a call arrives, then goes still. The rest of the wing stays as it was.",
               opts: { agents: () => freshAgents(), fresh: true } },
+            { id: "C3b", name: "Needs you, no call", when: "An agent waits for a permission and no call waits.",
+              shows: "An amber dot, first in the right wing, with how many when more than one.",
+              opts: { agents: () => only(["a1", "a2", "a3"]) } },
             { id: "C4", name: "Done", when: "The inbox lists changes to review or finished turns, failed ones included.",
               shows: "A purple dot with how many, until the core takes them off the inbox once they are seen.", opts: { agents: () => only(["a4", "a10", "a11"]) } },
             { id: "C4b", name: "Working and done", when: "Some agents work while others' turns wait to be seen.",
@@ -1144,13 +1445,34 @@ const SECTIONS = [
         id: "peeks", letter: "P", title: "Peeks",
         lede: "The island grows for a moment when something happens, without opening. Resting the pointer on a peek opens it.",
         states: [
-            { id: "P1", name: "Something needs you", when: "A new item arrives in the inbox's Needs you: a permission, a question, a terminal waiting for you to type, a card handed back.",
-              shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything the island cannot answer offers Open in Sikemux.",
+            { id: "P1", name: "Something needs you", when: "A new item that is not a call arrives in the inbox's Needs you: a permission, a terminal waiting for you to type, a card handed back.",
+              shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything else the island cannot answer offers Open in Sikemux.",
               leaves: "Answering closes it. Unanswered, it shrinks to C3 after 6 s.", opts: { agents: () => freshAgents(), mode: "peek-ask", peekAgent: "a1" } },
-            { id: "P4", name: "A question", when: "An agent asks the person something with ask, or its lead passes the question on.",
-              shows: "The agent's name, its task, Asks you with the lead that did not know, and the question in two lines. Up to two of its answers as buttons, then Answer in Sikemux, which opens its chat for any other answer.",
-              leaves: "Answering here, in the chat, on a phone or in the terminal closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s.",
-              opts: { agents: () => only(["a2", "a9"]), mode: "peek-ask", peekAgent: "a9" } },
+            { id: "P4", name: "A call", when: "An agent puts a call to the person: a question asked with ask that its lead left to them.",
+              shows: "The call's card alone, at its own 418-point width, as the Mac draws it: who asks with its project and how long ago, the question, its context, the options as radios in one block with the pick chosen and tagged with the S, the note field as their last row, the point against, then Open chat, which opens the asker's chat on the Mac, and Go with this. Clicking the chosen row again clears it, and the field then takes your own words. The card tells the core it was seen as it draws.",
+              leaves: "Go with this, or an answer in the chat, on the Mac or on a phone, closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s; resting the pointer keeps it, and typing in its field keeps it open when the pointer leaves.",
+              opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1" } },
+            { id: "P5", name: "A production call", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person, or a gate raises a ship to production.",
+              shows: "The same card, worded at the goal's level, with the asker's pick marked: Ship it to everyone, Ship to half first, Not yet. What runs, folded under the against line, opens on the exact command in mono. Only a picked option passes it: words typed in its field reach the agent as direction.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "7", cards: { 7: { runs: true } } } },
+            { id: "P6", name: "A weighty call", when: "A call comes as a brief, such as a cutover or a public release.",
+              shows: "The brief is the context: what was tried, what the evidence shows, what can't be undone. The evidence's picture sits under it, the page from its top.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a13"]), mode: "call", callId: "w1" } },
+            { id: "P10", name: "A money call", when: "An agent wants to spend money.",
+              shows: "The same card: what it costs on the option, the pick marked.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "m1" } },
+            { id: "P7", name: "A call with pictures", when: "A call about taste gives each option a picture.",
+              shows: "The pictures sit in a strip above the options: the chosen option's leads, large, the others smaller and dimmed beside it. Clicking a small one chooses its option.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "t1" } },
+            { id: "P8", name: "Your own words", when: "The person clears the pick and types.",
+              shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a secret opens in Sikemux instead, with Answer in Sikemux in place of Go with this.",
+              leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1", cards: { q1: { chosen: [], typed: "Cents, and convert on import" } } } },
+            { id: "P13", name: "A call the chief asks", when: "The project's chief puts a call to the person itself.",
+              shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face. The chief asks about @Maple's work, so its head ends \"about @Maple\", and the page it names sits under the context with its title and Open; either opens that agent in Sikemux, where the page is.",
+              leaves: "As P4.", opts: { agents: () => [chiefAsking(), ...only(["a2"])], mode: "call", callId: "c1q" } },
+            { id: "P14", name: "A call for a secret", when: "An agent asks for a password or a token.",
+              shows: "No field, since the island takes no secret: Answer in Sikemux opens the asker's chat, whose composer and card keep it private.",
+              leaves: "As P4.", opts: { agents: () => [asksSecret(), ...only(["a2"])], mode: "call", callId: "s1" } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },
@@ -1164,9 +1486,18 @@ const SECTIONS = [
         id: "open", letter: "O", title: "Open",
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
-            { id: "O1", name: "Agents", when: "Opened, on the Agents tab.",
-              shows: "Every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission, or a question with up to two answers, can be answered in place. Clicking a row opens that agent in Sikemux.",
+            { id: "O1", name: "Agents", when: "Opened on the Agents tab: by a click or a swipe, or by resting the pointer while no call waits.",
+              shows: "First, each call waiting on the person as a row, as the Mac's popover folds them: the asker's face, the question, who asks and how long it has waited. The newest is open, its row the asker's (what it works on, the project, who and how long), with its card under it, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, the order they started, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
+            { id: "O1b", name: "A tall call in the list", when: "Opened on the agents while a call with pictures is the one open.",
+              shows: "The list grows to hold the open card whole, its pictures, its options and its footer, up to the screen's height. A card taller than that scrolls the list so its footer, with Go with this, stays in view.",
+              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a9", "a12"]), mode: "open", listCall: "t1" } },
+            { id: "O1c", name: "A weighty call in the list", when: "Opened on the agents with a step to production open and its What runs unfolded.",
+              shows: "The same: the brief, the evidence's page, the options, the point against, the command, and the footer, all within reach.",
+              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a13"]), mode: "open", listCall: "w1", cards: { w1: { runs: true } } } },
+            { id: "O8", name: "Calls waiting", when: "The pointer rests on the island while calls wait on the person.",
+              shows: "The newest call alone, as its card (P4), rather than the agents. Answering it moves on to the next call, and the last one answered opens the agents (O1). A click on the island, away from the card's controls, opens the agents with the calls at the top.",
+              leaves: "The pointer leaves, and 0.1 s later it closes, unless something is typed in the card's field.", opts: { agents: () => freshAgents(), mode: "call", callId: "q1" } },
             { id: "O2", name: "New agent", when: "Opened, on the New agent tab.",
               shows: "Sikemux's own composer: add files, the yolo toggle, the model picker (agent mark + model, in accent), effort, project and send.",
               leaves: "Send (⏎) starts the agent and goes to O1 with it on top. Stays open on leave while a draft is typed; clicking elsewhere closes it and keeps the draft.",
@@ -1177,8 +1508,17 @@ const SECTIONS = [
               opts: { agents: () => freshAgents(), mode: "open", tab: "new", menu: "model", draft: "Turn the notch mockup into a SwiftUI spec" } },
             { id: "O4", name: "Empty", when: "Opened with no agent open.", shows: "No agents open, and one New agent button.", opts: { agents: [], mode: "open" } },
             { id: "O5", name: "Finished work", when: "Opened while turns wait to be seen.",
-              shows: "Changes to review, then finished turns, newest first, each with how long ago; one that ran into a problem has a red dot. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber, and an agent that waits shows how long until a trigger it set wakes it, ⏱ 18m beside the pink timer. When an agent is named with @ or messaged by another agent, a band of light passes once over its row, as on the app's rail; here Birch's repeats so it can be seen.",
+              shows: "Changes to review, then finished turns, newest first, each with how long ago; one that ran into a problem has a red dot. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber. When an agent is named with @ or messaged by another agent, a band of light passes once over its row, as on the app's rail; here Birch's repeats so it can be seen. Each row shows one state, as the app's rail does: a ring that fills as a wait on CI or the checks runs, once its length is known, with the minutes left beside it; the pink timer for any other wait, with when it ends when it has an end; an amber dot with how long it has waited on you; purple for done, red for failed, and a hollow ring for a turn that stopped short. Each project's rows follow its @Chief, which wears Sikemux's purple S, says @Chief and what it is on, and the project that most needs you comes first.",
               opts: { agents: () => only(["a2", "a4", "a10", "a11"]), mode: "open" } },
+            { id: "O6", name: "A host in trouble", when: "Opened while a host on the account is short of memory or disk, busy on every core, or out of reach.",
+              shows: "Above the agents, a row for each alert: the server in amber, or red once it is serious, what is wrong with how long ago, then the host's name. Clicking it opens the Hosts page in Sikemux on that host.",
+              opts: { agents: () => only(["a2", "a4", "a11"]), alerts: [{ host: "mini", what: "Memory 92% used", time: "2:04", level: "danger" }, { host: "forge", what: "CPU 97% busy", time: "20:31", level: "warn" }], mode: "open" } },
+            { id: "O7", name: "Mac busy", when: "Opened while this Mac is overloaded: more threads want to run than its cores take, so agents' simulators and builds wait their turn.",
+              shows: "At the top, one amber row: the server, Mac busy, then the load against the cores and how many of agents' builds run or wait. Clicking it brings Sikemux forward, whose title bar lists them with Stop on each. An agent whose heavy command waits its turn says where it stands, after its counts: an amber hourglass and 2nd in line, beside the pink timer of its wait. One waiting for a thing another agent holds names the thing instead, cut short with an ellipsis so the task keeps its room.",
+              opts: { agents: () => only(["a2", "a11", "a4"]).map((a) => a.id === "a11" ? { ...a, tier: "progress", state: "timer", time: "15:03", line: 2 } : a.id === "a4" ? { ...a, tier: "progress", state: "timer", time: "2:10", called: false, line: "Stripe webhook listener" } : a), busy: "load 180 on 10 cores · 3 builds", mode: "open" } },
+            { id: "O9", name: "Chief between asks", when: "Opened while a project's @Chief has no task of its own, as a new chat has no title.",
+              shows: "Its row reads @Chief, then Chief of staff in place of a task, as the app's rail does, and still leads its project's rows.",
+              opts: { agents: () => only(["c1", "a11"]).map((a) => a.id === "c1" ? { ...a, title: "New Claude chat", titled: false, tier: "finished", state: "done" } : a), mode: "open" } },
         ],
     },
     {
@@ -1191,11 +1531,24 @@ const SECTIONS = [
         ],
     },
     {
+        id: "theme", letter: "T", title: "Wearing a theme",
+        lede: "The island wears the person's theme: its ink, accent and state colours come from the palette the core sends. Its ground stays black, as the notch is, so a colour that would not read on black at 4.5:1 stays Sikemux's own. The three inks go together: a light theme's greys would swap their order on black. Fills and hairlines stay white at low opacity.",
+        states: [
+            { id: "T1", name: "A dark theme", when: "The person wears a dark theme, here Gruvbox Dark.",
+              shows: "Every colour is the theme's: cream ink, a yellow accent and Gruvbox's own red for a failed turn.",
+              opts: { agents: () => only(["a1", "a2", "a4", "a10"]), mode: "open" },
+              theme: { "--ink": "#ebdbb2", "--ink-dim": "#a89984", "--ink-faint": "#928374", "--acc": "#fabd2f", "--acc-soft": "rgba(250, 189, 47, 0.13)", "--acc-line": "rgba(250, 189, 47, 0.32)", "--on-accent": "#1d2021", "--live": "#78dca1", "--warn": "#e9ba6c", "--cmd": "#b8bb26", "--danger": "#fb4934" } },
+            { id: "T2", name: "A light theme", when: "The person wears a light theme, here Aura Day.",
+              shows: "Every colour of a light theme is too dark to read on black, so the island looks as it does by default. A light theme whose accent is bright enough would lend just that.",
+              opts: { agents: () => only(["a1", "a2", "a4", "a10"]), mode: "open" } },
+        ],
+    },
+    {
         id: "drop", letter: "D", title: "Drag and drop",
         lede: "A file dragged towards the top of the screen opens the island before the pointer reaches it.",
         states: [
             { id: "D1", name: "File dragged in", when: "A file is being dragged near the top of the screen.",
-              shows: "Two targets: start a new agent with the file, or send it to the agent you used last.",
+              shows: "Start a new agent with the file, answer the question an agent is waiting on with it, which it gets as an attachment, or send it to the agent you used last.",
               leaves: "Dropping closes it. Dragging away closes it after 0.5 s.", opts: { agents: () => freshAgents(), mode: "drop" } },
         ],
     },
@@ -1215,8 +1568,9 @@ const OPTIONS = [
 ];
 
 const FLOW = [
-    [["state", "C1–C7", "Closed", "closed"], ["arrow", "rest 0.3 s"], ["state", "O1–O5", "Open", "open"], ["arrow", "leave 0.1 s"], ["state", "C1–C7", "Closed", "closed"]],
-    [["event", "", "Something needs you"], ["arrow", ""], ["state", "P1", "Needs you", "P1"], ["arrow", "6 s"], ["state", "C3", "Needs you", "C3"]],
+    [["state", "C1–C7", "Closed", "closed"], ["arrow", "rest 0.3 s"], ["state", "O1–O6", "Open", "open"], ["arrow", "leave 0.1 s"], ["state", "C1–C7", "Closed", "closed"]],
+    [["event", "", "A call arrives"], ["arrow", ""], ["state", "P4", "Call", "P4"], ["arrow", "6 s"], ["state", "C3", "Calls waiting", "C3"]],
+    [["event", "", "Something needs you"], ["arrow", ""], ["state", "P1", "Needs you", "P1"], ["arrow", "6 s"], ["state", "C3b", "Needs you", "C3b"]],
     [["event", "", "Device asks to connect"], ["arrow", ""], ["state", "P3", "Connect", "P3"], ["arrow", "answer"], ["state", "C1–C7", "Closed", "closed"]],
     [["event", "", "Agent finishes"], ["arrow", ""], ["state", "P2", "Finished", "P2"], ["arrow", "3 s"], ["state", "C4", "Done", "C4"]],
     [["event", "", "File dragged"], ["arrow", ""], ["state", "D1", "Drop targets", "D1"], ["arrow", "drop"], ["state", "C2", "Working", "C2"]],
@@ -1250,6 +1604,7 @@ function stateCard(section, state) {
 function paintCard(entry) {
     const { card, state } = entry;
     const stage = card.querySelector(".stage");
+    for (const [variable, value] of Object.entries(state.theme ?? {})) stage.style.setProperty(variable, value);
     const opts = { channel, ...state.opts, display, agents: typeof state.opts.agents === "function" ? state.opts.agents() : state.opts.agents };
     const island = new Island(stage, opts);
     requestAnimationFrame(() => {
@@ -1377,8 +1732,8 @@ document.getElementById("controls").addEventListener("click", (e) => {
     } else if (act === "question") {
         let a = live.agents.find((x) => x.id === "a9");
         if (!a) { a = freshAgents().find((x) => x.id === "a9"); live.agents.unshift(a); }
-        Object.assign(a, { tier: "needs", state: "blocked", what: "Asks you", question: freshAgents().find((x) => x.id === "a9").question });
-        live.peek("peek-ask", a.id, 6000);
+        Object.assign(a, { tier: "needs", state: "blocked", what: "Asks you", calls: freshAgents().find((x) => x.id === "a9").calls });
+        live.peek("call", "q1", 6000);
     } else if (act === "finish") {
         let a = live.agents.find((x) => x.type === "codex" && x.tier === "progress");
         if (!a) { a = freshAgents().find((x) => x.id === "a2"); live.agents.push(a); }

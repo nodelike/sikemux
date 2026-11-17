@@ -3,20 +3,22 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use semver::Version;
 use serde_json::Value;
+use sikemux_plugin_api::codehost::asks::Merge;
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
 use sikemux_plugin_api::{
-    AgentTool, Category, Manifest, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
+    vault, FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
 };
 use sikemux_process::sync::{Locked, Shared};
 use tokio::runtime::{Handle, Runtime};
 use tokio::task::JoinHandle;
 
 use super::builtin;
-use sikemux_core::server::plugins::Failure;
+use sikemux_core::server::plugins::{AgentTool, Manifest, PluginFailure};
 
 struct Loaded {
     plugin: Arc<dyn Plugin>,
+    manifest: Manifest,
     context: Arc<PluginContext>,
     call_timeout: Duration,
 }
@@ -45,8 +47,8 @@ type OfferedBefore = HashMap<(String, Arc<[String]>), bool>;
 const DISABLED_FILE: &str = "disabled.json";
 
 impl PluginHost {
-    pub fn with_builtins(data_root: &Path, sikemux: &Version) -> std::io::Result<Self> {
-        let mut host = Self::new(data_root, sikemux, builtin::plugins(), CALL_TIMEOUT)?;
+    pub fn with_builtins(data_root: &Path) -> std::io::Result<Self> {
+        let mut host = Self::new(data_root, builtin::plugins(), CALL_TIMEOUT)?;
         host.disabled_file = Some(data_root.join(DISABLED_FILE));
         host.read_disabled();
         Ok(host)
@@ -54,7 +56,6 @@ impl PluginHost {
 
     fn new(
         data_root: &Path,
-        sikemux: &Version,
         plugins: Vec<Arc<dyn Plugin>>,
         default_call_timeout: Duration,
     ) -> std::io::Result<Self> {
@@ -65,14 +66,13 @@ impl PluginHost {
             .build()?;
         let mut loaded = BTreeMap::new();
         for plugin in plugins {
-            let manifest = plugin.manifest();
-            if !manifest.supports(sikemux) {
-                eprintln!(
-                    "plugin {} needs sikemux {} and this is {sikemux}; not loading it",
-                    manifest.id, manifest.sikemux
-                );
-                continue;
-            }
+            let manifest = match Manifest::from_json(plugin.manifest()) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    eprintln!("a built-in plugin failed to load: {error}");
+                    continue;
+                }
+            };
             if loaded.contains_key(&manifest.id) {
                 eprintln!(
                     "plugin {} is registered twice; keeping the first",
@@ -80,7 +80,9 @@ impl PluginHost {
                 );
                 continue;
             }
-            let context = Arc::new(PluginContext::new(data_root.join(&manifest.id)));
+            let context = Arc::new(
+                PluginContext::new(data_root.join(&manifest.id)).on(runtime.handle().clone()),
+            );
             let call_timeout = manifest
                 .call_timeout_secs
                 .map_or(default_call_timeout, Duration::from_secs);
@@ -88,6 +90,7 @@ impl PluginHost {
                 manifest.id.clone(),
                 Loaded {
                     plugin,
+                    manifest,
                     context,
                     call_timeout,
                 },
@@ -103,12 +106,12 @@ impl PluginHost {
         })
     }
 
-    fn get(&self, id: &str) -> Result<&Loaded, Failure> {
+    fn get(&self, id: &str) -> Result<&Loaded, PluginFailure> {
         if !self.is_enabled(id) {
             return Err(failure(
                 id,
                 PluginError::new(
-                    Category::Disabled,
+                    FailureCategory::Disabled,
                     format!("`{id}` is switched off in Settings"),
                 ),
             ));
@@ -116,7 +119,10 @@ impl PluginHost {
         self.plugins.get(id).ok_or_else(|| {
             failure(
                 id,
-                PluginError::new(Category::NotInstalled, format!("no plugin named `{id}`")),
+                PluginError::new(
+                    FailureCategory::NotInstalled,
+                    format!("no plugin named `{id}`"),
+                ),
             )
         })
     }
@@ -166,14 +172,13 @@ impl PluginHost {
     pub fn offers_agent_tools(&self, id: &str) -> bool {
         self.plugins
             .get(id)
-            .is_some_and(|loaded| !loaded.plugin.manifest().tools.is_empty())
+            .is_some_and(|loaded| !loaded.manifest.tools.is_empty())
     }
 
-    /// Every shell variable a loaded plugin reads.
     pub fn shell_variables(&self) -> Vec<String> {
         self.plugins
             .values()
-            .flat_map(|loaded| loaded.plugin.manifest().environment.clone())
+            .flat_map(|loaded| loaded.manifest.environment.clone())
             .collect()
     }
 
@@ -186,8 +191,107 @@ impl PluginHost {
             .collect()
     }
 
+    fn enabled(&self) -> impl Iterator<Item = (&String, &Loaded)> {
+        self.plugins.iter().filter(|(id, _)| self.is_enabled(id))
+    }
+
+    /// The first enabled plugin's credential for `ask.remote`, asked for the current caller.
+    pub async fn credential(&self, ask: Ask) -> Result<Option<Credential>, PluginFailure> {
+        let ask = Arc::new(ask);
+        for (id, loaded) in self.enabled() {
+            let plugin = Arc::clone(&loaded.plugin);
+            let context = Arc::clone(&loaded.context);
+            let ask = Arc::clone(&ask);
+            let minted = self
+                .run_for_caller("credential", loaded.call_timeout, async move {
+                    plugin.credential(&context, &ask).await
+                })
+                .await
+                .map_err(|error| failure(id, error))?;
+            if minted.is_some() {
+                return Ok(minted);
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn revoke(&self, remote: &str, secret: String) -> Result<(), PluginFailure> {
+        let Some((id, loaded)) = self
+            .enabled()
+            .find(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote).is_some())
+        else {
+            return Ok(());
+        };
+        let plugin = Arc::clone(&loaded.plugin);
+        let context = Arc::clone(&loaded.context);
+        let remote = remote.to_owned();
+        self.run_for_caller("revoke", loaded.call_timeout, async move {
+            plugin.revoke(&context, &remote, &secret).await
+        })
+        .await
+        .map_err(|error| failure(id, error))
+    }
+
+    pub async fn merge_as_agents(&self, remote: &str, merge: Merge) -> Result<bool, PluginFailure> {
+        let Some((id, loaded)) = self
+            .enabled()
+            .find(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote).is_some())
+        else {
+            return Ok(false);
+        };
+        let plugin = Arc::clone(&loaded.plugin);
+        let context = Arc::clone(&loaded.context);
+        let remote = remote.to_owned();
+        self.run_for_caller("merge", loaded.call_timeout, async move {
+            plugin.merge_as_agents(&context, &remote, merge).await
+        })
+        .await
+        .map_err(|error| failure(id, error))
+    }
+
+    pub fn acts_as(&self, remote: &str) -> Option<Acting> {
+        self.enabled()
+            .find_map(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote))
+    }
+
+    async fn run_for_caller<T: Send + 'static>(
+        &self,
+        method: &str,
+        timeout: Duration,
+        work: impl std::future::Future<Output = PluginResult<T>> + Send + 'static,
+    ) -> PluginResult<T> {
+        let caller = vault::caller().unwrap_or_default();
+        let task = self.spawner.spawn(vault::as_caller(caller, work));
+        let abort = task.abort_handle();
+        match tokio::time::timeout(timeout, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(stopped)) => Err(PluginError::new(
+                FailureCategory::Stopped,
+                stopped.to_string(),
+            )),
+            Err(_) => {
+                abort.abort();
+                Err(PluginError::new(
+                    FailureCategory::TimedOut,
+                    format!("`{method}` did not answer within {}s", timeout.as_secs()),
+                ))
+            }
+        }
+    }
+
+    /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
+    pub fn vault_books(&self) -> Vec<(String, PathBuf, &'static dyn vault::Book)> {
+        self.plugins
+            .iter()
+            .filter_map(|(id, loaded)| {
+                let book = loaded.plugin.vault()?;
+                Some((id.clone(), loaded.context.data_dir().to_path_buf(), book))
+            })
+            .collect()
+    }
+
     pub fn manifests(&self) -> impl Iterator<Item = &Manifest> {
-        self.plugins.values().map(|loaded| loaded.plugin.manifest())
+        self.plugins.values().map(|loaded| &loaded.manifest)
     }
 
     /// Every tool the loaded plugins offer agents, beside the plugin that answers
@@ -203,9 +307,7 @@ impl PluginHost {
         let checks: Vec<(&str, JoinHandle<PluginResult<bool>>)> = self
             .plugins
             .iter()
-            .filter(|(id, loaded)| {
-                self.is_enabled(id) && !loaded.plugin.manifest().tools.is_empty()
-            })
+            .filter(|(id, loaded)| self.is_enabled(id) && !loaded.manifest.tools.is_empty())
             .map(|(id, loaded)| {
                 let plugin = Arc::clone(&loaded.plugin);
                 let context = Arc::clone(&loaded.context);
@@ -245,7 +347,7 @@ impl PluginHost {
     fn tools_of(&self, include: impl Fn(&str, &AgentTool) -> bool) -> Vec<(&str, &AgentTool)> {
         let mut offered: Vec<(&str, &AgentTool)> = Vec::new();
         for (id, loaded) in &self.plugins {
-            for tool in &loaded.plugin.manifest().tools {
+            for tool in &loaded.manifest.tools {
                 if include(id, tool) && offered.iter().all(|(_, kept)| kept.name != tool.name) {
                     offered.push((id.as_str(), tool));
                 }
@@ -254,7 +356,6 @@ impl PluginHost {
         offered
     }
 
-    /// The tool an agent knows by `name`, beside the plugin that answers it.
     pub fn agent_tool(&self, name: &str) -> Option<(&str, &AgentTool)> {
         self.agent_tools()
             .into_iter()
@@ -263,18 +364,22 @@ impl PluginHost {
 
     /// Runs a tool by the name an agent knows it by. A plugin method that no
     /// tool names cannot be reached this way, nor can one the person approves.
-    pub async fn call_agent_tool(&self, name: &str, arguments: Value) -> Result<Value, Failure> {
+    pub async fn call_agent_tool(
+        &self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<Value, PluginFailure> {
         let (plugin, tool) = self.agent_tool(name).ok_or_else(|| {
-            Failure::new(
+            PluginFailure::new(
                 "sikemux",
-                Category::own("other"),
+                FailureCategory::own("other"),
                 format!("no plugin offers the tool `{name}`"),
             )
         })?;
         if tool.approve.is_some() {
-            return Err(Failure::new(
+            return Err(PluginFailure::new(
                 plugin,
-                Category::own("other"),
+                FailureCategory::own("other"),
                 format!("`{name}` runs only once the person approves it"),
             ));
         }
@@ -282,31 +387,21 @@ impl PluginHost {
         self.call(&plugin, &method, arguments).await
     }
 
-    pub async fn call(&self, id: &str, method: &str, params: Value) -> Result<Value, Failure> {
+    pub async fn call(
+        &self,
+        id: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, PluginFailure> {
         let loaded = self.get(id)?;
         let plugin = Arc::clone(&loaded.plugin);
         let context = Arc::clone(&loaded.context);
-        let call_timeout = loaded.call_timeout;
         let owned_method = method.to_owned();
-        let task = self
-            .spawner
-            .spawn(async move { plugin.call(&context, &owned_method, params).await });
-        let abort = task.abort_handle();
-        let outcome = match tokio::time::timeout(call_timeout, task).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(stopped)) => Err(PluginError::new(Category::Stopped, stopped.to_string())),
-            Err(_) => {
-                abort.abort();
-                Err(PluginError::new(
-                    Category::TimedOut,
-                    format!(
-                        "`{method}` did not answer within {}s",
-                        call_timeout.as_secs()
-                    ),
-                ))
-            }
-        };
-        outcome.map_err(|error| failure(id, error))
+        self.run_for_caller(method, loaded.call_timeout, async move {
+            plugin.call(&context, &owned_method, params).await
+        })
+        .await
+        .map_err(|error| failure(id, error))
     }
 
     /// Runs a stream until it ends. Dropping the future stops it.
@@ -316,26 +411,30 @@ impl PluginHost {
         method: &str,
         params: Value,
         sink: StreamSink,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), PluginFailure> {
         let loaded = self.get(id)?;
         let plugin = Arc::clone(&loaded.plugin);
         let context = Arc::clone(&loaded.context);
         let method = method.to_owned();
-        let task = self
-            .spawner
-            .spawn(async move { plugin.stream(&context, &method, params, sink).await });
+        let caller = vault::caller().unwrap_or_default();
+        let task = self.spawner.spawn(vault::as_caller(caller, async move {
+            plugin.stream(&context, &method, params, sink).await
+        }));
         let _stopping = StopOnDrop(task.abort_handle());
         let outcome = match task.await {
-            Ok(Err(error)) if error.category == Category::StreamClosed => Ok(()),
+            Ok(Err(error)) if error.category == FailureCategory::StreamClosed => Ok(()),
             Ok(result) => result,
-            Err(stopped) => Err(PluginError::new(Category::Stopped, stopped.to_string())),
+            Err(stopped) => Err(PluginError::new(
+                FailureCategory::Stopped,
+                stopped.to_string(),
+            )),
         };
         outcome.map_err(|error| failure(id, error))
     }
 }
 
-fn failure(plugin: &str, error: PluginError) -> Failure {
-    Failure {
+fn failure(plugin: &str, error: PluginError) -> PluginFailure {
+    PluginFailure {
         plugin: plugin.to_owned(),
         category: error.category,
         message: error.message,
@@ -363,26 +462,33 @@ impl Drop for PluginHost {
 mod tests {
     use super::*;
     use serde_json::json;
-    use sikemux_plugin_api::PluginFuture;
+    use sikemux_plugin_api::{Manifested, PluginFuture};
 
-    struct Echo(Manifest);
+    #[test]
+    fn every_built_in_manifest_parses() {
+        for plugin in builtin::plugins() {
+            Manifest::from_json(plugin.manifest()).expect("its manifest parses");
+        }
+    }
+
+    struct Echo(String);
+
+    static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     impl Echo {
-        fn plugin(id: &str, sikemux: &str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({ "id": id, "name": "Echo", "version": "1.0.0", "sikemux": sikemux })
-                    .to_string(),
-            )
-            .expect("test manifest parses");
+        fn plugin(id: &str) -> Arc<dyn Plugin> {
+            let manifest = json!({ "id": id, "name": "Echo" }).to_string();
             Arc::new(Self(manifest))
         }
     }
 
-    impl Plugin for Echo {
-        fn manifest(&self) -> &Manifest {
+    impl Manifested for Echo {
+        fn manifest(&self) -> &str {
             &self.0
         }
+    }
 
+    impl Plugin for Echo {
         fn call<'a>(
             &'a self,
             _ctx: &'a PluginContext,
@@ -396,11 +502,20 @@ mod tests {
                         std::thread::sleep(Duration::from_millis(300));
                         Ok(Value::Null)
                     }
-                    "hang" => std::future::pending().await,
-                    "fail" => {
-                        Err(PluginError::new(Category::Unconfigured, "sign in first")
-                            .with_status(401))
+                    "block_until_told" => {
+                        let give_up = std::time::Instant::now() + Duration::from_secs(30);
+                        while !TOLD.load(std::sync::atomic::Ordering::SeqCst)
+                            && std::time::Instant::now() < give_up
+                        {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Ok(Value::Null)
                     }
+                    "hang" => std::future::pending().await,
+                    "fail" => Err(
+                        PluginError::new(FailureCategory::Unconfigured, "sign in first")
+                            .with_status(401),
+                    ),
                     _ => Err(PluginError::unknown_method(method)),
                 }
             })
@@ -410,7 +525,6 @@ mod tests {
     fn host(plugins: Vec<Arc<dyn Plugin>>) -> PluginHost {
         PluginHost::new(
             Path::new("/tmp/plugins"),
-            &Version::new(0, 4, 0),
             plugins,
             Duration::from_millis(100),
         )
@@ -421,8 +535,7 @@ mod tests {
     #[cfg(all(feature = "github", feature = "signoz"))]
     fn collects_the_shell_variables_plugins_read() {
         let data = tempfile::tempdir().expect("tempdir");
-        let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("a version");
-        let host = PluginHost::with_builtins(data.path(), &version).expect("plugin runtime starts");
+        let host = PluginHost::with_builtins(data.path()).expect("plugin runtime starts");
         let names = host.shell_variables();
         for name in [
             "GH_TOKEN",
@@ -435,19 +548,15 @@ mod tests {
     }
 
     #[test]
-    fn skips_incompatible_and_duplicate_plugins() {
-        let host = host(vec![
-            Echo::plugin("test.echo", ">=0.4"),
-            Echo::plugin("test.echo", ">=0.4"),
-            Echo::plugin("test.future", ">=9"),
-        ]);
+    fn skips_a_plugin_registered_twice() {
+        let host = host(vec![Echo::plugin("test.echo"), Echo::plugin("test.echo")]);
         let ids: Vec<String> = host.manifests().map(|m| m.id.clone()).collect();
         assert_eq!(ids, ["test.echo"]);
     }
 
     #[tokio::test]
     async fn routes_calls_and_tags_errors_with_the_plugin() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
+        let host = host(vec![Echo::plugin("test.echo")]);
         assert_eq!(
             host.call("test.echo", "echo", json!({ "a": 1 })).await.ok(),
             Some(json!({ "a": 1 }))
@@ -475,14 +584,11 @@ mod tests {
 
     #[tokio::test]
     async fn agents_reach_only_the_methods_a_plugin_names_as_tools() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.echo", "name": "Echo", "version": "1.0.0", "sikemux": "*",
-                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
+        let manifest = json!({
+            "id": "test.echo", "name": "Echo",
+            "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
+        })
+        .to_string();
         let host = host(vec![Arc::new(Echo(manifest))]);
 
         let offered: Vec<(&str, &str)> = host
@@ -502,14 +608,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_switched_off_plugin_answers_nothing_and_offers_no_tools() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.echo", "name": "Echo", "version": "1.0.0", "sikemux": "*",
-                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
+        let manifest = json!({
+            "id": "test.echo", "name": "Echo",
+            "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
+        })
+        .to_string();
         let host = host(vec![Arc::new(Echo(manifest))]);
 
         host.set_disabled(vec!["test.echo".into()]);
@@ -530,29 +633,28 @@ mod tests {
 
     /// Offers its tools only to agents whose repository has a remote on `host`.
     struct Picky {
-        manifest: Manifest,
+        manifest: String,
         host: &'static str,
     }
 
     impl Picky {
         fn plugin(id: &str, host: &'static str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({
-                    "id": id, "name": "Picky", "version": "1.0.0", "sikemux": "*",
-                    "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
-                })
-                .to_string(),
-            )
-            .expect("test manifest parses");
+            let manifest = json!({
+                "id": id, "name": "Picky",
+                "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
+            })
+            .to_string();
             Arc::new(Self { manifest, host })
         }
     }
 
-    impl Plugin for Picky {
-        fn manifest(&self) -> &Manifest {
+    impl Manifested for Picky {
+        fn manifest(&self) -> &str {
             &self.manifest
         }
+    }
 
+    impl Plugin for Picky {
         fn call<'a>(
             &'a self,
             _ctx: &'a PluginContext,
@@ -613,14 +715,11 @@ mod tests {
     #[test]
     fn the_first_plugin_keeps_a_tool_name_two_plugins_claim() {
         let claiming = |id: &str| -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({
-                    "id": id, "name": "Echo", "version": "1.0.0", "sikemux": "*",
-                    "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-                })
-                .to_string(),
-            )
-            .expect("test manifest parses");
+            let manifest = json!({
+                "id": id, "name": "Echo",
+                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
+            })
+            .to_string();
             Arc::new(Echo(manifest))
         };
         let host = host(vec![claiming("test.b"), claiming("test.a")]);
@@ -634,7 +733,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_plugin_that_never_answers_times_out() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
+        let host = host(vec![Echo::plugin("test.echo")]);
         let error = host
             .call("test.echo", "hang", Value::Null)
             .await
@@ -647,37 +746,30 @@ mod tests {
 
     #[tokio::test]
     async fn a_plugin_gets_the_call_timeout_it_declares() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.slow", "name": "Slow", "version": "1.0.0", "sikemux": "*",
-                "callTimeoutSecs": 1,
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
-        let host = host(vec![
-            Arc::new(Echo(manifest)),
-            Echo::plugin("test.echo", "*"),
-        ]);
+        let manifest = json!({
+            "id": "test.slow", "name": "Slow",
+            "callTimeoutSecs": 60,
+        })
+        .to_string();
+        let host = host(vec![Arc::new(Echo(manifest)), Echo::plugin("test.echo")]);
         assert_eq!(
             host.call("test.slow", "block", Value::Null).await.ok(),
             Some(Value::Null)
         );
-        assert!(host.call("test.echo", "block", Value::Null).await.is_err());
+        assert!(host.call("test.echo", "hang", Value::Null).await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn a_blocking_plugin_does_not_hold_up_the_caller() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
-        let started = std::time::Instant::now();
+        let host = host(vec![Echo::plugin("test.echo")]);
         let error = host
-            .call("test.echo", "block", Value::Null)
+            .call("test.echo", "block_until_told", Value::Null)
             .await
             .expect_err("times out");
+        TOLD.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             serde_json::to_value(&error).expect("serializes")["category"],
             "timed-out"
         );
-        assert!(started.elapsed() < Duration::from_millis(250));
     }
 }

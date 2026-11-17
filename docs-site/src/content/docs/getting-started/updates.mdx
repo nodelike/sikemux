@@ -1,26 +1,45 @@
 ---
 title: Updates
-description: "Stable and nightly channels, and how Sikemux updates itself."
+description: "Stable, nightly and staff channels, and when Sikemux installs an update."
 ---
 
-On a Mac, and from the AppImage on Linux, Sikemux keeps itself up to date. Choose how new in **Settings → About → Updates**:
+On a Mac, and from the AppImage on Linux, Sikemux tells you when a new build is out. On stable it installs it when you ask; on nightly and staff it installs it by itself once you are idle. Choose how new, and when to install, in **Settings → About → Updates**:
 
 | Channel | What you get |
 |---|---|
 | **Stable** | The latest signed release |
 | **Nightly** | The newest signed build, prerelease or stable |
+| **Staff** | Each signed build of main the moment it is published, about half an hour before nightly |
 
-When an update is out, the foot of the left rail says so, then shows how its download and install are going. Click it for the release's notes and **Install**.
+Staff is for the people who make Sikemux. It takes the place of **Nightly** on an account marked as staff, and it turns on features still being tried, before anyone else gets them. The account sheet on the phone says **staff** beside the version.
 
-**Check now** looks for an update straight away. While you are offline, a check you start says so and tries again later.
+When an update is out, the foot of the side rail says so, then shows how its download and install are going.
+
+**Install updates** picks when it goes in:
+
+- **Ask me**, the default on stable: click the rail's note for the release's notes and **Install**. Nothing downloads or installs, and Sikemux never restarts, until you click it.
+- **Automatically when idle**, the default on nightly and staff: Sikemux installs the update once no agent, in a chat or a terminal, is in the middle of a turn, and restarts into it once you have left the keys for 10 minutes. It never stops an agent to do so; if one starts a turn before you leave the keys, the restart waits for it. What's New opens with the release's notes once the new version is running. The rail's note shows **Restart to update** while it waits for you, so you can restart sooner.
+
+Terminals and chats carry on through an update. When you click **Install**, a chat in the middle of a request holds the update up for at most two minutes. After that, the update goes ahead, and that chat stops and picks up again on its session. Once the update is in place, the windows restart to load it, waiting until you pause typing. Hover the rail's note to see which version you run and when it took over.
+
+Sikemux looks for an update every half hour, every five minutes on the nightly channel, or every minute on staff, and **Check now** looks straight away. When a check fails, such as while you are offline, **Last checked** says why.
+
+On a Mac, Sikemux keeps the version it replaced until the new one has run for half a minute. If the new core stops before then, Sikemux puts the previous version back by itself and opens it again. Chats pick up again on their sessions; terminals and tasks that were running stop. A notice says which update was undone and why, and that release is not offered again; the next one is.
 
 If Sikemux's servers stop working with the version you have, **Update Sikemux** covers the window. Remote access and your account stay off until you update; you can also quit from there.
 
 ## Linux
 
-The AppImage updates itself like the Mac app.
+The AppImage updates like the Mac app: its core asks root for each signed release, which replaces the core and the app unpacked beside it together.
 
-The `.deb` and `.rpm` are updated by the installer that put them in place. When a new release is out, **Settings → About** shows it with **Copy command**. Run the copied line in a terminal:
+The `.deb` and, on Fedora and the RHEL 9 family, the `.rpm` add Sikemux's package repository for their channel, so they update with the rest of the system. When a new release is out, **Settings → About** shows it with **Copy command**, which copies the package manager's line:
+
+```bash
+sudo apt update && sudo apt install --only-upgrade sikemux   # Debian, Ubuntu
+sudo dnf upgrade --refresh sikemux                           # Fedora, RHEL 9 and its rebuilds
+```
+
+On openSUSE the `.rpm` adds no repository, because zypper cannot read it, and is updated by the installer that put it in place. The same goes for a package whose repository is for the other channel: choosing nightly in Settings gives the installer line, and the nightly package it installs moves the repository to nightly. The copied line is then:
 
 ```bash
 curl -fsSL https://sikemux.com/install | sh -s -- --app
@@ -28,14 +47,18 @@ curl -fsSL https://sikemux.com/install | sh -s -- --app
 
 On the nightly channel, the line sets `SIKEMUX_CHANNEL=nightly` before `sh`.
 
+On Arch Linux, pacman owns the app and Sikemux never replaces its files. When a repository pacman syncs from carries the package, the copied line is `sudo pacman -Syu`. Otherwise it is the installer line above, which updates `sikemux-bin` or `sikemux-nightly-bin` with `pacman -U`; the nightly package's line always sets `SIKEMUX_CHANNEL=nightly`.
+
 ## On a server
 
-A server running just the core keeps itself up to date too, on the channel it was installed from, or on nightly if you choose it for that host. Each time it finds a newer release, and once no chat on it is in a turn, it installs the release and restarts its core in place, so terminals and chats carry on. Before installing anything it checks that Sikemux signed that very release. The core runs as you and cannot replace its own file, so with systemd the installer sets up a small service that puts it in place as root.
+A server running just the core keeps itself up to date too, on the channel it was installed from, or on nightly if you choose it for that host. A nightly server signed in to a staff account updates on staff. Each time it finds a newer release, and once no chat on it is in a turn, it installs the release and restarts its core in place, so terminals and chats carry on. Before installing anything it checks that Sikemux signed that very release. The core runs as you and cannot replace its own file, so with systemd the installer sets up a small service that puts it in place as root.
 
-`sikemux update` installs the newest release now, waiting only for chats in the middle of a request. `sikemux status` shows the version, whether the server updates itself, and when it last looked.
+`sikemux update` installs the newest release now. It waits up to two minutes for chats in the middle of a request; any still busy after that pick up again on their sessions. `sikemux status` shows the version, whether the server updates itself, and when it last looked.
 
-The server's row under **Hosts** shows the version it runs, or **update failed** when the last try did not work; its **⋯**, or the server's **⋯** in **Settings → Hosts**, says why.
+The server's row under **Hosts** says **updating** while an update is under way, or **update failed** when the last try did not work; its **⋯**, or the **⋯** on its detail on the **Devices** page, says why. Root writes how each update ended to `/usr/local/lib/sikemux/update-outcome.json`, so a failure is still there to read after the core restarts. A download only stops when it goes quiet for a minute, however slow it is.
+
+The server keeps the core it replaced until the new one has run for half a minute. If the new core stops three times before then, it puts the previous one back and the row says **update rolled back**; that release is not installed again, and the next one is.
 
 To keep a server on the release it has, turn off **Update automatically** in either **⋯**, or run `sudo sikemux update --off` on it; `--on` turns updates back on. Only you can change this, so an agent on the server cannot pin it or unpin it: plain `sikemux update --on` or `--off` only says how. While updates are off, nothing installs, not even with `sikemux update`.
 
-Once a server's release is too old for your account, the server stops reaching your devices and your account until it updates, and `sikemux status` says so. With updates on, it installs the newest release at once, without waiting for its chats.
+Once a server's release is too old for your account, the server stops reaching your devices and your account until it updates, and `sikemux status` says so. With updates on, it installs the newest release and restarts into it at once, without waiting for its chats: the chats in the middle of a request stop and pick up again on their sessions once it is back, and its **⋯** says how many while it restarts.

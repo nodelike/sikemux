@@ -1,0 +1,20 @@
+[
+  { "when": "start the site", "steps": [
+    { "say": "Starting the site on 5173.", "perSecond": 30 },
+    { "tool": "mcp__sikemux-tools__process_start", "call": "process.start", "input": { "processId": "run", "idempotencyKey": "site" }, "ms": 1500 },
+    { "say": "It runs.", "perSecond": 30 }
+  ] },
+  { "when": "card option", "steps": [
+    { "say": "Adding the payment choices to the invoice page.", "perSecond": 30 },
+    { "tool": "Edit", "input": { "file_path": "site/index.html", "old_string": "Card", "new_string": "Card" }, "result": "The file has been updated.", "ms": 7000 },
+    { "say": "The invoice page offers card payment.", "perSecond": 30 }
+  ] },
+  { "when": "bank transfer", "steps": [
+    { "say": "Adding bank transfer with the account details.", "perSecond": 30 },
+    { "tool": "Edit", "input": { "file_path": "site/index.html", "old_string": "Bank transfer", "new_string": "Bank transfer" }, "result": "The file has been updated.", "ms": 7000 },
+    { "say": "Bank transfer is on the invoice page, under the card option.", "perSecond": 30 }
+  ] },
+  { "when": "keep an eye", "steps": [
+    { "say": "I'll keep an eye on @Wren's invoice work and tell you when it lands.", "perSecond": 30 }
+  ] }
+]

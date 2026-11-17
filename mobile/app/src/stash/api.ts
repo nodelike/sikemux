@@ -1,9 +1,12 @@
+import { stashUploadHeaders } from '@sikemux/protocol/stash';
+import { isDrawnType } from '@shared/lib/imagePaths';
 import { Directory, File, Paths, UploadTask, UploadType } from 'expo-file-system';
-import type { StashItem, StashTarget } from '@protocol';
-import { answerProblem, ApiProblem, bearer } from '@protocol/api';
+import type { StashItem, StashTarget } from '@sikemux/protocol';
+import { answerProblem, ApiProblem, bearer } from '@shared/account/api';
 
 import { api, OFFLINE, type TokenSource } from '@/account/api';
 import { apiUrl } from '@/account/config';
+import { translate } from '@/i18n';
 import type { Attachment } from '@/chat/uploads';
 
 export type { StashItem, StashTarget };
@@ -18,11 +21,8 @@ export async function stashFile(
   const headers: Record<string, string> = {
     authorization: `Bearer ${await bearer(token)}`,
     'content-type': file.mime,
-    'x-stash-name': encodeURIComponent(file.name),
+    ...stashUploadHeaders({ name: file.name, ...extra }),
   };
-  if (extra.note) headers['x-stash-note'] = encodeURIComponent(extra.note);
-  if (extra.target) headers['x-stash-target'] = encodeURIComponent(JSON.stringify(extra.target));
-  if (extra.prompt) headers['x-stash-prompt'] = extra.prompt;
   const task = new UploadTask(new File(file.uri), `${apiUrl()}/v1/stash`, {
     httpMethod: 'POST',
     uploadType: UploadType.BINARY_CONTENT,
@@ -41,7 +41,7 @@ export async function stashFile(
   } finally {
     task.release();
   }
-  if (answer.status < 200 || answer.status >= 300) throw answerProblem(answer.status, readJson(answer.body));
+  if (answer.status < 200 || answer.status >= 300) throw answerProblem(answer.status, readJson(answer.body), translate);
   return JSON.parse(answer.body) as StashItem;
 }
 
@@ -53,7 +53,7 @@ function readJson(text: string): unknown {
   }
 }
 
-const DRAWN = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+export const stashFileUrl = (id: string) => `${apiUrl()}/v1/stash/${encodeURIComponent(id)}/file`;
 
 /** Brings a stashed file down to this phone, ready to go with a message like one picked here. */
 export async function fetchStashFile(token: TokenSource, item: StashItem): Promise<Attachment> {
@@ -63,18 +63,18 @@ export async function fetchStashFile(token: TokenSource, item: StashItem): Promi
   const destination = new File(folder, name);
   if (!destination.exists) {
     try {
-      await File.downloadFileAsync(`${apiUrl()}/v1/stash/${encodeURIComponent(item.id)}/file`, destination, {
+      await File.downloadFileAsync(stashFileUrl(item.id), destination, {
         headers: { authorization: `Bearer ${await bearer(token)}` },
       });
     } catch (error) {
       if (error instanceof ApiProblem) throw error;
-      throw new ApiProblem(/\b[45]\d\d\b/.test(String(error)) ? "Couldn't get this from your stash." : OFFLINE);
+      throw new ApiProblem(/\b[45]\d\d\b/.test(String(error)) ? translate("Couldn't get this from your stash.") : translate(OFFLINE));
     }
   }
   const mime = item.mime ?? 'application/octet-stream';
   return {
     id: `stash-${item.id}`,
-    kind: DRAWN.has(mime) ? 'image' : 'file',
+    kind: isDrawnType(mime) ? 'image' : 'file',
     name,
     mime,
     uri: destination.uri,

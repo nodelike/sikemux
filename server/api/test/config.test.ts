@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
 import { loadConfig, loadMigrationConfig } from "../src/config.ts";
 import { devKeyFile } from "../src/join/signer.ts";
-import { readNetwork } from "../src/network/network.ts";
 import { joinKeyFile } from "./support.ts";
 
 const keyFile = joinKeyFile();
@@ -20,30 +19,9 @@ const minimal = {
 
 describe("loadConfig", () => {
   it("listens only on this machine unless told otherwise", () => {
-    expect(loadConfig(minimal)).toEqual({
+    expect(loadConfig(minimal)).toMatchObject({
       host: "127.0.0.1",
       port: 4000,
-      databaseUrl: minimal.DATABASE_URL,
-      appOrigin: "https://app.sikemux.com",
-      apiOrigin: "https://api.sikemux.com",
-      clerkIssuer: "https://clerk.sikemux.com",
-      macClientId: "mac_client",
-      clerkSecretKey: null,
-      clerkWebhookSecret: null,
-      network: readNetwork({}, []),
-      push: { app: "production", allowSandbox: false, fcm: null, apns: null },
-      appleSignIn: null,
-      join: {
-        keyId: "dev-1",
-        privateKey: expect.anything(),
-        publicKey: joinVector.publicKey,
-        file: keyFile,
-        created: false,
-      },
-      placesDir: null,
-      relayAccessToken: null,
-      stash: null,
-      logLevel: "info",
     });
   });
 

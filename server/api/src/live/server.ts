@@ -15,7 +15,7 @@ import {
 import { LIVE_OPTIONS, type LiveOptions } from "./options.ts";
 import { LIVE_SOCKET, LiveSocket } from "./socket.ts";
 
-export interface LiveServices {
+interface LiveServices {
   database: Database;
   databaseUrl: string;
   verifier: Verifier;

@@ -5,6 +5,8 @@ import SwiftUI
 /// rings twice when it starts needing you, a purple dot when done, a red one when it failed.
 struct StateMark: View {
     let mark: Mark
+    /// How far a wait has run, for its ring, once its length is known.
+    var through: Double? = nil
     @Environment(\.stillMarks) private var still
 
     var body: some View {
@@ -14,7 +16,78 @@ struct StateMark: View {
         case .needs: PingDot(colour: Theme.warn)
         case .done: Dot(colour: Theme.accent)
         case .failed: Dot(colour: Theme.danger)
+        case .waiting: WaitRing(through: through)
+        case .timer:
+            IconView(icon: Icons.timer, size: 11).foregroundStyle(Theme.command).frame(width: 16, height: 16)
+        case .stopped:
+            Circle().strokeBorder(Theme.inkDim, lineWidth: 1.5).frame(width: 7, height: 7).frame(width: 16, height: 16)
         case .idle: EmptyView()
+        }
+    }
+}
+
+/// A wait's ring: the track, and the share of the wait gone filled clockwise from the top.
+private struct WaitRing: View {
+    let through: Double?
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Theme.hairline, lineWidth: 1.6)
+            if let through, through > 0.005 {
+                Circle()
+                    .trim(from: 0, to: min(through, 0.999))
+                    .stroke(Theme.inkDim, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+        .frame(width: 9.4, height: 9.4)
+        .frame(width: 16, height: 16)
+    }
+}
+
+/// An agent row's mark for how its turn stands, with the time beside it while one runs: the
+/// minutes a wait has left, or how long it has waited on the person, as the app's rail draws it.
+struct TurnMark: View {
+    let mark: Mark
+    let turn: TurnState?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let now = context.date.timeIntervalSince1970 * 1000
+            HStack(spacing: 2) {
+                if let turn, let time = Self.short(turn, now: now) {
+                    Text(time)
+                        .font(Theme.ui(11, .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(mark == .needs ? Theme.warn : mark == .timer ? Theme.command : Theme.inkFaint)
+                }
+                StateMark(mark: mark, through: turn.flatMap { Self.through($0, now: now) })
+            }
+        }
+        .fixedSize()
+    }
+
+    /// How far a known wait has run.
+    static func through(_ turn: TurnState, now: Double) -> Double? {
+        guard turn.state == .waiting, let wait = turn.wait, Mark.fills(wait), let expected = wait.expectedMs else { return nil }
+        return min(1, (now - Double(wait.startedAt)) / Double(expected))
+    }
+
+    /// The minutes a known wait has left ("4m"), how long a call has waited ("12m"), or when a timer goes off.
+    static func short(_ turn: TurnState, now: Double) -> String? {
+        switch turn.state {
+        case .waiting:
+            guard let wait = turn.wait else { return nil }
+            if Mark.fills(wait), let expected = wait.expectedMs {
+                let left = max(0, Double(wait.startedAt + expected) - now)
+                return "\(max(1, Int((left / 60_000).rounded(.up))))m"
+            }
+            return wait.until.map { TriggerTime.format(Date(timeIntervalSince1970: Double($0) / 1000), Date(timeIntervalSince1970: now / 1000)) }
+        case .needsYou:
+            guard let call = turn.call else { return nil }
+            return "\(max(1, Int((now - Double(call.waitingSince)) / 60_000)))m"
+        default:
+            return nil
         }
     }
 }
@@ -57,6 +130,37 @@ struct ShellCount: View {
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(count) \(count == 1 ? "shell or monitor" : "shells or monitors") running")
+    }
+}
+
+/// Where a heavy command the agent started stands in the host's line: "2nd in line", or the thing it waits for while
+/// another agent holds it, cut short so the task keeps its room.
+struct LinePlace: View {
+    let line: InLine
+
+    var body: some View {
+        let words = line.by == nil ? Self.words(line.place) : line.what
+        HStack(spacing: 3) {
+            IconView(icon: Icons.hourglass, size: 11).foregroundStyle(Theme.warn)
+            Text(words).font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.ink)
+                .lineLimit(1).truncationMode(.tail).frame(maxWidth: 56, alignment: .leading)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(words)
+        .help(words)
+    }
+
+    static func words(_ place: Int) -> String {
+        guard place > 1 else { return "next in line" }
+        let suffix = switch (place % 100, place % 10) {
+        case (11...13, _): "th"
+        case (_, 1): "st"
+        case (_, 2): "nd"
+        case (_, 3): "rd"
+        default: "th"
+        }
+        return "\(place)\(suffix) in line"
     }
 }
 
@@ -106,7 +210,7 @@ private struct TwinkleGrid: NSViewRepresentable {
 /// Core Animation runs the twinkle so SwiftUI does no work per frame.
 final class TwinkleGridView: NSView {
     static let side: CGFloat = 16
-    private static let cellSide: CGFloat = 2.5
+    static let cellSide: CGFloat = 3.5
     private static let spacing: CGFloat = 1.5
     private static let cells: [(period: Double, offset: Double)] = [
         (0.9, 0), (1.24, -0.52), (1.58, -1.04), (1.07, -0.39), (1.41, -0.91),
@@ -126,7 +230,7 @@ final class TwinkleGridView: NSView {
         super.init(frame: CGRect(x: 0, y: 0, width: Self.side, height: Self.side))
         wantsLayer = true
         for cell in cellLayers {
-            cell.cornerRadius = 0.5
+            cell.cornerRadius = 0.75
             cell.backgroundColor = colour
             layer?.addSublayer(cell)
         }
@@ -208,11 +312,6 @@ final class TwinkleGridView: NSView {
     }
 }
 
-extension EnvironmentValues {
-    /// Marks drawn as one still frame, for a picture made without a window, where Core Animation cannot run.
-    @Entry public var stillMarks = false
-}
-
 /// The twinkling grid at one moment, drawn by SwiftUI alone.
 private struct StillTwinkle: View {
     let colour: Color
@@ -222,9 +321,9 @@ private struct StillTwinkle: View {
             ForEach(0..<3, id: \.self) { row in
                 GridRow {
                     ForEach(0..<3, id: \.self) { column in
-                        RoundedRectangle(cornerRadius: 0.5)
+                        RoundedRectangle(cornerRadius: 0.75)
                             .fill(colour)
-                            .frame(width: 2.5, height: 2.5)
+                            .frame(width: TwinkleGridView.cellSide, height: TwinkleGridView.cellSide)
                             .opacity(TwinkleGridView.stillOpacity(row * 3 + column))
                     }
                 }
@@ -263,7 +362,6 @@ struct CapsuleButton: View {
     }
 }
 
-/// A capsule that fills on hover, for icons and chips in the island.
 struct HoverCapsule<Label: View>: View {
     var selected = false
     var selectedFill = Color.white.opacity(0.12)

@@ -1,5 +1,5 @@
 import type { TokensResult } from "shiki/core";
-import type { CodeLine, CodeToken } from "@shared/chat/types";
+import type { CodeLine, CodeToken } from "./tokens";
 
 const FONT_ITALIC = 1;
 const FONT_BOLD = 2;

@@ -3,25 +3,34 @@ import { parseArgs } from 'node:util';
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, realpathSync, statSync, existsSync, copyFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { platform } from 'node:os';
 import { loadSurface, REPO, SIGNED_IN_PLUGINS } from './lib/surface.mjs';
 import { startCore } from './lib/core.mjs';
-import { prepareCase, writeAgentProfile } from './lib/sandbox.mjs';
+import { prepareCase, writeAgentProfile, CLAUDE, DEFAULT_SHELL } from './lib/sandbox.mjs';
 import { MODELS, mcpServers, runClaude, readClaude, killAll } from './lib/runners.mjs';
 import { startTools } from './lib/tools.mjs';
 import { runOmp, readOmp } from './lib/omp.mjs';
 import { grade } from './lib/grade.mjs';
+import { servedCalls } from './lib/calls.mjs';
 import { judge, readVerdict } from './lib/judge.mjs';
 import { report } from './lib/report.mjs';
+import { surfaceInputs, caseInputs, runKey, cachedRun, saveRun, lastFull, saveFull, takeTurn } from './lib/cache.mjs';
 
 const EVAL = join(REPO, 'evals/tools');
 const SURFACE = ['browser', 'crates/sikemux-host/src/tools_mcp', 'plugins', 'AGENTS.md'];
 const BUILT_HOST = join(REPO, 'target/debug/sikemux-host');
 const HOSTS = '/tmp/sikemux-tool-eval/hosts';
+const TOOLS_MCP = 'crates/sikemux-host/src/tools_mcp';
+const INSTALLED_HOST = '/usr/local/lib/sikemux/sikemux-host';
+const MAC = platform() === 'darwin';
+const DRAWS_PAGES = /page_preview|page_show/;
 
 const { values: options } = parseArgs({
   options: {
     models: { type: 'string', default: 'sonnet' },
     search: { type: 'string', default: 'on' },
+    surface: { type: 'string', default: 'mcp' },
+    'claude-config': { type: 'string' },
     cases: { type: 'string' },
     'cases-dir': { type: 'string' },
     'results-dir': { type: 'string' },
@@ -34,9 +43,11 @@ const { values: options } = parseArgs({
     resume: { type: 'string' },
     keep: { type: 'boolean', default: false },
     trials: { type: 'string', default: '1' },
-    shell: { type: 'string', default: '/bin/zsh' },
+    shell: { type: 'string', default: DEFAULT_SHELL },
     'shell-env': { type: 'string' },
     record: { type: 'string' },
+    affected: { type: 'boolean', default: false },
+    fresh: { type: 'boolean', default: false },
     list: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -46,13 +57,19 @@ if (options.help) {
   console.log(`pnpm eval:tools [options]
   --models sonnet,opus,deepseek   models to run (also haiku)
   --search on|off|both            Claude tool search; DeepSeek ignores it
+  --claude-config <folder>        sign Claude in as the account whose config folder this is, instead of the default one
+  --surface mcp|cli               how the agent reaches Sikemux's tools: the sikemux-tools MCP, or the sikemux CLI with
+                                  its skill and session-start hook; both are graded on the calls the tool server answered
   --cases id,id,prefix*           cases to run (default: every replayable case)
   --category wrong_tool,...       only these categories
   --concurrency 4                 cases at once per model
   --trials 1                      runs of each case; reports the mean pass rate and the cases that pass every trial
+                                  iterate on one trial of a --cases subset; one full --trials 3 run per change
+  --affected                      only the cases whose inputs changed since the last full run
+  --fresh                         run again even when an unchanged case has a saved result
   --turns 16 --timeout 420        limits per case (turns, seconds)
-  --build                         rebuild sikemux-host first
-  --shell /bin/bash               the shell agents' commands run in (default /bin/zsh)
+  --build                         rebuild sikemux-host first; on Linux the installed Sikemux's is used when its tools match
+  --shell /bin/bash               the shell agents' commands run in (default /bin/zsh, or /bin/bash without zsh)
   --shell-env <file>              startup lines that shell reads first, as ~/.zshenv or BASH_ENV
   --keep                          keep each case's home and repo after grading
   --resume <run folder>           finish a run that stopped: grade what finished, run the rest
@@ -64,10 +81,28 @@ if (options.help) {
   process.exit(0);
 }
 
-const cases = loadCases();
+if (options['claude-config']) process.env.TOOL_EVAL_CLAUDE_CONFIG = realpathSync(options['claude-config']);
+if (!['mcp', 'cli'].includes(options.surface)) throw new Error(`--surface is mcp or cli, not ${options.surface}`);
+const SURFACE_NAME = options.surface === 'cli' ? ' cli' : '';
+const GRADING = {
+  mcp: 'Calls are the tool server log in the place of each sikemux-tools call in the transcript. Two calls on the simulator or the checkout are at once when one message makes both.',
+  cli: 'Calls are the tool server log, each after the shell command that made it; a command keeps only what is left without its `sikemux tool` invocations and is dropped when nothing is. Two calls on the simulator or the checkout are at once when different shell calls in one message make them, or one command runs them in the background with & or run_in_background.',
+};
+
+const at = options.at ? git('rev-parse', '--short=9', options.at) : null;
+const claudeVersion = execFileSync(CLAUDE, ['--version'], { encoding: 'utf8' }).trim();
+const surface = surfaceInputs({ at, claude: claudeVersion, shell: options.shell, shellEnv: options['shell-env'], timeout: options.timeout, turns: options.turns });
+const loaded = loadCases();
+const inputs = new Map(loaded.map((testCase) => [testCase.id, caseInputs(surface, testCase)]));
+const full = !options.cases && !options.category && !options['cases-dir'] && !options.affected;
+const cases = options.affected ? affectedCases(loaded) : loaded;
 if (options.list) {
   for (const testCase of cases) console.log(`${testCase.id.padEnd(28)} ${testCase.category.padEnd(15)} ${testCase.prompt.slice(0, 90).replace(/\n/g, ' ')}`);
   console.log(`${cases.length} cases`);
+  process.exit(0);
+}
+if (!cases.length) {
+  console.log('no cases to run');
   process.exit(0);
 }
 
@@ -89,21 +124,32 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-const at = options.at ? git('rev-parse', '--short=9', options.at) : null;
-const HOST = at ? savedHost(at) : ensureHost();
 const variants = options.models.split(',').flatMap((alias) => {
   const model = MODELS[alias];
   if (!model) throw new Error(`no model called ${alias}; pick from ${Object.keys(MODELS).join(', ')}`);
-  if (model.runner !== 'claude') return [{ label: alias, alias, ...model }];
+  if (model.runner !== 'claude') {
+    if (options.surface === 'cli') throw new Error(`the cli surface runs only Claude models, not ${alias}`);
+    return [{ label: alias, alias, surface: 'mcp', ...model }];
+  }
   const searches = options.search === 'both' ? [true, false] : [options.search !== 'off'];
-  return searches.map((search) => ({ label: `${alias}${search ? '' : ' (no tool search)'}`, alias, search, ...model }));
+  return searches.map((search) => ({ label: `${alias}${SURFACE_NAME}${search ? '' : ' (no tool search)'}`, alias, search, surface: options.surface, ...model }));
 });
+
+const trialCount = Number(options.trials);
+const toRun = variants.flatMap((variant) =>
+  cases.flatMap((testCase) => Array.from({ length: trialCount }, (_, trial) => runKey(inputs.get(testCase.id), variant, trialCount > 1 ? trial + 1 : null))),
+).filter((key) => options.fresh || !cachedRun(key));
+let HOST = null;
+if (toRun.length) {
+  await takeTurn({ repo: REPO, args: process.argv.slice(2).join(' ') });
+  HOST = at ? savedHost(at) : MAC || options.build || builtIsCurrent() ? ensureHost() : installedHost();
+}
 
 mkdirSync('/tmp/sikemux-tool-eval', { recursive: true });
 const earlier = options.resume ? recordedFailures(options.resume) : new Map();
 const runDir = options.resume ? realpathSync(options.resume) : join(realpathSync('/tmp/sikemux-tool-eval'), new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(runDir, { recursive: true });
-console.log(`${cases.length} cases × ${variants.map((variant) => variant.label).join(', ')}; runs in ${runDir}`);
+console.log(`${cases.length} cases × ${variants.map((variant) => variant.label).join(', ')}; ${toRun.length} of ${cases.length * variants.length * trialCount} runs to make, the rest saved; runs in ${runDir}`);
 
 const started = Date.now();
 const results = await Promise.all(variants.map((variant) => runVariant(variant)));
@@ -113,12 +159,16 @@ const summary = {
   dirty: !at && git('status', '--porcelain', '--', ...SURFACE) !== '',
   shell: options.shell,
   ...(options['shell-env'] ? { shellEnv: readFileSync(options['shell-env'], 'utf8') } : {}),
-  claude: execFileSync(join(process.env.HOME, '.local/bin/claude'), ['--version'], { encoding: 'utf8' }).trim(),
+  claude: claudeVersion,
   seconds: Math.round((Date.now() - started) / 1000),
   variants: results,
+  grading: GRADING[options.surface],
 };
 writeFileSync(join(runDir, 'result.json'), JSON.stringify(summary, null, 1));
 report(summary, cases);
+const reused = results.flatMap((variant) => variant.cases.flatMap((row) => row.runs ?? [row])).filter((run) => run.cached);
+if (reused.length) console.log(`\n${reused.length} runs reused from earlier results with the same inputs; $${reused.reduce((sum, run) => sum + run.cost, 0).toFixed(2)} not spent again`);
+if (full) saveFull(summary.commit, Object.fromEntries(inputs));
 console.log(`\nresult: ${join(runDir, 'result.json')}`);
 if (options.record) {
   const day = summary.date.slice(0, 10);
@@ -141,18 +191,51 @@ function loadCases() {
   }
   const wanted = options.cases?.split(',');
   const categories = options.category?.split(',');
-  return all.filter(
+  const chosen = all.filter(
     (testCase) =>
       !testCase.skip &&
       (!wanted || wanted.some((id) => (id.endsWith('*') ? testCase.id.startsWith(id.slice(0, -1)) : testCase.id === id))) &&
       (!categories || categories.includes(testCase.category)),
   );
+  if (MAC) return chosen;
+  const drawable = chosen.filter((testCase) => !DRAWS_PAGES.test(JSON.stringify(testCase)));
+  if (drawable.length < chosen.length) console.log(`${chosen.length - drawable.length} cases that draw pages left out: they run only on a Mac`);
+  return drawable;
+}
+
+function affectedCases(all) {
+  const last = lastFull();
+  if (!last) throw new Error('no full run yet to compare with: run every case once first');
+  const changed = all.filter((testCase) => last.inputs[testCase.id] !== inputs.get(testCase.id));
+  console.log(`${changed.length} of ${all.length} cases changed since the full run on ${last.commit.slice(0, 9)} at ${last.date}`);
+  return changed;
+}
+
+function builtIsCurrent() {
+  const sources = join(REPO, TOOLS_MCP);
+  const newest = Math.max(...readdirSync(sources).map((name) => statSync(join(sources, name)).mtimeMs));
+  return existsSync(BUILT_HOST) && statSync(BUILT_HOST).mtimeMs >= newest;
+}
+
+// A core build needs more memory than a small Linux host has, so there the installed Sikemux serves the tools,
+// as long as its tool server's source is the same as this checkout's.
+function installedHost() {
+  if (!existsSync(INSTALLED_HOST)) throw new Error(`no Sikemux installed at ${INSTALLED_HOST}; --build builds sikemux-host here`);
+  const version = execFileSync(INSTALLED_HOST, ['--version'], { encoding: 'utf8' }).trim().split(' ').pop();
+  const tag = `v${version}`;
+  try {
+    git('rev-parse', '--verify', '--quiet', `${tag}^{commit}`);
+  } catch {
+    git('fetch', '--quiet', '--no-tags', 'origin', `refs/tags/${tag}:refs/tags/${tag}`);
+  }
+  if (git('diff', '--name-only', tag, '--', TOOLS_MCP) !== '') {
+    throw new Error(`the installed Sikemux ${version} has an older ${TOOLS_MCP} than this checkout: wait for the next nightly here, or pass --build (a core build)`);
+  }
+  return INSTALLED_HOST;
 }
 
 function ensureHost() {
-  const sources = join(REPO, 'crates/sikemux-host/src/tools_mcp');
-  const newest = Math.max(...readdirSync(sources).map((name) => statSync(join(sources, name)).mtimeMs));
-  if (options.build || !existsSync(BUILT_HOST) || statSync(BUILT_HOST).mtimeMs < newest) {
+  if (options.build || !builtIsCurrent()) {
     console.log('building sikemux-host…');
     execFileSync('cargo', ['build', '--manifest-path', join(REPO, 'Cargo.toml'), '-p', 'sikemux-host', '--bin', 'sikemux-host'], {
       stdio: 'inherit',
@@ -174,7 +257,7 @@ function savedHost(commit) {
 }
 
 async function runVariant(variant) {
-  const trials = Number(options.trials);
+  const trials = trialCount;
   const queue = cases.flatMap((testCase) => Array.from({ length: trials }, (_, trial) => ({ testCase, trial: trial + 1 })));
   const done = [];
   const workers = Array.from({ length: Number(options.concurrency) }, async () => {
@@ -182,7 +265,7 @@ async function runVariant(variant) {
       const { testCase, trial } = queue.shift();
       const result = await runCase(variant, testCase, trials > 1 ? trial : null);
       done.push(result);
-      const mark = result.pass ? 'pass' : 'FAIL';
+      const mark = `${result.pass ? 'pass' : 'FAIL'}${result.cached ? ' (saved)' : ''}`;
       const name = result.trial ? `${testCase.id} #${result.trial}` : testCase.id;
       console.log(`${variant.label.padEnd(26)} ${mark} ${name}${result.pass ? '' : `  ${result.failures.map((failure) => failure.why).join('; ')}`}`);
     }
@@ -191,13 +274,14 @@ async function runVariant(variant) {
   const byCase = Map.groupBy(done, (result) => result.id);
   const rows = cases.map((testCase) => (trials > 1 ? summarizeTrials(byCase.get(testCase.id)) : byCase.get(testCase.id)[0]));
   rows.sort((left, right) => left.id.localeCompare(right.id));
-  return { label: variant.label, model: variant.id, search: variant.search ?? null, trials, cases: rows };
+  return { label: variant.label, model: variant.id, search: variant.search ?? null, surface: variant.surface, trials, cases: rows };
 }
 
 function summarizeTrials(runs) {
   runs.sort((left, right) => left.trial - right.trial);
   const passed = runs.filter((run) => run.pass).length;
   const { id, category, tools } = runs[0];
+  const total = (field) => runs.reduce((sum, run) => sum + (run.tokens[field] ?? 0), 0);
   return {
     id,
     category,
@@ -207,20 +291,28 @@ function summarizeTrials(runs) {
     failures: runs.flatMap((run) => run.failures.map((failure) => ({ ...failure, trial: run.trial }))),
     cost: runs.reduce((sum, run) => sum + run.cost, 0),
     ...(runs.some((run) => run.costEstimated) ? { costEstimated: true } : {}),
-    tokens: {
-      input: runs.reduce((sum, run) => sum + run.tokens.input, 0),
-      cached: runs.reduce((sum, run) => sum + run.tokens.cached, 0),
-      output: runs.reduce((sum, run) => sum + run.tokens.output, 0),
-    },
+    tokens: { input: total('input'), cached: total('cached'), written: total('written'), output: total('output') },
+    turns: runs.reduce((sum, run) => sum + (run.turns ?? 0), 0),
+    seconds: runs.reduce((sum, run) => sum + (run.seconds ?? 0), 0),
     runs,
   };
 }
 
 async function runCase(variant, testCase, trial) {
+  const key = runKey(inputs.get(testCase.id), variant, trial);
+  const saved = options.fresh ? null : cachedRun(key, trial);
+  if (saved) return saved;
+  const row = await makeRun(variant, testCase, trial);
+  saveRun(key, row);
+  return row;
+}
+
+async function makeRun(variant, testCase, trial) {
   const caseDir = join(runDir, variant.label.replace(/\W+/g, '-'), testCase.id);
   const dir = trial ? join(caseDir, `t${trial}`) : caseDir;
   const finished = options.resume ? readFinished(variant, testCase, dir) : null;
-  const outcome = finished ?? (await runAgent(variant, testCase, dir));
+  const ran = finished ?? (await runAgent(variant, testCase, dir));
+  const outcome = { ...ran, calls: servedCalls(variant.surface, ran.calls, dir) };
   const failures = grade(testCase, outcome, repoOf(dir, testCase), earlier.get(`${variant.label}\0${testCase.id}\0${trial ?? ''}`));
   if (outcome.exit.timedOut) failures.push({ check: 'run', why: 'timed out' });
   else if (outcome.failed) failures.push({ check: 'run', why: `the run failed: ${outcome.stop}` });
@@ -239,6 +331,7 @@ async function runCase(variant, testCase, trial) {
     ...(outcome.costEstimated ? { costEstimated: true } : {}),
     tokens: outcome.tokens,
     turns: outcome.turns,
+    seconds: outcome.seconds ?? null,
     calls: outcome.calls.map((call) => ({ tool: call.tool, args: call.args, error: call.error ?? false, batch: call.batch, sub: call.sub || undefined })),
     reply: outcome.reply?.slice(0, 2000) ?? '',
     dir,
@@ -301,28 +394,30 @@ function dropSandbox(dir) {
 async function runAgent(variant, testCase, dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  const sandbox = prepareCase(dir, testCase, { at, host: HOST, shell: options.shell, shellEnv: options['shell-env'] });
+  const sandbox = prepareCase(dir, testCase, { at, host: HOST, shell: options.shell, shellEnv: options['shell-env'], surface: variant.surface });
   const fixture = testCase.fixture ?? {};
   const surface = loadSurface(fixture.plugins ?? SIGNED_IN_PLUGINS, at);
   const endpoint = join(dir, 'endpoint.json');
   const core = await startCore({ surface, fixture, project: sandbox.repo, endpointFile: endpoint, logFile: join(dir, 'core.jsonl'), previewProfile: join(dir, 'preview.sb') });
   roots.add(sandbox.root);
-  const tools = await startTools({ host: HOST, endpoint, sandbox, profile: join(dir, 'tools.sb') });
+  const tools = await startTools({ host: HOST, endpoint, sandbox, profile: join(dir, 'tools.sb'), log: join(dir, 'calls.jsonl') });
   writeAgentProfile(dir, sandbox, tools.port);
-  const servers = mcpServers({ tools: tools.config, dir, rivals: fixture.rivals });
+  sandbox.env.SIKEMUX_TOOLS_PORT = String(tools.port);
+  const servers = mcpServers({ tools: variant.surface === 'cli' ? null : tools.config, dir, rivals: fixture.rivals });
   const limits = { maxTurns: testCase.maxTurns ?? Number(options.turns), timeoutMs: Number(options.timeout) * 1000 };
   let outcome;
+  const began = Date.now();
   try {
     outcome =
       variant.runner === 'claude'
-        ? await runClaude({ model: variant.id, search: variant.search, dir, sandbox, servers, prompt: testCase.prompt, ...limits })
+        ? await runClaude({ model: variant.id, search: variant.search, dir, sandbox, servers, prompt: testCase.prompt, at, ...limits })
         : await runOmp({ model: variant.id, dir, sandbox, servers, prompt: testCase.prompt, ...limits });
   } finally {
     tools.close();
     core.close();
     sweep(sandbox.root);
   }
-  return { ...outcome, sandbox };
+  return { ...outcome, seconds: Math.round((Date.now() - began) / 1000), sandbox };
 }
 
 function compact(result) {

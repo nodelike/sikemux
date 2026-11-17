@@ -1,0 +1,2586 @@
+[
+  {
+    "data": {
+      "id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftmj4d0m780q1myeg71g",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.506Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "800",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.506Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "month"
+            },
+            "description": "Pro, monthly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "name": "Sikemux Pro",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:23.23Z",
+            "updated_at": "2026-11-16T03:30:23.23Z",
+            "custom_data": {
+              "product": "pro"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:34:05.523Z",
+          "updated_at": "2026-11-16T03:34:05.523Z",
+          "trial_dates": null,
+          "next_billed_at": "2026-12-16T03:34:04.9287Z",
+          "previously_billed_at": "2026-11-16T03:34:04.9287Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:34:05.523Z",
+      "started_at": "2026-11-16T03:34:04.9287Z",
+      "updated_at": "2026-11-16T03:34:05.523Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2026-12-16T03:34:04.9287Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:34:04.9287Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2026-12-16T03:34:04.9287Z",
+        "starts_at": "2026-11-16T03:34:04.9287Z"
+      }
+    },
+    "event_id": "evt_01m7h6pkk5j0x5en5gk5y84q4a",
+    "event_type": "subscription.activated",
+    "occurred_at": "2026-11-16T03:34:05.669985Z",
+    "notification_id": "ntf_01m7h6pkz3evea6s67cr7wymda"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6nmtb8zbrts58cf5ee3f0",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftmj4d0m780q1myeg71g",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.506Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "800",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.506Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "month"
+            },
+            "description": "Pro, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": 1,
+          "proration": null
+        }
+      ],
+      "origin": "api",
+      "status": "completed",
+      "details": {
+        "totals": {
+          "fee": "90",
+          "tax": "122",
+          "total": "800",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "588",
+          "subtotal": "678",
+          "grand_total": "800",
+          "currency_code": "USD",
+          "grand_total_tax": "122",
+          "credit_to_balance": "0"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6p2z5em8hdqd12fb6k06v",
+            "totals": {
+              "tax": "122",
+              "total": "800",
+              "discount": "0",
+              "subtotal": "678"
+            },
+            "product": {
+              "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+              "name": "Sikemux Pro",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:23.23Z",
+              "updated_at": "2026-11-16T03:30:23.23Z",
+              "custom_data": {
+                "product": "pro"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6ftmj4d0m780q1myeg71g",
+            "quantity": 1,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "122",
+              "total": "800",
+              "discount": "0",
+              "subtotal": "678"
+            }
+          }
+        ],
+        "payout_totals": {
+          "fee": "90",
+          "tax": "122",
+          "total": "800",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "588",
+          "fee_rate": "0.05",
+          "subtotal": "678",
+          "grand_total": "800",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "grand_total_tax": "122",
+          "credit_to_balance": "0"
+        },
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "122",
+              "total": "800",
+              "discount": "0",
+              "subtotal": "678"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": "90",
+          "tax": "122",
+          "total": "800",
+          "earnings": "588",
+          "subtotal": "678",
+          "grand_total": "800",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "122"
+        },
+        "adjusted_payout_totals": {
+          "fee": "90",
+          "tax": "122",
+          "total": "800",
+          "earnings": "588",
+          "subtotal": "678",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "chargeback_fee": {
+            "amount": "0",
+            "original": null
+          }
+        }
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6nmtb8zbrts58cf5ee3f0"
+      },
+      "payments": [
+        {
+          "amount": "800",
+          "status": "captured",
+          "created_at": "2026-11-16T03:34:02.616651Z",
+          "error_code": null,
+          "captured_at": "2026-11-16T03:34:04.9287Z",
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "4242",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Ines Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6pgmyj9gwe9zs6bqrfxmm",
+          "payment_attempt_id": "65a457d3-8ca1-4968-a67f-4d8290380dda",
+          "stored_payment_method_id": "9c3114a1-a041-4692-b777-c66da0944331"
+        }
+      ],
+      "billed_at": "2026-11-16T03:34:05.26972Z",
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:33:34.201399Z",
+      "invoice_id": "inv_01m7h6pkee8fkdndb6sp307ctd",
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:34:06.357276228Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": {
+        "ends_at": "2026-12-16T03:34:04.9287Z",
+        "starts_at": "2026-11-16T03:34:04.9287Z"
+      },
+      "invoice_number": "150672-10001",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": "sub_01m7h6pkekbvd0k65gd38d1ayq"
+    },
+    "event_id": "evt_01m7h6pm8s2vtthgkdpr393a9k",
+    "event_type": "transaction.completed",
+    "occurred_at": "2026-11-16T03:34:06.361621Z",
+    "notification_id": "ntf_01m7h6pmpb8qebcjddv734b5hq"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftyjq6ee7fcywbxz9pvp",
+            "name": "Yearly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.826Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "8000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.826Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "year"
+            },
+            "description": "Pro, yearly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "year",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "name": "Sikemux Pro",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:23.23Z",
+            "updated_at": "2026-11-16T03:30:23.23Z",
+            "custom_data": {
+              "product": "pro"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:34:40.834Z",
+          "updated_at": "2026-11-16T03:34:40.834Z",
+          "trial_dates": null,
+          "next_billed_at": "2027-11-16T03:34:40.824Z",
+          "previously_billed_at": "2026-11-16T03:34:40.834Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:34:05.523Z",
+      "started_at": "2026-11-16T03:34:04.9287Z",
+      "updated_at": "2026-11-16T03:34:40.879Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2027-11-16T03:34:40.824Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:34:04.9287Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2027-11-16T03:34:40.824Z",
+        "starts_at": "2026-11-16T03:34:40.824Z"
+      }
+    },
+    "event_id": "evt_01m7h6qrt9b3t1kgcmcvtsdx89",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:34:43.785536Z",
+    "notification_id": "ntf_01m7h6qs3vjjkj44aggtdeyfya"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6qp8bzctqr20p35v92m5a",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftyjq6ee7fcywbxz9pvp",
+            "name": "Yearly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.826Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "8000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.826Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "year"
+            },
+            "description": "Pro, yearly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "year",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": 1,
+          "proration": null
+        },
+        {
+          "price": {
+            "id": "pri_01m7h6ftmj4d0m780q1myeg71g",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.506Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "800",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.506Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "month"
+            },
+            "description": "Pro, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": -1,
+          "proration": null
+        }
+      ],
+      "origin": "subscription_update",
+      "status": "completed",
+      "details": {
+        "totals": {
+          "fee": "410",
+          "tax": "1098",
+          "total": "7200",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "5692",
+          "subtotal": "6102",
+          "grand_total": "7200",
+          "currency_code": "USD",
+          "grand_total_tax": "1098",
+          "credit_to_balance": "0"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6qp9ajkv03q2g7kan0hps",
+            "totals": {
+              "tax": "1220",
+              "total": "8000",
+              "discount": "0",
+              "subtotal": "6780"
+            },
+            "product": {
+              "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+              "name": "Sikemux Pro",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:23.23Z",
+              "updated_at": "2026-11-16T03:30:23.23Z",
+              "custom_data": {
+                "product": "pro"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6ftyjq6ee7fcywbxz9pvp",
+            "quantity": 1,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "1220",
+              "total": "8000",
+              "discount": "0",
+              "subtotal": "6780"
+            }
+          },
+          {
+            "id": "txnitm_01m7h6qp9q7df9k78jtgq31w57",
+            "totals": {
+              "tax": "-122",
+              "total": "-800",
+              "discount": "0",
+              "subtotal": "-678"
+            },
+            "product": {
+              "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+              "name": "Sikemux Pro",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:23.23Z",
+              "updated_at": "2026-11-16T03:30:23.23Z",
+              "custom_data": {
+                "product": "pro"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6ftmj4d0m780q1myeg71g",
+            "quantity": -1,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "122",
+              "total": "800",
+              "discount": "0",
+              "subtotal": "678"
+            }
+          }
+        ],
+        "payout_totals": {
+          "fee": "410",
+          "tax": "1098",
+          "total": "7200",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "5692",
+          "fee_rate": "0.05",
+          "subtotal": "6102",
+          "grand_total": "7200",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "grand_total_tax": "1098",
+          "credit_to_balance": "0"
+        },
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "1098",
+              "total": "7200",
+              "discount": "0",
+              "subtotal": "6102"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": "410",
+          "tax": "1098",
+          "total": "7200",
+          "earnings": "5692",
+          "subtotal": "6102",
+          "grand_total": "7200",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "1098"
+        },
+        "adjusted_payout_totals": {
+          "fee": "410",
+          "tax": "1098",
+          "total": "7200",
+          "earnings": "5692",
+          "subtotal": "6102",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "chargeback_fee": {
+            "amount": "0",
+            "original": null
+          }
+        }
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6qp8bzctqr20p35v92m5a"
+      },
+      "payments": [
+        {
+          "amount": "7200",
+          "status": "captured",
+          "created_at": "2026-11-16T03:34:41.278995Z",
+          "error_code": null,
+          "captured_at": "2026-11-16T03:34:43.743454Z",
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "4242",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Ines Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6pgmyj9gwe9zs6bqrfxmm",
+          "payment_attempt_id": "c9c8d574-782d-4f46-9bf8-c492aabb1992",
+          "stored_payment_method_id": "9c3114a1-a041-4692-b777-c66da0944331"
+        }
+      ],
+      "billed_at": "2026-11-16T03:34:41.163683Z",
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:34:41.240328Z",
+      "invoice_id": "inv_01m7h6qsgjbfxqn6en78n3k7ac",
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:34:45.682240878Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": {
+        "ends_at": "2027-11-16T03:34:40.824Z",
+        "starts_at": "2026-11-16T03:34:40.824Z"
+      },
+      "invoice_number": "150672-10002",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": "sub_01m7h6pkekbvd0k65gd38d1ayq"
+    },
+    "event_id": "evt_01m7h6qtns52c8bcx8vj1b7m6k",
+    "event_type": "transaction.completed",
+    "occurred_at": "2026-11-16T03:34:45.689521Z",
+    "notification_id": "ntf_01m7h6qv3pjxszr9j8texps2xx"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6sr15kpcxsgs30ffgh74q",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "name": "Sikemux Team",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:24.187Z",
+            "updated_at": "2026-11-16T03:30:24.187Z",
+            "custom_data": {
+              "product": "team"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 4,
+          "recurring": true,
+          "created_at": "2026-11-16T03:35:48.517Z",
+          "updated_at": "2026-11-16T03:35:48.517Z",
+          "trial_dates": null,
+          "next_billed_at": "2026-12-16T03:35:47.986768Z",
+          "previously_billed_at": "2026-11-16T03:35:47.986768Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:35:48.517Z",
+      "started_at": "2026-11-16T03:35:47.986768Z",
+      "updated_at": "2026-11-16T03:35:48.517Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2026-12-16T03:35:47.986768Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:35:47.986768Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      }
+    },
+    "event_id": "evt_01m7h6sr5r3fd34fmk5jx45bfw",
+    "event_type": "subscription.activated",
+    "occurred_at": "2026-11-16T03:35:48.664983Z",
+    "notification_id": "ntf_01m7h6sre9p0nce26n6hqk6sef"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6s2e6se9w0p6659savtzx",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": 4,
+          "proration": null
+        }
+      ],
+      "origin": "api",
+      "status": "completed",
+      "details": {
+        "totals": {
+          "fee": "450",
+          "tax": "1220",
+          "total": "8000",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "6330",
+          "subtotal": "6780",
+          "grand_total": "8000",
+          "currency_code": "USD",
+          "grand_total_tax": "1220",
+          "credit_to_balance": "0"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6sf4939k2tw16yc62j874",
+            "totals": {
+              "tax": "1220",
+              "total": "8000",
+              "discount": "0",
+              "subtotal": "6780"
+            },
+            "product": {
+              "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+              "name": "Sikemux Team",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:24.187Z",
+              "updated_at": "2026-11-16T03:30:24.187Z",
+              "custom_data": {
+                "product": "team"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "quantity": 4,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "305",
+              "total": "2000",
+              "discount": "0",
+              "subtotal": "1695"
+            }
+          }
+        ],
+        "payout_totals": {
+          "fee": "450",
+          "tax": "1220",
+          "total": "8000",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "6330",
+          "fee_rate": "0.05",
+          "subtotal": "6780",
+          "grand_total": "8000",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "grand_total_tax": "1220",
+          "credit_to_balance": "0"
+        },
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "1220",
+              "total": "8000",
+              "discount": "0",
+              "subtotal": "6780"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": "450",
+          "tax": "1220",
+          "total": "8000",
+          "earnings": "6330",
+          "subtotal": "6780",
+          "grand_total": "8000",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "1220"
+        },
+        "adjusted_payout_totals": {
+          "fee": "450",
+          "tax": "1220",
+          "total": "8000",
+          "earnings": "6330",
+          "subtotal": "6780",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "chargeback_fee": {
+            "amount": "0",
+            "original": null
+          }
+        }
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6s2e6se9w0p6659savtzx"
+      },
+      "payments": [
+        {
+          "amount": "8000",
+          "status": "captured",
+          "created_at": "2026-11-16T03:35:45.067099Z",
+          "error_code": null,
+          "captured_at": "2026-11-16T03:35:47.986768Z",
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "4242",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Tomas Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6smpq4p6rqr3ccxea2229",
+          "payment_attempt_id": "9c7b7fb6-54d2-4a0d-8c5e-6eef5d39206e",
+          "stored_payment_method_id": "40743339-d8d3-4567-87c3-30b69cd54d24"
+        }
+      ],
+      "billed_at": "2026-11-16T03:35:48.154513Z",
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:35:26.42989Z",
+      "invoice_id": "inv_01m7h6sr2525ke76at27ctt15v",
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:35:49.504773397Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      },
+      "invoice_number": "150672-10003",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": "sub_01m7h6sr15kpcxsgs30ffgh74q"
+    },
+    "event_id": "evt_01m7h6ss07cv7ernr03r9h9rjv",
+    "event_type": "transaction.completed",
+    "occurred_at": "2026-11-16T03:35:49.511024Z",
+    "notification_id": "ntf_01m7h6ss98scq1ps277w0h7vbf"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6sr15kpcxsgs30ffgh74q",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "name": "Sikemux Team",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:24.187Z",
+            "updated_at": "2026-11-16T03:30:24.187Z",
+            "custom_data": {
+              "product": "team"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 6,
+          "recurring": true,
+          "created_at": "2026-11-16T03:35:48.517Z",
+          "updated_at": "2026-11-16T03:36:05.118Z",
+          "trial_dates": null,
+          "next_billed_at": "2026-12-16T03:35:47.986768Z",
+          "previously_billed_at": "2026-11-16T03:36:05.118Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:35:48.517Z",
+      "started_at": "2026-11-16T03:35:47.986768Z",
+      "updated_at": "2026-11-16T03:36:05.129Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2026-12-16T03:35:47.986768Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:35:47.986768Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      }
+    },
+    "event_id": "evt_01m7h6tap214kew0g049f4kyy9",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:36:07.618809Z",
+    "notification_id": "ntf_01m7h6tb32rsev8p7ytfmskz84"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6t8ftqse6bq56bn2fe2jp",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": 2,
+          "proration": {
+            "rate": "0.99998",
+            "billing_period": {
+              "ends_at": "2026-12-16T03:35:47.986768Z",
+              "starts_at": "2026-11-16T03:36:05.12Z"
+            }
+          }
+        }
+      ],
+      "origin": "subscription_update",
+      "status": "completed",
+      "details": {
+        "totals": {
+          "fee": "250",
+          "tax": "610",
+          "total": "4000",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "3140",
+          "subtotal": "3390",
+          "grand_total": "4000",
+          "currency_code": "USD",
+          "grand_total_tax": "610",
+          "credit_to_balance": "0"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6t8gpdbjwn137vfnjjktn",
+            "totals": {
+              "tax": "610",
+              "total": "4000",
+              "discount": "0",
+              "subtotal": "3390"
+            },
+            "product": {
+              "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+              "name": "Sikemux Team",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:24.187Z",
+              "updated_at": "2026-11-16T03:30:24.187Z",
+              "custom_data": {
+                "product": "team"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "quantity": 2,
+            "tax_rate": "0.18",
+            "proration": {
+              "rate": "0.99998",
+              "billing_period": {
+                "ends_at": "2026-12-16T03:35:47.986768Z",
+                "starts_at": "2026-11-16T03:36:05.12Z"
+              }
+            },
+            "unit_totals": {
+              "tax": "305",
+              "total": "2000",
+              "discount": "0",
+              "subtotal": "1695"
+            }
+          }
+        ],
+        "payout_totals": {
+          "fee": "250",
+          "tax": "610",
+          "total": "4000",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "3140",
+          "fee_rate": "0.05",
+          "subtotal": "3390",
+          "grand_total": "4000",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "grand_total_tax": "610",
+          "credit_to_balance": "0"
+        },
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "610",
+              "total": "4000",
+              "discount": "0",
+              "subtotal": "3390"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": "250",
+          "tax": "610",
+          "total": "4000",
+          "earnings": "3140",
+          "subtotal": "3390",
+          "grand_total": "4000",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "610"
+        },
+        "adjusted_payout_totals": {
+          "fee": "250",
+          "tax": "610",
+          "total": "4000",
+          "earnings": "3140",
+          "subtotal": "3390",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "chargeback_fee": {
+            "amount": "0",
+            "original": null
+          }
+        }
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6t8ftqse6bq56bn2fe2jp"
+      },
+      "payments": [
+        {
+          "amount": "4000",
+          "status": "captured",
+          "created_at": "2026-11-16T03:36:05.462038Z",
+          "error_code": null,
+          "captured_at": "2026-11-16T03:36:07.588891Z",
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "4242",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Tomas Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6smpq4p6rqr3ccxea2229",
+          "payment_attempt_id": "ebc965a3-c22f-4769-83c0-a4d123c3e4d1",
+          "stored_payment_method_id": "40743339-d8d3-4567-87c3-30b69cd54d24"
+        }
+      ],
+      "billed_at": "2026-11-16T03:36:05.370851Z",
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:36:05.423537Z",
+      "invoice_id": "inv_01m7h6tax5s8s4szmn646jwjpm",
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:36:08.758893309Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      },
+      "invoice_number": "150672-10004",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": "sub_01m7h6sr15kpcxsgs30ffgh74q"
+    },
+    "event_id": "evt_01m7h6tbsxggwb4ca4b0cdcz9h",
+    "event_type": "transaction.completed",
+    "occurred_at": "2026-11-16T03:36:08.765391Z",
+    "notification_id": "ntf_01m7h6tc5cd6mszyyvs4eg88s3"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6sr15kpcxsgs30ffgh74q",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "name": "Sikemux Team",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:24.187Z",
+            "updated_at": "2026-11-16T03:30:24.187Z",
+            "custom_data": {
+              "product": "team"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 2,
+          "recurring": true,
+          "created_at": "2026-11-16T03:35:48.517Z",
+          "updated_at": "2026-11-16T03:36:22.272Z",
+          "trial_dates": null,
+          "next_billed_at": "2026-12-16T03:35:47.986768Z",
+          "previously_billed_at": "2026-11-16T03:36:22.272Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:35:48.517Z",
+      "started_at": "2026-11-16T03:35:47.986768Z",
+      "updated_at": "2026-11-16T03:36:22.366Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2026-12-16T03:35:47.986768Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:35:47.986768Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      }
+    },
+    "event_id": "evt_01m7h6tse6r4hqwcrm742v18jj",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:36:22.726195Z",
+    "notification_id": "ntf_01m7h6tsvp09bwnq6famnep33y"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6tsarw3eysyp530v9a1r4",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": -2,
+          "proration": {
+            "rate": "0.99998",
+            "billing_period": {
+              "ends_at": "2026-12-16T03:35:47.986768Z",
+              "starts_at": "2026-11-16T03:36:22.278Z"
+            }
+          }
+        },
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": -2,
+          "proration": null
+        }
+      ],
+      "origin": "subscription_update",
+      "status": "completed",
+      "details": {
+        "totals": {
+          "fee": "0",
+          "tax": "-1220",
+          "total": "-8000",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "0",
+          "subtotal": "-6780",
+          "grand_total": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "0",
+          "credit_to_balance": "8000"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6tsbkfyxw2mgvxcs64kjb",
+            "totals": {
+              "tax": "-610",
+              "total": "-4000",
+              "discount": "0",
+              "subtotal": "-3390"
+            },
+            "product": {
+              "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+              "name": "Sikemux Team",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:24.187Z",
+              "updated_at": "2026-11-16T03:30:24.187Z",
+              "custom_data": {
+                "product": "team"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "quantity": -2,
+            "tax_rate": "0.18",
+            "proration": {
+              "rate": "0.99998",
+              "billing_period": {
+                "ends_at": "2026-12-16T03:35:47.986768Z",
+                "starts_at": "2026-11-16T03:36:22.278Z"
+              }
+            },
+            "unit_totals": {
+              "tax": "305",
+              "total": "2000",
+              "discount": "0",
+              "subtotal": "1695"
+            }
+          },
+          {
+            "id": "txnitm_01m7h6tsbkfyxw2mgvxge42amr",
+            "totals": {
+              "tax": "-610",
+              "total": "-4000",
+              "discount": "0",
+              "subtotal": "-3390"
+            },
+            "product": {
+              "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+              "name": "Sikemux Team",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:24.187Z",
+              "updated_at": "2026-11-16T03:30:24.187Z",
+              "custom_data": {
+                "product": "team"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "quantity": -2,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "305",
+              "total": "2000",
+              "discount": "0",
+              "subtotal": "1695"
+            }
+          }
+        ],
+        "payout_totals": {
+          "fee": "0",
+          "tax": "-1220",
+          "total": "-8000",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "0",
+          "fee_rate": "0",
+          "subtotal": "-6780",
+          "grand_total": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "grand_total_tax": "0",
+          "credit_to_balance": "8000"
+        },
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "-1220",
+              "total": "-8000",
+              "discount": "0",
+              "subtotal": "-6780"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": "0",
+          "tax": "-1220",
+          "total": "-8000",
+          "earnings": "0",
+          "subtotal": "-6780",
+          "grand_total": "0",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "0"
+        },
+        "adjusted_payout_totals": {
+          "fee": "0",
+          "tax": "-1220",
+          "total": "-8000",
+          "earnings": "0",
+          "subtotal": "-6780",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "chargeback_fee": {
+            "amount": "0",
+            "original": null
+          }
+        }
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6tsarw3eysyp530v9a1r4"
+      },
+      "payments": [],
+      "billed_at": "2026-11-16T03:36:22.616707Z",
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:36:22.662307Z",
+      "invoice_id": "inv_01m7h6tsvgpxfygrkh1fgrgvby",
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:36:24.350271289Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      },
+      "invoice_number": "150672-10005",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": "sub_01m7h6sr15kpcxsgs30ffgh74q"
+    },
+    "event_id": "evt_01m7h6tv121401jcg3f876stcg",
+    "event_type": "transaction.completed",
+    "occurred_at": "2026-11-16T03:36:24.354770Z",
+    "notification_id": "ntf_01m7h6tvh17hn0e312qfs046tf"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6sr15kpcxsgs30ffgh74q",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fvj7syx0e6121e2zt61b",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1000,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:24.455Z",
+            "product_id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "unit_price": {
+              "amount": "2000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:24.455Z",
+            "custom_data": {
+              "product": "team",
+              "interval": "month"
+            },
+            "description": "Team, monthly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6fv9vbds0eemnzn3yb26d",
+            "name": "Sikemux Team",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:24.187Z",
+            "updated_at": "2026-11-16T03:30:24.187Z",
+            "custom_data": {
+              "product": "team"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:35:48.517Z",
+          "updated_at": "2026-11-16T03:36:55.758Z",
+          "trial_dates": null,
+          "next_billed_at": "2026-12-16T03:35:47.986768Z",
+          "previously_billed_at": "2026-11-16T03:36:22.272Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6seyfnah17q0a6vyym25e",
+      "created_at": "2026-11-16T03:35:48.517Z",
+      "started_at": "2026-11-16T03:35:47.986768Z",
+      "updated_at": "2026-11-16T03:36:55.765Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "subscription": "sub_01m7h6sr15kpcxsgs30ffgh74q",
+        "held": {
+          "until": "2026-12-16T03:35:47.986Z",
+          "product": "team",
+          "interval": "month",
+          "quantity": 2
+        },
+        "customer_ref": "00000000-0000-4000-8000-0000000070a5"
+      },
+      "customer_id": "ctm_01m7h6sexycpcb50w5t1fafkgk",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2026-12-16T03:35:47.986768Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:35:47.986768Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2026-12-16T03:35:47.986768Z",
+        "starts_at": "2026-11-16T03:35:47.986768Z"
+      }
+    },
+    "event_id": "evt_01m7h6vswx359p1eh0ptzab5gn",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:36:55.965837Z",
+    "notification_id": "ntf_01m7h6vt9cmbxehwrcp5x39e71"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftyjq6ee7fcywbxz9pvp",
+            "name": "Yearly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.826Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "8000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.826Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "year"
+            },
+            "description": "Pro, yearly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "year",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "name": "Sikemux Pro",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:23.23Z",
+            "updated_at": "2026-11-16T03:30:23.23Z",
+            "custom_data": {
+              "product": "pro"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:34:40.834Z",
+          "updated_at": "2026-11-16T03:34:40.834Z",
+          "trial_dates": null,
+          "next_billed_at": null,
+          "previously_billed_at": "2026-11-16T03:34:40.834Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:34:05.523Z",
+      "started_at": "2026-11-16T03:34:04.9287Z",
+      "updated_at": "2026-11-16T03:37:15.227Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": null,
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:34:04.9287Z",
+      "scheduled_change": {
+        "items": null,
+        "action": "cancel",
+        "resume_at": null,
+        "effective_at": "2027-11-16T03:34:40.824Z"
+      },
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2027-11-16T03:34:40.824Z",
+        "starts_at": "2026-11-16T03:34:40.824Z"
+      }
+    },
+    "event_id": "evt_01m7h6wcsxx12xzekr0gknyzhd",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:37:15.325481Z",
+    "notification_id": "ntf_01m7h6wd434krd9s7695rynxan"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftyjq6ee7fcywbxz9pvp",
+            "name": "Yearly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.826Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "8000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.826Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "year"
+            },
+            "description": "Pro, yearly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "year",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "name": "Sikemux Pro",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:23.23Z",
+            "updated_at": "2026-11-16T03:30:23.23Z",
+            "custom_data": {
+              "product": "pro"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:34:40.834Z",
+          "updated_at": "2026-11-16T03:34:40.834Z",
+          "trial_dates": null,
+          "next_billed_at": "2027-11-16T03:34:40.824Z",
+          "previously_billed_at": "2026-11-16T03:34:40.834Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:34:05.523Z",
+      "started_at": "2026-11-16T03:34:04.9287Z",
+      "updated_at": "2026-11-16T03:37:23.759Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2027-11-16T03:34:40.824Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:34:04.9287Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2027-11-16T03:34:40.824Z",
+        "starts_at": "2026-11-16T03:34:40.824Z"
+      }
+    },
+    "event_id": "evt_01m7h6wn49y1t268a47yq89qa1",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:37:23.849582Z",
+    "notification_id": "ntf_01m7h6wnk9ckqfwqw3csxma1xq"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6ftyjq6ee7fcywbxz9pvp",
+            "name": "Yearly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 1,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:23.826Z",
+            "product_id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "unit_price": {
+              "amount": "8000",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:23.826Z",
+            "custom_data": {
+              "product": "pro",
+              "interval": "year"
+            },
+            "description": "Pro, yearly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "year",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6ftbybsm2a5k6sg9fzz5c",
+            "name": "Sikemux Pro",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:23.23Z",
+            "updated_at": "2026-11-16T03:30:23.23Z",
+            "custom_data": {
+              "product": "pro"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:34:40.834Z",
+          "updated_at": "2026-11-16T03:34:40.834Z",
+          "trial_dates": null,
+          "next_billed_at": null,
+          "previously_billed_at": "2026-11-16T03:34:40.834Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6p2rnejrgpyy45g3m993r",
+      "created_at": "2026-11-16T03:34:05.523Z",
+      "started_at": "2026-11-16T03:34:04.9287Z",
+      "updated_at": "2026-11-16T03:37:48.304Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000a1e5"
+      },
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "year",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": null,
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:34:04.9287Z",
+      "scheduled_change": {
+        "items": null,
+        "action": "cancel",
+        "resume_at": null,
+        "effective_at": "2027-11-16T03:34:40.824Z"
+      },
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2027-11-16T03:34:40.824Z",
+        "starts_at": "2026-11-16T03:34:40.824Z"
+      }
+    },
+    "event_id": "evt_01m7h6xd3gfn1yenvsvstdsf7z",
+    "event_type": "subscription.updated",
+    "occurred_at": "2026-11-16T03:37:48.400391Z",
+    "notification_id": "ntf_01m7h6xdhqsef72ynm5wep610x"
+  },
+  {
+    "data": {
+      "id": "adj_01m7h6xdd79gnxatqhs51j912v",
+      "type": "full",
+      "items": [
+        {
+          "id": "adjitm_01m7h6xddjy74z59narwctejky",
+          "type": "full",
+          "amount": "800",
+          "totals": {
+            "tax": "122",
+            "total": "800",
+            "subtotal": "678"
+          },
+          "item_id": "txnitm_01m7h6p2z5em8hdqd12fb6k06v",
+          "proration": null
+        }
+      ],
+      "action": "refund",
+      "reason": "A first payment refunded on request within the refund window.",
+      "status": "pending_approval",
+      "totals": {
+        "fee": "90",
+        "tax": "122",
+        "total": "800",
+        "earnings": "588",
+        "subtotal": "678",
+        "retained_fee": "0",
+        "currency_code": "USD"
+      },
+      "created_at": "2026-11-16T03:37:48.734842Z",
+      "updated_at": "2026-11-16T03:37:48.734842Z",
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "currency_code": "USD",
+      "payout_totals": {
+        "fee": "90",
+        "tax": "122",
+        "total": "800",
+        "earnings": "588",
+        "subtotal": "678",
+        "retained_fee": "0",
+        "currency_code": "USD"
+      },
+      "tax_rates_used": [
+        {
+          "totals": {
+            "tax": "122",
+            "total": "800",
+            "subtotal": "678"
+          },
+          "tax_rate": "0.18"
+        }
+      ],
+      "transaction_id": "txn_01m7h6nmtb8zbrts58cf5ee3f0",
+      "subscription_id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "credit_applied_to_balance": null
+    },
+    "event_id": "evt_01m7h6xde8yzsc24681wr6ztgf",
+    "event_type": "adjustment.created",
+    "occurred_at": "2026-11-16T03:37:48.744019Z",
+    "notification_id": "ntf_01m7h6xdwyqyjjbbn5py1mpyf9"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6xs3emz5drgqj6vk0r7ht",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fw4bdr1k2wb8trahw22n",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 20,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:25.035Z",
+            "product_id": "pro_01m7h6fvw5ajvbm5z1mqb1przw",
+            "unit_price": {
+              "amount": "1900",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:25.035Z",
+            "custom_data": {
+              "product": "shed",
+              "interval": "month"
+            },
+            "description": "Shed, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": 1,
+          "proration": null
+        }
+      ],
+      "origin": "api",
+      "status": "ready",
+      "details": {
+        "totals": {
+          "fee": null,
+          "tax": "290",
+          "total": "1900",
+          "credit": "0",
+          "balance": "1900",
+          "discount": "0",
+          "earnings": null,
+          "subtotal": "1610",
+          "grand_total": "1900",
+          "currency_code": "USD",
+          "grand_total_tax": "290",
+          "credit_to_balance": "0"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6xzg4d6w0ex4neyw0xjs9",
+            "totals": {
+              "tax": "290",
+              "total": "1900",
+              "discount": "0",
+              "subtotal": "1610"
+            },
+            "product": {
+              "id": "pro_01m7h6fvw5ajvbm5z1mqb1przw",
+              "name": "Sikemux Shed",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:24.773Z",
+              "updated_at": "2026-11-16T03:30:24.773Z",
+              "custom_data": {
+                "product": "shed"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6fw4bdr1k2wb8trahw22n",
+            "quantity": 1,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "290",
+              "total": "1900",
+              "discount": "0",
+              "subtotal": "1610"
+            }
+          }
+        ],
+        "payout_totals": null,
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "290",
+              "total": "1900",
+              "discount": "0",
+              "subtotal": "1610"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": null,
+          "tax": "290",
+          "total": "1900",
+          "earnings": null,
+          "subtotal": "1610",
+          "grand_total": "1900",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "290"
+        },
+        "adjusted_payout_totals": null
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6xs3emz5drgqj6vk0r7ht"
+      },
+      "payments": [
+        {
+          "amount": "1900",
+          "status": "error",
+          "created_at": "2026-11-16T03:38:13.220686Z",
+          "error_code": "declined",
+          "captured_at": null,
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "0002",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Priya Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6y5cwgaz0r0qsh61n4h7y",
+          "payment_attempt_id": "dd20cb80-9c4b-4e57-9a25-7dd3c09d7a6f",
+          "stored_payment_method_id": "40647c24-8a0d-4c02-93cf-d15ece8f1b55"
+        }
+      ],
+      "billed_at": null,
+      "address_id": "add_01m7h6xza3zp31yrbepbytf1nq",
+      "created_at": "2026-11-16T03:38:00.707083Z",
+      "invoice_id": null,
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:38:07.238542Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000b71a"
+      },
+      "customer_id": "ctm_01m7h6xz9ntz4k9jv790aj9rd9",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": null,
+      "invoice_number": null,
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": null
+    },
+    "event_id": "evt_01m7h6y7eknhssdvv3acjr591e",
+    "event_type": "transaction.payment_failed",
+    "occurred_at": "2026-11-16T03:38:15.379045Z",
+    "notification_id": "ntf_01m7h6y7xqvkd5d1bwtxhjamhm"
+  },
+  {
+    "data": {
+      "id": "sub_01m7h6yxh4tqcch8d91qx80m66",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fw4bdr1k2wb8trahw22n",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 20,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:25.035Z",
+            "product_id": "pro_01m7h6fvw5ajvbm5z1mqb1przw",
+            "unit_price": {
+              "amount": "1900",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:25.035Z",
+            "custom_data": {
+              "product": "shed",
+              "interval": "month"
+            },
+            "description": "Shed, monthly",
+            "import_meta": null,
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "status": "active",
+          "product": {
+            "id": "pro_01m7h6fvw5ajvbm5z1mqb1przw",
+            "name": "Sikemux Shed",
+            "type": "standard",
+            "status": "active",
+            "image_url": null,
+            "created_at": "2026-11-16T03:30:24.773Z",
+            "updated_at": "2026-11-16T03:30:24.773Z",
+            "custom_data": {
+              "product": "shed"
+            },
+            "description": null,
+            "tax_category": "saas"
+          },
+          "quantity": 1,
+          "recurring": true,
+          "created_at": "2026-11-16T03:38:37.988Z",
+          "updated_at": "2026-11-16T03:38:37.988Z",
+          "trial_dates": null,
+          "next_billed_at": "2026-12-16T03:38:37.567266Z",
+          "previously_billed_at": "2026-11-16T03:38:37.567266Z"
+        }
+      ],
+      "status": "active",
+      "discount": null,
+      "paused_at": null,
+      "address_id": "add_01m7h6xza3zp31yrbepbytf1nq",
+      "created_at": "2026-11-16T03:38:37.988Z",
+      "started_at": "2026-11-16T03:38:37.567266Z",
+      "updated_at": "2026-11-16T03:38:37.988Z",
+      "business_id": null,
+      "canceled_at": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000b71a"
+      },
+      "customer_id": "ctm_01m7h6xz9ntz4k9jv790aj9rd9",
+      "import_meta": null,
+      "billing_cycle": {
+        "interval": "month",
+        "frequency": 1
+      },
+      "currency_code": "USD",
+      "next_billed_at": "2026-12-16T03:38:37.567266Z",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "first_billed_at": "2026-11-16T03:38:37.567266Z",
+      "scheduled_change": null,
+      "consent_requirements": [],
+      "current_billing_period": {
+        "ends_at": "2026-12-16T03:38:37.567266Z",
+        "starts_at": "2026-11-16T03:38:37.567266Z"
+      }
+    },
+    "event_id": "evt_01m7h6yxp2jwkq24nwej9vy26b",
+    "event_type": "subscription.activated",
+    "occurred_at": "2026-11-16T03:38:38.146214Z",
+    "notification_id": "ntf_01m7h6yxzkgbvdkb16esj68sn3"
+  },
+  {
+    "data": {
+      "id": "txn_01m7h6xs3emz5drgqj6vk0r7ht",
+      "items": [
+        {
+          "price": {
+            "id": "pri_01m7h6fw4bdr1k2wb8trahw22n",
+            "name": "Monthly",
+            "type": "standard",
+            "status": "active",
+            "quantity": {
+              "maximum": 20,
+              "minimum": 1
+            },
+            "tax_mode": "location",
+            "created_at": "2026-11-16T03:30:25.035Z",
+            "product_id": "pro_01m7h6fvw5ajvbm5z1mqb1przw",
+            "unit_price": {
+              "amount": "1900",
+              "currency_code": "USD"
+            },
+            "updated_at": "2026-11-16T03:30:25.035Z",
+            "custom_data": {
+              "product": "shed",
+              "interval": "month"
+            },
+            "description": "Shed, monthly",
+            "trial_period": null,
+            "billing_cycle": {
+              "interval": "month",
+              "frequency": 1
+            },
+            "unit_price_overrides": []
+          },
+          "quantity": 1,
+          "proration": null
+        }
+      ],
+      "origin": "api",
+      "status": "completed",
+      "details": {
+        "totals": {
+          "fee": "145",
+          "tax": "290",
+          "total": "1900",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "1465",
+          "subtotal": "1610",
+          "grand_total": "1900",
+          "currency_code": "USD",
+          "grand_total_tax": "290",
+          "credit_to_balance": "0"
+        },
+        "line_items": [
+          {
+            "id": "txnitm_01m7h6xzg4d6w0ex4neyw0xjs9",
+            "totals": {
+              "tax": "290",
+              "total": "1900",
+              "discount": "0",
+              "subtotal": "1610"
+            },
+            "product": {
+              "id": "pro_01m7h6fvw5ajvbm5z1mqb1przw",
+              "name": "Sikemux Shed",
+              "type": "standard",
+              "status": "active",
+              "image_url": null,
+              "created_at": "2026-11-16T03:30:24.773Z",
+              "updated_at": "2026-11-16T03:30:24.773Z",
+              "custom_data": {
+                "product": "shed"
+              },
+              "description": null,
+              "tax_category": "saas"
+            },
+            "price_id": "pri_01m7h6fw4bdr1k2wb8trahw22n",
+            "quantity": 1,
+            "tax_rate": "0.18",
+            "unit_totals": {
+              "tax": "290",
+              "total": "1900",
+              "discount": "0",
+              "subtotal": "1610"
+            }
+          }
+        ],
+        "payout_totals": {
+          "fee": "145",
+          "tax": "290",
+          "total": "1900",
+          "credit": "0",
+          "balance": "0",
+          "discount": "0",
+          "earnings": "1465",
+          "fee_rate": "0.05",
+          "subtotal": "1610",
+          "grand_total": "1900",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "grand_total_tax": "290",
+          "credit_to_balance": "0"
+        },
+        "tax_rates_used": [
+          {
+            "totals": {
+              "tax": "290",
+              "total": "1900",
+              "discount": "0",
+              "subtotal": "1610"
+            },
+            "tax_rate": "0.18"
+          }
+        ],
+        "adjusted_totals": {
+          "fee": "145",
+          "tax": "290",
+          "total": "1900",
+          "earnings": "1465",
+          "subtotal": "1610",
+          "grand_total": "1900",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "grand_total_tax": "290"
+        },
+        "adjusted_payout_totals": {
+          "fee": "145",
+          "tax": "290",
+          "total": "1900",
+          "earnings": "1465",
+          "subtotal": "1610",
+          "retained_fee": "0",
+          "currency_code": "USD",
+          "exchange_rate": "1",
+          "chargeback_fee": {
+            "amount": "0",
+            "original": null
+          }
+        }
+      },
+      "checkout": {
+        "url": "https://app.sikemux.com/pay?_ptxn=txn_01m7h6xs3emz5drgqj6vk0r7ht"
+      },
+      "payments": [
+        {
+          "amount": "1900",
+          "status": "captured",
+          "created_at": "2026-11-16T03:38:36.624507Z",
+          "error_code": null,
+          "captured_at": "2026-11-16T03:38:37.567266Z",
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "4242",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Priya Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6yw7a6d6q8cqt7wx93x36",
+          "payment_attempt_id": "7f7edde9-e1b1-4d73-a7a1-9a4e37f54a9e",
+          "stored_payment_method_id": "c10d68f9-82a2-457c-8a61-90fb0c6119ab"
+        },
+        {
+          "amount": "1900",
+          "status": "error",
+          "created_at": "2026-11-16T03:38:13.220686Z",
+          "error_code": "declined",
+          "captured_at": null,
+          "method_details": {
+            "card": {
+              "type": "visa",
+              "last4": "0002",
+              "expiry_year": 2030,
+              "expiry_month": 12,
+              "cardholder_name": "Priya Walk"
+            },
+            "type": "card",
+            "paypal": null,
+            "south_korea_local_card": null
+          },
+          "payment_method_id": "paymtd_01m7h6y5cwgaz0r0qsh61n4h7y",
+          "payment_attempt_id": "dd20cb80-9c4b-4e57-9a25-7dd3c09d7a6f",
+          "stored_payment_method_id": "40647c24-8a0d-4c02-93cf-d15ece8f1b55"
+        }
+      ],
+      "billed_at": "2026-11-16T03:38:37.644817Z",
+      "address_id": "add_01m7h6xza3zp31yrbepbytf1nq",
+      "created_at": "2026-11-16T03:38:00.707083Z",
+      "invoice_id": "inv_01m7h6yxh9rstmn5swrz4dvynz",
+      "revised_at": null,
+      "updated_at": "2026-11-16T03:38:38.881444615Z",
+      "business_id": null,
+      "custom_data": {
+        "customer_ref": "00000000-0000-4000-8000-00000000b71a"
+      },
+      "customer_id": "ctm_01m7h6xz9ntz4k9jv790aj9rd9",
+      "discount_id": null,
+      "receipt_data": null,
+      "currency_code": "USD",
+      "billing_period": {
+        "ends_at": "2026-12-16T03:38:37.567266Z",
+        "starts_at": "2026-11-16T03:38:37.567266Z"
+      },
+      "invoice_number": "150672-10006",
+      "billing_details": null,
+      "collection_mode": "automatic",
+      "subscription_id": "sub_01m7h6yxh4tqcch8d91qx80m66"
+    },
+    "event_id": "evt_01m7h6yyd7asqhn83wa5wzrc15",
+    "event_type": "transaction.completed",
+    "occurred_at": "2026-11-16T03:38:38.887712Z",
+    "notification_id": "ntf_01m7h6yyt7td0rtx4tpzx5d4at"
+  },
+  {
+    "data": {
+      "id": "adj_01m7h6xdd79gnxatqhs51j912v",
+      "type": "full",
+      "items": [
+        {
+          "id": "adjitm_01m7h6xddjy74z59narwctejky",
+          "type": "full",
+          "amount": "800",
+          "totals": {
+            "tax": "122",
+            "total": "800",
+            "subtotal": "678"
+          },
+          "item_id": "txnitm_01m7h6p2z5em8hdqd12fb6k06v",
+          "proration": null
+        }
+      ],
+      "action": "refund",
+      "reason": "A first payment refunded on request within the refund window.",
+      "status": "approved",
+      "totals": {
+        "fee": "90",
+        "tax": "122",
+        "total": "800",
+        "earnings": "588",
+        "subtotal": "678",
+        "retained_fee": "90",
+        "currency_code": "USD"
+      },
+      "created_at": "2026-11-16T03:37:48.734842Z",
+      "updated_at": "2026-11-16T03:40:00.542547Z",
+      "customer_id": "ctm_01m7h6p2r8435vda5jk1j2j1jc",
+      "currency_code": "USD",
+      "payout_totals": {
+        "fee": "90",
+        "tax": "122",
+        "total": "800",
+        "earnings": "588",
+        "subtotal": "678",
+        "retained_fee": "90",
+        "currency_code": "USD"
+      },
+      "tax_rates_used": [
+        {
+          "totals": {
+            "tax": "122",
+            "total": "800",
+            "subtotal": "678"
+          },
+          "tax_rate": "0.18"
+        }
+      ],
+      "transaction_id": "txn_01m7h6nmtb8zbrts58cf5ee3f0",
+      "subscription_id": "sub_01m7h6pkekbvd0k65gd38d1ayq",
+      "credit_applied_to_balance": null
+    },
+    "event_id": "evt_01m7h71e5ee1w4jyhs0enzgc1p",
+    "event_type": "adjustment.updated",
+    "occurred_at": "2026-11-16T03:40:00.558200Z",
+    "notification_id": "ntf_01m7h71ejgj93tchxgsh7vyh6n"
+  }
+]

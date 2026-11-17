@@ -3,31 +3,33 @@
 //! each names the file and opens or reveals it. Another host's pictures and documents
 //! are shown from a read-only copy brought over to this disk.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use base64::Engine;
-use gpui::PinchEvent;
+use gpui::{PinchEvent, ScrollEvent};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, img, px, uniform_list, AnyElement, App, Context, Entity, FontWeight,
-    ImgResourceLoader, InteractiveElement, IntoElement, ObjectFit, ParentElement, Pixels,
-    RenderOnce, Resource, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage,
-    Window,
+    canvas, div, img, point, px, size, uniform_list, AnyElement, App, Bounds, Context, Entity,
+    FontWeight, ImgResourceLoader, InteractiveElement, IntoElement, ObjectFit, ParentElement,
+    Pixels, Point, RenderOnce, Resource, SharedString, Size, Styled, StyledImage, Window,
 };
-use serde_json::json;
 
 use super::{copies, Editors, FileKey};
 use crate::core::Target;
-use crate::hosts::Place as Host;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_SM, TEXT_XS,
 };
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_git::files::FileBytesParams;
+use sikemux_git::files::FilePreviewParams;
 
 /// How much of a file the byte view shows.
 const SHOWN_BYTES: u64 = 64 * 1024;
@@ -35,19 +37,22 @@ const BYTES_PER_ROW: usize = 16;
 
 /// Extensions that are never text, so the file goes straight to a viewer.
 const NOT_TEXT: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic",
-    "heif", "psd", "pdf", "ttf", "otf", "woff", "woff2", "mp4", "m4v", "mov", "webm", "mkv", "avi",
-    "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "ogg", "oga", "opus", "doc", "docx", "xls",
-    "xlsx", "ppt", "pptx", "rtf", "odt", "ods", "odp", "pages", "numbers", "epub", "zip", "gz",
-    "tgz", "bz2", "xz", "7z", "rar", "tar", "jar", "dmg", "iso", "exe", "dll", "so", "dylib", "o",
-    "a", "class", "pyc", "wasm", "sqlite", "sqlite3",
+    "psd", "pdf", "ttf", "otf", "woff", "woff2", "mp4", "m4v", "mov", "webm", "mkv", "avi", "mp3",
+    "m4a", "aac", "wav", "flac", "aif", "aiff", "ogg", "oga", "opus", "doc", "docx", "xls", "xlsx",
+    "ppt", "pptx", "rtf", "odt", "ods", "odp", "pages", "numbers", "epub", "zip", "gz", "tgz",
+    "bz2", "xz", "7z", "rar", "tar", "jar", "dmg", "iso", "exe", "dll", "so", "dylib", "o", "a",
+    "class", "pyc", "wasm", "sqlite", "sqlite3",
 ];
 
 /// Whether a file is shown in a viewer without being read as text first.
 pub(super) fn not_text(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| NOT_TEXT.contains(&extension.to_ascii_lowercase().as_str()))
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|extension| {
+            let extension = extension.as_str();
+            NOT_TEXT.contains(&extension) || crate::ui::path::IMAGE_EXTENSIONS.contains(&extension)
+        })
 }
 
 /// A file shown for what it is, once the core says what that is.
@@ -55,8 +60,10 @@ pub(super) fn not_text(path: &Path) -> bool {
 pub(super) struct Viewer {
     about: Option<About>,
     zoom: Zoom,
-    /// The room a picture is shown in, as last drawn.
-    room: Rc<Cell<Size<Pixels>>>,
+    /// Where a scaled picture's top left corner sits in its room.
+    pan: Point<Pixels>,
+    /// The room a picture is shown in, in the window, as last drawn.
+    room: Rc<Cell<Bounds<Pixels>>>,
     bytes: Option<Vec<u8>>,
     /// Where a picture or document is read from on this disk: the file itself, or
     /// the copy of another host's.
@@ -84,11 +91,13 @@ enum Zoom {
 const ZOOM_STEP: f32 = 1.25;
 const ZOOM_RANGE: (f32, f32) = (0.1, 8.);
 
-/// A picture fitted to the pane, or at a scale of its own size.
+/// A picture fitted to the pane, or at a scale of its own size placed where it was panned.
 #[derive(IntoElement)]
 struct Picture {
     path: PathBuf,
     zoom: Zoom,
+    pan: Point<Pixels>,
+    room: Size<Pixels>,
 }
 
 impl RenderOnce for Picture {
@@ -103,15 +112,43 @@ impl RenderOnce for Picture {
             .and_then(Result::ok)
             .map(|image| image.size(0));
         match natural {
-            Some(size) => picture
-                .flex_none()
-                .m_auto()
-                .w(px(size.width.0 as f32 * scale))
-                .h(px(size.height.0 as f32 * scale))
-                .object_fit(ObjectFit::Fill),
+            Some(natural) => {
+                let shown = scaled(natural, scale);
+                let at = clamp_pan(self.pan, shown, self.room);
+                picture
+                    .absolute()
+                    .left(at.x)
+                    .top(at.y)
+                    .w(shown.width)
+                    .h(shown.height)
+                    .object_fit(ObjectFit::Fill)
+            }
             None => picture.object_fit(ObjectFit::None),
         }
     }
+}
+
+fn scaled(natural: Size<gpui::DevicePixels>, scale: f32) -> Size<Pixels> {
+    size(
+        px(natural.width.0 as f32 * scale),
+        px(natural.height.0 as f32 * scale),
+    )
+}
+
+/// Keeps a picture larger than its room covering it, and centres one smaller.
+fn clamp_pan(pan: Point<Pixels>, shown: Size<Pixels>, room: Size<Pixels>) -> Point<Pixels> {
+    let axis = |pan: Pixels, shown: Pixels, room: Pixels| {
+        let (pan, shown, room) = (f32::from(pan), f32::from(shown), f32::from(room));
+        px(if shown <= room {
+            (room - shown) / 2.
+        } else {
+            pan.clamp(room - shown, 0.)
+        })
+    };
+    point(
+        axis(pan.x, shown.width, room.width),
+        axis(pan.y, shown.height, room.height),
+    )
 }
 
 #[derive(PartialEq)]
@@ -176,16 +213,12 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
     cx.spawn(async move |_, cx| {
         let name = key.path.to_string_lossy().into_owned();
         let about = target
-            .request("files.preview", json!({ "path": name }))
+            .request_typed::<call::FilesPreview>(FilePreviewParams { path: name.clone() })
             .await;
         let about = match about {
             Ok(about) => About {
-                mime: about["mime"]
-                    .as_str()
-                    .unwrap_or("application/octet-stream")
-                    .to_owned()
-                    .into(),
-                size: about["size"].as_u64().unwrap_or(0),
+                mime: about.mime.into(),
+                size: about.size,
             },
             Err(error) => {
                 let _ = editors.update(cx, |editors, cx| {
@@ -201,8 +234,8 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
         let shown_here = matches!(kind, Kind::Image | Kind::Document);
         let local = match &key.place {
             _ if !shown_here => None,
-            Host::This => Some(key.path.clone()),
-            Host::Account(_) => {
+            Place::This => Some(key.path.clone()),
+            Place::Account(_) => {
                 match copies::bring(editors.clone(), target.clone(), key.clone(), about.size, cx)
                     .await
                 {
@@ -221,14 +254,18 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
         };
         let bytes = match kind {
             Kind::Bytes => {
-                let read = json!({ "path": name, "at": 0, "length": SHOWN_BYTES });
+                let read = FileBytesParams {
+                    path: name,
+                    at: 0,
+                    length: SHOWN_BYTES,
+                };
                 target
-                    .request("files.bytes", read)
+                    .request_typed::<call::FilesBytes>(read)
                     .await
                     .ok()
                     .and_then(|read| {
                         base64::engine::general_purpose::STANDARD
-                            .decode(read["base64"].as_str()?)
+                            .decode(read.base64)
                             .ok()
                     })
             }
@@ -290,13 +327,13 @@ pub(super) fn reopen(bench: &mut Workbench, keys: &[FileKey], cx: &mut Context<W
     for key in keys {
         let shown_here =
             (bench.editors.read(cx).viewers.get(key)).is_some_and(|viewer| viewer.local.is_some());
-        if shown_here && key.place != Host::This {
+        if shown_here && key.place != Place::This {
             load(bench, key.clone(), cx);
         }
     }
     let viewers = &bench.editors.read(cx).viewers;
     let pictures: Vec<&FileKey> = (keys.iter())
-        .filter(|key| key.place == Host::This)
+        .filter(|key| key.place == Place::This)
         .filter(|key| {
             (viewers.get(*key))
                 .and_then(|viewer| viewer.about.as_ref())
@@ -310,7 +347,7 @@ pub(super) fn reopen(bench: &mut Workbench, keys: &[FileKey], cx: &mut Context<W
         bench.editors.update(cx, |_, cx| cx.notify());
     }
     #[cfg(target_os = "macos")]
-    for key in keys.iter().filter(|key| key.place == Host::This) {
+    for key in keys.iter().filter(|key| key.place == Place::This) {
         if let Some((document, _, _)) = (bench.editors.read(cx).viewers.get(key))
             .and_then(|viewer| viewer.document.as_ref()?.as_ref())
         {
@@ -366,34 +403,44 @@ pub(super) fn pane(
     let kind = viewer.about.as_ref().map(|about| kind_of(&about.mime));
     let body: AnyElement = match (&viewer.failed, kind) {
         (Some(error), _) => message(error.clone(), &t),
-        (None, None) => message("Reading…".into(), &t),
+        (None, None) => message(t!("Reading…").into(), &t),
         (None, Some(Kind::Image)) => {
             let picture = Picture {
                 path: viewer.local.clone().unwrap_or_else(|| path.to_owned()),
                 zoom: viewer.zoom,
+                pan: viewer.pan,
+                room: viewer.room.get().size,
             };
-            let (room, pinched, this) = (viewer.room.clone(), key.clone(), this.clone());
+            let room = viewer.room.clone();
+            let (pinched, pinching) = (key.clone(), this.clone());
+            let (panned, panning) = (key.clone(), this.clone());
             div()
+                .id("viewer-image")
                 .size_full()
                 .relative()
+                .overflow_hidden()
+                .on_pinch(move |event: &PinchEvent, _, cx| {
+                    let factor = 1. + event.delta;
+                    pinching.update(cx, |bench, cx| {
+                        rescale(
+                            bench,
+                            &pinched,
+                            |scale| Some(scale * factor),
+                            Some(event.position),
+                            cx,
+                        )
+                    })
+                })
+                .on_scroll(move |event: &ScrollEvent, window, cx| {
+                    let delta = event.delta.pixel_delta(window.line_height());
+                    panning.update(cx, |bench, cx| pan(bench, &panned, delta, cx))
+                })
                 .child(
-                    canvas(move |bounds, _, _| room.set(bounds.size), |_, _, _, _| {})
+                    canvas(move |bounds, _, _| room.set(bounds), |_, _, _, _| {})
                         .absolute()
                         .size_full(),
                 )
-                .child(
-                    div()
-                        .id("viewer-image")
-                        .size_full()
-                        .flex()
-                        .overflow_scroll()
-                        .on_pinch(move |event: &PinchEvent, _, cx| {
-                            this.update(cx, |bench, cx| {
-                                pinch(bench, &pinched, 1. + event.delta, cx)
-                            })
-                        })
-                        .child(picture),
-                )
+                .child(picture)
                 .into_any_element()
         }
         (None, Some(Kind::Document)) => document(viewer, key, &t),
@@ -409,35 +456,87 @@ pub(super) fn pane(
         .into_any_element()
 }
 
-/// Scales the picture by `factor`, starting from the size it is fitted to while it is fitted.
-fn pinch(bench: &mut Workbench, key: &FileKey, factor: f32, cx: &mut Context<Workbench>) {
-    let Some(viewer) = bench.editors.read(cx).viewers.get(key) else {
-        return;
-    };
-    let (zoom, room) = (viewer.zoom, viewer.room.get());
+fn natural_size(
+    editors: &Editors,
+    key: &FileKey,
+    cx: &mut App,
+) -> Option<Size<gpui::DevicePixels>> {
+    let viewer = editors.viewers.get(key)?;
     let path = viewer.local.clone().unwrap_or_else(|| key.path.clone());
-    let scale = match zoom {
-        Zoom::Scale(scale) => scale,
-        Zoom::Fit => {
-            let resource = Resource::Path(Arc::from(path.as_path()));
-            let Some(natural) = cx
-                .fetch_asset::<ImgResourceLoader>(&resource)
-                .and_then(Result::ok)
-                .map(|image| image.size(0))
-            else {
-                return;
-            };
-            let wide = f32::from(room.width) / natural.width.0 as f32;
-            let tall = f32::from(room.height) / natural.height.0 as f32;
-            wide.min(tall)
-        }
-    };
-    let (least, most) = ZOOM_RANGE;
+    let resource = Resource::Path(Arc::from(path.as_path()));
+    cx.fetch_asset::<ImgResourceLoader>(&resource)
+        .and_then(Result::ok)
+        .map(|image| image.size(0))
+}
+
+/// Zooms the picture to the scale `to` picks from its current one, or fits it on
+/// none, keeping the point under `toward` (in the window) still, or the room's
+/// centre without one.
+fn rescale(
+    bench: &mut Workbench,
+    key: &FileKey,
+    to: impl FnOnce(f32) -> Option<f32>,
+    toward: Option<Point<Pixels>>,
+    cx: &mut Context<Workbench>,
+) {
     bench.editors.update(cx, |editors, cx| {
-        if let Some(viewer) = editors.viewers.get_mut(key) {
-            viewer.zoom = Zoom::Scale((scale * factor).clamp(least, most));
-        }
+        let Some(natural) = natural_size(editors, key, cx) else {
+            return;
+        };
+        let Some(viewer) = editors.viewers.get_mut(key) else {
+            return;
+        };
+        let room = viewer.room.get();
+        let (scale, pan) = match viewer.zoom {
+            Zoom::Scale(scale) => (scale, viewer.pan),
+            Zoom::Fit => {
+                let wide = f32::from(room.size.width) / natural.width.0 as f32;
+                let tall = f32::from(room.size.height) / natural.height.0 as f32;
+                (wide.min(tall), point(px(0.), px(0.)))
+            }
+        };
+        let pan = clamp_pan(pan, scaled(natural, scale), room.size);
+        let Some(next) = to(scale) else {
+            viewer.zoom = Zoom::Fit;
+            cx.notify();
+            return;
+        };
+        let (least, most) = ZOOM_RANGE;
+        let next = next.clamp(least, most);
+        let anchor = toward.map_or(point(room.size.width / 2., room.size.height / 2.), |at| {
+            at - room.origin
+        });
+        let kept = next / scale;
+        let moved = point(
+            anchor.x - (anchor.x - pan.x) * kept,
+            anchor.y - (anchor.y - pan.y) * kept,
+        );
+        viewer.zoom = Zoom::Scale(next);
+        viewer.pan = clamp_pan(moved, scaled(natural, next), room.size);
         cx.notify();
+    });
+}
+
+/// Moves a picture larger than its room by a scroll's `delta`.
+fn pan(bench: &mut Workbench, key: &FileKey, delta: Point<Pixels>, cx: &mut Context<Workbench>) {
+    bench.editors.update(cx, |editors, cx| {
+        let Some(natural) = natural_size(editors, key, cx) else {
+            return;
+        };
+        let Some(viewer) = editors.viewers.get_mut(key) else {
+            return;
+        };
+        let Zoom::Scale(scale) = viewer.zoom else {
+            return;
+        };
+        let room = viewer.room.get().size;
+        let shown = scaled(natural, scale);
+        let pan = clamp_pan(viewer.pan, shown, room);
+        let moved = clamp_pan(pan + delta, shown, room);
+        if moved != viewer.pan {
+            viewer.pan = moved;
+            cx.notify();
+        }
     });
 }
 
@@ -455,7 +554,7 @@ fn document(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
             .into_any_element()
         }
         Some(None) => {}
-        None => return message("Opening…".into(), t),
+        None => return message(t!("Opening…").into(), t),
     }
     card(viewer, key, t)
 }
@@ -466,7 +565,7 @@ fn card(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
     let about = viewer
         .about
         .as_ref()
-        .map(|about| format!("{} · {}", size(about.size), about.mime));
+        .map(|about| format!("{} · {}", crate::ui::numbers::bytes(about.size), about.mime));
     div()
         .size_full()
         .flex()
@@ -476,9 +575,13 @@ fn card(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
         .gap(SPACE_1H)
         .child(ui::icon(Icon::File, 28.).text_color(t.text_tertiary))
         .child(
-            ui::text(name_of(&key.path), TEXT_SM, FontWeight::MEDIUM)
-                .mt(SPACE_1)
-                .text_color(t.text_primary),
+            ui::text(
+                crate::ui::path::file_name(&key.path),
+                TEXT_SM,
+                FontWeight::MEDIUM,
+            )
+            .mt(SPACE_1)
+            .text_color(t.text_primary),
         )
         .children(about.map(|about| {
             div()
@@ -490,7 +593,7 @@ fn card(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
             div().mt(SPACE_2).child(
                 ui::Button::new(
                     "viewer-open-default",
-                    "Open in default app",
+                    t!("Open in default app"),
                     ui::Variant::Outline,
                 )
                 .icon(Icon::Share)
@@ -505,14 +608,7 @@ fn openable(viewer: &Viewer, key: &FileKey) -> Option<PathBuf> {
     viewer
         .local
         .clone()
-        .or_else(|| (key.place == Host::This).then(|| key.path.clone()))
-}
-
-fn name_of(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
+        .or_else(|| (key.place == Place::This).then(|| key.path.clone()))
 }
 
 fn message(text: SharedString, t: &Tokens) -> AnyElement {
@@ -566,7 +662,7 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
             .collect()
     })
     .size_full()
-    .font_family(theme::MONO)
+    .font_family(theme::mono_font())
     .text_size(crate::theme::ui_text(TEXT_XS))
     .into_any_element()
 }
@@ -577,32 +673,22 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
 fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
-    let name = name_of(path);
+    let name = crate::ui::path::file_name(path);
     let about = viewer.about.as_ref();
-    let zoom = |id: &'static str, label: &'static str, to: fn(Zoom) -> Zoom| {
+    let zoom = |id: &'static str, label: &'static str, to: fn(f32) -> Option<f32>| {
         let (this, key) = (this.clone(), key.clone());
         div()
             .id(id)
             .px(SPACE_1H)
-            .cursor_pointer()
             .text_color(t.text_secondary)
             .hover(move |style| style.text_color(t.text_primary))
-            .on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| {
-                    bench.editors.update(cx, |editors, cx| {
-                        if let Some(viewer) = editors.viewers.get_mut(&key) {
-                            viewer.zoom = to(viewer.zoom);
-                        }
-                        cx.notify();
-                    })
-                })
-            })
+            .clicks(move |_, _, cx| this.update(cx, |bench, cx| rescale(bench, &key, to, None, cx)))
             .child(label)
     };
     let image = about.is_some_and(|about| kind_of(&about.mime) == Kind::Image);
     let reload = key.clone();
     let open = openable(viewer, key);
-    let reveal = (key.place == Host::This).then(|| path.to_owned());
+    let reveal = (key.place == Place::This).then(|| path.to_owned());
     let this_reload = this.clone();
     div()
         .flex()
@@ -610,28 +696,26 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
         .gap(SPACE_2H)
         .h(px(32.))
         .px(SPACE_3)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(ui::icon(Icon::File, 14.).text_color(t.text_tertiary))
         .child(div().text_color(t.text_primary).child(name))
-        .children(about.map(|about| div().text_color(t.text_tertiary).child(size(about.size))))
+        .children(about.map(|about| {
+            div()
+                .text_color(t.text_tertiary)
+                .child(crate::ui::numbers::bytes(about.size))
+        }))
         .children(about.map(|about| div().text_color(t.text_tertiary).child(about.mime.clone())))
         .child(div().flex_1())
         .when(image, |bar| {
-            bar.child(zoom("viewer-fit", "Fit", |_| Zoom::Fit))
-                .child(zoom("viewer-actual", "1:1", |_| Zoom::Scale(1.)))
-                .child(zoom("viewer-out", "−", |zoom| match zoom {
-                    Zoom::Fit => Zoom::Scale(1. / ZOOM_STEP),
-                    Zoom::Scale(scale) => Zoom::Scale(scale / ZOOM_STEP),
-                }))
-                .child(zoom("viewer-in", "+", |zoom| match zoom {
-                    Zoom::Fit => Zoom::Scale(ZOOM_STEP),
-                    Zoom::Scale(scale) => Zoom::Scale(scale * ZOOM_STEP),
-                }))
+            bar.child(zoom("viewer-fit", t!("Fit"), |_| None))
+                .child(zoom("viewer-actual", "1:1", |_| Some(1.)))
+                .child(zoom("viewer-out", "−", |scale| Some(scale / ZOOM_STEP)))
+                .child(zoom("viewer-in", "+", |scale| Some(scale * ZOOM_STEP)))
         })
         .child(
-            ui::IconButton::new("viewer-reload", Icon::Refresh, "Read it again")
+            ui::IconButton::new("viewer-reload", Icon::Refresh, t!("Read it again"))
                 .small()
                 .on_click(move |_, _, cx| {
                     let path = reload.clone();
@@ -639,28 +723,17 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
                 }),
         )
         .children(open.map(|open| {
-            ui::IconButton::new("viewer-open", Icon::Share, "Open in its own app")
+            ui::IconButton::new("viewer-open", Icon::Share, t!("Open in its own app"))
                 .small()
                 .on_click(move |_, _, cx| cx.open_with_system(&open))
         }))
         .children(reveal.map(|reveal| {
-            ui::IconButton::new("viewer-reveal", Icon::Folder, ui::SHOW_IN_FILES)
-                .small()
-                .on_click(move |_, _, cx| cx.reveal_path(&reveal))
+            ui::IconButton::new(
+                "viewer-reveal",
+                Icon::Folder,
+                crate::i18n::tr(ui::SHOW_IN_FILES),
+            )
+            .small()
+            .on_click(move |_, _, cx| cx.reveal_path(&reveal))
         }))
-}
-
-/// A size in bytes as people read it.
-fn size(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1024. && unit < UNITS.len() - 1 {
-        value /= 1024.;
-        unit += 1;
-    }
-    match unit {
-        0 => format!("{bytes} B"),
-        _ => format!("{value:.1} {}", UNITS[unit]),
-    }
 }

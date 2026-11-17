@@ -10,11 +10,14 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use crate::protocol::AgentStatus;
+use sikemux_view::inbox::{AgentShown, InboxItem};
+use sikemux_wire::protocol::{AgentStatus, Attention};
 
 use super::super::kept::Kept;
 
 const FILE: &str = "host-team.json";
+/// How many closed workers on linked hosts are kept, so their leads can reopen them there.
+const MAX_CLOSED: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,12 +43,40 @@ pub(crate) struct Foreign {
     pub parent: Option<String>,
     pub role: Role,
     pub status: AgentStatus,
+    /// What its host last said of it; none until it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub said: Option<Said>,
     pub active_at: Option<u64>,
     /// The checkout of its lead's project here that its commits come back to.
     pub repo: Option<PathBuf>,
     /// The branch its latest commits came back on and how many there are,
     /// until its next report says so.
     pub landed: Option<(String, usize)>,
+    /// The commit its commits last came back to this host at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub landed_head: Option<String>,
+    /// The branch here its commits come back on, kept across its reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// The call that starts it there, while whether it started is not known yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<String>,
+}
+
+/// What a host says of one of its agents to the hosts that agent's teammates run on: all its
+/// own clients show of it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Said {
+    /// Its row among the agents there.
+    pub shown: AgentShown,
+    /// What that host's inbox holds about it: what it waits on the person for, and how its
+    /// turn went.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<InboxItem>,
+    /// Its permission requests, with what each offers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attentions: Vec<Attention>,
 }
 
 /// A worker's own checkout here, cut for its lead on another host.
@@ -68,6 +99,9 @@ pub(crate) struct Tree {
 struct Record {
     agents: Vec<Foreign>,
     trees: Vec<Tree>,
+    /// Workers on linked hosts that closed there, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    closed: Vec<Foreign>,
 }
 
 pub(crate) struct Team {
@@ -123,6 +157,10 @@ impl Team {
             .collect()
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.record.locked().agents.is_empty()
+    }
+
     pub(crate) fn has_host(&self, host: &str) -> bool {
         self.record
             .locked()
@@ -150,12 +188,53 @@ impl Team {
         })
     }
 
+    /// A worker closed on its host: it is kept among the closed, which its lead may reopen.
+    pub(crate) fn close(&self, agent_id: &str) -> Option<Foreign> {
+        self.change(|record| {
+            let index = (record.agents.iter()).position(|agent| agent.agent_id == agent_id)?;
+            let gone = record.agents.remove(index);
+            if gone.role == Role::Worker {
+                record
+                    .closed
+                    .retain(|closed| closed.agent_id != gone.agent_id);
+                record.closed.insert(0, gone.clone());
+                record.closed.truncate(MAX_CLOSED);
+            }
+            Some(gone)
+        })
+    }
+
+    /// The newest closed worker of `lead` with the id or name `wanted`, on `host` when given,
+    /// that is not running again.
+    pub(crate) fn closed_worker(
+        &self,
+        lead: &str,
+        wanted: &str,
+        host: Option<&str>,
+    ) -> Option<Foreign> {
+        let record = self.record.locked();
+        (record.closed.iter())
+            .filter(|closed| {
+                !record
+                    .agents
+                    .iter()
+                    .any(|agent| agent.agent_id == closed.agent_id)
+            })
+            .find(|closed| {
+                closed.parent.as_deref() == Some(lead)
+                    && host.is_none_or(|host| closed.host == host)
+                    && (closed.agent_id == wanted || closed.name.eq_ignore_ascii_case(wanted))
+            })
+            .cloned()
+    }
+
     pub(crate) fn remove_host(&self, host: &str) -> Vec<Foreign> {
         self.change(|record| {
             let (gone, kept) = std::mem::take(&mut record.agents)
                 .into_iter()
                 .partition(|agent| agent.host == host);
             record.agents = kept;
+            record.closed.retain(|closed| closed.host != host);
             gone
         })
     }
@@ -203,6 +282,23 @@ impl Team {
                 tree.sent = Some(head.to_owned());
             }
         });
+    }
+
+    /// The worker's commits did not reach its lead, so the next go sends all of them again.
+    pub(crate) fn tree_unsent(&self, agent_id: &str) {
+        self.change(|record| {
+            if let Some(tree) = record
+                .trees
+                .iter_mut()
+                .find(|tree| tree.agent_id == agent_id)
+            {
+                tree.sent = None;
+            }
+        });
+    }
+
+    pub(crate) fn retain_trees(&self, keep: impl Fn(&Tree) -> bool) {
+        self.change(|record| record.trees.retain(|tree| keep(tree)));
     }
 
     pub(crate) fn remove_tree(&self, agent_id: &str) -> Option<Tree> {

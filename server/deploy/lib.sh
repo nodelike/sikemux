@@ -23,3 +23,8 @@ use_r2() {
 }
 
 rclone() { command rclone --config "" --use-server-modtime "$@"; }
+
+# What the files `setup-citadel.sh` installs from this folder hash to, as pack.mjs writes it.
+deploy_hash() {
+  (cd "$1" && find . -maxdepth 1 -type f ! -name pack.mjs -printf '%P\n' | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+}

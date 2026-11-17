@@ -30,16 +30,56 @@ const { values: options, positionals: only } = parseArgs({
 
 const SCENES = [
   { name: 'home', route: '/' },
+  { name: 'account', route: '/', tapLabel: 'Account' },
   { name: 'device', route: `/device/${CORE}` },
+  // The demo host's list fits a whole phone, so a shorter screen gives it room to scroll under the tabs.
+  { name: 'device-scrolled', route: `/device/${CORE}`, scroll: 400, height: 460 },
   { name: 'terminals', route: `/device/${CORE}`, tap: 'Terminals' },
-  { name: 'boards', route: `/device/${CORE}?tab=board` },
-  { name: 'board', route: `/device/${CORE}?tab=board`, tap: 'acme-shop' },
+  { name: 'calls', route: `/device/${CORE}?tab=calls` },
+  { name: 'line-rows', route: `/device/${CORE}?line` },
+  { name: 'line-chat', route: `/device/${CORE}/chat/chat-login-check?line` },
+  { name: 'calls-in-place', route: `/device/${CORE}?tab=calls`, tap: 'Keep product pages cached for an hour?' },
   { name: 'chat', route: `/device/${CORE}/chat/chat-login` },
+  { name: 'notes', route: `/device/${CORE}/chat/chat-notes` },
+  { name: 'notes-top', route: `/device/${CORE}/chat/chat-notes`, scroll: -500 },
+  { name: 'team', route: `/device/${CORE}/chat/chat-team` },
+  { name: 'chief-away-top', route: `/device/${CORE}/chat/chat-team`, scroll: -220, scrollAt: 0.2 },
+  { name: 'chief-away-mid', route: `/device/${CORE}/chat/chat-team`, scroll: -110, scrollAt: 0.2 },
+  { name: 'chief-lines', route: `/device/${CORE}/chat/chat-team`, scroll: -560, scrollAt: 0.2 },
+  { name: 'worker-told', route: `/device/${CORE}/chat/chat-refunds` },
   { name: 'asking', route: `/device/${CORE}/chat/chat-dark-mode` },
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
   { name: 'new-chat', route: `/device/${CORE}/new` },
+  {
+    name: 'work-opened',
+    route: `/device/${CORE}/chat/chat-login-fix`,
+    taps: [/^Worked for/, /ran tests|^5 tool calls/, /pnpm test src\/auth, failed/, /^(Edited|edit) LoginForm\.css/],
+  },
+  { name: 'live', route: `/device/${CORE}/chat/chat-signup-check` },
+  { name: 'subagent', route: `/device/${CORE}/chat/chat-adapter-hunt`, taps: [/^Subagent/] },
+  { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-notes`, tapPart: 'Keep them short, and link each one.' },
+  {
+    name: 'prompt-edit',
+    route: `/device/${CORE}/chat/chat-notes`,
+    tapPart: 'Keep them short, and link each one.',
+    tapLabel: 'Edit message',
+  },
 ].filter((scene) => only.length === 0 || only.includes(scene.name));
+
+const root = resolve(here, '../..');
+execFileSync('node', ['scripts/generate.mjs'], { cwd: app, stdio: 'inherit' });
+// The chats' markdown is read by the core's parser; built here, a chat would wait minutes on its first compile.
+const markdownParser = execFileSync(
+  join(root, 'scripts/bin/cargo'),
+  ['build', '--quiet', '-p', 'sikemux-markdown', '--example', 'stdio', '--message-format=json'],
+  { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 1 << 28 },
+)
+  .split('\n')
+  .filter(Boolean)
+  .map((line) => JSON.parse(line))
+  .find((message) => message.reason === 'compiler-artifact' && message.target?.name === 'stdio' && message.executable)?.executable;
+if (!markdownParser) throw new Error('cargo built no markdown parser');
 
 if (existsSync(PANE_IMAGE_FILE)) execFileSync('sips', ['-Z', '1600', PANE_IMAGE_FILE, '--out', PANE], { stdio: 'ignore' });
 
@@ -89,8 +129,8 @@ function separateGradients() {
 const origin = `http://localhost:${options.port}`;
 const server = spawn('npx', ['expo', 'start', '--web', '--port', options.port, '--clear'], {
   cwd: app,
-  env: { ...process.env, CI: '1', SIKEMUX_SHOWCASE: '1', SIKEMUX_SHOWCASE_PANE: PANE },
-  stdio: 'ignore',
+  env: { ...process.env, CI: '1', SIKEMUX_SHOWCASE: '1', SIKEMUX_SHOWCASE_PANE: PANE, SIKEMUX_SHOWCASE_MARKDOWN: markdownParser },
+  stdio: ['ignore', 'ignore', 'inherit'],
   detached: true,
 });
 const stop = () => {
@@ -101,9 +141,9 @@ const stop = () => {
 process.on('exit', stop);
 
 async function ready() {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
-      if ((await fetch(origin)).ok) return;
+      if ((await fetch(origin, { signal: AbortSignal.timeout(5000) })).ok) return;
     } catch {}
     await new Promise((settle) => setTimeout(settle, 1000));
   }
@@ -124,16 +164,49 @@ const page = await browser.newPage({
   hasTouch: true,
   colorScheme: 'dark',
 });
+// The account sheet asks the accounts server about the account; the showcase's is staff.
+await page.route('**/v1/account', (route) => route.fulfill({ json: { status: 'active', restorableDays: 30, staff: true } }));
 const devtools = await page.context().newCDPSession(page);
 await devtools.send('Emulation.setSafeAreaInsetsOverride', { insets: INSETS });
 const problems = [];
 page.on('pageerror', (error) => problems.push(error.message.split('\n')[0]));
 
 for (const scene of SCENES) {
+  await page.setViewportSize({ width: SCREEN.width, height: scene.height ?? SCREEN.height });
   await page.goto(origin + scene.route, { timeout: 180_000 });
   await page.waitForTimeout(3000);
+  // On a cold server a chat can take longer than that pause to open.
+  await page
+    .waitForFunction(() => !document.body.innerText.includes('Opening the chat'), null, { timeout: 120_000 })
+    .catch(() => problems.push(`${scene.name} never opened its chat`));
   if (scene.tap) {
     await page.getByText(scene.tap, { exact: true }).first().click();
+    await page.waitForTimeout(800);
+  }
+  if (scene.tapPart) {
+    await page.getByText(scene.tapPart).first().click();
+    await page.waitForTimeout(800);
+  }
+  if (scene.tapLabel) {
+    await page
+      .getByLabel(scene.tapLabel)
+      .first()
+      .click({ timeout: 5000 })
+      .catch(() => problems.push(`no ${scene.tapLabel} on ${scene.name}`));
+    await page.waitForTimeout(800);
+  }
+  // Each opens the last thing labelled so, in order; one the screen does not have is passed over.
+  for (const label of scene.taps ?? []) {
+    await page
+      .getByLabel(label)
+      .last()
+      .click({ timeout: 3000 })
+      .catch(() => problems.push(`no ${label} on ${scene.name}`));
+    await page.waitForTimeout(800);
+  }
+  if (scene.scroll) {
+    await page.mouse.move(SCREEN.width / 2, (scene.height ?? SCREEN.height) * (scene.scrollAt ?? 0.7));
+    await page.mouse.wheel(0, scene.scroll);
     await page.waitForTimeout(800);
   }
   await page.evaluate(separateGradients);

@@ -1,13 +1,14 @@
 //! What changed in a file since its last commit, marked beside its lines and
 //! along the editor's right edge, which jumps there when clicked.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::component::input::{EditorState, Position, RopeExt};
 use gpui_kit::{
     canvas, div, fill, point, px, relative, App, Bounds, Context, Entity, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled, Task,
+    IntoElement, ParentElement, Pixels, SharedString, Styled, Task,
 };
 
 use super::{lsp, place_cursor, Document, Editors, FileKey, OpenAt};
@@ -168,9 +169,8 @@ pub(super) fn overlay(
             .min_h(px(2.))
             .w(px(if hunk.kind == DiffKind::Del { 4. } else { 6. }))
             .bg(colour(hunk.kind, t))
-            .cursor_pointer()
             .hover(|style| style.w(px(8.)))
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 let at = at.clone();
                 this.update(cx, |bench, cx| place_cursor(bench, &key, &at, window, cx))
             })

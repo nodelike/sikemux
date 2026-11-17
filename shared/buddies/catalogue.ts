@@ -3,7 +3,7 @@ import { buddies, personas } from "./packs/blobs";
 import { cyclops, glow, googly, matrix, peekers, soot } from "./packs/eyes";
 import { screens } from "./packs/screens";
 import type { AgentBuddy, BuddyPack, BuddyShape, BuddyState } from "./shared";
-import type { AgentGroup } from "../wire.generated";
+import type { AgentGroup, TurnState } from "../wire.generated";
 import { EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
 
 export { DEFAULT_BUDDY_STYLE, EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
@@ -12,7 +12,7 @@ export type { BuddyPack, BuddyShape, BuddyState } from "./shared";
 
 export const BUDDY_PACKS: readonly BuddyPack[] = [buddies, glow, googly, soot, peekers, cyclops, matrix, screens, japan, chibiPack, personas];
 
-export interface ResolvedBuddy {
+interface ResolvedBuddy {
     pack: BuddyPack;
     shape: BuddyShape;
     color: string;
@@ -48,6 +48,23 @@ export function resolveBuddy(agent: { id: string; buddy?: AgentBuddy }, style: B
     }
     const colorIndex = (own?.color ?? h) % pack.colors.length;
     return { pack, shape, color: pack.colors[colorIndex], colorIndex };
+}
+
+/** The face a turn wears, as the core says how it stands: a finished turn the person has seen wears idle, as its row's mark does. */
+export function buddyStateOfTurn(turn: TurnState): BuddyState {
+    if (turn.seen) return "idle";
+    switch (turn.state) {
+        case "working":
+            return "working";
+        case "needsYou":
+            return "waiting";
+        case "done":
+            return "done";
+        case "failed":
+            return "error";
+        default:
+            return "idle";
+    }
 }
 
 export function buddyStateOfGroup(group: AgentGroup | undefined): BuddyState {

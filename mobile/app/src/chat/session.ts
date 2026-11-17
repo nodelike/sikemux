@@ -1,14 +1,21 @@
 import { ChatAttachment, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
-import { answerText } from '@shared/chat/answerText';
 import { applyChanges, type ChatRows } from '@shared/chat/rows';
-import type { ChatChange, ChatView, PermissionAsk, ToolDetail } from '@shared/chat/types';
-import type { FindAnswer, FindParams } from '@shared/wire.generated';
+import { english, type Say } from '@shared/lib/say';
+import type {
+  ChatChange,
+  ChatView,
+  PermissionAsk,
+  ToolDetail,
+  ChatInfo,
+  FindAnswer,
+  FindParams,
+  ExpiredCache,
+} from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
-import type { ChatInfo } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { Draft } from './draft';
 import { Feed } from './feed';
@@ -16,9 +23,9 @@ import { Folds } from './folds';
 import type { ChatStore, DraftStore } from './kept';
 import type { DraftToken } from './mentions';
 import { Outbox, type Unsent } from './outbox';
-import { pathsOf, type Attachment } from './uploads';
+import type { Attachment } from './uploads';
 import type { StashItem } from '@/stash/api';
-import { withContext, type ContextChip } from '@/stash/words';
+import type { ContextChip } from '@/stash/words';
 
 export type Attached = 'attaching' | 'live' | 'missing';
 
@@ -50,6 +57,8 @@ export type ChatSnapshot = {
   stoppingTurn: boolean;
   /** How the chat asks before acting, as this phone last set it or the host last said; null before either. */
   permissionMode: string | null;
+  /** The chat's prompt cache has expired, with whether its next message is summarised as this phone last set it. */
+  expiredCache: ExpiredCache | null;
   hasEarlier: boolean;
   earlier: 'idle' | 'loading' | 'failed';
   /** When the running turn began. */
@@ -70,6 +79,8 @@ type Options = {
   drafts?: DraftStore;
   /** Told how long each step of taking the chat up took, to measure it. */
   timed?: (took: OpenTimes) => void;
+  /** Says what went wrong in the person's language. */
+  say?: Say;
 };
 
 /** In milliseconds, from when the phone began taking the chat up. */
@@ -83,12 +94,6 @@ export type OpenTimes = {
   applied: number;
   drawn: number;
 };
-
-/**
- * A permission request that just arrived is shown before the host's list of waiting requests,
- * which comes on its own schedule, has caught up with it.
- */
-const PERMISSION_GRACE_MS = 2000;
 
 function readFile(uri: string): Promise<ArrayBuffer> {
   return new File(uri).arrayBuffer();
@@ -106,6 +111,7 @@ export class ChatSession {
   private listeners = new Set<() => void>();
   private attached: Attached = 'attaching';
   private problem: string | null = null;
+  private readonly say: Say;
   private notice: string | null = null;
   private stoppingTurn = false;
   /** Model and effort picks this phone made, by picker id, shown until the host says what it runs on. */
@@ -114,12 +120,12 @@ export class ChatSession {
   private stopping: ReadonlySet<string> = new Set();
   /** The mode this phone set, until the host says another. */
   private mode: string | null = null;
+  /** Whether to summarise before the next message as this phone set it, until the host says. */
+  private summarise: boolean | null = null;
   /** When this phone saw the running turn begin, for a turn the host has no time for. */
   private turnSince: number;
 
   /** What the host lists as waiting, or null before it has said. */
-  private onHost: ReadonlySet<string> | null = null;
-  private arrived = new Map<string, number>();
   private hostUp: boolean | undefined;
 
   private connection: ConnectionLike | undefined;
@@ -135,21 +141,25 @@ export class ChatSession {
     readonly agentId: string,
     private readonly options: Options,
   ) {
+    this.say = options.say ?? english;
     this.turnSince = this.now();
     this.feed = new Feed({
+      say: this.say,
       frame: options.frame,
       store: options.store,
-      applied: (before, live) => this.applied(before, live),
+      applied: (before) => this.applied(before),
       emit: () => this.emit(),
       fellBehind: () => this.restart(),
     });
     this.draft = new Draft(agentId, {
+      say: this.say,
       store: options.drafts,
       held: () => this.feed.chat.draft,
       live: () => (this.connection?.isOpen() && this.attached === 'live' ? this.connection : undefined),
       emit: () => this.emit(),
     });
     this.outbox = new Outbox(agentId, {
+      say: this.say,
       connection: () => this.connection,
       chat: () => this.feed.chat,
       read: options.read ?? readFile,
@@ -217,26 +227,17 @@ export class ChatSession {
     };
   };
 
-  /**
-   * What the host's own view says of this chat. A chat that comes back after it slept, stopped or
-   * restarted is taken up again, and only the requests the host still waits on are shown.
-   */
-  hostSaw = (info: ChatInfo | undefined, waiting: string[] | undefined) => {
+  /** What the host's own view says of this chat. A chat that comes back after it slept, stopped or restarted is taken up again. */
+  hostSaw = (info: ChatInfo | undefined) => {
     const up = info?.state === 'ready';
     const cameBack = this.hostUp === false && up;
     this.hostUp = up;
-    const next = waiting ? new Set(waiting) : null;
-    const same = next && this.onHost && next.size === this.onHost.size && [...next].every((id) => this.onHost?.has(id));
-    if (!same && (next || this.onHost)) {
-      this.onHost = next;
-      this.emit();
-    }
     if (cameBack && this.connection && this.attached !== 'attaching') this.restart();
   };
 
   /** Adds what was picked for the next message, leaving out what the host would refuse. */
-  attach = (picked: Attachment[]) => {
-    this.notice = this.draft.attach(picked);
+  attach = (picked: Attachment[], caret?: number) => {
+    this.notice = this.draft.attach(picked, caret);
     this.emit();
   };
 
@@ -262,7 +263,7 @@ export class ChatSession {
       draft.attachments = await this.outbox.put(connection, draft.attachments, (id, change) => draft.patch(id, change));
       draft.edited();
     }
-    if (!(await draft.saveNow())) throw new Error('the draft did not reach the host');
+    if (!(await draft.saveNow())) throw new Error(this.say('the draft did not reach the host'));
     const { id } = await callHost(connection, 'stashPrompt', { agentId: this.agentId });
     draft.clear();
     this.emit();
@@ -299,24 +300,6 @@ export class ChatSession {
     this.outbox.deliver(text, uploaded, true);
   };
 
-  /**
-   * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
-   * host. The files stay in the composer when the answer did not go out.
-   */
-  answerWith = async (text: string, answer: (text: string) => Promise<boolean>): Promise<boolean> => {
-    this.notice = null;
-    const draft = this.draft;
-    const attachments = draft.attachments.length ? await this.upload() : [];
-    if (!attachments) return false;
-    if (await answer(answerText(withContext(text, draft.chips), pathsOf(attachments)))) {
-      draft.chips = [];
-      return true;
-    }
-    draft.putBack([], attachments);
-    this.emit();
-    return false;
-  };
-
   retrySend = (messageId: string) => {
     this.outbox.retry(messageId);
   };
@@ -325,22 +308,59 @@ export class ChatSession {
   steer = (ids: readonly string[]) => {
     ids = this.outbox.onHostQueue(ids);
     if (!ids.length) return;
-    void this.ask((connection) => callHost(connection, 'steerQueued', { agentId: this.agentId, ids: [...ids] }), 'Could not steer');
+    void this.ask(
+      (connection) => callHost(connection, 'steerQueued', { agentId: this.agentId, ids: [...ids] }),
+      'Could not steer: {problem}',
+    );
   };
 
   /** Acts on the turn that failed: sends it again, lets it go, or keeps it from resuming once a usage limit resets. */
   failedTurn = (method: 'retryFailed' | 'discardFailed' | 'cancelResume') => {
-    void this.ask((connection) => callHost(connection, method, { agentId: this.agentId }), 'Could not do that');
+    void this.ask((connection) => callHost(connection, method, { agentId: this.agentId }), 'Could not do that: {problem}');
   };
 
   /** Carries the chat on in another of the person's accounts, a turn that failed sent again there. */
+  /** Hands the chat to another agent, which carries on with what it said. */
+  handOff = (provider: string) => {
+    void this.ask(
+      (connection) => callHost(connection, 'handOff', { agentId: this.agentId, provider }),
+      'Could not hand the chat over: {problem}',
+    );
+  };
+
+  /** Sends the next message without the handoff waiting for it. */
+  dropHandoff = () => {
+    void this.ask(
+      (connection) => callHost(connection, 'dropHandoff', { agentId: this.agentId }),
+      'Could not leave the handoff out: {problem}',
+    );
+  };
+
   moveToAccount = (accountId: string) => {
-    void this.ask((connection) => callHost(connection, 'moveChatAccount', { agentId: this.agentId, accountId }), 'Could not move the chat');
+    void this.ask(
+      (connection) => callHost(connection, 'moveChatAccount', { agentId: this.agentId, accountId }),
+      'Could not move the chat: {problem}',
+    );
+  };
+
+  /** Sends a share viewer's waiting message to the agent as the person's own. */
+  sendGuest = (id: string) => {
+    void this.ask((connection) => callHost(connection, 'sendGuestMessage', { agentId: this.agentId, id }), 'Could not send it: {problem}');
+  };
+
+  dismissGuest = (id: string) => {
+    void this.ask(
+      (connection) => callHost(connection, 'dismissGuestMessage', { agentId: this.agentId, id }),
+      'Could not dismiss it: {problem}',
+    );
   };
 
   dropQueued = (id: string) => {
     if (!this.outbox.onHostQueue([id]).length) return;
-    void this.ask((connection) => callHost(connection, 'dropQueued', { agentId: this.agentId, ids: [id] }), 'Could not take it back');
+    void this.ask(
+      (connection) => callHost(connection, 'dropQueued', { agentId: this.agentId, ids: [id] }),
+      'Could not take it back: {problem}',
+    );
   };
 
   /** Stops the running turn. Messages waiting behind it go back to the composer rather than out. */
@@ -362,7 +382,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.cancel(this.agentId),
-      'Could not stop the turn',
+      'Could not stop the turn: {problem}',
       undefined,
       () => {
         this.stoppingTurn = false;
@@ -377,7 +397,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.answerPermission(this.agentId, requestId, optionId ?? undefined),
-      'The answer did not reach the host',
+      'The answer did not reach the host: {problem}',
       () => {
         const chat = this.feed.chat;
         this.feed.chat = { ...chat, permissions: chat.permissions.filter((request) => request.requestId !== requestId) };
@@ -393,7 +413,7 @@ export class ChatSession {
     this.stopping = new Set([...this.stopping, taskId]);
     this.notice = null;
     this.emit();
-    this.ask((connection) => connection.stopTask(this.agentId, taskId), 'Could not stop the task').finally(() => {
+    this.ask((connection) => connection.stopTask(this.agentId, taskId), 'Could not stop the task: {problem}').finally(() => {
       this.stopping = new Set([...this.stopping].filter((id) => id !== taskId));
       this.emit();
     });
@@ -408,10 +428,33 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.setPermissionMode(this.agentId, mode),
-      'Could not change permissions',
+      'Could not change permissions: {problem}',
       undefined,
       () => {
         if (this.mode === mode) this.mode = before;
+      },
+    );
+  };
+
+  /**
+   * Asks the agent of a chat that has not started again which models it offers, as its picker opens, in case it
+   * was updated or signed in since. A host whose core predates this does not know the call.
+   */
+  readModels = () => {
+    callHost(this.openConnection(), 'readModels', { agentId: this.agentId }).catch(() => undefined);
+  };
+
+  /** Whether the chat is summarised before its next message, while its prompt cache has expired. */
+  setSummarise = (summarise: boolean) => {
+    this.summarise = summarise;
+    this.notice = null;
+    this.emit();
+    this.ask(
+      (connection) => callHost(connection, 'keepHistory', { agentId: this.agentId, keep: !summarise }),
+      'Could not change the setting: {problem}',
+      undefined,
+      () => {
+        if (this.summarise === summarise) this.summarise = null;
       },
     );
   };
@@ -421,7 +464,7 @@ export class ChatSession {
     let stopped = false;
     await this.ask(
       (connection) => callHost(connection, 'closeChat', { agentId: this.agentId }),
-      'Could not stop the chat',
+      'Could not stop the chat: {problem}',
       () => {
         stopped = true;
       },
@@ -436,7 +479,7 @@ export class ChatSession {
     this.emit();
     this.ask(
       (connection) => connection.setChatConfig(this.agentId, configId, value),
-      'Could not change the setting',
+      'Could not change the setting: {problem}',
       undefined,
       () => {
         if (this.chosen.get(configId) !== value) return;
@@ -445,6 +488,23 @@ export class ChatSession {
         this.chosen = chosen;
       },
     );
+  };
+
+  /**
+   * Opens a side chat beside this one, with the same agent, model and project, sending `text` as its first message
+   * when there is any. Answers the side chat's agent, or undefined when the host refused.
+   */
+  startSideChat = async (text: string): Promise<string | undefined> => {
+    try {
+      const side = await callHost(this.openConnection(), 'startSideChat', {
+        agentId: this.agentId,
+        text: text || undefined,
+      });
+      return side.agentId;
+    } catch (error) {
+      this.report(this.say('Could not open a side chat: {problem}', { problem: problemOf(error) }));
+      return undefined;
+    }
   };
 
   /** Says what went wrong where the person is looking. */
@@ -471,7 +531,7 @@ export class ChatSession {
     this.emit();
     void this.ask(
       (connection) => callHost(connection, 'editMessage', { agentId: this.agentId, messageId, text, paths: row.attachments ?? [] }),
-      'Could not edit the message',
+      'Could not edit the message: {problem}',
       undefined,
       this.retry,
     );
@@ -493,7 +553,7 @@ export class ChatSession {
   /** Asks the host to find words across the whole chat, held here or not, from where `params` says. */
   find = async (params: Omit<FindParams, 'agentId' | 'feed'>): Promise<FindAnswer> => {
     const feed = this.feed.mark?.feed;
-    if (feed === undefined) throw new Error('the chat is not open');
+    if (feed === undefined) throw new Error(this.say('the chat is not open'));
     return callHost(this.openConnection(), 'chatFind', { ...params, agentId: this.agentId, feed });
   };
 
@@ -526,16 +586,10 @@ export class ChatSession {
   }
 
   private build(): ChatSnapshot {
-    const now = this.now();
     const chat = this.feed.chat;
-    const onHost = this.onHost;
     const answering = this.answering;
     const all = chat.permissions;
-    const permissions = all.filter(
-      (request) =>
-        !answering.has(request.requestId) &&
-        (!onHost || onHost.has(request.requestId) || now - (this.arrived.get(request.requestId) ?? -Infinity) < PERMISSION_GRACE_MS),
-    );
+    const permissions = all.filter((request) => !answering.has(request.requestId));
     const draft = this.draft;
     return {
       view: this.view(),
@@ -552,6 +606,8 @@ export class ChatSession {
       stopping: this.stopping,
       stoppingTurn: this.stoppingTurn,
       permissionMode: this.mode ?? (chat.permissionMode || null),
+      expiredCache:
+        chat.expiredCache && this.summarise !== null ? { ...chat.expiredCache, summarise: this.summarise } : (chat.expiredCache ?? null),
       hasEarlier: chat.olderBefore !== null,
       earlier: this.feed.earlier,
       turnSince: this.since(),
@@ -587,21 +643,8 @@ export class ChatSession {
 
   private openConnection(): ConnectionLike {
     const connection = this.connection;
-    if (!connection?.isOpen() || this.attached !== 'live') throw new Error('the host is not connected');
+    if (!connection?.isOpen() || this.attached !== 'live') throw new Error(this.say('the host is not connected'));
     return connection;
-  }
-
-  /** Puts the picked files on the host and takes them out of the composer, or answers null when one did not get there. */
-  private async upload(): Promise<Attachment[] | null> {
-    const draft = this.draft;
-    if (draft.uploading()) return null;
-    try {
-      const sent = await this.outbox.put(this.connection, draft.attachments, (id, change) => draft.patch(id, change));
-      draft.attachments = [];
-      return sent;
-    } catch {
-      return null;
-    }
   }
 
   private busy() {
@@ -613,26 +656,20 @@ export class ChatSession {
     const [text, files] = message;
     this.outbox.queue(...message).catch((error: unknown) => {
       this.draft.putBack([text], files);
-      this.notice = `Could not send the message: ${problemOf(error)}`;
+      this.notice = this.say('Could not send the message: {problem}', { problem: problemOf(error) });
       this.emit();
     });
   }
 
   /** What follows from the host's changes, and letting go of what this phone sent once the host shows it. */
-  private applied(before: ChatRows, live: boolean) {
+  private applied(before: ChatRows) {
     const chat = this.feed.chat;
     if (!before.running && chat.running) this.turnSince = this.now();
     if (!chat.running) this.stoppingTurn = false;
     if (chat.permissionMode !== before.permissionMode) this.mode = null;
+    if (chat.expiredCache !== before.expiredCache) this.summarise = null;
     if (chat.queued !== before.queued || chat.running !== before.running) this.outbox.dropTaken();
     if (this.chosen.size && (chat.model !== before.model || chat.effort !== before.effort)) this.chosen = new Map();
-    if (live && chat.permissions !== before.permissions) {
-      for (const request of chat.permissions) {
-        if (before.permissions.some((held) => held.requestId === request.requestId)) continue;
-        this.arrived.set(request.requestId, this.now());
-        setTimeout(() => this.emit(), PERMISSION_GRACE_MS);
-      }
-    }
     this.outbox.settle(before.running && !chat.running);
     if (chat.draft !== before.draft) this.draft.takeIn();
   }
@@ -705,7 +742,9 @@ export class ChatSession {
           timed('resumed', attachment.inner.changesJson.length);
         } else {
           this.attached = 'missing';
-          this.outbox.failWaiting('the chat is gone from the host');
+          // The chat kept on this phone may hold requests nothing on the host waits on any more.
+          feed.apply((chat) => ({ ...chat, permissions: [] }));
+          this.outbox.failWaiting(this.say('the chat is gone from the host'));
           this.emit();
           timed('missing', 0);
           return;
@@ -730,6 +769,7 @@ export class ChatSession {
 
   private ask<T>(
     request: (connection: ConnectionLike) => Promise<T>,
+    /** What the person reads when it fails, with `{problem}` for why. */
     what: string,
     then?: (answer: T) => void,
     undo?: () => void,
@@ -737,7 +777,7 @@ export class ChatSession {
     const connection = this.connection;
     return Promise.resolve()
       .then(() => {
-        if (!connection?.isOpen()) throw new Error('the host is not connected');
+        if (!connection?.isOpen()) throw new Error(this.say('the host is not connected'));
         return request(connection);
       })
       .then((answer) => {
@@ -746,7 +786,7 @@ export class ChatSession {
       })
       .catch((error: unknown) => {
         undo?.();
-        this.notice = `${what}: ${problemOf(error)}`;
+        this.notice = this.say(what, { problem: problemOf(error) });
         this.emit();
       });
   }

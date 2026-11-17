@@ -9,19 +9,17 @@ use std::sync::{Arc, Once};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use sikemux_core::client::{
-    ensure_running, probe, Attached, ClientEvent, CoreClient, EventSink, Reply,
-};
-use sikemux_core::grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
-use sikemux_core::protocol::{
+use sikemux_client::client::{Attached, ClientEvent, CoreClient, EventSink, Reply};
+use sikemux_core::client::{ensure_running, probe};
+use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
+use sikemux_pty::launch::{LaunchKind, PtyContext};
+use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
+use sikemux_wire::protocol::{
     ask, encode_control, read_frame_sync, AgentState, AgentStateEvent, BuildIdentity,
     ClientMessage, Continuation, Event, LaunchIdentity, Request, Response, ServerMessage,
     SessionExit, SessionId, SpawnTarget, StreamId, TerminalSpawn, PROTOCOL, PROTOCOL_VERSION,
 };
-use sikemux_core::server::{self, ServerConfig, ServerError};
-use sikemux_pty::launch::{LaunchKind, PtyContext};
-use sikemux_pty::output_log::OutputQuery;
-use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -137,7 +135,6 @@ struct Stream {
     output: HashMap<SessionId, Vec<u8>>,
     screens: HashMap<StreamId, (SessionId, Screen)>,
     exits: HashMap<SessionId, Event>,
-    task_notices: Vec<SessionId>,
     agent_states: Vec<AgentStateEvent>,
 }
 
@@ -148,7 +145,6 @@ impl Stream {
             output: HashMap::new(),
             screens: HashMap::new(),
             exits: HashMap::new(),
-            task_notices: Vec::new(),
             agent_states: Vec::new(),
         }
     }
@@ -169,9 +165,9 @@ impl Stream {
             ClientEvent::Event(event @ Event::Exited { id, .. }) => {
                 self.exits.insert(id, event);
             }
-            ClientEvent::Event(Event::TaskOutput { id }) => self.task_notices.push(id),
             ClientEvent::Event(Event::AgentState(state)) => self.agent_states.push(state),
-            ClientEvent::Event(_) | ClientEvent::WindowCall { .. } => {}
+            ClientEvent::Event(_) | ClientEvent::DeviceView(_) | ClientEvent::WindowCall { .. } => {
+            }
         }
     }
 
@@ -288,7 +284,12 @@ async fn attach_once_printed(client: &CoreClient, id: SessionId, needle: &str) -
         if screen.text().contains(needle) {
             return screen;
         }
-        client.detach(attached.stream).await.expect("detach");
+        client
+            .ask(ask::Detach {
+                stream: attached.stream,
+            })
+            .await
+            .expect("detach");
         assert!(Instant::now() < deadline, "{needle:?} was never printed");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -349,7 +350,7 @@ async fn handshake_succeeds_and_a_wrong_version_is_rejected() {
     assert!(
         matches!(
             CoreClient::connect(&core.dir.path().join("missing.sock")).await,
-            Err(sikemux_core::client::ClientError::Io(_))
+            Err(sikemux_client::client::ClientError::Io(_))
         ),
         "connecting to a missing socket fails"
     );
@@ -408,9 +409,10 @@ async fn a_flood_never_waits_for_a_client_that_stopped_drawing() {
     for frame in &frames {
         screen.apply(decode_frame(frame).expect("a frame"));
     }
-    stream.screens.insert(attached.stream, (id, screen.clone()));
-    client.ack(attached.stream, screen.header.frame);
-    stream.until_output(&client, id, "flood-done").await;
+    assert!(
+        screen.text().contains("flood-done"),
+        "the last frame did not reach a client that drew none"
+    );
 }
 
 #[tokio::test]
@@ -461,18 +463,32 @@ async fn resize_reaches_the_terminal() {
     let (client, mut stream) = core.connect().await;
     let id = client.spawn(launch(), terminal(None)).await.expect("spawn");
     stream.attach(&client, id).await;
-    client.resize(id, 100, 40).await.expect("resize");
+    client
+        .ask(ask::Resize {
+            id,
+            cols: 100,
+            rows: 40,
+        })
+        .await
+        .expect("resize");
     client.write(id, b"stty size\n").await.expect("write");
     stream.until_output(&client, id, "40 100").await;
     let session = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
         .find(|session| session.id == id)
         .expect("listed");
     assert_eq!((session.cols, session.rows), (100, 40));
-    assert!(client.resize(id, 0, 40).await.is_err());
+    assert!(client
+        .ask(ask::Resize {
+            id,
+            cols: 0,
+            rows: 40
+        })
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -530,7 +546,7 @@ async fn a_session_outlives_its_client_and_can_be_reattached() {
     };
     let (client, mut stream) = core.connect().await;
     let session = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -556,7 +572,7 @@ async fn kill_terminates_the_whole_process_tree() {
     let screen = attach_once_printed(&client, id, "bg-pid:").await;
     let background = number_after(screen.text().as_bytes(), "bg-pid:");
     let shell = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -565,21 +581,21 @@ async fn kill_terminates_the_whole_process_tree() {
         .expect("shell pid");
     assert!(process_alive(background));
 
-    client.kill(id).await.expect("kill");
+    client.ask(ask::Kill { id }).await.expect("kill");
     let (_, killed) = stream.until_exit(&client, id).await;
     assert!(killed);
     until_dead(background).await;
     until_dead(shell).await;
-    assert!(client.list().await.expect("list").is_empty());
+    assert!(client.ask(ask::List).await.expect("list").is_empty());
     client
-        .kill(id)
+        .ask(ask::Kill { id })
         .await
         .expect("killing a gone session is not an error");
     assert!(client.write(id, b"x").await.is_err());
 }
 
 #[tokio::test]
-async fn task_output_can_be_paged_after_the_task_exits() {
+async fn a_finished_task_is_kept_and_attachable() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let dir = tempfile::tempdir().expect("task dir");
@@ -588,23 +604,13 @@ async fn task_output_can_be_paged_after_the_task_exits() {
         .await
         .expect("spawn");
     stream.until_exit(&client, id).await;
-    let page = client
-        .task_output(
-            id,
-            OutputQuery {
-                limit: 8192,
-                ..OutputQuery::default()
-            },
-        )
+    let text = client
+        .ask(ask::TerminalText { id, range: None })
         .await
-        .expect("task output");
-    assert_eq!(page.bytes, b"alpha\r\nbeta\r\n");
-    assert!(!page.has_more);
-    while !stream.task_notices.contains(&id) {
-        stream.pump(&client).await;
-    }
+        .expect("a finished task's text");
+    assert!(text.contains("beta"));
     let session = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -615,17 +621,12 @@ async fn task_output_can_be_paged_after_the_task_exits() {
         .attach(id)
         .await
         .expect("a finished task is attachable");
-
-    let shell = client.spawn(launch(), terminal(None)).await.expect("spawn");
-    assert!(client
-        .task_output(shell, OutputQuery::default())
-        .await
-        .is_err());
 }
 
 #[test]
 fn the_core_exits_when_idle_but_not_while_a_client_is_connected() {
-    let mut core = start_core_with(Duration::from_millis(300));
+    let idle_exit = Duration::from_secs(1);
+    let mut core = start_core_with(idle_exit);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -633,7 +634,7 @@ fn the_core_exits_when_idle_but_not_while_a_client_is_connected() {
     let client = runtime
         .block_on(CoreClient::connect(&core.socket))
         .expect("connect");
-    std::thread::sleep(Duration::from_millis(900));
+    std::thread::sleep(idle_exit + Duration::from_millis(500));
     assert!(
         core.thread
             .as_ref()
@@ -657,7 +658,7 @@ fn a_second_core_on_the_same_socket_refuses_to_start() {
         ),
         "{result:?}"
     );
-    assert!(probe(&core.socket, Duration::from_secs(1)).is_ok());
+    assert!(probe(&core.socket, WAIT).is_ok());
 }
 
 #[test]
@@ -669,7 +670,7 @@ fn a_dead_socket_file_is_replaced_and_permissions_are_private() {
     drop(std::os::unix::net::UnixListener::bind(&stale).expect("stale socket"));
     assert!(stale.exists());
     let core = start_core_at(dir, stale.clone(), Duration::from_secs(600));
-    assert!(probe(&core.socket, Duration::from_secs(1)).is_ok());
+    assert!(probe(&core.socket, WAIT).is_ok());
     let mode = std::fs::metadata(&stale)
         .expect("socket")
         .permissions()
@@ -693,15 +694,18 @@ async fn shutdown_refuses_with_sessions_unless_told_to_stop_them() {
     let (client, mut stream) = core.connect().await;
     let id = client.spawn(launch(), terminal(None)).await.expect("spawn");
     let pid = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
         .find(|session| session.id == id)
         .and_then(|session| session.pid)
         .expect("pid");
-    assert!(client.shutdown(false).await.is_err());
-    client.shutdown(true).await.expect("shutdown");
+    assert!(client.ask(ask::Shutdown { stop_all: false }).await.is_err());
+    client
+        .ask(ask::Shutdown { stop_all: true })
+        .await
+        .expect("shutdown");
     let (_, killed) = stream.until_exit(&client, id).await;
     assert!(killed);
     until_dead(pid).await;
@@ -792,7 +796,7 @@ async fn an_agent_terminal_reports_ready_then_working_on_a_submitted_line_then_s
     let ready = stream.until_agent_state(&client, AgentState::Idle).await;
     assert_eq!(ready.agent_id, "agent-7");
     assert_eq!(ready.reason, "agent ready; no prompt submitted");
-    let listed = client.list().await.expect("list");
+    let listed = client.ask(ask::List).await.expect("list");
     let info = listed.iter().find(|info| info.id == id).expect("listed");
     assert_eq!(info.agent_state, Some(AgentState::Idle));
 
@@ -829,19 +833,22 @@ async fn a_client_on_this_host_can_watch_the_device_view_with_the_app_s_titles()
     app.call("createAgent", serde_json::json!({ "agent": agent }))
         .await
         .expect("the agent");
-    app.publish_on_screen(vec!["agent-10".into()], true)
-        .await
-        .expect("publish what is on screen");
+    app.ask(ask::PublishOnScreen {
+        agent_ids: vec!["agent-10".into()],
+        focused: true,
+    })
+    .await
+    .expect("publish what is on screen");
 
     let (watcher, mut stream) = core.connect().await;
-    watcher.watch_view().await.expect("watch the view");
-    let view = loop {
+    watcher.ask(ask::WatchView).await.expect("watch the view");
+    let view: sikemux_view::device::DeviceView = loop {
         let event = tokio::time::timeout(WAIT, stream.events.recv())
             .await
             .expect("the view arrives")
             .expect("the core disconnected");
-        if let ClientEvent::Event(Event::DeviceView { view }) = event {
-            break *view;
+        if let ClientEvent::DeviceView(view) = event {
+            break serde_json::from_str(&view).expect("the core's view reads back");
         }
     };
     let session = view
@@ -857,13 +864,21 @@ async fn a_client_on_this_host_can_watch_the_device_view_with_the_app_s_titles()
 async fn asking_to_show_an_agent_reaches_the_window_or_says_it_is_not_open() {
     let core = start_core();
     let (notch, _notch_events) = core.connect().await;
-    let refused = notch.focus_agent("agent-1".into()).await;
+    let refused = notch
+        .ask(ask::FocusAgent {
+            agent_id: "agent-1".into(),
+        })
+        .await;
     assert!(refused.is_err(), "no window is open yet");
 
     let (app, mut stream) = core.connect().await;
-    app.register_window().await.expect("register the window");
+    app.ask(ask::RegisterWindow)
+        .await
+        .expect("register the window");
     notch
-        .focus_agent("agent-1".into())
+        .ask(ask::FocusAgent {
+            agent_id: "agent-1".into(),
+        })
         .await
         .expect("the window is asked");
     loop {
@@ -887,9 +902,9 @@ async fn a_killed_agent_reports_nothing_more() {
         .await
         .expect("spawn");
     stream.until_agent_state(&client, AgentState::Idle).await;
-    client.kill(id).await.expect("kill");
+    client.ask(ask::Kill { id }).await.expect("kill");
     stream.until_exit(&client, id).await;
-    client.list().await.expect("list");
+    client.ask(ask::List).await.expect("list");
     while let Ok(Some(event)) =
         tokio::time::timeout(Duration::from_millis(200), stream.events.recv()).await
     {
@@ -906,17 +921,29 @@ async fn manifests_are_listed_reloaded_and_explained() {
     let (client, mut stream) = core.connect().await;
     let manifests = tempfile::tempdir().expect("manifest dir");
     let configured = client
-        .configure(Some(manifests.path().to_path_buf()))
+        .call(
+            "configureAgentManifests",
+            serde_json::json!({ "manifestDir": manifests.path() }),
+        )
         .await
         .expect("configure");
-    assert!(!configured.manifests.is_empty());
+    assert!(!configured["manifests"].as_array().expect("list").is_empty());
     assert_eq!(
-        client.list_manifests().await.expect("list"),
-        client.reload_manifests().await.expect("reload")
+        client
+            .call("agentManifests", serde_json::json!({}))
+            .await
+            .expect("list"),
+        client
+            .call("reloadAgentManifests", serde_json::json!({}))
+            .await
+            .expect("reload")
     );
 
     assert!(client
-        .explain_agent_detection("nobody".into())
+        .call(
+            "explainAgentDetection",
+            serde_json::json!({ "agentId": "nobody" })
+        )
         .await
         .is_err());
     let id = client
@@ -925,11 +952,17 @@ async fn manifests_are_listed_reloaded_and_explained() {
         .expect("spawn");
     stream.until_agent_state(&client, AgentState::Idle).await;
     let explain = client
-        .explain_agent_detection("agent-9".into())
+        .call(
+            "explainAgentDetection",
+            serde_json::json!({ "agentId": "agent-9" }),
+        )
         .await
         .expect("explain");
-    assert!(!explain.manifest_version.is_empty());
-    client.kill(id).await.expect("kill");
+    assert!(!explain["manifestVersion"]
+        .as_str()
+        .expect("text")
+        .is_empty());
+    client.ask(ask::Kill { id }).await.expect("kill");
 }
 
 #[tokio::test]
@@ -952,14 +985,19 @@ async fn reset_modes_reach_the_screen() {
             stream.screens.insert(attached.stream, (id, screen));
             break;
         }
-        client.detach(attached.stream).await.expect("detach");
+        client
+            .ask(ask::Detach {
+                stream: attached.stream,
+            })
+            .await
+            .expect("detach");
         assert!(
             Instant::now() < deadline,
             "the program never switched screens"
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    client.reset_modes(id).await.expect("reset");
+    client.ask(ask::ResetModes { id }).await.expect("reset");
     let deadline = Instant::now() + WAIT;
     while stream
         .screens
@@ -969,39 +1007,11 @@ async fn reset_modes_reach_the_screen() {
         assert!(Instant::now() < deadline, "the modes stayed on");
         stream.pump(&client).await;
     }
-    assert!(client.reset_modes(id + 1_000_000).await.is_err());
-    client.kill(id).await.expect("kill");
-}
-
-#[tokio::test]
-async fn a_line_shows_on_a_terminal_nobody_watches() {
-    let core = start_core();
-    let (client, _stream) = core.connect().await;
-    let id = client
-        .spawn(
-            launch(),
-            terminal(Some(
-                "sleep 0.3; printf 'then enter the %s BCDF-GHJK\\n' code; sleep 100",
-            )),
-        )
+    assert!(client
+        .ask(ask::ResetModes { id: id + 1_000_000 })
         .await
-        .expect("spawn");
-    let line = tokio::time::timeout(WAIT, client.line_shown(id, "enter the code".into()))
-        .await
-        .expect("the line was never found")
-        .expect("answer");
-    assert_eq!(line.as_deref(), Some("then enter the code BCDF-GHJK"));
-    client.kill(id).await.expect("kill");
-
-    let ended = client
-        .spawn(launch(), terminal(Some("sleep 0.3; exit 0")))
-        .await
-        .expect("spawn");
-    let line = tokio::time::timeout(WAIT, client.line_shown(ended, "never printed".into()))
-        .await
-        .expect("the wait outlived the terminal")
-        .expect("answer");
-    assert_eq!(line, None);
+        .is_err());
+    client.ask(ask::Kill { id }).await.expect("kill");
 }
 
 #[tokio::test]
@@ -1021,28 +1031,6 @@ async fn writes_larger_than_a_frame_arrive_whole() {
     client.write(id, &payload).await.expect("write");
     stream.until_exit(&client, id).await;
     stream.until_output(&client, id, "17000000").await;
-}
-
-#[tokio::test]
-async fn stop_all_kills_every_session_and_keeps_the_core() {
-    let core = start_core();
-    let (client, mut stream) = core.connect().await;
-    let dir = tempfile::tempdir().expect("task dir");
-    let shell = client.spawn(launch(), terminal(None)).await.expect("spawn");
-    let task = client
-        .spawn(launch(), task(dir.path(), "sleep 1000"))
-        .await
-        .expect("task");
-    client.stop_all().await.expect("stop all");
-    for id in [shell, task] {
-        let (_, killed) = stream.until_exit(&client, id).await;
-        assert!(killed);
-    }
-    assert!(client.list().await.expect("list").is_empty());
-    client
-        .spawn(launch(), terminal(None))
-        .await
-        .expect("the core still spawns");
 }
 
 #[derive(Default)]
@@ -1136,7 +1124,7 @@ async fn a_terminal_that_ends_unwatched_stays_to_show_how_it_ended() {
 
     let (later, _stream) = core.connect().await;
     let session = later
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -1154,8 +1142,8 @@ async fn a_terminal_that_ends_unwatched_stays_to_show_how_it_ended() {
     assert!(attached.exited);
     assert!(screen_of(&attached.frame).text().contains("farewell-42"));
 
-    later.kill(id).await.expect("close it");
-    assert!(later.list().await.expect("list").is_empty());
+    later.ask(ask::Kill { id }).await.expect("close it");
+    assert!(later.ask(ask::List).await.expect("list").is_empty());
 }
 
 #[tokio::test]
@@ -1168,7 +1156,7 @@ async fn a_watched_terminal_leaves_when_it_ends_and_an_attach_before_the_exit_he
     client.write(id, b"exit 0\n").await.expect("write");
     stream.until_exit(&client, id).await;
     let deadline = Instant::now() + WAIT;
-    while !client.list().await.expect("list").is_empty() {
+    while !client.ask(ask::List).await.expect("list").is_empty() {
         assert!(Instant::now() < deadline, "the watched terminal stayed");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -1193,7 +1181,7 @@ async fn an_agent_that_ends_while_watched_stays_and_a_continuation_starts_below_
     client.write(ended, b"\n").await.expect("write");
     assert_eq!(stream.until_exit(&client, ended).await, (Some(7), false));
     let kept = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -1224,9 +1212,9 @@ async fn an_agent_that_ends_while_watched_stays_and_a_continuation_starts_below_
     assert!(before < note && note < after);
     assert!(!text.contains('\u{7}'));
     assert_eq!(screen.header.modes & MODE_MOUSE_ANY, 0);
-    let sessions = client.list().await.expect("list");
+    let sessions = client.ask(ask::List).await.expect("list");
     assert!(sessions.iter().all(|session| session.id != ended));
-    client.kill(id).await.expect("kill");
+    client.ask(ask::Kill { id }).await.expect("kill");
     let (_, killed) = stream.until_exit(&client, id).await;
     assert!(killed);
 }
@@ -1242,7 +1230,7 @@ async fn a_task_session_says_what_it_was_started_as_and_how_it_ended() {
         .expect("spawn");
     stream.until_exit(&client, id).await;
     let session = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()

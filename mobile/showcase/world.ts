@@ -3,7 +3,27 @@
  * terminals and chats, written to read well in a screenshot.
  */
 
-import type { ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '@shared/chat/types';
+import type {
+  AgentLetter,
+  AgentNotice,
+  ChatGoal,
+  ChatMessage,
+  ChatPart,
+  ChatView,
+  ChiefAway,
+  GoalMarker,
+  InLine,
+  PermissionAsk,
+  PermissionMode,
+  PersonCall,
+  ToolAction,
+  ToolCall,
+  ToolDetail,
+  TurnState,
+} from '@shared/wire.generated';
+import ADAPTER_HUNT from './recorded/adapter-hunt.json';
+import LOGIN_FIX from './recorded/login-fix.json';
+import SIGNUP_CHECK from './recorded/signup-check.json';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
 export const HOST = { name: 'MacBook Pro', model: 'MacBook Pro' };
@@ -18,8 +38,13 @@ export const PROJECTS = [
     path: `${HOME}/acme-shop`,
     codeHost: { host: 'github', repo: 'edon/acme-shop', ciName: 'Actions', sections: ['pulls', 'actions', 'issues', 'releases'] },
   },
-  { id: 'p-site', name: 'marketing-site', path: `${HOME}/marketing-site` },
-  { id: 'p-api', name: 'payments-api', path: `${HOME}/payments-api` },
+  {
+    id: 'p-site',
+    name: 'marketing-site',
+    path: `${HOME}/marketing-site`,
+    git: { branch: 'release-notes', ahead: 2, behind: 0, dirty: false },
+  },
+  { id: 'p-api', name: 'payments-api', path: `${HOME}/payments-api`, chief: 'chat-team' },
 ];
 
 export const LAUNCHERS = [
@@ -30,20 +55,40 @@ export const LAUNCHERS = [
 ];
 
 /** One thing said or done in a demo chat: a prompt, or a part of the answer after it. */
-type Step = { ask: string } | { part: ChatPart };
+type Step = { ask: string } | { part: ChatPart } | { letters: AgentLetter[] };
 
 let ids = 0;
 const next = (prefix: string) => `${prefix}-${++ids}`;
 const user = (text: string): Step => ({ ask: text });
 const say = (text: string): Step => ({ part: { kind: 'text', id: next('part'), text } });
 const think = (text: string): Step => ({ part: { kind: 'thought', id: next('part'), text } });
-const tool = (kind: ToolAction, title: string, status = 'completed', row: Partial<ToolCall['row']> = {}): Step => ({
+const tool = (kind: ToolAction, title: string, status: ToolCall['status'] = 'completed', row: Partial<ToolCall['row']> = {}): Step => ({
   part: {
     kind: 'tool',
     id: next('part'),
     tool: { toolCallId: next('tool'), kind, title, status, row: { action: kind, target: title, ...row } },
   },
 });
+const letters = (...sent: AgentLetter[]): Step => ({ letters: sent });
+const goal = (marker: GoalMarker): Step => ({
+  part: { kind: 'agent_notice', id: next('part'), notice: { severity: 'info', title: marker.name ?? 'Goal', goal: marker } },
+});
+/** A line the core puts in the chief's chat: an Overrule, or the week's count. */
+const notice = (said: Pick<AgentNotice, 'overruled' | 'week'>): Step => ({
+  part: {
+    kind: 'agent_notice',
+    id: next('part'),
+    notice: { severity: 'info', title: said.week ? "The week's count" : 'Overruled', ...said },
+  },
+});
+const DAY = 86_400_000;
+/** This week's Monday at 09:00, when the chief's count of the week before came. */
+const WEEK_START = (() => {
+  const monday = new Date();
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  monday.setHours(9, 0, 0, 0);
+  return monday.getTime();
+})();
 const file = (kind: ToolAction, path: string, name: string): Step => tool(kind, path, 'completed', { target: name, path });
 
 type Pickers = Pick<ChatView['head'], 'model' | 'effort'>;
@@ -84,7 +129,7 @@ const PICKERS: Record<string, Pickers> = {
   hermes: { model: gpt },
 };
 
-export type DemoChat = {
+type DemoChat = {
   agentId: string;
   /** What the host's core named the agent. */
   name: string;
@@ -99,7 +144,40 @@ export type DemoChat = {
   asking?: { title: string; command: string };
   /** What it left when its last turn ended. */
   handoff?: { answer: string; files: string[]; recording?: number };
+  /** The goal it works on now. */
+  goal?: ChatGoal;
+  /** Left out of the host's agent list, so only its own scene opens it. */
+  unlisted?: boolean;
+  /**
+   * A chat a real core folded, as it sent it, with what each call changed or printed: the strips need the runs the
+   * core counts, which a written history does not have.
+   */
+  recorded?: Recorded;
 };
+
+export type Recorded = Pick<ChatView, 'head' | 'rows' | 'subagents'> & { details: Record<string, ToolDetail> };
+
+const recorded = (agentId: string, name: string, project: string, view: unknown): DemoChat => {
+  const chat = view as Recorded;
+  return {
+    agentId,
+    name,
+    provider: 'claude',
+    title: chat.rows.find((row) => row.role === 'user')?.parts.find((part) => part.kind === 'text')?.text ?? name,
+    project,
+    running: chat.head.running,
+    permissionMode: chat.head.permissionMode,
+    history: [],
+    recorded: chat,
+  };
+};
+
+/** Chats opened only by their own scenes, so the device's lists stay as the site's pictures show them. */
+export const RECORDED: DemoChat[] = [
+  recorded('chat-login-fix', 'Sango', 'p-shop', LOGIN_FIX),
+  recorded('chat-signup-check', 'Kuro', 'p-shop', SIGNUP_CHECK),
+  recorded('chat-adapter-hunt', 'Ivy', 'p-shop', ADAPTER_HUNT),
+];
 
 export const CHATS: DemoChat[] = [
   {
@@ -189,6 +267,89 @@ export const CHATS: DemoChat[] = [
       recording: 14,
     },
   },
+  {
+    agentId: 'chat-notes',
+    name: 'Kuro',
+    provider: 'claude',
+    title: 'Release notes for 2.4',
+    project: 'p-site',
+    running: false,
+    unlisted: true,
+    permissionMode: 'bypass',
+    goal: { project: 'p-site', card: 41, name: 'Ship 2.4', state: 'moving', steps: ['done', 'moving', 'waiting'] },
+    history: [
+      goal({ card: 41, name: 'Ship 2.4', state: 'moving', steps: ['done', 'moving', 'waiting'] }),
+      user('Write release notes for this week from the merged pull requests.'),
+      user('Keep them short, and link each one.'),
+      tool('execute', 'gh pr list --state merged'),
+      say(
+        [
+          '## Release 2.4',
+          '### What is new',
+          '- **Faster checkout** on slow connections ([#212](https://github.com/edon/acme-shop/pull/212))',
+          '- **Dark mode** in settings, from [SHOP-88](https://edon.atlassian.net/browse/SHOP-88)',
+          '### Shipping it',
+          '1. Merge the notes branch',
+          '2. Tag `v2.4.0` and let CI publish',
+          '```ts:src/lib/release.ts\nexport const version = "2.4.0";\nexport const notes = "notes/2.4.md";\n```',
+        ].join('\n\n'),
+      ),
+      goal({ card: 41, name: 'Ship 2.4', state: 'moving', steps: ['done', 'done', 'waiting'], moment: 'step', took: 1_560_000 }),
+      goal({ card: 41, name: 'Ship 2.4', state: 'waiting', steps: ['done', 'done', 'waiting'], moment: 'stopped', took: 2_400_000 }),
+    ],
+  },
+  {
+    agentId: 'chat-team',
+    name: 'Chief',
+    provider: 'claude',
+    title: 'Ledger import',
+    project: 'p-api',
+    running: false,
+    permissionMode: 'bypass',
+    history: [
+      letters({
+        kind: 'message',
+        name: 'Otter',
+        agentId: 'chat-dark-mode',
+        cli: 'claude',
+        text: 'Take PROJ-12: move the ledger import onto the new amounts table. Ask me if the data is unclear.',
+      }),
+      say('On it. Two questions first.'),
+      letters(
+        {
+          kind: 'answer',
+          name: 'Chief',
+          agentId: 'chat-team',
+          cli: 'claude',
+          question: 'Which timezone should the ledger dates use?',
+          text: 'UTC',
+        },
+        {
+          kind: 'answer',
+          name: 'Chief',
+          agentId: 'chat-team',
+          cli: 'claude',
+          question: 'Store amounts in cents or as decimals?',
+          text: 'Cents, and convert at the API edge',
+        },
+      ),
+      say('Dates go in as UTC and amounts as cents. The import runs clean.'),
+      letters({
+        kind: 'trigger',
+        name: 'CI on main',
+        cli: 'claude',
+        text: 'Read the failed run, fix it on a branch and open a pull request.',
+        trigger: { title: 'CI on main', prompt: 'Read the failed run, fix it on a branch and open a pull request.' },
+      }),
+      notice({ week: { from: WEEK_START - 7 * DAY, to: WEEK_START, decided: 212, overruled: 3, answered: 14, asPicked: 12 } }),
+      notice({
+        overruled: { project: `${HOME}/payments-api`, decision: 7, text: 'Refunds post to the ledger as negative amounts', rule: 3 },
+      }),
+      notice({
+        overruled: { project: `${HOME}/payments-api`, decision: 9, text: 'Keep the old ledger table for a week', undone: true },
+      }),
+    ],
+  },
 ];
 
 /** Questions agents put to the person, as the host's questions call lists them. */
@@ -235,131 +396,132 @@ export const QUESTIONS = [
   },
 ];
 
-const card = (fields: Record<string, unknown>) => ({
-  details: '',
-  owner: null,
-  ownerName: null,
-  ownerCli: null,
-  team: null,
-  teamName: null,
-  parent: null,
-  dependsOn: [],
-  waitsOn: [],
-  createdBy: null,
-  createdByName: 'You',
-  result: null,
-  ticket: null,
-  auto: null,
-  at: Date.now() - 86_400_000,
-  updatedAt: Date.now() - 3_600_000,
-  ...fields,
-});
+const AGO = (ms: number) => Date.now() - ms;
 
-const jira = (key: string, source: string) => ({ key, source, provider: 'jira' });
+/** Opened with `?line`, two agents wait on the host: Maple in line for a command, Wren for a thing Otter holds. */
+const LINE_SCENE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('line');
 
-/** Each project's board, as the host's boards call lists them. */
-export const BOARDS = [
+/** How each demo chat's turn stands, as the core says it on its row and its chat's last line. */
+export const TURNS: Record<string, TurnState> = {
+  'chat-dark-mode': { state: 'working', since: AGO(80_000), on: 'Adding the dark mode switch' },
+  'chat-login': {
+    state: 'waiting',
+    since: AGO(240_000),
+    wait: { kind: 'ci', what: 'CI', startedAt: AGO(240_000), expectedMs: 420_000 },
+  },
+  'chat-login-check': { state: 'working', since: AGO(40_000) },
+  'chat-release': {
+    state: 'needsYou',
+    since: AGO(120_000),
+    call: { id: 'call-release', question: 'Should the notes call out the new prices?', waitingSince: AGO(120_000), count: 1 },
+  },
+  'chat-refunds': { state: 'stopped', since: AGO(3_600_000), stopped: { left: 'Two refund tests still fail' } },
+  'chat-notes': {
+    state: 'done',
+    since: AGO(600_000),
+    done: { changes: 'committed', checks: 'pass', next: [{ step: 'push', primary: true }] },
+  },
+  'chat-team': {
+    state: 'needsYou',
+    since: AGO(300_000),
+    call: { id: 'call-ledger', question: 'Ship the ledger import to production?', waitingSince: AGO(300_000), count: 1 },
+  },
+  ...(LINE_SCENE
+    ? {
+        'chat-login': {
+          state: 'waiting',
+          since: AGO(60_000),
+          wait: { kind: 'line', what: 'pnpm test', startedAt: AGO(60_000), expectedMs: 240_000, place: 2 },
+        },
+        'chat-login-check': {
+          state: 'waiting',
+          since: AGO(720_000),
+          wait: { kind: 'inUse', what: 'Stripe webhook listener', startedAt: AGO(720_000), by: 'Otter' },
+        },
+      }
+    : {}),
+};
+
+/** Where the `?line` scenes' agents stand on the host: one in line for a command, one waiting for a thing. */
+export const LINES: Record<string, InLine> = LINE_SCENE
+  ? {
+      'chat-login': { what: 'pnpm test', place: 2, expectedMs: 240_000 },
+      'chat-login-check': { what: 'Stripe webhook listener', place: 1, by: 'Otter' },
+    }
+  : {};
+
+/** The calls the demo agents put to the person, open and answered. */
+export const CALLS: PersonCall[] = [
   {
-    project: `${HOME}/acme-shop`,
-    settings: {
-      auto: false,
-      slots: 3,
-      launcher: null,
-      model: null,
-      finish: 'merge',
-      check: null,
-      statuses: { progress: 'In Progress', done: 'Done' },
-    },
-    running: 0,
-    autoNote: null,
-    cards: [
-      card({
-        id: 1,
-        title: 'Dark mode in settings',
-        status: 'progress',
-        owner: 'chat-dark-mode',
-        ownerName: 'Otter',
-        ownerCli: 'claude',
-        team: 'chat-dark-mode',
-        teamName: 'Otter',
-        ticket: jira('SHOP-12', 'Story'),
-        updatedAt: Date.now() - 600_000,
-      }),
-      card({
-        id: 2,
-        title: 'Fix the login form on small phones',
-        status: 'progress',
-        owner: 'chat-login',
-        ownerName: 'Maple',
-        ownerCli: 'codex',
-        team: 'chat-login',
-        teamName: 'Maple',
-        ticket: jira('SHOP-14', 'Bug'),
-        updatedAt: Date.now() - 300_000,
-      }),
-      card({
-        id: 3,
-        title: 'Check the login form at every phone size',
-        status: 'progress',
-        owner: 'chat-login-check',
-        ownerName: 'Wren',
-        ownerCli: 'claude',
-        team: 'chat-login',
-        teamName: 'Maple',
-        parent: 2,
-        createdBy: 'chat-login',
-        createdByName: 'Maple',
-        updatedAt: Date.now() - 200_000,
-      }),
-      card({
-        id: 4,
-        title: 'Remember the theme on every device',
-        status: 'open',
-        dependsOn: [1],
-        waitsOn: [1],
-        ticket: jira('SHOP-15', 'Story'),
-      }),
-      card({
-        id: 5,
-        title: 'Move checkout totals into the order service',
-        status: 'done',
-        owner: 'chat-gone',
-        ownerName: 'Comet',
-        ownerCli: 'claude',
-        team: 'chat-gone',
-        teamName: 'Comet',
-        ticket: jira('SHOP-9', 'Story'),
-        updatedAt: Date.now() - 10_800_000,
-      }),
+    id: 'call-release',
+    project: `${HOME}/marketing-site`,
+    kind: 'taste',
+    asker: { agentId: 'chat-release', name: 'Birch', cli: 'hermes' },
+    question: 'Should the notes call out the new prices?',
+    context: 'The blog post on Thursday covers them in full.',
+    options: [
+      { id: 'out', label: 'Call them out', detail: 'one line under Faster checkout' },
+      { id: 'leave', label: 'Leave them', detail: 'the blog post covers them' },
     ],
+    pick: 'out',
+    against: 'the notes go out two days before the post.',
+    canHandBack: true,
+    raisedAt: AGO(120_000),
+    state: 'open',
   },
   {
-    project: `${HOME}/marketing-site`,
-    settings: {
-      auto: false,
-      slots: 3,
-      launcher: null,
-      model: null,
-      finish: 'merge',
-      check: null,
-      statuses: { progress: 'In Progress', done: 'Done' },
-    },
-    running: 0,
-    autoNote: null,
-    cards: [
-      card({
-        id: 1,
-        title: 'Release notes for this week',
-        status: 'progress',
-        owner: 'chat-release',
-        ownerName: 'Birch',
-        ownerCli: 'hermes',
-        team: 'chat-release',
-        teamName: 'Birch',
-        ticket: jira('SITE-41', 'Story'),
-      }),
-      card({ id: 2, title: 'Blog post on the new prices', status: 'open' }),
+    id: 'call-ledger',
+    project: `${HOME}/payments-api`,
+    kind: 'production',
+    asker: { agentId: 'chat-team', name: 'Chief', cli: 'claude', chief: true },
+    question: 'Ship the ledger import to production?',
+    options: [
+      { id: 'all', label: 'Ship it to everyone' },
+      { id: 'half', label: 'Ship to half first' },
+      { id: 'wait', label: 'Not yet' },
     ],
+    pick: 'all',
+    brief: {
+      tried: 'It ran on staging against last month’s ledger.',
+      shows: 'Every total matched to the cent.',
+      cannotUndo: 'Imported rows stay once written.',
+    },
+    action: 'vercel deploy --prod',
+    canHandBack: false,
+    raisedAt: AGO(300_000),
+    state: 'open',
+  },
+  {
+    id: 'call-cache',
+    project: `${HOME}/acme-shop`,
+    kind: 'taste',
+    asker: { agentId: 'term-cache', name: 'Wren', cli: 'codex' },
+    question: 'Keep product pages cached for an hour?',
+    options: [
+      { id: 'hour', label: 'An hour', detail: 'prices change at most daily' },
+      { id: 'five', label: 'Five minutes' },
+    ],
+    pick: 'hour',
+    against: 'a price fix would take up to an hour to show.',
+    canHandBack: true,
+    raisedAt: AGO(540_000),
+    state: 'open',
+  },
+  {
+    id: 'call-font',
+    project: `${HOME}/acme-shop`,
+    kind: 'money',
+    asker: { agentId: 'chat-dark-mode', name: 'Otter', cli: 'claude' },
+    question: 'Buy the display font, $40?',
+    options: [
+      { id: 'buy', label: 'Buy it' },
+      { id: 'free', label: 'Use a free font' },
+    ],
+    pick: 'buy',
+    canHandBack: true,
+    raisedAt: AGO(7_200_000),
+    state: 'answered',
+    answer: { option: 'buy', by: { kind: 'device', id: 'phone' }, at: AGO(7_000_000), waitedMs: 200_000 },
   },
 ];
 
@@ -394,10 +556,14 @@ export function chatRows(chat: DemoChat): ChatMessage[] {
   let asked = start;
   chat.history.forEach((step, index) => {
     const at = start + index * STEP_MS;
+    if ('letters' in step) {
+      rows.push({ id: next('m'), role: 'user', parts: [], letters: step.letters, sentAt: at });
+      return;
+    }
     if ('ask' in step) {
       const id = next('m');
       asked = at;
-      rows.push({ id, role: 'user', parts: [{ kind: 'text', id: next('part'), text: step.ask }], sentAt: at, meta: { from: id, at } });
+      rows.push({ id, role: 'user', promptId: id, parts: [{ kind: 'text', id: next('part'), text: step.ask }], sentAt: at });
       return;
     }
     const part = step.part.kind === 'tool' ? { ...step.part, startedAt: at, endedAt: at + 2_000 } : step.part;
@@ -414,12 +580,50 @@ export function chatRows(chat: DemoChat): ChatMessage[] {
     const work = answer.parts.slice(0, from);
     if (from === answer.parts.length || !work.length) return;
     const calls = work.filter((done) => done.kind === 'tool').length;
-    answer.fold = { id: answer.id, last: answer.id, from, calls, took, thought: calls === 0 };
+    const shown = answer.parts.flatMap((_, at) => (at >= from ? [at] : []));
+    answer.fold = { id: answer.id, last: answer.id, from, shown, calls, took, thought: calls === 0 };
   });
   return rows;
 }
 
+/** A recorded chat's view with its times moved up to now, so a running call counts from a moment ago. */
+export function recordedView(chat: Recorded): Pick<ChatView, 'head' | 'rows' | 'subagents'> {
+  const times = JSON.stringify(chat).match(/"(?:startedAt|endedAt|sentAt|at)":\d+/g) ?? [];
+  const latest = Math.max(...times.map((time) => Number(time.split(':')[1])));
+  const shift = Date.now() - 20_000 - latest;
+  const moved = JSON.parse(JSON.stringify(chat), (key, value) =>
+    ['startedAt', 'endedAt', 'sentAt', 'at'].includes(key) && typeof value === 'number' ? value + shift : value,
+  ) as Recorded;
+  return { head: moved.head, rows: moved.rows, subagents: moved.subagents };
+}
+
 /** How the demo chat stands, as the head of the view a host sends. */
+/** What happened while the person was away from the payments-api chief, as the core counts it. */
+const AWAY: ChiefAway = {
+  since: Date.now() - 7_380_000,
+  back: Date.now() - 60_000,
+  calls: ['call-ledger'],
+  decided: [
+    {
+      project: `${HOME}/payments-api`,
+      decision: 11,
+      text: 'Refunds over $500 wait for a second approval before they post',
+      why: '3 of 5 support tickets asked for it',
+      by: { agentId: 'chat-refunds', name: 'Flint' },
+      at: Date.now() - 3_600_000,
+    },
+    {
+      project: `${HOME}/payments-api`,
+      decision: 12,
+      text: 'Webhooks retry three times before giving up',
+      by: { agentId: 'chat-refunds', name: 'Flint' },
+      at: Date.now() - 3_000_000,
+      overruled: true,
+    },
+  ],
+  landed: [{ agentId: 'chat-refunds', name: 'Flint', title: 'Add refunds to the payments API', at: Date.now() - 2_400_000 }],
+};
+
 export function chatHead(chat: DemoChat): ChatView['head'] {
   const asking = permissionPayload(chat);
   return {
@@ -427,9 +631,9 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     connection: 'ready',
     running: chat.running,
     turned: true,
-    permissionMode: chat.permissionMode,
+    permissionMode: chat.permissionMode as PermissionMode,
     commands: [],
-    capabilities: {},
+    capabilities: { editing: true },
     setup: {},
     ...PICKERS[chat.provider],
     permissions: asking ? [asking] : [],
@@ -437,6 +641,11 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     runningSubagents: [],
     queued: [],
     earlierLost: false,
+    goal: chat.goal,
+    turn: TURNS[chat.agentId],
+    chief: chat.agentId === 'chat-team' || undefined,
+    chiefHears: chat.project === 'p-api' && chat.agentId !== 'chat-team' ? 'chat-team' : undefined,
+    away: chat.agentId === 'chat-team' ? AWAY : undefined,
   };
 }
 
@@ -458,27 +667,6 @@ export function permissionPayload(chat: DemoChat): PermissionAsk | undefined {
     ],
   };
 }
-
-const MINUTE = 60_000;
-const logged = (ago: number, from: string, to: string, kind: string, outcome: string) => ({
-  at: Date.now() - ago * MINUTE,
-  from,
-  kind,
-  to,
-  outcome,
-});
-
-/** acme-shop's log of messages between its agents, newest first. */
-export const MESSAGES = [
-  logged(1, 'chat-dark-mode', 'chat-refunds', 'message', 'steered'),
-  logged(3, 'chat-login-check', 'chat-dark-mode', 'question', 'waiting'),
-  logged(6, 'chat-login', 'chat-refunds', 'answer', 'delivered'),
-  logged(9, 'chat-refunds', 'chat-dark-mode', 'report', 'newTurn'),
-  logged(14, 'chat-login', 'chat-refunds', 'answer', 'waiting'),
-  logged(22, 'chat-dark-mode', 'chat-login-check', 'message', 'dropped'),
-  logged(31, 'chat-dark-mode', 'chat-login-check', 'message', 'waiting'),
-  logged(52, 'chat-dark-mode', 'chat-login', 'message', 'refused'),
-];
 
 /** The files `+` ranks in acme-shop, as its host's file list holds them. */
 export const PROJECT_FILES = [

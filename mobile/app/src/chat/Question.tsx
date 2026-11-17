@@ -1,363 +1,83 @@
-import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { SECRET_ANSWERED } from '@shared/chat/agentLetters';
-import type { AgentQuestion } from '@/core/protocol';
-import { Chip, Field } from '@/ui/controls';
-import { haptics } from '@/ui/haptics';
-import { AgentIcon, Icon } from '@/ui/Icon';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { useT } from '@/i18n';
+import { AgentFace } from '@/devices/Buddy';
+import { fonts, type Palette, useStyles } from '@/ui/theme';
 
-import type { ChatQuestions } from './questions';
+import { Bubble, makeBubbleStyles, TheirBubble } from './Bubble';
 
-/** Who is asking, above the question itself, and the ticket of the board card it works; `onFold` adds the chevron that folds the questions away. */
-function AskedBy({ cli, ticket, onFold, children }: { cli: string; ticket?: string | null; onFold?: () => void; children: ReactNode }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.who}>
-      <AgentIcon provider={cli} size={14} />
-      <Text style={styles.whoText} numberOfLines={1}>
-        {children}
-      </Text>
-      {ticket ? <Text style={styles.ticket}>{ticket}</Text> : null}
-      {onFold ? (
-        <Pressable
-          onPress={onFold}
-          hitSlop={10}
-          style={[styles.fold, !ticket && { marginLeft: 'auto' }]}
-          accessibilityRole="button"
-          accessibilityLabel="Fold the questions away">
-          <View style={styles.down}>
-            <Icon name="IconChevron" size={10} color={colors.inkFaint} />
-          </View>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-/** A question as it reads once answered: its words, and the answer in one line, or only that it was answered when the answer is a secret. */
-export function AnsweredQuestion({
-  own,
-  asker,
-  cli,
-  question,
-  answer,
-  secret,
-}: {
-  /** This chat's own agent asked, so who asked goes without saying. */
-  own: boolean;
-  asker: string;
-  cli: string;
-  question: string;
-  answer: string;
-  secret: boolean;
-}) {
-  const styles = useStyles(makeStyles);
-  return (
-    <View>
-      {own ? null : (
-        <AskedBy cli={cli}>
-          <Text style={styles.name}>{asker}</Text> asked you
-        </AskedBy>
-      )}
-      <Text style={styles.prose} selectable>
-        {question}
-      </Text>
-      {secret ? (
-        <Private text={SECRET_ANSWERED} />
-      ) : (
-        <Text style={styles.answered} selectable>
-          You answered: <Text style={styles.answer}>{answer}</Text>
-        </Text>
-      )}
-    </View>
-  );
-}
-
-/** The answer to a secret question, typed into a masked field that keeps nothing once it is held. */
-function SecretAnswer({ question, onKeep }: { question: AgentQuestion; onKeep: (text: string) => Promise<boolean> }) {
-  const styles = useStyles(makeStyles);
-  const [text, setText] = useState('');
-  const keep = () => {
-    if (text) void onKeep(text).then((kept) => kept && setText(''));
-  };
-  return (
-    <View style={styles.secret}>
-      <View style={styles.secretField}>
-        <Field
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={keep}
-          secureTextEntry
-          autoComplete="off"
-          autoCorrect={false}
-          autoCapitalize="none"
-          spellCheck={false}
-          textContentType="none"
-          importantForAutofill="no"
-          returnKeyType="send"
-          placeholder="Type the answer"
-          accessibilityLabel={`Private answer to ${question.name}`}
-          style={styles.secretInput}
-        />
-        <Chip title="Send" primary onPress={keep} />
-      </View>
-      <Private text={question.secretNote ?? ''} />
-    </View>
-  );
-}
-
-function Private({ text }: { text: string }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.private}>
-      <Icon name="IconLock" size={12} color={colors.inkFaint} />
-      <Text style={styles.privateText}>{text}</Text>
-    </View>
-  );
-}
-
-/** A question's name on its tab: the words the agent gave it, else its place among the rest. */
-function title(question: AgentQuestion, index: number, count: number) {
-  return question.header ?? (count > 1 ? `Question ${index + 1}` : 'Question');
-}
-
-/** The ring of a choice on a question that takes one, or the box of one on a question that takes several. */
-function Key({ multi, on }: { multi: boolean; on: boolean }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={[styles.mark, multi ? styles.tick : styles.radio, on && styles.markOn, on && multi && { backgroundColor: colors.ink }]}>
-      {on ? multi ? <Icon name="IconCheck" size={10} color={colors.ground} /> : <View style={styles.dot} /> : null}
-    </View>
-  );
-}
-
-function Tabs({
-  questions,
-  current,
-  onShow,
-}: {
-  questions: ChatQuestions;
-  current: AgentQuestion;
-  onShow: (question: AgentQuestion) => void;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const count = questions.open.length;
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.tabsRow}>
-      {questions.open.map((question, index) => {
-        const on = question.id === current.id;
-        return (
-          <Pressable
-            key={question.id}
-            onPress={() => {
-              haptics.select();
-              onShow(question);
-            }}
-            style={[styles.tab, on && styles.tabOn]}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: on }}
-            accessibilityLabel={`${title(question, index, count)}${questions.picks.has(question.id) ? ', answered' : ''}`}>
-            {questions.picks.has(question.id) ? (
-              <Icon name="IconCheck" size={11} color={colors.inkFaint} />
-            ) : (
-              <Text style={styles.tabNumber}>{index + 1}</Text>
-            )}
-            <Text style={[styles.tabText, on && { color: colors.ink }]} numberOfLines={1}>
-              {title(question, index, count)}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-/** The questions folded into one line, which a tap opens again. */
-function Folded({ open, onOpen }: { open: AgentQuestion[]; onOpen: () => void }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const names = open.map((question, index) => title(question, index, open.length)).join(' · ');
-  return (
-    <Pressable
-      onPress={() => {
-        haptics.select();
-        onOpen();
-      }}
-      style={styles.folded}
-      accessibilityRole="button"
-      accessibilityLabel={`${open.length} ${open.length === 1 ? 'question' : 'questions'}: ${names}. Open them`}>
-      <Text style={styles.foldedLabel}>{open.length === 1 ? 'QUESTION' : 'QUESTIONS'}</Text>
-      <Text style={styles.foldedCount}>{open.length}</Text>
-      <Text style={styles.foldedNames} numberOfLines={1}>
-        {names}
-      </Text>
-      <Icon name="IconChevron" size={10} color={colors.inkFaint} />
-    </Pressable>
-  );
-}
+export type Answered = { question: string; answer: string; secret: boolean; files?: ReactNode };
 
 /**
- * The questions an agent put to the person and waits on, at the end of its chat: a tab for each when there are
- * several, the words of the one on show as prose, then its answers as rows with a ring, or a tick on a question that
- * takes several. Picks are held until each question has one and go together with Send; a lone question that takes one
- * answer goes on the tap. "Something else…" hands over to the composer; a secret is typed into its own masked field
- * instead, so it never reaches the composer's draft. A watching phone shows the questions without the rows.
+ * The questions an agent asked and the person's answers, as the conversation they were: each question in the
+ * asker's bubble at the left, its mark on the first, and the answer in the person's bubble at the right.
+ * Someone else's questions say who asked above them.
  */
-export function QuestionDock({
-  questions,
-  canAnswer,
-  onWrite,
+export function AnsweredQuestions({
+  agentId,
+  cli,
+  asker,
+  answers,
 }: {
-  questions: ChatQuestions;
-  canAnswer: boolean;
-  onWrite: (question: AgentQuestion) => void;
+  agentId: string;
+  cli: string;
+  /** Who asked, when it was not this chat's own agent. */
+  asker: string | null;
+  answers: readonly Answered[];
 }) {
-  const colors = useColors();
   const styles = useStyles(makeStyles);
-  const { open, current, picks } = questions;
-  if (!current) return null;
-  if (questions.folded) return <Folded open={open} onOpen={() => questions.fold(false)} />;
-  const picked = picks.get(current.id);
-  const given = picked?.given;
-  const chosen = (index: number) =>
-    given !== undefined && (('choice' in given && given.choice === index) || ('choices' in given && given.choices.includes(index)));
-  const written = given && 'answer' in given ? picked : undefined;
-  const writing = questions.writing && questions.composing?.id === current.id;
-  const via = current.viaNote;
-  const row = (key: string | number, mark: ReactNode, on: boolean, label: ReactNode, a11y: string, onPress: () => void) => (
-    <Pressable
-      key={key}
-      onPress={() => {
-        haptics.select();
-        onPress();
-      }}
-      style={({ pressed }) => [styles.option, (on || pressed) && { backgroundColor: colors.active }]}
-      accessibilityRole={current.multi ? 'checkbox' : 'radio'}
-      accessibilityState={{ checked: on }}
-      accessibilityLabel={a11y}>
-      {mark}
-      <Text style={styles.label}>{label}</Text>
-    </Pressable>
-  );
-  const pencil = (
-    <View style={styles.pencil}>
-      <Icon name="IconPencil" size={12} color={colors.inkFaint} />
-    </View>
-  );
-  const other = written
-    ? row('other', pencil, true, written.shown, `Your answer, ${written.shown}`, () => onWrite(current))
-    : row(
-        'other',
-        pencil,
-        writing,
-        <Text style={{ color: colors.inkDim }}>
-          Something else…{writing ? <Text style={styles.why}>{'   answering below'}</Text> : null}
-        </Text>,
-        'Something else',
-        () => onWrite(current),
-      );
-  const sends = open.length > 1 || current.multi || written !== undefined;
+  const bubble = useStyles(makeBubbleStyles);
+  const t = useT();
   return (
-    <View accessibilityLiveRegion="polite">
-      <AskedBy cli={current.cli} ticket={current.ticket} onFold={() => questions.fold(true)}>
-        <Text style={styles.name}>{current.name}</Text> asks you{via ? ` · ${via}` : ''}
-      </AskedBy>
-      {open.length > 1 ? <Tabs questions={questions} current={current} onShow={questions.show} /> : null}
-      <Text style={styles.prose} selectable>
-        {current.text}
-        {current.multi ? <Text style={styles.pickAny}> Pick any.</Text> : null}
-      </Text>
-      {canAnswer && (current.choices.length > 0 || !current.secret) ? (
-        <View style={styles.options}>
-          {current.choices.map((choice, index) =>
-            row(
-              index,
-              <Key multi={current.multi} on={chosen(index)} />,
-              chosen(index),
-              <>
-                {choice.label}
-                {choice.recommended ? <Text style={styles.recommended}>{'  recommended'}</Text> : null}
-                {choice.detail ? <Text style={styles.why}>{`   ${choice.detail}`}</Text> : null}
-              </>,
-              [choice.label, choice.recommended && 'recommended', choice.detail].filter(Boolean).join(', '),
-              () => questions.choose(current, index),
-            ),
-          )}
-          {current.secret ? null : other}
+    <View style={styles.thread}>
+      {asker ? <Text style={styles.askedBy}>@{asker}</Text> : null}
+      {answers.map((answered, index) => (
+        <View key={index} style={styles.pair}>
+          <View style={styles.asked}>
+            <View style={index === 0 ? styles.askerMark : styles.askerGap}>
+              {index === 0 ? <AgentFace agentId={agentId} provider={cli} size={ASKER_MARK} /> : null}
+            </View>
+            <TheirBubble>
+              <Text style={bubble.text} selectable>
+                {answered.question}
+              </Text>
+            </TheirBubble>
+          </View>
+          <View style={styles.said}>
+            {answered.files}
+            {answered.secret ? (
+              <Bubble>
+                <Text style={[bubble.text, styles.kept]}>{t('Kept private')}</Text>
+              </Bubble>
+            ) : answered.answer ? (
+              <Bubble>
+                <Text style={bubble.text} selectable>
+                  {answered.answer}
+                </Text>
+              </Bubble>
+            ) : null}
+          </View>
         </View>
-      ) : null}
-      {canAnswer && current.secret ? (
-        picked ? (
-          <Private text="Answer kept, sent with the rest" />
-        ) : (
-          <SecretAnswer question={current} onKeep={(text) => questions.hold(current, text)} />
-        )
-      ) : null}
-      {canAnswer && sends ? (
-        <View style={styles.send}>
-          <Chip title="Send" primary={questions.ready} disabled={!questions.ready} onPress={questions.sendAll} />
-        </View>
-      ) : null}
+      ))}
     </View>
   );
 }
 
-/** A question the agent went on without, on the assumption it stated: Fine lets it stand, Change answers it. */
-export function AssumedQuestion({
-  question,
-  canAnswer,
-  onFine,
-  onChange,
-}: {
-  question: AgentQuestion;
-  canAnswer: boolean;
-  onFine: () => void;
-  onChange: () => void;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const act = (label: string, onPress: () => void) => (
-    <Text
-      style={styles.act}
-      onPress={() => {
-        haptics.select();
-        onPress();
-      }}
-      accessibilityRole="button">
-      {label}
-    </Text>
-  );
-  return (
-    <View style={styles.assumed}>
-      <View style={styles.check}>
-        <Icon name="IconCheck" size={13} color={colors.inkDim} />
-      </View>
-      <Text style={styles.assumedText}>
-        <Text style={styles.name}>{question.name}</Text> assumed {question.assumption}
-        {canAnswer ? (
-          <>
-            {'  ·  '}
-            {act('Fine', onFine)}
-            {'   '}
-            {act('Change', onChange)}
-          </>
-        ) : null}
-      </Text>
-    </View>
-  );
-}
+const ASKER_MARK = 16;
 
 const makeStyles = (colors: Palette) =>
   StyleSheet.create({
+    thread: { gap: 6, marginTop: 14, marginBottom: 6 },
+    askedBy: { paddingLeft: ASKER_MARK + 10, fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
+    pair: { gap: 6 },
+    asked: { maxWidth: '86%', flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    askerMark: { width: ASKER_MARK, marginTop: 13 },
+    askerGap: { width: ASKER_MARK },
+    said: { alignItems: 'flex-end', gap: 6, marginLeft: '14%' },
+    kept: { color: colors.tertiary },
     who: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 14, marginBottom: 2 },
     whoText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.inkDim },
-    name: { fontFamily: fonts.uiSemibold, color: colors.ink },
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
     pickAny: { color: colors.inkFaint },
     options: { gap: 2, marginTop: 6, marginBottom: 4, marginHorizontal: -10 },
@@ -401,16 +121,20 @@ const makeStyles = (colors: Palette) =>
     foldedLabel: { fontFamily: fonts.uiMedium, fontSize: 11, letterSpacing: 0.6, color: colors.inkFaint },
     foldedCount: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim },
     foldedNames: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
-    answered: { marginTop: 4, marginBottom: 8, fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.inkDim },
-    answer: { color: colors.ink },
     ticket: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim, marginLeft: 'auto' },
-    assumed: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginTop: 10, marginBottom: 6 },
-    check: { height: 18, justifyContent: 'center' },
-    assumedText: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
-    act: { fontFamily: fonts.uiMedium, color: colors.ink },
     secret: { marginTop: 8, marginBottom: 6, gap: 8 },
-    secretField: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    secretInput: { flex: 1 },
+    secretField: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+    secretInput: {
+      flex: 1,
+      height: 'auto',
+      minHeight: 40,
+      maxHeight: 140,
+      paddingTop: 10,
+      paddingBottom: 10,
+      textAlignVertical: 'top',
+      color: 'transparent',
+    },
+    secretSize: { fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
     private: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4, marginBottom: 8 },
     privateText: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
   });

@@ -1,12 +1,13 @@
 //! Which program and account folder each launch uses. Profiles never hold credentials.
 
+use crate::ui::Clicks;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    ParentElement, SharedString, Styled, Subscription, Window,
 };
-use sikemux_core::agent_accounts::Profile;
+use sikemux_agents::agent_accounts::Profile;
 
 use crate::icons::{self, Icon};
 use crate::settings::rows;
@@ -16,6 +17,7 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// The profile being written: a saved one being changed, or a new one.
 pub struct Fields {
@@ -41,9 +43,10 @@ impl Fields {
             name,
             _typing: typing,
             program: cx
-                .new(|cx| InputState::new(window, cx).placeholder("Leave empty to use PATH")),
-            folder: cx
-                .new(|cx| InputState::new(window, cx).placeholder("Automatic, or ~/.claude-work")),
+                .new(|cx| InputState::new(window, cx).placeholder(t!("Leave empty to use PATH"))),
+            folder: cx.new(|cx| {
+                InputState::new(window, cx).placeholder(t!("Automatic, or ~/.claude-work"))
+            }),
         }
     }
 }
@@ -150,14 +153,14 @@ pub fn render(
         .map(|book| book.profiles.clone())
         .unwrap_or_default();
     let saved = profiles.iter().any(|profile| profile.id == fields.id);
-    let built_in = fields.id.starts_with("builtin-");
+    let built_in = fields.id.starts_with(BUILT_IN);
 
     let list = div()
         .w(px(180.))
         .flex_none()
         .flex()
         .flex_col()
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.line_soft)
         .children(profiles.iter().map(|profile| {
             let chosen = profile.id == fields.id;
@@ -199,11 +202,14 @@ pub fn render(
                                 .child(format!(
                                     "{} · {}",
                                     profile.provider,
-                                    profile.executable_path.as_deref().unwrap_or("system PATH")
+                                    profile
+                                        .executable_path
+                                        .as_deref()
+                                        .unwrap_or(t!("system PATH"))
                                 )),
                         ),
                 )
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     let picked = picked.clone();
                     this.update(cx, |bench, cx| load(bench, Some(picked), window, cx))
                 })
@@ -211,7 +217,7 @@ pub fn render(
         .child({
             let this = this.clone();
             div().p(SPACE_2).child(
-                ui::Button::new("profile-new", "New profile", ui::Variant::Dashed)
+                ui::Button::new("profile-new", t!("New profile"), ui::Variant::Dashed)
                     .icon(Icon::Plus)
                     .on_click(move |_, window, cx| {
                         this.update(cx, |bench, cx| load(bench, None, window, cx))
@@ -241,7 +247,7 @@ pub fn render(
             };
             this.update(cx, |bench, cx| {
                 change_fields(bench, cx, |fields, _| {
-                    if !fields.id.starts_with("builtin-") {
+                    if !fields.id.starts_with(BUILT_IN) {
                         fields.provider = kind;
                     }
                 });
@@ -256,7 +262,7 @@ pub fn render(
             .gap(SPACE_1H)
             .px(SPACE_4)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
@@ -278,9 +284,9 @@ pub fn render(
     let editor = div()
         .flex_1()
         .min_w_0()
-        .child(stacked("Name", None, field(&fields.name)))
+        .child(stacked(t!("Name"), None, field(&fields.name)))
         .child(stacked(
-            "Agent",
+            t!("Agent"),
             None,
             div()
                 .when(built_in, |row| row.opacity(0.5))
@@ -288,16 +294,16 @@ pub fn render(
                 .into_any_element(),
         ))
         .child(stacked(
-            "Executable path",
-            Some("Empty uses PATH.".into()),
+            t!("Executable path"),
+            Some(t!("Empty uses PATH.").into()),
             field(&fields.program),
         ))
         .when(has_accounts, |editor| {
             editor.child(stacked(
-                "Profile directory",
-                Some(format!(
-                    "Set this only when keeping several {} accounts side by side.",
-                    fields.provider
+                t!("Profile directory"),
+                Some(t!(
+                    "Set this only when keeping several {agent} accounts side by side.",
+                    agent = fields.provider
                 )),
                 field(&fields.folder),
             ))
@@ -310,7 +316,7 @@ pub fn render(
                 .p(SPACE_4)
                 .when(saved && !built_in, |actions| {
                     actions.child(
-                        ui::Button::new("profile-delete", "Delete", ui::Variant::Outline)
+                        ui::Button::new("profile-delete", t!("Delete"), ui::Variant::Outline)
                             .icon(Icon::Trash)
                             .on_click(move |_, window, cx| {
                                 let id = id.clone();
@@ -324,7 +330,11 @@ pub fn render(
                 .child(
                     ui::Button::new(
                         "profile-save",
-                        if saved { "Save profile" } else { "Add profile" },
+                        if saved {
+                            t!("Save profile")
+                        } else {
+                            t!("Add profile")
+                        },
                         ui::Variant::Primary,
                     )
                     .icon(Icon::Check)
@@ -333,15 +343,15 @@ pub fn render(
                 ),
         );
     rows::section(
-        "Agent profiles",
-        Some(format!("{} configured", profiles.len()).into()),
-        Some("Which local executable a launch uses. Profiles never hold credentials.".into()),
+        n!("Agent profiles"),
+        Some(t!("{count} configured", count = profiles.len()).into()),
+        Some(t!("Which local executable a launch uses. Profiles never hold credentials.").into()),
         lit("Agent profiles"),
         div()
             .flex()
             .child(list)
             .child(editor)
-            .rounded(theme::RADIUS_3),
+            .rounded(theme::radius_3()),
         cx,
     )
 }

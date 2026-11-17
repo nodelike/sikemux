@@ -1,10 +1,13 @@
 //! Drawing a chat's rows: a message and its parts, the work folded under a turn, letters and
-//! fired triggers, and subagents.
+//! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
+use crate::ui::Clicks;
+use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice, WorkerPage};
+use sikemux_view::slice::SliceState;
 
 use crate::theme::{
-    SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_2XS, TEXT_2XS_H,
+    SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_5, TEXT_2XS_H,
     TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 
@@ -38,7 +41,29 @@ pub(super) fn row(
     };
     let message = &row.message;
     let user = message.role == ChatRole::User;
-    let fold = message.fold.as_ref();
+    let team = message.team.as_ref();
+    let team_open = team.is_some_and(|team| looks.reading.team_open(&team.id));
+    let opens_run = team.filter(|team| {
+        ix == 0 || (rows[ix - 1].message.team.as_ref()).is_none_or(|before| before.id != team.id)
+    });
+    let team_head = opens_run.and_then(|team| {
+        let line = team::line_of(&rows[ix..], &team.id)?;
+        Some(team::head(&team.id, line, team_open, looks, cx))
+    });
+    let behind = team
+        .filter(|_| team_open)
+        .is_some_and(|team| team::behind(&rows[ix..], &team.id, looks.reading));
+    if team.is_some_and(|team| behind || (!team_open && team.shown.is_empty())) {
+        return div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .children(team_head)
+            .into_any_element();
+    }
+    // A run folds a turn's work with it, so its rows show whole once it is open.
+    let fold = message.fold.as_ref().filter(|_| team.is_none());
     let folded = fold.is_some_and(|fold| !looks.reading.opened.contains(&fold.id));
     let opens = fold.filter(|fold| {
         ix == 0
@@ -48,13 +73,10 @@ pub(super) fn row(
                 .as_ref()
                 .is_none_or(|before| before.id != fold.id)
     });
-    let from = match fold {
-        Some(fold) if fold.last != message.id => usize::MAX,
-        Some(fold) => usize::try_from(fold.from).unwrap_or(0),
-        None => 0,
-    };
-    let work_shown = if user {
+    let work_shown = if user || team_open {
         1.
+    } else if team.is_some() {
+        0.
     } else {
         motion::follow(
             SharedString::from(format!("work-shown:{}", message.id)),
@@ -70,11 +92,10 @@ pub(super) fn row(
     };
     let mut segments: Vec<(bool, Vec<&ChatPart>)> = Vec::new();
     for (index, part) in message.parts.iter().enumerate() {
-        let reply = matches!(
-            part,
-            ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
-        );
-        let tucked = !(from == 0 || outlives(part) || index >= from && reply);
+        let tucked = match team {
+            Some(team) => !team.shown.contains(&(index as u64)),
+            None => fold.is_some_and(|fold| !fold.shown.contains(&(index as u64))),
+        };
         if tucked && work_shown <= 0. {
             continue;
         }
@@ -83,7 +104,9 @@ pub(super) fn row(
             _ => segments.push((tucked, vec![part])),
         }
     }
-    let live = ix + 1 == rows.len() && looks.reading.running;
+    let live = ix + 1 == rows.len() && looks.reading.running.get();
+    let follows_own = user && ix > 0 && plainly_sent(&rows[ix - 1]);
+    let followed_by_own = user && rows.get(ix + 1).is_some_and(plainly_sent);
     let summed = if user {
         0.
     } else {
@@ -122,8 +145,13 @@ pub(super) fn row(
                 {
                     self::subagent(card, pen, looks, window, cx)
                 }
+                Shown::Part(part @ ChatPart::Text { .. }) if at > 0 && !user => div()
+                    .pt(SPACE_2H)
+                    .child(self::part(row, part, user, pen, looks, window, cx))
+                    .into_any_element(),
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
                 Shown::Run(calls) => tools::run(&calls, live && at + 1 == count, looks, window, cx),
+                Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
             });
         }
         if !tucked_away || whole_row_tucked {
@@ -143,7 +171,7 @@ pub(super) fn row(
             .justify_center()
             .child(
                 ui::text(
-                    "Earlier messages are no longer kept.",
+                    t!("Earlier messages are no longer kept."),
                     TEXT_XS,
                     FontWeight::NORMAL,
                 )
@@ -153,7 +181,7 @@ pub(super) fn row(
     let worktree = (ix == 0)
         .then_some(looks.reading.worktree.as_ref())
         .flatten()
-        .and_then(|switch| crate::worktree_switch::note(switch, cx))
+        .and_then(|switch| crate::worktrees::switch::note(switch, cx))
         .map(|note| {
             div()
                 .w_full()
@@ -204,20 +232,11 @@ pub(super) fn row(
                     .items_end()
                     .children(attach::sent(message, open, looks.file_pressed(), cx))
                     .when(!parts.is_empty(), |column| {
-                        column.child(
-                            div()
-                                .max_w_full()
-                                .px(SPACE_3)
-                                .py(SPACE_2)
-                                .border_1()
-                                .border_color(looks.line)
-                                .rounded(theme::RADIUS_3)
-                                .bg(looks.bubble)
-                                .children(parts),
-                        )
+                        column.child(bubble(looks).children(parts))
                     })
-                    .children(gestures::reactions(message, looks))
-                    .children(meta::line(rows, ix, &group, looks, cx))
+                    .when(!followed_by_own, |column| {
+                        column.children(meta::line(rows, ix, &group, looks, cx))
+                    })
             }
         }
     } else {
@@ -234,11 +253,23 @@ pub(super) fn row(
                     .gap(px(PART_GAP))
                     .min_w_0()
                     .children(summary)
-                    .children(parts),
+                    .children(parts)
+                    .children(left_out(row, looks, cx)),
             )
             .children(meta::line(rows, ix, &group, looks, cx))
     };
-    let user = user && (!lettered || triggered);
+    let user = user && !lettered;
+    let ended = shown::ended_at(rows, ix, &looks.reading.shown);
+    let after = (!ended.is_empty()).then(|| {
+        div()
+            .w_full()
+            .max_w(super::column::rows(cx))
+            .px(px(22.))
+            .children(ended.into_iter().map(|turn| {
+                let key = format!("shown:{}", turn.turn);
+                shown::pictures(&turn.pages, &key, looks, cx)
+            }))
+    });
     let drawn = div()
         .w_full()
         .flex()
@@ -246,14 +277,21 @@ pub(super) fn row(
         .items_center()
         .children(lost)
         .children(worktree)
+        .children(team_head)
         .child(
             div()
                 .w_full()
-                .max_w(px(800.))
+                .max_w(super::column::rows(cx))
                 .px(px(22.))
                 .map(|row| {
                     if user {
-                        row.pt(px(17.)).pb(SPACE_2H).flex().justify_end()
+                        let row = match follows_own {
+                            true => row.pt(SPACE_1),
+                            false => row.pt(SPACE_5),
+                        };
+                        row.when(!followed_by_own, |row| row.pb(SPACE_2H))
+                            .flex()
+                            .justify_end()
                     } else {
                         row.py(px(5.))
                     }
@@ -262,7 +300,8 @@ pub(super) fn row(
                     row.pt(SPACE_3)
                 })
                 .child(content),
-        );
+        )
+        .children(after);
     if !whole_row_tucked {
         return drawn.into_any_element();
     }
@@ -273,10 +312,28 @@ pub(super) fn row(
     }
 }
 
+/// A message the person sent themselves, as opposed to letters or a trigger's prompt.
+fn plainly_sent(row: &ChatRow) -> bool {
+    row.message.role == ChatRole::User && row.message.letters.is_empty()
+}
+
+/// The person's bubble: no border, its tail at the bottom right.
+pub(super) fn bubble(looks: &Looks) -> Div {
+    div()
+        .max_w_full()
+        .px(px(14.))
+        .py(SPACE_2H)
+        .rounded(BUBBLE_RADIUS)
+        .rounded_br(SPACE_1H)
+        .bg(looks.bubble)
+}
+
+/// How round a bubble is, but for the corner its tail sits at.
+pub(super) const BUBBLE_RADIUS: gpui_kit::Pixels = px(16.);
+
 /// How far below its place the way back to the latest message starts as it comes up.
 pub(super) const LATEST_RISE: f32 = 6.;
 
-/// The gap between a message's parts.
 pub(super) const PART_GAP: f32 = 10.;
 
 /// Parts a finished turn folds away, drawn `shown` of the way open; the gap after them folds
@@ -308,9 +365,8 @@ pub(super) fn tucked(
         .into_any_element()
 }
 
-/// The prompts of the chat's triggers that came due, drawn where the person's own messages
-/// sit: a line naming the trigger, its prompt in a bubble, and the webhook request that fired
-/// it folded beneath.
+/// The prompts of the chat's triggers that came due, each in a bubble at the left under the
+/// trigger's name, with the webhook request that fired it folded beneath.
 pub(super) fn fired(
     row: &ChatRow,
     pen: &Pen,
@@ -328,43 +384,10 @@ pub(super) fn fired(
         .map(|(ix, trigger)| {
             let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
             let prompt = row.doc(&letter_doc(ix)).map(|doc| {
-                let look = looks.styles.borrow().text.clone();
+                let look = looks.styles.borrow().user.clone();
                 pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
             });
-            let named = div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .text_size(crate::theme::ui_text(TEXT_2XS_H))
-                .text_color(looks.quiet)
-                .child(ui::icon(Icon::Timer, 11.).text_color(t.cmd))
-                .child("Trigger")
-                .child("·")
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(looks.ink)
-                        .child(trigger.title.clone()),
-                );
-            let bubble = div()
-                .max_w_full()
-                .px(SPACE_3)
-                .py(SPACE_2)
-                .border_1()
-                .border_color(looks.line)
-                .rounded(theme::RADIUS_3)
-                .bg(looks.bubble)
-                .children(prompt);
-            div()
-                .max_w_full()
-                .flex()
-                .flex_col()
-                .items_end()
-                .gap(px(5.))
-                .child(named)
-                .child(bubble)
+            from(trigger_named(&trigger.title, &t), row, prompt, looks)
                 .children(trigger.request.as_ref().map(|request| {
                     let body = row.doc(&request_doc(ix)).map(|doc| {
                         let look = looks.styles.borrow().text.clone();
@@ -377,12 +400,72 @@ pub(super) fn fired(
         })
         .collect();
     div()
-        .max_w(relative(0.8))
+        .w_full()
         .flex()
         .flex_col()
-        .items_end()
         .gap(SPACE_3H)
         .children(drawn)
+}
+
+/// A trigger's name over its prompt.
+fn trigger_named(title: &str, t: &Tokens) -> Div {
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(ui::icon(Icon::Timer, 13.).text_color(t.cmd))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(t.text_primary)
+                .child(title.to_owned()),
+        )
+}
+
+/// What another agent or a trigger sent: who over its bubble at the left, and when at the
+/// line's end.
+fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div {
+    let when = row.message.sent_at.and_then(meta::clock).map(|when| {
+        div()
+            .ml_auto()
+            .flex_none()
+            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+            .text_color(looks.faint)
+            .child(when)
+    });
+    div()
+        .max_w(relative(0.78))
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(SPACE_1H)
+        .child(
+            div()
+                .w_full()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .text_size(crate::theme::ui_text(TEXT_XS_H))
+                .text_color(looks.quiet)
+                .child(who)
+                .children(when),
+        )
+        .child(
+            div()
+                .max_w_full()
+                .px(px(14.))
+                .py(SPACE_2H)
+                .rounded(BUBBLE_RADIUS)
+                .rounded_bl(SPACE_1H)
+                .border(crate::theme::border())
+                .border_color(looks.line)
+                .bg(looks.asked)
+                .children(body),
+        )
 }
 
 /// The webhook request that fired a trigger: one line saying what it was, which opens onto
@@ -425,10 +508,9 @@ pub(super) fn fired_request(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(theme::RADIUS_2)
-        .cursor_pointer()
+        .rounded(theme::radius_2())
         .hover(move |line| line.bg(hover))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&toggled);
                 cx.notify();
@@ -444,7 +526,7 @@ pub(super) fn fired_request(
             div()
                 .min_w_0()
                 .truncate()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_3XS_H))
                 .text_color(looks.faint)
                 .child(summary),
@@ -473,16 +555,16 @@ pub(super) fn fired_request(
             .flex()
             .flex_col()
             .gap(SPACE_2)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(looks.line)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .bg(t.surface_raised)
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap(SPACE_0)
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .children(headers),
             )
@@ -492,7 +574,7 @@ pub(super) fn fired_request(
         .max_w_full()
         .flex()
         .flex_col()
-        .items_end()
+        .items_start()
         .gap(SPACE_1)
         .child(line)
         .children(details)
@@ -508,68 +590,50 @@ pub(super) fn letters(
     window: &mut Window,
     cx: &mut App,
 ) -> gpui_kit::Div {
-    let drawn = row
-        .message
-        .letters
-        .iter()
-        .enumerate()
-        .map(|(ix, letter)| match letter.kind {
-            LetterKind::Answer => answered_question(
-                (letter.agent_id != looks.agent)
-                    .then_some((letter.cli.as_str(), letter.name.as_str())),
-                &letter.question,
-                &letter.text,
-                letter.secret,
-                Tokens::get(cx),
-            )
-            .into_any_element(),
+    let letters = &row.message.letters;
+    let mut drawn = Vec::with_capacity(letters.len());
+    let mut ix = 0;
+    while ix < letters.len() {
+        let letter = &letters[ix];
+        if letter.kind == LetterKind::Answer {
+            let run = letters[ix..]
+                .iter()
+                .take_while(|next| {
+                    next.kind == LetterKind::Answer && next.agent_id == letter.agent_id
+                })
+                .count();
+            drawn.push(answer_thread(row, &letters[ix..ix + run], ix, looks, cx));
+            ix += run;
+            continue;
+        }
+        drawn.push(match letter.kind {
+            LetterKind::Answer => unreachable!(),
             LetterKind::Message | LetterKind::Trigger => {
-                let (bench, agent) = (looks.bench.clone(), letter.agent_id.clone());
-                let name = div()
-                    .id(SharedString::from(format!(
-                        "{}:{}:from",
-                        row.message.id,
-                        letter_doc(ix)
-                    )))
-                    .text_color(looks.accent)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .hover(|name| name.underline())
-                    .child(letter.name.clone())
-                    .on_click(move |_, _, cx| {
-                        bench.update(cx, |bench, _| bench.open_agent(&agent)).ok();
-                    });
-                let from = div()
-                    .mb(SPACE_2)
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_1)
-                    .child(
-                        div()
-                            .h(px(22.))
-                            .flex()
-                            .items_center()
-                            .gap(SPACE_2)
-                            .text_size(crate::theme::ui_text(TEXT_XS_H))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(looks.quiet)
-                            .child(looks.mark_of(&letter.agent_id, &letter.cli, 17., cx))
-                            .child(div().flex().gap(SPACE_1).child("Message from").child(name)),
-                    )
-                    .child(div().h(px(1.)).bg(looks.rule));
                 let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
                 let text = row.doc(&letter_doc(ix)).map(|doc| {
-                    let look = looks.styles.borrow().text.clone();
-                    pen.markdown_with(&look, id, &doc.markdown, window, cx)
+                    let look = looks.styles.borrow().user.clone();
+                    pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
                 });
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(from)
-                    .children(text)
-                    .into_any_element()
+                let who = match &letter.trigger {
+                    Some(trigger) => trigger_named(&trigger.title, Tokens::get(cx)),
+                    None => match looks.bench.upgrade() {
+                        Some(bench) => div().flex().child(super::agent_pill_of(
+                            &letter.agent_id,
+                            &letter.name,
+                            looks.mark_of(&letter.agent_id, &letter.cli, TEXT_XS + 1., cx),
+                            TEXT_XS,
+                            bench.read(cx).chat_target(&looks.agent),
+                            &looks.bench,
+                            cx,
+                        )),
+                        None => div(),
+                    },
+                };
+                from(who, row, text, looks).into_any_element()
             }
         });
+        ix += 1;
+    }
     div()
         .w_full()
         .flex()
@@ -577,23 +641,78 @@ pub(super) fn letters(
         .gap(SPACE_3H)
         .min_w_0()
         .children(drawn)
-        .children(gestures::reactions(&row.message, looks))
+}
+
+/// A run of answers to one agent's questions, drawn as one thread with the files each carried.
+fn answer_thread(
+    row: &ChatRow,
+    answers: &[AgentLetter],
+    first: usize,
+    looks: &Drawn,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let asker = &answers[0];
+    let answered = answers.iter().enumerate().map(|(at, letter)| {
+        let files = letter.attachments.iter().enumerate().map(|(index, path)| {
+            let id = format!("{}:{}:{index}", row.message.id, letter_doc(first + at));
+            let path = PathBuf::from(path);
+            let bench = looks.bench.clone();
+            let open = move |path, window: &mut Window, cx: &mut App| {
+                bench
+                    .update(cx, |bench, cx| bench.show_picture(path, window, cx))
+                    .ok();
+            };
+            match attach::is_image(&path) {
+                true => attach::thumbnail(id, path, open, t),
+                false => attach::file_pill(id, path, looks.file_pressed(), t, cx),
+            }
+        });
+        Answered {
+            question: &letter.question,
+            answer: &letter.text,
+            secret: letter.secret,
+            files: files.collect(),
+        }
+    });
+    answered_questions(
+        looks.mark_of(&asker.agent_id, &asker.cli, questions::ASKER_MARK, cx),
+        (asker.agent_id != looks.agent).then_some(asker.name.as_str()),
+        answered.collect(),
+        looks,
+    )
+    .into_any_element()
 }
 
 pub(super) enum Shown<'a> {
     Part(&'a ChatPart),
     Run(Vec<&'a ChatPart>),
+    Tabs(Vec<&'a PageRef>),
 }
 
-/// A message's parts with each run of tool calls together; a page the agent showed stands on its own.
+/// A message's parts with each run of tool calls together, and pages shown one after another in
+/// one frame.
 pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'a>> {
     let mut shown = Vec::new();
     for part in parts {
         match (part, shown.last_mut()) {
             (
                 ChatPart::Tool {
+                    page: Some(page), ..
+                },
+                Some(Shown::Tabs(pages)),
+            ) => pages.push(page),
+            (
+                ChatPart::Tool {
+                    page: Some(page), ..
+                },
+                _,
+            ) => shown.push(Shown::Tabs(vec![page])),
+            (
+                ChatPart::Tool {
                     page: None,
                     gif: None,
+                    app: None,
                     ..
                 },
                 Some(Shown::Run(calls)),
@@ -602,6 +721,7 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
                 ChatPart::Tool {
                     page: None,
                     gif: None,
+                    app: None,
                     ..
                 },
                 _,
@@ -612,61 +732,90 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
     shown
 }
 
-/// A page the agent showed, a GIF it sent and a subagent still at work stay in view when the
-/// turn around them folds.
-pub(super) fn outlives(part: &ChatPart) -> bool {
-    match part {
-        ChatPart::Tool { page, gif, .. } => page.is_some() || gif.is_some(),
-        ChatPart::Subagent { subagent, .. } => subagent.state == SubagentState::Running,
-        _ => false,
-    }
+/// Where a goal began, passed a step or ended, as a milestone: its state in its colour, its
+/// name, and at the right its steps then and, past its start, how long it had taken.
+fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
+    let Some(goal) = notice.goal.as_ref() else {
+        return div().into_any_element();
+    };
+    let t = Tokens::get(cx);
+    let (state, word) = match (goal.moment, goal.state) {
+        (GoalMoment::Step, _) => (SliceState::Done, t!("Step done")),
+        (GoalMoment::Done, _) => (SliceState::Done, t!("Goal done")),
+        (GoalMoment::Stopped, SliceState::Failed) => (SliceState::Failed, t!("Goal stopped")),
+        (GoalMoment::Stopped, _) => (SliceState::Waiting, t!("Goal stopped")),
+        (GoalMoment::Started, SliceState::NeedsYou) => (SliceState::NeedsYou, t!("Goal needs you")),
+        (GoalMoment::Started, SliceState::Waiting) => (SliceState::Waiting, t!("Goal waiting")),
+        (GoalMoment::Started, state) => (state, t!("Goal")),
+    };
+    let name = match goal.name.is_empty() {
+        true => notice.title.clone(),
+        false => goal.name.clone(),
+    };
+    div()
+        .h(px(36.))
+        .my(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .min_w_0()
+        .text_size(crate::theme::ui_text(TEXT_XS_H))
+        .child(crate::ui::slice_state::state_mark(state, cx))
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(crate::ui::slice_state::state_ink(state, t))
+                .child(word),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_secondary)
+                .child(name),
+        )
+        .child(
+            div()
+                .ml_auto()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .children(goal.took.filter(|took| *took >= 1000).map(|took| {
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                        .text_color(looks.faint)
+                        .child(crate::ui::time::took(took))
+                })),
+        )
+        .into_any_element()
 }
 
 /// The line a finished turn folds behind: who worked, for how long, with how many tool calls.
 pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyElement {
-    let verb = if fold.thought { "Thought" } else { "Worked" };
-    let worked = fold.took.map_or_else(
-        || verb.to_owned(),
-        |took| format!("{verb} for {}", crate::ui::time::took(took)),
-    );
-    let calls = (fold.calls > 0).then(|| {
-        format!(
-            "· {} tool {}",
-            fold.calls,
-            if fold.calls == 1 { "call" } else { "calls" }
-        )
+    let worked = match (fold.thought, fold.took) {
+        (true, None) => t!("Thought").to_owned(),
+        (false, None) => t!("Worked").to_owned(),
+        (true, Some(took)) => t!("Thought for {time}", time = crate::ui::time::took(took)),
+        (false, Some(took)) => t!("Worked for {time}", time = crate::ui::time::took(took)),
+    };
+    let calls = (fold.calls > 0).then(|| match fold.calls {
+        1 => t!("· 1 tool call").to_owned(),
+        calls => t!("· {calls} tool calls", calls = calls),
     });
-    let (reader, id) = (looks.reader.clone(), fold.id.clone());
-    let (hover, ink) = (looks.hover, looks.ink);
-    let toggle = div()
-        .id(SharedString::from(format!("work:{}", fold.id)))
-        .h(px(22.))
-        .ml(px(-6.))
-        .px(SPACE_1H)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(theme::RADIUS_2)
-        .text_size(crate::theme::ui_text(TEXT_XS_H))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(looks.quiet)
-        .cursor_pointer()
-        .hover(move |toggle| toggle.bg(hover).text_color(ink))
-        .child(looks.mark_of(&looks.agent, &looks.provider, 17., cx))
-        .child(worked)
-        .children(calls)
-        .child(motion::turn(
-            format!("work-chevron:{}", fold.id),
-            motion::fold_angle(open),
-            motion::DETAIL_FOLD,
-            ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
-        ))
-        .on_click(move |_, _, cx| {
-            reader.update(cx, |reading, cx| {
-                reading.toggle(&id);
-                cx.notify();
-            })
-        });
+    let toggle = fold_toggle(
+        &fold.id,
+        open,
+        vec![
+            looks.mark_of(&looks.agent, &looks.provider, 17., cx),
+            worked.into_any_element(),
+        ]
+        .into_iter()
+        .chain(calls.map(IntoElement::into_any_element))
+        .collect(),
+        looks,
+    );
     div()
         .mt(px(3.))
         .flex()
@@ -675,6 +824,89 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
         .child(div().flex().child(toggle))
         .child(div().h(px(1.)).bg(looks.rule))
         .into_any_element()
+}
+
+/// A line that folds something away beneath it, opened and closed by the reader under `key`:
+/// `says` then a chevron that turns as it opens.
+pub(super) fn fold_toggle(
+    key: &str,
+    open: bool,
+    says: Vec<AnyElement>,
+    looks: &Drawn,
+) -> gpui::Stateful<Div> {
+    let (reader, id) = (looks.reader.clone(), key.to_owned());
+    let (hover, ink) = (looks.hover, looks.ink);
+    div()
+        .id(SharedString::from(format!("work:{key}")))
+        .h(px(22.))
+        .ml(px(-6.))
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(theme::radius_2())
+        .text_size(crate::theme::ui_text(TEXT_XS_H))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(looks.quiet)
+        .cursor_pointer()
+        .hover(move |toggle| toggle.bg(hover).text_color(ink))
+        .children(says)
+        .child(motion::turn(
+            format!("work-chevron:{key}"),
+            motion::fold_angle(open),
+            motion::DETAIL_FOLD,
+            ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
+        ))
+        .clicks(move |_, _, cx| {
+            reader.update(cx, |reading, cx| {
+                reading.toggle(&id);
+                cx.notify();
+            })
+        })
+}
+
+/// Where the reader's choice to see what was left out of `row` is kept.
+fn left_out_key(row: &ChatRow) -> String {
+    format!("left-out:{}", row.message.id)
+}
+
+/// The quiet line under an answer that says how many of its sentences rested on no source and
+/// were left out, with Show to put them back in place, faint, and Hide to take them out again.
+fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
+    let count: u64 = (row.message.left_out.iter()).map(|out| out.sentences).sum();
+    if count == 0 {
+        return None;
+    }
+    let key = left_out_key(row);
+    let open = looks.reading.opened.contains(&key);
+    let said = match count {
+        1 => t!("1 sentence with no source left out").to_owned(),
+        count => t!("{count} sentences with no source left out", count = count),
+    };
+    let faint = Tokens::get(cx).text_tertiary;
+    let (reader, ink) = (looks.reader.clone(), looks.ink);
+    let toggle = div()
+        .id(SharedString::from(key.clone()))
+        .hover(move |toggle| toggle.text_color(ink))
+        .child(if open { t!("Hide") } else { t!("Show") })
+        .clicks(move |_, _, cx| {
+            reader.update(cx, |reading, cx| {
+                reading.toggle(&key);
+                cx.notify();
+            })
+        });
+    Some(
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .text_size(crate::theme::ui_text(TEXT_XS_H))
+            .text_color(faint)
+            .child(said)
+            .child("·")
+            .child(toggle)
+            .into_any_element(),
+    )
 }
 
 /// The card of the subagent running in `session`, as the chat last showed it; a subagent's
@@ -688,22 +920,408 @@ pub(super) fn card_of<'a>(rows: &'a [ChatRow], session: &str) -> Option<&'a Suba
     })
 }
 
-/// The box something said beside the reply sits in: a background task that ended, a notice
-/// from the agent, or a move to another account.
-pub(super) fn notice_box(looks: &Drawn) -> Div {
+/// A background task that ended, drawn as the last row of a tool-call tree: what kind of task
+/// it was, its name's first line, and how it ended.
+fn task_ended(notice: &TaskNotice, looks: &Drawn, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let (icon, word, tint) = match notice.task_type.as_deref() {
+        Some("workflow") => (Icon::Workflow, t!("workflow"), looks.tints.called),
+        Some("monitor") => (Icon::Timer, t!("watch"), looks.tints.looked),
+        _ => (Icon::Run, t!("bg"), looks.tints.ran),
+    };
+    let (mark, state, state_ink) = match notice.state {
+        NoticeState::Completed => (Some((Icon::Check, t.live)), t!("done"), looks.quiet),
+        NoticeState::Failed => (Some((Icon::Close, t.danger)), t!("failed"), t.danger),
+        NoticeState::Stopped => (None, t!("stopped"), looks.quiet),
+    };
+    let name = notice
+        .name
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let summary = notice
+        .summary
+        .as_deref()
+        .and_then(|summary| summary.lines().next())
+        .map(|line| line.trim().to_owned())
+        .filter(|line| !line.is_empty() && *line != name);
     div()
-        .my(SPACE_1)
-        .px(SPACE_2H)
-        .py(SPACE_1)
+        .relative()
+        .h(px(22.))
+        .pr(SPACE_1H)
         .flex()
         .items_center()
-        .gap(px(7.))
+        .gap(SPACE_2)
         .min_w_0()
-        .border_1()
-        .border_color(looks.tints.line_soft)
-        .rounded(theme::RADIUS_2)
-        .bg(looks.tints.composer)
-        .text_size(crate::theme::ui_text(TEXT_3XS_H))
+        .font_family(theme::mono_font())
+        .text_size(crate::theme::ui_text(crate::theme::TEXT_3XS))
+        .child(super::tools::spine(true, looks))
+        .child(div().w(px(9.)).flex_none())
+        .child(
+            div()
+                .w(px(16.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .child(ui::icon(icon, 11.).text_color(tint)),
+        )
+        .child(div().flex_none().text_color(tint).child(word))
+        .child(div().min_w_0().truncate().text_color(looks.ink).child(name))
+        .children(summary.map(|summary| {
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.quiet)
+                .child(summary)
+        }))
+        .children(mark.map(|(icon, ink)| ui::icon(icon, 11.).flex_none().text_color(ink)))
+        .child(div().flex_none().text_color(state_ink).child(state))
+        .into_any_element()
+}
+
+/// The line something said beside the reply sits on: a background task that ended, a notice
+/// from the agent, or a move to another account.
+/// The quiet line that says a rule was kept from what the person said, with Undo until the person
+/// removes it again.
+fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(rule) = notice.rule.clone() else {
+        return div().into_any_element();
+    };
+    let head = match rule.undone {
+        true => t!("Kept as a rule, then undone"),
+        false => t!("Kept as a rule"),
+    };
+    let bench = looks.bench.clone();
+    notice_box(looks)
+        .child(ui::icon(Icon::Book, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .when(!rule.undone, |line| {
+            line.child("·").child(
+                div()
+                    .id(SharedString::from(format!("kept-rule-{}", rule.id)))
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .clicks(move |_, _, cx| {
+                        let rule = rule.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
+/// A page one of the agent's workers showed: a line naming the worker over the page's row.
+fn worker_page(page: &WorkerPage, looks: &Drawn, window: &mut Window, cx: &mut App) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .child(
+            notice_box(looks)
+                .child(ui::icon(Icon::Tabs, 12.).text_color(looks.quiet))
+                .child(notice_name(
+                    t!("@{name} showed a page", name = page.name).to_string(),
+                    false,
+                    looks,
+                )),
+        )
+        .child(self::page::worker_page(page, looks.looks, window, cx))
+        .into_any_element()
+}
+
+/// The quiet line under an agent's reply that says it recorded a decision itself: what it
+/// decided, what that rests on, and Overrule. The reason gives way first on a narrow pane.
+fn decided(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(decided) = notice.decided.clone() else {
+        return div().into_any_element();
+    };
+    let quoted = t!("“{text}”", text = decided.text.clone());
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    let id = format!(
+        "decided-{}-{}",
+        decided.goal.unwrap_or_default(),
+        decided.decision
+    );
+    notice_box(looks)
+        .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(t!("Decided")))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}")),
+        )
+        .children(decided.why.clone().map(|why| {
+            div()
+                .min_w_0()
+                .flex_shrink(1000.)
+                .truncate()
+                .child(format!("· {why}"))
+        }))
+        .child(div().flex_none().child("·"))
+        .child(
+            div()
+                .id(SharedString::from(id))
+                .flex_none()
+                .text_color(looks.ink)
+                .child(t!("Overrule"))
+                .clicks(move |_, _, cx| {
+                    let decided = decided.clone();
+                    let _ = bench.update(cx, |bench, cx| {
+                        let target = bench.chat_target(&agent);
+                        let decision = (decided.project, decided.goal, decided.decision);
+                        crate::playbook::overrule(bench, &target, decision, cx)
+                    });
+                }),
+        )
+        .into_any_element()
+}
+
+/// The quiet line an Overrule leaves in the chief's chat, with Undo until it is undone.
+fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(overruled) = notice.overruled.clone() else {
+        return div().into_any_element();
+    };
+    let (head, tail) = match (overruled.undone, overruled.rule.is_some()) {
+        (true, _) => (t!("Overruled, then undone"), Some(t!("it stands again"))),
+        (false, true) => (
+            t!("Overruled"),
+            Some(t!("decisions like this come to you from now on")),
+        ),
+        (false, false) => (t!("Overruled"), None),
+    };
+    let quoted =
+        (!overruled.text.is_empty()).then(|| t!("“{text}”", text = overruled.text.clone()));
+    let offers_undo = !overruled.undone && !overruled.stopped_auto;
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    let id = format!(
+        "overruled-{}-{}",
+        overruled.goal.unwrap_or_default(),
+        overruled.decision
+    );
+    notice_box(looks)
+        .child(ui::icon(Icon::Reply, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .children(quoted.map(|quoted| {
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}"))
+        }))
+        .children(tail.map(|tail| div().flex_none().child(format!("· {tail}"))))
+        .when(offers_undo, |line| {
+            line.child("·").child(
+                div()
+                    .id(SharedString::from(id))
+                    .flex_none()
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .clicks(move |_, _, cx| {
+                        let overruled = overruled.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            let target = bench.chat_target(&agent);
+                            crate::playbook::undo_overrule(bench, &target, overruled, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
+/// The quiet line the board leaves in the chief's chat when it closed a card by itself, with Undo
+/// until the person reopens it.
+fn closed_card(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(closed) = notice.closed_card.as_deref().cloned() else {
+        return div().into_any_element();
+    };
+    let head = match closed.reopened {
+        true => t!("Closed by itself, then reopened"),
+        false => t!("Closed by itself"),
+    };
+    let quoted = t!(
+        "“{text}”",
+        text = format!("#{} {}", closed.card, closed.title)
+    );
+    let passed = t!(
+        "the check passed on {commit}",
+        commit = closed.commit.chars().take(7).collect::<String>()
+    );
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    notice_box(looks)
+        .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}")),
+        )
+        .child(div().flex_none().child(format!("· {passed}")))
+        .when(!closed.reopened, |line| {
+            line.child("·").child(
+                div()
+                    .id(SharedString::from(format!("closed-card-{}", closed.card)))
+                    .flex_none()
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .clicks(move |_, _, cx| {
+                        let closed = closed.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            let target = bench.chat_target(&agent);
+                            crate::playbook::reopen_card(bench, &target, closed, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
+/// The quiet line a rule leaves when a check in the repository holds it now, with Undo until the
+/// person brings it back.
+fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(line) = notice.rule_change.clone() else {
+        return div().into_any_element();
+    };
+    let (head, tail) = match (line.restored, &line.commit, &line.was) {
+        (true, _, _) => (
+            t!("Rule back"),
+            (line.back_by.clone()).map(|name| t!("by @{name}", name = name)),
+        ),
+        (false, Some(commit), _) => (
+            t!("Now a check"),
+            Some(commit.chars().take(7).collect::<String>()),
+        ),
+        (false, None, Some(_)) => (
+            t!("Rule changed"),
+            Some(t!("by @{name}", name = line.by.clone())),
+        ),
+        (false, None, None) => (
+            t!("Rule removed"),
+            Some(t!("by @{name}", name = line.by.clone())),
+        ),
+    };
+    let quoted = t!("“{text}”", text = line.text);
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    notice_box(looks)
+        .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}")),
+        )
+        .children(tail.map(|tail| div().flex_none().child(format!("· {tail}"))))
+        .when(!line.restored, |row| {
+            row.child("·").child(
+                div()
+                    .id(SharedString::from(format!("rule-change-{}", line.rule)))
+                    .flex_none()
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .clicks(move |_, _, cx| {
+                        let line = line.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            let target = bench.chat_target(&agent);
+                            crate::playbook::restore_rule(bench, &target, &line, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
+/// The chief's count of last week, worded here from the core's numbers, under the time it came.
+fn week_count(week: &ChiefWeek, looks: &Drawn) -> AnyElement {
+    use chrono::{Datelike, TimeZone};
+    let came = (chrono::Local.timestamp_millis_opt(week.to as i64).single()).map(|at| {
+        let day = match at.weekday() {
+            chrono::Weekday::Mon => t!("Monday"),
+            chrono::Weekday::Tue => t!("Tuesday"),
+            chrono::Weekday::Wed => t!("Wednesday"),
+            chrono::Weekday::Thu => t!("Thursday"),
+            chrono::Weekday::Fri => t!("Friday"),
+            chrono::Weekday::Sat => t!("Saturday"),
+            chrono::Weekday::Sun => t!("Sunday"),
+        };
+        t!(
+            "{day} · {time}",
+            day = day,
+            time = crate::ui::time::time_of_day(at)
+        )
+    });
+    let decided = week.decided;
+    let first = match (decided, week.overruled) {
+        (1, 0) => t!("Last week I decided 1 thing, and you overruled none.").to_owned(),
+        (1, overruled) => t!(
+            "Last week I decided 1 thing, and you overruled {overruled}.",
+            overruled = overruled
+        ),
+        (_, 0) => t!(
+            "Last week I decided {decided} things, and you overruled none.",
+            decided = decided
+        ),
+        (_, overruled) => t!(
+            "Last week I decided {decided} things, and you overruled {overruled}.",
+            decided = decided,
+            overruled = overruled
+        ),
+    };
+    let second = match week.answered {
+        0 => None,
+        1 => Some(t!(
+            "You answered {picked} of 1 call as I picked.",
+            picked = week.as_picked
+        )),
+        answered => Some(t!(
+            "You answered {picked} of {answered} calls as I picked.",
+            picked = week.as_picked,
+            answered = answered
+        )),
+    };
+    let words = match second {
+        Some(second) => t!("{first} {second}", first = first, second = second),
+        None => first,
+    };
+    let text = looks.styles.borrow().text.clone();
+    div()
+        .py(SPACE_2)
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .child(
+            div()
+                .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                .text_color(looks.faint)
+                .children(came),
+        )
+        .child(
+            div()
+                .text_size(text.text_size)
+                .line_height(gpui_kit::relative(text.line_height))
+                .text_color(looks.ink)
+                .child(words),
+        )
+        .into_any_element()
+}
+
+pub(super) fn notice_box(looks: &Drawn) -> Div {
+    div()
+        .min_h(px(26.))
+        .pl(SPACE_3)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .min_w_0()
+        .text_size(crate::theme::ui_text(TEXT_XS_H))
         .text_color(looks.quiet)
 }
 
@@ -712,7 +1330,7 @@ pub(super) fn notice_name(name: String, mono: bool, looks: &Drawn) -> Div {
     div()
         .min_w_0()
         .truncate()
-        .when(mono, |name| name.font_family(theme::MONO))
+        .when(mono, |name| name.font_family(theme::mono_font()))
         .text_color(looks.ink)
         .child(name)
 }
@@ -737,26 +1355,26 @@ pub(super) fn subagent(
         SubagentState::Running => (
             theme::mix(t.accent, t.text_disabled, 0.62),
             Icon::Hourglass,
-            "working",
+            t!("working"),
         ),
         SubagentState::Completed => (
             theme::mix(t.live, t.text_disabled, 0.58),
             Icon::Check,
-            "done",
+            t!("done"),
         ),
-        SubagentState::Failed => (t.danger, Icon::Warning, "failed"),
-        SubagentState::Disconnected => (t.danger, Icon::Plug, "lost"),
-        SubagentState::Cancelled => (t.text_disabled, Icon::Close, "stopped"),
+        SubagentState::Failed => (t.danger, Icon::Warning, t!("failed")),
+        SubagentState::Disconnected => (t.danger, Icon::Plug, t!("lost")),
+        SubagentState::Cancelled => (t.text_disabled, Icon::Close, t!("stopped")),
     };
-    let tokens = card
-        .tokens
-        .map(|tokens| format!("{} tokens", crate::home::compact(tokens as f64)));
-    let calls = (card.calls > 0).then(|| {
-        format!(
-            "{} {}",
-            card.calls,
-            if card.calls == 1 { "call" } else { "calls" }
+    let tokens = card.tokens.map(|tokens| {
+        t!(
+            "{tokens} tokens",
+            tokens = crate::ui::numbers::compact(tokens as f64)
         )
+    });
+    let calls = (card.calls > 0).then(|| match card.calls {
+        1 => t!("1 call").to_owned(),
+        calls => t!("{calls} calls", calls = calls),
     });
     let cost = [tokens, calls]
         .into_iter()
@@ -770,86 +1388,98 @@ pub(super) fn subagent(
         .unwrap_or_default()
         .trim()
         .to_owned();
-    let (reader, toggled, hover) = (
-        looks.reader.clone(),
-        key.clone(),
-        theme::mix(t.text_primary, t.surface_raised, 0.05),
-    );
+    let doing = card.last_tool.as_ref().map(|tool| {
+        let row = &tool.row;
+        row.activity
+            .clone()
+            .unwrap_or_else(|| row.subject.clone().unwrap_or_else(|| row.target.clone()))
+    });
+    let state = match (card.state, doing) {
+        (SubagentState::Running, Some(doing)) if !doing.is_empty() => div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_color(t.text_secondary)
+            .child(div().flex_none().child(ui::working(11., tint)))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .child(shimmer(format!("{key}:doing"), doing)),
+            )
+            .into_any_element(),
+        (SubagentState::Running, _) => div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_color(looks.quiet)
+            .child(ui::working(11., tint))
+            .child(word)
+            .into_any_element(),
+        _ => div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_color(
+                if matches!(
+                    card.state,
+                    SubagentState::Failed | SubagentState::Disconnected
+                ) {
+                    tint
+                } else {
+                    looks.quiet
+                },
+            )
+            .child(ui::icon(mark, 12.).text_color(tint))
+            .child(word)
+            .into_any_element(),
+    };
+    let (reader, toggled, hover) = (looks.reader.clone(), key.clone(), looks.hover);
     let summary = div()
         .id(SharedString::from(key.clone()))
-        .min_h(px(24.))
-        .py(SPACE_1)
-        .pl(px(11.))
-        .pr(SPACE_3)
+        .h(px(30.))
+        .px(SPACE_3)
         .flex()
         .items_center()
-        .gap(px(7.))
-        .border_1()
-        .border_color(t.border)
-        .rounded(theme::RADIUS_2)
-        .when(open, |summary| summary.rounded_b_none())
-        .bg(t.surface_raised)
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .cursor_pointer()
+        .gap(SPACE_2)
+        .rounded(theme::radius_3())
+        .text_size(crate::theme::ui_text(TEXT_XS_H))
         .hover(move |summary| summary.bg(hover))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&toggled);
                 cx.notify();
             })
         })
+        .child(div().flex_none().child(ui::mark(&looks.provider, 17.)))
         .child(
             div()
                 .flex_none()
-                .opacity(if open { 1. } else { 0.5 })
-                .child(motion::turn(
-                    format!("{key}:chevron"),
-                    motion::fold_angle(open),
-                    motion::DETAIL_FOLD,
-                    ui::icon(Icon::Chevron, 9.).text_color(looks.quiet),
-                )),
-        )
-        .child(div().flex_none().child(ui::mark(&looks.provider, 18.)))
-        .child(
-            div()
-                .flex_none()
-                .font_family(theme::MONO)
-                .text_size(crate::theme::ui_text(TEXT_3XS_H))
+                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(looks.ink)
                 .child(card.name.clone()),
         )
         .child(
             div()
-                .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_size(crate::theme::ui_text(TEXT_3XS_H))
-                .text_color(looks.faint)
-                .map(|line| match card.state {
-                    SubagentState::Running => line.child(shimmer(format!("{key}:task"), task)),
-                    _ => line.child(task),
-                }),
+                .text_color(looks.quiet)
+                .child(task),
         )
-        .child(
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(7.))
-                .font_family(theme::MONO)
-                .text_size(crate::theme::ui_text(9.5))
-                .text_color(Hsla {
-                    a: 0.8,
-                    ..looks.faint
-                })
-                .when(!cost.is_empty(), |end| end.child(cost))
-                .child(
-                    div()
-                        .id(SharedString::from(format!("{key}:state")))
-                        .tooltip(ui::tooltip(word))
-                        .child(ui::icon(mark, 12.).text_color(tint)),
-                ),
-        );
+        .child(state)
+        .child(div().flex_1())
+        .when(!cost.is_empty(), |summary| {
+            summary.child(div().flex_none().text_color(looks.faint).child(cost))
+        })
+        .child(div().flex_none().child(motion::turn(
+            format!("{key}:chevron"),
+            motion::fold_angle(open),
+            motion::DETAIL_FOLD,
+            ui::icon(Icon::Chevron, 12.).text_color(looks.quiet),
+        )));
     let body = open.then(|| {
         let rows = looks
             .reading
@@ -864,6 +1494,7 @@ pub(super) fn subagent(
             for (at, group) in groups.into_iter().enumerate() {
                 drawn.push(match group {
                     Shown::Part(part) => self::part(row, part, false, pen, looks, window, cx),
+                    Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
                     Shown::Run(calls) => tools::run(
                         &calls,
                         live && ix + 1 == rows.len() && at + 1 == count,
@@ -879,7 +1510,7 @@ pub(super) fn subagent(
                 div()
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .text_color(looks.faint)
-                    .child("No output yet.")
+                    .child(t!("No output yet."))
                     .into_any_element(),
             );
         }
@@ -895,20 +1526,16 @@ pub(super) fn subagent(
             .flex()
             .flex_col()
             .gap(SPACE_2)
-            .border_1()
-            .border_t_0()
-            .border_color(t.border)
-            .rounded_b(theme::RADIUS_2)
-            .bg(Hsla {
-                a: 0.45,
-                ..t.surface_raised
-            })
             .children(drawn)
     });
     div()
-        .my(SPACE_1H)
         .flex()
         .flex_col()
+        .rounded(theme::radius_3())
+        .bg(Hsla {
+            a: 0.55,
+            ..t.surface_raised
+        })
         .child(summary)
         .children(body)
         .into_any_element()
@@ -938,7 +1565,14 @@ pub(super) fn part(
     };
     match part {
         ChatPart::Text { .. } | ChatPart::Thought { .. } => {
-            let Some(doc) = row.doc(part.id()) else {
+            let shown = !user && looks.reading.opened.contains(&left_out_key(row));
+            row.left_out_shown.set(shown);
+            let restored = shown.then(|| row.restored(part.id())).flatten();
+            let id = match restored {
+                Some(_) => SharedString::from(format!("{id}:left-out")),
+                None => id,
+            };
+            let Some(doc) = restored.or_else(|| row.doc(part.id())) else {
                 return div().into_any_element();
             };
             let styles = looks.styles.borrow();
@@ -949,9 +1583,9 @@ pub(super) fn part(
             };
             drop(styles);
             let look = if user {
-                attach::with_chips(look, &row.message, &looks.agent, &looks.bench, window, cx)
+                attach::with_chips(look, &row.message, &looks.bench, window)
             } else {
-                look
+                attach::with_why(look, &row.message, &looks.agent, &looks.bench, window, cx)
             };
             let cut = (doc.units > LONG_TEXT && looks.reading.folds(&row.message.id, &id))
                 .then(|| doc.markdown.cut(LONG_TEXT))
@@ -960,7 +1594,10 @@ pub(super) fn part(
                 return pen.markdown_with(&look, id, &doc.markdown, window, cx);
             };
             let reader = looks.reader.clone();
-            let label = format!("Show the rest · {}k more characters", (hidden + 500) / 1000);
+            let label = t!(
+                "Show the rest · {thousands}k more characters",
+                thousands = (hidden + 500) / 1000
+            );
             let more = Button::new(
                 SharedString::from(format!("rest:{id}")),
                 label,
@@ -985,8 +1622,10 @@ pub(super) fn part(
                 .into_any_element()
         }
         ChatPart::Tool {
-            page: Some(page), ..
-        } => self::page::page(page, looks, window, cx),
+            app: Some(app),
+            tool,
+            ..
+        } => self::app::app(app, &tool.title, looks.looks, &looks.reading.running, cx),
         ChatPart::Tool {
             id, gif: Some(gif), ..
         } => gestures::gif(id, gif, looks, cx),
@@ -999,24 +1638,38 @@ pub(super) fn part(
             line(Icon::Run, tool.title.clone(), tint)
         }
         ChatPart::Subagent { subagent, .. } => self::subagent(subagent, pen, looks, window, cx),
-        ChatPart::Notice { notice, .. } => {
-            let t = Tokens::get(cx);
-            let icon = match notice.task_type.as_deref() {
-                Some("workflow") => Icon::Workflow,
-                _ => Icon::Timer,
-            };
-            let (state, tint) = match notice.state {
-                NoticeState::Completed => ("completed", looks.quiet),
-                NoticeState::Failed => ("failed", t.danger),
-                NoticeState::Stopped => ("stopped", looks.quiet),
-            };
-            notice_box(looks)
-                .child(ui::icon(icon, 12.).text_color(looks.quiet))
-                .child(notice_name(notice.name.clone(), true, looks))
-                .child(div().flex_none().text_color(tint).child(state))
-                .children(notice.summary.clone().map(notice_summary))
-                .into_any_element()
+        ChatPart::Notice { notice, .. } => task_ended(notice, looks, cx),
+        ChatPart::Tasks { id: part, tasks } => {
+            super::ended::tasks(&row.message.id, part, tasks, looks, window, cx)
         }
+        ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() => {
+            goal_marker(notice, looks, cx)
+        }
+        ChatPart::AgentNotice { notice, .. } if notice.rule.is_some() => kept_rule(notice, looks),
+        ChatPart::AgentNotice { notice, .. } if notice.overruled.is_some() => {
+            overruled(notice, looks)
+        }
+        ChatPart::AgentNotice { notice, .. } if notice.decided.is_some() => decided(notice, looks),
+        ChatPart::AgentNotice { notice, .. } if notice.rule_change.is_some() => {
+            rule_change(notice, looks)
+        }
+        ChatPart::AgentNotice { notice, .. } if notice.closed_card.is_some() => {
+            closed_card(notice, looks)
+        }
+        ChatPart::AgentNotice {
+            notice: AgentNotice {
+                week: Some(week), ..
+            },
+            ..
+        } => week_count(week, looks),
+        ChatPart::AgentNotice {
+            notice:
+                AgentNotice {
+                    worker_page: Some(page),
+                    ..
+                },
+            ..
+        } => worker_page(page, looks, window, cx),
         ChatPart::AgentNotice { notice, .. } => {
             let t = Tokens::get(cx);
             let (icon, tint, state) = match notice.severity {
@@ -1040,14 +1693,31 @@ pub(super) fn part(
                 .from
                 .as_ref()
                 .filter(|_| moved.reason == MoveReason::Limit)
-                .map(|from| format!("{from} reached its usage limit"));
+                .map(|from| t!("{from} reached its usage limit", from = from));
+            let face = looks
+                .bench
+                .upgrade()
+                .and_then(|bench| {
+                    let bench = bench.read(cx);
+                    let profile = crate::accounts::named(bench, &looks.provider, &moved.label)?;
+                    let picture = bench.accounts.avatar(profile);
+                    Some(
+                        crate::accounts::face(picture, &looks.provider, 14., cx).into_any_element(),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    ui::icon(Icon::User, 12.)
+                        .text_color(looks.quiet)
+                        .into_any_element()
+                });
             notice_box(looks)
-                .child(ui::icon(Icon::User, 12.).text_color(looks.quiet))
-                .child(div().flex_none().child("Moved to"))
+                .child(face)
+                .child(div().flex_none().child(t!("Moved to")))
                 .child(notice_name(moved.label.clone(), false, looks))
                 .children(why.map(notice_summary))
                 .into_any_element()
         }
         ChatPart::Content { content, .. } => content::content(id, content, looks, cx),
+        ChatPart::Rotation { rotation, .. } => super::rotation::line(rotation, looks, cx),
     }
 }

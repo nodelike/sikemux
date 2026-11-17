@@ -1,7 +1,8 @@
-//! A page an agent showed, drawn inline in its chat reply, or an HTML file shown as it
-//! reads: a web view of its own that keeps no storage and never navigates. Its script can
-//! only report the page's height, a link the person clicked and a scroll the page had no
-//! use for; the app decides what each means.
+//! An MCP app drawn inline in a chat reply, an HTML file shown as it reads, or a
+//! mod: a web view of its own that keeps no storage and never navigates. Its script can only
+//! report the page's height, a link the person clicked, a scroll the page had no use for, the
+//! pointer coming over it and, from a mod, what it asks of its bridge; the app decides what each
+//! means.
 
 use std::path::Path;
 
@@ -10,22 +11,51 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+pub use crate::no_engine::PageView;
+#[cfg(windows)]
+pub use crate::windows::PageView;
 #[cfg(target_os = "linux")]
 pub use linux::PageView;
 #[cfg(target_os = "macos")]
 pub use macos::PageView;
 
 /// Sizes the view to the page and hands over the links and scrolls the person meant.
-pub(crate) const BOOTSTRAP: &str = r#"(()=>{const post=(message)=>window.webkit.messageHandlers.sikemux.postMessage(JSON.stringify(message));const root=document.documentElement;root.setAttribute("data-sikemux-framed","");document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({kind:"link",url:url.href});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({kind:"height",height});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=(style==="auto"||style==="scroll")&&node!==document.body&&node!==root;if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({kind:"wheel",deltaY:event.deltaY*scale});},{passive:false});})();"#;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) const BOOTSTRAP: &str = r#"(()=>{const post=(message)=>window.webkit.messageHandlers.sikemux.postMessage(JSON.stringify(message));const root=document.documentElement;root.setAttribute("data-sikemux-framed","");document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({kind:"link",url:url.href});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({kind:"height",height});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);root.addEventListener("mouseenter",()=>post({kind:"pointer",over:true}));root.addEventListener("mouseleave",()=>post({kind:"pointer",over:false}));const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=(style==="auto"||style==="scroll")&&node!==document.body&&node!==root;if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({kind:"wheel",deltaY:event.deltaY*scale});},{passive:false});})();"#;
+
+/// A mod's page may not open links itself: in a world of its own, which the page's script cannot
+/// reach, this keeps every link from opening and hands on to `PERSON_LINKS` only those the
+/// person clicked.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) const PERSON_LINK_CATCHER: &str = r##"(()=>{const post=(url)=>window.webkit.messageHandlers.sikemuxPersonLink.postMessage(url);const page=(url)=>url.split("#")[0];window.addEventListener("click",(event)=>{const link=event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{event.preventDefault();return;}if(page(url.href)===page(location.href))return;event.preventDefault();if(event.isTrusted&&/^https?:$/.test(url.protocol))post(url.href);},true);})();"##;
+
+/// The handler `PERSON_LINK_CATCHER` posts to, and the world both live in.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) const PERSON_LINKS: &str = "sikemuxPersonLink";
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) const PERSON_LINKS_WORLD: &str = "sikemux-person-links";
 
 /// Where a page is drawn.
 #[derive(Clone, Copy)]
 pub enum Room<'a> {
-    /// In a reply, at its full height on the app's ground, scrolled with what holds it.
-    Grows,
+    /// An MCP app in a reply, at its full height on the app's ground, scrolled with what holds
+    /// it. A click in it takes the keyboard.
+    App,
     /// Filling a file's pane on a page's usual white and scrolling itself. With the file's
     /// path on this disk, what it links to beside it, such as its styles and pictures, loads too.
     Fills(Option<&'a Path>),
+    /// Filling a pane on the app's own ground and scrolling itself, as a mod does. Only a link
+    /// the person clicks leaves it.
+    Panel,
+}
+
+impl Room<'_> {
+    /// Whether a link the page's own script reports is taken as one the person clicked.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(crate) fn trusts_page_links(self) -> bool {
+        !matches!(self, Room::Panel)
+    }
 }
 
 /// The address a page's text is read from, which is the only one it may load.
@@ -37,21 +67,31 @@ pub(crate) fn loads_as(base: Option<&str>) -> &str {
 /// Whether the page may go to `url`: its own first load, or a link to a place within it.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn stays(url: &str, loaded: &str, first_load: bool) -> bool {
+    if url == "about:srcdoc" {
+        return true;
+    }
     let (page, place) = url.split_once('#').unwrap_or((url, ""));
     page == loaded && (first_load || !place.is_empty())
 }
 
-/// What a page's script reported.
 pub enum PageEvent {
     Height(f64),
     /// A link the person clicked, which the page itself never opens.
     Link(String),
     /// A vertical scroll the page did not use, for whatever holds the page to scroll by.
     Wheel(f64),
+    /// The pointer came over the page, or left it.
+    Pointer(bool),
+    /// What a mod's page asked of the bridge the app gave it.
+    Mod(serde_json::Value),
+    /// A message an MCP app's page sent its host.
+    App(serde_json::Value),
+    /// Escape was pressed in an app's page.
+    Escape,
 }
 
 impl PageEvent {
-    /// The event a message from the page's script names.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn read(text: &str) -> Option<Self> {
         let message = serde_json::from_str::<serde_json::Value>(text).ok()?;
         match message["kind"].as_str()? {
@@ -60,6 +100,9 @@ impl PageEvent {
                 .as_str()
                 .map(|url| PageEvent::Link(url.to_owned())),
             "wheel" => message["deltaY"].as_f64().map(PageEvent::Wheel),
+            "pointer" => message["over"].as_bool().map(PageEvent::Pointer),
+            "mod" => Some(PageEvent::Mod(message)),
+            "app" => Some(PageEvent::App(message.get("message")?.clone())),
             _ => None,
         }
     }

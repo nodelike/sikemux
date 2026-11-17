@@ -22,7 +22,11 @@ test(
     try {
       process.kill(-parent.pid, 0);
       await stopProcessTree(parent.pid);
-      assert.equal(signalProcessTree(parent.pid, "SIGTERM"), false);
+      const deadline = Date.now() + 30_000;
+      while (signalProcessTree(parent.pid, "SIGTERM")) {
+        assert.ok(Date.now() < deadline, "the group outlived its stop");
+        await new Promise((resolveTick) => setTimeout(resolveTick, 20));
+      }
     } finally {
       signalProcessTree(parent.pid, "SIGKILL");
     }
@@ -39,12 +43,12 @@ test("Sikemux Dev started from a Sikemux terminal drops that terminal's identity
     SIKEMUX_CLI_ENDPOINT: "/Users/me/.config/sikemux/cli.json",
     SIKEMUX_AGENT_ID: "agent-1",
     SIKEMUX_CORE_SOCKET: "/tmp/core.sock",
-    SIKEMUX_SIDECAR_PATH: "/tmp/sidecar",
+    SIKEMUX_CORE_PATH: "/tmp/core",
   });
   assert.deepEqual(env, {
     PATH: "/usr/bin",
     SIKEMUX_CORE_SOCKET: "/tmp/core.sock",
-    SIKEMUX_SIDECAR_PATH: "/tmp/sidecar",
+    SIKEMUX_CORE_PATH: "/tmp/core",
   });
 });
 

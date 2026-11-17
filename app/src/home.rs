@@ -1,99 +1,52 @@
-use std::cell::Cell;
-use std::collections::HashMap;
-use std::rc::Rc;
+use crate::activity_view::Metric;
+use crate::ui::Clicks;
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 
-use chrono::{Datelike, NaiveDate};
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, point, px, quad, relative, size, Anchor, AnyElement, App, BorderStyle, Bounds,
-    Context, Div, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, MouseMoveEvent,
-    ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window,
-};
-use sikemux_core::server::{
-    ActivityDay, ActivityLevels, ActivityShare, ActivityStreaks, ActivitySummary, ActivityTotals,
+    div, px, Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS,
-    TEXT_3XS, TEXT_XL, TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
-use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Toggle, Variant};
-use crate::workbench::{AgentRow, Workbench};
+use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
+
+use crate::agents::rows::AgentRow;
+use crate::workbench::Workbench;
 use crate::{chat, terminal};
-
-const WEEKS: i64 = 53;
-const CELL_GAP: f32 = 3.;
-
-/// What the activity calendar shows: the measure picked above it, and the day under the pointer,
-/// counted from the Unix epoch.
-#[derive(Default)]
-pub struct Calendar {
-    pub metric: Metric,
-    pub day: Option<i64>,
-}
-
-/// What the calendar can measure the days by.
-#[derive(Clone, Copy, PartialEq, Default)]
-pub enum Metric {
-    #[default]
-    Tokens,
-    Cost,
-    Commits,
-    AgentTime,
-    Sessions,
-}
 
 /// The calendar's metrics, in the order its buttons show.
 pub const METRICS: [(Metric, &str); 5] = [
-    (Metric::Tokens, "Tokens"),
-    (Metric::Cost, "Cost"),
-    (Metric::Commits, "Commits"),
-    (Metric::AgentTime, "Agent time"),
-    (Metric::Sessions, "Sessions"),
+    (Metric::Tokens, n!("Tokens")),
+    (Metric::Cost, n!("Cost")),
+    (Metric::Commits, n!("Commits")),
+    (Metric::AgentTime, n!("Agent time")),
+    (Metric::Sessions, n!("Sessions")),
 ];
-
-impl Metric {
-    fn of_day(self, day: &ActivityDay) -> f64 {
-        match self {
-            Metric::Tokens => day.tokens as f64,
-            Metric::Cost => day.cost_usd,
-            Metric::Commits => day.commits as f64,
-            Metric::AgentTime => day.agent_ms as f64,
-            Metric::Sessions => day.sessions as f64,
-        }
-    }
-
-    /// How full the calendar draws a day, from 0 to 4.
-    fn level(self, levels: &ActivityLevels) -> u8 {
-        match self {
-            Metric::Tokens => levels.tokens,
-            Metric::Cost => levels.cost_usd,
-            Metric::Commits => levels.commits,
-            Metric::AgentTime => levels.agent_ms,
-            Metric::Sessions => levels.sessions,
-        }
-    }
-
-    pub fn of_share(self, share: &ActivityShare) -> f64 {
-        match self {
-            Metric::Tokens => share.tokens as f64,
-            Metric::Cost => share.cost_usd,
-            Metric::Commits => share.commits as f64,
-            Metric::AgentTime => share.agent_ms as f64,
-            Metric::Sessions => share.sessions as f64,
-        }
-    }
-}
 
 /// The stage: the tab in front, its views side by side, or what a project with nothing
 /// open says.
 pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
+    GLOWING.set(false);
+    let stage = stage_shown(bench, window, cx);
+    crate::ui::grain::glow_shown(GLOWING.get(), cx);
+    stage
+}
+
+thread_local! {
+    /// Whether a view drawn in this pass of the stage shows a new chat's glow.
+    static GLOWING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn stage_shown(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
     if bench.settings.read(cx).is_open() {
         return crate::settings::view(bench, window, cx);
     }
@@ -139,22 +92,50 @@ pub fn agent_view(
         .as_ref()
         .filter(|_| project.is_some())
         .map(|agent| pane_header(bench, agent, tab, view, cx));
-    if let Some((place, session)) = agent
-        .as_ref()
-        .and_then(|agent| bench.agent_terminal(&agent.id))
-    {
-        let terminal = terminal::pane(bench, &cx.entity(), &place, &session.to_string(), cx);
-        return under_header(header, div().size_full().child(terminal), cx);
+    let glow = welcoming(bench, agent.as_ref(), cx);
+    let shown = agent_shown(bench, agent.as_ref(), cx);
+    under_header(
+        agent.as_ref().map(|agent| agent.id.as_str()),
+        header,
+        shown,
+        glow,
+        cx,
+    )
+}
+
+/// How strong a new chat's glow is in an agent's view: whole while nothing is said in it, and
+/// falling to nothing as its welcome leaves after the person's first message.
+fn welcoming(bench: &Workbench, agent: Option<&AgentRow>, cx: &App) -> f32 {
+    let Some(agent) = agent else {
+        return 1.;
+    };
+    if bench.in_terminal(&agent.id) {
+        return 0.;
     }
-    if let Some(agent) = agent.as_ref().filter(|agent| bench.in_terminal(&agent.id)) {
+    match bench.chats.open.get(&agent.id) {
+        Some(chat) => chat.welcome_gone(cx).map_or(0., |gone| 1. - gone),
+        None => 1.,
+    }
+}
+
+/// What an agent's view shows under its header.
+fn agent_shown(
+    bench: &Workbench,
+    agent: Option<&AgentRow>,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    if let Some((place, session)) = agent.and_then(|agent| bench.agent_terminal(&agent.id)) {
+        let terminal = terminal::pane(bench, &cx.entity(), &place, &session.to_string(), cx);
+        return div().size_full().child(terminal).into_any_element();
+    }
+    if let Some(agent) = agent.filter(|agent| bench.in_terminal(&agent.id)) {
         let asleep = bench
             .terminal_asleep(&agent.id)
             .then(|| asleep_in_terminal(bench, agent, cx));
-        return under_header(header, div().size_full().children(asleep), cx);
+        return div().size_full().children(asleep).into_any_element();
     }
-    if let Some((agent, chat)) = agent
-        .as_ref()
-        .and_then(|agent| Some((agent, bench.chats.open.get(&agent.id)?)))
+    if let Some((agent, chat)) =
+        agent.and_then(|agent| Some((agent, bench.chats.open.get(&agent.id)?)))
     {
         let resumes = bench.shown().is_some_and(|view| {
             view.workspace
@@ -162,37 +143,50 @@ pub fn agent_view(
                 .iter()
                 .any(|saved| saved.id == agent.id && saved.resume_id.is_some())
         });
-        let welcome = chat.is_empty(cx).then(|| {
-            chat::connection_note(agent, chat, resumes, cx)
-                .unwrap_or_else(|| welcome(bench, Some(agent), cx).into_any_element())
+        let welcome = chat.welcome_gone(cx).map(|gone| {
+            chat::status::connection_note(agent, chat, resumes, cx)
+                .unwrap_or_else(|| welcome(bench, 1. - gone, cx).into_any_element())
         });
-        return under_header(header, chat::pane(bench, agent, chat, welcome, cx), cx);
+        return chat::pane(bench, agent, chat, welcome, cx).into_any_element();
     }
-    under_header(
-        header,
-        centred(welcome(bench, agent.as_ref(), cx)).size_full(),
-        cx,
-    )
+    centred(welcome(bench, 1., cx))
+        .size_full()
+        .into_any_element()
 }
 
-/// An agent pane: its header across the top, and what it shows below it.
+/// An agent pane: its header across the top, and what it shows below it, over a new chat's
+/// glow as strong as `glow`, from 0 to 1, crossing over to the pane field as it falls.
 fn under_header(
+    agent: Option<&str>,
     header: Option<impl IntoElement>,
     shown: impl IntoElement,
+    glow: f32,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    ui::pane(cx)
+    if glow > 0. {
+        GLOWING.set(true);
+    }
+    ui::pane_frame(cx)
         .flex()
         .flex_col()
+        .child(crate::ui::grain::pane_ground(agent, cx)(glow))
         .children(header)
-        .child(div().flex_1().min_h_0().p(px(ui::AGENT_INSET)).child(shown))
+        .child(
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .p(px(ui::AGENT_INSET))
+                .children(crate::ui::grain::burst_in(agent, cx))
+                .child(shown),
+        )
         .into_any_element()
 }
 
 /// A project with every tab closed, which would otherwise show nothing to click.
 fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let hint = |id: &str| crate::keymap::hint(id, cx);
+    let hint = |id: CommandId| crate::keymap::hint(id, cx);
     div()
         .size_full()
         .flex()
@@ -203,7 +197,7 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
         .text_color(t.text_tertiary)
         .child(
             ui::text(
-                "Nothing open in this project",
+                t!("Nothing open in this project"),
                 TEXT_XS_H,
                 FontWeight::NORMAL,
             )
@@ -214,22 +208,23 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
                 .flex()
                 .gap(SPACE_2)
                 .child(
-                    Button::new("empty-new-agent", "New agent", Variant::Outline)
-                        .keys(hint("agent.new"))
+                    Button::new("empty-new-agent", t!("New agent"), Variant::Outline)
+                        .keys(hint(actions::NewChat::ID))
                         .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
-                    Button::new("empty-new-terminal", "New terminal", Variant::Outline)
-                        .keys(hint("terminal.new"))
-                        .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
+                    Button::new("empty-new-terminal", t!("New terminal"), Variant::Outline)
+                        .keys(hint(actions::NewTerminal::ID))
+                        .on_click(|_, window, cx| {
+                            crate::keymap::dispatch(actions::NewTerminal::ID, window, cx)
+                        }),
                 )
                 .child(
-                    Button::new("empty-open-file", "Open file", Variant::Outline)
-                        .keys(hint("palette.files"))
-                        .on_click(cx.listener(|bench, _, window, cx| {
-                            bench.toggle_finder(window, cx);
-                            cx.notify();
-                        })),
+                    Button::new("empty-open-file", t!("Open file"), Variant::Outline)
+                        .keys(hint(actions::OpenFile::ID))
+                        .on_click(|_, window, cx| {
+                            crate::keymap::dispatch(actions::OpenFile::ID, window, cx)
+                        }),
                 ),
         )
 }
@@ -247,79 +242,96 @@ fn asleep_in_terminal(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Work
         .justify_center()
         .gap(SPACE_3)
         .child(
-            ui::text(format!("{label} is asleep"), TEXT_XS_H, FontWeight::NORMAL)
-                .text_color(t.text_secondary),
+            ui::text(
+                t!("{label} is asleep", label = label),
+                TEXT_XS_H,
+                FontWeight::NORMAL,
+            )
+            .text_color(t.text_secondary),
         )
         .child(
-            Button::new("wake-terminal-agent", "Wake", Variant::Outline)
+            Button::new("wake-terminal-agent", t!("Wake"), Variant::Outline)
                 .on_click(cx.listener(move |bench, _, _, _| bench.switch_view(&id, true))),
         )
 }
 
-/// What a chat opens on before its first message: the agent's face asking what is being made in
-/// the project, over the calendar of the tokens burnt in it.
-pub fn welcome(
-    bench: &Workbench,
-    agent: Option<&AgentRow>,
-    cx: &mut Context<Workbench>,
-) -> impl IntoElement {
-    div()
-        .w_full()
-        .max_w(px(756.))
+/// What a chat opens on before its first message: Sikemux's logo asking what is being made in
+/// the project.
+pub fn welcome(bench: &Workbench, shown: f32, cx: &mut Context<Workbench>) -> impl IntoElement {
+    let project = bench.project().map(|project| project.name.clone());
+    welcome_over(project.unwrap_or_default(), div(), shown, cx)
+        .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
         .mx(px(22.))
-        .flex()
-        .flex_col()
-        .gap(SPACE_6)
-        .child(greeting(bench, agent, cx))
-        .child(div().w_full().child(bench.parts.activity.clone()))
 }
 
-/// The agent's face asking what is being made in the project.
-fn greeting(
-    bench: &Workbench,
-    agent: Option<&AgentRow>,
-    cx: &mut Context<Workbench>,
-) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let project = bench
-        .project()
-        .map(|project| project.name.clone())
-        .unwrap_or_default();
+/// Sikemux's mark in dots, asking what is being made in `project`, over `under`, as wide as it
+/// is given and as solid as `shown`, from 0 to 1.
+pub fn welcome_over(
+    project: impl Into<SharedString>,
+    under: impl IntoElement,
+    shown: f32,
+    cx: &App,
+) -> Div {
     div()
+        .w_full()
         .flex()
+        .flex_col()
         .items_center()
-        .justify_center()
-        .gap(SPACE_3)
-        .child(div().flex().child(match agent {
-            Some(agent) => agent.mark(32., cx),
-            None => ui::mark("claude", 32.),
-        }))
-        .child(
-            div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .text_size(theme::ui_text(TEXT_XL))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.text_primary)
-                .child("What are we making in")
-                .child(
-                    ui::icon(Icon::Folder, 17.)
-                        .ml(SPACE_2)
-                        .mr(SPACE_1H)
-                        .text_color(t.live),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_family(theme::MONO)
-                        .font_weight(FontWeight::NORMAL)
-                        .text_size(theme::ui_text(18.))
-                        .child(project),
-                )
-                .child("?"),
-        )
+        .gap(SPACE_6)
+        .opacity(shown)
+        .child(logo(shown, cx))
+        .child(greeting(project.into(), cx))
+        .child(div().w_full().child(under))
+}
+
+/// Sikemux's mark in dots of the accent, as the setup's poster draws it, its dots thinning
+/// away as `shown` falls to 0.
+fn logo(shown: f32, cx: &App) -> AnyElement {
+    match crate::ui::grain::poster_mark(shown, LOGO_DOTS, cx) {
+        Some(mark) => mark.size(px(LOGO_SIZE)).into_any_element(),
+        None => ui::icon(Icon::Logo, LOGO_SIZE)
+            .text_color(Tokens::get(cx).accent)
+            .into_any_element(),
+    }
+}
+
+const LOGO_SIZE: f32 = 110.;
+/// How far apart the mark's dots are, in points.
+const LOGO_DOTS: f32 = 2.;
+
+/// Asking what is being made in the project.
+fn greeting(project: SharedString, cx: &App) -> impl IntoElement {
+    let t = Tokens::get(cx).clone();
+    let asked = crate::i18n::tr(n!("What are we making in {project}?"));
+    let (before, after) = asked
+        .split_once("{project}")
+        .unwrap_or(("What are we making in", "?"));
+    div().flex().items_center().justify_center().child(
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .text_size(theme::ui_text(TEXT_XL))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(t.text_primary)
+            .child(before.trim_end())
+            .child(
+                ui::icon(Icon::Folder, 17.)
+                    .ml(SPACE_2)
+                    .mr(SPACE_1H)
+                    .text_color(t.live),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(theme::mono_font())
+                    .font_weight(FontWeight::NORMAL)
+                    .text_size(theme::ui_text(18.))
+                    .child(project),
+            )
+            .child(after),
+    )
 }
 
 /// The welcome in the middle of the space it is given, across and down.
@@ -331,63 +343,10 @@ pub fn centred(welcome: impl IntoElement) -> Div {
         .child(div().w_full().flex().justify_center().child(welcome))
 }
 
-/// The welcome's calendar of the tokens burnt each day: a view of its own, drawn again when the
-/// workbench changes but not when a key is typed in the composer below it.
-pub struct Activity {
-    bench: WeakEntity<Workbench>,
-    _bench: Subscription,
-}
-
-impl Activity {
-    pub fn new(bench: &Entity<Workbench>, cx: &mut Context<Self>) -> Self {
-        Self {
-            bench: bench.downgrade(),
-            _bench: cx.observe(bench, |_, _, cx| cx.notify()),
-        }
-    }
-}
-
-impl Render for Activity {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.bench
-            .update(cx, |bench, cx| welcome_calendar(bench, cx))
-            .unwrap_or_else(|_| div().into_any_element())
-    }
-}
-
-fn welcome_calendar(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(summary) = bench.reads.activity.as_ref() else {
-        return div().into_any_element();
-    };
-    let t = Tokens::get(cx).clone();
-    let more = div()
-        .id("welcome-more")
-        .group("welcome-more")
-        .py(SPACE_0)
-        .flex()
-        .items_center()
-        .gap(SPACE_1)
-        .cursor_pointer()
-        .text_size(theme::ui_text(TEXT_2XS))
-        .text_color(t.ink_faint)
-        .hover(|more| more.text_color(t.text_primary))
-        .child("View activity")
-        .child(
-            ui::icon(Icon::Chevron, 10.)
-                .text_color(t.ink_faint)
-                .group_hover("welcome-more", move |icon| icon.text_color(t.text_primary)),
-        )
-        .on_click(cx.listener(|bench, _, window, cx| {
-            bench.open_settings(crate::settings::Page::Usage, window, cx)
-        }));
-    calendar(
-        summary,
-        bench,
-        &cx.entity(),
-        Some(more.into_any_element()),
-        cx,
-    )
-    .into_any_element()
+/// The welcome across the middle and resting on the bottom of the space it is given, so it sits
+/// just over a composer drawn below it.
+pub fn over_composer(welcome: impl IntoElement) -> Div {
+    centred(welcome).justify_end().pb(SPACE_6 + SPACE_3)
 }
 
 fn pane_header(
@@ -397,25 +356,9 @@ fn pane_header(
     view: &str,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let menu = AgentMenu::new(bench, &agent.id, cx);
-    let more = KitButton::new("agent-more")
-        .ghost()
-        .compact()
-        .w(px(24.))
-        .h(px(24.))
-        .tooltip("More")
-        .child(ui::icon(Icon::More, 14.).text_color(t.text_secondary))
-        .dropdown_menu_with_anchor(
-            Anchor::TopRight,
-            ui::menu(move |popup, _, _| match &menu {
-                Some(menu) => menu.build(popup),
-                None => popup,
-            }),
-        );
     let desk_open = bench
         .desk_of(tab, &agent.id)
-        .is_some_and(|desk| !bench.panes.desk_shutting(&desk));
+        .is_some_and(|desk| !bench.panes.shutting(&desk));
     let (tab, view, agent_id) = (tab.to_owned(), view.to_owned(), agent.id.clone());
     let views = vec![
         (Icon::Agent, SharedString::from("GUI")),
@@ -425,6 +368,92 @@ fn pane_header(
     let working = agent.busy;
     let has_chat = bench.has_chat(&agent.provider);
     let switched = agent.id.clone();
+    let ask = bench.opened_on(&agent.id).map(|opened| {
+        let outside = (bench.chats.open.get(&agent.id)).is_some_and(|chat| chat.outside);
+        let words = vec![
+            (SharedString::from(t!("Ask #{id}", id = opened.id)), None),
+            (SharedString::from(t!("Whole chat")), None),
+        ];
+        Segmented::words("agent-ask", words, usize::from(!opened.narrowed))
+            .slide()
+            .slot(64.)
+            .marked(
+                1,
+                outside.then(|| t!("Something happened outside #{id}", id = opened.id)),
+            )
+            .on_select(
+                cx.listener(|bench, picked: &usize, _, cx| bench.narrow_ask(*picked == 0, cx)),
+            )
+    });
+    agent_header(bench, agent, cx)
+        .controls(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .children(ask)
+                .child(
+                    Segmented::new("agent-view", views, usize::from(in_terminal))
+                        .slide()
+                        .disabled_because(match (has_chat, working) {
+                            (false, _) => Some(t!("This agent has no built-in chat").to_owned()),
+                            (true, true) => {
+                                let other = if in_terminal { "GUI" } else { "TUI" };
+                                Some(t!(
+                                    "Wait for the agent to finish before opening {other}",
+                                    other = other
+                                ))
+                            }
+                            (true, false) => None,
+                        })
+                        .on_select(cx.listener(move |bench, picked: &usize, _, _| {
+                            let terminal = *picked == 1;
+                            if terminal != in_terminal {
+                                bench.switch_view(&switched, terminal);
+                            }
+                        })),
+                ),
+        )
+        .side(
+            IconButton::new(
+                "agent-desk",
+                Icon::PanelRight,
+                if desk_open {
+                    t!("Close the desk")
+                } else {
+                    t!("Open the desk")
+                },
+            )
+            .compact()
+            .pressed(desk_open)
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                crate::keymap::count(actions::ToggleDesk::ID.name(), cx);
+                bench.toggle_desk(&tab, &view, &agent_id, cx)
+            })),
+        )
+}
+
+/// What says which agent a view shows, wherever it shows: its mark, title and name, and what
+/// can be done to it from anywhere.
+fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> PaneHeader {
+    let t = Tokens::get(cx).clone();
+    let menu = AgentMenu::new(bench, &agent.id, cx);
+    let more = KitButton::new("agent-more")
+        .ghost()
+        .compact()
+        .w(px(24.))
+        .h(px(24.))
+        .tooltip(t!("More"))
+        .child(ui::icon(Icon::More, 14.).text_color(t.text_secondary))
+        .dropdown_menu_with_anchor(
+            Anchor::TopRight,
+            ui::menu(move |popup, window, cx| match &menu {
+                Some(menu) => menu.build(popup, window, cx),
+                None => popup,
+            }),
+        );
+    let in_terminal = bench.in_terminal(&agent.id);
+    let has_chat = bench.has_chat(&agent.provider);
     let shared = agent.id.clone();
     let open_share = cx.listener(move |bench, _, window, cx| bench.open_share(&shared, window, cx));
     let share = match bench.share_of(&agent.id) {
@@ -439,16 +468,16 @@ fn pane_header(
                 .items_center()
                 .justify_center()
                 .gap(px(3.))
-                .rounded(crate::theme::RADIUS_2)
+                .rounded(crate::theme::radius_2())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.live)
                 .tooltip(ui::tooltip(crate::share::watching(share)))
-                .on_click(open_share)
+                .clicks(open_share)
                 .child(ui::icon(Icon::Eye, 13.).text_color(t.live))
                 .when(viewers > 0, |button| button.child(viewers.to_string()))
                 .into_any_element()
         }
-        None => IconButton::new("agent-share", Icon::Share, "Share this chat read-only")
+        None => IconButton::new("agent-share", Icon::Share, t!("Share this chat read-only"))
             .compact()
             .on_click(open_share)
             .into_any_element(),
@@ -460,7 +489,15 @@ fn pane_header(
         .as_ref()
         .filter(|retitling| retitling.agent == agent.id && !retitling.in_rail)
         .map(|retitling| retitle_field(retitling, 13., cx).min_w(px(160.)));
+    let chief = agent.chief.then(|| chief_fact(bench, cx)).flatten();
+    let weak = cx.weak_entity();
+    let chain = (!agent.chief)
+        .then(|| chain_to(bench, agent, &weak, cx))
+        .flatten();
+    let side = side_of(bench, agent, cx);
     PaneHeader::new(agent.title.clone())
+        .when_some(chain, PaneHeader::back)
+        .when_some(chief, PaneHeader::fact)
         .title_view(editing)
         .on_title_double_click(
             cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
@@ -470,10 +507,9 @@ fn pane_header(
                 let picked = agent.id.clone();
                 div()
                     .id("agent-buddy")
-                    .cursor_pointer()
-                    .tooltip(ui::tooltip("Change buddy"))
+                    .tooltip(ui::tooltip(t!("Change buddy")))
                     .child(agent.mark(16., cx))
-                    .on_click(
+                    .clicks(
                         cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)),
                     )
                     .into_any_element()
@@ -481,486 +517,117 @@ fn pane_header(
             false => ui::mark(&agent.provider, 16.).into_any_element(),
         })
         .name(
-            agent
-                .name
-                .as_ref()
-                .map(|name| SharedString::from(format!("@{name}"))),
+            (agent.handle().is_some())
+                .then(|| crate::chat::agent_pill(agent, TEXT_XS, &weak, cx).into_any_element()),
+        )
+        .when_some(side, PaneHeader::fact)
+        .when_some(
+            agent.turn.as_ref().filter(|_| in_terminal),
+            |header, turn| {
+                header.fact(crate::turn_line::header(
+                    turn,
+                    &agent.provider,
+                    SharedString::from(format!("turn-head:{}", agent.id)),
+                ))
+            },
         )
         .when_some(
             in_terminal
-                .then(|| crate::worktree_head::badges(bench, &agent.id, cx))
+                .then(|| crate::worktrees::head::pull_badge(bench, &agent.id, cx))
                 .flatten(),
-            |header, badges| header.action(badges),
+            |header, badge| header.action(badge),
         )
         .when(has_chat, |header| header.action(share))
         .action(more)
-        .controls(
-            Segmented::new("agent-view", views, usize::from(in_terminal))
-                .slide()
-                .disabled_because(match (has_chat, working) {
-                    (false, _) => Some("This agent has no built-in chat".to_owned()),
-                    (true, true) => {
-                        let other = if in_terminal { "GUI" } else { "TUI" };
-                        Some(format!(
-                            "Wait for the agent to finish before opening {other}"
-                        ))
-                    }
-                    (true, false) => None,
-                })
-                .on_select(cx.listener(move |bench, picked: &usize, _, _| {
-                    let terminal = *picked == 1;
-                    if terminal != in_terminal {
-                        bench.switch_view(&switched, terminal);
-                    }
-                })),
-        )
-        .side(
-            IconButton::new(
-                "agent-desk",
-                Icon::PanelRight,
-                if desk_open {
-                    "Close the desk"
-                } else {
-                    "Open the desk"
-                },
-            )
-            .compact()
-            .pressed(desk_open)
-            .on_click(
-                cx.listener(move |bench, _, _, cx| bench.toggle_desk(&tab, &view, &agent_id, cx)),
-            ),
-        )
 }
 
-pub(crate) fn is_empty(totals: &ActivityTotals) -> bool {
-    totals.sessions == 0 && totals.turns == 0 && totals.commits == 0
-}
-
-/// Tokens the agents read and wrote, leaving out what they read again from cache.
-fn burnt(totals: &ActivityTotals) -> f64 {
-    (totals.input + totals.cache_write + totals.output) as f64
-}
-
-pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let tokens = burnt(totals);
-    let cost = totals.cost_usd;
-    let saved = totals.cache_savings_usd;
-    let stats = [
-        (
-            "Agent time",
-            None,
-            crate::ui::time::total(totals.agent_ms as f64),
-            plural(totals.turns as f64, "turn"),
-        ),
-        (
-            "Sessions",
-            None,
-            whole(totals.sessions as f64),
-            format!("{} resumed", whole(totals.resumed as f64)),
-        ),
-        (
-            "Tokens",
-            None,
-            compact(tokens),
-            format!("{} cached", compact(totals.cache_read as f64)),
-        ),
-        (
-            "Cost",
-            Some("API est."),
-            if cost > 0. { money(cost) } else { "—".into() },
-            if saved > 0. {
-                format!("{} saved", money(saved))
-            } else {
-                "not priced yet".into()
-            },
-        ),
-        (
-            "Commits",
-            None,
-            whole(totals.commits as f64),
-            format!("{} by agents", whole(totals.agent_commits as f64)),
-        ),
-    ];
-    div().flex().children(stats.into_iter().enumerate().map(
-        |(index, (label, badge, value, detail))| {
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(SPACE_1)
-                .py(SPACE_1)
-                .px(SPACE_4)
-                .when(index == 0, |stat| stat.pl_0())
-                .when(index > 0, |stat| stat.border_l_1().border_color(t.border))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(SPACE_1H)
-                        .text_color(t.text_tertiary)
-                        .child(ui::text(label, TEXT_XS, FontWeight::MEDIUM))
-                        .children(badge.map(|badge| ui::text(badge, TEXT_3XS, FontWeight::MEDIUM))),
-                )
-                .child(
-                    ui::text(value, TEXT_XL, FontWeight::SEMIBOLD)
-                        .line_height(crate::theme::ui_text(22.))
-                        .font_features(theme::tabular())
-                        .text_color(t.text_primary),
-                )
-                .child(ui::mono(detail, TEXT_2XS, cx).whitespace_normal())
-        },
-    ))
-}
-
-/// The calendar of a year's days, coloured by the measure picked above it. With a `footer`, as
-/// under a chat's welcome, it shows only tokens, has no readout or measure choice, and the
-/// footer leads the legend's row.
-pub(crate) fn calendar(
-    summary: &ActivitySummary,
-    bench: &Workbench,
-    this: &Entity<Workbench>,
-    footer: Option<AnyElement>,
-    cx: &App,
-) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let metric = bench.calendar.metric;
-    let welcome = footer.is_some();
-    let measure = if welcome { Metric::Tokens } else { metric };
-    let today = (chrono::Local::now().date_naive() - epoch()).num_days();
-    let start = today - (today + 3).rem_euclid(7) - (WEEKS - 1) * 7;
-    let days: HashMap<i64, &ActivityDay> =
-        (summary.days.iter()).map(|day| (day.day, day)).collect();
-    let level = |day: i64| days.get(&day).map_or(0, |day| measure.level(&day.levels));
-    let hovered = bench.calendar.day.filter(|day| *day <= today);
-    let colour = |level: u8| match level {
-        0 => Hsla {
-            a: 0.07,
-            ..t.text_primary
-        },
-        1 => Hsla {
-            a: 0.30,
-            ..t.accent
-        },
-        2 => Hsla {
-            a: 0.52,
-            ..t.accent
-        },
-        3 => Hsla {
-            a: 0.76,
-            ..t.accent
-        },
-        _ => t.accent,
-    };
-    let fills: Vec<Option<Hsla>> = (0..WEEKS * 7)
-        .map(|at| (start + at <= today).then(|| colour(level(start + at))))
-        .collect();
-    let lit = hovered.map(|day| day - start);
-    let ring = t.text_primary;
-    let placed = Rc::new(Cell::new(Bounds::default()));
-    let grid = {
-        let placed = placed.clone();
-        canvas(
-            move |bounds, _, _| placed.set(bounds),
-            move |bounds, _, window, _| {
-                let side = day_side(bounds);
-                for (at, fill) in fills.iter().enumerate() {
-                    let Some(fill) = fill else {
-                        continue;
-                    };
-                    let border = if lit == Some(at as i64) { 1. } else { 0. };
-                    window.paint_quad(quad(
-                        day_bounds(bounds, side, at as i64),
-                        px(2.),
-                        *fill,
-                        px(border),
-                        ring,
-                        BorderStyle::Solid,
-                    ));
-                }
-            },
-        )
-        .size_full()
-    };
-    let grid = div()
-        .id("activity-days")
-        .w_full()
-        .aspect_ratio(GRID_RATIO)
-        .on_mouse_move({
-            let this = this.clone();
-            move |event: &MouseMoveEvent, _, cx| {
-                let day = day_at(placed.get(), event.position)
-                    .map(|at| start + at)
-                    .filter(|day| *day <= today);
-                this.update(cx, |bench, cx| {
-                    if bench.calendar.day != day {
-                        bench.calendar.day = day;
-                        bench.parts.redraw_activity(cx);
-                    }
-                })
-            }
-        })
-        .on_hover({
-            let this = this.clone();
-            move |over: &bool, _, cx| {
-                this.update(cx, |bench, cx| {
-                    if !*over && bench.calendar.day.take().is_some() {
-                        bench.parts.redraw_activity(cx);
-                    }
-                })
-            }
-        })
-        .child(grid);
-    let mut last_month = None;
-    let mut last_label = -MONTH_LABEL_GAP;
-    let months: Vec<Div> = (0..WEEKS)
-        .filter_map(|week| {
-            let first = epoch() + chrono::Duration::days(start + week * 7);
-            let label = (last_month != Some(first.month())
-                && week <= WEEKS - 3
-                && week - last_label >= MONTH_LABEL_GAP)
-                .then(|| first.format("%b").to_string());
-            last_month = Some(first.month());
-            if label.is_some() {
-                last_label = week;
-            }
-            label.map(|label| {
-                small(label, &t)
-                    .absolute()
-                    .bottom_0()
-                    .left(relative(week as f32 / WEEKS as f32))
-            })
-        })
-        .collect();
-    let streaks = &summary.streaks;
-    let toggles: Vec<_> = METRICS
-        .iter()
-        .enumerate()
-        .map(|(index, (shown, label))| {
-            let (this, shown) = (this.clone(), *shown);
-            Toggle::new(("metric", index), *label, shown == metric).on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| {
-                    bench.calendar.metric = shown;
-                    bench.parts.redraw_activity(cx);
-                })
-            })
-        })
-        .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_3)
-        .when(!welcome, |calendar| {
-            calendar.child(
-                div()
-                    .min_h(px(24.))
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_between()
-                    .gap(SPACE_3)
-                    .child(
-                        ui::text(
-                            match hovered {
-                                Some(day) => format!(
-                                    "{} · {}",
-                                    long_date(day),
-                                    metric_text(
-                                        measure,
-                                        days.get(&day).map_or(0., |day| measure.of_day(day))
-                                    )
-                                ),
-                                None => readout(streaks),
-                            },
-                            TEXT_XS,
-                            FontWeight::NORMAL,
-                        )
-                        .text_color(t.text_secondary),
-                    )
-                    .child(div().flex().gap(SPACE_1).children(toggles)),
-            )
-        })
-        .child(
-            div()
-                .flex()
-                .gap(SPACE_2)
-                .child(
-                    div().relative().w(px(22.)).flex_none().child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .flex()
-                            .flex_col()
-                            .pt(px(14. + CELL_GAP))
-                            .gap(px(CELL_GAP))
-                            .children(["Mon", "", "Wed", "", "Fri", "", ""].map(|label| {
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .flex()
-                                    .items_center()
-                                    .child(small(label.into(), &t))
-                            })),
-                    ),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(CELL_GAP))
-                        .child(div().h(px(14.)).relative().children(months))
-                        .child(grid),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_end()
-                .gap(px(CELL_GAP))
-                .children(footer.map(|footer| div().flex_1().flex().child(footer)))
-                .child(small("Less".into(), &t).mr(SPACE_1))
-                .children((0..5).map(|level| div().size(px(10.)).rounded(px(2.)).bg(colour(level))))
-                .child(small("More".into(), &t).ml(SPACE_1)),
-        )
-}
-
-/// The fewest weeks between two month names over the calendar, so a month that starts a
-/// week after the last one's name drops its own rather than running into it.
-const MONTH_LABEL_GAP: i64 = 3;
-
-/// How wide the calendar is for its height, with square days of about 11px.
-const GRID_RATIO: f32 =
-    (WEEKS as f32 * 11. + (WEEKS - 1) as f32 * CELL_GAP) / (7. * 11. + 6. * CELL_GAP);
-
-/// The side of one day's square in a calendar drawn in `bounds`.
-fn day_side(bounds: Bounds<Pixels>) -> Pixels {
-    let gap = px(CELL_GAP);
-    let across = (bounds.size.width - gap * (WEEKS - 1) as f32) / WEEKS as f32;
-    let down = (bounds.size.height - gap * 6.) / 7.;
-    across.min(down)
-}
-
-/// Where the day `at`, counted down each week's column from the first, is drawn.
-fn day_bounds(bounds: Bounds<Pixels>, side: Pixels, at: i64) -> Bounds<Pixels> {
-    let step = side + px(CELL_GAP);
-    let origin = point(
-        bounds.left() + step * (at / 7) as f32,
-        bounds.top() + step * (at % 7) as f32,
-    );
-    Bounds::new(origin, size(side, side))
-}
-
-/// The day under `position`, counted as [`day_bounds`] counts them.
-fn day_at(bounds: Bounds<Pixels>, position: Point<Pixels>) -> Option<i64> {
-    if !bounds.contains(&position) {
-        return None;
-    }
-    let step = day_side(bounds) + px(CELL_GAP);
-    let week = ((position.x - bounds.left()) / step).floor() as i64;
-    let weekday = ((position.y - bounds.top()) / step).floor() as i64;
-    (week < WEEKS && weekday < 7).then_some(week * 7 + weekday)
-}
-
-fn small(label: String, t: &Tokens) -> Div {
-    ui::text(label, TEXT_3XS, FontWeight::NORMAL)
-        .line_height(crate::theme::ui_text(TEXT_3XS))
-        .text_color(t.text_tertiary)
-}
-
-fn epoch() -> NaiveDate {
-    NaiveDate::from_ymd_opt(1970, 1, 1).unwrap_or_default()
-}
-
-/// A day counted from 1970 as the calendar reads it out, such as "Thu, Oct 22, 2026".
-fn long_date(day: i64) -> String {
-    (epoch() + chrono::Duration::days(day))
-        .format("%a, %b %-d, %Y")
-        .to_string()
-}
-
-fn readout(streaks: &ActivityStreaks) -> String {
-    let active = streaks.active_days as f64;
-    if active == 0. {
-        return "No activity yet".into();
-    }
-    let current = streaks.current as f64;
-    let mut readout = format!(
-        "{} · longest streak {}",
-        plural(active, "active day"),
-        plural(streaks.longest as f64, "day")
-    );
-    if current > 1. {
-        readout.push_str(&format!(" · {current} days running"));
-    }
-    readout
-}
-
-/// A day's measure as the calendar reads it out.
-fn metric_text(measure: Metric, value: f64) -> String {
-    match (measure, value > 0.) {
-        (Metric::AgentTime, true) => format!("{} of agent time", crate::ui::time::total(value)),
-        (Metric::AgentTime, false) => "No agent time".into(),
-        (Metric::Tokens, true) => format!("{} tokens", compact(value)),
-        (Metric::Tokens, false) => "No tokens".into(),
-        (Metric::Sessions, true) => plural(value, "session"),
-        (Metric::Sessions, false) => "No sessions".into(),
-        (Metric::Cost, true) => format!("{} at API prices", money(value)),
-        (Metric::Cost, false) => "No cost".into(),
-        (Metric::Commits, true) => plural(value, "commit"),
-        (Metric::Commits, false) => "No commits".into(),
-    }
-}
-
-pub(crate) fn whole(value: f64) -> String {
-    let digits = format!("{}", value.round() as i64);
-    let mut grouped = String::new();
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 && digit != '-' {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    grouped
-}
-
-pub(crate) fn plural(count: f64, word: &str) -> String {
-    format!(
-        "{} {word}{}",
-        whole(count),
-        if count == 1. { "" } else { "s" }
+/// A side chat's tag naming the chat it was opened beside, which brings that chat to the front.
+fn side_of(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let main = bench.saved_agent(&agent.id)?.side_of.clone()?;
+    let name = bench.agent_by_id(&main)?.name?;
+    let t = Tokens::get(cx);
+    Some(
+        div()
+            .id("side-of")
+            .px(SPACE_1H)
+            .rounded(crate::theme::radius_1())
+            .bg(t.surface_chosen)
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(t.text_tertiary)
+            .hover(|tag| tag.text_color(t.text_primary))
+            .tooltip(ui::tooltip(t!("Go to the main chat")))
+            .clicks(cx.listener(move |bench, _, _, cx| bench.open_agent(&main, cx)))
+            .child(t!("side of @{name}", name = name))
+            .into_any_element(),
     )
 }
 
-pub fn compact(value: f64) -> String {
-    let (scaled, unit) = match value {
-        v if v >= 1e9 => (v / 1e9, "B"),
-        v if v >= 1e6 => (v / 1e6, "M"),
-        v if v >= 1e3 => (v / 1e3, "K"),
-        v => (v, ""),
-    };
-    let rounded = (scaled * 10.).round() / 10.;
-    if rounded.fract() == 0. {
-        format!("{rounded:.0}{unit}")
-    } else {
-        format!("{rounded:.1}{unit}")
-    }
+/// What follows @Chief in its chat's header: the project it is the chief of.
+fn chief_fact(bench: &Workbench, cx: &App) -> Option<AnyElement> {
+    let project = bench.project()?;
+    Some(
+        div()
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(Tokens::get(cx).text_tertiary)
+            .child(project.name.clone())
+            .into_any_element(),
+    )
 }
 
-pub fn money(usd: f64) -> String {
-    if usd >= 1000. {
-        format!("${}", whole(usd))
-    } else {
-        format!("${usd:.2}")
+/// The chain down to a worker in a project with a chief, leading its header: @Chief, then each
+/// lead above it from the top down, each as its chip, which opens it.
+fn chain_to(
+    bench: &Workbench,
+    agent: &AgentRow,
+    weak: &gpui_kit::WeakEntity<Workbench>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let project = bench.project().filter(|project| project.chief.is_some())?;
+    let t = Tokens::get(cx);
+    let chief = (project.chief.as_deref()).and_then(|chief| bench.agent_by_id(chief));
+    let mut leads: Vec<AgentRow> = Vec::new();
+    let mut at = agent.id.clone();
+    while let Some(lead) = bench.saved_agent(&at).and_then(|saved| saved.lead.clone()) {
+        if project.chief.as_deref() == Some(lead.as_str())
+            || lead == agent.id
+            || leads.iter().any(|row| row.id == lead)
+        {
+            break;
+        }
+        let Some(row) = bench.agent_by_id(&lead) else {
+            break;
+        };
+        leads.push(row);
+        at = lead;
     }
+    let step = |row: &AgentRow| {
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .child(crate::chat::agent_pill(row, TEXT_SM, weak, cx))
+            .child(
+                ui::icon(Icon::Chevron, 10.)
+                    .flex_none()
+                    .text_color(t.text_disabled),
+            )
+    };
+    Some(
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_size(crate::theme::ui_text(TEXT_SM))
+            .text_color(t.text_secondary)
+            .children(chief.iter().chain(leads.iter().rev()).map(step))
+            .into_any_element(),
+    )
 }
 
 /// The field an agent's title is edited in, at `size`; Escape leaves the title as it was.
 pub fn retitle_field(
-    retitling: &crate::workbench::Retitling,
+    retitling: &crate::agents::retitle::Retitling,
     size: f32,
     cx: &mut Context<Workbench>,
 ) -> gpui_kit::Div {

@@ -1,10 +1,12 @@
 //! The iOS Simulator for agents and the desk, with no UI toolkit: the
 //! `sikemux-sim` helper that drives devices ([`SimManager`]), which device each
 //! agent holds, how it was last read and which devices Sikemux booted
-//! ([`SimulatorManager`]), and the agents' `sim_*` tools ([`tools`]). The app
+//! ([`SimulatorManager`]), and the agents' `sim` tool ([`tools`]). The app
 //! hosting it gives it a [`Host`] for its data folder and its events.
 
 use std::collections::{HashMap, HashSet};
+
+use sikemux_process::line::{lapsed, Places};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -19,8 +21,11 @@ use sikemux_process::sync::Locked;
 use claims::{Claim, Claims};
 use tools::{Device, Element, Numbered, Numbering};
 
+pub mod android;
+mod bundle;
 pub mod claims;
 mod helper;
+mod load;
 pub mod tools;
 
 pub use helper::{
@@ -29,6 +34,11 @@ pub use helper::{
 };
 
 pub type SimResult<T> = Result<T, String>;
+
+/// How far setting up the Android Emulator has come, or that it finished, and how.
+pub const ANDROID_SETUP_EVENT: &str = "android-setup";
+/// Which devices agents hold, boot or wait for changed.
+pub const LOAD_EVENT: &str = "simulator-load";
 
 /// What the app hosting the simulator gives it.
 pub trait Host: Send + Sync + 'static {
@@ -40,10 +50,10 @@ pub trait Host: Send + Sync + 'static {
 }
 
 /// A host with nowhere to keep the helper and nobody to tell, for tests.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 struct NoHost;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Host for NoHost {
     fn data_dir(&self) -> Option<PathBuf> {
         None
@@ -53,14 +63,19 @@ impl Host for NoHost {
 }
 
 const CORE_SIMULATOR: &str = "/Library/Developer/PrivateFrameworks/CoreSimulator.framework";
-/// Simulators take gigabytes of memory each, so agents may have Sikemux boot at most this many.
-pub(crate) const MAX_BOOTED: usize = 3;
 /// One tool call's whole budget, well inside the time the page has to answer.
 const CALL_DEADLINE: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() - 15);
 /// A device Sikemux booted is shut down this long after nobody holds it, so an agent that restarts finds it still running.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(180);
+const BOOT_LIMIT: Duration = Duration::from_secs(180);
+/// An agent keeps its device while it uses it; one that has not for this long gives it up to an agent waiting for one.
+const LEASE: Duration = Duration::from_secs(600);
+/// An agent waiting for a simulator keeps its place in line while it calls again within this.
+const PLACE_KEPT: Duration = Duration::from_secs(60);
+/// The longest an agent waits in line before it is told to ask the person.
+const MOST_WAIT: Duration = Duration::from_secs(300);
 const CANCELLED: &str = "the simulator call was cancelled";
-const OVERRAN: &str = "the simulator call ran out of time; call sim_state to see where it got to";
+const OVERRAN: &str = "the simulator call ran out of time; call sim state to see where it got to";
 
 struct Attachment {
     device: Device,
@@ -72,6 +87,25 @@ struct Attachment {
     launches: HashMap<String, (Instant, Option<i64>)>,
     /// The log each cursor was numbered by, per process, as the helper names it.
     log_generations: HashMap<Option<String>, i64>,
+    /// When the agent last called a simulator tool.
+    used: Instant,
+    /// When the agent took the device, in Unix milliseconds.
+    since: u64,
+}
+
+impl Attachment {
+    fn new(device: Device, project: String) -> Self {
+        Self {
+            device,
+            project,
+            numbers: Numbering::default(),
+            read: None,
+            launches: HashMap::new(),
+            log_generations: HashMap::new(),
+            used: Instant::now(),
+            since: sikemux_process::clock::epoch_ms(),
+        }
+    }
 }
 
 /// One agent's device, as the desk lists it.
@@ -82,6 +116,23 @@ pub struct AttachmentInfo {
     pub udid: String,
     pub name: String,
     pub project: String,
+}
+
+/// A device an agent holds, as the person sees what loads the Mac.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Held {
+    pub agent_id: String,
+    pub name: String,
+    pub booting: bool,
+    /// When the agent took it, in Unix milliseconds.
+    pub since: u64,
+}
+
+/// An agent waiting for room to start a simulator, and how many wait ahead of it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Waiting {
+    pub agent_id: String,
+    pub ahead: usize,
 }
 
 /// Which agent held which device, carried across an update's restart.
@@ -117,14 +168,20 @@ struct Shared {
     booted: HashSet<String>,
     /// Whether each agent was offered the tools when it listed them.
     offered: HashMap<String, bool>,
+    /// Agents waiting for room to start a simulator, first come first served.
+    line: Places,
+    /// Devices Sikemux is booting now, and room reserved for ones about to boot.
+    starting: HashSet<String>,
 }
 
 pub struct SimulatorManager {
     sim: SimManager,
+    android: android::Android,
     host: Arc<dyn Host>,
     /// The helper tests run in place of the app's own, which is downloaded if it must be.
     helper: Option<PathBuf>,
     claims: Claims,
+    enabled: AtomicBool,
     shared: Mutex<Shared>,
     /// One call at a time per agent.
     turns: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -175,20 +232,12 @@ pub(crate) async fn pause(duration: Duration) -> Result<(), String> {
     checkpoint()
 }
 
-/// The helper says "Boot it first", but agents start a device with `sim_attach`.
-fn for_agents(message: String) -> String {
-    message.replace(
-        "Boot it first.",
-        "Call sim_attach to start it, or ask the person.",
-    )
-}
-
 impl SimulatorManager {
     pub fn new(host: Arc<dyn Host>) -> Arc<Self> {
         Self::made(host, None, Claims::shared())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn with_helper(path: PathBuf) -> Arc<Self> {
         let claims = tempfile::tempdir().expect("a claims folder").keep();
         Self::made(
@@ -201,9 +250,11 @@ impl SimulatorManager {
     fn made(host: Arc<dyn Host>, helper: Option<PathBuf>, claims: Claims) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             sim: SimManager::default(),
+            android: android::Android::new(host.data_dir()),
             host,
             helper,
             claims,
+            enabled: AtomicBool::new(true),
             shared: Mutex::default(),
             turns: Mutex::default(),
             cancels: Mutex::default(),
@@ -220,6 +271,34 @@ impl SimulatorManager {
         &self.host
     }
 
+    /// The person turned the simulator tools on or off in Settings; the app says so as it starts too.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn android(&self) -> &android::Android {
+        &self.android
+    }
+
+    /// Whether agents are offered the `sim` tool: the person has not turned them
+    /// off, and this computer can run iOS simulators or has the Android SDK.
+    pub(crate) fn offered(&self) -> bool {
+        self.enabled() && (capable() || self.android.sdk().is_some())
+    }
+
+    /// Why no device can be driven here, when neither platform can run.
+    pub(crate) fn unavailable(&self) -> Option<String> {
+        let ios = unsupported_reason()?;
+        if self.android.sdk().is_some() {
+            return None;
+        }
+        Some(format!("{ios} {}", android::NO_SDK))
+    }
+
     pub(crate) fn emit(&self, event: &str, payload: Value) {
         self.host.emit(event, payload);
     }
@@ -227,7 +306,7 @@ impl SimulatorManager {
     /// Sends `kind` with `fields`, such as `tap` with `{"udid": …, "x": 10, "y": 20}`.
     pub async fn request(&self, kind: &str, fields: Value) -> Result<Value, String> {
         let limit = if kind == "boot" {
-            Duration::from_secs(180)
+            BOOT_LIMIT
         } else {
             Duration::from_secs(60)
         };
@@ -247,15 +326,58 @@ impl SimulatorManager {
             Value::Null => Map::new(),
             _ => return Err("simulator request fields must be an object".into()),
         };
+        let limit = remaining().map_or(limit, |left| limit.min(left));
+        if kind == "devices" {
+            return self.all_devices(limit).await;
+        }
+        if request
+            .get("udid")
+            .and_then(Value::as_str)
+            .is_some_and(android::is_android)
+        {
+            let answer = self.android.request(kind, request, limit).await;
+            checkpoint()?;
+            return answer;
+        }
         request.insert("type".into(), kind.into());
         let executable = match &self.helper {
             Some(path) => path.clone(),
             None => helper::executable(&*self.host).await?,
         };
-        let limit = remaining().map_or(limit, |left| limit.min(left));
         let answer = self.sim.call_within(executable, request, limit).await;
         checkpoint()?;
-        answer.map_err(|error| for_agents(error.to_string()))
+        answer
+    }
+
+    /// The iOS simulators the helper lists, when this Mac can run them, then the Android devices.
+    async fn all_devices(&self, limit: Duration) -> SimResult<Value> {
+        let ios = async {
+            if self.helper.is_none() && helper::supported().await.is_err() {
+                return Ok(Vec::new());
+            }
+            let executable = match &self.helper {
+                Some(path) => path.clone(),
+                None => helper::executable(&*self.host).await?,
+            };
+            let request = json!({ "type": "devices" });
+            let answer = self
+                .sim
+                .call_within(
+                    executable,
+                    request.as_object().cloned().unwrap_or_default(),
+                    limit,
+                )
+                .await?;
+            Ok::<_, String>(answer["devices"].as_array().cloned().unwrap_or_default())
+        };
+        let (ios, android) = tokio::join!(ios, self.android.devices());
+        let mut devices = match ios {
+            Ok(devices) => devices,
+            Err(error) if android.is_empty() => return Err(error),
+            Err(_) => Vec::new(),
+        };
+        devices.extend(android);
+        Ok(json!({ "devices": devices }))
     }
 
     /// Runs one of an agent's calls once its earlier ones are done, within the call's deadline.
@@ -276,6 +398,9 @@ impl SimulatorManager {
             deadline: Instant::now() + CALL_DEADLINE,
         };
         let turn = Arc::clone(self.turns.locked().entry(agent_id.to_owned()).or_default());
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
+            attachment.used = Instant::now();
+        }
         CALL.scope(call, async move {
             let _turn = tokio::time::timeout(CALL_DEADLINE, turn.lock_owned())
                 .await
@@ -301,6 +426,11 @@ impl SimulatorManager {
     }
 
     /// Devices someone other than this agent holds, in this copy of Sikemux or another.
+    /// The devices Sikemux booted.
+    pub(crate) fn booted_by_sikemux(&self) -> HashSet<String> {
+        self.shared.locked().booted.clone()
+    }
+
     pub(crate) fn held_by_others(&self, agent_id: &str) -> HashMap<String, Claim> {
         self.claims
             .all()
@@ -332,14 +462,7 @@ impl SimulatorManager {
             if previous.is_some() || !shared.attachments.contains_key(agent_id) {
                 shared.attachments.insert(
                     agent_id.to_owned(),
-                    Attachment {
-                        device: device.clone(),
-                        project: project.to_owned(),
-                        numbers: Numbering::default(),
-                        read: None,
-                        launches: HashMap::new(),
-                        log_generations: HashMap::new(),
-                    },
+                    Attachment::new(device.clone(), project.to_owned()),
                 );
             }
             previous
@@ -367,6 +490,14 @@ impl SimulatorManager {
         Some(attachment.device)
     }
 
+    /// The agent's turn ended, so the device it attached is free for another agent. It keeps
+    /// running for a while, and the agent's next `sim attach` takes it again if it is still free.
+    pub fn end_turn(&self, agent_id: &str) {
+        self.cancel(agent_id);
+        self.leave_line(agent_id);
+        self.release(agent_id);
+    }
+
     /// The agent is gone: it stopped, crashed or was closed.
     pub fn forget_agent(&self, agent_id: &str) {
         self.cancel(agent_id);
@@ -374,6 +505,7 @@ impl SimulatorManager {
         let mut shared = self.shared.locked();
         shared.desk.remove(agent_id);
         shared.offered.remove(agent_id);
+        shared.line.leave(agent_id);
     }
 
     /// Stops following a device's log, and shuts it down a while later if
@@ -406,6 +538,7 @@ impl SimulatorManager {
                 .attachments
                 .values()
                 .any(|attachment| attachment.device.udid == udid)
+            && !shared.desk.values().any(|shown| shown == udid)
             && self.claims.holder(udid).is_none()
     }
 
@@ -418,6 +551,11 @@ impl SimulatorManager {
             .into_iter()
             .filter(|udid| self.claims.holder(udid).is_none())
             .collect();
+        let (emulators, unheld): (Vec<String>, Vec<String>) = unheld
+            .into_iter()
+            .partition(|udid| android::is_android(udid));
+        self.android.shut_down(&emulators);
+        self.android.drain();
         if unheld.is_empty() {
             return;
         }
@@ -426,9 +564,9 @@ impl SimulatorManager {
                 .arg("shutdown")
                 .args(&unheld)
                 .env("DEVELOPER_DIR", &dir)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(sikemux_process::command::Stdio::null())
+                .stdout(sikemux_process::command::Stdio::null())
+                .stderr(sikemux_process::command::Stdio::null())
                 .spawn();
         }
     }
@@ -481,21 +619,16 @@ impl SimulatorManager {
                 name: held.name,
                 os: held.os,
                 booted: true,
+                busy: false,
+                warm: true,
                 screen: held.screen,
             };
             taken.push(device.udid.clone());
             agents.push(held.agent_id.clone());
-            self.shared.locked().attachments.insert(
-                held.agent_id,
-                Attachment {
-                    device,
-                    project: held.project,
-                    numbers: Numbering::default(),
-                    read: None,
-                    launches: HashMap::new(),
-                    log_generations: HashMap::new(),
-                },
-            );
+            self.shared
+                .locked()
+                .attachments
+                .insert(held.agent_id, Attachment::new(device, held.project));
         }
         {
             let mut shared = self.shared.locked();
@@ -561,13 +694,128 @@ impl SimulatorManager {
         self.shared.locked().booted.insert(udid.to_owned());
     }
 
-    /// How many of the devices running now Sikemux booted.
-    pub(crate) fn booted_by_sikemux(&self, devices: &[Device]) -> usize {
+    /// Whether the agent may start a simulator now, `cold` for one never booted: it
+    /// must be first in line, and the Mac must have room beside every simulator
+    /// running or reserved, whoever started it. A yes reserves the room until the
+    /// guard is dropped. Agents that stopped using their devices give them up when
+    /// there is no room.
+    pub(crate) fn room(
+        &self,
+        agent_id: &str,
+        devices: &[Device],
+        cold: bool,
+    ) -> Result<Starting<'_>, Queued> {
+        let mut running = load::running();
+        running.extend(
+            devices
+                .iter()
+                .filter(|device| device.booted || device.busy)
+                .map(|device| device.udid.clone()),
+        );
+        let (place, joined) = self.take_place(agent_id);
+        if joined.elapsed() >= MOST_WAIT {
+            self.leave_line(agent_id);
+            return Err(Queued::TooLong);
+        }
+        let machine = load::Machine::now();
+        let mut shared = self.shared.locked();
+        running.extend(shared.starting.iter().cloned());
+        let starting = devices.iter().filter(|device| device.busy).count() + shared.starting.len();
+        let limit = machine.limit(running.len());
+        let wait = load::room(running.len(), starting, cold, limit).err();
+        if place == 0 && wait.is_none() {
+            let key = format!("reserved-by-{agent_id}");
+            shared.starting.insert(key.clone());
+            shared.line.leave(agent_id);
+            drop(shared);
+            self.emit(LOAD_EVENT, json!({}));
+            return Ok(Starting { manager: self, key });
+        }
+        drop(shared);
+        if matches!(wait, Some(load::Wait::Full { .. })) {
+            self.expire_leases(agent_id);
+        }
+        Err(Queued::Waiting {
+            place,
+            wait,
+            machine,
+        })
+    }
+
+    /// The agent's place in line, joining it or keeping it, and when it joined.
+    fn take_place(&self, agent_id: &str) -> (usize, Instant) {
+        let taken = self.shared.locked().line.take(agent_id, PLACE_KEPT);
+        if taken.moved {
+            self.emit(LOAD_EVENT, json!({}));
+        }
+        (taken.ahead, taken.joined)
+    }
+
+    pub(crate) fn leave_line(&self, agent_id: &str) {
+        let left = self.shared.locked().line.leave(agent_id);
+        if left {
+            self.emit(LOAD_EVENT, json!({}));
+        }
+    }
+
+    /// The devices agents hold, oldest first, and the agents waiting for one, first in line first.
+    pub fn heavy(&self) -> (Vec<Held>, Vec<Waiting>) {
         let shared = self.shared.locked();
-        devices
+        let mut held: Vec<Held> = (shared.attachments.iter())
+            .map(|(agent_id, attachment)| Held {
+                agent_id: agent_id.clone(),
+                name: attachment.device.name.clone(),
+                booting: shared.starting.contains(&attachment.device.udid),
+                since: attachment.since,
+            })
+            .collect();
+        held.sort_by_key(|held| held.since);
+        let waiting = (shared.line.waiting(PLACE_KEPT))
+            .map(|(ahead, place)| Waiting {
+                agent_id: place.who.clone(),
+                ahead,
+            })
+            .collect();
+        (held, waiting)
+    }
+
+    /// The person stopped what the agent does with simulators: its call stops, it leaves the
+    /// line, and the device it holds shuts down now unless another agent takes it up.
+    pub fn stop(&self, agent_id: &str) {
+        self.cancel(agent_id);
+        self.leave_line(agent_id);
+        let Some(device) = self.release(agent_id) else {
+            return;
+        };
+        let Some(manager) = self.me.upgrade().filter(|_| self.helper.is_none()) else {
+            return;
+        };
+        sikemux_base::runtime::spawn(async move {
+            let ours = manager.shared.locked().booted.contains(&device.udid);
+            if ours && manager.claims.holder(&device.udid).is_none() {
+                let _ = manager
+                    .request("shutdown", json!({ "udid": device.udid }))
+                    .await;
+                manager.shared.locked().booted.remove(&device.udid);
+            }
+        });
+    }
+
+    /// Lets go of the devices of agents other than `waiting` that have not used them for a while.
+    fn expire_leases(&self, waiting: &str) {
+        let expired: Vec<String> = self
+            .shared
+            .locked()
+            .attachments
             .iter()
-            .filter(|device| device.booted && shared.booted.contains(&device.udid))
-            .count()
+            .filter(|(agent_id, attachment)| {
+                agent_id.as_str() != waiting && lapsed(attachment.used, LEASE)
+            })
+            .map(|(agent_id, _)| agent_id.clone())
+            .collect();
+        for agent_id in expired {
+            self.release(&agent_id);
+        }
     }
 
     pub(crate) fn desk_device(&self, agent_id: &str) -> Option<String> {
@@ -668,21 +916,39 @@ impl SimulatorManager {
     }
 }
 
-static ENABLED: AtomicBool = AtomicBool::new(true);
-
-/// The person turned the simulator tools on or off in Settings; the app says so as it starts too.
-pub fn set_enabled(enabled: bool) {
-    ENABLED.store(enabled, Ordering::Relaxed);
+/// Why an agent waits for a simulator.
+pub(crate) enum Queued {
+    Waiting {
+        place: usize,
+        wait: Option<load::Wait>,
+        machine: load::Machine,
+    },
+    TooLong,
 }
 
-pub fn enabled() -> bool {
-    ENABLED.load(Ordering::Relaxed)
+/// Room reserved for one simulator to start, held until it has booted.
+pub(crate) struct Starting<'a> {
+    manager: &'a SimulatorManager,
+    key: String,
 }
 
-/// Whether agents are offered the `sim_*` tools: the person has not turned them
-/// off, and this Mac can run simulators.
-pub fn offered() -> bool {
-    enabled() && capable()
+impl Starting<'_> {
+    /// The reserved room is the device `udid`, which is booting now.
+    pub(crate) fn boots(&mut self, udid: &str) {
+        let mut shared = self.manager.shared.locked();
+        shared.starting.remove(&self.key);
+        shared.starting.insert(udid.to_owned());
+        drop(shared);
+        self.key = udid.to_owned();
+        self.manager.emit(LOAD_EVENT, json!({}));
+    }
+}
+
+impl Drop for Starting<'_> {
+    fn drop(&mut self) {
+        self.manager.shared.locked().starting.remove(&self.key);
+        self.manager.emit(LOAD_EVENT, json!({}));
+    }
 }
 
 /// This Mac can run the helper and Xcode's simulators.
@@ -755,8 +1021,8 @@ pub(crate) fn developer_dir() -> Option<PathBuf> {
         .or_else(|| {
             sikemux_process::user_environment::command("/usr/bin/xcode-select")
                 .arg("-p")
-                .stdin(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(sikemux_process::command::Stdio::null())
+                .stderr(sikemux_process::command::Stdio::null())
                 .output()
                 .ok()
                 .filter(|output| output.status.success())
@@ -811,6 +1077,94 @@ impl SimulatorManager {
         Ok(())
     }
 
+    /// Streams an Android emulator's screen to `on_frame` as [`android::Android::stream`] sends
+    /// it, answering the id [`SimManager::unwatch`] stops it by.
+    pub fn watch_android(
+        &self,
+        udid: String,
+        on_frame: impl FnMut(Vec<u8>) -> bool + Send + 'static,
+    ) -> SimResult<u64> {
+        let manager = self.me.upgrade().ok_or("Sikemux is quitting")?;
+        let streamed = udid.clone();
+        Ok(self
+            .sim
+            .follow(Arc::clone(&self.host), udid, "rgb".into(), async move {
+                manager.android.stream(&streamed, on_frame).await
+            }))
+    }
+
+    /// What setting up the Android Emulator would download here, or nothing when it is set up.
+    pub async fn android_plan(&self) -> SimResult<Option<android::install::Plan>> {
+        let data_dir = self.host.data_dir();
+        let root = android::sdk::root(data_dir.as_deref())
+            .or_else(|| {
+                data_dir
+                    .as_deref()
+                    .map(sikemux_process::android_sdk::own_root)
+            })
+            .ok_or("Sikemux has no folder to set up the Android SDK in")?;
+        let avd_home = android::sdk::avd_home().ok_or("no folder for virtual devices")?;
+        let plan = android::install::plan(root, avd_home).await?;
+        Ok((!plan.packages.is_empty() || plan.device).then_some(plan))
+    }
+
+    /// What Settings shows about Android: the SDK in use, its emulator's version and the
+    /// virtual devices, or what setting it up would download.
+    pub async fn android_info(&self) -> Value {
+        let root = self.android.sdk();
+        let (emulator, devices) = tokio::task::spawn_blocking({
+            let root = root.clone();
+            move || {
+                let emulator = root
+                    .as_ref()
+                    .and_then(|root| {
+                        std::fs::read_to_string(root.join("emulator/source.properties")).ok()
+                    })
+                    .and_then(|text| android::sdk::ini(&text).get("Pkg.Revision").cloned());
+                let devices: Vec<String> = android::sdk::avds()
+                    .into_iter()
+                    .map(|avd| avd.name)
+                    .collect();
+                (emulator, devices)
+            }
+        })
+        .await
+        .unwrap_or_default();
+        let offer = match root.is_none() || emulator.is_none() || devices.is_empty() {
+            true => self
+                .android_plan()
+                .await
+                .ok()
+                .flatten()
+                .map(|plan| plan.size()),
+            false => None,
+        };
+        json!({ "sdk": root, "emulator": emulator, "devices": devices, "offer": offer })
+    }
+
+    /// Sets up the Android Emulator, telling the window how far it has come as [`ANDROID_SETUP_EVENT`]s.
+    pub async fn set_up_android(&self) -> SimResult<()> {
+        let Some(plan) = self.android_plan().await? else {
+            return Ok(());
+        };
+        let mut reported = -1.0;
+        let result = android::install::install(&plan, |progress| {
+            if progress.fraction - reported >= 0.005 || progress.fraction >= 1.0 {
+                reported = progress.fraction;
+                self.emit(
+                    ANDROID_SETUP_EVENT,
+                    json!({ "step": progress.step, "fraction": progress.fraction }),
+                );
+            }
+        })
+        .await;
+        self.emit(
+            ANDROID_SETUP_EVENT,
+            json!({ "done": true, "error": result.as_ref().err() }),
+        );
+        result
+    }
+
     /// Turns a device, or with no `orientation` says which way it is turned.
     pub async fn orientation(&self, udid: &str, orientation: Option<String>) -> SimResult<String> {
         let mut fields = json!({ "udid": udid });
@@ -827,7 +1181,36 @@ impl SimulatorManager {
 
     /// A request from the window's own view of a device, such as a tap the person
     /// made on its screen. A boot is remembered as Sikemux's.
-    pub async fn window_call(&self, request: Map<String, Value>) -> SimResult<Value> {
+    pub async fn window_call(&self, mut request: Map<String, Value>) -> SimResult<Value> {
+        let kind = request
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let android = request
+            .get("udid")
+            .and_then(Value::as_str)
+            .is_some_and(android::is_android);
+        if kind == "devices" || android {
+            request.remove("type");
+            let limit = if kind == "boot" {
+                BOOT_LIMIT
+            } else {
+                Duration::from_secs(60)
+            };
+            let answer = match kind.as_str() {
+                "devices" => self.all_devices(limit).await,
+                _ => self.android.request(&kind, request.clone(), limit).await,
+            };
+            if let (Ok(_), "boot", Some(udid)) = (
+                &answer,
+                kind.as_str(),
+                request.get("udid").and_then(Value::as_str),
+            ) {
+                self.note_booted(udid);
+            }
+            return answer;
+        }
         helper::supported().await?;
         let boot = request.get("type").and_then(Value::as_str) == Some("boot");
         let udid = request
@@ -895,13 +1278,14 @@ pub(crate) fn simctl(developer_dir: &Path, args: &[&str]) -> Option<String> {
     sikemux_process::user_environment::command(developer_dir.join("usr/bin/simctl"))
         .args(args)
         .env("DEVELOPER_DIR", developer_dir)
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output()
         .ok()
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-#[cfg(test)]
+// The tests stand shell scripts in for the device helper.
+#[cfg(all(test, unix))]
 mod tests;

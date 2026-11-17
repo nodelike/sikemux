@@ -5,12 +5,17 @@
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use reqwest::{Client, ClientBuilder, RequestBuilder, Response, Url};
+use reqwest::header::HeaderMap;
+use reqwest::{Client, ClientBuilder, Method, RequestBuilder, Response, StatusCode, Url};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tokio::sync::Semaphore;
 
+use crate::ratelimit::{LimitHeaders, RateLimits};
 use crate::service::{Service, ServiceError};
 
 const IDLE: Duration = Duration::from_secs(25);
@@ -22,6 +27,40 @@ const WHOLE_ANSWER: Duration = Duration::from_secs(30);
 /// one on going quiet.
 const QUIET_TRANSFER: Duration = Duration::from_secs(60);
 const MAX_REDIRECTS: usize = 5;
+/// The most of an answer anything reads whole.
+pub const MAX_ANSWER: usize = 16 * 1024 * 1024;
+/// Enough for who a token belongs to.
+pub const MAX_IDENTITY: usize = 1024 * 1024;
+
+fn clock(epoch_secs: u64) -> String {
+    let day = epoch_secs % 86_400;
+    format!("{:02}:{:02}", day / 3600, day % 3600 / 60)
+}
+
+fn reads(request: &RequestBuilder) -> bool {
+    request
+        .try_clone()
+        .and_then(|request| request.build().ok())
+        .is_some_and(|request| matches!(*request.method(), Method::GET | Method::HEAD))
+}
+
+/// Words in an error's causes that mean the connection went before an answer came.
+const DROPPED_CAUSES: [&str; 4] = [
+    "connection reset",
+    "connection closed before message completed",
+    "broken pipe",
+    "connection aborted",
+];
+
+fn dropped(error: &reqwest::Error) -> bool {
+    error.is_connect()
+        || std::iter::successors(std::error::Error::source(error), |cause| cause.source()).any(
+            |cause| {
+                let said = cause.to_string().to_lowercase();
+                DROPPED_CAUSES.iter().any(|words| said.contains(words))
+            },
+        )
+}
 
 #[derive(Clone, Copy)]
 pub enum Redirects {
@@ -74,30 +113,131 @@ pub fn same_host(next: &Url, first: &Url) -> bool {
         && next.port_or_known_default() == first.port_or_known_default()
 }
 
-/// One warm client for a service, and the bound on its requests in flight,
-/// which every screen of the plugin shares.
+fn valid_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= 63
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// A bare host name out of whatever was pasted for one, with a port only when
+/// one was given: a scheme, a user and a path are trimmed off. For a service
+/// that is always reached over https, so none of those decide where a token goes.
+pub fn bare_host(typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    let after_scheme = typed.split_once("://").map_or(typed, |(_, rest)| rest);
+    let authority = after_scheme.split(['/', '?', '#']).next()?;
+    let authority = authority.split('@').next_back()?;
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    let port_ok = port.is_none_or(|port| port.parse::<u16>().is_ok());
+    (port_ok && host.len() <= 253 && host.split('.').all(valid_label))
+        .then(|| authority.to_ascii_lowercase())
+}
+
+/// When a server a token is sent to may be reached over plain http.
+#[derive(Clone, Copy)]
+pub enum PlainHttp {
+    Refused,
+    /// `localhost` and its addresses, where nothing crosses a network.
+    OnThisMachine,
+    /// The person said so, and the plugin answers for where it may lead.
+    Acknowledged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddressProblem {
+    NotAnAddress,
+    HoldsCredentials,
+    Scheme,
+}
+
+/// The whole address of a server a token is sent to, as a person typed it.
+pub fn base_url(typed: &str, plain: PlainHttp) -> Result<Url, AddressProblem> {
+    let url = Url::parse(typed.trim()).map_err(|_| AddressProblem::NotAnAddress)?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(AddressProblem::HoldsCredentials);
+    }
+    let host = url.host_str().ok_or(AddressProblem::NotAnAddress)?;
+    let local = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
+    match (url.scheme(), plain) {
+        ("https", _) | ("http", PlainHttp::Acknowledged) => Ok(url),
+        ("http", PlainHttp::OnThisMachine) if local => Ok(url),
+        _ => Err(AddressProblem::Scheme),
+    }
+}
+
+/// One warm client for a service, the bound on its requests in flight, and
+/// its rate limit, when its answers report one.
 pub struct Http<S> {
-    client: OnceLock<Option<Client>>,
+    answers: OnceLock<Option<Client>>,
+    transfers: OnceLock<Option<Client>>,
     redirects: Redirects,
-    deadline: Deadline,
     permits: Semaphore,
+    limits: Option<RateLimits>,
+    hourly: Mutex<Hour>,
     service: PhantomData<fn() -> S>,
 }
 
+/// The requests sent in one hour, counted from its first second since the Unix epoch.
+struct Hour {
+    start: u64,
+    requests: u64,
+}
+
+impl Hour {
+    const EMPTY: Self = Self {
+        start: 0,
+        requests: 0,
+    };
+}
+
+const HOUR_SECS: u64 = 3600;
+
 impl<S: Service> Http<S> {
-    pub const fn new(redirects: Redirects, deadline: Deadline, in_flight: usize) -> Self {
+    pub const fn new(redirects: Redirects, in_flight: usize) -> Self {
         Self {
-            client: OnceLock::new(),
+            answers: OnceLock::new(),
+            transfers: OnceLock::new(),
             redirects,
-            deadline,
             permits: Semaphore::const_new(in_flight),
+            limits: None,
+            hourly: Mutex::new(Hour::EMPTY),
+            service: PhantomData,
+        }
+    }
+
+    pub const fn with_limits(redirects: Redirects, in_flight: usize, limit: LimitHeaders) -> Self {
+        Self {
+            answers: OnceLock::new(),
+            transfers: OnceLock::new(),
+            redirects,
+            permits: Semaphore::const_new(in_flight),
+            limits: Some(RateLimits::new(limit)),
+            hourly: Mutex::new(Hour::EMPTY),
             service: PhantomData,
         }
     }
 
     pub fn client(&self) -> Result<&Client, ServiceError<S>> {
-        self.client
-            .get_or_init(|| builder::<S>(self.redirects, self.deadline).build().ok())
+        self.started(&self.answers, Deadline::WholeAnswer)
+    }
+
+    /// For logs and files, which share the request slots but may take as long as they keep arriving.
+    pub fn transfer_client(&self) -> Result<&Client, ServiceError<S>> {
+        self.started(&self.transfers, Deadline::QuietTransfer)
+    }
+
+    fn started<'a>(
+        &self,
+        client: &'a OnceLock<Option<Client>>,
+        deadline: Deadline,
+    ) -> Result<&'a Client, ServiceError<S>> {
+        client
+            .get_or_init(|| builder::<S>(self.redirects, deadline).build().ok())
             .as_ref()
             .ok_or_else(|| ServiceError::Transport("could not start the HTTP client".into()))
     }
@@ -105,11 +245,379 @@ impl<S: Service> Http<S> {
     /// Runs `work` once one of the request slots is free.
     pub async fn limited<T>(&self, work: impl Future<Output = T>) -> T {
         let _permit = self.permits.acquire().await;
+        if self.limits.is_some() {
+            self.count_request();
+        }
         work.await
     }
 
+    /// Counts a request against the hour it is sent in, and logs the hour before once it is over,
+    /// so a spent rate limit can be traced to who spent it.
+    fn count_request(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
+        let start = now - now % HOUR_SECS;
+        let Ok(mut hour) = self.hourly.lock() else {
+            return;
+        };
+        if hour.start != start {
+            if hour.requests > 0 {
+                eprintln!(
+                    "sikemux core: {} took {} requests in the hour from {} UTC",
+                    S::NAME,
+                    hour.requests,
+                    clock(hour.start)
+                );
+            }
+            *hour = Hour { start, requests: 0 };
+        }
+        hour.requests += 1;
+    }
+
+    /// Sends `request`, and a read once more when the connection failed or
+    /// dropped before any answer, as a pooled connection the server closed does.
     pub async fn send(&self, request: RequestBuilder) -> Result<Response, ServiceError<S>> {
-        Ok(self.limited(request.send()).await?)
+        let again = request.try_clone().filter(reads);
+        match self.limited(request.send()).await {
+            Err(error) if dropped(&error) => match again {
+                Some(again) => Ok(self.limited(again.send()).await?),
+                None => Err(error.into()),
+            },
+            answer => Ok(answer?),
+        }
+    }
+
+    /// Sends a request and reads its whole answer, with no rate limit in the way.
+    pub async fn ask(
+        &self,
+        request: RequestBuilder,
+        read: Read,
+    ) -> Result<Answer, ServiceError<S>> {
+        let response = self.send(request).await?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        let (bytes, cut) = read.of(response).await?;
+        Ok(Answer {
+            status,
+            headers,
+            bytes,
+            cut,
+            spent: None,
+        })
+    }
+
+    /// Refuses a request while `account`'s limit is spent, and otherwise sends
+    /// it. A limit that resets within a few seconds is waited out and the
+    /// request sent once more.
+    pub async fn exchange(
+        &self,
+        account: &str,
+        request: RequestBuilder,
+        read: Read,
+    ) -> Result<Answer, ServiceError<S>> {
+        let mut request = request;
+        let mut waited = false;
+        loop {
+            self.check(account)?;
+            let again = request.try_clone().filter(|_| !waited);
+            let mut answer = self.ask(request, read).await?;
+            let pause = self.limits.as_ref().and_then(|limits| {
+                limits.short_wait(account, answer.status, &answer.headers, &answer.bytes)
+            });
+            match (pause, again) {
+                (Some(pause), Some(retry)) => {
+                    waited = true;
+                    tokio::time::sleep(pause).await;
+                    request = retry;
+                }
+                _ => {
+                    answer.spent =
+                        self.observe(account, answer.status, &answer.headers, &answer.bytes);
+                    return Ok(answer);
+                }
+            }
+        }
+    }
+
+    /// Refuses a request while `account`'s limit is spent.
+    pub fn check(&self, account: &str) -> Result<(), ServiceError<S>> {
+        self.limits
+            .as_ref()
+            .map_or(Ok(()), |limits| limits.check(account))
+    }
+
+    /// Keeps what an answer says of the limit, and says how long to hold off if it is spent.
+    pub fn observe(
+        &self,
+        account: &str,
+        status: StatusCode,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> Option<u64> {
+        self.limits
+            .as_ref()
+            .and_then(|limits| limits.observe(account, status, headers, body))
+    }
+
+    /// What a refused answer that was not read yet means, such as a file's.
+    pub async fn refusal(&self, account: &str, response: Response) -> ServiceError<S> {
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = read_body(response, MAX_ANSWER).await.unwrap_or_default();
+        let spent = self.observe(account, status, &headers, &bytes);
+        S::refused(status, &bytes, spent)
+    }
+}
+
+/// How much of an answer to keep.
+#[derive(Clone, Copy)]
+pub enum Read {
+    Whole(usize),
+    /// Only the end, such as of a long log.
+    Tail(usize),
+}
+
+impl Read {
+    pub const ALL: Self = Self::Whole(MAX_ANSWER);
+    pub const IDENTITY: Self = Self::Whole(MAX_IDENTITY);
+
+    pub async fn of<S: Service>(
+        self,
+        response: Response,
+    ) -> Result<(Vec<u8>, bool), ServiceError<S>> {
+        match self {
+            Self::Whole(limit) => match read_body(response, limit).await {
+                Ok(bytes) => Ok((bytes, false)),
+                Err(BodyError::TooBig(limit)) => Err(ServiceError::Response(format!(
+                    "{}; narrow the request",
+                    BodyError::TooBig(limit)
+                ))),
+                Err(error) => Err(error.into()),
+            },
+            Self::Tail(limit) => Ok(read_tail(response, limit).await?),
+        }
+    }
+}
+
+pub struct Answer {
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub bytes: Vec<u8>,
+    /// The start of the body was dropped, as `Read::Tail` does.
+    pub cut: bool,
+    spent: Option<u64>,
+}
+
+impl Answer {
+    /// What this answer means if it was refused.
+    pub fn refused<S: Service>(&self) -> ServiceError<S> {
+        S::refused(self.status, &self.bytes, self.spent)
+    }
+
+    pub fn succeeded<S: Service>(self) -> Result<Self, ServiceError<S>> {
+        if self.status.is_success() {
+            Ok(self)
+        } else {
+            Err(self.refused())
+        }
+    }
+
+    /// A JSON body, an empty one read as null.
+    pub fn parsed<T: DeserializeOwned, S: Service>(&self) -> Result<T, ServiceError<S>> {
+        Ok(parse(&self.bytes)?)
+    }
+
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.bytes).into_owned()
+    }
+}
+
+/// The start of a body that is not in any shape a service's errors take, to quote in one.
+pub fn quoted(body: &[u8]) -> Option<String> {
+    let text: String = String::from_utf8_lossy(body).chars().take(400).collect();
+    (!text.is_empty()).then_some(text)
+}
+
+/// A service whose calls name only a folder and a path: a session comes from
+/// the folder, and from that its address and its credential.
+pub trait Api: Service {
+    type Session: Send + Sync;
+
+    fn http() -> &'static Http<Self>;
+
+    /// Who a call is from.
+    fn session(
+        data_dir: &Path,
+    ) -> impl Future<Output = Result<Self::Session, ServiceError<Self>>> + Send;
+
+    /// Each account has a rate limit of its own.
+    fn account(session: &Self::Session) -> &str;
+
+    /// A request to `path` with the session's address and credential.
+    fn request(
+        session: &Self::Session,
+        client: &Client,
+        method: Method,
+        path: &str,
+    ) -> RequestBuilder;
+
+    /// The service turned the session's credential down, so what is held of it is dropped.
+    fn turned_down(session: &Self::Session) -> impl Future<Output = ()> + Send;
+
+    /// A session made after `turned_down` may have a new credential to try.
+    fn renews(_session: &Self::Session) -> bool {
+        false
+    }
+}
+
+/// The calls of a service with an `Api`. The network half lives in functions
+/// that are not generic over the answer, so each shape of answer only adds its
+/// own parsing to the app rather than another copy of the request.
+pub struct Calls<A>(PhantomData<fn() -> A>);
+
+impl<A: Api> Default for Calls<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<A: Api> Calls<A> {
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+
+    /// One request as `session`. A refusal comes back as an answer like any other.
+    pub async fn send_as(
+        &self,
+        session: &A::Session,
+        method: Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+        read: Read,
+    ) -> Result<Answer, ServiceError<A>> {
+        let http = A::http();
+        let mut request = A::request(session, http.client()?, method, path);
+        if !query.is_empty() {
+            request = request.query(query);
+        }
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let answer = http.exchange(A::account(session), request, read).await?;
+        if answer.status == StatusCode::UNAUTHORIZED {
+            A::turned_down(session).await;
+        }
+        Ok(answer)
+    }
+
+    /// One request as whoever the call is for, sent once more with a fresh
+    /// session when the first credential turned out to be stale.
+    pub async fn send(
+        &self,
+        data_dir: &Path,
+        method: Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+        read: Read,
+    ) -> Result<Answer, ServiceError<A>> {
+        let session = A::session(data_dir).await?;
+        let answer = self
+            .send_as(&session, method.clone(), path, query, body, read)
+            .await?;
+        if answer.status != StatusCode::UNAUTHORIZED || !A::renews(&session) {
+            return Ok(answer);
+        }
+        let session = A::session(data_dir).await?;
+        self.send_as(&session, method, path, query, body, read)
+            .await
+    }
+
+    /// A successful answer in full.
+    pub async fn fetch(
+        &self,
+        data_dir: &Path,
+        method: Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<Answer, ServiceError<A>> {
+        self.send(data_dir, method, path, query, body, Read::ALL)
+            .await?
+            .succeeded()
+    }
+
+    pub async fn get<T: DeserializeOwned>(
+        &self,
+        data_dir: &Path,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<T, ServiceError<A>> {
+        self.fetch(data_dir, Method::GET, path, query, None)
+            .await?
+            .parsed()
+    }
+
+    /// Diffs, logs and files, which come back as plain text rather than JSON.
+    pub async fn get_text(
+        &self,
+        data_dir: &Path,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<String, ServiceError<A>> {
+        Ok(self
+            .fetch(data_dir, Method::GET, path, query, None)
+            .await?
+            .text())
+    }
+
+    /// A write whose answer is what it made.
+    pub async fn send_json<T: DeserializeOwned>(
+        &self,
+        data_dir: &Path,
+        method: Method,
+        path: &str,
+        body: &Value,
+    ) -> Result<T, ServiceError<A>> {
+        self.fetch(data_dir, method, path, &[], Some(body))
+            .await?
+            .parsed()
+    }
+
+    /// A write whose answer nobody reads, such as approving or stopping something.
+    pub async fn write(
+        &self,
+        data_dir: &Path,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<(), ServiceError<A>> {
+        self.fetch(data_dir, method, path, &[], body).await?;
+        Ok(())
+    }
+
+    /// A write of a file rather than JSON, such as a form holding a picture.
+    pub async fn upload<T: DeserializeOwned>(
+        &self,
+        data_dir: &Path,
+        path: &str,
+        kind: &str,
+        bytes: Vec<u8>,
+    ) -> Result<T, ServiceError<A>> {
+        let session = A::session(data_dir).await?;
+        let http = A::http();
+        let request = A::request(&session, http.client()?, Method::POST, path)
+            .header(reqwest::header::CONTENT_TYPE, kind)
+            .body(bytes);
+        let answer = http
+            .exchange(A::account(&session), request, Read::ALL)
+            .await?;
+        if answer.status == StatusCode::UNAUTHORIZED {
+            A::turned_down(&session).await;
+        }
+        answer.succeeded()?.parsed()
     }
 }
 
@@ -203,7 +711,7 @@ where
 /// when it said anything; `spent` is how long until a spent rate limit
 /// resets, when the service says one is.
 pub fn classify<S: Service>(
-    status: reqwest::StatusCode,
+    status: StatusCode,
     message: Option<String>,
     spent: Option<u64>,
 ) -> ServiceError<S> {
@@ -220,8 +728,11 @@ pub fn classify<S: Service>(
     });
     match status.as_u16() {
         401 => ServiceError::Auth(message),
-        403 | 429 => ServiceError::Forbidden(message),
+        403 => ServiceError::Forbidden(message),
         404 => ServiceError::NotFound(message),
+        429 => ServiceError::RateLimited {
+            resets_in_secs: None,
+        },
         status => ServiceError::Http { status, message },
     }
 }

@@ -1,8 +1,11 @@
+import facts from "@sikemux/protocol/release.json" with { type: "json" };
 import { isAbsolute } from "node:path";
 import type { Network } from "@sikemux/protocol";
 import type { Level } from "pino";
 
 import { readAppleSignIn } from "./account/apple.ts";
+import { CLERK_API } from "./account/clerk.ts";
+import { isSandboxKey, PADDLE_KEY } from "./billing/paddle-api.ts";
 import type { AppleKey } from "./apple-key.ts";
 import { settingsFrom } from "./env.ts";
 import { readJoinSigner, type JoinSigner } from "./join/signer.ts";
@@ -10,18 +13,18 @@ import { readNetwork } from "./network/network.ts";
 import { readPush, type PushSettings } from "./push/settings.ts";
 import { version } from "./version.ts";
 
-export interface MigrationConfig {
+interface MigrationConfig {
   databaseUrl: string;
   logLevel: Level;
 }
 
-export interface PurgeConfig extends MigrationConfig {
+interface PurgeConfig extends MigrationConfig {
   /** Where stashed files are kept, so purging can delete them with their items; null without a stash. */
   stashDir: string | null;
 }
 
 /** Where stashed files are kept and the key they are encrypted with. */
-export interface StashSettings {
+interface StashSettings {
   dir: string;
   key: Buffer;
 }
@@ -37,6 +40,8 @@ export interface Config extends MigrationConfig {
   clerkIssuer: string;
   /** The Mac app's Clerk OAuth client, the only one whose access tokens are accepted. */
   macClientId: string;
+  /** Where Clerk's Backend API is: Clerk's own, or the local stand-in sign-in that names its made-up people. */
+  clerkApi: string;
   /** For Clerk's Backend API. Without it, deleting accounts and revoking removed phones' sessions wait in the database. */
   clerkSecretKey: string | null;
   /** Checks the signatures on Clerk's webhooks. Without it, the webhook route refuses everything. */
@@ -54,6 +59,30 @@ export interface Config extends MigrationConfig {
   relayAccessToken: string | null;
   /** Null when STASH_DIR and STASH_KEY are not set, and the stash answers that it is not set up. */
   stash: StashSettings | null;
+  billing: BillingSettings;
+}
+
+/** Which payment provider billing goes through, and whether plans are on sale to everyone. */
+type BillingSettings = {
+  /** Off, billing answers only staff and nothing a plan pays for is held back from anyone. */
+  live: boolean;
+} &
+  /** Null leaves billing answering that it is not set up. The stand-in never runs in a release. */
+  (
+    | { provider: "stand-in" | null }
+    /** Paddle's sandbox or live account, whichever the key is for. */
+    | { provider: "paddle"; paddleKey: string }
+  );
+
+function readPaddleKey(env: NodeJS.ProcessEnv, problems: string[]) {
+  const key = env.PADDLE_API_KEY?.trim() ?? "";
+  if (PADDLE_KEY.test(key)) return key;
+  problems.push(
+    key
+      ? "PADDLE_API_KEY is not a Paddle API key like pdl_sdbx_apikey_…"
+      : "BILLING_PROVIDER=paddle needs PADDLE_API_KEY",
+  );
+  return null;
 }
 
 const LEVELS: readonly Level[] = [
@@ -104,6 +133,19 @@ export function loadPurgeConfig(env: NodeJS.ProcessEnv): PurgeConfig {
   });
 }
 
+/** What the paddle-setup command needs: the key, and the API's origin its webhook is under. */
+export function loadPaddleSetupConfig(env: NodeJS.ProcessEnv) {
+  const { problems, text, readLogLevel, finish } = reader(env);
+  const apiOrigin = text("API_ORIGIN");
+  if (apiOrigin && URL.parse(apiOrigin)?.origin !== apiOrigin)
+    problems.push("API_ORIGIN is not an origin like https://api.sikemux.com");
+  const appOrigin = text("APP_ORIGIN", "https://app.sikemux.com");
+  if (appOrigin && URL.parse(appOrigin)?.origin !== appOrigin)
+    problems.push("APP_ORIGIN is not an origin like https://app.sikemux.com");
+  const paddleKey = readPaddleKey(env, problems) ?? "";
+  return finish({ apiOrigin, appOrigin, paddleKey, logLevel: readLogLevel() });
+}
+
 /**
  * Reads the configuration from the environment, refusing to start on anything missing or
  * malformed. `release` is whether this is the bundle CI builds, which never makes its own keys.
@@ -116,6 +158,8 @@ export function loadConfig(
     problems,
     text,
     optional,
+    oneOf,
+    flag,
     port: readPort,
     readDatabaseUrl,
     readLogLevel,
@@ -125,25 +169,30 @@ export function loadConfig(
 
   const databaseUrl = readDatabaseUrl();
 
-  const port = readPort("PORT", "4000");
+  const port = readPort("PORT", String(facts.accounts.dev.apiPort));
 
   const appOrigin = text("APP_ORIGIN", "https://app.sikemux.com");
   if (appOrigin && URL.parse(appOrigin)?.origin !== appOrigin)
     problems.push("APP_ORIGIN is not an origin like https://app.sikemux.com");
 
-  const apiOrigin = text("API_ORIGIN", "https://api.sikemux.com");
+  const apiOrigin = text("API_ORIGIN", facts.accounts.production.apiUrl);
   if (apiOrigin && URL.parse(apiOrigin)?.origin !== apiOrigin)
     problems.push("API_ORIGIN is not an origin like https://api.sikemux.com");
 
   const clerkIssuer = text("CLERK_ISSUER");
+  const issuerUrl = clerkIssuer ? URL.parse(clerkIssuer) : null;
+  const standInIssuer =
+    issuerUrl?.protocol === "http:" && issuerUrl.hostname === "127.0.0.1";
   if (
     clerkIssuer &&
-    (URL.parse(clerkIssuer)?.origin !== clerkIssuer ||
-      !clerkIssuer.startsWith("https://"))
+    (issuerUrl?.origin !== clerkIssuer ||
+      (!clerkIssuer.startsWith("https://") && !standInIssuer))
   )
     problems.push(
       "CLERK_ISSUER is not an https origin like https://clerk.sikemux.com",
     );
+  if (standInIssuer && release)
+    problems.push("CLERK_ISSUER on 127.0.0.1 is for development only");
 
   const macClientId = text("CLERK_MAC_CLIENT_ID");
 
@@ -176,6 +225,24 @@ export function loadConfig(
       ? { dir: stashDir, key: Buffer.from(stashKey, "hex") }
       : null;
 
+  const provider = oneOf(
+    "BILLING_PROVIDER",
+    ["none", "stand-in", "paddle"],
+    "none",
+  );
+  if (provider === "stand-in" && release)
+    problems.push("BILLING_PROVIDER=stand-in is for development only");
+  const live = flag("BILLING_LIVE", false);
+  const paddleKey = provider === "paddle" ? readPaddleKey(env, problems) : null;
+  if (live && paddleKey && isSandboxKey(paddleKey))
+    problems.push(
+      "BILLING_LIVE=true needs a live Paddle key, not a sandbox one",
+    );
+  const billing: BillingSettings =
+    provider === "paddle"
+      ? { provider, live, paddleKey: paddleKey ?? "" }
+      : { provider: provider === "none" ? null : provider, live };
+
   return finish({
     host,
     port,
@@ -184,6 +251,7 @@ export function loadConfig(
     apiOrigin,
     clerkIssuer,
     macClientId,
+    clerkApi: standInIssuer ? clerkIssuer : CLERK_API,
     clerkSecretKey,
     clerkWebhookSecret,
     network,
@@ -193,6 +261,7 @@ export function loadConfig(
     placesDir,
     relayAccessToken,
     stash,
+    billing,
     logLevel,
   });
 }

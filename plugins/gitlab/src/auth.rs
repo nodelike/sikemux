@@ -4,12 +4,13 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::AccountQuery;
 use sikemux_plugin_api::codehost::Signed;
-use sikemux_plugin_api::http;
+use sikemux_plugin_api::http::{self, Read};
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::SignInStatus;
 
@@ -31,44 +32,21 @@ pub fn host_of(typed: &str) -> GitlabResult<String> {
             "GitLab is reached over https only, since the token goes with every request".into(),
         ));
     }
-    let rest = typed.strip_prefix("https://").unwrap_or(typed);
-    let host = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let (name, port) = match host.split_once(':') {
-        Some((name, port)) => (name, Some(port)),
-        None => (host.as_str(), None),
-    };
-    let name_ok = !name.is_empty()
-        && name.contains('.')
-        && name.split('.').all(|label| {
-            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-        });
-    let port_ok = port.is_none_or(|port| port.parse::<u16>().is_ok());
-    if !name_ok || !port_ok || host.contains('@') {
-        return Err(GitlabError::BadArg(format!(
-            "`{typed}` is not a GitLab server address"
-        )));
-    }
-    Ok(host)
+    http::bare_host(typed)
+        .filter(|host| host.contains('.') && !typed.contains('@'))
+        .ok_or_else(|| GitlabError::BadArg(format!("`{typed}` is not a GitLab server address")))
 }
 
 async fn get_with(host: &str, token: &str, path: &str) -> GitlabResult<serde_json::Value> {
-    let request = client::authorize(
-        client::HTTP
-            .client()?
-            .get(format!("{}{path}", client::api_base(host))),
-        token,
-    );
-    let response = client::HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = http::read_body(response, 1024 * 1024).await?;
-    if !status.is_success() {
-        return Err(client::classify(status, &bytes));
-    }
-    client::parse(&bytes)
+    let request = client::HTTP
+        .client()?
+        .get(format!("{}{path}", client::api_base(host)))
+        .bearer_auth(token);
+    client::HTTP
+        .ask(request, Read::IDENTITY)
+        .await?
+        .succeeded()?
+        .parsed()
 }
 
 async fn identify(host: &str, token: &str) -> GitlabResult<User> {
@@ -95,7 +73,6 @@ pub fn can_write(scopes: &[String]) -> bool {
 
 pub type Status = SignInStatus<Signed>;
 
-/// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
     let config = match config::load(data_dir) {
         Ok(config) => config,
@@ -140,34 +117,6 @@ pub async fn status(data_dir: &Path) -> Status {
     Status::checked(account.is_some(), signed, &check)
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listed {
-    pub id: String,
-    pub host: String,
-    pub login: String,
-    pub display_name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub is_default: bool,
-}
-
-/// Every account signed in, the default first.
-pub fn accounts(data_dir: &Path) -> GitlabResult<Vec<Listed>> {
-    let config = config::load(data_dir)?;
-    Ok(config
-        .in_order()
-        .into_iter()
-        .map(|account| Listed {
-            is_default: config.default.as_deref() == Some(account.id.as_str()),
-            id: account.id,
-            host: account.host,
-            login: account.login,
-            display_name: account.display_name,
-            avatar_url: account.avatar_url,
-        })
-        .collect())
-}
-
 fn new_account(host: &str, user: &User) -> GitlabResult<Account> {
     let user_id = user.id.ok_or_else(|| {
         GitlabError::Response("GitLab did not say who the token belongs to".into())
@@ -192,14 +141,13 @@ pub struct TokenSignIn {
     pub host: String,
 }
 
-/// Adds the account the token belongs to, and says which one it is.
 pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabResult<String> {
     let token = input.token.trim().to_string();
     if token.is_empty() {
         return Err(GitlabError::BadArg("no token was given".into()));
     }
     let host = host_of(&input.host)?;
-    let user = identify(&host, &token).await?;
+    let user = identify(&host, &store::entered_secret(token.clone()).await?).await?;
     let account = new_account(&host, &user)?;
     let id = account.id.clone();
     store::update(data_dir, move |config: &mut GitlabConfig| {
@@ -212,39 +160,15 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabRe
     Ok(id)
 }
 
-/// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> GitlabResult<()> {
-    let chosen = chosen();
-    let removed = store::update(data_dir, move |config: &mut GitlabConfig| {
-        let Some(id) = config
-            .account(chosen.as_deref())
-            .map(|account| account.id.clone())
-        else {
-            return Ok(None);
-        };
-        let removed = config.remove(&id);
-        if let Some(account) = &removed {
-            config::KEYCHAIN.delete(&account.keychain_account())?;
-        }
-        Ok(removed)
+    let removed = store::sign_out::<GitlabConfig, _, _>(data_dir, chosen(), |account| {
+        Ok(config::KEYCHAIN.delete(&account.keychain_account())?)
     })
     .await?;
-    if let Some(account) = removed {
+    if let Some((account, ())) = removed {
         client::forget(Some(&account.id));
     }
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> GitlabResult<()> {
-    store::update(data_dir, move |config: &mut GitlabConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 /// The first account, default first, on the project's server that can see it,
@@ -263,15 +187,10 @@ pub async fn account_for(data_dir: &Path, input: AccountQuery) -> GitlabResult<O
                 .is_none_or(|host| config::same_server(host, &account.host))
         })
         .collect();
-    for account in &on_server {
-        let id = account.id.clone();
-        let seen: GitlabResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
-        match seen {
-            Ok(_) => return Ok(Some(id)),
-            Err(GitlabError::Unconfigured) => return Ok(None),
-            Err(_) => continue,
-        }
+    let ids = on_server.iter().map(|account| account.id.clone()).collect();
+    let seen = answers::first_that_sees(&client::API, data_dir, ids, &path).await?;
+    if seen.is_some() {
+        return Ok(seen);
     }
     Ok(input
         .host

@@ -8,6 +8,9 @@ export interface Account {
   deletesAt?: string;
   /** How many days a deleted account can still be restored: deletesAt is this long after the deletion. */
   restorableDays: number;
+  staff: Staff;
+  /** The plan the account holds, its own or through a seat; plan.changed says when it changes. */
+  plan: PlanId;
 }
 
 /** Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it. */
@@ -36,7 +39,7 @@ export interface AccountEvent {
   id: EventId;
   type: AccountEventType;
   at: string;
-  /** The device the event is about. Only on device events. */
+  /** The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own. */
   key?: DeviceKey;
   /** That device's role. Only on device events. */
   role?: DeviceRole;
@@ -54,7 +57,10 @@ export type AccountEventType =
   | "stash.added"
   | "stash.changed"
   | "stash.removed"
-  | "stash.seen";
+  | "stash.seen"
+  | "vault.changed"
+  | "mods.changed"
+  | "plan.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -64,6 +70,9 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "stash.changed",
   "stash.removed",
   "stash.seen",
+  "vault.changed",
+  "mods.changed",
+  "plan.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -71,6 +80,7 @@ export interface AccountProfile {
   email: string | null;
   name: string | null;
   imageUrl: string | null;
+  staff: Staff;
 }
 
 /** Active, or deleting: deleted on request and still restorable until deletesAt. */
@@ -79,6 +89,18 @@ export const accountStatusValues: readonly AccountStatus[] = [
   "active",
   "deleting",
 ];
+
+/** What an account or org may use. Until billing is live, features lists everything for everyone. */
+export interface Allowance {
+  plan: PlanId;
+  features: PlanFeature[];
+  /** The Shed boxes it has bought and paid for. */
+  boxes: ShedBoxes[];
+  /** For a person: the orgs whose paid Team plan they hold a seat in. */
+  seatOrgs?: OrgId[];
+  /** For a person holding the plan as a gift, with nothing paid: when it ends. */
+  giftEnds?: string;
+}
 
 /** The body of every response that is not a success. */
 export interface ApiError {
@@ -112,11 +134,116 @@ export interface ApprovedHost {
 /** A semantic version, such as 0.5.0 or 0.6.0-nightly.3. */
 export type AppVersion = string;
 
+/** Everything on sale, what it costs and what each plan includes. */
+export interface BillingCatalog {
+  products: BillingProduct[];
+  plans: BillingPlan[];
+  /** How many days after a subscription's first payment it may be refunded in full. */
+  refundDays: number;
+}
+
+export type BillingInterval = "month" | "year";
+export const billingIntervalValues: readonly BillingInterval[] = [
+  "month",
+  "year",
+];
+
+/** A page of the provider's: its portal for payment methods, or one payment's receipt. */
+export interface BillingLink {
+  url: string;
+}
+
+/** A person's or an org's plan, what it allows and what it pays for. */
+export interface BillingOverview {
+  allowance: Allowance;
+  /** Every subscription that has not ended, then the ended ones, newest first. */
+  subscriptions: Subscription[];
+  /** Whether plans are enforced and sold to everyone. Until then billing answers only staff. */
+  live: boolean;
+  /** Whether checkouts and changes can be made: a payment provider is set up, and for an org, payer is absent or you. */
+  canBuy: boolean;
+  /** For an org whose plans have not all ended: who pays for them. Left out for a person, and for an org with nothing open. */
+  payer?: PlanPayer;
+  /** Left out when the provider holds no card for this payer, or could not be asked. */
+  card?: PaymentCard;
+}
+
+/** Who a product may be bought by: a person, an org, or either. */
+export type BillingPayer = "person" | "org" | "either";
+export const billingPayerValues: readonly BillingPayer[] = [
+  "person",
+  "org",
+  "either",
+];
+
+/** A plan and everything it includes, the plans it includes counted in. */
+export interface BillingPlan {
+  id: PlanId;
+  name: string;
+  features: PlanFeature[];
+}
+
+/** What one unit costs each interval. */
+export interface BillingPrice {
+  interval: BillingInterval;
+  unit: Money;
+}
+
+export interface BillingProduct {
+  id: BillingProductId;
+  name: string;
+  kind: BillingProductKind;
+  unit: BillingUnit;
+  payer: BillingPayer;
+  /** Only on plans: the plan it is. */
+  plan?: PlanId;
+  maxQuantity: number;
+  prices: BillingPrice[];
+}
+
+/** What can be bought: a plan, or one of the Shed's boxes. */
+export type BillingProductId =
+  "pro" | "team" | "shed" | "shed_always_on" | "shed_large";
+export const billingProductIdValues: readonly BillingProductId[] = [
+  "pro",
+  "team",
+  "shed",
+  "shed_always_on",
+  "shed_large",
+];
+
+/** A plan, held once; or a Shed box, bought by the box on any plan. */
+export type BillingProductKind = "plan" | "shed";
+export const billingProductKindValues: readonly BillingProductKind[] = [
+  "plan",
+  "shed",
+];
+
+/** What the quantity counts: the one account, a seat in an org, or a box. */
+export type BillingUnit = "account" | "seat" | "box";
+export const billingUnitValues: readonly BillingUnit[] = [
+  "account",
+  "seat",
+  "box",
+];
+
 /** A one-time value a device signs to prove it holds its key. */
 export interface Challenge {
   nonce: string;
   expiresAt: string;
 }
+
+/** What a change would charge, asked without making it. */
+export interface ChangePreview {
+  /** Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price. */
+  now: Money;
+  /** The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period. */
+  renewal?: RenewalCharge;
+}
+
+/** now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period. */
+export type ChangeWhen = "now" | "renewal";
+export const changeWhenValues: readonly ChangeWhen[] = ["now", "renewal"];
 
 /** Which build a host runs. Dev, nightly and stable cores are separate hosts. */
 export type Channel = "dev" | "nightly" | "stable";
@@ -127,6 +254,22 @@ export interface ChannelVersions {
   nightly: AppVersion;
   stable: AppVersion;
 }
+
+/** The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns. */
+export interface Checkout {
+  url: string;
+}
+
+/** Buy a product. The server sets the price from the catalog. */
+export interface CheckoutRequest {
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+  orgId?: OrgId;
+}
+
+/** An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own. */
+export type Currency = string;
 
 export interface Device {
   key: DeviceKey;
@@ -152,6 +295,8 @@ export interface DeviceRegistration {
   name: string;
   platform: Platform;
   channel?: Channel;
+  /** A client whose join tickets say it never signs for the person. Once set it stays set. */
+  handsOnly?: boolean;
   nonce: string;
   signature: string;
 }
@@ -210,6 +355,12 @@ export interface FcmTokenRegistration {
   app: PushApp;
   nonce: string;
   signature: string;
+}
+
+/** Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release. */
+export interface Flags {
+  /** The names of the features switched off, such as staffFeed. */
+  off: string[];
 }
 
 /** Whether the API can serve requests, and which build is answering. */
@@ -411,12 +562,57 @@ export const hostSignInStatusValues: readonly HostSignInStatus[] = [
 /** What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four. */
 export type HostSignInUserCode = string;
 
+/** A payment the provider took or tried to take. */
+export interface Invoice {
+  id: InvoiceId;
+  /** What it paid for, one line for each product the subscription holds. */
+  lines: InvoiceLine[];
+  reason: InvoiceReason;
+  total: Money;
+  status: InvoiceStatus;
+  at: string;
+  /** A refund was asked of the provider, which has not made it yet. */
+  refundRequestedAt?: string;
+  /** Only on a plan's first payment, while the plan may still be refunded. */
+  refundableUntil?: string;
+}
+
+export type InvoiceId = string;
+
+/** One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it. */
+export interface InvoiceLine {
+  product: BillingProductId;
+  quantity: number;
+}
+
+export interface InvoiceList {
+  /** Newest first. */
+  invoices: Invoice[];
+}
+
+/** Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change. */
+export type InvoiceReason = "first_payment" | "renewal" | "change";
+export const invoiceReasonValues: readonly InvoiceReason[] = [
+  "first_payment",
+  "renewal",
+  "change",
+];
+
+/** disputed: the payer's bank took the payment back, and the plan it paid for ended. */
+export type InvoiceStatus = "paid" | "failed" | "refunded" | "disputed";
+export const invoiceStatusValues: readonly InvoiceStatus[] = [
+  "paid",
+  "failed",
+  "refunded",
+  "disputed",
+];
+
 /** Which host on the account the phone wants to join. */
 export interface JoinRequest {
   host: DeviceKey;
 }
 
-/** The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them. */
+/** The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly, then `|look-only` when it has lookOnly. */
 export interface JoinTicket {
   /** The ticket's format. Only 1 exists. */
   v: number;
@@ -434,6 +630,10 @@ export interface JoinTicket {
   via?: DeviceKey;
   /** What the account calls the host in via. */
   viaName?: string;
+  /** The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away. */
+  handsOnly?: boolean;
+  /** The joining device is a browser that may only read the host's look, over ALPN sikemux/look/1; the host never pairs it. A host too old to know it finds the signature wrong and turns the browser away. */
+  lookOnly?: boolean;
   signature: string;
 }
 
@@ -530,11 +730,15 @@ export interface LivePong {
 export interface LivePush {
   type: "push";
   ref: PushRef;
+  /** Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result. */
+  id?: string;
   /** The phone's device key. */
   to: DeviceKey;
   kind: PushKind;
   /** Opaque to the server. A later push with the same collapseId replaces or clears the notification this one shows. */
   collapseId: string;
+  /** For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex. */
+  activityToken?: string;
   /** The sealed notification, in standard base64. */
   blob: string;
   /** After this the push is worth nothing, so the server drops it rather than deliver it late. */
@@ -594,11 +798,243 @@ export interface MinimumVersions {
   android: ChannelVersions;
 }
 
+/** A document the push did not store, because another host wrote it first or it was purged. */
+export interface ModConflict {
+  mod: ModId;
+  id: ModDocumentId;
+  /** The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0. */
+  current: ModDocument | null;
+}
+
+/** The latest sealed copy of one mod document. */
+export interface ModDocument {
+  mod: ModId;
+  id: ModDocumentId;
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  /** The document was removed; the sealed copy is its marker. */
+  removed: boolean;
+  revision: VaultRevision;
+  seq: ModSeq;
+  updatedBy: DeviceKey;
+  updatedAt: string;
+}
+
+/** A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either. */
+export type ModDocumentId = string;
+
+/** One document a host stores, built on the revision it last saw. */
+export interface ModDocumentPut {
+  mod: ModId;
+  id: ModDocumentId;
+  sealed: VaultSealed;
+  removed: boolean;
+  /** The document's revision as the host last saw it, or 0 for one the server does not hold. */
+  revision: number;
+}
+
+/** A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content. */
+export type ModFileId = string;
+
+/** The files the account holds for one mod. */
+export interface ModFiles {
+  files: ModFileId[];
+}
+
+export interface ModFileStored {
+  /** False when the account held the file already, and the body was not read. */
+  stored: boolean;
+}
+
+/** A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash. */
+export type ModId = string;
+
+/** A mod whose documents were all removed from the account, at that seq. */
+export interface ModPurge {
+  mod: ModId;
+  seq: ModSeq;
+}
+
+/** Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw. */
+export type ModSeq = number;
+
+/** A ModSeq in a query string. */
+export type ModSeqParam = string;
+
+/** What changed after the seq asked for, oldest first. Apply documents and purges together in seq order. */
+export interface ModsPulled {
+  documents: ModDocument[];
+  purges: ModPurge[];
+  /** The seq to ask after next time. */
+  next: ModSeq;
+  /** The page was full: ask again after next straight away. */
+  more: boolean;
+  /** The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list. */
+  reset: boolean;
+}
+
+export interface ModsPurged {
+  /** The purge's seq. */
+  seq: ModSeq;
+}
+
+/** Documents a host changed since its last push. Each is stored only if its revision is still the server's. */
+export interface ModsPush {
+  /** The generation of the key every document is sealed under, which must be current. */
+  generation: VaultGeneration;
+  /** Each document once, at most 4 MiB of request in all. */
+  documents: ModDocumentPut[];
+}
+
+export interface ModsPushed {
+  /** The account's latest seq after the push. */
+  seq: ModSeq;
+  stored: ModStored[];
+  conflicts: ModConflict[];
+}
+
+/** A document the push stored. */
+export interface ModStored {
+  mod: ModId;
+  id: ModDocumentId;
+  revision: VaultRevision;
+  seq: ModSeq;
+}
+
+/** An amount in the currency's smallest unit, such as cents. */
+export interface Money {
+  amount: number;
+  currency: Currency;
+}
+
 /** How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release. */
 export interface Network {
   /** The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on. */
   relays: Relay[];
   minimumVersions: MinimumVersions;
+  flags?: Flags;
+}
+
+/** An org you are in. */
+export interface Org {
+  id: OrgId;
+  name: OrgName;
+  /** Your role in it. */
+  role: OrgRole;
+  seats: OrgSeats;
+  createdAt: string;
+}
+
+/** A new org, with you as its owner. */
+export interface OrgCreate {
+  name: OrgName;
+}
+
+/** An org's id, a UUID in lowercase. */
+export type OrgId = string;
+
+/** An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires. */
+export interface OrgInvite {
+  id: OrgInviteId;
+  /** The role whoever accepts it joins with. */
+  role: OrgRole;
+  /** The name of who sent it, from their sign-in; null when it has none or cannot be read right now. */
+  invitedBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface OrgInviteCreate {
+  role: OrgRole;
+}
+
+/** A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days. */
+export interface OrgInviteCreated {
+  invite: OrgInvite;
+  token: OrgInviteToken;
+  link: string;
+}
+
+/** An invite's id, a UUID in lowercase. */
+export type OrgInviteId = string;
+
+/** The org's pending invites, newest first. */
+export interface OrgInviteList {
+  invites: OrgInvite[];
+}
+
+/** The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash. */
+export type OrgInviteToken = string;
+
+/** Accepting an invite. */
+export interface OrgJoin {
+  token: OrgInviteToken;
+}
+
+/** The orgs you are in, oldest first. */
+export interface OrgList {
+  orgs: Org[];
+}
+
+/** Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now. */
+export interface OrgMember {
+  id: OrgMemberId;
+  role: OrgRole;
+  name: string | null;
+  imageUrl: string | null;
+  joinedAt: string;
+  /** True on the row of the person asking. */
+  you: boolean;
+}
+
+/** A membership's id, a UUID in lowercase: one person's place in one org. */
+export type OrgMemberId = string;
+
+/** Everyone in the org, in the order they joined. */
+export interface OrgMemberList {
+  members: OrgMember[];
+}
+
+/** What the org is called, as its members see it. */
+export type OrgName = string;
+
+export interface OrgRename {
+  name: OrgName;
+}
+
+/** What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner. */
+export type OrgRole = "owner" | "admin" | "user";
+export const orgRoleValues: readonly OrgRole[] = ["owner", "admin", "user"];
+
+export interface OrgRoleChange {
+  role: OrgRole;
+}
+
+/** Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited. */
+export interface OrgSeats {
+  held: number;
+  limit: number;
+}
+
+/** Paddle.js opens its checkout with a client token, which Paddle makes public by design. */
+export interface PaddleCheckout {
+  clientToken: string;
+  environment: PaddleEnvironment;
+}
+
+export type PaddleEnvironment = "sandbox" | "production";
+export const paddleEnvironmentValues: readonly PaddleEnvironment[] = [
+  "sandbox",
+  "production",
+];
+
+/** The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept. */
+export interface PaymentCard {
+  /** The provider's name for the card's network, such as visa. */
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
 }
 
 /** The host waiting behind a user code, for the person to check before approving it. */
@@ -618,21 +1054,72 @@ export interface PendingHost {
   removedAt?: string;
 }
 
-export type Platform = "macos" | "linux" | "ios" | "android";
+/** Something a paid plan includes. Free's are everyone's and are not listed. */
+export type PlanFeature =
+  | "sync"
+  | "move_work"
+  | "history_search"
+  | "own_triggers"
+  | "org_hosts"
+  | "org_shared_setup"
+  | "org_model_keys"
+  | "org_github"
+  | "org_bot_triggers"
+  | "chat_handover"
+  | "org_roles"
+  | "org_policy";
+export const planFeatureValues: readonly PlanFeature[] = [
+  "sync",
+  "move_work",
+  "history_search",
+  "own_triggers",
+  "org_hosts",
+  "org_shared_setup",
+  "org_model_keys",
+  "org_github",
+  "org_bot_triggers",
+  "chat_handover",
+  "org_roles",
+  "org_policy",
+];
+
+/** A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid. */
+export type PlanId = "free" | "pro" | "team";
+export const planIdValues: readonly PlanId[] = ["free", "pro", "team"];
+
+/** you: the person asking pays, and may change seats, resume, see the card and open the payment page. another_owner: another of the org's owners pays, and only they may. departed: whoever paid no longer owns the org, so its plans end at the period's end and can be bought again once ended. */
+export type PlanPayer = "you" | "another_owner" | "departed";
+export const planPayerValues: readonly PlanPayer[] = [
+  "you",
+  "another_owner",
+  "departed",
+];
+
+/** A web client is the web app in a browser, which may only read its hosts' look. */
+export type Platform = "macos" | "linux" | "ios" | "android" | "web";
 export const platformValues: readonly Platform[] = [
   "macos",
   "linux",
   "ios",
   "android",
+  "web",
 ];
+
+/** The connector a sign-in is for, such as sikemux.github. */
+export type PluginId = string;
 
 /** Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them. */
 export type PushApp = "production" | "dev";
 export const pushAppValues: readonly PushApp[] = ["production", "dev"];
 
-/** alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. */
-export type PushKind = "alert" | "clear";
-export const pushKindValues: readonly PushKind[] = ["alert", "clear"];
+/** alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it. */
+export type PushKind = "alert" | "clear" | "activity" | "activity_end";
+export const pushKindValues: readonly PushKind[] = [
+  "alert",
+  "clear",
+  "activity",
+  "activity_end",
+];
 
 /** Which service delivers to the phone: Apple's push service, or Firebase Cloud Messaging. */
 export type PushPlatform = "apns" | "fcm";
@@ -670,6 +1157,9 @@ export interface PushTokenState {
   updatedAt: string;
 }
 
+/** The X25519 public key the person's recovery code makes, in lowercase hex. */
+export type RecoveryKey = string;
+
 export interface Relay {
   /** The relay's HTTPS address, such as https://relay.sikemux.com/. */
   url: string;
@@ -679,6 +1169,11 @@ export interface Relay {
   quicPort: number | null;
 }
 
+export interface RenewalCharge {
+  at: string;
+  amount: Money;
+}
+
 /** Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted. */
 export type RevokeReason = "removed" | "signed_out" | "account_deleted";
 export const revokeReasonValues: readonly RevokeReason[] = [
@@ -686,6 +1181,12 @@ export const revokeReasonValues: readonly RevokeReason[] = [
   "signed_out",
   "account_deleted",
 ];
+
+export interface ScheduledChange {
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+}
 
 /** What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it. */
 export type Sealed = string;
@@ -931,6 +1432,14 @@ export interface ShareWantsSnapshot {
   share: ShareId;
 }
 
+export interface ShedBoxes {
+  product: BillingProductId;
+  quantity: number;
+}
+
+/** The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it. */
+export type Staff = boolean;
+
 /** A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body. */
 export type StashAdd = StashAddLink | StashAddText | StashAddPrompt;
 
@@ -1060,6 +1569,178 @@ export interface StashUpdate {
   taken?: boolean;
 }
 
+/** One product bought in a quantity, billed each interval. */
+export interface Subscription {
+  id: SubscriptionId;
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+  status: SubscriptionStatus;
+  currentPeriodEnd: string;
+  /** It ends at currentPeriodEnd unless resumed first. */
+  cancelAtPeriodEnd: boolean;
+  startedAt: string;
+  endedAt?: string;
+  /** A change asked for at renewal, which takes over at currentPeriodEnd. */
+  atRenewal?: ScheduledChange;
+  /** While the plan may still be refunded: within the catalog's refundDays of first paying for it, and only once for each kind of plan a payer buys. */
+  refundableUntil?: string;
+  /** A refund was asked for and the provider has not settled it yet. The plan ends when it is paid, and cannot be resumed or changed until then. */
+  refundRequestedAt?: string;
+  /** What the refund returns, or returns once paid: every payment on the plan in its first refundDays. */
+  refundAmount?: Money;
+}
+
+/** A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box. */
+export interface SubscriptionChange {
+  product?: BillingProductId;
+  interval?: BillingInterval;
+  quantity?: number;
+  /** Now when left out. */
+  when?: ChangeWhen;
+}
+
+export type SubscriptionId = string;
+
+/** active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good. */
+export type SubscriptionStatus = "active" | "lapsed" | "ended";
+export const subscriptionStatusValues: readonly SubscriptionStatus[] = [
+  "active",
+  "lapsed",
+  "ended",
+];
+
+/** The account's vault, as the host that asked sees it. */
+export interface Vault {
+  generation: VaultGeneration;
+  recoveryKey: RecoveryKey;
+  /** The vault key sealed for the recovery key. */
+  recoveryWrap: VaultSealed;
+  /** The vault key sealed for the asking host at the current generation, or null when it has none yet. */
+  key: VaultSealed | null;
+  /** The hosts holding the key at the current generation. */
+  holders: DeviceKey[];
+  /** The account's hosts without the key at the current generation, for a holder to wrap it for. */
+  waiting: DeviceKey[];
+  /** A host left the account, so a holder should replace the vault key. */
+  rotate: boolean;
+  entries: VaultEntry[];
+}
+
+/** A host makes the account's vault, holding its key at generation 1. */
+export interface VaultCreate {
+  recoveryKey: RecoveryKey;
+  recoveryWrap: VaultSealed;
+  /** The vault key sealed for the asking host. */
+  key: VaultSealed;
+}
+
+/** One sign-in in the vault, sealed under the vault key of its generation. */
+export interface VaultEntry {
+  id: VaultEntryId;
+  plugin: PluginId;
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  revision: VaultRevision;
+  updatedBy: DeviceKey;
+  updatedAt: string;
+}
+
+/** A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it. */
+export type VaultEntryId = string;
+
+/** A host adds or replaces an entry. */
+export interface VaultEntryPut {
+  plugin: PluginId;
+  /** The generation of the key it is sealed under, which must be current. */
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  /** The entry's revision as the writer last saw it, or 0 to add it. */
+  revision: number;
+}
+
+/** An entry sealed again under the new key. */
+export interface VaultEntryReseal {
+  id: VaultEntryId;
+  sealed: VaultSealed;
+  /** The entry's current revision. */
+  revision: VaultRevision;
+}
+
+/** Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key. */
+export type VaultGeneration = number;
+
+/** A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself. */
+export interface VaultKeysAdd {
+  generation: VaultGeneration;
+  keys: WrappedKey[];
+}
+
+/** How many times an entry was written. It starts at 1 and goes up by one each write. */
+export type VaultRevision = number;
+
+/** An entry's revision, as the writer last saw it, in a query string. */
+export type VaultRevisionParam = string;
+
+/** A host replaces the vault key: every wrap and every entry moves to the next generation at once. */
+export interface VaultRotate {
+  /** The current generation. */
+  from: VaultGeneration;
+  recoveryWrap: VaultSealed;
+  /** The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped. */
+  keys: WrappedKey[];
+  /** Every entry in the vault, each once. */
+  entries: VaultEntryReseal[];
+}
+
+/** What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot. */
+export type VaultSealed = string;
+
+export interface VaultState {
+  /** Null until a host on the account makes the vault. */
+  vault: Vault | null;
+}
+
+/** How often one agent on the signing host used one entry. */
+export interface VaultUse {
+  entryId: VaultEntryId;
+  plugin: PluginId;
+  /** Who used it: an agent's name such as @Otter, or Sikemux for the host itself. */
+  actor: string;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+}
+
+/** Uses one host reported of one entry by one agent. */
+export interface VaultUseRow {
+  entryId: VaultEntryId;
+  plugin: PluginId;
+  hostKey: DeviceKey;
+  /** The host's name, or null once it has left the account. */
+  hostName: string | null;
+  actor: string;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+}
+
+/** Uses of the vault's entries in the last 30 days, newest first, at most 500. */
+export interface VaultUses {
+  uses: VaultUseRow[];
+}
+
+/** Uses a host made of the vault's entries since it last reported. */
+export interface VaultUsesAdd {
+  uses: VaultUse[];
+}
+
+/** The vault key, sealed for one host. */
+export interface WrappedKey {
+  hostKey: DeviceKey;
+  wrapped: VaultSealed;
+}
+
 /** Every definition by name, so code can look a type up from the name it validates against. */
 export interface Definitions {
   Account: Account;
@@ -1070,14 +1751,31 @@ export interface Definitions {
   AccountEventType: AccountEventType;
   AccountProfile: AccountProfile;
   AccountStatus: AccountStatus;
+  Allowance: Allowance;
   ApiError: ApiError;
   ApnsEnvironment: ApnsEnvironment;
   ApnsTokenRegistration: ApnsTokenRegistration;
   ApprovedHost: ApprovedHost;
   AppVersion: AppVersion;
+  BillingCatalog: BillingCatalog;
+  BillingInterval: BillingInterval;
+  BillingLink: BillingLink;
+  BillingOverview: BillingOverview;
+  BillingPayer: BillingPayer;
+  BillingPlan: BillingPlan;
+  BillingPrice: BillingPrice;
+  BillingProduct: BillingProduct;
+  BillingProductId: BillingProductId;
+  BillingProductKind: BillingProductKind;
+  BillingUnit: BillingUnit;
   Challenge: Challenge;
+  ChangePreview: ChangePreview;
+  ChangeWhen: ChangeWhen;
   Channel: Channel;
   ChannelVersions: ChannelVersions;
+  Checkout: Checkout;
+  CheckoutRequest: CheckoutRequest;
+  Currency: Currency;
   Device: Device;
   DeviceKey: DeviceKey;
   DeviceList: DeviceList;
@@ -1088,6 +1786,7 @@ export interface Definitions {
   ErrorDetail: ErrorDetail;
   EventId: EventId;
   FcmTokenRegistration: FcmTokenRegistration;
+  Flags: Flags;
   Health: Health;
   HealthStatus: HealthStatus;
   Hook: Hook;
@@ -1119,6 +1818,12 @@ export interface Definitions {
   HostSignInState: HostSignInState;
   HostSignInStatus: HostSignInStatus;
   HostSignInUserCode: HostSignInUserCode;
+  Invoice: Invoice;
+  InvoiceId: InvoiceId;
+  InvoiceLine: InvoiceLine;
+  InvoiceList: InvoiceList;
+  InvoiceReason: InvoiceReason;
+  InvoiceStatus: InvoiceStatus;
   JoinRequest: JoinRequest;
   JoinTicket: JoinTicket;
   LiveAck: LiveAck;
@@ -1141,9 +1846,52 @@ export interface Definitions {
   LiveRole: LiveRole;
   LiveServerMessage: LiveServerMessage;
   MinimumVersions: MinimumVersions;
+  ModConflict: ModConflict;
+  ModDocument: ModDocument;
+  ModDocumentId: ModDocumentId;
+  ModDocumentPut: ModDocumentPut;
+  ModFileId: ModFileId;
+  ModFiles: ModFiles;
+  ModFileStored: ModFileStored;
+  ModId: ModId;
+  ModPurge: ModPurge;
+  ModSeq: ModSeq;
+  ModSeqParam: ModSeqParam;
+  ModsPulled: ModsPulled;
+  ModsPurged: ModsPurged;
+  ModsPush: ModsPush;
+  ModsPushed: ModsPushed;
+  ModStored: ModStored;
+  Money: Money;
   Network: Network;
+  Org: Org;
+  OrgCreate: OrgCreate;
+  OrgId: OrgId;
+  OrgInvite: OrgInvite;
+  OrgInviteCreate: OrgInviteCreate;
+  OrgInviteCreated: OrgInviteCreated;
+  OrgInviteId: OrgInviteId;
+  OrgInviteList: OrgInviteList;
+  OrgInviteToken: OrgInviteToken;
+  OrgJoin: OrgJoin;
+  OrgList: OrgList;
+  OrgMember: OrgMember;
+  OrgMemberId: OrgMemberId;
+  OrgMemberList: OrgMemberList;
+  OrgName: OrgName;
+  OrgRename: OrgRename;
+  OrgRole: OrgRole;
+  OrgRoleChange: OrgRoleChange;
+  OrgSeats: OrgSeats;
+  PaddleCheckout: PaddleCheckout;
+  PaddleEnvironment: PaddleEnvironment;
+  PaymentCard: PaymentCard;
   PendingHost: PendingHost;
+  PlanFeature: PlanFeature;
+  PlanId: PlanId;
+  PlanPayer: PlanPayer;
   Platform: Platform;
+  PluginId: PluginId;
   PushApp: PushApp;
   PushKind: PushKind;
   PushPlatform: PushPlatform;
@@ -1151,8 +1899,11 @@ export interface Definitions {
   PushResult: PushResult;
   PushTokenRegistration: PushTokenRegistration;
   PushTokenState: PushTokenState;
+  RecoveryKey: RecoveryKey;
   Relay: Relay;
+  RenewalCharge: RenewalCharge;
   RevokeReason: RevokeReason;
+  ScheduledChange: ScheduledChange;
   Sealed: Sealed;
   ShareAnswer: ShareAnswer;
   ShareAnswered: ShareAnswered;
@@ -1187,6 +1938,8 @@ export interface Definitions {
   ShareViewerProof: ShareViewerProof;
   ShareViewers: ShareViewers;
   ShareWantsSnapshot: ShareWantsSnapshot;
+  ShedBoxes: ShedBoxes;
+  Staff: Staff;
   StashAdd: StashAdd;
   StashAddLink: StashAddLink;
   StashAddPrompt: StashAddPrompt;
@@ -1203,4 +1956,26 @@ export interface Definitions {
   StashTaken: StashTaken;
   StashTarget: StashTarget;
   StashUpdate: StashUpdate;
+  Subscription: Subscription;
+  SubscriptionChange: SubscriptionChange;
+  SubscriptionId: SubscriptionId;
+  SubscriptionStatus: SubscriptionStatus;
+  Vault: Vault;
+  VaultCreate: VaultCreate;
+  VaultEntry: VaultEntry;
+  VaultEntryId: VaultEntryId;
+  VaultEntryPut: VaultEntryPut;
+  VaultEntryReseal: VaultEntryReseal;
+  VaultGeneration: VaultGeneration;
+  VaultKeysAdd: VaultKeysAdd;
+  VaultRevision: VaultRevision;
+  VaultRevisionParam: VaultRevisionParam;
+  VaultRotate: VaultRotate;
+  VaultSealed: VaultSealed;
+  VaultState: VaultState;
+  VaultUse: VaultUse;
+  VaultUseRow: VaultUseRow;
+  VaultUses: VaultUses;
+  VaultUsesAdd: VaultUsesAdd;
+  WrappedKey: WrappedKey;
 }

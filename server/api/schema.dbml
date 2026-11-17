@@ -10,8 +10,12 @@ Table users {
   purge_after timestamptz
   events_pruned_through bigint [not null, default: 0]
   stash_seen_at timestamptz
+  staff boolean [not null, default: `false`]
+  billing_attempts integer [not null, default: 0]
+  billing_retry_at timestamptz
 
   indexes {
+    billing_retry_at [name: 'users_awaiting_billing', note: 'where (billing_retry_at IS NOT NULL)']
     clerk_retry_at [name: 'users_awaiting_clerk', note: 'where ((deleted_at IS NOT NULL) AND (clerk_deleted_at IS NULL))']
     purge_after [name: 'users_to_purge', note: 'where (purge_after IS NOT NULL)']
   }
@@ -30,6 +34,7 @@ Table devices {
   acked_event_id bigint [not null, default: 0]
   clerk_session_id text
   registered_by text
+  hands_only boolean [not null, default: `false`]
 
   indexes {
     (user_id, created_at) [name: 'devices_by_user', note: 'created_at desc']
@@ -91,7 +96,7 @@ Table update_channels {
 Table events {
   id bigint [pk, increment]
   user_id text [not null]
-  type text [not null, note: 'type = ANY (ARRAY[\'device.added\', \'device.changed\', \'device.revoked\', \'account.deleted\', \'stash.added\', \'stash.changed\', \'stash.removed\', \'stash.seen\'])']
+  type text [not null, note: 'type = ANY (ARRAY[\'device.added\', \'device.changed\', \'device.revoked\', \'account.deleted\', \'stash.added\', \'stash.changed\', \'stash.removed\', \'stash.seen\', \'vault.changed\', \'mods.changed\', \'plan.changed\'])']
   subject text
   subject_role text [note: 'subject_role = ANY (ARRAY[\'host\', \'client\'])']
   reason text [note: 'reason = ANY (ARRAY[\'removed\', \'signed_out\', \'account_deleted\'])']
@@ -249,6 +254,318 @@ Table hook_deliveries {
   }
 }
 
+Table vaults {
+  user_id text [pk]
+  generation integer [not null, default: 1, note: 'generation >= 1']
+  recovery_key text [not null, note: 'recovery_key ~ \'^[0-9a-f]{64}$\'']
+  recovery_wrap text [not null, note: '(recovery_wrap ~ \'^[A-Za-z0-9_-]+$\') AND (length(recovery_wrap) <= 87400)']
+  rotate boolean [not null, default: `false`]
+  created_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  rotated_at timestamptz
+}
+
+Table vault_keys {
+  user_id text [not null]
+  host_key text [not null, note: 'host_key ~ \'^[0-9a-f]{64}$\'']
+  generation integer [not null, note: 'generation >= 1']
+  wrapped text [not null, note: '(wrapped ~ \'^[A-Za-z0-9_-]+$\') AND (length(wrapped) <= 87400)']
+  wrapped_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, host_key) [pk]
+  }
+}
+
+Table vault_entries {
+  id text [pk, note: 'id ~ \'^[0-9a-f]{32}$\'']
+  user_id text [not null]
+  plugin text [not null, note: 'plugin ~ \'^sikemux\\.[a-z0-9-]{1,48}$\'']
+  generation integer [not null, note: 'generation >= 1']
+  sealed text [not null, note: '(sealed ~ \'^[A-Za-z0-9_-]+$\') AND (length(sealed) <= 87400)']
+  revision integer [not null, note: 'revision >= 1']
+  updated_by text [not null]
+  updated_at timestamptz [not null, default: `now()`]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    user_id [name: 'vault_entries_by_user']
+  }
+}
+
+Table vault_uses {
+  id bigint [pk, increment]
+  user_id text [not null]
+  entry_id text [not null, note: 'entry_id ~ \'^[0-9a-f]{32}$\'']
+  plugin text [not null, note: 'plugin ~ \'^sikemux\\.[a-z0-9-]{1,48}$\'']
+  host_key text [not null]
+  actor text [not null, note: '(length(actor) >= 1) AND (length(actor) <= 80)']
+  count integer [not null, note: '(count >= 1) AND (count <= 1000000)']
+  first_at timestamptz [not null]
+  last_at timestamptz [not null]
+
+  indexes {
+    last_at [name: 'vault_uses_by_age']
+    (user_id, entry_id, host_key, actor) [name: 'vault_uses_by_day']
+    (user_id, last_at) [name: 'vault_uses_by_user', note: 'last_at desc']
+  }
+
+  Note: 'last_at >= first_at'
+}
+
+Table mod_counters {
+  user_id text [pk]
+  seq bigint [not null, default: 0, note: 'seq >= 0']
+  sealed_bytes bigint [not null, default: 0, note: 'sealed_bytes >= 0']
+  cleared_seq bigint [not null, default: 0]
+  file_bytes bigint [not null, default: 0, note: 'file_bytes >= 0']
+
+  Note: '(cleared_seq >= 0) AND (cleared_seq <= seq)'
+}
+
+Table mod_documents {
+  user_id text [not null]
+  mod_id text [not null, note: 'mod_id ~ \'^[a-z0-9][a-z0-9-]{0,63}$\'']
+  doc_id text [not null, note: 'doc_id ~ \'^[0-9a-f]{64}$\'']
+  generation integer [not null, note: 'generation >= 1']
+  sealed text [not null, note: '(sealed ~ \'^[A-Za-z0-9_-]+$\') AND (length(sealed) <= 87400)']
+  removed boolean [not null]
+  revision integer [not null, note: 'revision >= 1']
+  seq bigint [not null, note: 'seq >= 1']
+  updated_by text [not null]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, mod_id, doc_id) [pk]
+    (user_id, seq) [name: 'mod_documents_by_seq', unique]
+    updated_at [name: 'mod_documents_removed_by_age', note: 'where removed']
+  }
+}
+
+Table mod_purges {
+  user_id text [not null]
+  seq bigint [not null, note: 'seq >= 1']
+  mod_id text [not null, note: 'mod_id ~ \'^[a-z0-9][a-z0-9-]{0,63}$\'']
+  purged_by text [not null]
+  purged_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, seq) [pk]
+    purged_at [name: 'mod_purges_by_age']
+  }
+}
+
+Table mod_files {
+  user_id text [not null]
+  mod_id text [not null, note: 'mod_id ~ \'^[a-z0-9][a-z0-9-]{0,63}$\'']
+  file_id text [not null, note: 'file_id ~ \'^[0-9a-f]{64}$\'']
+  stored_as text [not null, unique, note: 'stored_as ~ \'^[A-Za-z0-9_-]{22}$\'']
+  size bigint [not null, note: 'size >= 0']
+  stored_by text [not null]
+  stored_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, mod_id, file_id) [pk]
+  }
+}
+
+Table orgs {
+  id uuid [pk, default: `gen_random_uuid()`]
+  name text [not null, note: '(length(name) >= 1) AND (length(name) <= 64)']
+  created_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table org_users {
+  org_id uuid [not null]
+  user_id text [not null]
+  role text [not null, note: 'role = ANY (ARRAY[\'owner\', \'admin\', \'user\'])']
+  invited_by text
+  joined_at timestamptz [not null, default: `now()`]
+  id uuid [not null, unique, default: `gen_random_uuid()`]
+
+  indexes {
+    (org_id, user_id) [pk]
+    user_id [name: 'org_users_by_user']
+  }
+}
+
+Table org_invites {
+  id uuid [pk, default: `gen_random_uuid()`]
+  org_id uuid [not null]
+  role text [not null, note: 'role = ANY (ARRAY[\'owner\', \'admin\', \'user\'])']
+  token_hash text [not null, unique, note: 'token_hash ~ \'^[0-9a-f]{64}$\'']
+  invited_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  expires_at timestamptz [not null]
+  accepted_by text
+  accepted_at timestamptz
+  revoked_at timestamptz
+
+  indexes {
+    (org_id, expires_at) [name: 'org_invites_open', note: 'where ((accepted_at IS NULL) AND (revoked_at IS NULL))']
+  }
+
+  Note: '(accepted_at IS NULL) = (accepted_by IS NULL)'
+}
+
+Table billing_customers {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id text
+  org_id uuid
+  provider text [not null, note: 'provider ~ \'^[a-z][a-z_-]*$\'']
+  provider_customer_id text
+  created_at timestamptz [not null, default: `now()`]
+  paid_by text
+
+  indexes {
+    (org_id, provider) [name: 'billing_customers_by_org', unique, note: 'where (org_id IS NOT NULL)']
+    (user_id, provider) [name: 'billing_customers_by_user', unique, note: 'where (user_id IS NOT NULL)']
+  }
+
+  Note: '(user_id IS NULL) <> (org_id IS NULL); (org_id IS NOT NULL) OR (paid_by IS NULL)'
+}
+
+Table subscriptions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  customer_id uuid [not null]
+  provider_subscription_id text [not null]
+  product text [not null, note: 'product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
+  interval text [not null, note: '"interval" = ANY (ARRAY[\'month\', \'year\'])']
+  quantity integer [not null, note: 'quantity > 0']
+  status text [not null, note: 'status = ANY (ARRAY[\'active\', \'lapsed\', \'ended\'])']
+  current_period_end timestamptz [not null]
+  cancel_at_period_end boolean [not null, default: `false`]
+  started_at timestamptz [not null]
+  ended_at timestamptz
+  next_product text [note: 'next_product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
+  next_interval text [note: 'next_interval = ANY (ARRAY[\'month\', \'year\'])']
+  next_quantity integer [note: 'next_quantity > 0']
+  provider_updated_at timestamptz [not null]
+  seats_cut_to integer [note: 'seats_cut_to > 0']
+  seats_cut_at timestamptz
+
+  indexes {
+    customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
+    (provider_subscription_id, product) [name: 'subscriptions_by_provider', unique]
+    customer_id [name: 'subscriptions_one_plan', unique, note: 'where ((status <> \'ended\') AND (product = ANY (ARRAY[\'pro\', \'team\'])))']
+  }
+
+  Note: '(status = \'ended\') = (ended_at IS NOT NULL); num_nulls(next_product, next_interval, next_quantity) = ANY (ARRAY[0, 3]); num_nulls(seats_cut_to, seats_cut_at) = ANY (ARRAY[0, 2])'
+}
+
+Table invoices {
+  id uuid [pk, default: `gen_random_uuid()`]
+  customer_id uuid [not null]
+  provider_subscription_id text [not null]
+  provider_payment_id text [not null]
+  lines jsonb [not null, note: '(jsonb_typeof(lines) = \'array\') AND (jsonb_array_length(lines) > 0)']
+  reason text [not null, note: 'reason = ANY (ARRAY[\'first_payment\', \'renewal\', \'change\'])']
+  amount bigint [not null, note: 'amount >= 0']
+  currency text [not null, note: 'currency ~ \'^[a-z]{3}$\'']
+  status text [not null, note: 'status = ANY (ARRAY[\'paid\', \'failed\', \'refunded\', \'disputed\'])']
+  at timestamptz [not null]
+  refund_requested_at timestamptz
+  refunded_at timestamptz
+
+  indexes {
+    (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
+    provider_payment_id [name: 'invoices_by_provider', unique]
+  }
+
+  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL)'
+}
+
+Table billing_events {
+  provider text [not null]
+  event_id text [not null]
+  type text [not null]
+  received_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, event_id) [pk]
+    received_at [name: 'billing_events_by_age']
+  }
+}
+
+Table billing_calls {
+  id bigint [pk, increment]
+  provider text [not null]
+  action text [not null, note: 'action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'refund\'])']
+  subscription jsonb
+  provider_payment_id text
+  attempts integer [not null, default: 0]
+  retry_at timestamptz [not null, default: `now()`]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    retry_at [name: 'billing_calls_due']
+  }
+
+  Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = \'refund\') = (subscription IS NULL)'
+}
+
+Table billing_strays {
+  provider text [not null]
+  provider_id text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, provider_id) [pk]
+  }
+}
+
+Table billing_checkouts {
+  provider text [not null]
+  provider_checkout_id text [not null]
+  customer_id uuid [not null]
+  opened_by text [not null]
+  provider_customer_id text [not null]
+  product text [not null, note: 'product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
+  interval text [not null, note: '"interval" = ANY (ARRAY[\'month\', \'year\'])']
+  quantity integer [not null, note: 'quantity > 0']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, provider_checkout_id) [pk]
+  }
+}
+
+Table billing_people {
+  provider text [not null]
+  user_id text [not null]
+  provider_customer_id text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, user_id) [pk]
+    (provider, provider_customer_id) [unique]
+  }
+}
+
+Table billing_held_sales {
+  provider text [not null]
+  provider_subscription_id text [not null]
+  provider_checkout_id text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, provider_subscription_id) [pk]
+  }
+}
+
+Table plan_gifts {
+  user_id text [pk]
+  plan text [not null, note: 'plan = \'pro\'']
+  given_at timestamptz [not null, default: `now()`]
+  ends_at timestamptz [not null]
+
+  indexes {
+    ends_at [name: 'plan_gifts_by_end']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -261,3 +578,23 @@ Ref: stash_items.user_id > users.id [delete: cascade]
 Ref: hooks.host_key > devices.key [delete: cascade]
 Ref: hooks.user_id > users.id [delete: cascade]
 Ref: hook_deliveries.hook_id > hooks.id [delete: cascade]
+Ref: vaults.user_id - users.id [delete: cascade]
+Ref: vault_keys.user_id > vaults.user_id [delete: cascade]
+Ref: vault_entries.user_id > vaults.user_id [delete: cascade]
+Ref: vault_uses.user_id > users.id [delete: cascade]
+Ref: mod_counters.user_id - vaults.user_id [delete: cascade]
+Ref: mod_documents.user_id > mod_counters.user_id [delete: cascade]
+Ref: mod_purges.user_id > mod_counters.user_id [delete: cascade]
+Ref: mod_files.user_id > mod_counters.user_id [delete: cascade]
+Ref: org_users.org_id > orgs.id [delete: cascade]
+Ref: org_users.user_id > users.id [delete: cascade]
+Ref: org_invites.org_id > orgs.id [delete: cascade]
+Ref: billing_customers.org_id > orgs.id [delete: cascade]
+Ref: billing_customers.paid_by > users.id [delete: set null]
+Ref: billing_customers.user_id > users.id [delete: cascade]
+Ref: subscriptions.customer_id > billing_customers.id [delete: cascade]
+Ref: invoices.customer_id > billing_customers.id [delete: cascade]
+Ref: billing_checkouts.customer_id > billing_customers.id [delete: cascade]
+Ref: billing_checkouts.opened_by > users.id [delete: cascade]
+Ref: billing_people.user_id > users.id [delete: cascade]
+Ref: plan_gifts.user_id - users.id [delete: cascade]

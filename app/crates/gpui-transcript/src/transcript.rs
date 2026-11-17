@@ -14,7 +14,7 @@ use gpui::{
 use crate::draw::{LayoutBudget, Pen, Style};
 use crate::find::{ranges_in, FoundChanged, Hit, Query};
 use crate::markdown::Markdown;
-use crate::select::{spot_at, word_at, Key, Place, RowHit, Selecting, Shown, Span, Spot};
+use crate::select::{picked, spot_at, word_at, Key, Place, RowHit, Selecting, Shown, Span, Spot};
 
 actions!(transcript, [Copy]);
 
@@ -124,6 +124,8 @@ pub struct Transcript<R: Row> {
     pending: Option<(SharedString, SharedString, usize)>,
     /// Where each row was last placed in the window, as its texts were.
     row_tops: Rc<RefCell<HashMap<SharedString, Pixels>>>,
+    /// The first and last rows the frame being drawn holds, the list's extra ones around the view too.
+    drawn: Option<Range<usize>>,
     /// How a row that just arrived rises into place, when rows do.
     rise: Option<Rc<dyn Fn(f32) -> f32>>,
     /// The rows that just arrived, and when.
@@ -210,6 +212,7 @@ impl<R: Row> Transcript<R> {
             layout_budget: Rc::default(),
             pending: None,
             row_tops: Rc::default(),
+            drawn: None,
             rise: None,
             arrived: Vec::new(),
         }
@@ -244,6 +247,16 @@ impl<R: Row> Transcript<R> {
     /// The reader scrolled up from the latest rows, so they no longer follow as rows arrive.
     pub fn away(&self) -> bool {
         self.away && !self.rows.is_empty()
+    }
+
+    /// Keeps the rows in view where they are while rows below the top of the view change height,
+    /// rather than following the latest rows up the screen.
+    pub fn hold_place(&mut self, cx: &mut Context<Self>) {
+        self.list.scroll_to(self.place_now());
+        if !self.away {
+            self.away = true;
+            cx.emit(AwayChanged(true));
+        }
     }
 
     /// Brings the latest rows into view, and follows them again as rows arrive.
@@ -459,7 +472,6 @@ impl<R: Row> Transcript<R> {
         self.visible.clone()
     }
 
-    /// The rows as of the last frame drawn; changes pushed since are not in them yet.
     /// Draws every row in `style` from now on, measured again.
     pub fn restyle(&mut self, style: Rc<Style>, cx: &mut Context<Self>) {
         self.style = style;
@@ -467,6 +479,13 @@ impl<R: Row> Transcript<R> {
         cx.notify();
     }
 
+    /// Measures every row again, for a change to how wide rows draw.
+    pub fn remeasure(&mut self, cx: &mut Context<Self>) {
+        self.list.remeasure();
+        cx.notify();
+    }
+
+    /// The rows as of the last frame drawn; changes pushed since are not in them yet.
     pub fn rows(&self) -> &[R] {
         &self.rows
     }
@@ -500,6 +519,23 @@ impl<R: Row> Transcript<R> {
         self.list.set_follow_mode(follow);
         self.asked_earlier = false;
         self.asked_later = false;
+    }
+
+    /// Rows too few to fill the view can't scroll, so nothing else would ever ask for those above.
+    fn ask_earlier_when_short(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.asked_earlier || self.drawn.as_ref().is_none_or(|drawn| drawn.start > 0) {
+            return;
+        }
+        let top = self.list.viewport_bounds().top();
+        let first_shows = (self.rows.first())
+            .and_then(|row| self.row_tops.borrow().get(row.id()).copied())
+            .is_some_and(|first| first >= top);
+        if first_shows {
+            self.asked_earlier = true;
+            if let Some(ask) = self.on_reach_top.clone() {
+                ask(window, cx);
+            }
+        }
     }
 
     /// Where the reader is, as a row and how far into it. A list scrolled to its end says only
@@ -674,7 +710,10 @@ impl<R: Row> Transcript<R> {
     }
 
     fn press(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus, cx);
+        // A focusable control inside a row, such as a text field, took this press.
+        if window.default_prevented() {
+            return;
+        }
         let Some(spot) = spot_at(&self.shown.borrow(), event.position) else {
             return;
         };
@@ -752,20 +791,10 @@ impl<R: Row> Transcript<R> {
     fn selected_text(&self) -> Option<String> {
         let span = self.span()?;
         let mut blocks = Vec::new();
-        for ix in span.0 .0..=span.1 .0 {
-            for (doc, markdown) in self.rows[ix].docs().into_iter().enumerate() {
-                for block in 0..markdown.blocks().len() {
-                    let texts = markdown.texts(block);
-                    let picked: Vec<&str> = (1..)
-                        .zip(&texts)
-                        .filter_map(|(n, text)| {
-                            text.get(span.range((ix, doc, block, n), text.len())?)
-                        })
-                        .collect();
-                    if !picked.is_empty() {
-                        blocks.push(picked.join("\n"));
-                    }
-                }
+        let rows = self.rows.iter().enumerate();
+        for (ix, row) in rows.take(span.1 .0 + 1).skip(span.0 .0) {
+            for (doc, markdown) in row.docs().into_iter().enumerate() {
+                blocks.extend(picked(markdown, span, ix, doc));
             }
         }
         (!blocks.is_empty()).then(|| blocks.join("\n\n"))
@@ -801,8 +830,10 @@ impl<R: Row> Render for Transcript<R> {
         }
         self.chase(window);
         self.shown.borrow_mut().clear();
+        self.drawn = None;
         let span = self.span();
         let this = cx.entity();
+        let moved = this.downgrade();
         let rows = list(self.list.clone(), move |ix, window, cx| {
             this.update(cx, |this, cx| {
                 if ix == this.rows.len() {
@@ -842,6 +873,10 @@ impl<R: Row> Render for Transcript<R> {
                 #[cfg(feature = "counts")]
                 crate::counts::add(&crate::counts::ROWS, 1);
                 let drawn = draw_row(&this.rows, ix, &pen, window, cx);
+                this.drawn = Some(match this.drawn.take() {
+                    Some(range) => range.start.min(ix)..range.end.max(ix + 1),
+                    None => ix..ix + 1,
+                });
                 let (Some(row), tops) = (this.rows.get(ix), this.row_tops.clone()) else {
                     return drawn;
                 };
@@ -906,6 +941,14 @@ impl<R: Row> Render for Transcript<R> {
             .key_context(CONTEXT)
             .on_action(cx.listener(|this, _: &Copy, _, cx| this.copy(cx)))
             .child(rows.size_full())
+            .on_children_prepainted(move |_, window, cx| {
+                let moved = moved.clone();
+                window.defer(cx, move |window, cx| {
+                    moved
+                        .update(cx, |this, cx| this.ask_earlier_when_short(window, cx))
+                        .ok();
+                });
+            })
     }
 }
 

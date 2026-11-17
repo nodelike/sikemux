@@ -10,8 +10,10 @@ import {
   collect,
   HEADER,
   openapi,
+  reachable,
   rust,
   SchemaError,
+  swift,
   typescript,
 } from "./generator.mjs";
 
@@ -29,14 +31,78 @@ async function format(text, path) {
 }
 
 /**
- * Schemas only the core speaks, generated into sikemux-core rather than sikemux-wire, so a
- * change to them leaves the phone's native code, and its over-the-air updates, alone. Their
- * fixtures go in fixtures-core, which the core's own contract test reads.
+ * The definitions the phone's Rust names, generated into sikemux-wire. Every other one goes in
+ * sikemux-core, so a change to it leaves the phone's native code, and its over-the-air updates,
+ * alone. Those fixtures go in fixtures-core, which the core's own contract test reads.
  */
+const PHONE_RUST = new Set([
+  "AppVersion",
+  "ChannelVersions",
+  "DeviceKey",
+  "JoinTicket",
+  "MinimumVersions",
+  "Network",
+  "Relay",
+  "RevokeReason",
+]);
+/**
+ * Fields of PHONE_RUST definitions the phone does not act on. Leaving them out keeps its native code,
+ * and so its over-the-air updates, as they are; the core reads them with its own types.
+ */
+const PHONE_RUST_OMITS = { Network: ["flags"] };
+/**
+ * The definitions the iPhone app reads and sends, generated into Swift with everything they refer
+ * to. Its own names for other things, in SWIFT_RENAMED, take the Wire prefix here.
+ */
+const PHONE_SWIFT = [
+  "Account",
+  "AccountDeletionRequest",
+  "Challenge",
+  "Device",
+  "DeviceList",
+  "DeviceRegistration",
+  "ApiError",
+  "JoinRequest",
+  "JoinTicket",
+  "LiveAck",
+  "LiveCloseCode",
+  "LiveHello",
+  "LivePong",
+  "LiveServerMessage",
+  "Network",
+  "PendingHost",
+  "PushTokenRegistration",
+  "PushTokenState",
+  "ShareClientMessage",
+  "ShareCloseCode",
+  "ShareServerMessage",
+  "StashAdd",
+  "StashItem",
+  "StashList",
+  "StashSeen",
+  "StashUpdate",
+];
+const SWIFT_RENAMED = new Set([
+  "Account",
+  "AccountStatus",
+  "Device",
+  "Network",
+  "ShareAsk",
+  "ShareFrame",
+]);
+/** Definitions sikemux-wire carries, which the app already has in Wire.generated.swift. */
+const SWIFT_FROM_THE_WIRE = new Set(["RevokeReason"]);
+/** What the share extension sends as well as the app, in a file both compile; the app's own file leaves them out. */
+const SHARED_SWIFT = ["StashTarget", "StashAdd", "ApiError"];
+const FROM_THE_WIRE = "\nuse sikemux_wire::accounts::protocol::*;\n";
 const CORE_ONLY = new Map([
-  ["share.json", "share.rs"],
-  ["host.json", "host.rs"],
-  ["hooks.json", "hooks.rs"],
+  ["share.json", { module: "share.rs", imports: FROM_THE_WIRE }],
+  [
+    "host.json",
+    { module: "host.rs", imports: `\nuse super::protocol::*;${FROM_THE_WIRE}` },
+  ],
+  ["hooks.json", { module: "hooks.rs", imports: FROM_THE_WIRE }],
+  ["vault.json", { module: "vault.rs", imports: FROM_THE_WIRE }],
 ]);
 
 const schemaDir = join(protocol, "schema");
@@ -62,19 +128,44 @@ try {
       openapi(definitions, routes),
     ),
     [join(protocol, "generated/client.ts")]: client(routes),
+    [join(repo, "mobile/ios/Sikemux/Account/Protocol.generated.swift")]: swift(
+      definitions,
+      {
+        roots: PHONE_SWIFT,
+        renamed: SWIFT_RENAMED,
+        provided: new Set([
+          ...SWIFT_FROM_THE_WIRE,
+          ...reachable(definitions, SHARED_SWIFT),
+          "DeviceKey",
+        ]),
+      },
+    ),
+    [join(repo, "mobile/ios/Shared/Stash/Stash.generated.swift")]: swift(
+      definitions,
+      { roots: SHARED_SWIFT },
+    ),
     [join(repo, "crates/sikemux-wire/src/accounts/protocol.rs")]: rust(
       definitions,
       {
-        include: (definition) => !CORE_ONLY.has(definition.file),
+        include: (definition) => PHONE_RUST.has(definition.name),
+        omit: PHONE_RUST_OMITS,
+      },
+    ),
+    [join(repo, "crates/sikemux-corekit/src/accounts/protocol.rs")]: rust(
+      definitions,
+      {
+        include: (definition) =>
+          !PHONE_RUST.has(definition.name) && !CORE_ONLY.has(definition.file),
+        imports: FROM_THE_WIRE,
       },
     ),
   };
-  for (const [file, module] of CORE_ONLY)
-    outputs[join(repo, "crates/sikemux-core/src/accounts", module)] = rust(
+  for (const [file, { module, imports }] of CORE_ONLY)
+    outputs[join(repo, "crates/sikemux-corekit/src/accounts", module)] = rust(
       definitions,
       {
         include: (definition) => definition.file === file,
-        imports: "\nuse super::protocol::*;\n",
+        imports,
       },
     );
 } catch (error) {
@@ -85,7 +176,7 @@ try {
 
 const stale = [];
 for (const [path, raw] of Object.entries(outputs)) {
-  const text = path.endsWith(".rs") ? raw : await format(raw, path);
+  const text = /\.(rs|swift)$/.test(path) ? raw : await format(raw, path);
   const current = await readFile(path, "utf8").catch(() => null);
   if (current === text) continue;
   stale.push(relative(repo, path));

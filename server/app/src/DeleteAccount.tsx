@@ -1,15 +1,17 @@
+import release from "@sikemux/protocol/release.json";
 import { useAuth } from "@clerk/react";
 import {
   CONFIRM_WORD,
   confirmsDeletion,
   errorCode,
   orReverify,
-} from "@sikemux/protocol/account";
+} from "@shared/account/account";
 import { useId, useState, type SubmitEvent } from "react";
 
-import { api, formatDay, problemText, signedInToken } from "./api.ts";
+import { formatDay } from "@shared/lib/format";
+import { api, problemText, signedInToken } from "./api.ts";
 import type { Load } from "./Devices.tsx";
-import { BackIcon } from "./icons.tsx";
+import { IconBack } from "@shared/ui/Icons";
 import { useReverified } from "./Reverify.tsx";
 const POLICY = "https://sikemux.com/delete-account";
 const CONTACT = "contact@nodelike.com";
@@ -69,8 +71,8 @@ export function DeleteAccount({
   return (
     <div className="deletion">
       <button type="button" className="back" onClick={onBack}>
-        <BackIcon />
-        Your devices
+        <IconBack />
+        Account
       </button>
       <h1>Delete your account</h1>
       <p className="lede">
@@ -98,7 +100,7 @@ export function DeleteAccount({
             ? `After ${count(restorableDays, "day", "days")},`
             : "Once it can no longer be restored,"}{" "}
           your sign-in, device keys and the account&rsquo;s history are erased,
-          and backups within 30 days after that.
+          and backups within {release.account.backupDays} days after that.
         </li>
       </ul>
       {devices && devices.length > 0 ? (

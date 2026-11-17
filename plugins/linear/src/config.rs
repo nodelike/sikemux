@@ -60,6 +60,16 @@ pub fn load(data_dir: &Path) -> LinearResult<LinearConfig> {
     Ok(store::load(data_dir)?)
 }
 
+impl sikemux_plugin_api::vault::Listing for Workspace {
+    fn secret_account(&self) -> Option<String> {
+        Some(self.id.clone())
+    }
+
+    fn label(&self) -> String {
+        format!("{} on {}", self.user, self.name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

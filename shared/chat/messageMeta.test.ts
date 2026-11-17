@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { copyText, rateLabel, sentLabel, sentTitle } from "./messageMeta";
-import type { ChatMessage, ChatPart } from "./types";
+import type { ChatMessage, ChatPart } from "../wire.generated";
 
 const text = (id: string, value: string): ChatPart => ({ kind: "text", id, text: value });
 const toolPart = (id: string, title: string): ChatPart => ({

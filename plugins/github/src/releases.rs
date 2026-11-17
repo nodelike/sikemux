@@ -5,9 +5,7 @@ use std::path::Path;
 use serde::Deserialize;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::{Release, ReleaseAsset};
-use sikemux_plugin_api::{PluginResult, StreamSink};
 
-use crate::artifacts;
 use crate::client;
 use crate::common::{avatar_of, login_of, ActorRow, RELEASE_PAGES};
 use crate::error::GithubResult;
@@ -77,30 +75,6 @@ pub async fn list(data_dir: &Path, repo: RepoRef) -> GithubResult<Vec<Release>> 
     )
     .await?;
     Ok(rows.into_iter().map(Release::from).collect())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadAsset {
-    #[serde(flatten)]
-    pub repo: RepoRef,
-    pub asset_id: u64,
-    /// What to call the file, which is not the repository's `name`.
-    pub file_name: String,
-}
-
-/// A release asset is whatever was uploaded, so it keeps its own name rather
-/// than becoming a zip the way an artifact does.
-pub async fn download(
-    data_dir: &Path,
-    input: DownloadAsset,
-    sink: &StreamSink,
-) -> PluginResult<()> {
-    let path = input
-        .repo
-        .path(&format!("/releases/assets/{}", input.asset_id))?;
-    let name = artifacts::file_name(&input.file_name, None);
-    artifacts::save(data_dir, &path, "application/octet-stream", &name, sink).await
 }
 
 #[cfg(test)]

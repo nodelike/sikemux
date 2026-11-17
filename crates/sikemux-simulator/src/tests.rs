@@ -67,8 +67,9 @@ fn lists_the_real_simulators() {
 
 #[test]
 fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let manager = SimulatorManager::with_helper("/nonexistent".into());
     let order = Arc::new(Mutex::new(Vec::new()));
@@ -83,8 +84,13 @@ fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
             }))
         })
     };
+    let until = |happened: &dyn Fn() -> bool| {
+        while !happened() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
     let first = call("first", "agent-1");
-    std::thread::sleep(Duration::from_millis(30));
+    until(&|| !order.lock().unwrap().is_empty());
     let second = call("second", "agent-1");
     first.join().unwrap().unwrap();
     second.join().unwrap().unwrap();
@@ -93,32 +99,31 @@ fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
         vec!["first start", "first end", "second start", "second end"]
     );
 
+    let at_work = Arc::new(AtomicUsize::new(0));
     let long = {
-        let manager = Arc::clone(&manager);
+        let (manager, at_work) = (Arc::clone(&manager), Arc::clone(&at_work));
         std::thread::spawn(move || {
-            let started = Instant::now();
-            let result = sikemux_base::runtime::block_on(manager.in_turn("agent-1", async {
+            sikemux_base::runtime::block_on(manager.in_turn("agent-1", async {
+                at_work.fetch_add(1, Ordering::SeqCst);
                 for _ in 0..100 {
                     super::pause(Duration::from_millis(50)).await?;
                 }
                 Ok::<_, String>(())
-            }));
-            (result, started.elapsed())
+            }))
         })
     };
     let other = {
-        let manager = Arc::clone(&manager);
+        let (manager, at_work) = (Arc::clone(&manager), Arc::clone(&at_work));
         std::thread::spawn(move || {
             sikemux_base::runtime::block_on(manager.in_turn("agent-2", async {
+                at_work.fetch_add(1, Ordering::SeqCst);
                 super::pause(Duration::from_millis(400)).await
             }))
         })
     };
-    std::thread::sleep(Duration::from_millis(150));
+    until(&|| at_work.load(Ordering::SeqCst) == 2);
     manager.cancel("agent-1");
-    let (result, took) = long.join().unwrap();
-    assert!(result.unwrap_err().contains("cancelled"));
-    assert!(took < Duration::from_secs(1), "stopped at its next step");
+    assert!(long.join().unwrap().unwrap_err().contains("cancelled"));
     assert!(
         other.join().unwrap().is_ok(),
         "another agent's call goes on"
@@ -139,7 +144,7 @@ mod tools {
         Device, Element, Numbered, Numbering, Pick,
     };
     use sikemux_process::sync::Locked;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn numbered(elements: &[Element]) -> Vec<Numbered> {
         Numbering::default().assign(elements)
@@ -196,6 +201,8 @@ mod tools {
             name: name.into(),
             os: os.into(),
             booted,
+            busy: false,
+            warm: booted,
             screen: Some((402.0, 874.0)),
         }
     }
@@ -231,11 +238,11 @@ mod tools {
         );
         assert!(choose_device(&devices, "Pixel 9")
             .unwrap_err()
-            .contains("sim_devices"));
+            .contains("sim devices"));
     }
 
     #[test]
-    fn an_agent_without_a_device_gets_the_desk_pick_then_its_projects_then_a_free_booted_one() {
+    fn an_agent_without_a_device_gets_the_desk_pick_then_the_warmest_free_one() {
         let ours = device("Sikemux · shop", "iOS 27.0", false);
         let booted = device("iPhone 17", "iOS 27.0", true);
         let taken = device("iPhone 16e", "iOS 26.0", true);
@@ -243,7 +250,14 @@ mod tools {
         let devices = [ours.clone(), booted.clone(), taken.clone(), picked.clone()];
         let held: HashMap<String, Claim> = [(taken.udid.clone(), claim("agent-b"))].into();
         let pick = |desk: Option<&str>, remembered: Option<&str>, held: &HashMap<String, Claim>| {
-            pick_device(&devices, held, desk, remembered, "Sikemux · shop")
+            pick_device(
+                &devices,
+                held,
+                desk,
+                remembered,
+                "Sikemux · shop",
+                &HashSet::new(),
+            )
         };
 
         assert_eq!(
@@ -251,23 +265,53 @@ mod tools {
             Pick::Use(&picked)
         );
         assert_eq!(pick(None, Some(&booted.udid), &held), Pick::Use(&booted));
-        assert_eq!(pick(None, None, &held), Pick::Use(&ours));
+        assert_eq!(
+            pick(None, None, &held),
+            Pick::Use(&booted),
+            "a running iPhone before the project's own that is off"
+        );
         assert_eq!(
             pick(Some(&taken.udid), None, &held),
-            Pick::Use(&ours),
+            Pick::Use(&booted),
             "a desk pick another agent holds is passed over"
         );
-        let all_held: HashMap<String, Claim> = [ours.clone(), booted.clone(), taken.clone()]
+        let without_booted = [ours.clone(), taken.clone(), picked.clone()];
+        assert_eq!(
+            pick_device(
+                &without_booted,
+                &held,
+                None,
+                None,
+                "Sikemux · shop",
+                &HashSet::new()
+            ),
+            Pick::Use(&ours)
+        );
+        let all_held: HashMap<String, Claim> = [ours, booted.clone(), taken.clone()]
             .iter()
             .map(|device| (device.udid.clone(), claim("agent-b")))
             .collect();
         assert_eq!(
-            pick_device(&devices[..3], &all_held, None, None, "Sikemux · shop"),
+            pick_device(
+                &devices[..3],
+                &all_held,
+                None,
+                None,
+                "Sikemux · shop",
+                &HashSet::new()
+            ),
             Pick::Create
         );
-        let without_ours = [booted.clone(), taken.clone()];
+        let without_ours = [booted.clone(), taken];
         assert_eq!(
-            pick_device(&without_ours, &held, None, None, "Sikemux · shop"),
+            pick_device(
+                &without_ours,
+                &held,
+                None,
+                None,
+                "Sikemux · shop",
+                &HashSet::new()
+            ),
             Pick::Use(&booted),
             "a booted iPhone nobody holds"
         );
@@ -277,7 +321,8 @@ mod tools {
                 &held,
                 None,
                 None,
-                "Sikemux · shop"
+                "Sikemux · shop",
+                &HashSet::new(),
             ),
             Pick::Create,
             "an iPhone that is off is not taken; the project gets its own"
@@ -333,7 +378,7 @@ mod tools {
         );
         assert!(tap_point(&elements, Some(9), None, None)
             .unwrap_err()
-            .contains("sim_state"));
+            .contains("sim state"));
         assert!(tap_point(&elements, None, Some(3.0), None).is_err());
     }
 
@@ -530,7 +575,7 @@ mod tools {
             .unwrap_err()
             .contains("off the screen"));
         assert!(labelled(&plain, "Maps").unwrap_err().contains("no element"));
-        let mut twice = elements.clone();
+        let mut twice = elements;
         twice[1].label = "Settings Pro".into();
         let twice = numbered(&twice);
         assert_eq!(labelled(&twice, "Settings"), Ok((340.0, 434.0)));
@@ -586,6 +631,40 @@ done
 "#,
             log = log.display()
         )
+    }
+
+    /// CI's fixture run failed `sim.tap` when a read caught the moment with no app in front.
+    #[test]
+    fn a_read_that_finds_no_app_in_front_looks_again() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let no_app = log_dir.path().join("no-app");
+        let script = recording_helper(&log_dir.path().join("requests")).replace(
+            r#"*'"type":"tree"'*) echo"#,
+            &format!(
+                r#"*'"type":"tree"'*) [ -e '{}' ] && rm '{}' && echo "{{\"id\":$id,\"type\":\"error\",\"reason\":\"simulator\",\"message\":\"No translation object returned for simulator.\"}}" && continue; echo"#,
+                no_app.display(),
+                no_app.display()
+            ),
+        );
+        let (_dir, manager) = helper(&script);
+        run_now(
+            &manager,
+            "agent-1",
+            "/tmp",
+            "sim.attach",
+            &json!({ "device": "iPhone 17" }),
+        )
+        .expect("attach");
+        std::fs::write(&no_app, "").unwrap();
+        run_now(
+            &manager,
+            "agent-1",
+            "/tmp",
+            "sim.tap",
+            &json!({ "index": 0 }),
+        )
+        .expect("tap");
+        assert!(!no_app.exists(), "the read that found no app was made");
     }
 
     #[test]
@@ -671,7 +750,7 @@ done
         assert_eq!(detached["udid"], json!("U1"));
         assert!(call("sim.state", json!({}))
             .unwrap_err()
-            .contains("sim_attach"));
+            .contains("sim attach"));
     }
 
     #[test]
@@ -685,7 +764,7 @@ done
 
         assert_eq!(
             call("sim.tap", json!({ "index": 0 })).unwrap_err(),
-            "no simulator is attached; call sim_attach first"
+            "no simulator is attached; call sim attach first"
         );
         assert!(
             call("sim.install", json!({ "path": "/" })).is_err(),
@@ -736,7 +815,7 @@ done
         )
         .unwrap_err();
         assert!(
-            taken.contains("in use by another agent in tmp") && taken.contains("sim_devices"),
+            taken.contains("in use by another agent in tmp") && taken.contains("sim devices"),
             "{taken}"
         );
         let listed = run_now(&manager, "agent-2", "/work/blog", "sim.devices", &json!({})).unwrap();

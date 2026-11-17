@@ -1,6 +1,11 @@
 //! A branch's history: its commits newest first, each on a lane of the graph that shows
 //! where it branched and merged, and the card that heads a commit's review.
 
+use crate::ui::Clicks;
+use sikemux_calls::call;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -12,20 +17,21 @@ use gpui_kit::{
     IntoElement, ParentElement, PathBuilder, Pixels, SharedString, StatefulInteractiveElement,
     Styled, Transformation, WeakEntity, Window,
 };
-use serde::Deserialize;
-use serde_json::json;
-use sikemux_core::git::log::GitCommit;
+use sikemux_agents::git::log::GitCommit;
 
 use super::GitPane;
+use crate::agents::rows::AgentRow;
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
     SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_LG, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
 use crate::ui;
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
+use sikemux_calls::workspace::SessionChoice;
+use sikemux_view::owners::AgentOwner;
 
 pub const ROW_HEIGHT: f32 = 32.;
 const LANE_WIDTH: f32 = 14.;
@@ -343,9 +349,9 @@ fn ref_badge(label: &str, cx: &App) -> Div {
         .pl(SPACE_1H)
         .pr(px(7.))
         .py(SPACE_0)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(edge)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .when_some(ground, |badge, ground| badge.bg(ground))
         .text_size(crate::theme::ui_text(TEXT_3XS))
         .line_height(crate::theme::ui_text(TEXT_3XS))
@@ -390,7 +396,7 @@ pub fn commit_row(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .text_color(if chosen {
             t.text_primary
@@ -407,7 +413,7 @@ pub fn commit_row(
             }
         })
         .on_hover(super::hover(view, key))
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             choosing.update(cx, |pane, cx| pane.choose_commit(index, window, cx))
         })
         .child(
@@ -421,7 +427,7 @@ pub fn commit_row(
             .w(px(gutter))
             .h(px(ROW_HEIGHT)),
         )
-        .child(pane.author_face(&commit.author, &commit.author_email, 15., cx))
+        .child(ui::initials(&commit.author, &commit.author_email, 15., cx))
         .children(refs.first().map(|name| ref_badge(name, cx)))
         .child(
             div()
@@ -440,7 +446,7 @@ pub fn commit_row(
             row.child(
                 div()
                     .flex_none()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(t.text_tertiary)
                     .child(commit.hash.clone()),
@@ -449,7 +455,7 @@ pub fn commit_row(
         .child(
             div()
                 .flex_none()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
                 .child(commit.date.clone()),
@@ -496,10 +502,10 @@ pub fn commit_card(
             .px(SPACE_1H)
             .flex()
             .items_center()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(edge)
             .rounded(px(4.))
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .text_color(colour)
             .child(text)
@@ -511,22 +517,23 @@ pub fn commit_card(
         .gap(SPACE_1H)
         .child(
             div()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_color(t.text_secondary)
                 .child(commit.hash.clone()),
         )
         .child(
-            ui::IconButton::new("copy-hash", crate::icons::Icon::Copy, "Copy hash")
+            ui::IconButton::new("copy-hash", crate::icons::Icon::Copy, t!("Copy hash"))
                 .glyph(12.)
                 .on_click(move |_, window, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(full.clone()));
-                    window.push_notification(toast::success(format!("Copied {short}")), cx);
+                    window
+                        .push_notification(toast::success(t!("Copied {short}", short = short)), cx);
                 }),
         );
     if commit.unpushed {
-        hash = hash.child(chip("not pushed".into(), t.warn, t.warn.opacity(0.35)));
+        hash = hash.child(chip(t!("not pushed").into(), t.warn, t.warn.opacity(0.35)));
     } else if pushed {
-        hash = hash.child(chip("pushed".into(), t.text_secondary, t.border));
+        hash = hash.child(chip(t!("pushed").into(), t.text_secondary, t.border));
     }
     for name in commit.refs.iter().filter(|name| *name != "HEAD") {
         let shown = name
@@ -555,25 +562,25 @@ pub fn commit_card(
                 .gap(SPACE_1)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .child(fact(
-                    "Author",
+                    t!("Author"),
                     div()
                         .flex()
                         .items_center()
                         .gap(SPACE_1H)
-                        .child(pane.author_face(&commit.author, &commit.author_email, 20., cx))
+                        .child(ui::initials(&commit.author, &commit.author_email, 20., cx))
                         .child(commit.author.clone())
                         .children(commit_agents(pane, &commit.full_hash, false, cx))
                         .into_any_element(),
                 ))
                 .child(fact(
-                    "Date",
+                    t!("Date"),
                     div().child(commit.date.clone()).into_any_element(),
                 ))
-                .child(fact("Commit", hash.into_any_element())),
+                .child(fact(t!("Commit"), hash.into_any_element())),
         );
     ui::panel(cx)
         .flex_none()
-        .font_family(theme::UI)
+        .font_family(theme::ui_font())
         .child(body)
         .child(commit_foot(commit, cx))
 }
@@ -590,7 +597,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_secondary)
             .hover(move |style| style.bg(t.surface_hover).text_color(t.text_primary))
@@ -605,17 +612,17 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
         .gap(SPACE_0)
         .px(SPACE_2)
         .py(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(
-            foot_button("commit-branch", Icon::Git, "Branch from here").on_click(
+            foot_button("commit-branch", Icon::Git, t!("Branch from here")).on_click(
                 cx.listener(move |pane, _, _, cx| pane.branch_from(branched.clone(), cx)),
             ),
         )
         .child(ui::menu_button(
             "commit-undo",
             Anchor::BottomLeft,
-            foot_button("commit-undo-button", Icon::Discard, "Undo this commit").child(
+            foot_button("commit-undo-button", Icon::Discard, t!("Undo this commit")).child(
                 ui::icon(Icon::Chevron, 9.)
                     .text_color(t.text_tertiary)
                     .with_transformation(Transformation::rotate(radians(FRAC_PI_2))),
@@ -625,7 +632,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
                 let (reset, reverted) = (reset.clone(), reverted.clone());
                 popup
                     .item(
-                        ui::MenuRow::new("Reset to here…")
+                        ui::MenuRow::new(t!("Reset to here…"))
                             .icon(Icon::Discard)
                             .hint("r")
                             .item(cx)
@@ -634,7 +641,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
                             }),
                     )
                     .item(
-                        ui::MenuRow::new("Revert…")
+                        ui::MenuRow::new(t!("Revert…"))
                             .icon(Icon::Discard)
                             .hint("v")
                             .danger(true)
@@ -647,88 +654,84 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
         ))
 }
 
-/// An agent a commit's signed footer names, as the core's `commitOwners` answers.
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommitOwner {
-    name: String,
-    cli: String,
-    cli_version: Option<String>,
-    model: Option<String>,
-    sikemux: Option<String>,
-    chat: String,
-    title: Option<String>,
-    /// The agent that has its session open now.
-    open: Option<String>,
-    session_id: Option<String>,
-    /// The folder of the project its session ran in.
-    project: Option<String>,
+fn describe(owner: &AgentOwner) -> String {
+    let who = match &owner.title {
+        Some(title) => format!("{title} — {}", owner.name),
+        None => owner.name.clone(),
+    };
+    let reach = if owner.open.is_some() {
+        t!("open now")
+    } else if owner.session_id.is_some() {
+        t!("click to resume")
+    } else {
+        t!("its session is gone")
+    };
+    let cli = match &owner.cli_version {
+        Some(version) => format!("{} {version}", owner.cli),
+        None => owner.cli.clone(),
+    };
+    let ran: Vec<String> = [
+        Some(cli),
+        owner.model.clone(),
+        owner
+            .sikemux
+            .as_ref()
+            .map(|version| format!("Sikemux {version}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    t!(
+        "{who} ({ran}) wrote this · {reach}",
+        who = who,
+        ran = ran.join(", "),
+        reach = reach
+    )
 }
 
-impl CommitOwner {
-    fn describe(&self) -> String {
-        let who = match &self.title {
-            Some(title) => format!("{title} — {}", self.name),
-            None => self.name.clone(),
-        };
-        let reach = if self.open.is_some() {
-            "open now"
-        } else if self.session_id.is_some() {
-            "click to resume"
-        } else {
-            "its session is gone"
-        };
-        let cli = match &self.cli_version {
-            Some(version) => format!("{} {version}", self.cli),
-            None => self.cli.clone(),
-        };
-        let ran: Vec<String> = [
-            Some(cli),
-            self.model.clone(),
-            self.sikemux
-                .as_ref()
-                .map(|version| format!("Sikemux {version}")),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        format!("{who} ({}) wrote this · {reach}", ran.join(", "))
-    }
-
-    /// Brings forward the agent that has the session open, else takes the session up again
-    /// in the project it ran in, on the core the history came from.
-    fn open(
-        &self,
-        bench: &WeakEntity<Workbench>,
-        core: &Target,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        if let Some(agent) = &self.open {
-            if let Some(bench) = bench.upgrade() {
-                bench.read(cx).open_agent(agent);
-            }
-            return;
+/// Brings forward the agent that has the session open, else takes the session up again
+/// in the project it ran in, on the core the history came from.
+fn open_owner(
+    owner: &AgentOwner,
+    bench: &WeakEntity<Workbench>,
+    core: &Target,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if let Some(agent) = &owner.open {
+        if let Some(bench) = bench.upgrade() {
+            bench.update(cx, |bench, cx| bench.open_agent(agent, cx));
         }
-        let (Some(session), Some(project)) = (&self.session_id, &self.project) else {
-            return;
-        };
-        let params = json!({ "provider": self.cli, "sessionId": session, "project": project });
-        let (answer, core) = (core.request("resumeSession", params), core.clone());
-        window
-            .spawn(cx, async move |cx| match answer.await {
-                Ok(started) => {
-                    let tab = json!({ "project": started["project"], "kind": "agent", "target": started["agentId"] });
-                    core.call("openTab", tab);
-                }
-                Err(error) => {
-                    let _ = cx.update(|window, cx| {
-                        window.push_notification(toast::error(error), cx)
-                    });
-                }
-            })
-            .detach();
+        return;
     }
+    let (Some(session), Some(project)) = (&owner.session_id, &owner.project) else {
+        return;
+    };
+    let params = SessionChoice {
+        provider: owner.cli.clone(),
+        session_id: session.clone(),
+        project: project.clone().into(),
+        cwd: None,
+        title: None,
+    };
+    let (answer, core) = (
+        core.request_typed::<call::ResumeSession>(params),
+        core.clone(),
+    );
+    window
+        .spawn(cx, async move |cx| match answer.await {
+            Ok(started) => {
+                core.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&started.project),
+                    PaneKind::Agent,
+                    started.agent_id,
+                ));
+            }
+            Err(error) => {
+                let _ = cx.update(|window, cx| window.push_notification(toast::error(error), cx));
+            }
+        })
+        .detach();
 }
 
 /// The agents a commit's signed footer names, each opening its session; `compact` shows
@@ -749,6 +752,24 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
     });
     let marks_only = compact && owners.len() > 1;
     let chips = owners.iter().enumerate().map(|(index, owner)| {
+        if let Some(open) = owner.open.as_ref().filter(|_| !marks_only) {
+            let mark = ui::mark(&owner.cli, TEXT_2XS + 1.);
+            let pill = crate::chat::agent_pill_of(
+                open,
+                &owner.name,
+                mark,
+                TEXT_2XS,
+                pane.core.clone(),
+                &pane.bench,
+                cx,
+            );
+            return div()
+                .id(SharedString::from(format!("commit-agent:{hash}:{index}")))
+                .flex_none()
+                .tooltip(ui::tooltip(describe(owner)))
+                .child(pill)
+                .into_any_element();
+        }
         let shown = owner.open.as_ref().unwrap_or(&owner.chat);
         let mark = match rows.iter().find(|row| &row.id == shown) {
             Some(row) => row.mark(11., cx),
@@ -780,24 +801,25 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
             .items_center()
             .gap(SPACE_1)
             .overflow_hidden()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .font_weight(FontWeight::NORMAL)
             .text_color(t.text_secondary)
             .whitespace_nowrap()
-            .tooltip(ui::tooltip(owner.describe()))
+            .tooltip(ui::tooltip(describe(owner)))
             .when(reachable, |chip| {
                 chip.cursor_pointer()
                     .hover(move |chip| chip.bg(t.surface_hover).text_color(t.text_primary))
-                    .on_click(move |_, window, cx| {
+                    .clicks(move |_, window, cx| {
                         cx.stop_propagation();
-                        opened.open(&bench, &core, window, cx);
+                        open_owner(&opened, &bench, &core, window, cx);
                     })
             })
             .child(mark)
             .when(!marks_only, |chip| chip.child(label))
+            .into_any_element()
     });
     Some(
         div()

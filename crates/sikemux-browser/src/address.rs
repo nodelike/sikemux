@@ -48,7 +48,6 @@ pub fn resolve(input: &str) -> Address {
     Address::Search(super::history::search_url(value))
 }
 
-/// The host of a typed address with no scheme, without its port.
 fn host_of(value: &str) -> &str {
     let authority = value.split(['/', '?', '#']).next().unwrap_or_default();
     if let Some(bracketed) = authority.strip_prefix('[') {
@@ -79,6 +78,20 @@ pub fn is_local_host(host: &str) -> bool {
     }
 }
 
+/// Whether going from `current` to `wanted` only moves to a #fragment of the same page.
+pub(crate) fn same_document(current: &str, wanted: &str) -> bool {
+    let without_fragment = |url: &str| url.split('#').next().unwrap_or(url).to_owned();
+    wanted.contains('#') && without_fragment(current) == without_fragment(wanted)
+}
+
+/// Whether two addresses are on one site, by origin.
+pub(crate) fn same_site(one: &str, other: &str) -> bool {
+    match (url::Url::parse(one), url::Url::parse(other)) {
+        (Ok(one), Ok(other)) => one.origin() == other.origin(),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{resolve, Address};
@@ -101,14 +114,19 @@ mod tests {
             resolve("rust lifetimes"),
             Address::Search("https://www.google.com/search?q=rust+lifetimes".into())
         );
-        assert_eq!(
-            resolve("file:///tmp/a%20b.html"),
-            Address::Local(PathBuf::from("/tmp/a b.html"))
-        );
-        assert_eq!(
-            resolve("FILE:///tmp/x"),
-            Address::Local(PathBuf::from("/tmp/x"))
-        );
+        let (spaced, upper) = match cfg!(windows) {
+            true => (
+                ("file:///C:/tmp/a%20b.html", r"C:\tmp\a b.html"),
+                ("FILE:///C:/tmp/x", r"C:\tmp\x"),
+            ),
+            false => (
+                ("file:///tmp/a%20b.html", "/tmp/a b.html"),
+                ("FILE:///tmp/x", "/tmp/x"),
+            ),
+        };
+        for (typed, path) in [spaced, upper] {
+            assert_eq!(resolve(typed), Address::Local(PathBuf::from(path)));
+        }
         assert_eq!(resolve(" /tmp/x "), Address::Local(PathBuf::from("/tmp/x")));
         assert!(
             matches!(resolve("~/x"), Address::Local(path) if path.ends_with("x") && path.is_absolute())

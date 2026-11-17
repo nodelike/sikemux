@@ -2,6 +2,8 @@
 //! with the keys the person chose in the core's preferences, else the defaults both apps read.
 //! An id no part of the app has an action for yet stays unbound.
 
+use sikemux_calls::activity_log::CommandUsed;
+use sikemux_calls::call;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -13,10 +15,10 @@ use gpui_kit::{
     SystemMenuType, Window,
 };
 use serde::Deserialize;
-use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::core::Ask;
+use crate::workbench::actions::{applies, Applies, CommandId, QuitAndStopEverything};
 
 static TABLE: &str = include_str!("../../crates/sikemux-core/src/assets/keybindings.json");
 
@@ -24,42 +26,45 @@ static TABLE: &str = include_str!("../../crates/sikemux-core/src/assets/keybindi
 /// own binding for the same keys, such as the editor's ⌘[, takes them first.
 pub const SHELL: &str = "Workbench";
 
-/// The shortcuts that still work while a palette, picker or other view with `Modal` in its
-/// context has the keys, as on the Mac: the ones that open another palette or Settings.
-const OVER_MODALS: [&str; 4] = [
-    "palette.commands",
-    "palette.files",
-    "search.global",
-    "settings.toggle",
-];
+/// What keeps a shortcut's keys to itself while it is being typed in.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Keeps {
+    /// A terminal or a text field.
+    Typing,
+    /// A terminal, for its shell.
+    Shell,
+}
 
-/// Shortcuts that leave Settings open; any other closes it first.
-const KEEP_SETTINGS: [&str; 3] = ["text.sizeIncrease", "text.sizeDecrease", "text.sizeReset"];
+/// What keeps `keys` from the app's shortcuts. Option held alone stays with a terminal or text
+/// field, since shells read it as Meta and other keyboard layouts type with it. Ctrl with a
+/// letter or bracket stays with a terminal, whose shell reads each of them.
+pub fn kept(keys: &str) -> Option<Keeps> {
+    let held: Vec<&str> = keys.split('+').collect();
+    let (code, modifiers) = held.split_last()?;
+    let has = |modifier: &str| modifiers.contains(&modifier);
+    if has("Alt") && !has("Meta") && !has("Ctrl") {
+        // Off the Mac a shell moves by word with Ctrl, and Alt with an arrow moves between
+        // panes, as in Windows Terminal and Tilix.
+        let moves_panes = !cfg!(target_os = "macos") && code.starts_with("Arrow");
+        return (!moves_panes).then_some(Keeps::Typing);
+    }
+    let shell_reads = code.starts_with("Key") || code.starts_with("Bracket");
+    (*modifiers == ["Ctrl"] && shell_reads).then_some(Keeps::Shell)
+}
 
-/// What closing means while Settings covers the window: closing Settings, not a tab or
-/// project hidden behind it.
-const CLOSE_SETTINGS: [&str; 2] = ["pane.close", "session.close"];
-
-/// Commands that act on a desk's page only while the keys are in it, leaving the same keys to
-/// the editor and everything else.
-const PAGE_ONLY: [&str; 3] = ["browser.reload", "browser.back", "browser.forward"];
-
-/// Where the shortcut of command `id` works: the welcome takes even the palettes' keys. Keys
-/// held with Option alone stay with a terminal or text field being typed in, since shells read
-/// Option as Meta and other keyboard layouts type with it.
+/// Where the shortcut of command `id` works: the welcome takes even the palettes' keys.
 fn context(id: &str, keys: &str) -> String {
-    let place = if PAGE_ONLY.contains(&id) {
+    let place = if applies(id, Applies::OnPage) {
         "BrowserPage"
-    } else if OVER_MODALS.contains(&id) {
+    } else if applies(id, Applies::OverModals) {
         "Workbench && !Onboarding"
     } else {
         "Workbench && !Modal"
     };
-    let held: Vec<&str> = keys.split('+').collect();
-    let option_only = held.contains(&"Alt") && !held.contains(&"Meta") && !held.contains(&"Ctrl");
-    match option_only {
-        true => format!("{place} && !Terminal && !Input"),
-        false => place.to_owned(),
+    match kept(keys) {
+        Some(Keeps::Typing) => format!("{place} && !Terminal && !Input"),
+        Some(Keeps::Shell) => format!("{place} && !Terminal"),
+        None => place.to_owned(),
     }
 }
 
@@ -77,71 +82,11 @@ actions!(
     ]
 );
 
-/// Defines unit actions named by today's command ids.
-macro_rules! commands {
-    ($($(#[$doc:meta])* $name:ident = $id:literal,)*) => {$(
-        $(#[$doc])*
-        #[derive(Clone, Default, PartialEq, gpui::Action)]
-        #[action(name = $id)]
-        pub struct $name;
-    )*};
-}
-
-commands! {
-    PreviousTab = "window.previous",
-    NextTab = "window.next",
-    /// The previous tab showing the same kind of pane as the one in front.
-    PreviousOfKind = "tab.previous",
-    NextOfKind = "tab.next",
-    GoToTab1 = "tab.goto1",
-    GoToTab2 = "tab.goto2",
-    GoToTab3 = "tab.goto3",
-    GoToTab4 = "tab.goto4",
-    GoToTab5 = "tab.goto5",
-    GoToTab6 = "tab.goto6",
-    GoToTab7 = "tab.goto7",
-    GoToTab8 = "tab.goto8",
-    /// The last tab, wherever it is.
-    GoToLastTab = "tab.goto9",
-    CloseTab = "pane.close",
-    /// Hides both rails.
-    FocusMode = "view.focusMode",
-    /// Starts a chat with the agent the rail is set to.
-    NewChat = "agent.new",
-    /// Brings the project's terminal forward, opening one when it has none.
-    FocusTerminal = "window.terminal",
-    /// Bigger text in the chat, editor or terminal that has the focus.
-    TextSizeIncrease = "text.sizeIncrease",
-    TextSizeDecrease = "text.sizeDecrease",
-    TextSizeReset = "text.sizeReset",
-    /// Lets the agent in front run without asking, or has it ask again.
-    ToggleYolo = "agent.permissions",
-    /// A new shell beside the view in focus, to its right or below it, or behind it as a tab.
-    SplitRow = "pane.splitRow",
-    SplitColumn = "pane.splitColumn",
-    SplitStack = "pane.splitStack",
-    FocusLeft = "pane.focusLeft",
-    FocusRight = "pane.focusRight",
-    FocusUp = "pane.focusUp",
-    FocusDown = "pane.focusDown",
-    ResizeLeft = "pane.resizeLeft",
-    ResizeRight = "pane.resizeRight",
-    ResizeUp = "pane.resizeUp",
-    ResizeDown = "pane.resizeDown",
-    /// The view in focus fills its tab, or gives the room back.
-    ZoomPane = "pane.zoom",
-}
-
 actions!(
     rail_resizer,
     [EdgeLeft, EdgeRight, EdgeFarLeft, EdgeFarRight]
 );
 actions!(retitle, [CancelRetitle]);
-
-/// Stops every agent and terminal the core runs, then quits.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "app.quitAndStopEverything")]
-pub struct QuitAndStopEverything;
 
 /// One command, as the shared table names, describes and binds it by default.
 #[derive(Deserialize)]
@@ -152,27 +97,41 @@ pub struct Shortcut {
     pub category: &'static str,
     mac: Option<&'static str>,
     other: Option<&'static str>,
+    /// Off the Mac, where a terminal keeps `other` for its shell: the keys that run it there too.
+    #[serde(rename = "otherInTerminal")]
+    other_in_terminal: Option<&'static str>,
 }
 
 impl Shortcut {
-    pub fn default_keys(&self) -> Option<&'static str> {
+    /// Its default keys, first the ones the app shows.
+    pub fn default_keys(&self) -> Vec<&'static str> {
         match cfg!(target_os = "macos") {
-            true => self.mac,
-            false => self.other,
+            true => self.mac.into_iter().collect(),
+            false => self
+                .other
+                .into_iter()
+                .chain(self.other_in_terminal)
+                .collect(),
         }
     }
 
-    /// The keys the person chose for it, else its default.
-    pub fn keys(&self, overrides: &BTreeMap<String, Option<String>>) -> Option<String> {
+    /// The keys the person chose for it, else its defaults.
+    pub fn keys(&self, overrides: &BTreeMap<String, Option<String>>) -> Vec<String> {
         match overrides.get(self.id) {
-            Some(chosen) => chosen.clone(),
-            None => self.default_keys().map(str::to_owned),
+            Some(chosen) => chosen.iter().cloned().collect(),
+            None => self.default_keys().into_iter().map(str::to_owned).collect(),
         }
     }
 }
 
 /// The categories shortcuts are listed under, in the order they are shown.
-pub const CATEGORIES: &[&str] = &["Workspace", "Agents", "Panes", "Navigation", "Browser"];
+pub const CATEGORIES: &[&str] = &[
+    n!("Workspace"),
+    n!("Agents"),
+    n!("Panes"),
+    n!("Navigation"),
+    n!("Browser"),
+];
 
 /// Every command in the shared table.
 pub fn shortcuts() -> &'static [Shortcut] {
@@ -182,13 +141,14 @@ pub fn shortcuts() -> &'static [Shortcut] {
 }
 
 /// The keys each command is bound to now in the table's own spelling, such as `Meta+Shift+KeyP`,
-/// and the keys the project in front's own actions are bound to, by action id.
+/// first the ones the app shows, and the keys the project in front's own actions are bound to,
+/// by action id.
 pub struct Keymap {
-    bound: BTreeMap<String, String>,
+    bound: BTreeMap<String, Vec<String>>,
     actions: BTreeMap<String, String>,
     overrides: Option<BTreeMap<String, Option<String>>>,
     /// Where each command the person runs is told, for the usage report.
-    used: Option<mpsc::UnboundedSender<Ask>>,
+    used: mpsc::UnboundedSender<Ask>,
 }
 
 /// One of the project in front's sikemux.json actions, run by the shortcut it gives itself.
@@ -204,7 +164,7 @@ pub struct RunProjectAction {
 /// command's, as on the Mac, and keys an action no longer uses stop doing anything.
 pub fn bind_project_actions(actions: &[(String, String, String)], cx: &mut App) {
     let keymap = cx.global::<Keymap>();
-    let taken = |keys: &str| keymap.bound.values().any(|bound| bound == keys);
+    let taken = |keys: &str| keymap.bound.values().flatten().any(|bound| bound == keys);
     let mut bound = BTreeMap::new();
     let mut bindings = Vec::new();
     for (id, label, keys) in actions {
@@ -257,13 +217,23 @@ pub fn action_hint(id: &str, cx: &App) -> Option<SharedString> {
 
 impl Global for Keymap {}
 
-pub fn install(cx: &mut App) {
+/// Tells the core through `asks` each command the person runs, by its keys, the deck or a
+/// click, for the usage report. The core keeps count of only some of them.
+pub fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     cx.set_global(Keymap {
         bound: BTreeMap::new(),
         actions: BTreeMap::new(),
         overrides: None,
-        used: None,
+        used: asks,
     });
+    cx.set_global(crate::updates::LastKey(std::time::Instant::now()));
+    cx.observe_keystrokes(|event, _, cx| {
+        cx.set_global(crate::updates::LastKey(std::time::Instant::now()));
+        if let Some(action) = &event.action {
+            count(action.name(), cx);
+        }
+    })
+    .detach();
     cx.on_action(|_: &About, _| show_about());
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &Hide, cx| cx.hide());
@@ -281,6 +251,8 @@ pub fn install(cx: &mut App) {
     } else {
         cx.bind_keys([
             KeyBinding::new("ctrl-q", Quit, None),
+            // A shell reads Ctrl+Q itself. Bound after Quit, this hands a terminal the key.
+            KeyBinding::new("ctrl-q", gpui::NoAction, Some("Terminal")),
             KeyBinding::new("ctrl-alt-q", QuitAndStopEverything, None),
             KeyBinding::new("f11", ToggleFullScreen, None),
         ]);
@@ -309,24 +281,32 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
     if cx.global::<Keymap>().overrides.as_ref() == Some(overrides) {
         return;
     }
-    let mut bound = BTreeMap::new();
+    let mut bound: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut bindings = Vec::new();
     for shortcut in shortcuts() {
-        let Some((keys, gpui_keys)) = shortcut
-            .keys(overrides)
-            .and_then(|keys| Some((keys.clone(), keystroke(&keys)?)))
-        else {
+        let keys = shortcut.keys(overrides);
+        if keys.is_empty() {
             continue;
-        };
+        }
         let Ok(action) = cx.build_action(shortcut.id, None) else {
+            eprintln!(
+                "sikemux: the shortcut table names {}, which is no command",
+                shortcut.id
+            );
             continue;
         };
-        let context = KeyBindingContextPredicate::parse(&context(shortcut.id, &keys))
-            .ok()
-            .map(Rc::new);
-        if let Ok(binding) = KeyBinding::load(&gpui_keys, action, context, false, None, cx) {
-            bindings.push(binding);
-            bound.insert(shortcut.id.to_owned(), keys);
+        for keys in keys {
+            let Some(gpui_keys) = keystroke(&keys) else {
+                continue;
+            };
+            let context = KeyBindingContextPredicate::parse(&context(shortcut.id, &keys))
+                .ok()
+                .map(Rc::new);
+            let action = action.boxed_clone();
+            if let Ok(binding) = KeyBinding::load(&gpui_keys, action, context, false, None, cx) {
+                bindings.push(binding);
+                bound.entry(shortcut.id.to_owned()).or_default().push(keys);
+            }
         }
     }
     replace(
@@ -334,51 +314,43 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
         |name| shortcuts().iter().any(|shortcut| shortcut.id == name),
         cx,
     );
+    #[cfg(target_os = "macos")]
+    crate::snapshot::register(
+        bound
+            .get(crate::snapshot::COMMAND)
+            .and_then(|keys| keys.first())
+            .map(String::as_str),
+    );
     let keymap = cx.global_mut::<Keymap>();
     keymap.bound = bound;
     keymap.overrides = Some(overrides.clone());
 }
 
 /// Does what command `id` does, as its shortcut would; nothing while no part of the app has it.
-pub fn dispatch(id: &str, window: &mut Window, cx: &mut App) {
+pub fn dispatch(id: CommandId, window: &mut Window, cx: &mut App) {
+    dispatch_named(id.name(), window, cx);
+}
+
+/// [`dispatch`] for an id that comes from a table or a palette's row.
+pub fn dispatch_named(id: &str, window: &mut Window, cx: &mut App) {
     if let Ok(action) = cx.build_action(id, None) {
-        used(id, cx);
+        count(id, cx);
         window.dispatch_action(action, cx);
     }
 }
 
-/// Tells the core through `asks` each command the person runs, by its keys, the deck or a
-/// click, for the usage report. The core keeps count of only some of them.
-pub fn report_use(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
-    if !cx.has_global::<Keymap>() {
-        return;
+/// Counts one use of command `id` for the usage report. Its keys and [`dispatch`] count by
+/// themselves; a control that runs the command on one agent rather than the one in front calls this.
+pub fn count(id: &str, cx: &App) {
+    if shortcuts().iter().any(|shortcut| shortcut.id == id) {
+        counted(id, cx);
     }
-    let keymap = cx.global_mut::<Keymap>();
-    if keymap.used.is_some() {
-        return;
-    }
-    keymap.used = Some(asks);
-    cx.observe_keystrokes(|event, _, cx| {
-        if let Some(action) = &event.action {
-            used(action.name(), cx);
-        }
-    })
-    .detach();
 }
 
-fn used(id: &str, cx: &App) {
-    let Some(asks) = cx
-        .try_global::<Keymap>()
-        .and_then(|keymap| keymap.used.as_ref())
-    else {
-        return;
-    };
-    if shortcuts().iter().any(|shortcut| shortcut.id == id) {
-        let _ = asks.send(Ask::Call {
-            method: "commandUsed",
-            params: json!({ "id": id }),
-        });
-    }
+/// Counts a use of `id` for the usage report, for a choice no shortcut makes.
+pub fn counted(id: &str, cx: &App) {
+    let used = crate::core::typed_call::<call::CommandUsed>(CommandUsed { id: id.to_owned() });
+    let _ = cx.global::<Keymap>().used.send(used);
 }
 
 /// The command whose shortcut `keystroke` is now.
@@ -388,27 +360,24 @@ pub fn command_for(keystroke: &Keystroke, cx: &App) -> Option<String> {
     keymap
         .bound
         .iter()
-        .find(|(_, bound)| **bound == keys)
+        .find(|(_, bound)| bound.contains(&keys))
         .map(|(id, _)| id.clone())
 }
 
 /// Whether running command `id` leaves Settings open, and whether all it does then is close it.
 pub fn over_settings(id: &str) -> (bool, bool) {
-    let keeps = OVER_MODALS.contains(&id) || KEEP_SETTINGS.contains(&id);
-    (keeps, CLOSE_SETTINGS.contains(&id))
-}
-
-/// Whether `keystroke` is the keys command `id` is bound to now.
-pub fn pressed(id: &str, keystroke: &Keystroke, cx: &App) -> bool {
-    let bound = cx
-        .try_global::<Keymap>()
-        .and_then(|keymap| keymap.bound.get(id));
-    bound.is_some_and(|keys| spelling(keystroke).as_ref() == Some(keys))
+    let keeps = applies(id, Applies::OverModals) || applies(id, Applies::KeepsSettings);
+    (keeps, applies(id, Applies::ClosesSettings))
 }
 
 /// The keys `id` is bound to as the app shows them, such as ⌘⇧P, or none when it is unbound.
-pub fn hint(id: &str, cx: &App) -> Option<SharedString> {
-    label(cx.try_global::<Keymap>()?.bound.get(id)?)
+pub fn hint(id: CommandId, cx: &App) -> Option<SharedString> {
+    hint_named(id.name(), cx)
+}
+
+/// [`hint`] for an id that comes from a table.
+pub fn hint_named(id: &str, cx: &App) -> Option<SharedString> {
+    label(cx.try_global::<Keymap>()?.bound.get(id)?.first()?)
 }
 
 /// Keys in the table's spelling as the app shows them, such as ⌘⇧P.
@@ -484,34 +453,33 @@ pub fn has_modifier(keys: &str) -> bool {
 pub fn reserved(keys: &str) -> Option<&'static str> {
     let reserved: &[(&str, &str)] = match cfg!(target_os = "macos") {
         true => &[
-            ("Meta+KeyQ", "Quit"),
-            ("Meta+KeyH", "Hide"),
-            ("Meta+Alt+KeyH", "Hide Others"),
-            ("Meta+KeyM", "Minimize"),
-            ("Meta+Tab", "the app switcher"),
-            ("Meta+Space", "Spotlight"),
-            ("Meta+KeyC", "Copy"),
-            ("Meta+KeyV", "Paste"),
-            ("Meta+KeyX", "Cut"),
-            ("Meta+KeyA", "Select All"),
-            ("Meta+KeyZ", "Undo"),
-            ("Meta+Shift+KeyZ", "Redo"),
+            ("Meta+KeyQ", n!("Quit")),
+            ("Meta+KeyH", n!("Hide")),
+            ("Meta+Alt+KeyH", n!("Hide Others")),
+            ("Meta+KeyM", n!("Minimize")),
+            ("Meta+Tab", n!("the app switcher")),
+            ("Meta+Space", n!("Spotlight")),
+            ("Meta+KeyC", n!("Copy")),
+            ("Meta+KeyV", n!("Paste")),
+            ("Meta+KeyX", n!("Cut")),
+            ("Meta+KeyA", n!("Select All")),
+            ("Meta+KeyZ", n!("Undo")),
+            ("Meta+Shift+KeyZ", n!("Redo")),
         ],
         false => &[
-            ("Alt+Tab", "the window switcher"),
-            ("Alt+F4", "closing the window"),
-            ("Ctrl+Shift+KeyC", "Copy"),
-            ("Ctrl+Shift+KeyV", "Paste"),
+            ("Alt+Tab", n!("the window switcher")),
+            ("Alt+F4", n!("closing the window")),
+            ("Ctrl+Shift+KeyC", n!("Copy")),
+            ("Ctrl+Shift+KeyV", n!("Paste")),
         ],
     };
     reserved
         .iter()
         .find(|(taken, _)| *taken == keys)
-        .map(|(_, what)| *what)
+        .map(|(_, what)| crate::i18n::tr(what))
 }
 
 /// A binding in the table's spelling, `Meta+Shift+KeyP`, as GPUI writes it, `cmd-shift-p`.
-/// Keys in the table's spelling, such as Meta+Shift+BracketLeft, as GPUI spells them.
 /// Shift with a symbol or digit reaches GPUI as the character it types, Shift+] as `}`.
 pub(crate) fn keystroke(keys: &str) -> Option<String> {
     let held: Vec<&str> = keys.split('+').collect();
@@ -610,7 +578,6 @@ const SHIFTED: &[(&str, &str)] = &[
     ("Slash", "?"),
 ];
 
-/// The menu bar, as today's app has it.
 /// macOS's own About panel, with the name and version the bundle carries.
 fn show_about() {
     #[cfg(target_os = "macos")]
@@ -623,6 +590,7 @@ fn show_about() {
     }
 }
 
+/// The menu bar, as today's app has it.
 fn menus() -> Vec<Menu> {
     vec![
         Menu {

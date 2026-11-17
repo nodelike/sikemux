@@ -1,52 +1,32 @@
 //! The hosts in the person's SSH config, each with how its terminals are
 //! reaching it, and a watch on the config that tells clients when it changes.
 
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::parts::Parts;
+use crate::server::ServerCore;
+pub use sikemux_calls::ssh::{Reach, SshHost};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Weak;
 
 use notify::{RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use sikemux_pty::shell_protocol::SshLink;
 
 use super::changed::Topic;
 use super::Core;
 
-/// How a host's terminals reach it, the best of them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Reach {
-    /// No terminal is open to it.
-    Idle,
-    Failed,
-    Connecting,
-    Ok,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SshHost {
-    /// What `ssh` is given, and what the host is called.
-    pub alias: String,
-    pub hostname: Option<String>,
-    pub user: Option<String>,
-    pub port: Option<u16>,
-    /// The config's line, from 0, whose `Host` names it.
-    pub line: usize,
-    pub status: Reach,
-}
-
 fn config_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ssh/config"))
 }
 
-/// The hosts in the config, wildcard patterns left out since nothing
-/// connects to them. `Include` is not followed.
+/// How deep `Include`s may nest, as ssh allows.
+const INCLUDE_DEPTH: u8 = 16;
+
+/// The hosts in the config and the files it includes, wildcard patterns left out since
+/// nothing connects to them.
 pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
     watch(core);
-    let content = config_path()
-        .and_then(|path| fs::read_to_string(path).ok())
-        .unwrap_or_default();
     let reach = |alias: &str| {
         core.ssh_links()
             .into_iter()
@@ -61,21 +41,49 @@ pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
             .unwrap_or(Reach::Idle)
     };
     let mut hosts = Vec::new();
+    if let Some(path) = config_path() {
+        read_config(&path, None, 0, &reach, &mut Vec::new(), &mut hosts);
+    }
+    hosts
+}
+
+fn read_config(
+    path: &Path,
+    file: Option<String>,
+    depth: u8,
+    reach: &dyn Fn(&str) -> Reach,
+    read: &mut Vec<PathBuf>,
+    hosts: &mut Vec<SshHost>,
+) {
+    let whole = sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
+    if read.contains(&whole) {
+        return;
+    }
+    read.push(whole);
+    let content = fs::read_to_string(path).unwrap_or_default();
     let mut aliases: Vec<String> = Vec::new();
     let (mut hostname, mut user, mut port, mut at) = (None, None, None, 0);
-    let mut flush =
-        |aliases: &[String], hostname: &Option<String>, user: &Option<String>, port, line| {
-            for alias in aliases.iter().filter(|alias| !alias.contains(['*', '?'])) {
-                hosts.push(SshHost {
-                    alias: alias.clone(),
-                    hostname: hostname.clone(),
-                    user: user.clone(),
-                    port,
-                    line,
-                    status: reach(alias),
-                });
+    let flush = |hosts: &mut Vec<SshHost>,
+                 aliases: &[String],
+                 hostname: &Option<String>,
+                 user: &Option<String>,
+                 port,
+                 line| {
+        for alias in aliases.iter().filter(|alias| !alias.contains(['*', '?'])) {
+            if hosts.iter().any(|host| host.alias == *alias) {
+                continue;
             }
-        };
+            hosts.push(SshHost {
+                alias: alias.clone(),
+                hostname: hostname.clone(),
+                user: user.clone(),
+                port,
+                line,
+                file: file.clone(),
+                status: reach(alias),
+            });
+        }
+    };
     for (number, line) in content.lines().enumerate() {
         let line = line.split('#').next().unwrap_or("").trim();
         let mut split = line.splitn(2, |c: char| c.is_whitespace() || c == '=');
@@ -90,18 +98,59 @@ pub(crate) fn hosts(core: &Core) -> Vec<SshHost> {
         }
         match key.as_str() {
             "host" => {
-                flush(&aliases, &hostname, &user, port, at);
+                flush(hosts, &aliases, &hostname, &user, port, at);
                 aliases = value.split_whitespace().map(String::from).collect();
                 (hostname, user, port, at) = (None, None, None, number);
             }
             "hostname" => hostname = Some(value.to_owned()),
             "user" => user = Some(value.to_owned()),
             "port" => port = value.parse().ok(),
+            "include" if depth < INCLUDE_DEPTH => {
+                for included in value.split_whitespace().flat_map(included_files) {
+                    let shown = Some(included.to_string_lossy().into_owned());
+                    read_config(&included, shown, depth + 1, reach, read, hosts);
+                }
+            }
             _ => {}
         }
     }
-    flush(&aliases, &hostname, &user, port, at);
-    hosts
+    flush(hosts, &aliases, &hostname, &user, port, at);
+}
+
+/// The files an `Include` names: from ~/.ssh when relative, with `~` for the home folder
+/// and wildcards in the file's name.
+fn included_files(pattern: &str) -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    let path = match pattern.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None if Path::new(pattern).is_absolute() => PathBuf::from(pattern),
+        None => home.join(".ssh").join(pattern),
+    };
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    let (Some(folder), Some(name)) = (path.parent(), name) else {
+        return Vec::new();
+    };
+    if !name.contains(['*', '?', '[']) {
+        return vec![path];
+    }
+    let Ok(matcher) = globset::Glob::new(&name).map(|glob| glob.compile_matcher()) else {
+        return Vec::new();
+    };
+    let mut found: Vec<PathBuf> = fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file() && path.file_name().is_some_and(|name| matcher.is_match(name))
+        })
+        .collect();
+    found.sort();
+    found
 }
 
 /// Starts watching the config once, the first time a client lists the hosts.
@@ -109,8 +158,8 @@ fn watch(core: &Core) {
     let Some(folder) = config_path().and_then(|path| path.parent().map(PathBuf::from)) else {
         return;
     };
-    let weak: Weak<Core> = core.me.clone();
-    core.ssh_watch.get_or_init(|| {
+    let weak: Weak<Core> = core.weak();
+    core.ssh_watch().get_or_init(|| {
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                 let touches_config = event.is_ok_and(|event| {
@@ -120,7 +169,7 @@ fn watch(core: &Core) {
                         .any(|path| path.file_name().is_some_and(|name| name == "config"))
                 });
                 if let (true, Some(core)) = (touches_config, weak.upgrade()) {
-                    core.changes.changed(Topic::Ssh, None, None);
+                    core.changed(What::Read(Topic::Ssh));
                 }
             })
             .ok()?;
@@ -153,55 +202,8 @@ pub(crate) fn config_file() -> Result<String, String> {
 
 /// A terminal to an SSH host started, ended, or changed how it reaches it.
 pub(crate) fn moved(core: &Core) {
-    core.changes.changed(Topic::Ssh, None, None);
-    core.changes.changed(Topic::Hosts, None, None);
-}
-
-/// How many times a dropped connection is retried before the terminal goes
-/// back to the local shell.
-const RETRIES: &str = "5";
-
-/// The command an ssh terminal runs, through the person's own shell: ssh to
-/// `alias`, retried a few times when the connection drops, then back to the
-/// local shell. It reports where the connection stands for the rail.
-pub(crate) fn startup(alias: &str) -> String {
-    if cfg!(windows) {
-        windows_startup(alias)
-    } else {
-        format!("/bin/sh -c {}", portable_quote(&unix_loop(alias)))
-    }
-}
-
-fn posix_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r#"'"'"'"#))
-}
-
-/// Reads the same in POSIX shells and in fish, where `\\` and `\'` are
-/// escapes even inside single quotes.
-fn portable_quote(value: &str) -> String {
-    let mut quoted = String::from("'");
-    for character in value.chars() {
-        match character {
-            '\'' => quoted.push_str(r#"'"'"'"#),
-            '\\' => quoted.push_str(r#"'"\\"'"#),
-            character => quoted.push(character),
-        }
-    }
-    quoted.push('\'');
-    quoted
-}
-
-fn unix_loop(alias: &str) -> String {
-    const LOOP: &str = r#"sikemux_ssh_link() { printf '\033]6973;ssh;%s\007' "$1"; }; trap 'sikemux_ssh_link disconnected' EXIT; trap 'exit 130' INT TERM HUP; sikemux_ssh_link connecting; sikemux_ssh_retries=0; while :; do command ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o PermitLocalCommand=yes -o "LocalCommand=/usr/bin/printf '\033]6973;ssh;connected\007'" @HOST@; sikemux_ssh_status=$?; stty sane 2>/dev/null || true; printf '\033[0m\033[?25h\033[?1l\033>\033[?2004l\033[?1000l\033[?1002l\033[?1003l\033[?1006l'; if [ "$sikemux_ssh_status" -eq 0 ]; then break; fi; if [ "$sikemux_ssh_status" -eq 130 ]; then printf '\r\nSSH reconnect cancelled. Back at your local shell.\r\n'; break; fi; if [ "$sikemux_ssh_retries" -ge @RETRIES@ ]; then printf '\r\nSSH could not reconnect after @RETRIES@ retries. Back at your local shell.\r\n'; break; fi; sikemux_ssh_retries=$((sikemux_ssh_retries + 1)); printf '\r\nSSH connection lost. Retrying (%s/@RETRIES@) in 3 seconds… Press Ctrl-C to stop.\r\n' "$sikemux_ssh_retries"; sikemux_ssh_link connecting; sleep 3 || break; done"#;
-    LOOP.replace("@RETRIES@", RETRIES)
-        .replacen("@HOST@", &posix_quote(alias), 1)
-}
-
-fn windows_startup(alias: &str) -> String {
-    const LOOP: &str = r#"$sikemuxSshRetries = 0; while ($true) { & ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 @HOST@; $sikemuxSshStatus = $LASTEXITCODE; [Console]::Write(([char]27 + '[0m' + [char]27 + '[?25h' + [char]27 + '[?1l' + [char]27 + '>' + [char]27 + '[?2004l' + [char]27 + '[?1000l' + [char]27 + '[?1002l' + [char]27 + '[?1003l' + [char]27 + '[?1006l')); if ($sikemuxSshStatus -eq 0) { break }; if ($sikemuxSshStatus -eq 130) { Write-Host 'SSH reconnect cancelled. Back at your local shell.'; break }; if ($sikemuxSshRetries -ge @RETRIES@) { Write-Host 'SSH could not reconnect after @RETRIES@ retries. Back at your local shell.'; break }; $sikemuxSshRetries++; Write-Host "SSH connection lost. Retrying ($sikemuxSshRetries/@RETRIES@) in 3 seconds... Press Ctrl-C to stop."; Start-Sleep -Seconds 3 }"#;
-    let host = format!("'{}'", alias.replace('\'', "''"));
-    LOOP.replace("@RETRIES@", RETRIES)
-        .replacen("@HOST@", &host, 1)
+    core.changed(What::Read(Topic::Ssh));
+    core.changed(What::Read(Topic::Hosts));
 }
 
 #[cfg(all(test, unix))]
@@ -233,7 +235,7 @@ mod tests {
         for shell in shells {
             sikemux_process::user_environment::command(shell)
                 .arg("-c")
-                .arg(super::startup(alias))
+                .arg(sikemux_serve::server::ssh_startup::startup(alias))
                 .env("PATH", &path)
                 .output()
                 .unwrap();

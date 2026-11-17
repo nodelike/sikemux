@@ -1,23 +1,20 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { Alert, AppState, Platform } from 'react-native';
-import { router } from 'expo-router';
+import { useEffect, useEffectEvent, useRef } from 'react';
+import { Alert, AppState } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { nativeApplicationVersion } from 'expo-application';
 import * as Notifications from 'expo-notifications';
-import type { Device } from '@protocol';
-import { liveUrl } from '@protocol/live';
+import type { Device } from '@sikemux/protocol';
+import { liveUrl } from '@shared/account/live';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
 import { problem as problemOf } from '@/core/problem';
+import { translate } from '@/i18n';
 import { alertFailure } from '@/ui/prompt';
 import { notifier } from '../../modules/notify';
 import { deviceIdentity } from '@/phone/identity';
-import { hostsArrived } from '@/devices/arrivals';
-import { joinShowing } from '@/devices/joining';
-import { pairedDevices } from '@/devices/paired';
 import { onNetworkChange } from '@/network/connectivity';
-import { syncPushToken } from '@/notify/token';
+import { phoneAdded, syncPushToken } from '@/notify/token';
 import { stashChanged } from '@/stash/store';
 import { accountDevice, accountHosts, registerPhone, removeAccountDevice, type TokenSource } from './api';
 import { apiUrl } from './config';
@@ -34,7 +31,7 @@ function hostsChanged() {
 }
 
 /** The hosts on the account; `loaded` once the server has answered since signing in, `problem` while the last read failed. */
-export type AccountHosts = { hosts: Device[]; loaded: boolean; problem?: string };
+type AccountHosts = { hosts: Device[]; loaded: boolean; problem?: string };
 
 const NO_HOSTS: AccountHosts = { hosts: [], loaded: false };
 const accountHostsNow = externalValue(NO_HOSTS);
@@ -75,33 +72,6 @@ export function useAccountHosts(): AccountHosts {
   return useExternalValue(accountHostsNow);
 }
 
-/** A host that arrives while the phone is in the background stays new until the phone is in front, so it still connects then. */
-async function connectArrival(account: string, hosts: Device[]) {
-  if (joinShowing() || AppState.currentState !== 'active') return;
-  const arrived = await hostsArrived(account, hosts);
-  const paired = await pairedDevices();
-  const host = arrived.find((found) => !paired.some((device) => device.core === found.key));
-  if (!host) return;
-  router.push({ pathname: '/join', params: { core: host.key, name: host.name, arrived: '1' } });
-}
-
-/** Starts connecting to a host that signs in to the account after this phone did; the host may have let this phone in already. */
-export function useConnectArrivals() {
-  const { userId } = useAuth();
-  const { hosts, loaded } = useAccountHosts();
-  const [inFront, setInFront] = useState(0);
-  useEffect(() => {
-    const back = AppState.addEventListener('change', (state) => {
-      if (state === 'active') setInFront((count) => count + 1);
-    });
-    return () => back.remove();
-  }, []);
-  useEffect(() => {
-    if (!userId || !loaded) return;
-    connectArrival(userId, hosts).catch((error: unknown) => console.warn('sikemux: could not connect to a new host', error));
-  }, [userId, loaded, hosts, inFront]);
-}
-
 const statusNow = externalValue<AccountStatus | undefined>(undefined);
 let running: AccountSequence | undefined;
 
@@ -114,9 +84,13 @@ export function useAccountStatus(): AccountStatus | undefined {
 async function askAboutNewDevice(token: TokenSource, key: string) {
   const device = await accountDevice(token, key).catch(() => undefined);
   if (!device) return;
-  Alert.alert('New device on your account', device.name, [
-    { text: 'Keep', style: 'cancel' },
-    { text: 'Remove', style: 'destructive', onPress: () => void removeAccountDevice(token, key).catch(alertFailure("Couldn't remove it")) },
+  Alert.alert(translate('New device on your account'), device.name, [
+    { text: translate('Keep'), style: 'cancel' },
+    {
+      text: translate('Remove'),
+      style: 'destructive',
+      onPress: () => void removeAccountDevice(token, key).catch(alertFailure(translate("Couldn't remove it"))),
+    },
   ]);
 }
 
@@ -146,7 +120,7 @@ export function useAccountSequence() {
       key: async () => (await deviceIdentity()).id(),
       sign: async (nonce) => (await deviceIdentity()).signLive(nonce),
       token: () => token(),
-      app: { platform: Platform.OS === 'ios' ? 'ios' : 'android', version: nativeApplicationVersion ?? 'unknown' },
+      app: { platform: 'android', version: nativeApplicationVersion ?? 'unknown' },
       cursor: savedCursor,
       hostsChanged,
       stashChanged,
@@ -157,7 +131,8 @@ export function useAccountSequence() {
     runLive(live);
     const sequence = new AccountSequence({
       register: async () => {
-        await registerPhone(() => token(), userId);
+        const phone = await registerPhone(() => token(), userId);
+        await phoneAdded(phone.createdAt);
       },
       syncPush: () => syncPushToken(() => token()),
       live,

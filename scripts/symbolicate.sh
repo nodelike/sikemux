@@ -37,8 +37,12 @@ else:
     panic = json.loads(text)
     version = panic["version"]
     part = "app" if panic["process"] == "app" else "core"
-    load = int(panic["loadAddress"], 16)
-    uuid = panic.get("uuid")
+    image = next((image for image in panic["images"]
+                  if pathlib.Path(image.get("code_file", "")).name in ("sikemux", "sikemux-host")), None)
+    if image is None:
+        sys.exit("the report has no Sikemux image in it")
+    load = int(image["image_addr"], 16)
+    uuid = image.get("debug_id")
     frames = [(index, int(address, 16) - load, None) for index, address in enumerate(panic["frames"])]
     print(f"{panic['process']} {version} panicked on thread {panic['thread']}: {panic['message']}")
     print(f"at {panic['location']}")

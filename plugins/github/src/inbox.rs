@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 use sikemux_plugin_api::account::chosen;
-use sikemux_plugin_api::codehost::asks::{InboxQuery, NotificationRef};
+use sikemux_plugin_api::codehost::asks::InboxQuery;
 use sikemux_plugin_api::codehost::Notification;
 
 use crate::client;
@@ -81,7 +81,8 @@ struct ReleasePage {
 /// by tag, so the release is looked up once to find where it lives.
 async fn release_page(data_dir: &Path, api_url: &str) -> Option<String> {
     let (_, tail) = api_url.split_once("/repos/")?;
-    let release: ReleasePage = client::get(data_dir, &format!("/repos/{tail}"), &[])
+    let release: ReleasePage = client::API
+        .get(data_dir, &format!("/repos/{tail}"), &[])
         .await
         .ok()?;
     Some(release.html_url)
@@ -89,22 +90,23 @@ async fn release_page(data_dir: &Path, api_url: &str) -> Option<String> {
 
 pub async fn list(data_dir: &Path, input: InboxQuery) -> GithubResult<Vec<Notification>> {
     let host = crate::config::load(data_dir)?.host_of(chosen().as_deref());
-    let rows: Vec<NotificationRow> = client::get(
-        data_dir,
-        "/notifications",
-        &[
-            ("all", input.all.to_string()),
-            (
-                "per_page",
-                input
-                    .per_page
-                    .unwrap_or(50)
-                    .clamp(1, MAX_PER_PAGE)
-                    .to_string(),
-            ),
-        ],
-    )
-    .await?;
+    let rows: Vec<NotificationRow> = client::API
+        .get(
+            data_dir,
+            "/notifications",
+            &[
+                ("all", input.all.to_string()),
+                (
+                    "per_page",
+                    input
+                        .per_page
+                        .unwrap_or(50)
+                        .clamp(1, MAX_PER_PAGE)
+                        .to_string(),
+                ),
+            ],
+        )
+        .await?;
     // Every request waits for one of the plugin's few request slots, so these
     // go out together without flooding GitHub.
     let pages = futures::future::join_all(rows.iter().map(|row| async {
@@ -130,26 +132,6 @@ pub async fn list(data_dir: &Path, input: InboxQuery) -> GithubResult<Vec<Notifi
             updated_at: row.updated_at,
         })
         .collect())
-}
-
-/// Thread ids are numbers GitHub hands out, so anything else is refused rather
-/// than pasted into a path.
-fn valid_thread(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 32 && id.chars().all(|c| c.is_ascii_digit())
-}
-
-pub async fn mark_read(data_dir: &Path, input: NotificationRef) -> GithubResult<()> {
-    if !valid_thread(&input.id) {
-        return Err(crate::error::GithubError::BadArg(
-            "that is not a notification".into(),
-        ));
-    }
-    let path = format!("/notifications/threads/{}", input.id);
-    client::act(data_dir, reqwest::Method::PATCH, &path, None).await
-}
-
-pub async fn mark_all_read(data_dir: &Path) -> GithubResult<()> {
-    client::act(data_dir, reqwest::Method::PUT, "/notifications", None).await
 }
 
 #[cfg(test)]
@@ -214,13 +196,5 @@ mod tests {
             number_of("https://api.github.com/repos/a/b/issues/7"),
             Some(7)
         );
-    }
-
-    #[test]
-    fn only_a_number_is_a_thread() {
-        assert!(valid_thread("1234567890"));
-        assert!(!valid_thread(""));
-        assert!(!valid_thread("../../user"));
-        assert!(!valid_thread("12a"));
     }
 }

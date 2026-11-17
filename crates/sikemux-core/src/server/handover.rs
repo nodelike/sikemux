@@ -11,12 +11,17 @@
 //! pid stays this process's child, so the new core reads on where the old
 //! one stopped while the agent works on.
 
+use crate::server::chat_state::ChatParts;
+use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
+use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::Write;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,22 +30,26 @@ use portable_pty::{Child, ChildKiller, ExitStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
+use sikemux_pty::master::Master;
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::screen::Screen;
 use sikemux_pty::shell::ShellLaunchIntegration;
 use sikemux_pty::shell_protocol::{ShellMetadataSnapshot, SshLink};
-use tokio::io::unix::AsyncFd;
 
 use crate::frozen::RESUME_FORMAT;
-use crate::protocol::{BuildIdentity, SessionExit, SessionId, SessionKind};
+use sikemux_wire::protocol::{BuildIdentity, SessionExit, SessionId, SessionKind};
 
 use super::agent::{self, AgentActivity, AgentRecord};
 use super::chat::{self, ChatRecord, HandOver, LiveChat};
 use super::data_format;
 use super::harness::HarnessRecord;
+use super::model_proxy::{Grant, KeptGrant};
 use super::prepare::Owner;
 use super::session::{self, Session, SessionParts};
-use super::{lock_path, run_core, tools, Core, CoreError, CoreResult, ServerConfig, ServerError};
+use super::{
+    lock_path, run_core, start_tools, tools, Core, CoreError, CoreResult, Listening, ServerConfig,
+    ServerError,
+};
 
 const STATE_FILE: &str = "state.json";
 const DEFAULT_ROWS: u16 = 24;
@@ -114,6 +123,7 @@ struct SessionRecord {
     shell_files: Option<PathBuf>,
     /// The terminal was setting a host up, which the next core keeps locked.
     setup: bool,
+    model_grant: Option<KeptGrant>,
 }
 
 fn blob_path(directory: &Path, id: SessionId, kind: &str) -> PathBuf {
@@ -180,6 +190,9 @@ fn capture(session: &Session, directory: &Path) -> CoreResult<SessionRecord> {
         task_output_end,
         agent: session.agent.as_ref().map(AgentActivity::record),
         shell_files: session.shell_files().map(Path::to_path_buf),
+        model_grant: (session.model_grant.locked().as_ref())
+            .and_then(|grant| grant.downcast_ref::<Grant>())
+            .map(Grant::kept),
         setup: session.in_setup(),
     })
 }
@@ -206,9 +219,6 @@ fn set_close_on_exec(fd: RawFd, close: bool) {
 /// could not be written down has its agent stopped, and is left in `handed`
 /// as one to start again.
 pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver]) -> CoreError {
-    let Some(listening) = core.listening.get() else {
-        return "the core is not listening yet".into();
-    };
     let directory = match private_directory() {
         Ok(directory) => directory,
         Err(error) => return error.into(),
@@ -232,7 +242,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
             ),
         }
     }
-    let tools = core.tools.locked().as_ref().map(|tools| ToolsRecord {
+    let tools = core.tools().locked().as_ref().map(|tools| ToolsRecord {
         path: tools.path().to_path_buf(),
         fd: tools.fd(),
         token: tools.token().to_owned(),
@@ -265,10 +275,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         chats.push(unwritable.clone());
         *chat = HandOver::Resume(Box::new(unwritable));
     }
-    let config = &listening.config;
+    let (config, listening) = (&core.config(), &core.listening);
     let state = HandoverState {
         format: RESUME_FORMAT,
-        from_build: core.build.clone(),
+        from_build: core.config().build.clone(),
         uptime_ms: core.uptime_ms(),
         socket: config.socket.clone(),
         listener_fd: listening.listener_fd,
@@ -279,12 +289,12 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         manifest_dir: core.manifest_dir(),
         tools,
         next_session_id: core
-            .next_session_id
+            .next_session_id()
             .load(std::sync::atomic::Ordering::Acquire),
-        next_call_id: core.window.call_mark(),
+        next_call_id: core.window().call_mark(),
         agent_sequence: agent::sequence_mark(),
         sessions: records,
-        harness: serde_json::to_value(core.harness.record()).unwrap_or(Value::Null),
+        harness: serde_json::to_value(core.harness().record()).unwrap_or(Value::Null),
         chats,
         live_chats,
         lsp_documents: super::lsp::carry(),
@@ -321,6 +331,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         command.arg("--tools-fd").arg(tools.fd.to_string());
         keep.push(tools.fd);
     }
+    if let Some(fd) = core.model_proxy().listener_fd() {
+        command.arg("--model-proxy-fd").arg(fd.to_string());
+        keep.push(fd);
+    }
     for session in &sessions {
         let pid = session
             .pid()
@@ -343,7 +357,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         handed.len(),
         binary.display()
     );
+    sikemux_repo::server::checks::stop_running();
+    super::log_times::before_exec();
     let error = command.exec();
+    super::log_times::start();
     for fd in &keep {
         set_close_on_exec(*fd, true);
     }
@@ -359,6 +376,7 @@ pub(crate) struct Recovery {
     pub listener_fd: Option<RawFd>,
     pub lock_fd: Option<RawFd>,
     pub tools_fd: Option<RawFd>,
+    pub model_proxy_fd: Option<RawFd>,
     pub cli_endpoint: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
     pub idle_exit: Duration,
@@ -369,6 +387,9 @@ pub(crate) struct Recovery {
     /// their file type. Only these are adopted or closed: anything opened
     /// since may have reused a number that was listed but already closed.
     pub inherited: HashMap<RawFd, libc::mode_t>,
+    /// This process's children as it started, with when each started: those the core it
+    /// replaced left, which the reaper waits for unless they were handed over.
+    pub children: Vec<(u32, u64)>,
     pub plugins: Option<super::plugins::Provided>,
 }
 
@@ -393,6 +414,7 @@ impl Recovery {
             .into_iter()
             .chain(self.lock_fd)
             .chain(self.tools_fd)
+            .chain(self.model_proxy_fd)
             .chain(self.sessions.iter().map(|(_, fd, _)| *fd))
             .chain(self.chat_fds.iter().copied())
             .collect()
@@ -414,7 +436,6 @@ impl Inherited {
         true
     }
 
-    /// Closes what was handed over but not taken.
     fn close_unclaimed(&self) {
         for fd in self.open.keys() {
             if !self.claimed.contains(fd) {
@@ -429,8 +450,6 @@ impl Inherited {
     }
 }
 
-/// Brings state an older core wrote up to the current format, one format at
-/// a time.
 fn migrate(mut state: Value) -> Result<Value, String> {
     loop {
         let format = state
@@ -523,7 +542,25 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 }
                 state["format"] = Value::from(9);
             }
-            9 => return Ok(state),
+            9 => {
+                // Format 9 cores carried what the person typed while a secret or an access
+                // call waited, marked as hidden; now such words are never kept.
+                data_format::scrub_carried(&mut state);
+                state["format"] = Value::from(10);
+            }
+            10 => {
+                // Format 10 cores handed an ACP agent attached pictures only as
+                // links, so they never kept whether it takes pictures.
+                let chats = state.get_mut("liveChats").and_then(Value::as_array_mut);
+                for chat in chats.into_iter().flatten() {
+                    let backend = chat.get_mut("backend").and_then(Value::as_object_mut);
+                    if let Some(backend) = backend.filter(|b| b.contains_key("embeddedContext")) {
+                        backend.insert("images".into(), json!(false));
+                    }
+                }
+                state["format"] = Value::from(11);
+            }
+            11 => return Ok(state),
             other => return Err(format!("it is in format {other}, not {RESUME_FORMAT}")),
         }
     }
@@ -570,8 +607,7 @@ fn adopt_lock(
         .truncate(false)
         .mode(0o600)
         .open(lock_path(socket))?;
-    // SAFETY: flock only reads the integer fd, which `lock` keeps open.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    if !sikemux_corekit::lock::hold(&lock) {
         eprintln!("sikemux core: another process holds the single-instance lock");
     }
     Ok(lock)
@@ -651,7 +687,7 @@ fn adopt_chat(core: &Arc<Core>, live: Value, inherited: &mut Inherited) {
     );
 }
 
-fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<AsyncFd<File>, String> {
+fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<Master, String> {
     if !inherited.claim(fd, libc::S_IFCHR) {
         return Err(format!(
             "descriptor {fd} is not a terminal that was handed over"
@@ -660,16 +696,7 @@ fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<AsyncFd<File>, St
     // SAFETY: the descriptor was handed over open and claimed once, so this
     // File is its only owner and closes it if adopting fails below.
     let file = unsafe { File::from_raw_fd(fd) };
-    // SAFETY: F_GETFL/F_SETFL only read and set the flags of the open fd.
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        }
-    }
-    // SAFETY: `file` owns the open fd and the AsyncFd owns `file`, so the fd
-    // stays open and the same until the AsyncFd is dropped.
-    unsafe { AsyncFd::register(file) }.map_err(|error| error.to_string())
+    Master::adopt(file).map_err(|error| error.to_string())
 }
 
 fn adopt_session(
@@ -680,7 +707,7 @@ fn adopt_session(
 ) -> Result<(), String> {
     let io = terminal_io(record.fd, inherited)?;
     let permit = core
-        .capacity
+        .capacity()
         .try_acquire()
         .map_err(|error| error.to_string())?;
     let replay = std::fs::read(blob_path(directory, record.id, "replay")).unwrap_or_else(|error| {
@@ -747,6 +774,9 @@ fn adopt_session(
                 .shell_files
                 .map(|files| ShellLaunchIntegration::adopt(Some(files))),
             setup: record.setup,
+            model_grant: record
+                .model_grant
+                .map(|kept| Box::new(core.model_proxy().restore(kept)) as session::ModelGrant),
         },
         io,
         Box::new(child),
@@ -768,7 +798,7 @@ fn adopt_bare(
 ) -> Result<(), String> {
     let io = terminal_io(fd, inherited)?;
     let permit = core
-        .capacity
+        .capacity()
         .try_acquire()
         .map_err(|error| error.to_string())?;
     let (rows, cols) = window_size(fd).unwrap_or((DEFAULT_ROWS, DEFAULT_COLS));
@@ -790,6 +820,7 @@ fn adopt_bare(
             shell_integration: None,
             // Nothing says whether it was setting a host up, so it stays locked to the app.
             setup: true,
+            model_grant: None,
         },
         io,
         Box::new(AdoptedChild::new(pid, None)),
@@ -812,7 +843,6 @@ fn window_size(fd: RawFd) -> Option<(u16, u16)> {
     (rc == 0 && size.ws_row > 0 && size.ws_col > 0).then_some((size.ws_row, size.ws_col))
 }
 
-/// Starts a core from what an earlier one handed over, then serves.
 pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(), ServerError> {
     let state = read_state(&recovery.directory);
     let socket = state
@@ -823,26 +853,19 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     let data_dir = state
         .as_ref()
         .map_or_else(|| recovery.data_dir.clone(), |state| state.data_dir.clone());
-    let config = ServerConfig {
+    let config = ServerConfig::production(
         socket,
-        idle_exit: state.as_ref().map_or(recovery.idle_exit, |state| {
+        state.as_ref().map_or(recovery.idle_exit, |state| {
             Duration::from_millis(state.idle_exit_ms)
         }),
-        build: build.clone(),
-        cli_endpoint: state.as_ref().map_or_else(
+        state.as_ref().map_or_else(
             || recovery.cli_endpoint.clone(),
             |state| state.cli_endpoint.clone(),
         ),
-        attachment_dir: data_dir.as_deref().and_then(super::attachments::pasted_dir),
         data_dir,
-        remote_direct_only: false,
-        accounts_api: Some(crate::accounts::api_base()),
-        secret_store: true,
-        plugins: recovery.plugins,
-    };
-    super::data_format::upgrade(&config);
-    let uptime_ms = state.as_ref().map_or(0, |state| state.uptime_ms);
-    let core = Core::continuing(build, config.data_dir.as_deref(), uptime_ms, config.plugins)?;
+        build,
+        recovery.plugins,
+    );
     let mut inherited = Inherited {
         open: recovery.inherited.clone(),
         claimed: HashSet::new(),
@@ -863,6 +886,12 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         &config.socket,
         &mut inherited,
     )?;
+    let listening = Listening {
+        listener_fd: listener.as_raw_fd(),
+        lock_fd: lock.as_raw_fd(),
+    };
+    let uptime_ms = state.as_ref().map_or(0, |state| state.uptime_ms);
+    let core = Core::open(config, listening, uptime_ms)?;
 
     let mut from = "an unknown build".to_owned();
     let mut tools_record = None;
@@ -870,9 +899,9 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     let mut live_chats = Vec::new();
     if let Some(state) = state {
         from = format!("{} {}", state.from_build.version, state.from_build.commit);
-        core.next_session_id
+        core.next_session_id()
             .fetch_max(state.next_session_id, std::sync::atomic::Ordering::AcqRel);
-        core.window.continue_calls(state.next_call_id);
+        core.window().continue_calls(state.next_call_id);
         agent::continue_sequence(state.agent_sequence);
         if state.manifest_dir.is_some() {
             let configuring = core.clone();
@@ -885,7 +914,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
             }
         }
         match serde_json::from_value::<HarnessRecord>(state.harness) {
-            Ok(record) => core.harness.restore(record),
+            Ok(record) => core.harness().restore(record),
             Err(error) => eprintln!(
                 "sikemux core: UPDATE LOST THE HARNESS RUNS ({error}); task sessions keep running"
             ),
@@ -908,6 +937,19 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         live_chats = state.live_chats;
         super::lsp::adopt(&core, state.lsp_documents);
     }
+    let handed: Vec<u32> = (recovery.sessions.iter())
+        .filter_map(|(_, _, pid)| *pid)
+        .chain(live_chats.iter().filter_map(|live| {
+            serde_json::from_value::<LiveChat>(live.clone())
+                .ok()
+                .map(|live| live.agent.pid)
+        }))
+        .collect();
+    super::reaper::watch(
+        (recovery.children.iter().copied())
+            .filter(|(pid, _)| !handed.contains(pid))
+            .collect(),
+    );
     let carried = live_chats.len();
     for live in live_chats {
         adopt_chat(&core, live, &mut inherited);
@@ -921,6 +963,15 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         }
     }
 
+    if let Some(fd) = recovery.model_proxy_fd {
+        if inherited.claim(fd, libc::S_IFSOCK) {
+            // SAFETY: the descriptor was handed over open and claimed once, so the
+            // proxy is its only owner.
+            if let Err(error) = unsafe { core.model_proxy().adopt(&core, fd) } {
+                eprintln!("sikemux core: the model proxy was not kept in the update: {error}");
+            }
+        }
+    }
     let tools_fd = tools_record
         .as_ref()
         .map(|record| record.fd)
@@ -943,14 +994,9 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     }
     inherited.close_unclaimed();
     if endpoint.is_none() {
-        if let Some(path) = config.cli_endpoint.clone() {
-            match tools::ToolEndpoint::start(core.clone(), path).await {
-                Ok(started) => endpoint = Some(started),
-                Err(error) => eprintln!("sikemux core: agents' tools are unavailable: {error}"),
-            }
-        }
+        endpoint = start_tools(&core).await;
     }
-    *core.tools.locked() = endpoint;
+    *core.tools().locked() = endpoint;
     if let Err(error) = std::fs::remove_dir_all(&recovery.directory) {
         eprintln!(
             "sikemux core: could not remove {}: {error}",
@@ -966,8 +1012,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         chat::resume(&core, record);
     }
     chat::restore(&core);
-    core.chats.clear_history();
-    run_core(core, listener, lock, config).await
+    run_core(core, listener, lock).await
 }
 
 /// The handle of a process this core inherited from the one it replaced. It
@@ -1087,20 +1132,50 @@ impl Child for AdoptedChild {
 mod tests {
     use serde_json::json;
 
-    use super::migrate;
+    use super::{migrate, RESUME_FORMAT};
 
     #[test]
     fn current_state_is_left_as_it_is_and_unknown_formats_are_refused() {
         let current = json!({
-            "format": 9,
+            "format": RESUME_FORMAT,
             "chats": [{ "launch": {}, "startedBy": "phone", "launcher": "claude", "notice": null }],
             "liveChats": [],
             "harness": { "mailbox": { "waiting": {} }, "questions": { "open": [] } },
         });
         assert_eq!(migrate(current.clone()).expect("migrate"), current);
         assert!(migrate(json!({ "format": 3 })).is_err());
-        assert!(migrate(json!({ "format": 10 })).is_err());
+        assert!(migrate(json!({ "format": RESUME_FORMAT + 1 })).is_err());
         assert!(migrate(json!({})).is_err());
+    }
+
+    /// Read in #228: a chat a core hands over carried the words the person typed while a secret or
+    /// an access call waited, marked hidden, in its replay and in a prompt kept to send again.
+    #[test]
+    fn words_typed_for_a_private_call_do_not_cross_a_hand_over() {
+        let older = json!({
+            "format": 9,
+            "chats": [],
+            "liveChats": [{
+                "feed": { "replay": { "events": [
+                    { "kind": "prompt", "payload": { "text": "the passphrase is correct horse battery staple", "person": true, "answered": "hiddenCall" } },
+                    { "kind": "prompt", "payload": { "text": "run the vault tests", "person": true } },
+                ] } },
+                "session": {
+                    "lastPrompt": { "announce": false, "text": "the key is swordfish", "person": true, "answered": "hiddenCall" },
+                    "failedPrompt": { "announce": false, "text": "run the vault tests", "person": true },
+                },
+            }],
+        });
+        let state = migrate(older).expect("migrate");
+        let carried = state.to_string();
+        assert!(
+            !carried.contains("correct horse") && !carried.contains("swordfish"),
+            "{carried}"
+        );
+        assert!(!carried.contains("hiddenCall"), "{carried}");
+        assert!(carried.contains("run the vault tests"), "{carried}");
+        assert_eq!(state["liveChats"][0]["session"]["lastPrompt"], json!(null));
+        assert_eq!(state["format"], json!(RESUME_FORMAT));
     }
 
     /// A terminal setting a host up must come back locked: a record that cannot
@@ -1129,6 +1204,6 @@ mod tests {
             setup,
             vec![json!(true), json!(false), json!(false), json!(false)]
         );
-        assert_eq!(migrated["format"], json!(9));
+        assert_eq!(migrated["format"], json!(RESUME_FORMAT));
     }
 }

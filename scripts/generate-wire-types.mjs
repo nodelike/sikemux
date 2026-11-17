@@ -1,172 +1,60 @@
 #!/usr/bin/env node
 // Writes the types clients read the core's JSON with, from the Rust that
-// serializes it: TypeScript for the app and the phone, Swift for the notch,
-// and the app's copy of the defaults of the types in DEFAULTS.
+// serializes it: TypeScript for the phone and the web, and Swift for the notch.
 // It reads the serde declarations itself and fails on any it does not know,
-// rather than guess. `--check` fails when an output is out of date.
+// rather than guess. The outputs are build output: each client's build runs this first,
+// and it leaves an output untouched while its contents are the same.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { format, resolveConfig } from "prettier";
 
-const root = resolve(import.meta.dirname, "..");
-const check = process.argv.includes("--check");
+/** With `--shapes <checkout>`, prints the JSON shapes the phone reads and sends in that checkout instead. */
+const shapesOf = process.argv[2] === "--shapes" ? process.argv[3] : undefined;
+const root = resolve(shapesOf ?? resolve(import.meta.dirname, ".."));
 
 const WIRE = "crates/sikemux-wire/src";
+const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
-const PLUGIN_API = "crates/sikemux-plugin-api/src";
-const SOURCES = [
-  `${WIRE}/protocol.rs`,
-  `${WIRE}/protocol/ask.rs`,
-  `${WIRE}/protocol/message.rs`,
-  `${WIRE}/push.rs`,
-  `${WIRE}/protocol/chats.rs`,
-  `${WIRE}/protocol/agent.rs`,
-  `${WIRE}/protocol/workspace.rs`,
-  `${WIRE}/protocol/prefs.rs`,
-  `${WIRE}/protocol/device.rs`,
-  `${WIRE}/protocol/session.rs`,
-  `${WIRE}/protocol/event.rs`,
-  `${WIRE}/protocol/layout.rs`,
-  `${WIRE}/chat.rs`,
-  `${WIRE}/theme.rs`,
-  `${WIRE}/notch.rs`,
-  `${WIRE}/inbox.rs`,
-  `${WIRE}/share.rs`,
-  `${WIRE}/pty/shell_protocol.rs`,
-  `${WIRE}/pty/task.rs`,
-  `${WIRE}/accounts/protocol.rs`,
-  `${WIRE}/catalog.rs`,
-  `${WIRE}/questions.rs`,
-  `${CORE}/server/drafts.rs`,
-  `${CORE}/server/calls.rs`,
-  `${CORE}/server/chat/queue.rs`,
-  `${CORE}/server/agent_accounts.rs`,
-  `${CORE}/server/messages.rs`,
-  `${CORE}/server/messages/log.rs`,
-  `${CORE}/server/stash.rs`,
-  `${CORE}/server/worktree/agent.rs`,
-  `${CORE}/server/names/mod.rs`,
-  `${CORE}/server/project_files.rs`,
-  `${CORE}/fuzzy.rs`,
-  `${CORE}/server/saved.rs`,
-  `${CORE}/server/chat/find.rs`,
-  `${CORE}/sessions/search.rs`,
-  `${CORE}/server/questions.rs`,
-  `${CORE}/server/codehost/mod.rs`,
-  `${CORE}/server/plugins.rs`,
-  `${PLUGIN_API}/codehost/mod.rs`,
-  `${PLUGIN_API}/error.rs`,
-  `${WIRE}/changed.rs`,
-  `${CORE}/server/board.rs`,
-  `${CORE}/server/board/auto.rs`,
-  `${CORE}/server/workspace.rs`,
-  `${CORE}/server/workspace/launchers.rs`,
-  `${CORE}/server/workspace/policy.rs`,
-  `${CORE}/server/workspace/recent.rs`,
-  `${CORE}/server/remote/mod.rs`,
-  `${CORE}/server/remote/pairing.rs`,
-  `${CORE}/server/hosts/mod.rs`,
-  `${CORE}/server/updates.rs`,
-  `${CORE}/frozen.rs`,
-  `${CORE}/releases.rs`,
-  ...[
-    "status",
-    "branches",
-    "log",
-    "revisions",
-    "stash",
-    "remote",
-    "worktree",
-    "blame",
-    "diff",
-  ].map((file) => `${CORE}/git/${file}.rs`),
-  `${PLUGIN_API}/ratelimit.rs`,
+/** The crates the core is split into, whose types its calls name as `crate::` paths. */
+const CORE_PARTS = [
+  "crates/sikemux-corekit/src",
+  "crates/sikemux-git/src",
+  "crates/sikemux-agents/src",
+  "crates/sikemux-drivers/src",
 ];
-
-/** Names the clients know a type by where the Rust one would clash or say too little. */
-const RENAMES = {
-  [`${WIRE}/push.rs`]: { Notification: "NotificationCard" },
-  [`${WIRE}/catalog.rs`]: { Driver: "ChatDriver" },
-  [`${CORE}/server/chat/queue.rs`]: { Message: "QueuedMessageParams" },
-  [`${CORE}/server/agent_accounts.rs`]: {
-    Resuming: "ChatAccountsParams",
-    Moving: "MoveChatParams",
-    Named: "NamedAccount",
-  },
-  [`${CORE}/server/messages.rs`]: { Kind: "MessageKind" },
-  [`${CORE}/server/messages/log.rs`]: {
-    Row: "MessageRow",
-    Outcome: "MessageOutcome",
-    Tone: "MessageTone",
-    Entry: "MessageEntry",
-  },
-  [`${CORE}/server/stash.rs`]: {
-    PromptParams: "StashPromptParams",
-    Stashed: "StashedPrompt",
-    ItemParams: "StashItemParams",
-    AttachParams: "AttachStashParams",
-    Attached: "AttachedStash",
-  },
-  [`${CORE}/server/worktree/agent.rs`]: {
-    ForAgentParams: "AgentWorktreeParams",
-    ForAgent: "MadeAgentWorktree",
-  },
-  [`${CORE}/fuzzy.rs`]: { Entry: "ProjectEntry" },
-  [`${CORE}/server/codehost/mod.rs`]: {
-    ReleasesParams: "CodeHostProjectParams",
-    TrackedParams: "TrackedContextParams",
-  },
-  [`${CORE}/server/plugins.rs`]: {
-    Outcome: "PluginOutcome",
-    Failure: "PluginFailure",
-  },
-  [`${PLUGIN_API}/error.rs`]: { Category: "FailureCategory" },
-  [`${CORE}/server/saved.rs`]: { SearchParams: "SessionSearchParams" },
-  [`${CORE}/server/chat/find.rs`]: {
-    Direction: "FindDirection",
-    Hit: "FindHit",
-    Scanned: "FindScanned",
-    Counted: "FindCounted",
-  },
-  [`${WIRE}/changed.rs`]: { Topic: "CoreChangeTopic" },
-  [`${CORE}/server/board.rs`]: {
-    Status: "CardStatus",
-    Ticket: "CardTicket",
-    CardView: "BoardCard",
-    Column: "BoardColumn",
-    BoardView: "ProjectBoard",
-    AddParams: "BoardAddParams",
-    AddTicketParams: "BoardAddTicketParams",
-    TicketParams: "BoardTicketParams",
-    TicketCard: "BoardTicketCard",
-    UpdateParams: "BoardUpdateParams",
-    CardParams: "BoardCardParams",
-  },
-  [`${CORE}/server/board/auto.rs`]: {
-    Stage: "RunStage",
-    Settings: "BoardSettings",
-    SettingsParams: "BoardSettingsParams",
-    ReviewerParams: "BoardReviewerParams",
-    RunView: "CardRun",
-    PullView: "CardPull",
-    Run: "AutoRun",
-    Pull: "AutoPull",
-  },
-  [`${CORE}/server/remote/mod.rs`]: { LinkedHost: "StoredLink" },
-  [`${CORE}/server/remote/pairing.rs`]: { Pairing: "RemotePairing" },
-  [`${CORE}/server/hosts/mod.rs`]: { LinkView: "LinkedHost" },
-  [`${CORE}/releases.rs`]: { CommitAuthor: "ReleaseCommitAuthor" },
-  [`${PLUGIN_API}/ratelimit.rs`]: { Budget: "RateLimit" },
-};
+const PLUGIN_API = "crates/sikemux-plugin-api/src";
+const MARKDOWN = "crates/sikemux-markdown/src";
+const BASE = "crates/sikemux-base/src";
+/** The methods clients call typed, with what each takes and answers. */
+const CALLS = "crates/sikemux-calls/src";
+const CRATES = [
+  WIRE,
+  VIEW,
+  CORE,
+  CALLS,
+  ...CORE_PARTS,
+  PLUGIN_API,
+  MARKDOWN,
+  BASE,
+];
+const SOURCES = (
+  await Promise.all(
+    CRATES.map((crate) => readdir(resolve(root, crate), { recursive: true })),
+  )
+).flatMap((files, index) =>
+  files
+    .filter((file) => file.endsWith(".rs"))
+    .map((file) => `${CRATES[index]}/${file}`),
+);
 
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */
 const JSON_FIELDS = {
   "ChatAttachment.view": "ChatView",
   "ChatAttachment.changes": "ChatChange[]",
-  "SharedEvent.changes": "ChatChange[]",
-  "ShareReply.page": "ChatPage",
-  "DeviceView.updates": "UpdateStatus",
+  "PartTree.blocks": "MdElement[]",
+  "ChatChange.md": "MdChange",
+  "Event.view": "DeviceView",
+  "Event.topic": "Topic",
 };
 
 const TS_ROOTS = [
@@ -176,120 +64,84 @@ const TS_ROOTS = [
   "ChatPage",
   "ChatChange",
   "ToolDetail",
-  "CoreChangeTopic",
   "Preferences",
   "Palette",
-  "ThemeSummary",
   "ProjectBoard",
   "HostInfo",
   "RemoteStatus",
-  "AllowedDevice",
   "RemotePairing",
   "NetworkChange",
   "Inbox",
   "AgentQuestion",
   "CatalogAgent",
-  "GitOverview",
-  "DiscoveredRepo",
-  "GitCompare",
-  "GitStash",
-  "GitRemote",
-  "GitRemoteBranch",
-  "GitWorktree",
-  "GitBlame",
-  "DiffHunk",
   "Draft",
   "UpdateStatus",
   "ShareFrame",
   "ShareAsk",
   "ShareReply",
+  "MdChange",
+  "MarkdownOptions",
+  "LookReply",
 ];
 
-/** The fields the notch reads of each type. Swift's decoder ignores the rest. */
-const SWIFT_FIELDS = {
-  DeviceView: "workspace chats sessions attentions inbox faceStyle",
-  Workspace: "projects launchers",
-  ProjectInfo: "id name path",
-  LauncherInfo: "id provider label permissionMode model effort",
-  ConfigPicker: "id current choices",
-  ConfigChoice: "value label",
-  ChatInfo: "agentId name provider cwd reconnecting",
-  SessionInfo: "id project agentId agentName agentType",
-  Attention: "id agentId choices",
-  PermissionChoices: "allowOnce allowAlways reject command title",
-  Inbox: "items working agents rollup",
-  AgentShown: "agentId title group subagents tasks nextTrigger calledAt face",
-  AgentFace: "pack shape color box",
-  FaceStyle: "motion",
-  AgentRollup: "subagents tasks",
-  InboxItem:
-    "id tier kind agentId name cli project title what detail at session card requestId questionId url",
-  InboxCard: "title",
-  RemoteStatus: "pending",
-  PendingDevice: "id name platform expiresAt",
-  AgentQuestion: "id text choices viaNote",
-  QuestionChoice: "label",
-  CatalogAgent: "type label",
-  Preferences: "notch",
-  "Response.ChatBegun": "agentId",
-  "Event.Changed": "topic",
-};
-const SWIFT_ROOTS = ["DeviceAccess"];
-/** The requests the notch sends, by their `ask` struct. */
-const SWIFT_REQUESTS = [
-  "WatchView",
-  "RemoteStatus",
-  "FocusAgent",
-  "AcpPrompt",
-  "AcpSteer",
-  "AcpPermissionReply",
-  "AnswerPairing",
-  "StartChat",
-];
-/** The core's calls the notch makes, by method. */
-const SWIFT_CALLS = [
-  "preferences",
-  "agentCatalog",
-  "questions",
-  "answerQuestion",
-];
-/** The events the notch reads; it ignores the rest. */
-const SWIFT_EVENTS = ["Changed", "Remote", "DeviceView"];
-/** Types the notch declares itself, from helpers/notch/settings.json. */
-const SWIFT_DECLARED = ["NotchSettings"];
+/**
+ * What the notch reads of the core, which it says itself: the fields of each type (Swift's
+ * decoder ignores the rest), the requests by their `ask` struct, the calls by method, the events,
+ * and the types it declares in helpers/notch/settings.json.
+ */
+const {
+  fields: SWIFT_FIELDS,
+  roots: SWIFT_ROOTS,
+  requests: SWIFT_REQUESTS,
+  calls: SWIFT_CALLS,
+  events: SWIFT_EVENTS,
+  declared: SWIFT_DECLARED,
+} = JSON.parse(
+  await readFile(resolve(root, "helpers/notch/wire.json"), "utf8"),
+);
 
-/** Types whose `Default` the app shows until the core has answered with its own values. */
-const DEFAULTS = ["Preferences", "ToolRow"];
+/** The calls the phone makes, which it says itself: the Mac reads the Rust, so nothing else reads the table. */
+const { calls: PHONE_CALLS } = JSON.parse(
+  await readFile(resolve(root, "mobile/app/wire.json"), "utf8"),
+);
 
 /** Limits the clients check before they send, read from where the core enforces them. */
 const LIMITS = [
   [`${WIRE}/protocol.rs`, "MAX_ATTACHMENT_BYTES"],
-  [`${WIRE}/protocol/prefs.rs`, "DEFAULT_TERMINAL_FONT_SIZE"],
-  [`${WIRE}/protocol/prefs.rs`, "MIN_TERMINAL_FONT_SIZE"],
-  [`${WIRE}/protocol/prefs.rs`, "MAX_TERMINAL_FONT_SIZE"],
-  [`${WIRE}/protocol/prefs.rs`, "DEFAULT_TEXT_SCALE"],
-  [`${WIRE}/protocol/prefs.rs`, "MIN_TEXT_SCALE"],
-  [`${WIRE}/protocol/prefs.rs`, "MAX_TEXT_SCALE"],
-  [`${WIRE}/protocol/prefs.rs`, "MAX_PROJECT_DEPTH"],
-  [`${CORE}/server/chat/prompt.rs`, "MAX_ATTACHMENTS"],
+  ["crates/sikemux-calls/src/chat.rs", "MAX_ATTACHMENTS"],
 ];
+
+/** How long the host waits on a client, in seconds, read from where the host waits. */
+const WAITS = [["crates/sikemux-client/src/join.rs", "APPROVAL_TIMEOUT"]];
+
+/** Addresses clients write into what they send, read from the core's own. */
+const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI", "CHAT_DRAFT"];
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",
+  phone: "mobile/ios/Sikemux/Core/Wire.generated.swift",
   notch: "helpers/notch/Sources/NotchKit/Wire.generated.swift",
-  cardSwift: "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
+  cardSwift: "mobile/ios/Shared/Notify/Card.generated.swift",
+  glanceSwift: "mobile/ios/Shared/Glance/Glance.generated.swift",
   cardKotlin:
     "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt",
 };
 
+/** What only the phone's Swift reads or sends: settings inside JSON the bridge passes through, and the kinds of refusal. */
+const PHONE_ROOTS = ["NotifyPrefs", "ErrorKind"];
+
 /** What the phone's own notification code reads of a sealed card, in Swift and Kotlin. */
 const CARD_ROOTS = ["NotificationCard"];
+
+/** What the phone's widgets and Live Activity read of a host's agents, in Swift as the app declares it. */
+const GLANCE_ROOTS = ["ActivityGlance"];
+/** The glance's declarations, written by phoneSwift for the extensions that do not compile the whole view. */
+let glanceSwift = "";
 
 const fail = (message) => {
   throw new Error(`generate-wire-types: ${message}`);
 };
 
-/** Reads the text from `open` to the bracket that closes it. */
 function balanced(text, start) {
   const pairs = { "(": ")", "[": "]", "{": "}", "<": ">" };
   const stack = [];
@@ -310,7 +162,6 @@ function balanced(text, start) {
   fail(`unclosed bracket in ${text.slice(start, start + 80)}`);
 }
 
-/** Splits at commas outside brackets and strings. */
 function splitTop(text) {
   const parts = [];
   let depth = 0;
@@ -368,7 +219,14 @@ function serde(attrs, where) {
 }
 
 const KNOWN = {
-  container: ["rename_all", "default", "tag", "rename_all_fields"],
+  container: [
+    "rename_all",
+    "default",
+    "tag",
+    "rename_all_fields",
+    "untagged",
+    "deny_unknown_fields",
+  ],
   field: [
     "rename",
     "default",
@@ -376,6 +234,7 @@ const KNOWN = {
     "skip",
     "alias",
     "deserialize_with",
+    "flatten",
   ],
   variant: ["rename", "other", "alias", "untagged"],
 };
@@ -389,7 +248,7 @@ function only(settings, allowed, where) {
 function items(file, text) {
   const found = new Map();
   const declaration =
-    /^(?:pub(?:\([^)]*\))?\s+)?(struct|enum|type)\s+(\w+)(<[^>]*>)?/;
+    /^(pub(?:\([^)]*\))?\s+)?(struct|enum|type)\s+(\w+)(<[^>]*>)?/;
   const lines = text.split("\n");
   let pending = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -419,11 +278,12 @@ function items(file, text) {
           ? balanced(rest, head)
           : rest.indexOf(";") + 1;
       const { docs, attrs } = readMember(pending.join("\n"));
-      found.set(match[2], {
+      found.set(match[3], {
         file,
-        name: match[2],
-        kind: match[1],
-        generics: match[3],
+        name: match[3],
+        kind: match[2],
+        public: match[1] !== undefined,
+        generics: match[4],
         docs,
         attrs,
         body: rest.slice(head, end),
@@ -439,29 +299,56 @@ const texts = await Promise.all(
 );
 const sources = SOURCES.map((file, index) => items(file, texts[index]));
 
-const limits = (
-  await Promise.all(
-    LIMITS.map(async ([file, name]) => {
-      const text = await readFile(resolve(root, file), "utf8");
-      const value = new RegExp(
-        `^(?:pub )?const ${name}: (?:usize|u32|f64) = ([\\d_. *]+);$`,
-        "m",
-      ).exec(text)?.[1];
-      if (!value) fail(`${file} has no number constant ${name}`);
-      const product = value
-        .split("*")
-        .reduce(
-          (total, part) => total * Number(part.trim().replaceAll("_", "")),
-          1,
-        );
-      return `export const ${name} = ${product};`;
-    }),
-  )
-).join("\n");
+const limitValues = await Promise.all(
+  LIMITS.map(async ([file, name]) => {
+    const text = await readFile(resolve(root, file), "utf8");
+    const value = new RegExp(
+      `^(?:pub )?const ${name}: (?:usize|u32|f64) = ([\\d_. *]+);$`,
+      "m",
+    ).exec(text)?.[1];
+    if (!value) fail(`${file} has no number constant ${name}`);
+    const product = value
+      .split("*")
+      .reduce(
+        (total, part) => total * Number(part.trim().replaceAll("_", "")),
+        1,
+      );
+    return [name, product];
+  }),
+);
+const limits = limitValues
+  .map(([name, product]) => `export const ${name} = ${product};`)
+  .join("\n");
 
-/** The client name of the type `name` used in `file`. */
-function clientName(file, name) {
-  return RENAMES[file]?.[name] ?? name;
+const waitValues = await Promise.all(
+  WAITS.map(async ([file, name]) => {
+    const text = await readFile(resolve(root, file), "utf8");
+    const value = new RegExp(
+      `^(?:pub )?const ${name}: Duration = Duration::from_secs\\((\\d+)\\);$`,
+      "m",
+    ).exec(text)?.[1];
+    if (!value) fail(`${file} has no Duration::from_secs constant ${name}`);
+    return [`${name}_SECONDS`, Number(value)];
+  }),
+);
+const waits = waitValues
+  .map(([name, seconds]) => `export const ${name} = ${seconds};`)
+  .join("\n");
+
+const importsOf = new Map();
+
+/** The path each name a file imports comes from, as its `use` lines write it. */
+function imported(file) {
+  if (importsOf.has(file)) return importsOf.get(file);
+  const found = new Map();
+  const text = texts[SOURCES.indexOf(file)];
+  for (const [, path, group] of text.matchAll(
+    /^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([\w:]+)::(\w+|\{[^}]*\})\s*;/gm,
+  ))
+    for (const name of group.replace(/[{}]/g, "").split(","))
+      found.set(name.trim().split(/\s+/)[0], path.split("::"));
+  importsOf.set(file, found);
+  return found;
 }
 
 /**
@@ -471,18 +358,34 @@ function clientName(file, name) {
 function lookup(file, name, modules = []) {
   const own = sources[SOURCES.indexOf(file)].get(name);
   if (own && !modules.length) return own;
+  if (!modules.length) modules = imported(file).get(name) ?? [];
   let all = sources.flatMap((source) =>
-    source.has(name) ? [source.get(name)] : [],
+    source.has(name) && source.get(name).public ? [source.get(name)] : [],
   );
   const path = modules
-    .filter((part) => !["crate", "super", "self"].includes(part))
+    .filter(
+      (part) =>
+        !["crate", "super", "self"].includes(part) &&
+        !part.startsWith("sikemux_"),
+    )
     .join("/");
-  if (all.length > 1 && path)
-    all = all.filter(
-      (item) =>
-        item.file.endsWith(`/${path}.rs`) ||
-        item.file.endsWith(`/${path}/mod.rs`),
-    );
+  const fromPath = all.filter(
+    (item) =>
+      item.file.endsWith(`/${path}.rs`) ||
+      item.file.endsWith(`/${path}/mod.rs`) ||
+      item.file.includes(`/${path}/`),
+  );
+  if (all.length > 1 && path && fromPath.length) all = fromPath;
+  const crate = file.split("/src/")[0];
+  const folder = dirname(file);
+  const nearest = [
+    (item) =>
+      dirname(item.file) === folder ||
+      [`${folder}.rs`, `${folder}/mod.rs`].includes(item.file),
+    (item) => item.file.startsWith(`${crate}/`),
+    (item) => item.file.startsWith(WIRE) || item.file.startsWith(VIEW),
+  ].map((near) => all.filter(near));
+  all = nearest.find((near) => near.length) ?? all;
   if (all.length > 1)
     fail(`${name} in ${file} could be any of ${all.map((i) => i.file)}`);
   return all[0] ?? own;
@@ -491,17 +394,70 @@ function lookup(file, name, modules = []) {
 const declared = new Map();
 for (const source of sources)
   for (const item of source.values()) {
-    const name = clientName(item.file, item.name);
+    if (!item.public) continue;
+    const name = item.name;
     declared.set(name, [...(declared.get(name) ?? []), item]);
   }
 
+/** A type's name, with its file when a client could not tell it from another of that name. */
+function shapeName(item) {
+  const found = clientCandidates(item.name);
+  return found.length === 1 && found[0] === item
+    ? item.name
+    : `${item.file}:${item.name}`;
+}
+
+function clientCandidates(name) {
+  const all = declared.get(name) ?? [];
+  // The contract's own crates hold the type a client means by a name.
+  const contract = all.filter(
+    (item) => item.file.startsWith(WIRE) || item.file.startsWith(VIEW),
+  );
+  return contract.length ? contract : all;
+}
+
 function byClientName(name) {
-  const found = declared.get(name) ?? [];
+  const [file, own] = name.split(":");
+  if (own) return declared.get(own).find((item) => item.file === file);
+  const found = clientCandidates(name);
   if (found.length !== 1)
     fail(
       `${name} is declared ${found.length} times: ${found.map((item) => item.file)}`,
     );
   return found[0];
+}
+
+/** Each of URIS with its value, as the Rust writes the string. */
+async function uriValues() {
+  const text = await readFile(resolve(root, `${VIEW}/chat.rs`), "utf8");
+  return URIS.map((name) => {
+    const value = new RegExp(
+      `^pub const ${name}: &str = ("[^"]+");$`,
+      "m",
+    ).exec(text)?.[1];
+    if (!value) fail(`${VIEW}/chat.rs has no text constant ${name}`);
+    return [name, value];
+  });
+}
+
+async function uris() {
+  return (await uriValues())
+    .map(([name, value]) => `export const ${name} = ${value};`)
+    .join("\n");
+}
+
+/** The bare names a project spells out in full, which are files without an extension, as the Rust lists them. */
+async function extensionlessNames() {
+  const text = await readFile(resolve(root, `${MARKDOWN}/paths.rs`), "utf8");
+  const names = /pub const EXTENSIONLESS: \[&str; \d+\] = \[([^\]]*)\]/.exec(
+    text,
+  )?.[1];
+  if (!names) fail(`${MARKDOWN}/paths.rs has no EXTENSIONLESS`);
+  return names;
+}
+
+async function extensionless() {
+  return `export const EXTENSIONLESS: readonly string[] = [${await extensionlessNames()}];`;
 }
 
 const PRIMITIVES = {
@@ -552,7 +508,7 @@ function parseType(text, file) {
     if (owned.length !== 1) fail(`${text} needs one type argument`);
     return parseType(owned[0] === "str" ? "String" : owned[0], file);
   }
-  if (path === "BTreeMap" || path === "HashMap") {
+  if (path === "BTreeMap" || path === "HashMap" || path === "Map") {
     if (args.length !== 2 || parseType(args[0], file).kind !== "string")
       fail(`${text} is not keyed by strings`);
     return { kind: "map", of: parseType(args[1], file) };
@@ -565,7 +521,7 @@ function parseType(text, file) {
     const alias = /^=\s*(.*);$/s.exec(item.body);
     return parseType(alias[1], item.file);
   }
-  return { kind: "named", name: clientName(item.file, item.name) };
+  return { kind: "named", name: shapesOf ? shapeName(item) : item.name };
 }
 
 const words = (name) =>
@@ -576,7 +532,6 @@ const words = (name) =>
     .filter(Boolean)
     .map((word) => word.toLowerCase());
 
-/** What serde's `rename_all` makes of a Rust name. */
 function renameAll(name, rule, where) {
   const parts = words(name);
   const cap = (word) => word[0].toUpperCase() + word.slice(1);
@@ -596,7 +551,25 @@ function renameAll(name, rule, where) {
   }
 }
 
-/** A struct's or struct variant's fields. */
+/** The fields a `serde(flatten)` field puts beside its neighbours in the JSON. */
+function flattened(type, where) {
+  if (type.kind !== "named") fail(`${where} flattens what is not a struct`);
+  const inner = parse(byClientName(type.name));
+  if (inner.kind !== "struct") fail(`${where} flattens what is not a struct`);
+  return inner.fields;
+}
+
+/** The fields of the struct a tagged enum's variant holds, which serde puts beside the tag. */
+function heldFields(text, file, where) {
+  const path = text.trim().split("::");
+  const held = lookup(file, path.at(-1), path.slice(0, -1));
+  if (!held)
+    fail(`${where} holds ${text}, which is not declared in any source`);
+  const inner = parse(held);
+  if (inner.kind !== "struct") fail(`${where} holds what is not a struct`);
+  return inner.fields;
+}
+
 function parseFields(body, file, rule, where) {
   return splitTop(body.slice(1, -1)).flatMap((member) => {
     const { docs, attrs, rest } = readMember(member);
@@ -607,6 +580,8 @@ function parseFields(body, file, rule, where) {
     only(settings, KNOWN.field, `${where}.${match[1]}`);
     if (settings.skip) return [];
     const type = parseType(match[2], file);
+    if (settings.flatten && type.kind === "map") return [];
+    if (settings.flatten) return flattened(type, `${where}.${match[1]}`);
     return {
       name: settings.rename ?? renameAll(match[1], rule, where),
       rust: match[1],
@@ -630,6 +605,7 @@ function typeJson(name, fields) {
       ? { kind: "list", of: { kind: "named", name: json.slice(0, -2) } }
       : { kind: "named", name: json };
     field.type = optional ? { kind: "option", of: named } : named;
+    field.json = true;
   }
 }
 
@@ -639,7 +615,7 @@ function parse(item, wanted) {
   if (item.generics) fail(`${where} is generic`);
   const settings = serde(item.attrs, where);
   only(settings, KNOWN.container, where);
-  const name = clientName(item.file, item.name);
+  const name = shapesOf ? shapeName(item) : item.name;
   if (item.kind === "struct") {
     if (!item.body.startsWith("{"))
       fail(`${where} is not a struct with named fields`);
@@ -650,7 +626,14 @@ function parse(item, wanted) {
       where,
     );
     typeJson(name, fields);
-    return { name, docs: item.docs, kind: "struct", fields };
+    return {
+      name,
+      docs: item.docs,
+      kind: "struct",
+      fields,
+      defaulted: settings.default !== undefined,
+      denyUnknown: settings.deny_unknown_fields === true,
+    };
   }
   if (item.kind !== "enum") fail(`${where} is a ${item.kind}`);
   if (settings.tag) {
@@ -660,10 +643,11 @@ function parse(item, wanted) {
     );
     const variants = members.map((member) => {
       const { docs, attrs, rest } = readMember(member);
-      const match = /^(\w+)\s*(\{[\s\S]*\})?$/.exec(rest);
+      const match = /^(\w+)\s*(?:(\{[\s\S]*\})|\(([\s\S]*)\))?$/.exec(rest);
       if (!match) fail(`${where}::${rest} is not a unit or struct variant`);
       const variant = serde(attrs, `${where}::${match[1]}`);
       only(variant, KNOWN.variant, `${where}::${match[1]}`);
+      // A variant holding one struct puts that struct's fields beside the tag.
       const fields = match[2]
         ? parseFields(
             match[2],
@@ -671,12 +655,15 @@ function parse(item, wanted) {
             settings.rename_all_fields,
             `${where}::${match[1]}`,
           )
-        : [];
+        : match[3]
+          ? heldFields(match[3], item.file, `${where}::${match[1]}`)
+          : [];
       typeJson(name, fields);
       return {
         name: variant.rename ?? renameAll(match[1], settings.rename_all, where),
         docs,
         fields,
+        other: variant.other === true,
       };
     });
     return {
@@ -689,6 +676,30 @@ function parse(item, wanted) {
   }
   if (settings.rename_all_fields)
     fail(`${where} renames fields but has no tag`);
+  if (settings.untagged)
+    return {
+      name,
+      docs: item.docs,
+      kind: "untagged",
+      variants: splitTop(item.body.slice(1, -1)).map((member) => {
+        const { docs, rest } = readMember(member);
+        const variantName = /^\w+/.exec(rest)?.[0];
+        const held = /^\w+\s*\((.*)\)$/s.exec(rest);
+        if (held)
+          return {
+            name: variantName,
+            docs,
+            type: parseType(held[1], item.file),
+          };
+        const fields = /^\w+\s*(\{[\s\S]*\})$/.exec(rest);
+        if (!fields) fail(`${where}::${rest} holds nothing to tell it apart`);
+        return {
+          name: variantName,
+          docs,
+          fields: parseFields(fields[1], item.file, undefined, where),
+        };
+      }),
+    };
   const members = splitTop(item.body.slice(1, -1));
   // Every variant holding one value is serde's default tagging: an object keyed by the variant.
   if (
@@ -725,7 +736,6 @@ function parse(item, wanted) {
       rust: rest,
       docs,
       other: variant.other === true,
-      isDefault: attrs.includes("default"),
     };
   });
   return { name, docs: item.docs, kind: "strings", variants };
@@ -739,13 +749,18 @@ function named(type) {
 }
 
 /** The declarations `roots` need, each before the first that uses it, but those in `declared`. */
-function closure(roots, fieldsOf = () => undefined, declared = []) {
+function closure(
+  roots,
+  fieldsOf = () => undefined,
+  declared = [],
+  read = parse,
+) {
   const order = [];
   const seen = new Set(declared);
   const visit = (name) => {
     if (seen.has(name)) return;
     seen.add(name);
-    const declaration = parse(byClientName(name));
+    const declaration = read(byClientName(name));
     const wanted = fieldsOf(name);
     if (declaration.kind === "struct" && wanted) {
       const missing = wanted.filter(
@@ -763,9 +778,15 @@ function closure(roots, fieldsOf = () => undefined, declared = []) {
         ? declaration.variants.flatMap((variant) => variant.fields)
         : []),
       ...(declaration.kind === "wrapped" ? declaration.variants : []),
+      ...(declaration.kind === "untagged"
+        ? declaration.variants.flatMap((variant) =>
+            variant.fields ? variant.fields : [variant],
+          )
+        : []),
     ]
       .flatMap((field) => named(field.type))
       .forEach(visit);
+    declaration.uses?.forEach(visit);
   };
   roots.forEach(visit);
   return order;
@@ -826,21 +847,31 @@ function typescript(roots, preamble) {
     `${tsDocs(d.docs)}export type ${d.name} =\n${d.variants
       .map((v) => `${tsDocs(v.docs, "  ")}  | { ${v.name}: ${tsType(v.type)} }`)
       .join("\n")};`;
+  const untagged = (d) =>
+    `${tsDocs(d.docs)}export type ${d.name} =\n${d.variants
+      .map((v) =>
+        v.fields
+          ? `${tsDocs(v.docs, "  ")}  | {\n${v.fields.map(field).join("\n")}\n}`
+          : `${tsDocs(v.docs, "  ")}  | ${tsType(v.type)}`,
+      )
+      .join("\n")};`;
   const declare = (d) =>
-    d.kind === "struct" && d.fields.length === 0
-      ? `${tsDocs(d.docs)}export type ${d.name} = Record<string, never>;`
-      : d.kind === "struct"
-        ? `${tsDocs(d.docs)}export interface ${d.name} {\n${d.fields.map(field).join("\n")}\n}`
-        : d.kind === "tagged"
-          ? tagged(d)
-          : d.kind === "wrapped"
-            ? wrapped(d)
-            : `${tsDocs(d.docs)}export type ${d.name} = ${[
-                ...d.variants
-                  .filter((v) => !v.other)
-                  .map((v) => JSON.stringify(v.name)),
-                ...(d.variants.some((v) => v.open) ? ["(string & {})"] : []),
-              ].join(" | ")};`;
+    d.kind === "untagged"
+      ? untagged(d)
+      : d.kind === "struct" && d.fields.length === 0
+        ? `${tsDocs(d.docs)}export type ${d.name} = Record<string, never>;`
+        : d.kind === "struct"
+          ? `${tsDocs(d.docs)}export interface ${d.name} {\n${d.fields.map(field).join("\n")}\n}`
+          : d.kind === "tagged"
+            ? tagged(d)
+            : d.kind === "wrapped"
+              ? wrapped(d)
+              : `${tsDocs(d.docs)}export type ${d.name} = ${[
+                  ...d.variants
+                    .filter((v) => !v.other)
+                    .map((v) => JSON.stringify(v.name)),
+                  ...(d.variants.some((v) => v.open) ? ["(string & {})"] : []),
+                ].join(" | ")};`;
   const calls = coreCalls();
   const callMap = `/** The core's calls that name what they take and answer, by method. */\nexport interface CoreCalls {\n${calls
     .map(
@@ -859,19 +890,39 @@ function typescript(roots, preamble) {
     .join("\n\n")}\n\n${callMap}\n`;
 }
 
-/** The methods in the core's `calls!` that name their params and answer, as `"method" Marker (Params) -> Answer`. */
+/**
+ * The methods the phone calls, as mobile/app/wire.json names them, from the core's `calls!` rows that name
+ * their params and answer, as `"method" Marker (Params) -> Answer`.
+ */
 function coreCalls() {
   const file = `${CORE}/server/calls.rs`;
   const text = texts[SOURCES.indexOf(file)];
-  return [
-    ...text.matchAll(
-      /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*any_program)?\s*=>/gm,
-    ),
-  ].map(([, method, takes, gives]) => ({
-    method,
-    takes: parseType(takes, file),
-    gives: parseType(gives, file),
-  }));
+  const rows = new Map(
+    [
+      ...text.matchAll(
+        /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*\w+(?:\([^)]*\))?)*\s*=>/gm,
+      ),
+    ].map(([, method, takes, gives]) => [method, { takes, gives, file }]),
+  );
+  for (const [index, declared] of SOURCES.entries()) {
+    if (!declared.startsWith(CALLS)) continue;
+    for (const [, method, takes, gives] of texts[index].matchAll(
+      /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?);$/gm,
+    ))
+      rows.set(method, { takes, gives, file: declared });
+  }
+  return PHONE_CALLS.map((method) => {
+    const row = rows.get(method);
+    if (!row)
+      fail(
+        `mobile/app/wire.json names ${method}, which calls.rs does not type`,
+      );
+    return {
+      method,
+      takes: parseType(row.takes, row.file),
+      gives: parseType(row.gives, row.file),
+    };
+  });
 }
 
 const swiftCase = (name) => renameAll(name.replaceAll("-", "_"), "camelCase");
@@ -919,9 +970,9 @@ function swiftDeclare(d, sent = new Set()) {
     .map((v) => {
       const name = swiftCase(v.name);
       const raw = name === v.name ? "" : ` = ${JSON.stringify(v.name)}`;
-      return `${swiftDocs(v.docs, "    ")}    case ${name}${raw}`;
+      return `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(name)}${raw}`;
     });
-  const unknown = fallback ? swiftCase(fallback.name) : "unknown";
+  const unknown = swiftIdent(fallback ? swiftCase(fallback.name) : "unknown");
   return `${swiftDocs(d.docs, "")}enum ${d.name}: String, Codable, Hashable {
 ${cases.join("\n")}
     /// One added after this build.
@@ -1067,7 +1118,7 @@ ${requests
         static let op = ${JSON.stringify(renameAll(request.name, "camelCase"))}
         typealias Answer = CoreResponse.${request.answer}
 ${request.fields.map((f) => outside(swiftProperty(f, "        ", true), SWIFT_REQUESTS)).join("\n")}
-    }`.replace(/\n\n    \}/, "\n    }"),
+    }`.replace(/\n\n {4}\}/, "\n    }"),
   )
   .join("\n\n")}
 }
@@ -1147,7 +1198,6 @@ ${closure(
 const BANNER =
   "Generated by scripts/generate-wire-types.mjs from the core's Rust. Do not edit by hand.";
 
-/** The card in Swift, for the phone's notification extension. */
 function cardSwift() {
   return `// ${BANNER}
 
@@ -1180,6 +1230,8 @@ function cardKotlin() {
         return type.name;
       case "option":
         return `${typeOf(type.of)}?`;
+      case "list":
+        return `List<${typeOf(type.of)}>`;
       default:
         fail(`Kotlin cannot read ${type.kind}`);
     }
@@ -1202,6 +1254,10 @@ function cardKotlin() {
         return `${type.name}.of(json.getString(${key}))`;
       case "option":
         return `if (json.isNull(${key})) null else ${read(type.of, key)}`;
+      case "list":
+        if (type.of.kind !== "named" || kinds.get(type.of.name) !== "struct")
+          fail(`Kotlin reads only lists of structs, not of ${type.of.kind}`);
+        return `json.getJSONArray(${key}).let { list -> (0 until list.length()).mapNotNull { ${type.of.name}.of(list.getJSONObject(it)) } }`;
       default:
         fail(`Kotlin cannot read ${type.kind}`);
     }
@@ -1260,6 +1316,589 @@ ${declarations.map(declare).join("\n\n")}
 `;
 }
 
+/**
+ * Names Apple's frameworks, the app's own code and its Rust bridge (`SikemuxCore`) give their types, which a wire
+ * type of the same name would hide in the app.
+ */
+const APPLE_NAMES = new Set(
+  "Palette Theme Radius Screen Nav Row Rows Chip Track Field Sheet Router Route Hub Account Config Network Identity Keychain Format Haptics Device Connection DeviceIdentity ChatMark ChatAttachment CoreEvent CoreListener MobileError RelaySetting JoinAnswer Tab Layout Environment Text Image Color Font Data Date URL Group Section Label Event Link Menu Button Toggle Picker Path Shape Scene Window Alert Table List Form Grid Canvas State Binding Animation Transaction Namespace Edge Axis Angle Anchor Gradient Material Spacer Divider Notification Locale Calendar Decimal Bundle Timer Thread Progress Operation Measurement Unit Expression Predicate Result Never Task Error Duration Clock Range Set Character Optional Array Dictionary String Int Bool Double Float Mirror Unicode Process Host Stream Port Gauge Settings Badge".split(
+    " ",
+  ),
+);
+
+const SWIFT_KEYWORDS = new Set(
+  "associatedtype class deinit enum extension fileprivate func import init inout internal let open operator private protocol public rethrows static struct subscript typealias var break case continue default defer do else fallthrough for guard if in repeat return switch where while as Any catch false is nil super self Self throw throws true try Type some any".split(
+    " ",
+  ),
+);
+
+const swiftIdent = (name) => (SWIFT_KEYWORDS.has(name) ? `\`${name}\`` : name);
+
+const upperFirst = (name) => name[0].toUpperCase() + name.slice(1);
+
+/** `AGENT_URI` as `agentURI`, for a Rust constant's name in Swift. */
+const constantName = (name) =>
+  name
+    .toLowerCase()
+    .split("_")
+    .map((word, index) =>
+      index === 0 ? word : word === "uri" ? "URI" : upperFirst(word),
+    )
+    .join("");
+
+/**
+ * Swift for the phone app: every type the TypeScript declares, whole, so it decodes all the
+ * core sends and encodes all the phone sends. A field an older host may leave out is optional,
+ * and a value or variant the core added after this build reads as the type's unknown case.
+ */
+async function phoneSwift() {
+  const calls = coreCalls();
+  const declarations = closure([
+    ...TS_ROOTS,
+    ...PHONE_ROOTS,
+    ...calls.flatMap((call) => [...named(call.takes), ...named(call.gives)]),
+  ]);
+  const byName = new Map(declarations.map((d) => [d.name, d]));
+  const typeName = (name) => (APPLE_NAMES.has(name) ? `Wire${name}` : name);
+  // A variant's own struct is named inside its enum, so it must not hide a type the enum's code names.
+  const taken = new Set([
+    ...declarations.map((d) => typeName(d.name)),
+    ..."String Int Bool Double JSONValue WireNull WirePair WireKey TagKey CodingKeys CodingKey DecodingError Decoder Encoder Self Type Protocol".split(
+      " ",
+    ),
+  ]);
+
+  const typeOf = (type) => {
+    switch (type.kind) {
+      case "string":
+        return "String";
+      case "bool":
+        return "Bool";
+      case "int":
+        return "Int";
+      case "float":
+        return "Double";
+      case "json":
+        return "JSONValue";
+      case "null":
+        return "WireNull";
+      case "named":
+        return typeName(type.name);
+      case "list":
+        return `[${typeOf(type.of)}]`;
+      case "map":
+        return `[String: ${typeOf(type.of)}]`;
+      case "option":
+        if (type.of.kind === "option")
+          fail("Swift cannot tell null from absent in Option<Option<_>>");
+        return `${typeOf(type.of)}?`;
+      case "tuple":
+        if (type.of.length !== 2)
+          fail(`Swift reads pairs, not ${type.of.length}-tuples`);
+        return `WirePair<${type.of.map(typeOf).join(", ")}>`;
+    }
+  };
+
+  const swiftName = (key, where) => {
+    const name = /^[a-z][A-Za-z0-9]*$/.test(key)
+      ? key
+      : swiftCase(key.replace(/\(.*$/s, ""));
+    if (!/^[a-z][A-Za-z0-9]*$/.test(name))
+      fail(`${where}: ${key} is no Swift name`);
+    return name;
+  };
+  const spare = (names) =>
+    names.includes("unknown") ? "unrecognised" : "unknown";
+  const unique = (names, where) => {
+    const twice = names.find((name, index) => names.indexOf(name) !== index);
+    if (twice) fail(`${where} has two ${twice} in Swift`);
+  };
+
+  const property = (f, where, indent) => {
+    const type = typeOf(f.type);
+    const optional =
+      (f.mayBeAbsent || f.defaulted) && !type.endsWith("?") ? "?" : "";
+    return `${swiftDocs(f.docs, indent)}${indent}var ${swiftIdent(swiftName(f.name, where))}: ${type}${optional}`;
+  };
+  const struct = (name, docs, fields, where, indent = "") => {
+    unique(
+      fields.map((f) => swiftName(f.name, where)),
+      where,
+    );
+    const inner = `${indent}    `;
+    const keys = fields.some((f) => swiftName(f.name, where) !== f.name)
+      ? `\n\n${inner}private enum CodingKeys: String, CodingKey {\n${fields
+          .map((f) => {
+            const swift = swiftName(f.name, where);
+            return `${inner}    case ${swiftIdent(swift)}${swift === f.name ? "" : ` = ${JSON.stringify(f.name)}`}`;
+          })
+          .join("\n")}\n${inner}}`
+      : "";
+    return `${swiftDocs(docs, indent)}${indent}struct ${name}: Codable, Hashable, Sendable {${
+      fields.length
+        ? `\n${fields.map((f) => property(f, where, inner)).join("\n")}${keys}\n${indent}`
+        : ""
+    }}`;
+  };
+
+  const held = (d) => {
+    switch (d.kind) {
+      case "struct":
+        return d.fields.map((f) => f.type);
+      case "tagged":
+        return d.variants.flatMap((v) => v.fields.map((f) => f.type));
+      case "wrapped":
+        return d.variants.map((v) => v.type);
+      case "untagged":
+        return d.variants.flatMap((v) =>
+          v.fields ? v.fields.map((f) => f.type) : [v.type],
+        );
+      default:
+        return [];
+    }
+  };
+  // Lists and maps hold their values apart already; anything else held inline that holds its holder needs a box.
+  const inline = (type) =>
+    type.kind === "named"
+      ? [type.name]
+      : type.kind === "option"
+        ? inline(type.of)
+        : type.kind === "tuple"
+          ? type.of.flatMap(inline)
+          : [];
+  const reaches = (from, to, seen = new Set()) =>
+    held(byName.get(from))
+      .flatMap(inline)
+      .some((name) => {
+        if (name === to) return true;
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return reaches(name, to, seen);
+      });
+  const cyclic = new Set(
+    declarations.filter((d) => reaches(d.name, d.name)).map((d) => d.name),
+  );
+  for (const name of cyclic)
+    if (
+      byName.get(name).kind === "struct" &&
+      ![...cyclic].some(
+        (other) =>
+          byName.get(other).kind !== "struct" &&
+          reaches(name, other) &&
+          reaches(other, name),
+      )
+    )
+      fail(`${name} holds itself with no enum between to box it`);
+  const indirect = (d) => (cyclic.has(d.name) ? "indirect " : "");
+
+  const payloadName = (variant, where) => {
+    const name = upperFirst(variant);
+    const free = taken.has(name) ? `${name}Payload` : name;
+    if (taken.has(free)) fail(`${where} has no free Swift name for ${variant}`);
+    return free;
+  };
+
+  const strings = (d) => {
+    const name = typeName(d.name);
+    const where = d.name;
+    const open = d.variants.find((v) => v.open);
+    const fallback = d.variants.find((v) => v.other && !v.open);
+    const known = d.variants
+      .filter((v) => !v.other)
+      .map((v) => ({ ...v, swift: swiftName(v.name, where) }));
+    const rest = open
+      ? swiftName(open.name, where)
+      : fallback
+        ? swiftName(fallback.name, where)
+        : spare(known.map((v) => v.swift));
+    unique([...known.map((v) => v.swift), rest], where);
+    const cases = known.map(
+      (v) =>
+        `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}${!open && v.swift !== v.name ? ` = ${JSON.stringify(v.name)}` : ""}`,
+    );
+    if (!open) {
+      const raw =
+        fallback && rest !== fallback.name
+          ? ` = ${JSON.stringify(fallback.name)}`
+          : "";
+      return `${swiftDocs(d.docs, "")}enum ${name}: String, Codable, Hashable, Sendable {
+${cases.join("\n")}
+    /// One added after this build.
+    case ${swiftIdent(rest)}${raw}
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .${swiftIdent(rest)}
+    }
+}`;
+    }
+    return `${swiftDocs(d.docs, "")}enum ${name}: Codable, Hashable, Sendable {
+${cases.join("\n")}
+${swiftDocs(open.docs, "    ")}    case ${swiftIdent(rest)}(String)
+
+    init(rawValue: String) {
+        switch rawValue {
+${known.map((v) => `        case ${JSON.stringify(v.name)}: self = .${swiftIdent(v.swift)}`).join("\n")}
+        default: self = .${swiftIdent(rest)}(rawValue)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+${known.map((v) => `        case .${swiftIdent(v.swift)}: return ${JSON.stringify(v.name)}`).join("\n")}
+        case .${swiftIdent(rest)}(let value): return value
+        }
+    }
+
+    init(from decoder: any Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}`;
+  };
+
+  const tagged = (d) => {
+    const name = typeName(d.name);
+    const variants = d.variants.map((v) => {
+      const swift = swiftName(v.name, d.name);
+      return {
+        ...v,
+        swift,
+        payload: v.fields.length ? payloadName(swift, d.name) : null,
+      };
+    });
+    const rest = spare(variants.map((v) => v.swift));
+    unique(
+      variants.filter((v) => v.payload).map((v) => v.payload),
+      d.name,
+    );
+    const payloads = variants
+      .filter((v) => v.payload)
+      .map((v) =>
+        struct(v.payload, [], v.fields, `${d.name}::${v.name}`, "    "),
+      );
+    return `${swiftDocs(d.docs, "")}${indirect(d)}enum ${name}: Codable, Hashable, Sendable {
+${variants.map((v) => `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}${v.payload ? `(${v.payload})` : ""}`).join("\n")}
+    /// One added after this build, by its \`${d.tag}\`.
+    case ${rest}(String)
+${payloads.length ? `\n${payloads.join("\n\n")}\n` : ""}
+    private enum TagKey: String, CodingKey {
+        case tag = ${JSON.stringify(d.tag)}
+    }
+
+    init(from decoder: any Decoder) throws {
+        let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .tag)
+        switch tag {
+${variants
+  .map(
+    (v) =>
+      `        case ${JSON.stringify(v.name)}:\n            self = .${swiftIdent(v.swift)}${v.payload ? `(try ${v.payload}(from: decoder))` : ""}`,
+  )
+  .join("\n")}
+        default:
+            self = .${rest}(tag)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        let tag: String
+        switch self {
+${variants
+  .map((v) =>
+    v.payload
+      ? `        case .${swiftIdent(v.swift)}(let value):\n            try value.encode(to: encoder)\n            tag = ${JSON.stringify(v.name)}`
+      : `        case .${swiftIdent(v.swift)}:\n            tag = ${JSON.stringify(v.name)}`,
+  )
+  .join("\n")}
+        case .${rest}(let value):
+            tag = value
+        }
+        var container = encoder.container(keyedBy: TagKey.self)
+        try container.encode(tag, forKey: .tag)
+    }
+}`;
+  };
+
+  const wrapped = (d) => {
+    const name = typeName(d.name);
+    const variants = d.variants.map((v) => ({
+      ...v,
+      swift: swiftName(v.name, d.name),
+    }));
+    const rest = spare(variants.map((v) => v.swift));
+    return `${swiftDocs(d.docs, "")}${indirect(d)}enum ${name}: Codable, Hashable, Sendable {
+${variants.map((v) => `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}(${typeOf(v.type)})`).join("\n")}
+    /// One added after this build, by its key.
+    case ${rest}(String)
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: WireKey.self)
+        guard let key = container.allKeys.first else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "${d.name} names no variant"))
+        }
+        switch key.stringValue {
+${variants
+  .map(
+    (v) =>
+      `        case ${JSON.stringify(v.name)}:\n            self = .${swiftIdent(v.swift)}(try container.decode(${typeOf(v.type)}.self, forKey: key))`,
+  )
+  .join("\n")}
+        default:
+            self = .${rest}(key.stringValue)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: WireKey.self)
+        switch self {
+${variants
+  .map(
+    (v) =>
+      `        case .${swiftIdent(v.swift)}(let value):\n            try container.encode(value, forKey: WireKey(${JSON.stringify(v.name)}))`,
+  )
+  .join("\n")}
+        case .${rest}(let key):
+            try container.encode(JSONValue.null, forKey: WireKey(key))
+        }
+    }
+}`;
+  };
+
+  const untagged = (d) => {
+    const name = typeName(d.name);
+    const variants = d.variants.map((v) => {
+      const swift = swiftName(v.name, d.name);
+      const payload = v.fields ? payloadName(swift, d.name) : null;
+      return { ...v, swift, payload, type: payload ?? typeOf(v.type) };
+    });
+    unique(
+      variants.map((v) => v.swift),
+      d.name,
+    );
+    const payloads = variants
+      .filter((v) => v.payload)
+      .map((v) =>
+        struct(v.payload, [], v.fields, `${d.name}::${v.name}`, "    "),
+      );
+    return `${swiftDocs(d.docs, "")}${indirect(d)}enum ${name}: Codable, Hashable, Sendable {
+${variants.map((v) => `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}(${v.type})`).join("\n")}
+${payloads.length ? `\n${payloads.join("\n\n")}\n` : ""}
+    init(from decoder: any Decoder) throws {
+${variants
+  .map(
+    (v) =>
+      `        if let value = try? ${v.type}(from: decoder) {\n            self = .${swiftIdent(v.swift)}(value)\n            return\n        }`,
+  )
+  .join("\n")}
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "${d.name} matches no variant"))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        switch self {
+${variants.map((v) => `        case .${swiftIdent(v.swift)}(let value):\n            try value.encode(to: encoder)`).join("\n")}
+        }
+    }
+}`;
+  };
+
+  const declare = (d) =>
+    d.kind === "struct"
+      ? struct(typeName(d.name), d.docs, d.fields, d.name)
+      : d.kind === "strings"
+        ? strings(d)
+        : d.kind === "tagged"
+          ? tagged(d)
+          : d.kind === "wrapped"
+            ? wrapped(d)
+            : untagged(d);
+
+  const callNames = calls.map((call) => upperFirst(call.method));
+  unique(callNames, "PhoneCall");
+  const callTable = `/// A call the phone makes: the core's method, what it takes and what it answers.
+protocol PhoneCallable: Sendable {
+    associatedtype Params: Encodable & Sendable
+    associatedtype Answer: Decodable & Sendable
+    static var method: String { get }
+}
+
+/// The core's calls the phone makes, as mobile/app/wire.json names them.
+enum PhoneCall {
+${callNames.map((name) => `    enum ${name} {}`).join("\n")}
+}
+
+${calls
+  .map(
+    (call, index) => `extension PhoneCall.${callNames[index]}: PhoneCallable {
+    static let method = ${JSON.stringify(call.method)}
+    typealias Params = ${typeOf(call.takes)}
+    typealias Answer = ${typeOf(call.gives)}
+}`,
+  )
+  .join("\n\n")}`;
+
+  const number = (name) =>
+    constant(`${WIRE}/protocol.rs`, name)
+      .split("*")
+      .reduce(
+        (total, part) => total * Number(part.trim().replaceAll("_", "")),
+        1,
+      );
+  const extensionless = [
+    ...(await extensionlessNames()).matchAll(/"[^"]*"/g),
+  ].map(([name]) => name);
+
+  const body = declarations.map(declare).join("\n\n");
+  const glance = closure(GLANCE_ROOTS)
+    .map((d) =>
+      declare(
+        byName.get(d.name) ?? fail(`${d.name} is not in the phone's view`),
+      ),
+    )
+    .join("\n\n");
+  glanceSwift = `// ${BANNER}
+
+import Foundation
+
+${glance}
+`;
+  return `// ${BANNER}
+
+import Foundation
+
+/// The core's protocol as this build speaks it, so a core that no longer serves this version turns it away at hello.
+enum WireProtocol {
+    static let name = ${constant(`${WIRE}/protocol.rs`, "PROTOCOL")}
+    static let version = ${number("PROTOCOL_VERSION")}
+    /// The largest payload the core sends in one frame.
+    static let maxFrameBytes = ${number("MAX_FRAME_BYTES")}
+}
+
+/// Limits the core enforces on what the phone sends, so the phone checks them first.
+enum WireLimits {
+${limitValues.map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
+}
+
+/// How long the host waits on the phone, in seconds, so the phone waits as long.
+enum WireWaits {
+${waitValues.map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
+}
+
+/// Addresses the phone writes into what it sends, as the core reads them.
+enum WireURIs {
+${(await uriValues()).map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
+}
+
+/// Paths as the core reads them in markdown.
+enum WirePaths {
+    /// The bare names a project spells out in full, which are files without an extension.
+    static let extensionless: [String] = [${extensionless.join(", ")}]
+}
+
+/// Any JSON, for what the core sends as it is.
+enum JSONValue: Codable, Hashable, Sendable {
+    case null
+    case bool(Bool)
+    case int(Int)
+    case double(Double)
+    case string(String)
+    case array([JSONValue])
+    case object([String: JSONValue])
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([JSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: JSONValue].self))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .int(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        }
+    }
+}
+
+/// What a call that answers nothing answers: JSON's null.
+struct WireNull: Codable, Hashable, Sendable {
+    init() {}
+
+    init(from decoder: any Decoder) throws {}
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encodeNil()
+    }
+}
+
+/// A Rust pair, which JSON holds as an array of two.
+struct WirePair<First: Codable & Hashable & Sendable, Second: Codable & Hashable & Sendable>: Codable, Hashable, Sendable {
+    var first: First
+    var second: Second
+
+    init(_ first: First, _ second: Second) {
+        self.first = first
+        self.second = second
+    }
+
+    init(from decoder: any Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        first = try container.decode(First.self)
+        second = try container.decode(Second.self)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(first)
+        try container.encode(second)
+    }
+}
+
+/// A key read from the JSON itself, for an enum keyed by its variant.
+struct WireKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+
+    init(_ stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        nil
+    }
+}
+
+${callTable}
+
+${body}
+`;
+}
+
 /** The kind of Response each request in the core's `ask` module is answered with, by request. */
 function askAnswers() {
   const text = texts[SOURCES.indexOf(`${WIRE}/protocol/ask.rs`)];
@@ -1278,20 +1917,6 @@ function askAnswers() {
   return answers;
 }
 
-/** The text of `impl Default for name`'s `Self { .. }`, if the file has one. */
-function defaultBody(item) {
-  const text = texts[SOURCES.indexOf(item.file)];
-  const at = text.search(new RegExp(`impl Default for ${item.name}\\s*\\{`));
-  if (at < 0) return null;
-  const impl = text.slice(at, balanced(text, text.indexOf("{", at)));
-  const fn = impl.search(/fn default\(\)\s*->\s*Self\s*\{/);
-  const body = impl.slice(impl.indexOf("{", fn) + 1);
-  const self = fn < 0 ? -1 : body.search(/\bSelf\s*\{/);
-  if (self < 0) fail(`${item.name}'s Default does not build Self { .. }`);
-  const open = body.indexOf("{", self);
-  return body.slice(open, balanced(body, open));
-}
-
 /** A constant's value, `const NAME: T = value;` in `file`. */
 function constant(file, name) {
   const text = texts[SOURCES.indexOf(file)];
@@ -1303,117 +1928,8 @@ function constant(file, name) {
   return value;
 }
 
-/** What a type is when nothing was said: the JSON of its `Default`. */
-function defaultOfType(type, file) {
-  switch (type.kind) {
-    case "bool":
-      return false;
-    case "int":
-    case "float":
-      return 0;
-    case "string":
-      return "";
-    case "option":
-      return null;
-    case "list":
-      return [];
-    case "map":
-      return {};
-    case "named":
-      return defaultOf(byClientName(type.name));
-  }
-  fail(`${JSON.stringify(type)} in ${file} has no default`);
-}
-
-/** The JSON `expr` serializes to as a value of `type`, for the plain expressions defaults are written in. */
-function evaluate(expr, type, file) {
-  expr = expr.trim();
-  const built = /^(.*)\.(?:to_owned|to_string|into)\(\)$/s.exec(expr);
-  if (built) return evaluate(built[1], type, file);
-  if (expr === "true" || expr === "false") return expr === "true";
-  if (/^-?[\d_]+(\.[\d_]+)?$/.test(expr))
-    return Number(expr.replaceAll("_", ""));
-  if (/^"(?:[^"\\]|\\.)*"$/.test(expr)) return JSON.parse(expr);
-  if (expr === "None") return null;
-  const some = /^Some\((.*)\)$/s.exec(expr);
-  if (some && type.kind === "option") return evaluate(some[1], type.of, file);
-  const listed = /^vec!\[(.*)\]$/s.exec(expr);
-  if (listed && type.kind === "list")
-    return splitTop(listed[1])
-      .filter((item) => item.trim())
-      .map((item) => evaluate(item, type.of, file));
-  if (/^(?:String|Vec|BTreeMap|HashMap)::new\(\)$/.test(expr))
-    return defaultOfType(type, file);
-  if (/^(?:[\w:]+::)?(?:default|Default::default)\(\)$/.test(expr))
-    return defaultOfType(type, file);
-  const indexed = /^([A-Z][A-Z0-9_]*)\[(\d+)\]$/.exec(expr);
-  if (indexed) {
-    const list = constant(file, indexed[1]);
-    if (!list.startsWith("[")) fail(`${indexed[1]} in ${file} is not a list`);
-    return evaluate(
-      splitTop(list.slice(1, -1))[Number(indexed[2])],
-      type,
-      file,
-    );
-  }
-  if (/^[A-Z][A-Z0-9_]*$/.test(expr))
-    return evaluate(constant(file, expr), type, file);
-  const variant = /^(?:[\w:]+::)?(\w+)::(\w+)$/.exec(expr);
-  if (variant && type.kind === "named") {
-    const declared = parse(byClientName(type.name));
-    const found =
-      declared.kind === "strings" &&
-      declared.variants.find((v) => v.rust === variant[2]);
-    if (!found) fail(`${expr} in ${file} is not a variant of ${type.name}`);
-    return found.name;
-  }
-  fail(`the default ${expr} in ${file} is not a plain value`);
-}
-
-function defaultOf(item) {
-  const declared = parse(item);
-  if (declared.kind === "strings") {
-    const chosen = declared.variants.find((v) => v.isDefault);
-    if (!chosen) fail(`${item.name} has no #[default] variant`);
-    return chosen.name;
-  }
-  if (declared.kind !== "struct")
-    fail(`${item.name} has no default the app can copy`);
-  const body = defaultBody(item);
-  const given = new Map(
-    (body ? splitTop(body.slice(1, -1)) : []).map((member) => {
-      const match = /^(\w+)\s*:\s*([\s\S]+)$/.exec(member.trim());
-      if (!match) fail(`${item.name}'s Default sets ${member}`);
-      return [match[1], match[2]];
-    }),
-  );
-  return Object.fromEntries(
-    declared.fields.flatMap((field) => {
-      const expr = given.get(field.rust);
-      if (body && expr === undefined)
-        fail(`${item.name}'s Default leaves out ${field.rust}`);
-      const value =
-        expr === undefined
-          ? defaultOfType(field.type, item.file)
-          : evaluate(expr, field.type, item.file);
-      // serde leaves out a None it is told to skip.
-      return field.mayBeAbsent && value === null ? [] : [[field.name, value]];
-    }),
-  );
-}
-
-const defaults = DEFAULTS.map(
-  (name) =>
-    `/** What the core's \`${name}::default()\` serializes to. */\nexport const DEFAULT_${words(name).join("_").toUpperCase()}: ${name} = ${JSON.stringify(defaultOf(byClientName(name)))};`,
-).join("\n\n");
-
 async function emit(path, contents) {
   const full = resolve(root, path);
-  if (path.endsWith(".ts"))
-    contents = await format(contents, {
-      ...(await resolveConfig(full)),
-      filepath: full,
-    });
   let actual = null;
   try {
     actual = await readFile(full, "utf8");
@@ -1421,15 +1937,108 @@ async function emit(path, contents) {
     if (error?.code !== "ENOENT") throw error;
   }
   if (actual === contents) return;
-  if (check) fail(`${path} is stale: run pnpm wire:generate`);
   await mkdir(dirname(full), { recursive: true });
   await writeFile(full, contents);
 }
 
-await emit(
-  OUTPUTS.ts,
-  `${typescript(TS_ROOTS, `${limits}\n\n`)}\n${defaults}\n`,
+const STD_TYPES = new Set(
+  "Self Option Vec Box Arc Rc Cow String PathBuf Value Send Sync Fn FnMut FnOnce Mutex RwLock BTreeMap BTreeSet HashMap HashSet Instant Duration AtomicBool AtomicU64 Notify".split(
+    " ",
+  ),
 );
-await emit(OUTPUTS.notch, swift());
-await emit(OUTPUTS.cardSwift, cardSwift());
-await emit(OUTPUTS.cardKotlin, cardKotlin());
+
+/** A declaration's Rust without comments, member by member, with the types it names. */
+function rustOf(item) {
+  const plain = (text) =>
+    text
+      .replace(/\/\/.*$/gm, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const braced = item.body.startsWith("{");
+  const rust = plain(
+    [
+      ...item.attrs,
+      item.kind,
+      item.generics ?? "",
+      braced ? "" : item.body,
+    ].join(" "),
+  );
+  const members = Object.fromEntries(
+    (braced ? splitTop(item.body.slice(1, -1)) : []).flatMap((member) => {
+      const { attrs, rest } = readMember(member);
+      if (!rest) return [];
+      const name = /^(?:pub(?:\([^)]*\))?\s+)?([\w#]+)/.exec(rest)[1];
+      return [[name, plain([...attrs, rest].join(" "))]];
+    }),
+  );
+  const resolves = (name) => {
+    if (STD_TYPES.has(name) || name === item.name) return false;
+    try {
+      return lookup(item.file, name) === byClientName(name);
+    } catch {
+      return false;
+    }
+  };
+  const types = item.body
+    .replace(/\/\/.*$/gm, "")
+    .replace(/#\[[^\]]*\]/g, "")
+    .replace(/([{,]\s*)[A-Z]\w*(?=\s*[{(,}])/g, "$1");
+  const uses = [...new Set(types.match(/\b[A-Z]\w*/g))].filter(resolves);
+  return { rust, members, uses };
+}
+
+/** A declaration with its Rust beside it, or only its Rust and the types it names when the parser cannot read it. */
+function parseOrRust(item) {
+  const source = rustOf(item);
+  try {
+    return { ...parse(item), source };
+  } catch {
+    return { name: shapeName(item), kind: "rust", source, uses: source.uses };
+  }
+}
+
+/** What the phone reads of the core and sends it, for scripts/check-phone-compat.mjs. */
+function phoneShapes() {
+  const calls = coreCalls();
+  // An older phone build lacks the types added since, and so never reads them.
+  const read = [
+    ...TS_ROOTS,
+    ...PHONE_ROOTS,
+    ...GLANCE_ROOTS,
+    "ServerMessage",
+  ].filter((name) => declared.has(name));
+  const sent = ["ClientMessage"];
+  const roots = [
+    ...read,
+    ...sent,
+    ...calls.flatMap((call) => [...named(call.takes), ...named(call.gives)]),
+  ];
+  return {
+    protocol: {
+      version: Number(constant(`${WIRE}/protocol.rs`, "PROTOCOL_VERSION")),
+      oldest: Number(
+        constant(`${WIRE}/protocol.rs`, "OLDEST_PROTOCOL_VERSION"),
+      ),
+    },
+    calls,
+    read,
+    sent,
+    declarations: Object.fromEntries(
+      closure(roots, undefined, [], parseOrRust).map((d) => [d.name, d]),
+    ),
+  };
+}
+
+if (shapesOf) {
+  process.stdout.write(JSON.stringify(phoneShapes()));
+} else {
+  await emit(
+    OUTPUTS.ts,
+    `${typescript(TS_ROOTS, `${limits}\n${waits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
+  );
+  await emit(OUTPUTS.phone, await phoneSwift());
+  await emit(OUTPUTS.notch, swift());
+  await emit(OUTPUTS.cardSwift, cardSwift());
+  await emit(OUTPUTS.glanceSwift, glanceSwift);
+  await emit(OUTPUTS.cardKotlin, cardKotlin());
+}

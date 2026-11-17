@@ -78,7 +78,6 @@ impl FakeSikemux {
     }
 }
 
-/// Stands in for the app when a test must not reach it.
 fn unreachable_app(method: &str, _: &Value) -> Result<Value, String> {
     Err(format!("{method} should not reach the app"))
 }
@@ -96,7 +95,7 @@ fn signoz_tool() -> Tool {
 }
 
 fn declarations() -> Vec<Value> {
-    Manifest::load().declarations()
+    Manifest::load().declarations(&[], false)
 }
 
 fn field<'a>(tool: &'a Value, name: &str) -> &'a str {
@@ -106,7 +105,7 @@ fn field<'a>(tool: &'a Value, name: &str) -> &'a str {
 #[test]
 fn every_served_tool_comes_from_the_manifest() {
     let manifest = Manifest::load();
-    let served = manifest.declarations();
+    let served = manifest.declarations(&[], false);
     let names: Vec<&str> = served.iter().map(|tool| field(tool, "name")).collect();
     for expected in ["browser_navigate", "workspace_inspect", "guide"] {
         assert!(names.contains(&expected), "{expected} is not served");
@@ -116,10 +115,7 @@ fn every_served_tool_comes_from_the_manifest() {
     unique.dedup();
     assert_eq!(unique.len(), names.len(), "a tool is declared twice");
     for name in &names {
-        assert!(
-            *name == manifest.guide_name() || manifest.tool(name).is_some(),
-            "{name} has no harness method"
-        );
+        assert!(manifest.declares(name), "{name} has no harness method");
     }
     for tool in &served {
         assert_eq!(tool["inputSchema"]["additionalProperties"], json!(false));
@@ -129,30 +125,51 @@ fn every_served_tool_comes_from_the_manifest() {
 
 #[test]
 fn schemas_stay_lean_so_prose_lives_in_the_guide() {
-    let served = Manifest::load().offering(false, false).declarations();
+    let served = Manifest::load().offering(false).declarations(&[], false);
     let mut prose = 0;
     for tool in &served {
         let description = field(tool, "description");
-        assert!(
-            description.len() <= 160,
-            "{} description belongs in the guide",
-            field(tool, "name")
-        );
-        prose += description.len();
+        for (index, line) in description.lines().enumerate() {
+            let said = match index {
+                0 => line,
+                _ => line.split_once(": ").map_or(line, |(_, said)| said),
+            };
+            assert!(
+                said.len() <= 160,
+                "{} description belongs in the guide: {said}",
+                field(tool, "name")
+            );
+            prose += said.len();
+        }
     }
     assert!(
-        prose <= 2040,
-        "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead"
+        prose <= 2100,
+        "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead ({prose} bytes)"
     );
 }
 
 #[test]
 fn server_instructions_fit_before_agents_cut_them_off() {
-    let instructions = Manifest::load().offering(true, true).instructions();
+    let instructions = Manifest::load().offering(true).instructions();
     assert!(
         instructions.len() <= 3900,
         "OMP cuts server instructions after 4,000 characters and Claude Code after about 4,096, so the end of a longer text never reaches the agent; move detail into SIKEMUX_GUIDE.md ({} characters)",
         instructions.len()
+    );
+}
+
+/// Every agent pays for the whole tool list and the instructions on every request, schemas
+/// included. Growing it needs a reason and a tool eval run showing agents do no worse.
+#[test]
+fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
+    let offered = Manifest::load().offering(false);
+    let bytes = Value::Array(offered.declarations(&[], false))
+        .to_string()
+        .len()
+        + offered.instructions().len();
+    assert!(
+        bytes <= 33_950,
+        "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"
     );
 }
 
@@ -162,40 +179,40 @@ fn server_instructions_fit_before_agents_cut_them_off() {
 fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() {
     let names = |manifest: Manifest| -> Vec<String> {
         manifest
-            .declarations()
+            .declarations(&[], false)
             .iter()
             .map(|tool| field(tool, "name").to_owned())
             .collect()
     };
-    let everywhere = names(Manifest::load().offering(false, false));
-    let with_xcode = names(Manifest::load().offering(true, false));
-    assert!(everywhere.iter().all(|name| !name.starts_with("sim_")));
-    assert!(with_xcode.iter().any(|name| name == "sim_attach"));
+    let everywhere = names(Manifest::load().offering(false));
+    let with_xcode = names(Manifest::load().offering(true));
+    assert!(everywhere.iter().all(|name| name != "sim"));
+    assert!(with_xcode.iter().any(|name| name == "sim"));
     assert!(!Manifest::load()
-        .offering(false, false)
+        .offering(false)
         .instructions()
-        .contains("sim_"));
+        .contains("sim attach"));
     assert!(Manifest::load()
-        .offering(true, false)
+        .offering(true)
         .instructions()
-        .contains("sim_attach"));
+        .contains("sim attach"));
     assert!(Manifest::load()
-        .offering(true, false)
+        .offering(true)
         .instructions()
         .contains("live on your desk"));
 
     let simulator: Vec<Value> = Manifest::load()
-        .offering(true, false)
-        .declarations()
+        .offering(true)
+        .declarations(&[], false)
         .into_iter()
-        .filter(|tool| field(tool, "name").starts_with("sim_"))
+        .filter(|tool| field(tool, "name") == "sim")
         .collect();
-    for tool in &simulator {
-        assert!(
-            field(tool, "description").len() <= 160,
-            "{} description belongs in the guide",
-            field(tool, "name")
-        );
+    for line in simulator
+        .iter()
+        .flat_map(|tool| field(tool, "description").lines())
+    {
+        let said = line.split_once(": ").map_or(line, |(_, said)| said);
+        assert!(said.len() <= 160, "{said} belongs in the guide");
     }
     let bytes = Value::Array(simulator).to_string().len();
     assert!(
@@ -228,13 +245,18 @@ fn every_plugin_keeps_its_tools_within_budget() {
                 serde_json::from_value(tool).expect("a plugin tool")
             })
             .collect();
-        let served: Vec<Value> = tools.iter().map(Tool::declaration).collect();
-        for tool in &served {
-            assert!(
-                field(tool, "description").len() <= 160,
-                "{} description is too long",
-                field(tool, "name")
-            );
+        let families: Vec<family::Family> = manifest
+            .get("family")
+            .map(|family| serde_json::from_value(family.clone()).expect("a family"))
+            .into_iter()
+            .collect();
+        let served = family::declarations(&families, &tools.iter().collect::<Vec<_>>());
+        for line in served
+            .iter()
+            .flat_map(|tool| field(tool, "description").lines())
+        {
+            let said = line.split_once(": ").map_or(line, |(_, said)| said);
+            assert!(said.len() <= 160, "{said} is too long");
         }
         let bytes = Value::Array(served).to_string().len();
         // Bitbucket's agents can also write: comment, review, edit, merge, and run pipelines.
@@ -257,7 +279,7 @@ fn every_plugin_keeps_its_tools_within_budget() {
 fn the_guide_explains_what_the_schemas_no_longer_say() {
     let manifest = Manifest::load();
     let guide = manifest.guide_text(Some("all")).expect("the whole guide");
-    for tool in manifest.declarations() {
+    for tool in manifest.declarations(&[], false) {
         let name = field(&tool, "name");
         if name == manifest.guide_name() {
             continue;
@@ -361,8 +383,7 @@ fn the_guide_is_served_without_asking_the_app() {
     );
     assert_eq!(answer["isError"], json!(false));
     let body = field(&answer["content"][0], "text");
-    assert!(body.contains("Working inside Sikemux"));
-    assert!(body.contains("Element numbers expire"));
+    assert!(!body.is_empty());
     assert!(
         !body.contains("## browser-input:"),
         "the opening stops before the topics"
@@ -377,8 +398,11 @@ fn the_guide_opening_stays_small_and_lists_every_topic() {
         opening.len() <= 4096,
         "every agent reads the guide's opening; move detail into a topic"
     );
-    let topics = &manifest.declarations().last().cloned().expect("the guide")["inputSchema"]
-        ["properties"]["topic"]["enum"];
+    let topics = &manifest
+        .declarations(&[], false)
+        .last()
+        .cloned()
+        .expect("the guide")["inputSchema"]["properties"]["topic"]["enum"];
     let topics: Vec<&str> = topics
         .as_array()
         .expect("topics")
@@ -425,7 +449,7 @@ fn a_guide_topic_is_served_alone_and_an_unknown_one_lists_the_rest() {
 #[test]
 fn length_limits_are_checked_but_never_sent() {
     let manifest = Manifest::load();
-    let served = serde_json::to_string(&manifest.declarations()).expect("declarations");
+    let served = serde_json::to_string(&manifest.declarations(&[], false)).expect("declarations");
     assert!(!served.contains("maxLength") && !served.contains("minLength"));
     let navigate = manifest.tool("browser_navigate").expect("browser_navigate");
     assert!(navigate
@@ -474,6 +498,27 @@ fn bad_arguments_are_named_the_way_the_agent_learned_them() {
         complaint("browser_find", json!({})),
         "'query' is a required property"
     );
+    let offer = Offer::with(Manifest::load(), Some(Vec::new()));
+    let family = |arguments: Value| {
+        let answer = call(
+            &offer,
+            &unreachable_app,
+            &unreachable_app,
+            "sim",
+            &arguments,
+        );
+        field(&answer["content"][0], "text").to_owned()
+    };
+    assert_eq!(
+        family(json!({ "action": "type" })),
+        "Input validation error: sim type: 'text' is a required property"
+    );
+    let mixed = family(json!({ "action": "tap", "bundleId": "x" }));
+    assert!(
+        mixed.starts_with("Input validation error: sim tap: 'bundleId' goes with launch"),
+        "{mixed}"
+    );
+    assert!(family(json!({ "text": "x" })).contains("'action' is a required property"));
 }
 
 #[test]

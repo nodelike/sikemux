@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use serde::Deserialize;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 pub use sikemux_plugin_api::codehost::Repo;
 use sikemux_plugin_api::codehost::RepoListing;
@@ -18,20 +19,8 @@ pub fn slug(repo: &Repo) -> String {
     format!("{}/{}", repo.owner, repo.name)
 }
 
-/// Owner and repository names reach the API inside a path, so only the
-/// characters GitHub actually allows in one get through.
-fn valid_name(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_NAME
-        && value != "."
-        && value != ".."
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-}
-
 pub fn validate(owner: &str, name: &str) -> GithubResult<()> {
-    if valid_name(owner) && valid_name(name) {
+    if answers::valid_name(owner, MAX_NAME) && answers::valid_name(name, MAX_NAME) {
         return Ok(());
     }
     Err(GithubError::BadArg(format!(
@@ -57,12 +46,6 @@ impl RepoPath for RepoRef {
     }
 }
 
-/// An id GitHub's API takes as a number, refused before it reaches a path.
-pub fn number(id: &str) -> GithubResult<u64> {
-    id.parse()
-        .map_err(|_| GithubError::BadArg(format!("`{id}` is not an id")))
-}
-
 /// A field this plugin needs that the shared shape leaves optional.
 pub fn required<T>(field: Option<T>, name: &str) -> GithubResult<T> {
     field.ok_or_else(|| GithubError::BadArg(format!("missing field `{name}`")))
@@ -73,7 +56,10 @@ fn split_path(path: &str) -> Option<(String, String)> {
     let trimmed = trimmed.strip_suffix(".git").unwrap_or(trimmed);
     let (owner, name) = trimmed.split_once('/')?;
     // A nested path means this is not a plain `owner/repo` remote.
-    if name.contains('/') || !valid_name(owner) || !valid_name(name) {
+    if name.contains('/')
+        || !answers::valid_name(owner, MAX_NAME)
+        || !answers::valid_name(name, MAX_NAME)
+    {
         return None;
     }
     Some((owner.to_string(), name.to_string()))
@@ -131,19 +117,20 @@ struct RepoRow {
 /// The repositories the signed-in account can reach, most recently pushed
 /// first, so the ones somebody is actually working on come up.
 pub async fn mine(data_dir: &Path, limit: u32) -> GithubResult<Vec<RepoListing>> {
-    let rows: Vec<RepoRow> = client::get(
-        data_dir,
-        "/user/repos",
-        &[
-            ("per_page", limit.clamp(1, 100).to_string()),
-            ("sort", "pushed".to_string()),
-            (
-                "affiliation",
-                "owner,collaborator,organization_member".to_string(),
-            ),
-        ],
-    )
-    .await?;
+    let rows: Vec<RepoRow> = client::API
+        .get(
+            data_dir,
+            "/user/repos",
+            &[
+                ("per_page", limit.clamp(1, 100).to_string()),
+                ("sort", "pushed".to_string()),
+                (
+                    "affiliation",
+                    "owner,collaborator,organization_member".to_string(),
+                ),
+            ],
+        )
+        .await?;
     Ok(rows
         .into_iter()
         .map(|row| RepoListing {

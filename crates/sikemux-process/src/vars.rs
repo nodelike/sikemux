@@ -1,5 +1,13 @@
 //! The environment variables Sikemux sets for the programs it starts.
 
+/// The folder of the hooks the core hands agents.
+pub const AGENT_HOOKS: &str = "SIKEMUX_AGENT_HOOKS";
+/// The folder of the skills library an agent reads.
+pub const SKILLS_DIR: &str = "SIKEMUX_SKILLS_DIR";
+/// The socket of a core other than the usual one.
+pub const CORE_SOCKET: &str = "SIKEMUX_CORE_SOCKET";
+/// The accounts server of a build pointed at another.
+pub const API_URL: &str = "SIKEMUX_API_URL";
 pub const AGENT_ID: &str = "SIKEMUX_AGENT_ID";
 pub const AGENT_TYPE: &str = "SIKEMUX_AGENT_TYPE";
 pub const TOOLS_AGENT_ID: &str = "SIKEMUX_TOOLS_AGENT_ID";
@@ -9,10 +17,28 @@ pub const CONFIG_DIR: &str = "SIKEMUX_CONFIG_DIR";
 pub const LAUNCH_BEHIND: &str = "SIKEMUX_LAUNCH_BEHIND";
 pub const CLI_ENDPOINT_PUBLISH: &str = "SIKEMUX_CLI_ENDPOINT_PUBLISH";
 pub const REAL_GIT: &str = "SIKEMUX_REAL_GIT";
+/// Set for what a build runs while it holds its turn, so a build it starts does not wait for one.
+pub const BUILD_TURN: &str = "SIKEMUX_BUILD_TURN";
+/// `final` puts a heavy command ahead of others waiting, as a check before a commit; `normal`
+/// makes one the project marks final wait as any other.
+pub const PRIORITY: &str = "SIKEMUX_PRIORITY";
 pub const USER_ZDOTDIR: &str = "SIKEMUX_USER_ZDOTDIR";
+/// Set on an agent whose repository's remote has an identity of the agents' own, for its shell
+/// to drop [`PERSON_GITHUB_TOKENS`] again after the person's startup files set them.
+pub const GITHUB_TOKENS_WITHHELD: &str = "SIKEMUX_GITHUB_TOKENS_WITHHELD";
+pub const PERSON_GITHUB_TOKENS: [&str; 4] = [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+];
+/// Set on the git the core starts to forward a push, naming the credential that push may have.
+pub const PUSH_GRANT: &str = "SIKEMUX_PUSH_GRANT";
 pub const PROJECT: &str = "SIKEMUX_PROJECT";
 pub const SHELL: &str = "SIKEMUX_SHELL";
 pub const TOOLS_MCP_COMMAND: &str = "SIKEMUX_TOOLS_MCP_COMMAND";
+pub const PI_EXTENSION: &str = "SIKEMUX_PI_EXTENSION";
+pub const PI_PERMISSIONS: &str = "SIKEMUX_PI_PERMISSIONS";
 pub const TOOLS_MCP_ARGS: &str = "SIKEMUX_TOOLS_MCP_ARGS";
 pub const TASK_EXECUTION_ID: &str = "SIKEMUX_TASK_EXECUTION_ID";
 pub const TASK_TERMINAL_KEY: &str = "SIKEMUX_TASK_TERMINAL_KEY";
@@ -43,7 +69,7 @@ pub const CLAUDE_ENTRYPOINT: (&str, &str) = ("CLAUDE_CODE_ENTRYPOINT", "sikemux"
 /// agent's transcript saving off and hand it the session's messaging socket, its Claude home, and
 /// Sikemux's names for that session's agent, which Sikemux sets afresh for each program. Claude
 /// Code's own settings, such as `CLAUDE_CODE_USE_BEDROCK`, are the person's and go through.
-pub const LAUNCHING_SESSION: [&str; 17] = [
+pub const LAUNCHING_SESSION: [&str; 20] = [
     "CLAUDECODE",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT",
@@ -56,9 +82,34 @@ pub const LAUNCHING_SESSION: [&str; 17] = [
     CLAUDE_HOME,
     AGENT_ID,
     AGENT_TYPE,
-    "SIKEMUX_AGENT_HOOKS",
+    AGENT_HOOKS,
     TOOLS_AGENT_ID,
     CLI_ENDPOINT,
-    "SIKEMUX_SKILLS_DIR",
+    SKILLS_DIR,
     REAL_GIT,
+    BUILD_TURN,
+    GITHUB_TOKENS_WITHHELD,
+    PUSH_GRANT,
+];
+
+/// What the Linux AppImage sets so its own copies of GTK, GLib and GStreamer find their parts.
+/// A program the person runs would load the AppImage's parts with them, or open its windows
+/// through X11, so no terminal, agent or task Sikemux starts inherits them.
+pub const APPIMAGE_RUNTIME: [&str; 16] = [
+    "APPDIR",
+    "GDK_BACKEND",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GI_TYPELIB_PATH",
+    "GSETTINGS_SCHEMA_DIR",
+    "GST_PLUGIN_PATH_1_0",
+    "GST_PLUGIN_SCANNER_1_0",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+    "GST_PTP_HELPER_1_0",
+    "GST_REGISTRY_REUSE_PLUGIN_SCANNER",
+    "GTK_DATA_PREFIX",
+    "GTK_EXE_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GTK_PATH",
+    "GTK_THEME",
 ];

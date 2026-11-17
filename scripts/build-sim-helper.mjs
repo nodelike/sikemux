@@ -2,70 +2,39 @@
 
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   copyFileSync,
   existsSync,
-  mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { building, root } from "./lib/build.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { fail, run, hostTriple, finishHelper } = building("Simulator helper");
+
 const simDir = join(root, "helpers", "sim");
 const idbDir = join(simDir, "idb");
 const buildDir = join(simDir, ".build");
 const args = process.argv.slice(2);
 const dev = args.includes("--dev");
 const name = "sikemux-sim";
-const deploymentTarget = "15.0";
+const deploymentTarget = `${
+  readFileSync(join(simDir, "Package.swift"), "utf8").match(
+    /\.macOS\(\.v(\d+)\)/,
+  )[1]
+}.0`;
 
 const frameworks = join(simDir, "Frameworks");
-
-function fail(message) {
-  console.error(`Simulator helper build failed: ${message}`);
-  process.exit(1);
-}
 
 // `make dev` builds the app without the simulator helper on a Mac that cannot build it.
 function missing(message) {
   if (!dev) fail(message);
   console.warn(`- skipping the simulator helper: ${message}`);
   process.exit(0);
-}
-
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    cwd: options.cwd ?? root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...options.env },
-    stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
-  });
-  if (result.error) fail(`${command}: ${result.error.message}`);
-  if (result.status !== 0)
-    fail(`${command} exited with status ${result.status}`);
-  return result.stdout?.trim() ?? "";
-}
-
-function option(flag) {
-  const exact = args.indexOf(flag);
-  if (exact >= 0) return args[exact + 1] ?? "";
-  return (
-    args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? ""
-  );
-}
-
-function hostTriple() {
-  const details = run("rustc", ["-vV"], { capture: true });
-  const host = details.match(/^host:\s*(\S+)$/m)?.[1];
-  if (!host) fail("could not determine the Rust host target");
-  return host;
 }
 
 function filesIn(dir) {
@@ -86,18 +55,14 @@ function fingerprint(paths, extra = []) {
   return hash.digest("hex");
 }
 
-const target = option("--target") || hostTriple();
+const target = hostTriple();
 if (!target.includes("apple-darwin")) {
   console.log(`- ${name} skipped: the iOS Simulator is macOS only`);
   process.exit(0);
 }
 
-const archs = {
-  "aarch64-apple-darwin": ["arm64"],
-  "x86_64-apple-darwin": ["x86_64"],
-  "universal-apple-darwin": ["arm64", "x86_64"],
-}[target];
-if (!archs) fail(`unsupported target ${target}`);
+if (target !== "aarch64-apple-darwin")
+  fail(`${name} needs a Mac with Apple Silicon, not ${target}`);
 
 function canBuildSimulators(dir) {
   return existsSync(join(dir, "Platforms", "iPhoneSimulator.platform"));
@@ -120,20 +85,17 @@ if (xcodebuild.status !== 0)
     `xcodebuild cannot run (${(xcodebuild.stderr || xcodebuild.error?.message || "").trim().split("\n")[0]}); open Xcode once to finish setting it up`,
   );
 const xcodeVersion = xcodebuild.stdout.trim();
-// A dev build makes FBControlCore for this Mac alone; a release needs both.
-const frameworkArchs = dev ? archs : ["arm64", "x86_64"];
-
 // FBControlCore's Swift and Objective-C halves import each other, which one
 // SwiftPM target cannot hold, so XcodeGen and xcodebuild build it into the
 // xcframework Package.swift links. It is rebuilt only when its sources, its
-// spec, the Xcode or the architectures change.
+// spec or the Xcode change.
 function buildFBControlCore() {
   const spec = join(simDir, "FBControlCore.yml");
   const xcframework = join(frameworks, "FBControlCore.xcframework");
   const stamp = join(frameworks, "FBControlCore.fingerprint");
   const current = fingerprint(
     [join(idbDir, "FBControlCore"), spec],
-    [xcodeVersion, ...frameworkArchs],
+    [xcodeVersion, "arm64"],
   );
   const archive = join(frameworks, "FBControlCore.a");
   if (
@@ -163,7 +125,7 @@ function buildFBControlCore() {
       "macosx",
       "-quiet",
       "-skipMacroValidation",
-      `ARCHS=${frameworkArchs.join(" ")}`,
+      "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
       "ENABLE_USER_SCRIPT_SANDBOXING=NO",
       `SYMROOT=${join(xcode, "products")}`,
@@ -185,7 +147,7 @@ function buildFBControlCore() {
     ],
     { env },
   );
-  // The same archive at a path that does not depend on its architectures, for Package.swift to force-load.
+  // The same archive at a path of its own, for Package.swift to force-load.
   copyFileSync(
     join(
       xcode,
@@ -199,10 +161,8 @@ function buildFBControlCore() {
   writeFileSync(stamp, current);
 }
 
-// One build per architecture: building both in one `swift build` switches to
-// Xcode's build system, which links FBControlCore into the executable twice.
-function buildHelper(arch) {
-  const triple = `${arch}-apple-macosx${deploymentTarget}`;
+function buildHelper() {
+  const triple = `arm64-apple-macosx${deploymentTarget}`;
   const swiftArgs = [
     "build",
     "-c",
@@ -223,35 +183,8 @@ function buildHelper(arch) {
 }
 
 buildFBControlCore();
-const built = archs.map(buildHelper);
-const destination = args.includes("--dev")
-  ? join(root, "target", "debug", name)
-  : join(root, "packaging", "binaries", `${name}-${target}`);
-mkdirSync(dirname(destination), { recursive: true });
-if (built.length === 1) copyFileSync(built[0], destination);
-else run("lipo", ["-create", ...built, "-output", destination]);
-chmodSync(destination, 0o755);
-run("strip", ["-x", destination]);
-
-const loadCommands = run("otool", ["-l", destination], { capture: true });
-const toolchainPaths = [
-  ...loadCommands.matchAll(/^\s+path (\/Applications\/\S+) \(offset \d+\)$/gm),
-].map((match) => match[1]);
-for (const path of new Set(toolchainPaths))
-  run("install_name_tool", ["-delete_rpath", path, destination]);
-
-// Like the voice helper, signed ad hoc to run here and signed again by the release.
-if (!args.includes("--dev")) {
-  run("bash", [join(root, "scripts", "sign-helper.sh"), destination], {
-    env: { APPLE_SIGNING_IDENTITY: "-" },
-  });
-}
-
-if (target === hostTriple() || target === "universal-apple-darwin") {
-  const version = run(destination, ["--version"], { capture: true });
-  if (!version.startsWith(name))
-    fail(`unexpected --version output: ${version}`);
-}
+const built = buildHelper();
+const destination = finishHelper(built, name, target, { dev });
 
 const size = (statSync(destination).size / 1024 / 1024).toFixed(1);
 console.log(

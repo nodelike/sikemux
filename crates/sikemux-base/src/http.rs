@@ -2,6 +2,7 @@
 //! machine or its network, and fetching a remote image for a client, which
 //! draws images handed to it inline.
 
+use std::error::Error as _;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -436,4 +437,42 @@ mod tests {
         );
         assert_eq!(sniff(b"<!doctype html><html>"), None);
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Unreachable {
+    /// No connection could be made: no network, no DNS, or nothing answering.
+    Offline,
+    /// The connection was made but nothing came back in time.
+    Timeout,
+}
+
+/// Words in an error's causes that mean the network, not the service, failed.
+const UNREACHABLE_CAUSES: [&str; 7] = [
+    "dns error",
+    "failed to lookup address",
+    "network is unreachable",
+    "network is down",
+    "no route to host",
+    "connection refused",
+    "not connected to the internet",
+];
+
+/// Whether a request failed for want of the network, and how.
+pub fn unreachable(error: &reqwest::Error) -> Option<Unreachable> {
+    if error.is_timeout() {
+        return Some(Unreachable::Timeout);
+    }
+    if error.is_connect() {
+        return Some(Unreachable::Offline);
+    }
+    let mut cause = error.source();
+    while let Some(inner) = cause {
+        let said = inner.to_string().to_lowercase();
+        if UNREACHABLE_CAUSES.iter().any(|words| said.contains(words)) {
+            return Some(Unreachable::Offline);
+        }
+        cause = inner.source();
+    }
+    None
 }

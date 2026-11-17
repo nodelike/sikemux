@@ -1,0 +1,24 @@
+{
+  "generation": 2,
+  "recoveryKey": "1e0c9a8b7d6f5e4c3b2a19081726354453627180918a7b6c5d4e3f2a1b0c9d8e",
+  "recoveryWrap": "Z2VuLTI_d3JhcHBlZC1rZXktZm9yLWhvc3Q",
+  "key": "Z2VuLTI_d3JhcHBlZC1rZXktZm9yLWhvc3Q",
+  "holders": [
+    "a3f1c2d4e5b60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"
+  ],
+  "waiting": [
+    "0f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff1"
+  ],
+  "rotate": false,
+  "entries": [
+    {
+      "id": "9b2f4c1a7e3d5068b1c2d3e4f5a6b7c8",
+      "plugin": "sikemux.github",
+      "generation": 2,
+      "sealed": "q8Lw0sVb3mZ-_pX4yT2nH1aKcE7uRjF9",
+      "revision": 3,
+      "updatedBy": "a3f1c2d4e5b60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "updatedAt": "2026-11-11T09:30:00.000Z"
+    }
+  ]
+}

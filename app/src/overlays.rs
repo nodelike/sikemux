@@ -2,114 +2,102 @@
 //! title being edited. Each is held here, and [`Overlay`] says of each what it does with the keys
 //! and where it draws, so the window answers what is open from one list.
 
-use gpui_kit::Entity;
+use gpui_kit::{AnyElement, Context, Entity, IntoElement};
 
-use crate::workbench::{Asking, Retitling};
+use crate::agents::retitle::Retitling;
+use crate::asking::Asking;
+use crate::workbench::Workbench;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Overlay {
-    Asking,
-    Palette,
-    Finder,
-    Switcher,
-    AddingTask,
-    AddingProvider,
-    BuddyPicker,
-    Sharing,
-    RunCheck,
-    SpaceEditor,
-    Experience,
-    CommandPopup,
-    Retitling,
-}
-
-/// Where an overlay draws.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
     /// The pickers, in their own part over the stage.
     Finder,
     /// Over the whole window, in the part that covers it.
     Over,
-    /// Where it belongs: a dialog over the window, a card on the stage, a field in a row.
+    /// A dialog over the window, in the order this table lists them.
+    Dialog,
+    /// Where it belongs: a card on the stage, a field in a row, a question.
     InPlace,
 }
 
-impl Overlay {
-    /// Whether the keyboard stays with it while it is open, rather than going back to the view in
-    /// front when nothing drawn holds it. A held-back task's card sits on the Run chip and asks
-    /// nothing of the keys.
-    pub fn takes_keys(self) -> bool {
-        self != Overlay::RunCheck
-    }
-
-    pub fn layer(self) -> Layer {
-        match self {
-            Overlay::Palette | Overlay::Finder | Overlay::Switcher => Layer::Finder,
-            Overlay::Experience | Overlay::CommandPopup => Layer::Over,
-            Overlay::Asking
-            | Overlay::AddingTask
-            | Overlay::AddingProvider
-            | Overlay::BuddyPicker
-            | Overlay::Sharing
-            | Overlay::RunCheck
-            | Overlay::SpaceEditor
-            | Overlay::Retitling => Layer::InPlace,
+macro_rules! overlays {
+    ($(
+        $(#[$doc:meta])*
+        $field:ident: $held:ty => $overlay:ident, $layer:ident, $keys:literal $(, $draw:path)?;
+    )*) => {
+        #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+        pub enum Overlay {
+            $($overlay,)*
         }
-    }
+
+        impl Overlay {
+            /// Whether the keyboard stays with it while it is open, rather than going back to the
+            /// view in front when nothing drawn holds it.
+            pub fn takes_keys(self) -> bool {
+                match self {
+                    $(Overlay::$overlay => $keys,)*
+                }
+            }
+
+            pub fn layer(self) -> Layer {
+                match self {
+                    $(Overlay::$overlay => Layer::$layer,)*
+                }
+            }
+        }
+
+        /// Draws the dialogs open, each from its row of the table.
+        pub fn dialogs(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
+            let mut drawn = Vec::new();
+            $($(drawn.extend($draw(bench, cx).map(IntoElement::into_any_element));)?)*
+            drawn
+        }
+
+        #[derive(Default)]
+        pub struct Overlays {
+            $($(#[$doc])* pub $field: Option<$held>,)*
+        }
+
+        impl Overlays {
+            pub fn open(&self) -> impl Iterator<Item = Overlay> {
+                [$((self.$field.is_some(), Overlay::$overlay),)*]
+                    .into_iter()
+                    .filter_map(|(open, overlay)| open.then_some(overlay))
+            }
+        }
+    };
 }
 
-#[derive(Default)]
-pub struct Overlays {
+overlays! {
     /// The question the shell is putting to the person, over the window.
-    pub(crate) asking: Option<Asking>,
-    pub palette: Option<crate::palette::Palette>,
-    pub finder: Option<crate::finder::Finder>,
-    pub switcher: Option<crate::switcher::Switcher>,
-    /// The task the person is writing in the Add a task dialog, while it is open.
-    pub adding_task: Option<crate::add_task::AddTask>,
-    pub adding_provider: Option<crate::add_provider::AddProvider>,
-    pub buddy_picker: Option<crate::buddy_picker::BuddyPicker>,
-    pub sharing: Option<crate::share::Sharing>,
-    /// A task its checks held back, waiting on the person.
-    pub run_check: Option<crate::run_check::RunCheck>,
+    asking: Asking => Asking, InPlace, true;
+    palette: crate::palette::Palette => Palette, Finder, true;
+    finder: crate::pickers::finder::Finder => Finder, Finder, true;
+    switcher: crate::pickers::switcher::PlaceSwitcher => Switcher, Finder, true;
+    /// The process the person is writing in the Add a process dialog, while it is open.
+    adding_task: crate::tasks::add_task::AddTask => AddingTask, Dialog, true, crate::tasks::add_task::view;
+    adding_provider: crate::add_provider::AddProvider => AddingProvider, Dialog, true, crate::add_provider::view;
+    buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, Dialog, true, crate::buddy_picker::view;
+    sharing: crate::share::Sharing => Sharing, Dialog, true, crate::share::view;
+    /// A task its checks held back, waiting on the person. Its card hangs under the top bar and
+    /// asks nothing of the keys.
+    run_check: crate::tasks::run_check::RunCheck => RunCheck, InPlace, false;
     /// Edit Spaces, while it is open under the space switch.
-    pub space_editor: Option<Entity<crate::space_editor::SpaceEditor>>,
+    space_editor: Entity<crate::space_editor::SpaceEditor> => SpaceEditor, InPlace, true;
     /// The welcome, the release notes or the diagnostics.
-    pub experience: Option<crate::experience::Experience>,
+    experience: crate::screens::experience::Experience => Experience, Over, true;
     /// A custom command running in a terminal over the window.
-    pub command_popup: Option<crate::command_popup::Popup>,
+    command_popup: crate::command_popup::Popup => CommandPopup, Over, true;
     /// The agent whose title is being edited in place, in its header or its rail row.
-    pub retitling: Option<Retitling>,
+    retitling: Retitling => Retitling, InPlace, true;
 }
 
 impl Overlays {
-    /// Every overlay open now.
-    pub fn open(&self) -> impl Iterator<Item = Overlay> {
-        [
-            (self.asking.is_some(), Overlay::Asking),
-            (self.palette.is_some(), Overlay::Palette),
-            (self.finder.is_some(), Overlay::Finder),
-            (self.switcher.is_some(), Overlay::Switcher),
-            (self.adding_task.is_some(), Overlay::AddingTask),
-            (self.adding_provider.is_some(), Overlay::AddingProvider),
-            (self.buddy_picker.is_some(), Overlay::BuddyPicker),
-            (self.sharing.is_some(), Overlay::Sharing),
-            (self.run_check.is_some(), Overlay::RunCheck),
-            (self.space_editor.is_some(), Overlay::SpaceEditor),
-            (self.experience.is_some(), Overlay::Experience),
-            (self.command_popup.is_some(), Overlay::CommandPopup),
-            (self.retitling.is_some(), Overlay::Retitling),
-        ]
-        .into_iter()
-        .filter_map(|(open, overlay)| open.then_some(overlay))
-    }
-
     /// Whether an open overlay keeps the keyboard.
     pub fn take_keys(&self) -> bool {
         self.open().any(Overlay::takes_keys)
     }
 
-    /// Whether an overlay is open in `layer`.
     pub fn in_layer(&self, layer: Layer) -> bool {
         self.open().any(|overlay| overlay.layer() == layer)
     }

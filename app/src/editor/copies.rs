@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use gpui_kit::AppContext;
-use serde_json::json;
 
 use super::{Editors, FileKey};
 use crate::core::Target;
+use sikemux_calls::call;
+use sikemux_git::files::FileBytesParams;
 
 /// The most the copies take together; the oldest go first to make room.
 const CAP: u64 = 512 * 1024 * 1024;
@@ -54,8 +55,6 @@ fn root() -> PathBuf {
     std::env::temp_dir().join(format!("{FOLDER}{}", std::process::id()))
 }
 
-/// Each copy sits in a folder of its own under its file's name, so its own app knows
-/// the file by it, and a fresh copy never takes a path a picture was drawn from.
 fn remove(path: &Path) {
     if let Some(folder) = path.parent() {
         let _ = fs::remove_dir_all(folder);
@@ -72,13 +71,11 @@ fn clear_abandoned() {
         let Some(pid) = name
             .to_str()
             .and_then(|name| name.strip_prefix(FOLDER))
-            .and_then(|pid| pid.parse::<libc::pid_t>().ok())
+            .and_then(|pid| pid.parse::<u32>().ok())
         else {
             continue;
         };
-        let running = unsafe { libc::kill(pid, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        if !running {
+        if sikemux_process::procs::started(pid).is_none() {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
@@ -94,7 +91,7 @@ pub(super) async fn bring(
     cx: &mut gpui_kit::AsyncApp,
 ) -> Result<PathBuf, String> {
     if size > CAP {
-        return Err("This file is too large to bring over from its host.".into());
+        return Err(t!("This file is too large to bring over from its host.").into());
     }
     let made = editors
         .update(cx, |editors, cx| {
@@ -111,11 +108,13 @@ pub(super) async fn bring(
             copies.made += 1;
             copies.made
         })
-        .map_err(|_| "The window closed.".to_owned())?;
+        .map_err(|_| t!("The window closed.").to_owned())?;
     let name = key
         .path
         .file_name()
         .map_or_else(|| "file".into(), |name| name.to_owned());
+    // Each copy sits in a folder of its own under its file's name, so its own app knows
+    // the file by it, and a fresh copy never takes a path a picture was drawn from.
     let path = root().join(made.to_string()).join(name);
     let written = fetch(&target, &key, &path, cx).await;
     if let Err(error) = written {
@@ -125,7 +124,7 @@ pub(super) async fn bring(
     let kept = path.clone();
     editors
         .update(cx, |editors, _| editors.copies.keep(key, kept, size))
-        .map_err(|_| "The window closed.".to_owned())?;
+        .map_err(|_| t!("The window closed.").to_owned())?;
     Ok(path)
 }
 
@@ -147,10 +146,13 @@ async fn fetch(
     let name = key.path.to_string_lossy().into_owned();
     let mut at = 0;
     loop {
-        let read = json!({ "path": name, "at": at, "length": PIECE });
-        let piece = target.request("files.bytes", read).await?;
-        let size = piece["size"].as_u64().unwrap_or(0);
-        let encoded = piece["base64"].as_str().unwrap_or_default().to_owned();
+        let read = FileBytesParams {
+            path: name.clone(),
+            at,
+            length: PIECE,
+        };
+        let piece = target.request_typed::<call::FilesBytes>(read).await?;
+        let (size, encoded) = (piece.size, piece.base64);
         let (written, returned) = cx
             .background_spawn(async move {
                 let written = base64::engine::general_purpose::STANDARD
@@ -171,7 +173,7 @@ async fn fetch(
             break;
         }
         if at > CAP {
-            return Err("This file is too large to bring over from its host.".into());
+            return Err(t!("This file is too large to bring over from its host.").into());
         }
     }
     let mut readable = file

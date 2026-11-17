@@ -45,13 +45,7 @@ fn manifest_hash() -> String {
 fn published_helper() -> Option<&'static PinnedFile> {
     static HELPER: OnceLock<Option<PinnedFile>> = OnceLock::new();
     HELPER
-        .get_or_init(|| {
-            PinnedFile::recorded(
-                option_env!("SIKEMUX_HELPER_ASSET"),
-                option_env!("SIKEMUX_HELPER_SIZE"),
-                option_env!("SIKEMUX_HELPER_SHA256"),
-            )
-        })
+        .get_or_init(|| sikemux_base::recorded_helper!())
         .as_ref()
 }
 
@@ -67,7 +61,6 @@ fn models_verified(dir: &Path) -> bool {
     std::fs::read_to_string(dir.join(VERIFIED_MARKER)).is_ok_and(|hash| hash == manifest_hash())
 }
 
-/// Why the models or the helper are not in place.
 #[derive(Debug)]
 pub enum Missing {
     /// The network is unreachable; the download carries on when it is back.
@@ -79,7 +72,7 @@ impl From<DownloadError> for Missing {
     fn from(error: DownloadError) -> Self {
         match &error {
             DownloadError::Request(request)
-                if sikemux_plugin_api::unreachable(request).is_some() =>
+                if sikemux_base::http::unreachable(request).is_some() =>
             {
                 Missing::Offline
             }

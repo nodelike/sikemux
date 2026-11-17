@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { problem as problemOf } from '@/core/problem';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { goHome } from '@/ui/navigate';
 import { Button } from '@/ui/controls';
@@ -11,6 +12,7 @@ import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { forgetBackdrop } from './backdrop';
 import { forget } from './hub';
+import { forgotHost } from './hostJoins';
 import { deviceKind, deviceName, type PairedDevice } from './paired';
 
 /** Forgets a host and goes back to Devices; a failure stays to be shown. */
@@ -26,6 +28,7 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
     setForgetting(true);
     setProblem(undefined);
     try {
+      forgotHost(device.core);
       await forget(device.core);
     } catch (error) {
       busy.current = false;
@@ -46,11 +49,11 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
   return { forgetting, problem, leave };
 }
 
-/** The device screen's options: who may connect to the host, and forgetting it. */
 export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice; visible: boolean; onClose: () => void }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { forgetting, problem, leave } = useForget(device, onClose);
-  const name = deviceName(device);
+  const name = deviceName(device, t);
 
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -63,7 +66,7 @@ export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice
         </View>
         {device.access === 'full' ? (
           <Button
-            title="Paired devices"
+            title={t('Paired devices')}
             onPress={() => {
               onClose();
               router.push(`/device/${device.core}/pairing`);
@@ -74,7 +77,7 @@ export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice
         <Button
           kind="danger"
           icon="IconTrash"
-          title={forgetting ? 'Forgetting…' : 'Forget this host'}
+          title={forgetting ? t('Forgetting…') : t('Forget this host')}
           onPress={leave}
           disabled={forgetting}
           style={styles.button}

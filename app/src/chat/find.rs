@@ -8,7 +8,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{AppContext, Context, Entity, Focusable, Subscription, Window};
 use gpui_transcript::Query;
-use sikemux_core::server::{FindAnswer, FindAt, FindDirection, FindHit, FindParams};
+use sikemux_calls::chat_find::FindAnswer;
+use sikemux_calls::chat_find::FindAt;
+use sikemux_calls::chat_find::FindDirection;
+use sikemux_calls::chat_find::FindHit;
+use sikemux_calls::chat_find::FindParams;
 
 use crate::core::ChatAsk;
 use crate::ui::FindBar;
@@ -19,7 +23,6 @@ const HITS: usize = 200;
 /// Counting stops here, and the bar says 999+.
 const MOST_COUNTED: u64 = 1000;
 
-/// The find bar of a chat, while it is open.
 pub struct Finding {
     input: Entity<InputState>,
     match_case: bool,
@@ -106,7 +109,7 @@ impl Workbench {
             return;
         };
         if chat.finding.is_none() {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in chat"));
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find in chat")));
             let typed = {
                 let agent = agent.to_owned();
                 cx.subscribe(&input, move |bench, _, event: &InputEvent, cx| {
@@ -130,6 +133,37 @@ impl Workbench {
             finding.input.read(cx).focus_handle(cx).focus(window, cx);
         }
         self.parts.redraw_stage(cx);
+    }
+
+    /// Opens `agent`'s find bar on the words it said, as soon as its chat is attached: now,
+    /// or when the core's rows for it come. `find` sets the words to look for.
+    pub fn find_once_attached(
+        &mut self,
+        agent: String,
+        find: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(find) = find {
+            self.chats.finds.insert(agent.clone(), find);
+        }
+        let attached = (self.chats.open.get(&agent)).is_some_and(|chat| chat.mark.is_some());
+        let Some(text) = self.chats.finds.remove(&agent).filter(|_| attached) else {
+            return;
+        };
+        let window = self.window_handle();
+        cx.spawn(async move |this, cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                this.update(cx, |bench, cx| {
+                    bench.open_find(&agent, window, cx);
+                    if let Some(finding) = bench.finding_mut(&agent) {
+                        let input = finding.input.clone();
+                        input.update(cx, |input, cx| input.set_value(text, window, cx));
+                    }
+                    bench.search(&agent, cx);
+                })
+            });
+        })
+        .detach();
     }
 
     /// Looks for what the bar holds, as its options say, in the rows held and across the chat.
@@ -336,7 +370,7 @@ pub fn bar(
         (Some(whole), _) => whole,
         (None, (current, total)) if total > 0 => format!("{}/{total}", current + 1),
         _ if finding.input.read(cx).value().is_empty() => "0/0".to_owned(),
-        _ => "No results".to_owned(),
+        _ => t!("No results").to_owned(),
     };
     let this = cx.weak_entity();
     let on = |act: fn(&mut Workbench, &str, &mut Window, &mut Context<Workbench>)| {

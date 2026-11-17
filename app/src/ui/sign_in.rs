@@ -2,6 +2,7 @@
 //! column in the middle, the service's mark raised in a tile, what signing in gives, the form,
 //! and the quieter ways round below it.
 
+use crate::ui::Clicks;
 use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputState};
@@ -14,15 +15,15 @@ use gpui_kit::{
 
 use super::text;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_3, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6,
+    self, radius_2, radius_3, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6,
     TEXT_2XS, TEXT_LG, TEXT_SM, TEXT_XS,
 };
 
 /// Where a service's sign-in says the token it takes is kept.
 #[cfg(target_os = "macos")]
-pub const KEPT: &str = "Sikemux keeps your sign-in in the macOS Keychain.";
+pub const KEPT: &str = n!("Sikemux keeps your sign-in in the macOS Keychain.");
 #[cfg(not(target_os = "macos"))]
-pub const KEPT: &str = "Sikemux keeps your sign-in where only Sikemux can read it.";
+pub const KEPT: &str = n!("Sikemux keeps your sign-in where only Sikemux can read it.");
 
 const COLUMN: f32 = 340.;
 const TILE: f32 = 56.;
@@ -90,8 +91,8 @@ impl RenderOnce for Screen {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(RADIUS_3)
-            .border_1()
+            .rounded(radius_3())
+            .border(crate::theme::border())
             .border_color(t.border)
             .bg(linear_gradient(
                 180.,
@@ -155,7 +156,6 @@ pub struct Field {
     label: SharedString,
     state: Entity<InputState>,
     mono: bool,
-    hint: Option<SharedString>,
 }
 
 impl Field {
@@ -164,19 +164,12 @@ impl Field {
             label: label.into(),
             state: state.clone(),
             mono: false,
-            hint: None,
         }
     }
 
     /// For a key, a token or an address, typed as the machine reads it.
     pub fn mono(mut self) -> Self {
         self.mono = true;
-        self
-    }
-
-    /// Where to find what goes in it, under the box.
-    pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
-        self.hint = Some(hint.into());
         self
     }
 }
@@ -197,8 +190,8 @@ impl RenderOnce for Field {
                     .h(px(30.))
                     .flex()
                     .items_center()
-                    .rounded(RADIUS_2)
-                    .border_1()
+                    .rounded(radius_2())
+                    .border(crate::theme::border())
                     .border_color(match focused {
                         true => t.border_selected,
                         false => t.border,
@@ -207,7 +200,7 @@ impl RenderOnce for Field {
                     .text_color(t.text_primary)
                     .map(|field| match self.mono {
                         true => field
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(theme::ui_text(TEXT_XS)),
                         false => field.text_size(theme::ui_text(TEXT_SM)),
                     })
@@ -218,68 +211,12 @@ impl RenderOnce for Field {
                             .child(Input::new(&self.state).appearance(false).bordered(false)),
                     ),
             )
-            .children(self.hint.map(|hint| {
-                div()
-                    .text_size(theme::ui_text(TEXT_2XS))
-                    .line_height(theme::ui_text(16.5))
-                    .text_color(t.text_tertiary)
-                    .child(hint)
-            }))
     }
 }
 
 /// What a box in the form is for, over it.
 pub fn label(words: impl Into<SharedString>, cx: &App) -> Div {
     text(words, TEXT_2XS, FontWeight::MEDIUM).text_color(Tokens::get(cx).text_tertiary)
-}
-
-/// `control` under its label, across the column, for a pick that is not typed.
-pub fn labelled(words: impl Into<SharedString>, control: impl IntoElement, cx: &App) -> Div {
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
-        .text_left()
-        .child(label(words, cx))
-        .child(control)
-}
-
-/// An address already given, as a box with what answered there and the way to change it.
-pub fn address(
-    shown: impl Into<SharedString>,
-    meta: Option<SharedString>,
-    change: Stateful<Div>,
-    cx: &App,
-) -> Div {
-    let t = Tokens::get(cx);
-    div()
-        .w_full()
-        .h(px(30.))
-        .px(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(RADIUS_2)
-        .border_1()
-        .border_color(t.border)
-        .bg(tint(t))
-        .text_left()
-        .child(
-            text(shown, TEXT_XS, FontWeight::NORMAL)
-                .min_w_0()
-                .truncate()
-                .font_family(theme::MONO)
-                .text_color(t.text_primary),
-        )
-        .children(meta.map(|meta| {
-            text(meta, TEXT_2XS, FontWeight::NORMAL)
-                .flex_none()
-                .font_family(theme::MONO)
-                .text_color(t.live)
-        }))
-        .child(div().flex_1())
-        .child(change)
 }
 
 /// A quiet way round the form, as words that underline under the pointer.
@@ -320,17 +257,17 @@ pub fn waiting(
         .items_center()
         .justify_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
-        .border_1()
+        .rounded(radius_2())
+        .border(crate::theme::border())
         .border_color(t.border)
         .text_size(theme::ui_text(TEXT_SM))
         .text_color(t.text_secondary)
         .child(spinner(id, cx))
         .child(words.into())
         .child(
-            link(SharedString::from(format!("{id}-cancel")), "Cancel", cx)
+            link(SharedString::from(format!("{id}-cancel")), t!("Cancel"), cx)
                 .ml(SPACE_1)
-                .on_click(cancel),
+                .clicks(cancel),
         )
 }
 
@@ -368,18 +305,13 @@ pub fn error(words: impl Into<SharedString>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Something to know before signing in, in the warning colour.
-pub fn warning(words: impl Into<SharedString>, cx: &App) -> Div {
-    callout(Tokens::get(cx).warn).child(words.into())
-}
-
 fn callout(tone: Hsla) -> Div {
     div()
         .w_full()
         .px(SPACE_3)
         .py(SPACE_2)
-        .rounded(RADIUS_2)
-        .border_1()
+        .rounded(radius_2())
+        .border(crate::theme::border())
         .border_color(tone.opacity(0.34))
         .bg(tone.opacity(0.08))
         .text_left()
@@ -461,15 +393,14 @@ fn choice_box(id: impl Into<ElementId>, ink: Hsla, t: &Tokens) -> Stateful<Div> 
         .flex()
         .items_center()
         .cursor_pointer()
-        .rounded(RADIUS_2)
-        .border_1()
+        .rounded(radius_2())
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(tint(t))
         .text_color(t.text_primary)
         .hover(move |choice| choice.bg(hover).border_color(strong).text_color(ink))
 }
 
-/// Choices one under another, across the column.
 pub fn choices() -> Div {
     div().w_full().flex().flex_col().gap(SPACE_1H)
 }

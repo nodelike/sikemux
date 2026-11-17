@@ -1,0 +1,69 @@
+---
+title: Connectors
+description: "The services your agents reach for you, and where you sign in to them."
+---
+
+Connectors give your agents tools for the services you work with: GitHub, GitLab, Bitbucket and Forgejo, Jira and Linear, Slack, Vercel, Google Play, AWS, SigNoz, Rundeck, and the databases you saved. You don't open these services in Sikemux. You ask an agent, and it uses the connector's tools on your behalf, signed in as you.
+
+## Settings → Connectors
+
+**Settings → Connectors** lists every connector with whether it's signed in and as whom.
+
+- **Sign in** opens the connector's sign-in: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. Sikemux keeps the sign-in in the macOS Keychain, and in your account's vault when you're signed in.
+- **Sign out** forgets it.
+- The switch turns a connector off. Agents lose its tools, and it costs nothing until you turn it back on.
+
+Rundeck and SigNoz sign in with a token or a key, or switch the form to a password: a username and password for Rundeck, an email and password for SigNoz. Rundeck's **Allow plain HTTP on a private network** lets it reach a server without HTTPS, and only while every address that server resolves to is private or loopback.
+
+A few connectors keep settings that only you change, never an agent:
+
+- **AWS** has no token form. Pick the profile from `~/.aws/config` to sign in with, and Sikemux opens its single sign-on in your browser, or in the browser **Settings → Single sign-on** names. **Profile agents start on** sets `AWS_PROFILE` for every agent, unless your own shell sets one.
+- **Rundeck** keeps **Production words**: a job whose project or top folder holds one of them counts as production, and an agent has to ask you before it runs one. **Branch options** names the job options that say which branch a run deploys.
+- **Google Play** signs in with a service account's JSON key: type the path to the file you downloaded from Google Cloud, and Sikemux copies the key into the Keychain, so you can delete the file. Invite the service account in Play Console, under **Users and permissions**, with release rights for your apps. Agents can then read an app's tracks, make or keep an upload keystore whose password only Sikemux holds, sign a bundle with it, and upload a bundle to a track.
+- **Forgejo** serves Gitea too, since Forgejo keeps Gitea's API. Its **Server** is Codeberg unless you type another, such as `gitea.com` or your company's own, and each server keeps its own accounts. Make the token in the server's **Settings → Applications** with read and write access to repositories, issues and notifications. Agents get pull requests, issues, comments and Actions runs with their jobs' logs; Actions needs a server recent enough to have them in its API.
+- **GitHub** can give your agents an identity of their own, a GitHub App you make in one click. Under **Agent identity**, **Create GitHub App** opens GitHub with a private App already filled in: it may push, open and merge pull requests, work on issues and rerun Actions, and it can't change a repository's settings, secrets or environments. GitHub suggests a name you can change. Confirm it there, then pick the repositories agents work in. A private App installs only on the account that owns it, so for an organization's repositories, type the organization's name before you press **Create GitHub App**. Only the organization's owners and App managers can make its App, so ask one of them if you are neither. Each App gets a row of its own that says who owns it and how many repositories it is installed on. **Install on more repositories** goes back to GitHub, and **Forget** removes the App from Sikemux on every computer that has it. The App stays on GitHub until you delete it there. In each repository, agents act as the App installed on it, and when two are, as the one its owner owns. Sikemux keeps each App's private key in the Keychain and your vault, and the tokens it makes from it last an hour and reach one repository. An App an organization owns stays on the computer it was made on until you move it into the vault, so its key never goes into your own account's vault on its own.
+- **Bitbucket** signs in through your browser, or with a token: an Atlassian API token with your account's email, or an access token a repository, project or workspace admin made, with no email. An access token shows on Bitbucket as a bot of that repository's own, so its pushes show under the name its maker gave the token. Give either one write access to repositories so Sikemux can push with it.
+- **Database** lists the databases agents can reach, each with **Agents may change data** and **Remove**. See [Databases](/agents/databases/) for how agents propose new ones.
+
+An agent that finds a connector signed out asks you to sign in here. It can't sign in for you.
+
+## Account vault
+
+Once your computer is signed in to your Sikemux account, its connector sign-ins and saved database logins move into the account's vault. Each one is sealed with a key the accounts server is never sent, so the server keeps them for you but can't read them. Your computers trust the server's list of which computers are on your account, though: a server that lied about that list could be handed the key. The computer keeps its own copy in the Keychain, and Sikemux updates that copy whenever a sign-in changes.
+
+The first computer on your account makes the vault and shows **Account vault** at the top of **Settings → Connectors**, with a recovery key. It's shown once. Save it somewhere only you can reach: if every computer that holds the vault is lost, it's the only way back in. **I saved it** hides it. A computer that joins later gets the vault's key from one that already holds it. Until then it says it's waiting and offers a box for the recovery key.
+
+When you sign a computer in, the sign-ins it already has move into the vault once. If two computers are signed in to the same account on the same service, the newer token is kept. Different accounts stay separate sign-ins.
+
+Your account is the trust: a connector you sign in to on one computer is signed in on every computer on your account, for every agent there, with nothing to allow. Each connector shows who it's signed in as and **Sign out**, which signs it out on every computer and removes it from the vault. Every use is logged with the agent, the computer and the time, under **Sign-ins** at [app.sikemux.com](https://app.sikemux.com).
+
+### Keeping a sign-in on one computer
+
+Some sign-ins should never leave the computer they were made on, such as a work account on a Mac you also use for your own projects. Sikemux can't tell which those are, so you mark them.
+
+- **Keep here only**, on a connector signed in from the vault, takes its sign-in out of the vault, and it keeps working on this computer. Every other computer on your account loses its copy, so Sikemux asks first.
+- A kept sign-in says **on this computer only, out of the vault**. **Move into vault** puts it back, and every computer on your account can use it again.
+- **Keep new sign-ins on this host**, under **Account vault**, keeps each sign-in this computer sees for the first time out of the vault. It's off unless you turn it on, and turning it on or off later doesn't move the sign-ins you already have.
+- Some sign-ins start out kept whatever the switch says, such as a GitHub App an organization owns.
+
+The marks belong to the computer, so they stay when it signs in to another account or the vault is made again.
+
+The inbox tells you when the recovery key hasn't been saved yet.
+
+Some services, such as Atlassian, void a sign-in's old token each time they hand out a new one. Only the computer that made the sign-in, or last signed in to it again, renews it. It shares the fresh token with the others, so they never sign each other out. If that computer leaves your account, another one takes over. Removing a computer from your account also replaces the vault's key, so the removed computer can't open the vault again.
+
+AWS profiles stay in the AWS CLI's own files on each computer, and agent sign-ins such as Claude Code's or Codex's are never put in the vault. A computer that isn't signed in to an account keeps its sign-ins in its own Keychain only.
+
+## How agents use their own GitHub App
+
+In a repository one of your agents' Apps is installed on, each `git` and `gh` an agent runs gets a token from Sikemux for that one command, in place of your keychain, your SSH key and your `GH_TOKEN`. That token reads the code and works on pull requests, issues and Actions. It can't push, and it can't make or edit a release. Your own terminals and the GitHub panes keep your sign-in.
+
+An agent's `git push` still works as git always has, with its checks and hooks. The push goes to Sikemux, which sends the same changes on to GitHub with a token only Sikemux holds, for that one push. `gh pr merge` is merged by Sikemux the same way. Commits made there keep you as author and name the App as committer.
+
+A repository without the App works as before.
+
+## How Sikemux pushes to Bitbucket
+
+Bitbucket has no identity for your agents, so Sikemux pushes with your own sign-in, and only Sikemux holds it. Once Bitbucket says an account you signed in with can push to a repository, an agent's `git push` there goes to Sikemux, which sends the same changes on to Bitbucket. `git_commit` with `push` and the land queue's push go the same way. With several accounts, Sikemux pushes with the first one, your default first, that can.
+
+Nothing else changes for the agent: it fetches with your own git setup, such as your SSH key, its commits show you, and it works on pull requests through the connector's tools. If Bitbucket refuses the sign-in, the push fails and says to sign in to Bitbucket again here.

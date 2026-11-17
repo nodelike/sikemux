@@ -26,7 +26,7 @@ export function toDevice(row: Selectable<Tables["devices"]>): Device {
  * Who is registering: the account, how it signed in, and a phone's Clerk session. A host signs in
  * to add the app on it as a client, which then joins the account's other hosts as a phone does.
  */
-export interface Registrant {
+interface Registrant {
   userId: string;
   via: string;
   sessionId?: string | undefined;
@@ -45,6 +45,10 @@ export async function registerDevice(
 ): Promise<{ row: Selectable<Tables["devices"]>; added: boolean }> {
   if (via === "host" && registration.role !== "client")
     throw forbidden("A host may add only its own app to the account.");
+  if (registration.platform === "web" && registration.role !== "client")
+    throw badRequest("A browser joins hosts only as a client.");
+  if (registration.handsOnly && registration.role !== "client")
+    throw badRequest("Only a client is registered as hands only.");
   if ((registration.role === "host") !== (registration.channel !== undefined)) {
     throw badRequest("Hosts say which channel they run; clients do not.");
   }
@@ -116,9 +120,11 @@ export async function registerDevice(
         );
     }
     const fields = {
-      name,
+      // Signing in again keeps the name the account has, which the person may have chosen.
+      name: existing?.name ?? name,
       platform: registration.platform,
       channel: registration.channel ?? null,
+      hands_only: Boolean(existing?.hands_only || registration.handsOnly),
       clerk_session_id:
         registration.role === "client" ? (sessionId ?? null) : null,
     };

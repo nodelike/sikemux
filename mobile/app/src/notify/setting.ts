@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
 /** Whether the person wants notifications: undefined until they first choose. */
-export type Choice = 'on' | 'off' | undefined;
+type Choice = 'on' | 'off' | undefined;
 
 const ITEM = 'sikemux.notifications';
 

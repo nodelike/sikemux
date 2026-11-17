@@ -1,7 +1,10 @@
 //! How the app looks: its theme, the size of its text, the panes' grain or
 //! picture, the agents' buddies, and the window's opacity and blur.
 
-use sikemux_wire::changed::Topic;
+use crate::ui::Clicks;
+use sikemux_calls::call;
+use sikemux_calls::faces::FaceStyleChange;
+use sikemux_view::prefs::PreferenceChange;
 use std::rc::Rc;
 
 use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
@@ -13,13 +16,19 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
-use sikemux_wire::protocol::{PaneColours, PaneCoverage, PanePattern};
-use sikemux_wire::theme::{ThemeSource, ThemeSummary};
+use sikemux_view::backdrop::BackdropKind;
+use sikemux_view::prefs::{
+    ChatWidth, Contrast, Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern,
+};
+use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
-use crate::core::{Ask, Watch};
+use crate::core::Target;
 use crate::icons::Icon;
+use crate::reads::Read;
+use crate::settings::index::Page::{Buddies, Interface, Theme};
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
+use crate::settings::rows::Choice;
 use crate::settings::Page;
 use crate::settings::Settings;
 use crate::theme::{
@@ -28,6 +37,172 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const THEME: &[Entry] = &[
+    section(
+        Theme,
+        "Wearing",
+        "colours colors palette dark light custom fork editor wallpaper customize",
+    ),
+    section(
+        Theme,
+        "Themes",
+        "colours colors palette dark light custom ghostty search",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const INTERFACE: &[Entry] = &[
+    section(Interface, "Text", ""),
+    row(
+        Interface,
+        "Text",
+        "Text size",
+        "font zoom scale larger smaller accessibility",
+    ),
+    row(
+        Interface,
+        "Text",
+        "Chat width",
+        "column wide full screen messages reading measure line length",
+    ),
+    row(
+        Interface,
+        "Text",
+        "Contrast",
+        "increase contrast greys borders readable accessibility",
+    ),
+    row(
+        Interface,
+        "Text",
+        "Motion",
+        "reduce motion animation still accessibility",
+    ),
+    section(Interface, "Panes", ""),
+    row(
+        Interface,
+        "Panes",
+        "Backdrop",
+        "dither dithering shader grain noise background effect texture gradient stars grid picture none",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Pane image",
+        "picture photo wallpaper background dither dithered custom omarchy follow",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Pane strength",
+        "dither grain picture opacity intensity texture image",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Colours",
+        "pane picture dither inks palette theme accent custom gradient map",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Inks",
+        "pane picture dither colours palette custom gradient map",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Pattern",
+        "pane picture dither bayer ordered noise grid matrix",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Dot size",
+        "pane picture dither pixel scale cell",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Contrast",
+        "pane picture dither tone levels",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Brightness",
+        "pane picture dither tone exposure midtones",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Glow",
+        "pane picture dither bloom halation light",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Glow size",
+        "pane picture dither bloom radius spread",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Covers",
+        "pane picture dither band top whole full coverage",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const BUDDIES: &[Entry] = &[
+    section(
+        Buddies,
+        "Buddies",
+        "agent icon character avatar mascot face",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Show buddies",
+        "agent icon character avatar mascot harness logo",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Pack",
+        "agent icon character avatar mascot style",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Shape",
+        "agent icon character avatar mixed",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Animate faces",
+        "motion blink animation",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const WINDOW: &[Entry] = &[
+    section(Interface, "Window", ""),
+    row(
+        Interface,
+        "Window",
+        "Opacity",
+        "transparency translucent see-through",
+    ),
+    row(
+        Interface,
+        "Window",
+        "Background blur",
+        "vibrancy frosted glass",
+    ),
+];
 
 const THEME_SEARCH: &str = "ThemeSearch";
 
@@ -61,11 +236,65 @@ const COLUMNS: usize = 4;
 const CARD_ROW: f32 = 104.;
 const THEMES_SHOWN: f32 = 416.;
 /// Where each kind of theme comes in the library, and what its filter says.
-const SOURCES: [(ThemeSource, &str); 3] = [
-    (ThemeSource::Custom, "Yours"),
+const SOURCES: [(ThemeSource, &str); 4] = [
+    (ThemeSource::Custom, n!("Yours")),
+    (ThemeSource::Omarchy, "Omarchy"),
     (ThemeSource::Sikemux, "Sikemux"),
     (ThemeSource::Ghostty, "Ghostty"),
 ];
+
+/// What the Backdrop row offers, in its order.
+const BACKDROPS: [(PaneBackdrop, &str); 7] = [
+    (PaneBackdrop::Theme, n!("The theme's")),
+    (PaneBackdrop::Grain, n!("Grain")),
+    (PaneBackdrop::Gradient, n!("Gradient")),
+    (PaneBackdrop::Stars, n!("Stars")),
+    (PaneBackdrop::Grid, n!("Grid")),
+    (PaneBackdrop::Picture, n!("Picture")),
+    (PaneBackdrop::None, n!("None")),
+];
+
+fn backdrop_at(choice: PaneBackdrop) -> usize {
+    BACKDROPS
+        .iter()
+        .position(|(offered, _)| *offered == choice)
+        .unwrap_or(0)
+}
+
+/// Whether the Backdrop row shows other than the backdrop worn, as after a theme_set.
+pub(super) fn strays(fields: &Fields, bench: &Workbench, cx: &App) -> bool {
+    (fields.backdrop).strays_from(backdrop_at(bench.preferences().pane_backdrop), cx)
+}
+
+pub(super) fn follow(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    let Some(fields) = super::state(bench, cx).and_then(|pages| pages.appearance.as_ref()) else {
+        return;
+    };
+    let show = fields
+        .backdrop
+        .show(backdrop_at(bench.preferences().pane_backdrop));
+    show(window, cx);
+}
+
+/// What the Backdrop row says is worn: the theme's own kind by the theme's name, or the choice.
+fn backdrop_about(choice: PaneBackdrop, theme: &str, kind: BackdropKind) -> SharedString {
+    let kind = match kind {
+        BackdropKind::Grain => t!("grain"),
+        BackdropKind::Gradient => t!("gradient"),
+        BackdropKind::Stars => t!("stars"),
+        BackdropKind::Grid => t!("grid"),
+    };
+    match choice {
+        PaneBackdrop::Theme => return t!("{theme}'s {kind}.", theme = theme, kind = kind).into(),
+        PaneBackdrop::Grain => t!("The grain, as every theme draws it unless it names another."),
+        PaneBackdrop::Gradient => t!("Soft washes of the theme's accent and command colours."),
+        PaneBackdrop::Stars => t!("A field of stars in the theme's ink and accent."),
+        PaneBackdrop::Grid => t!("Even dots in the theme's border colour."),
+        PaneBackdrop::Picture => t!("Your own picture, dithered."),
+        PaneBackdrop::None => t!("Nothing behind the panes."),
+    }
+    .into()
+}
 
 /// What the page keeps: the theme search, the theme list's filter, and the
 /// sliders, each setting its preference as it moves.
@@ -74,6 +303,7 @@ pub struct Fields {
     query: SharedString,
     tone: Tone,
     source: Option<ThemeSource>,
+    backdrop: Choice,
     strength: Entity<SliderState>,
     dot_size: Entity<SliderState>,
     contrast: Entity<SliderState>,
@@ -83,7 +313,6 @@ pub struct Fields {
     inks: Vec<Entity<ColorPickerState>>,
     opacity: Entity<SliderState>,
     blur: Entity<SliderState>,
-    /// The theme being edited, when one is.
     pub editor: Option<super::theme_editor::Editor>,
     /// The picture a theme is being drawn from, while it is read.
     pub reading: Option<super::theme_editor::Picture>,
@@ -97,11 +326,15 @@ enum Tone {
     Light,
 }
 
+/// A slider's value, rounded as the settings keep it.
+fn hundredths(value: f32) -> f64 {
+    (value as f64 * 100.).round() / 100.
+}
+
 fn slider(
-    key: &'static str,
+    change: fn(f32) -> PreferenceChange,
     range: (f32, f32, f32),
     value: f32,
-    round: bool,
     cx: &mut Context<Workbench>,
 ) -> (Entity<SliderState>, Subscription) {
     let (min, max, step) = range;
@@ -116,69 +349,67 @@ fn slider(
         let SliderEvent::Change(value) = event else {
             return;
         };
-        let value = value.start();
-        let value: Value = match round {
-            true => (value.round() as i64).into(),
-            false => ((value as f64 * 100.).round() / 100.).into(),
-        };
-        crate::settings::set(bench, key, value);
+        crate::settings::set(bench, change(value.start()));
     });
     (state, moved)
 }
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let _ = bench.asks.send(Ask::Watch(
-        "themes",
-        Watch::new("themes", json!({}), &[Topic::Preferences]),
-    ));
+    Target::here(&bench.asks).watch_plain(Read::Themes);
     let preferences = bench.preferences();
-    let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search themes"));
+    let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search themes")));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {
         if let InputEvent::Change = event {
             let query = search.read(cx).value();
             change_fields(bench, cx, |fields, _| fields.query = query);
         }
     });
+    let backdrop = Choice::new(
+        BACKDROPS
+            .iter()
+            .map(|(_, label)| crate::i18n::tr(label))
+            .collect(),
+        backdrop_at(preferences.pane_backdrop),
+        |bench, at, _| {
+            crate::settings::set(bench, PreferenceChange::PaneBackdrop(BACKDROPS[at].0));
+        },
+        window,
+        cx,
+    );
     let (strength, moved_strength) = slider(
-        "paneStrength",
+        |value| PreferenceChange::PaneStrength(hundredths(value)),
         (0., 2., 0.05),
         preferences.pane_strength as f32,
-        false,
         cx,
     );
     let (dot_size, moved_dot_size) = slider(
-        "paneDotSize",
-        (1., 6., 1.),
+        |value| PreferenceChange::PaneDotSize(hundredths(value)),
+        (1., 6., 0.01),
         preferences.pane_dot_size as f32,
-        true,
         cx,
     );
     let (contrast, moved_contrast) = slider(
-        "paneContrast",
+        |value| PreferenceChange::PaneContrast(hundredths(value)),
         (-1., 1., 0.05),
         preferences.pane_contrast as f32,
-        false,
         cx,
     );
     let (brightness, moved_brightness) = slider(
-        "paneBrightness",
+        |value| PreferenceChange::PaneBrightness(hundredths(value)),
         (-1., 1., 0.05),
         preferences.pane_brightness as f32,
-        false,
         cx,
     );
     let (glow, moved_glow) = slider(
-        "paneGlow",
+        |value| PreferenceChange::PaneGlow(hundredths(value)),
         (0., 1., 0.05),
         preferences.pane_glow as f32,
-        false,
         cx,
     );
     let (glow_size, moved_glow_size) = slider(
-        "paneGlowSize",
+        |value| PreferenceChange::PaneGlowSize(hundredths(value)),
         (0., 1., 0.05),
         preferences.pane_glow_size as f32,
-        false,
         cx,
     );
     let mut watching = vec![
@@ -207,24 +438,22 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
                     if let Some(ink) = inks.get_mut(at) {
                         *ink = super::theme_editor::hex(*color);
                     }
-                    crate::settings::set(bench, "paneInks", inks);
+                    crate::settings::set(bench, PreferenceChange::PaneInks(inks));
                 },
             ));
             picker
         })
         .collect();
     let (opacity, moved_opacity) = slider(
-        "windowOpacity",
+        |value| PreferenceChange::WindowOpacity(hundredths(value)),
         (0., 1., 0.01),
         preferences.window_opacity as f32,
-        false,
         cx,
     );
     let (blur, moved_blur) = slider(
-        "windowBlur",
+        |value| PreferenceChange::WindowBlur(value.round().into()),
         (0., 60., 1.),
         preferences.window_blur.min(60.) as f32,
-        true,
         cx,
     );
     let fields = Fields {
@@ -232,6 +461,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         query: SharedString::default(),
         tone: Tone::All,
         source: None,
+        backdrop,
         strength,
         dot_size,
         contrast,
@@ -253,7 +483,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
 
 /// How the pane picture is dithered: a preview drawn as the panes draw it, then each control.
 fn picture_rows(
-    preferences: &sikemux_wire::protocol::Preferences,
+    preferences: &sikemux_view::prefs::Preferences,
     fields: &Fields,
     this: &Entity<Workbench>,
     knob: &dyn Fn(&Entity<SliderState>, String) -> gpui_kit::Div,
@@ -261,9 +491,8 @@ fn picture_rows(
 ) -> impl IntoElement {
     let t = Tokens::get(cx);
     let words = |id: &'static str,
-                 key: &'static str,
                  labels: &[&'static str],
-                 values: Vec<Value>,
+                 changes: Vec<PreferenceChange>,
                  chosen: usize| {
         let this = this.clone();
         ui::Segmented::words(
@@ -275,15 +504,18 @@ fn picture_rows(
             chosen,
         )
         .on_select(move |at, _, cx| {
-            let value = values[*at].clone();
-            this.update(cx, |bench, _| crate::settings::set(bench, key, value))
+            let change = changes[*at].clone();
+            this.update(cx, |bench, _| crate::settings::set(bench, change))
         })
     };
     let colours = words(
         "pane-colours",
-        "paneColours",
-        &["Theme", "Picture", "Custom"],
-        vec!["theme".into(), "picture".into(), "custom".into()],
+        &[t!("Theme"), t!("Picture"), t!("Custom")],
+        vec![
+            PreferenceChange::PaneColours(PaneColours::Theme),
+            PreferenceChange::PaneColours(PaneColours::Picture),
+            PreferenceChange::PaneColours(PaneColours::Custom),
+        ],
         match preferences.pane_colours {
             PaneColours::Theme => 0,
             PaneColours::Picture => 1,
@@ -292,13 +524,12 @@ fn picture_rows(
     );
     let pattern = words(
         "pane-pattern",
-        "panePattern",
-        &["2×2", "4×4", "8×8", "Noise"],
+        &["2×2", "4×4", "8×8", t!("Noise")],
         vec![
-            "bayer2".into(),
-            "bayer4".into(),
-            "bayer8".into(),
-            "noise".into(),
+            PreferenceChange::PanePattern(PanePattern::Bayer2),
+            PreferenceChange::PanePattern(PanePattern::Bayer4),
+            PreferenceChange::PanePattern(PanePattern::Bayer8),
+            PreferenceChange::PanePattern(PanePattern::Noise),
         ],
         match preferences.pane_pattern {
             PanePattern::Bayer2 => 0,
@@ -309,9 +540,11 @@ fn picture_rows(
     );
     let coverage = words(
         "pane-coverage",
-        "paneCoverage",
-        &["Top", "Whole pane"],
-        vec!["band".into(), "full".into()],
+        &[t!("Top"), t!("Whole pane")],
+        vec![
+            PreferenceChange::PaneCoverage(PaneCoverage::Band),
+            PreferenceChange::PaneCoverage(PaneCoverage::Full),
+        ],
         match preferences.pane_coverage {
             PaneCoverage::Band => 0,
             PaneCoverage::Full => 1,
@@ -324,8 +557,8 @@ fn picture_rows(
                 div()
                     .relative()
                     .h(px(180.))
-                    .rounded(crate::theme::RADIUS_3)
-                    .border_1()
+                    .rounded(crate::theme::radius_3())
+                    .border(crate::theme::border())
                     .border_color(t.border)
                     .overflow_hidden()
                     .children(
@@ -334,15 +567,17 @@ fn picture_rows(
             ),
         )
         .child(rows::row(
-            "Colours",
-            Some("Theme dithers in the accent and text colour, Picture keeps its own."),
+            t!("Colours"),
+            Some(t!(
+                "Theme dithers in the accent and text colour, Picture keeps its own."
+            )),
             colours,
             cx,
         ))
         .when(preferences.pane_colours == PaneColours::Custom, |rows_of| {
             rows_of.child(rows::row(
-                "Inks",
-                Some("Dark, middle and light, in that order."),
+                t!("Inks"),
+                Some(t!("Dark, middle and light, in that order.")),
                 div()
                     .flex()
                     .gap(SPACE_2)
@@ -350,33 +585,36 @@ fn picture_rows(
                 cx,
             ))
         })
-        .child(rows::row("Pattern", None, pattern, cx))
+        .child(rows::row(t!("Pattern"), None, pattern, cx))
         .child(rows::row(
-            "Dot size",
+            t!("Dot size"),
             None,
-            knob(&fields.dot_size, format!("{}pt", preferences.pane_dot_size)),
+            knob(
+                &fields.dot_size,
+                format!("{:.2}pt", preferences.pane_dot_size),
+            ),
             cx,
         ))
         .child(rows::row(
-            "Contrast",
+            t!("Contrast"),
             None,
             knob(&fields.contrast, signed(preferences.pane_contrast)),
             cx,
         ))
         .child(rows::row(
-            "Brightness",
+            t!("Brightness"),
             None,
             knob(&fields.brightness, signed(preferences.pane_brightness)),
             cx,
         ))
         .child(rows::row(
-            "Glow",
-            Some("Light around the picture's bright parts."),
+            t!("Glow"),
+            Some(t!("Light around the picture's bright parts.")),
             knob(&fields.glow, format!("{:.2}", preferences.pane_glow)),
             cx,
         ))
         .child(rows::row(
-            "Glow size",
+            t!("Glow size"),
             None,
             knob(
                 &fields.glow_size,
@@ -384,7 +622,77 @@ fn picture_rows(
             ),
             cx,
         ))
-        .child(rows::row("Covers", None, coverage, cx))
+        .child(rows::row(t!("Covers"), None, coverage, cx))
+        .child(rows::row(
+            t!("Reset"),
+            None,
+            reset_picture_button(preferences, this),
+            cx,
+        ))
+}
+
+/// Puts every dither control back to its default, moving the sliders and inks with it.
+fn reset_picture_button(
+    preferences: &sikemux_view::prefs::Preferences,
+    this: &Entity<Workbench>,
+) -> ui::Button {
+    let defaults = sikemux_view::prefs::Preferences::default();
+    let changed = preferences.pane_colours != defaults.pane_colours
+        || preferences.pane_inks != defaults.pane_inks
+        || preferences.pane_pattern != defaults.pane_pattern
+        || preferences.pane_dot_size != defaults.pane_dot_size
+        || preferences.pane_contrast != defaults.pane_contrast
+        || preferences.pane_brightness != defaults.pane_brightness
+        || preferences.pane_glow != defaults.pane_glow
+        || preferences.pane_glow_size != defaults.pane_glow_size
+        || preferences.pane_coverage != defaults.pane_coverage;
+    let this = this.clone();
+    ui::Button::new("pane-picture-reset", t!("Reset"), ui::Variant::Outline)
+        .icon(Icon::Refresh)
+        .disabled(!changed)
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| reset_picture(bench, &defaults, window, cx))
+        })
+}
+
+fn reset_picture(
+    bench: &mut Workbench,
+    defaults: &sikemux_view::prefs::Preferences,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    for change in [
+        PreferenceChange::PaneColours(defaults.pane_colours),
+        PreferenceChange::PaneInks(defaults.pane_inks.clone()),
+        PreferenceChange::PanePattern(defaults.pane_pattern),
+        PreferenceChange::PaneDotSize(defaults.pane_dot_size),
+        PreferenceChange::PaneContrast(defaults.pane_contrast),
+        PreferenceChange::PaneBrightness(defaults.pane_brightness),
+        PreferenceChange::PaneGlow(defaults.pane_glow),
+        PreferenceChange::PaneGlowSize(defaults.pane_glow_size),
+        PreferenceChange::PaneCoverage(defaults.pane_coverage),
+    ] {
+        crate::settings::set(bench, change);
+    }
+    let Some(fields) = super::state(bench, cx).and_then(|pages| pages.appearance.as_ref()) else {
+        return;
+    };
+    let sliders = [
+        (fields.dot_size.clone(), defaults.pane_dot_size as f32),
+        (fields.contrast.clone(), defaults.pane_contrast as f32),
+        (fields.brightness.clone(), defaults.pane_brightness as f32),
+        (fields.glow.clone(), defaults.pane_glow as f32),
+        (fields.glow_size.clone(), defaults.pane_glow_size as f32),
+    ];
+    let inks = fields.inks.clone();
+    for (slider, value) in sliders {
+        slider.update(cx, |slider, cx| slider.set_value(value, window, cx));
+    }
+    for (picker, ink) in inks.iter().zip(&defaults.pane_inks) {
+        picker.update(cx, |picker, cx| {
+            picker.set_value(theme::color(ink), window, cx)
+        });
+    }
 }
 
 /// Wears the theme `by` places from the one worn in the library as filtered, else its first or last.
@@ -406,7 +714,7 @@ fn step(bench: &Workbench, by: isize, cx: &App) {
         None if by > 0 => 0,
         None => last,
     };
-    crate::settings::set(bench, "themeId", listed[next].clone());
+    crate::settings::set(bench, PreferenceChange::ThemeId(listed[next].clone()));
 }
 
 /// The themes the library shows as searched and filtered: yours, then Sikemux's, then Ghostty's.
@@ -461,7 +769,7 @@ fn preview(summary: &ThemeSummary, height: f32, rail: bool) -> gpui_kit::Div {
         .flex_col()
         .overflow_hidden()
         .rounded(px(6.))
-        .border_1()
+        .border(crate::theme::border())
         .border_color(theme::color(&summary.line))
         .bg(theme::color(&summary.bg))
         .child(
@@ -478,7 +786,7 @@ fn preview(summary: &ThemeSummary, height: f32, rail: bool) -> gpui_kit::Div {
                             .flex_col()
                             .gap(px(7.))
                             .p(px(9.))
-                            .border_r_1()
+                            .border_r(crate::theme::border())
                             .border_color(quiet)
                             .child(bar(theme::color(&summary.acc), 0.8))
                             .child(bar(quiet, 1.))
@@ -548,9 +856,9 @@ pub fn render(
         ui::Segmented::words(
             "theme-tone",
             vec![
-                ("All".into(), None),
-                ("Dark".into(), None),
-                ("Light".into(), None),
+                (t!("All").into(), None),
+                (t!("Dark").into(), None),
+                (t!("Light").into(), None),
             ],
             chosen,
         )
@@ -561,22 +869,25 @@ pub fn render(
             })
         })
     };
-    let offered: Vec<(Option<ThemeSource>, SharedString, Option<u64>)> =
-        std::iter::once((None, SharedString::from("All"), Some(themes.len() as u64)))
-            .chain(SOURCES.iter().filter_map(|(source, label)| {
-                let count = themes
-                    .iter()
-                    .filter(|theme| theme.source == *source)
-                    .count();
-                (count > 0).then(|| {
-                    (
-                        Some(*source),
-                        SharedString::from(*label),
-                        Some(count as u64),
-                    )
-                })
-            }))
-            .collect();
+    let offered: Vec<(Option<ThemeSource>, SharedString, Option<u64>)> = std::iter::once((
+        None,
+        SharedString::from(t!("All")),
+        Some(themes.len() as u64),
+    ))
+    .chain(SOURCES.iter().filter_map(|(source, label)| {
+        let count = themes
+            .iter()
+            .filter(|theme| theme.source == *source)
+            .count();
+        (count > 0).then(|| {
+            (
+                Some(*source),
+                SharedString::from(crate::i18n::tr(label)),
+                Some(count as u64),
+            )
+        })
+    }))
+    .collect();
     let sources = {
         let this = this.clone();
         let picked: Vec<Option<ThemeSource>> =
@@ -622,9 +933,9 @@ pub fn render(
                                 SharedString::from(format!("theme-edit-{}", summary.id)),
                                 Icon::Pencil,
                                 if custom {
-                                    "Edit theme"
+                                    t!("Edit theme")
                                 } else {
-                                    "Customize a copy"
+                                    t!("Customize a copy")
                                 },
                             )
                             .small()
@@ -641,12 +952,14 @@ pub fn render(
                             ui::IconButton::new(
                                 SharedString::from(format!("theme-delete-{}", summary.id)),
                                 Icon::Trash,
-                                "Delete theme",
+                                t!("Delete theme"),
                             )
                             .small()
                             .on_click(move |_, _, cx| {
                                 let id = id.clone();
-                                this.update(cx, |bench, _| super::theme_editor::delete(bench, &id))
+                                this.update(cx, |bench, cx| {
+                                    super::theme_editor::delete(bench, &id, cx)
+                                })
                             })
                         });
                         div()
@@ -664,10 +977,10 @@ pub fn render(
                             .when(!chosen, |card| {
                                 card.hover(|style| style.bg(t.surface_hover))
                             })
-                            .on_click(move |_, _, cx| {
+                            .clicks(move |_, _, cx| {
                                 let id = id.clone();
                                 pick.update(cx, |bench, _| {
-                                    crate::settings::set(bench, "themeId", id)
+                                    crate::settings::set(bench, PreferenceChange::ThemeId(id))
                                 })
                             })
                             .child(preview(summary, 58., false))
@@ -722,6 +1035,10 @@ pub fn render(
         .iter()
         .find(|summary| summary.id == preferences.theme_id);
     let has_pane_image = preferences.pane_image.is_some();
+    let on_omarchy = themes
+        .iter()
+        .any(|summary| summary.source == ThemeSource::Omarchy);
+    let following_omarchy = on_omarchy && preferences.pane_image_follows_omarchy;
     let current = worn.map(|worn| {
         use super::theme_editor::Picture;
         let custom = worn.source == ThemeSource::Custom;
@@ -734,7 +1051,7 @@ pub fn render(
                     Picture::PaneImage => "theme-from-pane-image",
                 },
                 if fields.reading == Some(picture) {
-                    "Reading…"
+                    t!("Reading…")
                 } else {
                     label
                 },
@@ -751,7 +1068,7 @@ pub fn render(
         let kind = SOURCES
             .iter()
             .find(|(source, _)| *source == worn.source)
-            .map_or("", |(_, label)| *label);
+            .map_or("", |(_, label)| crate::i18n::tr(label));
         div()
             .flex()
             .items_center()
@@ -770,7 +1087,7 @@ pub fn render(
                     .flex()
                     .flex_col()
                     .gap(px(3.))
-                    .child(ui::caps("Wearing", cx))
+                    .child(ui::caps(t!("Wearing"), cx))
                     .child(
                         ui::text(worn.name.clone(), 17., gpui_kit::FontWeight::SEMIBOLD)
                             .truncate()
@@ -782,7 +1099,7 @@ pub fn render(
                             .text_color(t.text_tertiary)
                             .child(format!(
                                 "{} · {kind}",
-                                if worn.dark { "Dark" } else { "Light" }
+                                if worn.dark { t!("Dark") } else { t!("Light") }
                             )),
                     )
                     .child(
@@ -794,7 +1111,7 @@ pub fn render(
                             .child(
                                 ui::Button::new(
                                     "theme-change",
-                                    if custom { "Edit" } else { "Customize" },
+                                    if custom { t!("Edit") } else { t!("Customize") },
                                     ui::Variant::Outline,
                                 )
                                 .icon(Icon::Pencil)
@@ -809,10 +1126,10 @@ pub fn render(
                                 }),
                             )
                             .when(super::theme_editor::wallpaper_offered(), |row| {
-                                row.child(from(Picture::Wallpaper, "From wallpaper"))
+                                row.child(from(Picture::Wallpaper, t!("From wallpaper")))
                             })
                             .when(has_pane_image, |row| {
-                                row.child(from(Picture::PaneImage, "From pane image"))
+                                row.child(from(Picture::PaneImage, t!("From pane image")))
                             }),
                     ),
             )
@@ -861,7 +1178,7 @@ pub fn render(
                 .pb(SPACE_2)
                 .child(list)
                 .when(found == 0, |grid| {
-                    grid.child(rows::note("No themes match.", cx))
+                    grid.child(rows::note(t!("No themes match."), cx))
                 }),
         );
 
@@ -884,7 +1201,69 @@ pub fn render(
         .on_select(move |chosen, _, cx| {
             let scale = [1., 1.1, 1.25][*chosen];
             this.update(cx, |bench, _| {
-                crate::settings::set(bench, "uiTextScale", scale)
+                crate::settings::set(bench, PreferenceChange::UiTextScale(scale))
+            })
+        })
+    };
+    let chat_width = {
+        let this = this.clone();
+        let widths = [ChatWidth::Comfortable, ChatWidth::Wide, ChatWidth::Full];
+        ui::Segmented::new(
+            "chat-width",
+            vec![
+                (Icon::Message, SharedString::from(t!("Comfortable"))),
+                (Icon::Message, SharedString::from(t!("Wide"))),
+                (Icon::Message, SharedString::from(t!("Full"))),
+            ],
+            widths
+                .iter()
+                .position(|width| *width == preferences.chat_width)
+                .unwrap_or(0),
+        )
+        .on_select(move |chosen, _, cx| {
+            let width = widths[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::ChatWidth(width))
+            })
+        })
+    };
+    let contrast = {
+        let this = this.clone();
+        let levels = [Contrast::Normal, Contrast::More];
+        ui::Segmented::new(
+            "contrast",
+            vec![
+                (Icon::Contrast, SharedString::from(t!("Normal"))),
+                (Icon::Contrast, SharedString::from(t!("More"))),
+            ],
+            usize::from(preferences.contrast == Contrast::More),
+        )
+        .on_select(move |chosen, _, cx| {
+            let contrast = levels[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::Contrast(contrast))
+            })
+        })
+    };
+    let motion = {
+        let this = this.clone();
+        let choices = [Motion::System, Motion::Reduced, Motion::Off];
+        ui::Segmented::new(
+            "motion",
+            vec![
+                (Icon::Move, SharedString::from(t!("As macOS"))),
+                (Icon::Move, SharedString::from(t!("Reduced"))),
+                (Icon::Move, SharedString::from(t!("Off"))),
+            ],
+            choices
+                .iter()
+                .position(|motion| *motion == preferences.motion)
+                .unwrap_or(0),
+        )
+        .on_select(move |chosen, _, cx| {
+            let motion = choices[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::Motion(motion))
             })
         })
     };
@@ -893,49 +1272,53 @@ pub fn render(
         div()
             .flex()
             .gap(SPACE_2)
-            .when(preferences.pane_image.is_some(), |buttons| {
+            .when(!following_omarchy && has_pane_image, |buttons| {
                 buttons.child(
-                    ui::Button::new("pane-image-remove", "Remove", ui::Variant::Outline).on_click(
-                        move |_, _, cx| {
+                    ui::Button::new("pane-image-remove", t!("Remove"), ui::Variant::Outline)
+                        .on_click(move |_, _, cx| {
                             remove.update(cx, |bench, _| {
-                                crate::settings::set(bench, "paneImage", Value::Null)
+                                crate::settings::set(bench, PreferenceChange::PaneImage(None))
                             })
-                        },
-                    ),
+                        }),
                 )
             })
-            .child(
-                ui::Button::new(
-                    "pane-image-choose",
-                    if preferences.pane_image.is_some() {
-                        "Change…"
-                    } else {
-                        "Choose…"
-                    },
-                    ui::Variant::Outline,
-                )
-                .on_click(move |_, window, cx| {
-                    choose.update(cx, |_, cx| {
-                        let picked = cx.prompt_for_paths(PathPromptOptions {
-                            files: true,
-                            directories: false,
-                            multiple: false,
-                            prompt: None,
-                        });
-                        cx.spawn_in(window, async move |bench, cx| {
-                            if let Ok(Ok(Some(paths))) = picked.await {
-                                if let Some(path) = paths.first() {
-                                    let path = path.to_string_lossy().into_owned();
-                                    let _ = bench.update(cx, |bench, _| {
-                                        crate::settings::set(bench, "paneImage", path)
-                                    });
+            .when(!following_omarchy, |buttons| {
+                buttons.child(
+                    ui::Button::new(
+                        "pane-image-choose",
+                        if has_pane_image {
+                            t!("Change…")
+                        } else {
+                            t!("Choose…")
+                        },
+                        ui::Variant::Outline,
+                    )
+                    .on_click(move |_, window, cx| {
+                        choose.update(cx, |_, cx| {
+                            let picked = cx.prompt_for_paths(PathPromptOptions {
+                                files: true,
+                                directories: false,
+                                multiple: false,
+                                prompt: None,
+                            });
+                            cx.spawn_in(window, async move |bench, cx| {
+                                if let Ok(Ok(Some(paths))) = picked.await {
+                                    if let Some(path) = paths.first() {
+                                        let path = path.to_string_lossy().into_owned();
+                                        let _ = bench.update(cx, |bench, _| {
+                                            crate::settings::set(
+                                                bench,
+                                                PreferenceChange::PaneImage(Some(path)),
+                                            )
+                                        });
+                                    }
                                 }
-                            }
+                            })
+                            .detach();
                         })
-                        .detach();
-                    })
-                }),
-            )
+                    }),
+                )
+            })
     };
     let knob = |state: &Entity<SliderState>, shown: String| {
         div()
@@ -953,56 +1336,105 @@ pub fn render(
                     .child(shown),
             )
     };
-    let text = div().child(rows::row(
-        "Text size",
-        Some("Scales labels and controls without loosening the layout."),
-        text_size,
-        cx,
-    ));
+    let text = div()
+        .child(rows::row(
+            t!("Text size"),
+            Some(t!(
+                "Scales labels and controls without loosening the layout."
+            )),
+            text_size,
+            cx,
+        ))
+        .child(rows::row(
+            t!("Chat width"),
+            Some(t!(
+                "How wide a chat's messages and composer grow on a wide window."
+            )),
+            chat_width,
+            cx,
+        ))
+        .child(rows::row(
+            t!("Contrast"),
+            Some(t!(
+                "Greys nearer the text and borders that stand out, in every theme."
+            )),
+            contrast,
+            cx,
+        ))
+        .child(rows::row(
+            t!("Motion"),
+            Some(t!("How much the interface moves, in every theme.")),
+            motion,
+            cx,
+        ));
+    let choice = preferences.pane_backdrop;
+    let picture = choice == PaneBackdrop::Picture;
+    let theme_name = worn.map_or_else(String::new, |worn| worn.name.clone());
+    let theme_kind = crate::ui::grain::theme_kind(cx);
     let interface = div()
-        .child(rows::row(
-            "Pane texture",
-            Some("The dithered grain behind each pane."),
-            rows::switch("pane-texture", "paneShader", preferences.pane_shader, this),
+        .child(rows::row_with(
+            None,
+            t!("Backdrop"),
+            Some(backdrop_about(choice, &theme_name, theme_kind)),
+            fields.backdrop.view(),
             cx,
         ))
-        .child(rows::row(
-            "Pane image",
-            Some("A picture shared by every pane, dithered in place of the grain."),
-            image,
-            cx,
-        ))
-        .child(rows::row(
-            "Pane strength",
-            Some("How strongly the texture or picture shows. 1.00 is the default."),
-            knob(
-                &fields.strength,
-                format!("{:.2}", preferences.pane_strength),
-            ),
-            cx,
-        ))
-        .when(preferences.pane_shader && has_pane_image, |rows_of| {
+        .when(picture, |rows_of| {
+            rows_of.child(rows::row(
+                t!("Pane image"),
+                Some(if following_omarchy {
+                    t!("Omarchy's background, dithered behind each pane.")
+                } else {
+                    t!("A picture shared by every pane, dithered behind it.")
+                }),
+                image,
+                cx,
+            ))
+        })
+        .when(picture && on_omarchy, |rows_of| {
+            rows_of.child(rows::row(
+                t!("Follow Omarchy background"),
+                Some(t!(
+                    "Panes show the background Omarchy is showing, and change when it does."
+                )),
+                rows::switch(
+                    "pane-image-follows-omarchy",
+                    PreferenceChange::PaneImageFollowsOmarchy,
+                    preferences.pane_image_follows_omarchy,
+                    this,
+                ),
+                cx,
+            ))
+        })
+        .when(choice != PaneBackdrop::None, |rows_of| {
+            rows_of.child(rows::row(
+                t!("Pane strength"),
+                Some(t!(
+                    "How strongly the backdrop shows. 1.00 is its own strength."
+                )),
+                knob(
+                    &fields.strength,
+                    format!("{:.2}", preferences.pane_strength),
+                ),
+                cx,
+            ))
+        })
+        .when(picture && has_pane_image, |rows_of| {
             rows_of.child(picture_rows(preferences, fields, this, &knob, cx))
         });
 
     let style = bench
-        .view
-        .as_ref()
+        .this_view()
         .map(|view| (*view.face_style).clone())
         .unwrap_or_default();
-    let face_switch = |id: &'static str, field: &'static str, on: bool| {
+    let face_switch = |id: &'static str, change: fn(bool) -> FaceStyleChange, on: bool| {
         let this = this.clone();
         gpui_kit::component::switch::Switch::new(id)
             .checked(on)
             .on_change(move |on: &bool, _, cx| {
-                let mut change = serde_json::Map::new();
-                change.insert(field.to_owned(), (*on).into());
-                let change = Value::Object(change);
+                let on = *on;
                 this.update(cx, |bench, _| {
-                    let _ = bench.asks.send(Ask::Call {
-                        method: "setFaceStyle",
-                        params: change,
-                    });
+                    Target::here(&bench.asks).call_typed::<call::SetFaceStyle>(change(on));
                 })
             })
     };
@@ -1011,12 +1443,13 @@ pub fn render(
     let choose = |pack: String, shape: String| {
         let this = this.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut gpui_kit::App| {
-            let change = serde_json::json!({ "pack": pack, "shape": shape });
+            let change = FaceStyleChange {
+                pack: Some(pack.clone()),
+                shape: Some(shape.clone()),
+                ..FaceStyleChange::default()
+            };
             this.update(cx, |bench, _| {
-                let _ = bench.asks.send(Ask::Call {
-                    method: "setFaceStyle",
-                    params: change,
-                });
+                Target::here(&bench.asks).call_typed::<call::SetFaceStyle>(change);
             })
         }
     };
@@ -1034,8 +1467,8 @@ pub fn render(
             .items_center()
             .gap(SPACE_1H)
             .p(SPACE_2)
-            .rounded(theme::RADIUS_3)
-            .border_1()
+            .rounded(theme::radius_3())
+            .border(crate::theme::border())
             .cursor_pointer()
             .border_color(if on { t.border_strong } else { t.border })
             .when(on, |card| card.bg(t.surface_chosen))
@@ -1047,7 +1480,7 @@ pub fn render(
                     .text_color(t.text_secondary)
                     .child(name),
             )
-            .on_click(click)
+            .clicks(click)
     };
     let pack_cards = div()
         .flex()
@@ -1081,7 +1514,7 @@ pub fn render(
                 .collect();
             card(
                 "buddy-pack-all".into(),
-                "Every pack".into(),
+                t!("Every pack").into(),
                 mixed,
                 style.pack == "all",
                 choose("all".into(), "mixed".into()),
@@ -1099,15 +1532,14 @@ pub fn render(
                 .px(SPACE_3)
                 .flex()
                 .items_center()
-                .rounded(theme::RADIUS_2)
-                .border_1()
-                .cursor_pointer()
+                .rounded(theme::radius_2())
+                .border(crate::theme::border())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_secondary)
                 .border_color(if mixing { t.border_strong } else { t.border })
                 .when(mixing, |chip| chip.bg(t.surface_chosen))
-                .child("Mix")
-                .on_click(choose(style.pack.clone(), "mixed".into())),
+                .child(t!("Mix"))
+                .clicks(choose(style.pack.clone(), "mixed".into())),
         )
         .children(chosen_pack.into_iter().flat_map(|pack| {
             pack.shapes.iter().enumerate().map(|(at, shape)| {
@@ -1118,15 +1550,14 @@ pub fn render(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(theme::RADIUS_2)
-                    .border_1()
-                    .cursor_pointer()
+                    .rounded(theme::radius_2())
+                    .border(crate::theme::border())
                     .border_color(if on { t.border_strong } else { t.border })
                     .when(on, |chip| chip.bg(t.surface_chosen))
                     .when(!on, |chip| chip.hover(|style| style.bg(t.surface_hover)))
                     .tooltip(ui::tooltip(shape.name.clone()))
                     .child(face(pack, shape, at as u32, 26.))
-                    .on_click(choose(pack.id.clone(), shape.id.clone()))
+                    .clicks(choose(pack.id.clone(), shape.id.clone()))
             })
         }));
     let stacked = |label: &'static str, about: &'static str, body: AnyElement| {
@@ -1136,7 +1567,7 @@ pub fn render(
             .gap(SPACE_2)
             .px(SPACE_4)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
@@ -1154,36 +1585,50 @@ pub fn render(
     };
     let buddies = div()
         .child(rows::row(
-            "Show buddies",
-            Some("Agents get a character in place of their harness logo."),
-            face_switch("buddies-on", "on", style.on),
+            t!("Show buddies"),
+            Some(t!("Agents get a character in place of their harness logo.")),
+            face_switch(
+                "buddies-on",
+                |on| FaceStyleChange {
+                    on: Some(on),
+                    ..FaceStyleChange::default()
+                },
+                style.on,
+            ),
             cx,
         ))
         .child(stacked(
-            "Pack",
-            "What new agents look like. Right-click an agent to give it its own.",
+            t!("Pack"),
+            t!("What new agents look like. Right-click an agent to give it its own."),
             pack_cards.into_any_element(),
         ))
         .child(stacked(
-            "Shape",
+            t!("Shape"),
             if chosen_pack.is_some() {
-                "Mix gives each agent its own shape from the pack."
+                t!("Mix gives each agent its own shape from the pack.")
             } else {
-                "Every pack mixes shapes too."
+                t!("Every pack mixes shapes too.")
             },
             shape_chips.into_any_element(),
         ))
         .child(rows::row(
-            "Animate faces",
-            Some("Faces move with what their agents are doing."),
-            face_switch("buddies-motion", "motion", style.motion),
+            t!("Animate faces"),
+            Some(t!("Faces move with what their agents are doing.")),
+            face_switch(
+                "buddies-motion",
+                |motion| FaceStyleChange {
+                    motion: Some(motion),
+                    ..FaceStyleChange::default()
+                },
+                style.motion,
+            ),
             cx,
         ));
 
     let window_section = div()
         .child(rows::row(
-            "Opacity",
-            Some("Solid at 1.00, translucent below it."),
+            t!("Opacity"),
+            Some(t!("Solid at 1.00, translucent below it.")),
             knob(
                 &fields.opacity,
                 format!("{:.2}", preferences.window_opacity),
@@ -1191,8 +1636,8 @@ pub fn render(
             cx,
         ))
         .child(rows::row(
-            "Background blur",
-            Some("0 is crisp; 20–40px gives a soft frosted effect."),
+            t!("Background blur"),
+            Some(t!("0 is crisp; 20–40px gives a soft frosted effect.")),
             knob(
                 &fields.blur,
                 format!("{}px", preferences.window_blur.round()),
@@ -1206,8 +1651,15 @@ pub fn render(
             sections.extend(current.map(|current| rows::card(lit("Wearing"), current, cx)));
             sections.extend(editing);
             sections.push(rows::section(
-                "Themes",
-                Some(format!("{} built-in · {custom} yours", themes.len() - custom).into()),
+                n!("Themes"),
+                Some(
+                    t!(
+                        "{built_in} built-in · {custom} yours",
+                        built_in = themes.len() - custom,
+                        custom = custom
+                    )
+                    .into(),
+                ),
                 None,
                 lit("Themes"),
                 library,
@@ -1217,12 +1669,12 @@ pub fn render(
         }
         Page::Interface => {
             let mut sections = vec![
-                rows::section("Text", None, None, lit("Text"), text, cx),
-                rows::section("Panes", None, None, lit("Panes"), interface, cx),
+                rows::section(n!("Text"), None, None, lit("Text"), text, cx),
+                rows::section(n!("Panes"), None, None, lit("Panes"), interface, cx),
             ];
             if crate::settings::index::here(Page::Interface, "Window") {
                 sections.push(rows::section(
-                    "Window",
+                    n!("Window"),
                     None,
                     None,
                     lit("Window"),
@@ -1233,7 +1685,7 @@ pub fn render(
             sections
         }
         _ => vec![rows::section(
-            "Buddies",
+            n!("Buddies"),
             None,
             None,
             lit("Buddies"),

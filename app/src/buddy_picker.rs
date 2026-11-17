@@ -1,6 +1,7 @@
 //! The dialog that picks one agent's face, as the Mac's buddy picker does: a pack, a shape in
 //! it and a colour, or back to the default the face style in Settings gives every agent.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -8,8 +9,7 @@ use gpui_kit::{
     div, img, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
-use sikemux_wire::protocol::{AgentFace, WorkspaceAgent};
+use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
 
 use crate::faces::{self, Pack};
 use crate::icons::Icon;
@@ -19,6 +19,10 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::UpdateAgentParams;
+use sikemux_view::workspace::AgentBuddy;
 
 /// Which agent's face is being picked, and the pack whose shapes it shows.
 pub struct BuddyPicker {
@@ -27,7 +31,6 @@ pub struct BuddyPicker {
 }
 
 impl Workbench {
-    /// Opens the picker on the agent's own pack.
     pub fn open_buddy_picker(&mut self, agent: &str, cx: &mut Context<Self>) {
         let Some(face) = self
             .workspace_agent(agent)
@@ -55,11 +58,15 @@ impl Workbench {
         cx.notify();
     }
 
-    fn set_buddy(&self, agent: &str, buddy: Value) {
-        self.call_in_front(
-            "updateAgent",
-            json!({ "agentId": agent, "patch": { "buddy": buddy } }),
-        );
+    fn set_buddy(&self, agent: &str, buddy: Option<AgentBuddy>) {
+        self.target()
+            .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                agent,
+                AgentPatch {
+                    buddy: Some(buddy),
+                    ..AgentPatch::default()
+                },
+            ));
     }
 }
 
@@ -119,8 +126,8 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded(theme::RADIUS_2)
-            .border_1()
+            .rounded(theme::radius_2())
+            .border(crate::theme::border())
             .cursor_pointer()
             .border_color(if on {
                 gpui::transparent_black()
@@ -152,14 +159,20 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 index == color,
                 26.,
             )
-            .tooltip(ui::tooltip(format!("Colour {}", index + 1)))
             .child(drawn(pack, &head_shape, index, 20.))
-            .on_click(cx.listener(move |bench, _, _, _| {
+            .clicks(cx.listener(move |bench, _, _, _| {
                 let buddy = match &own_pack {
-                    Some(own_pack) => json!({ "pack": own_pack, "shape": shape, "color": index }),
-                    None => json!({ "color": index }),
+                    Some(own_pack) => AgentBuddy {
+                        pack: Some(own_pack.clone()),
+                        shape: Some(shape.clone()),
+                        color: Some(index),
+                    },
+                    None => AgentBuddy {
+                        color: Some(index),
+                        ..AgentBuddy::default()
+                    },
                 };
-                bench.set_buddy(&agent_id, buddy);
+                bench.set_buddy(&agent_id, Some(buddy));
             }))
         }));
     let head = div()
@@ -183,7 +196,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .min_w_0()
                 .child(
                     ui::text(
-                        agent.name.clone().unwrap_or_else(|| "Buddy".into()),
+                        agent.name.clone().unwrap_or_else(|| t!("Buddy").into()),
                         TEXT_SM,
                         FontWeight::SEMIBOLD,
                     )
@@ -217,7 +230,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     .flex_none()
                     .items_center()
                     .gap(SPACE_2)
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .cursor_pointer()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(if on { t.text_primary } else { t.text_secondary })
@@ -236,7 +249,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     .when(candidate.id == face.pack, |row| {
                         row.child(ui::icon(Icon::Check, 12.).text_color(t.text_secondary))
                     })
-                    .on_click(cx.listener(move |bench, _, _, cx| {
+                    .clicks(cx.listener(move |bench, _, _, cx| {
                         if let Some(picking) = bench.overlays.buddy_picker.as_mut() {
                             picking.pack = picked.clone();
                         }
@@ -263,12 +276,15 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             )
             .tooltip(ui::tooltip(shape.name.clone()))
             .child(drawn(pack, &shape.id, color, 40.))
-            .on_click(cx.listener(move |bench, _, _, _| {
-                let buddy = match own_color {
-                    Some(color) => json!({ "pack": pack_id, "shape": shape_id, "color": color }),
-                    None => json!({ "pack": pack_id, "shape": shape_id }),
-                };
-                bench.set_buddy(&agent_id, buddy);
+            .clicks(cx.listener(move |bench, _, _, _| {
+                bench.set_buddy(
+                    &agent_id,
+                    Some(AgentBuddy {
+                        pack: Some(pack_id.clone()),
+                        shape: Some(shape_id.clone()),
+                        color: own_color.map(|color| color as u32),
+                    }),
+                );
             }))
         }));
     let body = div()
@@ -291,18 +307,18 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let close: dialog::Answer =
         Rc::new(move |_, cx| this.update(cx, |bench, cx| bench.close_buddy_picker(cx)));
     let hint = if chosen {
-        "Picked for this agent"
+        t!("Picked for this agent")
     } else {
-        "Following the default in Settings"
+        t!("Following the default in Settings")
     };
     let reset: dialog::Answer = {
-        let (this, agent_id) = (cx.entity(), agent_id.clone());
+        let (this, agent_id) = (cx.entity(), agent_id);
         Rc::new(move |_, cx| {
             this.update(cx, |bench, _| {
-                let buddy = match own_color {
-                    Some(color) => json!({ "color": color }),
-                    None => Value::Null,
-                };
+                let buddy = own_color.map(|color| AgentBuddy {
+                    color: Some(color as u32),
+                    ..AgentBuddy::default()
+                });
                 bench.set_buddy(&agent_id, buddy);
             })
         })
@@ -311,7 +327,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .when(chosen, |foot| {
             foot.child(dialog::button(
                 "buddy-default",
-                "Use Default".into(),
+                t!("Use Default").into(),
                 None,
                 reset,
                 cx,
@@ -319,7 +335,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         })
         .child(dialog::button(
             "buddy-done",
-            "Done".into(),
+            t!("Done").into(),
             Some(t.accent),
             close.clone(),
             cx,
@@ -327,7 +343,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     Some(
         dialog::sheet_of(
             px(600.),
-            "Change buddy".into(),
+            t!("Change buddy").into(),
             body,
             foot,
             close.clone(),

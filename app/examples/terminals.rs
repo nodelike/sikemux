@@ -2,7 +2,7 @@
 //! typing beside one and then four terminals flooding, and scrolling back
 //! through a long history.
 //!
-//!   SIKEMUX_CORE_SOCKET=/tmp/x/core.sock SIKEMUX_SIDECAR_PATH=path/to/sikemux-host HOME=/tmp/x/home \
+//!   SIKEMUX_CORE_SOCKET=/tmp/x/core.sock SIKEMUX_CORE_PATH=path/to/sikemux-host HOME=/tmp/x/home \
 //!     cargo run --release --example terminals -- [log to flood with] [shots folder]
 //!
 //! It starts its own core at that socket, so run it with a HOME of its own. A
@@ -10,17 +10,19 @@
 //! the frame to the GPU; typing is from the key to the end of the first frame
 //! that shows its echo.
 
-use std::cell::RefCell;
+mod common;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::usage::{peak_resident_mb, thread_cpu_ms};
+use common::{spread, Pace, Timed, DRAWS};
 use gpui::{
-    div, point, px, relative, size, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context,
-    Element, ElementId, Entity, GlobalElementId, HeadlessAppContext, InspectorElementId,
-    IntoElement, Keystroke, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, PlatformInput, Render, ScrollDelta, ScrollEvent, Styled, Window,
-    WindowBounds, WindowOptions,
+    div, point, px, relative, size, AnyElement, AnyWindowHandle, AppContext, Bounds, Context,
+    Entity, HeadlessAppContext, IntoElement, Keystroke, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, PlatformInput, Render, ScrollDelta, ScrollEvent,
+    Styled, Window, WindowBounds, WindowOptions,
 };
 use sikemux_client::client::CoreClient;
 use sikemux_gpui::hosts::Place;
@@ -28,8 +30,6 @@ use sikemux_gpui::terminal;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, theme, WINDOW_SIZE};
 use sikemux_wire::protocol::{LaunchIdentity, SessionId, SpawnTarget, TerminalSpawn};
-
-const FRAME: Duration = Duration::from_micros(8_333);
 
 struct Panes {
     bench: Entity<Workbench>,
@@ -56,7 +56,7 @@ impl Render for Panes {
             .flex()
             .flex_wrap()
             .bg(gpui::rgb(0x0f0f13))
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .children(panes.into_iter().map(|pane| {
                 div()
                     .w(relative(1. / columns as f32))
@@ -66,120 +66,21 @@ impl Render for Panes {
     }
 }
 
-thread_local! {
-    /// How long each window draw spent laying out and painting all its panes, in ms.
-    static DRAWS: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
-}
-
-/// A pane whose prepaint and paint are timed. The test platform also draws
-/// whenever the window changes, so draws are timed wherever they happen.
-struct Timed(AnyElement);
-
-impl IntoElement for Timed {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
-impl Element for Timed {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, ()) {
-        (self.0.request_layout(window, cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let began = Instant::now();
-        self.0.prepaint(window, cx);
-        add_to_draw(began);
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let began = Instant::now();
-        self.0.paint(window, cx);
-        add_to_draw(began);
-    }
-}
-
-fn add_to_draw(began: Instant) {
-    DRAWS.with_borrow_mut(|draws| {
-        if let Some(draw) = draws.last_mut() {
-            *draw += began.elapsed().as_secs_f64() * 1e3;
-        }
-    });
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
-}
-
 struct Run {
     cx: HeadlessAppContext,
     window: AnyWindowHandle,
     bench: Entity<Workbench>,
     panes: Entity<Panes>,
-    last: Instant,
-    clock: Instant,
+    pace: Pace,
 }
 
 impl Run {
-    /// Runs what is ready, as a window's thread would between frames. Never
-    /// waits to park: while terminals flood, more is always arriving. The test
-    /// clock is moved on with the real one, so the window's timers fire.
     fn pump(&mut self) {
-        self.cx.advance_clock(self.clock.elapsed());
-        self.clock = Instant::now();
-        let began = Instant::now();
-        while self.cx.background_executor().tick() && began.elapsed() < Duration::from_millis(4) {}
+        self.pace.pump(&mut self.cx);
     }
 
     fn frame(&mut self) {
-        let wait = FRAME.saturating_sub(self.last.elapsed());
-        std::thread::sleep(wait);
-        self.last = Instant::now();
-        self.pump();
-        self.cx
-            .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
-            .ok();
+        self.pace.frame(&mut self.cx, self.window);
     }
 
     fn show(&mut self, shown: Vec<SessionId>) {
@@ -259,7 +160,7 @@ impl Run {
                 eprintln!("three keys went unanswered: GPUI's test scheduler lost the window's wake-up; run again");
                 std::process::exit(3);
             }
-            self.last = Instant::now();
+            self.pace.restart();
             for _ in 0..5 {
                 self.frame();
             }
@@ -358,31 +259,6 @@ impl Run {
     }
 }
 
-fn spread(mut values: Vec<f64>) -> String {
-    values.sort_by(f64::total_cmp);
-    let at = |q: f64| {
-        values
-            .get(((values.len().max(1) - 1) as f64 * q).round() as usize)
-            .copied()
-            .unwrap_or(0.)
-    };
-    format!(
-        "p50 {:.2} ms, p90 {:.2}, p99 {:.2}, max {:.2} ({} samples)",
-        at(0.5),
-        at(0.9),
-        at(0.99),
-        at(1.),
-        values.len()
-    )
-}
-
-/// The most memory this process has held, in MB.
-fn peak_rss_mb() -> f64 {
-    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
-    usage.ru_maxrss as f64 / 1024. / 1024.
-}
-
 fn spawn(runtime: &tokio::runtime::Runtime, client: &CoreClient, script: &str) -> SessionId {
     let target = SpawnTarget::Terminal(TerminalSpawn {
         cols: 120,
@@ -402,7 +278,7 @@ fn spawn(runtime: &tokio::runtime::Runtime, client: &CoreClient, script: &str) -
 
 fn main() {
     core::search_path_only_for_own_core();
-    let Ok(socket) = std::env::var(sikemux_core::SOCKET_ENV) else {
+    let Ok(socket) = std::env::var(sikemux_corekit::SOCKET_ENV) else {
         eprintln!(
             "set SIKEMUX_CORE_SOCKET and a HOME of its own, so the core it starts is not yours"
         );
@@ -412,7 +288,7 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| "/tmp/termbench/buildlog-crlf.txt".into());
     let shots = std::env::args().nth(2).map(PathBuf::from);
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let started = Instant::now();
     let client = loop {
@@ -479,8 +355,7 @@ fn main() {
         window,
         bench,
         panes,
-        last: Instant::now(),
-        clock: Instant::now(),
+        pace: Pace::new(),
     };
 
     run.show(vec![typist]);
@@ -570,6 +445,6 @@ fn main() {
         run.frame();
     }
     run.shot(&shots, "dracula");
-    println!("app peak RSS {:.0} MB", peak_rss_mb());
+    println!("app peak RSS {:.0} MB", peak_resident_mb());
     drop(client);
 }

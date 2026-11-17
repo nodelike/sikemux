@@ -2,6 +2,8 @@
 //! server holds what senders post until the host takes it over `/v1/hooks/live`, a connection
 //! that runs while the host has a webhook and comes back whenever it drops.
 
+use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -11,7 +13,7 @@ use reqwest::Method;
 use ring::rand::{SecureRandom, SystemRandom};
 use sikemux_process::sync::Locked;
 
-use super::hosts::account::{as_host, host_request};
+use super::account::api::{as_host, host_request};
 use super::triggers::{self, HookDelivery};
 use super::{Core, CoreError, CoreResult};
 use crate::accounts::hooks::{
@@ -39,7 +41,6 @@ struct LinkState {
     again: bool,
 }
 
-/// Gives this host a new webhook.
 pub(crate) async fn register_hook(core: &Arc<Core>) -> CoreResult<AddedHook> {
     let mut secret = [0u8; 32];
     SystemRandom::new()
@@ -77,10 +78,10 @@ pub(crate) async fn remove_hook(core: &Core, hook_id: &str) -> CoreResult<()> {
 /// Makes sure the connection runs while this host is signed in. The server closes it at once
 /// when the host has no webhooks.
 pub(crate) fn connect(core: &Arc<Core>) {
-    let Some(base) = core.remote.signed_in_api() else {
+    let Some(base) = core.remote().signed_in_api() else {
         return;
     };
-    let mut link = core.hooks.link.locked();
+    let mut link = core.hooks().link.locked();
     if link.running {
         link.again = true;
         return;
@@ -114,7 +115,7 @@ async fn run(core: Weak<Core>, url: String) {
                 let Some(core) = core.upgrade() else {
                     return;
                 };
-                let mut link = core.hooks.link.locked();
+                let mut link = core.hooks().link.locked();
                 if !link.again {
                     link.running = false;
                     return;
@@ -168,6 +169,21 @@ fn handle(core: &Arc<Core>, received: Received) -> bool {
             return true;
         }
     };
+    if super::codehost::ci::feeds_hook(core, &delivery.hook_id) {
+        let core = core.clone();
+        tokio::spawn(async move {
+            let taken = super::codehost::ci::delivered(
+                &core,
+                &delivery.hook_id,
+                &delivery.headers,
+                &delivery.body,
+            );
+            if let Err(error) = taken.await {
+                eprintln!("sikemux core: dropped a CI webhook's request {id}, as {error}");
+            }
+        });
+        return true;
+    }
     match triggers::delivered(core, delivery) {
         Ok(()) => true,
         Err(error) => {
@@ -189,7 +205,7 @@ async fn session(core: &Arc<Core>, url: &str) -> Ended {
     let Some(nonce) = nonce.await else {
         return retry(None, false);
     };
-    let Some((key, signature)) = core.remote.sign_hooks(&nonce) else {
+    let Some((key, signature)) = core.remote().sign_hooks(&nonce) else {
         return Ended::Done;
     };
     let hello = HookClientMessage::Hello(HookHello {
@@ -208,8 +224,11 @@ async fn session(core: &Arc<Core>, url: &str) -> Ended {
         let message = match socket::next_frame(&mut socket, silence).await {
             Frame::Server(message) => message,
             Frame::Other => continue,
-            Frame::Closed(code) => {
-                return match code.and_then(|code| HookCloseCode::from_code(code.into())) {
+            Frame::Closed(close) => {
+                return match close
+                    .code()
+                    .and_then(|code| HookCloseCode::from_code(code.into()))
+                {
                     Some(HookCloseCode::Idle | HookCloseCode::Unauthenticated) => Ended::Done,
                     Some(HookCloseCode::Replaced) => {
                         retry(socket::wait_after(Closed::Replaced, hint), open)

@@ -4,9 +4,15 @@ use crate::pty::shell_protocol::{PtyShellMetadataEvent, SshLink};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{
-    AgentStateEvent, Attention, ChatInfo, DeviceView, NetworkChange, RemoteStatus, SessionId,
-};
+use super::{AgentStateEvent, Attention, ChatInfo, NetworkChange, RemoteStatus, SessionId};
+
+/// The goal a notice is about, which clicking it opens.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeGoal {
+    pub project: String,
+    pub card: u64,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
@@ -32,13 +38,9 @@ pub enum Event {
         id: SessionId,
         link: SshLink,
     },
-    /// A task session has new output to page through with `TaskOutput`.
-    TaskOutput {
-        id: SessionId,
-    },
     AgentState(AgentStateEvent),
     /// Sent only to the clients that started or attached to the chat: what
-    /// changed in it, a list of [`crate::chat::ChatChange`] as JSON. `seq`
+    /// changed in it, a list of `ChatChange` as JSON. `seq`
     /// counts the chat's changes, so a client can tell which the attach answer
     /// already held.
     Chat {
@@ -47,9 +49,12 @@ pub enum Event {
         changes: Value,
     },
     /// Sent only to paired devices: what they show of this host, whole, when
-    /// they connect and whenever any of it changes.
+    /// they connect and whenever any of it changes. The core's `DeviceView` as
+    /// JSON, so fields newer than a client still reach whoever reads that JSON.
+    /// Written by `encode_device_view` and read by `device_view_json`, so it never
+    /// comes through this enum in Rust.
     DeviceView {
-        view: Box<DeviceView>,
+        view: Value,
     },
     /// Sent only to clients on this host.
     Remote {
@@ -85,6 +90,9 @@ pub enum Event {
         title: String,
         body: String,
         agent_id: String,
+        /// The goal it is about, for a notice about how goals moved.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<NoticeGoal>,
     },
     /// A device or host joined the person's account, which the app's window
     /// offers to remove (ADR 0018).
@@ -102,9 +110,10 @@ pub enum Event {
     /// What a client reads through `Call` under `topic` changed, for
     /// `project` or for every project when it is absent, so the client reads
     /// it again. `paths` names what moved inside it; absent means anything
-    /// may have. A client skips topics it does not know.
+    /// may have. `topic` is `sikemux-view`'s `Topic` as JSON, and a client
+    /// skips topics it does not know.
     Changed {
-        topic: crate::changed::Topic,
+        topic: Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         project: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

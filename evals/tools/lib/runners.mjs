@@ -1,7 +1,10 @@
 import { spawn, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createWriteStream, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
-import { REPO } from './surface.mjs';
+import { REPO, readRepo } from './surface.mjs';
+import { CLAUDE, sandboxed } from './sandbox.mjs';
 
 const EVAL = join(REPO, 'evals/tools');
 const SERVER_PREFIX = /^mcp__([^_]+(?:[-_][^_]+)*?)__(.+)$/;
@@ -14,7 +17,7 @@ export const MODELS = {
 };
 
 export function mcpServers({ tools, dir, rivals = [] }) {
-  const servers = { 'sikemux-tools': tools };
+  const servers = tools ? { 'sikemux-tools': tools } : {};
   for (const rival of rivals) {
     servers[rival] = { command: process.execPath, args: [join(EVAL, 'lib/rival.mjs'), join(EVAL, `rivals/${rival.toLowerCase()}.json`), dir] };
   }
@@ -36,8 +39,14 @@ function stopGroup(group, signal) {
 }
 
 // The Claude sign-in is read fresh for each run and handed over in the environment, so no sandbox ever touches the keychain.
+// On Linux Claude keeps it in a file instead. TOOL_EVAL_CLAUDE_CONFIG names another account's config folder to sign in as.
 export function claudeToken() {
-  const stored = execFileSync('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials', '-a', process.env.USER, '-w'], { encoding: 'utf8' });
+  const folder = process.env.TOOL_EVAL_CLAUDE_CONFIG;
+  const service = folder ? `Claude Code-credentials-${createHash('sha256').update(folder).digest('hex').slice(0, 8)}` : 'Claude Code-credentials';
+  const stored =
+    platform() === 'darwin'
+      ? execFileSync('/usr/bin/security', ['find-generic-password', '-s', service, '-a', process.env.USER, '-w'], { encoding: 'utf8' })
+      : readFileSync(join(folder ?? join(homedir(), '.claude'), '.credentials.json'), 'utf8');
   return JSON.parse(stored).claudeAiOauth.accessToken;
 }
 
@@ -45,7 +54,8 @@ export function run({ command, args, cwd, env, dir, timeoutMs, profile = join(di
   return new Promise((resolve) => {
     const out = createWriteStream(join(dir, 'transcript.jsonl'));
     const err = createWriteStream(join(dir, 'stderr.log'));
-    const child = spawn('/usr/bin/sandbox-exec', ['-f', profile, command, ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const [program, argv] = sandboxed(profile, command, args);
+    const child = spawn(program, argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     groups.add(child.pid);
     child.stdout.pipe(out);
     child.stderr.pipe(err);
@@ -64,7 +74,16 @@ export function run({ command, args, cwd, env, dir, timeoutMs, profile = join(di
   });
 }
 
-export async function runClaude({ model, search, dir, sandbox, servers, prompt, maxTurns, timeoutMs }) {
+// The lines Sikemux's native Claude driver appends to Claude's system prompt when it offers sikemux-tools.
+export function sikemuxSystemLines(at) {
+  const constant = (path, name) => readRepo(path, at).match(new RegExp(`const ${name}: &str = "((?:[^"\\\\]|\\\\.)*)";`))[1].replace(/\\(.)/g, '$1');
+  return [
+    constant('crates/sikemux-drivers/src/server/gestures.rs', 'PERSONALITY'),
+    constant('crates/sikemux-drivers/src/server/chat/native/claude/mod.rs', 'SHOWING_PAGES'),
+  ].join('\n\n');
+}
+
+export async function runClaude({ model, search, dir, sandbox, servers, prompt, maxTurns, timeoutMs, at }) {
   const config = join(dir, 'agent', 'mcp.json');
   writeFileSync(config, JSON.stringify(servers, null, 1));
   const args = [
@@ -82,6 +101,8 @@ export async function runClaude({ model, search, dir, sandbox, servers, prompt, 
     '--max-turns',
     String(maxTurns),
     '--no-session-persistence',
+    '--append-system-prompt',
+    sikemuxSystemLines(at),
   ];
   const env = {
     ...sandbox.env,
@@ -91,7 +112,7 @@ export async function runClaude({ model, search, dir, sandbox, servers, prompt, 
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1',
   };
-  const exit = await run({ command: join(process.env.HOME, '.local/bin/claude'), args, cwd: sandbox.repo, env, dir, timeoutMs });
+  const exit = await run({ command: CLAUDE, args, cwd: sandbox.repo, env, dir, timeoutMs });
   return { exit, ...readClaude(join(dir, 'transcript.jsonl')) };
 }
 
@@ -122,6 +143,7 @@ export function readClaude(path) {
           const call = {
             id: block.id,
             tool: canonical(block.name),
+            served: block.name.startsWith('mcp__sikemux-tools__'),
             args: block.input ?? {},
             batch: event.message.id,
             sub: Boolean(event.parent_tool_use_id),
@@ -154,6 +176,7 @@ export function readClaude(path) {
     tokens: {
       input: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
       cached: usage.cache_read_input_tokens ?? 0,
+      written: usage.cache_creation_input_tokens ?? 0,
       output: usage.output_tokens ?? 0,
     },
     toolCount: init?.tools?.length ?? 0,

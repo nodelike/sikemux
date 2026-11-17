@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import type { StashItem } from './api';
@@ -11,6 +12,7 @@ const SHOWN = 4;
 
 /** The stash items an `&` word in the composer names, above the composer as its slash commands show; a tap attaches one. */
 export function StashMenu({ query, onPick }: { query: string; onPick: (item: StashItem) => void }) {
+  const t = useT();
   const styles = useStyles(makeStyles);
   const stash = useStash();
   const bearer = useBearer();
@@ -21,8 +23,8 @@ export function StashMenu({ query, onPick }: { query: string; onPick: (item: Sta
         <View style={[styles.item, styles.none]}>
           <Text style={styles.place}>
             {stash.items.length
-              ? `Nothing in the stash matches ${query}`
-              : 'Nothing stashed. Share to Sikemux from any app to keep it here.'}
+              ? t('Nothing in the stash matches {query}', { query })
+              : t('Nothing stashed. Share to Sikemux from any app to keep it here.')}
           </Text>
         </View>
       </View>
@@ -39,14 +41,14 @@ export function StashMenu({ query, onPick }: { query: string; onPick: (item: Sta
           }}
           style={({ pressed }) => [styles.item, pressed && { opacity: 0.8 }]}
           accessibilityRole="menuitem"
-          accessibilityLabel={`${itemTitle(item)}, from the stash`}>
+          accessibilityLabel={t('{title}, from the stash', { title: itemTitle(item) })}>
           <Face item={item} bearer={bearer} size={34} />
           <View style={styles.body}>
             <Text style={styles.title} numberOfLines={1}>
               {itemTitle(item)}
             </Text>
             <Text style={styles.place} numberOfLines={1}>
-              {item.note || itemPlace(item)}
+              {item.note || itemPlace(item, t)}
             </Text>
           </View>
         </Pressable>

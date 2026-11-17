@@ -4,13 +4,63 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_plugin_vercel_views::{Deployment, Log, LogLine, Target};
+
+use sikemux_plugin_api::terminal::plain;
 
 use crate::client::{at, number, some_text, text, Session};
 use crate::error::{VercelError, VercelResult};
 use crate::projects::segment;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Target {
+    Production,
+    Preview,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Deployment {
+    pub id: String,
+    pub project: String,
+    pub project_id: Option<String>,
+    pub url: Option<String>,
+    pub state: String,
+    pub target: Target,
+    pub created_at: u64,
+    pub ready_at: Option<u64>,
+    /// How long the build ran, once it finished.
+    pub build_ms: Option<u64>,
+    pub branch: Option<String>,
+    pub commit: Option<String>,
+    pub message: Option<String>,
+    pub author: Option<String>,
+    /// The deployment this one built again, for a redeploy.
+    pub redeploy_of: Option<String>,
+    pub inspector_url: Option<String>,
+    pub aliases: Option<Vec<String>>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogLine {
+    pub at: u64,
+    /// stdout, stderr, command or fatal.
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Log {
+    pub deployment: Deployment,
+    pub lines: Vec<LogLine>,
+    /// Lines left out before the ones here.
+    pub skipped: usize,
+}
 
 const DEFAULT_LIMIT: u64 = 20;
 const MAX_LIMIT: u64 = 100;
@@ -28,7 +78,7 @@ fn git(meta: &Value, fact: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// A deployment as the pane and agents read it, from the list's shape or the single one's.
+/// A deployment as agents read it, from the list's shape or the single one's.
 pub fn deployment(value: &Value) -> Deployment {
     let meta = at(value, "/meta");
     let either =
@@ -157,31 +207,6 @@ fn uid(raw: &Value) -> VercelResult<String> {
 pub async fn detail(data_dir: &Path, input: DeploymentRef) -> VercelResult<Deployment> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     Ok(deployment(&read(&session, &input.id).await?))
-}
-
-/// Drops the colour codes and other control characters a build prints, which mean nothing outside a terminal.
-pub fn plain(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.next_if_eq(&'[').is_some() {
-                for c in chars.by_ref() {
-                    if c.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            } else {
-                chars.next();
-            }
-            continue;
-        }
-        if c.is_control() && c != '\t' {
-            continue;
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// The lines of a build's events, each with when it was printed and whether it went to stderr.

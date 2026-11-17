@@ -11,7 +11,6 @@ use tokio::sync::watch;
 use crate::host::Host;
 use crate::{
     viewport, DocumentEvent, Opener, PageDialog, PageLoad, Tab, TabEvents, TabSpec, TabStall,
-    USER_AGENT,
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -19,6 +18,7 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 pub(crate) struct Preview {
     view: Tab,
     load: watch::Receiver<Option<Result<(), String>>>,
+    events: Arc<PreviewEvents>,
 }
 
 impl Preview {
@@ -27,25 +27,39 @@ impl Preview {
         agent_id: &str,
         url: &str,
         size: (f64, f64),
+        user_agent: &str,
+        private: bool,
     ) -> Result<Self, String> {
         let parent = host.window()?;
         let tab_id = format!("page-preview-{}", NEXT.fetch_add(1, Ordering::Relaxed));
         let (sender, load) = watch::channel(None);
+        let events = Arc::new(PreviewEvents { load: sender });
         let view = Tab::open(
             parent,
             TabSpec {
                 agent_id,
                 tab_id: &tab_id,
                 url,
-                user_agent: USER_AGENT,
+                user_agent,
                 size,
                 opener: None,
+                private,
             },
-            Arc::new(PreviewEvents { load: sender }),
+            events.clone(),
         )?;
         crate::manager::place(&view, viewport::Layout::Parked { page: size }, true);
         view.show();
-        Ok(Self { view, load })
+        Ok(Self { view, load, events })
+    }
+
+    /// Loads `url` again at `size`, introducing itself as `user_agent`, in the same view.
+    pub(crate) fn load(&mut self, url: &str, size: (f64, f64), user_agent: &'static str) {
+        self.events.load.send_replace(None);
+        crate::manager::place(&self.view, viewport::Layout::Parked { page: size }, true);
+        self.view.show();
+        self.view
+            .run(move |webview| crate::manager::introduce_as(webview, user_agent));
+        self.view.navigate(url);
     }
 
     pub(crate) fn view(&self) -> &Tab {
@@ -56,7 +70,7 @@ impl Preview {
         match tokio::time::timeout(timeout, self.load.wait_for(Option::is_some)).await {
             Ok(Ok(load)) => load.clone().unwrap_or(Ok(())),
             Ok(Err(_)) => Err("the page went away while loading".into()),
-            Err(_) => Err("the page took too long to load".into()),
+            Err(_) => Err("the page took too long to load; have it load its scripts, styles and fonts from files beside it rather than from the network".into()),
         }
     }
 }

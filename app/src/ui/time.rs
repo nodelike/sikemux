@@ -29,17 +29,6 @@ pub fn took(ms: u64) -> String {
     }
 }
 
-/// A length in words, leaving out a part that is zero: `45s`, `3m`, `3m 5s`, `2h`, `2h 5m`.
-pub fn span(seconds: u64) -> String {
-    match seconds {
-        0..60 => format!("{seconds}s"),
-        60..3600 if seconds.is_multiple_of(60) => format!("{}m", seconds / 60),
-        60..3600 => format!("{}m {}s", seconds / 60, seconds % 60),
-        _ if (seconds / 60).is_multiple_of(60) => format!("{}h", seconds / 3600),
-        _ => format!("{}h {}m", seconds / 3600, seconds / 60 % 60),
-    }
-}
-
 /// A total to the nearest minute: `5m`, `3h`, `3h 20m`, and whole hours from a hundred: `1,234h`.
 pub fn total(ms: f64) -> String {
     let minutes = (ms / 60_000.).round() as i64;
@@ -48,7 +37,7 @@ pub fn total(ms: f64) -> String {
     }
     let hours = minutes / 60;
     if hours >= 100 {
-        return format!("{}h", crate::home::whole(hours as f64));
+        return format!("{}h", crate::ui::numbers::whole(hours as f64));
     }
     match minutes % 60 {
         0 => format!("{hours}h"),
@@ -60,20 +49,20 @@ pub fn total(ms: f64) -> String {
 pub fn age(at: u64) -> String {
     let seconds = now_ms().saturating_sub(at) / 1000;
     match seconds {
-        0..60 => "now".into(),
-        60..3600 => format!("{}m", seconds / 60),
-        3600..86_400 => format!("{}h", seconds / 3600),
-        86_400..2_592_000 => format!("{}d", seconds / 86_400),
-        2_592_000..31_536_000 => format!("{}mo", seconds / 2_592_000),
-        _ => format!("{}y", seconds / 31_536_000),
+        0..60 => t!("now").into(),
+        60..3600 => t!("{count}m", count = seconds / 60),
+        3600..86_400 => t!("{count}h", count = seconds / 3600),
+        86_400..2_592_000 => t!("{count}d", count = seconds / 86_400),
+        2_592_000..31_536_000 => t!("{count}mo", count = seconds / 2_592_000),
+        _ => t!("{count}y", count = seconds / 31_536_000),
     }
 }
 
 /// How long ago in words: `now`, `5m ago`, `3h ago`.
 pub fn ago(at: u64) -> String {
     match age(at) {
-        now if now == "now" => now,
-        age => format!("{age} ago"),
+        now if now == t!("now") => now,
+        age => t!("{age} ago", age = age),
     }
 }
 
@@ -88,14 +77,125 @@ pub fn ago_written(at: &str) -> String {
         )
 }
 
+/// A moment as the person's clock reads it, in their 24 or 12-hour format: `16:40` or
+/// `4:40 PM`, with the day once it isn't today.
+pub fn clock(at: u64) -> String {
+    use chrono::TimeZone;
+    let Some(at) = chrono::Local.timestamp_millis_opt(at as i64).single() else {
+        return String::new();
+    };
+    let time = at.format(if twelve_hour() { "%-I:%M %p" } else { "%H:%M" });
+    match at.date_naive() == chrono::Local::now().date_naive() {
+        true => time.to_string(),
+        false => format!("{} {time}", at.format("%a")),
+    }
+}
+
+/// The time of day `at` in the language spoken, by the Mac's 24 or 12-hour clock.
+pub fn time_of_day(at: chrono::DateTime<chrono::Local>) -> String {
+    written(at, if twelve_hour() { "hmm" } else { "Hmm" })
+}
+
+/// The short name of `at`'s weekday in the language spoken.
+pub fn weekday(at: chrono::DateTime<chrono::Local>) -> String {
+    written(at, "EEE")
+}
+
+/// `at`'s day and short month in the language spoken, in its order.
+pub fn month_day(at: chrono::DateTime<chrono::Local>) -> String {
+    written(at, "MMMd")
+}
+
+/// `at` written by a date template such as `EEE` or `MMMd` in the language spoken, which puts
+/// the parts in that language's order.
+#[cfg(target_os = "macos")]
+fn written(at: chrono::DateTime<chrono::Local>, template: &'static str) -> String {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    type Formatters = HashMap<(&'static str, &'static str), Retained<AnyObject>>;
+    thread_local! {
+        static FORMATTERS: RefCell<Formatters> = RefCell::default();
+    }
+    let language = crate::i18n::spoken();
+    FORMATTERS.with_borrow_mut(|formatters| {
+        let formatter = formatters.entry((template, language)).or_insert_with(|| {
+            // SAFETY: each is a Foundation method taking and returning objects of these kinds,
+            // and every argument outlives its call.
+            unsafe {
+                let identifier = NSString::from_str(language);
+                let locale: Retained<AnyObject> =
+                    msg_send![class!(NSLocale), localeWithLocaleIdentifier: &*identifier];
+                let formatter: Retained<AnyObject> = msg_send![class!(NSDateFormatter), new];
+                let _: () = msg_send![&*formatter, setLocale: &*locale];
+                let template = NSString::from_str(template);
+                let _: () = msg_send![&*formatter, setLocalizedDateFormatFromTemplate: &*template];
+                formatter
+            }
+        });
+        let seconds = at.timestamp_millis() as f64 / 1000.;
+        // SAFETY: as above.
+        let text: Retained<NSString> = unsafe {
+            let date: Retained<AnyObject> =
+                msg_send![class!(NSDate), dateWithTimeIntervalSince1970: seconds];
+            msg_send![&**formatter, stringFromDate: &*date]
+        };
+        text.to_string()
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn written(at: chrono::DateTime<chrono::Local>, template: &'static str) -> String {
+    let format = match template {
+        "hmm" => "%-I:%M %p",
+        "Hmm" => "%H:%M",
+        "EEE" => "%a",
+        _ => "%b %-d",
+    };
+    at.format(format).to_string()
+}
+
+/// Whether the person's Mac writes times with AM and PM, as its locale and Language & Region
+/// settings say.
+#[cfg(target_os = "macos")]
+fn twelve_hour() -> bool {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::{ns_string, NSString};
+    static TWELVE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TWELVE.get_or_init(|| {
+        // SAFETY: both are class methods taking and returning objects of these kinds, and the
+        // format's template and the locale outlive the call.
+        let format: Option<Retained<NSString>> = unsafe {
+            let locale: Retained<AnyObject> = msg_send![class!(NSLocale), currentLocale];
+            msg_send![
+                class!(NSDateFormatter),
+                dateFormatFromTemplate: ns_string!("j"),
+                options: 0usize,
+                locale: &*locale
+            ]
+        };
+        format.is_some_and(|format| format.to_string().contains('a'))
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn twelve_hour() -> bool {
+    false
+}
+
 /// How long until, in the same tight column as [`age`], rounded up: `now`, `1m`, `3h`, `4d`.
 pub fn until(at: u64) -> String {
     let seconds = at.saturating_sub(now_ms()) / 1000;
     match seconds {
-        0 => "now".into(),
-        1..3600 => format!("{}m", seconds.div_ceil(60)),
-        3600..86_400 => format!("{}h", seconds / 3600),
-        _ => format!("{}d", seconds / 86_400),
+        0 => t!("now").into(),
+        1..3600 => t!("{count}m", count = seconds.div_ceil(60)),
+        3600..86_400 => t!("{count}h", count = seconds / 3600),
+        _ => t!("{count}d", count = seconds / 86_400),
     }
 }
 
@@ -103,19 +203,21 @@ pub fn until(at: u64) -> String {
 /// a week or more off, the day it falls on.
 pub fn countdown(reset: Option<chrono::DateTime<chrono::Utc>>) -> String {
     let Some(reset) = reset else {
-        return "unknown".into();
+        return t!("unknown").into();
     };
     let minutes = ((reset - chrono::Utc::now()).num_seconds().max(0) as f64 / 60.).ceil() as i64;
     let (hours, days) = (minutes / 60, minutes / 1440);
-    let with = |big: i64, unit: &str, small: i64, small_unit: &str| match small {
-        0 => format!("{big}{unit}"),
-        small => format!("{big}{unit} {small}{small_unit}"),
-    };
     match minutes {
-        0 => "resetting now".into(),
-        1..=59 => format!("{minutes}m"),
-        _ if hours < 24 => with(hours, "h", minutes % 60, "m"),
-        _ if days < 7 => with(days, "d", hours % 24, "h"),
+        0 => t!("resetting now").into(),
+        1..=59 => t!("{count}m", count = minutes),
+        _ if hours < 24 => match minutes % 60 {
+            0 => t!("{count}h", count = hours),
+            rest => t!("{hours}h {minutes}m", hours = hours, minutes = rest),
+        },
+        _ if days < 7 => match hours % 24 {
+            0 => t!("{count}d", count = days),
+            rest => t!("{days}d {hours}h", days = days, hours = rest),
+        },
         _ => reset
             .with_timezone(&chrono::Local)
             .format("%b %-d")
@@ -128,12 +230,12 @@ pub fn left(until: u64) -> String {
     let now = now_ms();
     let minutes = (until.saturating_sub(now) as f64 / 60_000.).round().max(1.) as u64;
     if minutes < 60 {
-        return format!("{minutes} min");
+        return t!("{count} min", count = minutes);
     }
     let hours = (minutes as f64 / 60.).round() as u64;
     match hours {
-        1 => "1 hour".to_owned(),
-        hours if hours < 48 => format!("{hours} hours"),
-        hours => format!("{} days", (hours as f64 / 24.).round() as u64),
+        1 => t!("1 hour").to_owned(),
+        hours if hours < 48 => t!("{count} hours", count = hours),
+        hours => t!("{count} days", count = (hours as f64 / 24.).round() as u64),
     }
 }

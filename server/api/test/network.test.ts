@@ -27,6 +27,7 @@ describe("GET /v1/network", () => {
         ios: { nightly: "0.0.0", stable: "0.0.0" },
         android: { nightly: "0.0.0", stable: "0.0.0" },
       },
+      flags: { off: [] },
     });
   });
 
@@ -66,6 +67,7 @@ describe("GET /v1/network", () => {
         ios: { nightly: "0.2.0-nightly.4", stable: "0.0.0" },
         android: { nightly: "0.0.0", stable: "0.0.0" },
       },
+      flags: { off: [] },
     });
   });
 
@@ -83,8 +85,11 @@ describe("GET /v1/network", () => {
 });
 
 describe("readNetwork", () => {
-  it("covers every platform devices register with", () => {
-    const platforms = schema.$defs.Platform.enum;
+  it("covers every platform an installed app registers with", () => {
+    // The web app ships with the server, so it is never older than it.
+    const platforms = schema.$defs.Platform.enum.filter(
+      (platform) => platform !== "web",
+    );
     expect(Object.keys(readNetwork({}, []).minimumVersions).sort()).toEqual(
       [...platforms].sort(),
     );

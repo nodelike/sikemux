@@ -1,0 +1,17 @@
+{
+  "id": "7c2e1d3f-9a4b-4c8d-8e2f-3b4c5d6e7f80",
+  "lines": [
+    {
+      "product": "pro",
+      "quantity": 1
+    }
+  ],
+  "reason": "first_payment",
+  "total": {
+    "amount": 800,
+    "currency": "usd"
+  },
+  "status": "paid",
+  "at": "2026-11-16T09:30:00.000Z",
+  "refundableUntil": "2026-11-23T09:30:00.000Z"
+}

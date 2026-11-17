@@ -9,7 +9,6 @@ export type AgentType = string;
 /** The agents each core said it can run, by core, read before anything shows an agent. */
 const catalogs = externalValue<ReadonlyMap<string, ReadonlyMap<string, CatalogAgent>>>(new Map());
 
-/** Takes the catalog `core` sent, in place of what it said before. */
 export function setAgentCatalog(core: string, agents: readonly CatalogAgent[]): void {
     catalogs.set(new Map(catalogs.get()).set(core, new Map(agents.map((agent) => [agent.type, agent]))));
 }
@@ -32,13 +31,19 @@ function anyEntry(byCore: ReadonlyMap<string, ReadonlyMap<string, CatalogAgent>>
 
 const entry = (type: string | null | undefined) => (type ? anyEntry(catalogs.get(), type) : undefined);
 
-export function isAgentType(value: unknown): value is AgentType {
-    return typeof value === "string" && !!entry(value);
-}
-
 /** The agent's name; anything not in the catalog keeps the id it came with. */
 export function agentLabel(type: string): string {
     return entry(type)?.label ?? type;
+}
+
+/** The company whose servers the agent's turns go to, when it has one. */
+export function agentMaker(type: string): string | undefined {
+    return entry(type)?.maker ?? undefined;
+}
+
+/** Whether how much of the agent's plan is used can be read, which earns its context ring the agent's own colour. */
+export function agentReadsUsage(type: string): boolean {
+    return entry(type)?.usage === true;
 }
 
 /** The agent's colour, drawing again once a core has said it. */

@@ -1,13 +1,14 @@
 //! What an agent put in its reply besides text, as its protocol gave it: a picture, or a
 //! link to a file or page.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, WeakEntity,
+    SharedString, Styled, WeakEntity,
 };
 use gpui_transcript::FilePress;
-use sikemux_wire::chat::ContentBlock;
+use sikemux_view::chat::ContentBlock;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{link, Drawn};
@@ -28,6 +29,7 @@ pub fn image(
     bench: &WeakEntity<Workbench>,
     asks: &UnboundedSender<Ask>,
     quiet: Hsla,
+    cx: &mut App,
 ) -> AnyElement {
     let picture = match link::local_path(src) {
         Some(path) => Picture::File(path),
@@ -40,6 +42,7 @@ pub fn image(
         px(HEIGHT),
         bench.clone(),
         quiet,
+        cx,
     )
     .into_any_element()
 }
@@ -87,6 +90,7 @@ pub fn content(
                 px(HEIGHT),
                 looks.bench.clone(),
                 looks.quiet,
+                cx,
             ))
             .into_any_element();
     }
@@ -105,7 +109,10 @@ pub fn content(
     }
     let (uri, ink) = (uri.map(str::to_owned), looks.ink);
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
-    let label = label.or(uri.as_deref()).unwrap_or("Resource").to_owned();
+    let label = label
+        .or(uri.as_deref())
+        .unwrap_or(t!("Resource"))
+        .to_owned();
     let file = uri
         .as_deref()
         .is_some_and(|uri| super::files::Files::kind_of(&looks.files, uri, cx).is_some());
@@ -121,7 +128,7 @@ pub fn content(
         .when_some(uri.clone().filter(|_| file), |row, uri| {
             let menu = (uri.clone(), pressed.clone());
             row.cursor_pointer()
-                .on_click(move |event, window, cx| {
+                .clicks(move |event, window, cx| {
                     let press = if event.click_count() > 1 {
                         FilePress::OpenTwice
                     } else {
@@ -136,7 +143,7 @@ pub fn content(
         .when_some(uri.filter(|_| !file), |row, uri| {
             row.cursor_pointer()
                 .hover(move |row| row.text_color(ink))
-                .on_click(move |_, window, cx| link::open(&uri, &agent, &bench, window, cx))
+                .clicks(move |_, window, cx| link::open(&uri, &agent, &bench, window, cx))
         })
         .child(ui::icon(Icon::File, 13.).text_color(looks.quiet))
         .child(div().min_w_0().truncate().child(label))

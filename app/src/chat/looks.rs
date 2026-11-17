@@ -8,9 +8,11 @@ pub(super) struct Looks {
     /// were designed, and at the chat's text size.
     pub(super) designed: Styles,
     pub(super) styles: RefCell<Styles>,
-    pub(super) scale: Cell<f32>,
+    pub(super) scale: Rc<Cell<f32>>,
     pub(super) line: Hsla,
     pub(super) bubble: Hsla,
+    /// The bubble an agent's question to the person sits in.
+    pub(super) asked: Hsla,
     pub(super) quiet: Hsla,
     pub(super) faint: Hsla,
     pub(super) ink: Hsla,
@@ -19,6 +21,8 @@ pub(super) struct Looks {
     pub(super) accent: Hsla,
     pub(super) provider: String,
     pub(super) reader: Entity<Reading>,
+    /// Whether a turn is running, as the reader holds it.
+    pub(super) running: Rc<Cell<bool>>,
     pub(super) tints: Tints,
     pub(super) bench: WeakEntity<Workbench>,
     pub(super) agent: String,
@@ -76,9 +80,18 @@ pub(super) struct Tints {
     pub(super) deleted_mark: Hsla,
     pub(super) spine: Hsla,
     pub(super) tick: Hsla,
-    pub(super) line_soft: Hsla,
-    pub(super) well: Hsla,
-    pub(super) composer: Hsla,
+    /// The ground under a diff or what a command printed, and the printed text.
+    pub(super) sunken: Hsla,
+    pub(super) printed: Hsla,
+    /// A diff's changed text and line numbers, and the numbers of the lines around them.
+    pub(super) added_ink: Hsla,
+    pub(super) deleted_ink: Hsla,
+    pub(super) added_number: Hsla,
+    pub(super) deleted_number: Hsla,
+    pub(super) gutter: Hsla,
+    /// A failed command's exit code, and the ground under it.
+    pub(super) failed_ink: Hsla,
+    pub(super) failed_ground: Hsla,
 }
 
 impl Tints {
@@ -111,12 +124,18 @@ impl Tints {
             },
             spine: t.tree_spine,
             tick: t.tree_tick,
-            line_soft: t.line_soft,
-            well: Hsla {
-                a: 0.62,
-                ..t.surface_sunken
+            sunken: t.surface_sunken,
+            printed: t.text_secondary,
+            added_ink: theme::mix(t.git_added, t.text_primary, 0.22),
+            deleted_ink: theme::mix(t.git_deleted, t.text_primary, 0.25),
+            added_number: theme::mix(t.git_added, t.surface_sunken, 0.38),
+            deleted_number: theme::mix(t.git_deleted, t.surface_sunken, 0.38),
+            gutter: theme::mix(t.text_disabled, t.surface_sunken, 0.5),
+            failed_ink: theme::mix(t.danger, t.text_primary, 0.7),
+            failed_ground: Hsla {
+                a: 0.12,
+                ..t.danger
             },
-            composer: t.surface_composer,
         }
     }
 }
@@ -145,17 +164,15 @@ impl Looks {
     pub(super) fn new(
         t: &Tokens,
         provider: &str,
-        reader: Entity<Reading>,
+        (reader, running): (Entity<Reading>, Rc<Cell<bool>>),
         (bench, asks): (WeakEntity<Workbench>, UnboundedSender<Ask>),
         agent: String,
         files: Rc<RefCell<files::Files>>,
     ) -> Looks {
-        let mut mono = gpui_kit::font(theme::MONO);
-        mono.fallbacks = Some(gpui_kit::FontFallbacks::from_fonts(vec![
-            theme::MONO_ICONS.into()
-        ]));
+        let scale = Rc::new(Cell::new(1.));
+        let mono = theme::mono();
         let text = Style {
-            font: theme::UI.into(),
+            font: theme::ui_font(),
             mono,
             ink: t.text_primary,
             ink_dim: t.text_tertiary,
@@ -166,6 +183,11 @@ impl Looks {
             selection: Hsla { a: 0.3, ..t.accent },
             mark_ground: Hsla { a: 0.1, ..t.accent },
             code_ink: t.accent,
+            link: theme::mix(t.accent, t.text_primary, 0.5),
+            link_underline: Some(Hsla {
+                a: 0.4,
+                ..theme::mix(t.accent, t.text_primary, 0.5)
+            }),
             found: Hsla {
                 a: 0.28,
                 ..t.accent
@@ -176,12 +198,15 @@ impl Looks {
                 a: 0.72,
                 ..t.line_soft
             },
-            code_ground: Hsla {
-                a: 0.72,
-                ..t.surface_sunken
-            },
+            card: crate::reading::code_card(t),
             code: Some(code_colours(reader.clone())),
-            fences: Some(schema::fences(bench.clone(), agent.clone(), asks.clone())),
+            fences: Some(schema::fences(
+                bench.clone(),
+                agent.clone(),
+                asks.clone(),
+                running.clone(),
+                scale.clone(),
+            )),
             on_link: Some(Rc::new({
                 let (bench, agent) = (bench.clone(), agent.clone());
                 move |href: &str, window: &mut Window, cx: &mut App| {
@@ -224,21 +249,27 @@ impl Looks {
             })),
             image: Some(Rc::new({
                 let (bench, quiet) = (bench.clone(), t.text_tertiary);
-                move |src: &str, _: &str, _: &mut Window, _: &mut App| {
-                    content::image(src, &bench, &asks, quiet)
+                move |src: &str, _: &str, _: &mut Window, cx: &mut App| {
+                    content::image(src, &bench, &asks, quiet, cx)
                 }
             })),
             ..Style::default()
         };
         let thought = Style {
-            text_size: px(12.5),
-            ink: t.text_tertiary,
-            italic: true,
+            text_size: px(13.5),
+            ink: t.text_secondary,
             ..text.clone()
         };
         let user = Style {
-            text_size: px(13.5),
+            text_size: px(crate::theme::TEXT_MD),
             ..text.clone()
+        };
+        let text = Style {
+            text_size: px(14.5),
+            line_height: 1.7,
+            gap: px(12.),
+            editorial: true,
+            ..text
         };
         let designed = Styles {
             text: Rc::new(text),
@@ -248,12 +279,16 @@ impl Looks {
         Looks {
             styles: RefCell::new(designed.clone()),
             designed,
-            scale: Cell::new(1.),
+            scale,
             line: Hsla { a: 0.8, ..t.line },
-            bubble: Hsla {
-                a: 0.72,
-                ..t.line_soft
-            },
+            bubble: theme::over(
+                Hsla {
+                    a: 0.1,
+                    ..theme::mix(t.accent, t.text_primary, 0.25)
+                },
+                t.surface_sunken,
+            ),
+            asked: t.surface_composer,
             quiet: t.text_tertiary,
             faint: t.text_disabled,
             ink: t.text_primary,
@@ -265,6 +300,7 @@ impl Looks {
             accent: t.accent,
             provider: provider.to_owned(),
             reader,
+            running,
             tints: Tints::new(t),
             bench,
             agent,

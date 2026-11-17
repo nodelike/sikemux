@@ -1,0 +1,599 @@
+use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use rayon::prelude::*;
+use rusqlite::{Connection, OpenFlags};
+use serde_json::Value;
+
+use super::claude::{CLAUDE_HEAD_BYTES, CLAUDE_TAIL_BYTES};
+use super::history;
+use super::in_project;
+use super::index::{indexed, Indexed};
+use super::pi::message_prose;
+use super::recent::{Found, Hit, Listed, PageScan};
+use super::rename::now_iso8601;
+use super::rename::session_file_within;
+use super::roots::{omp_agent_root, omp_session_dirs};
+use super::search::Hear;
+use super::AgentSession;
+use super::{
+    collect_transcripts, condense, file_stamp, is_jsonl, read_prefix, read_suffix,
+    stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
+};
+use crate::agent_accounts::defaults::{clean_effort, clean_model, yaml_top_level_scalar};
+use crate::agent_catalog::AgentKind;
+use crate::agent_ops::Pending;
+use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::providers::{
+    chat_compat, ChatRoute, ListedProvider, MODEL_PROVIDERS_ENV, OMP_EXTENSION,
+};
+use crate::launch::skills;
+use crate::launch::tools::TerminalSetup;
+use notify::RecursiveMode;
+use std::collections::BTreeMap;
+use std::future::ready;
+
+pub(super) fn omp_sessions(cwd: &str) -> Vec<AgentSession> {
+    omp_sessions_from_dirs(cwd, omp_session_dirs())
+}
+
+fn omp_sessions_from_dirs(cwd: &str, roots: Vec<PathBuf>) -> Vec<AgentSession> {
+    let mut files = Vec::new();
+    for root in roots {
+        collect_transcripts(&root, is_jsonl, &mut files, 0);
+    }
+    files.sort_unstable();
+    files.dedup();
+    let mut files = stamped_transcripts(files.into_iter());
+    files.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
+
+    let mut out: Vec<AgentSession> = files
+        .par_iter()
+        .filter_map(|(path, stamp)| {
+            omp_session(path, *stamp)
+                .filter(|found| found.project == cwd)
+                .map(|found| found.session)
+        })
+        .collect();
+    out.sort_by_key(|item| std::cmp::Reverse(item.mtime));
+    out
+}
+
+pub(super) fn omp_recent(scan: &PageScan<'_>) -> Vec<Hit> {
+    let mut files = Vec::new();
+    for root in omp_session_dirs() {
+        collect_transcripts(&root, is_jsonl, &mut files, 0);
+    }
+    files.sort_unstable();
+    files.dedup();
+    let listed = files
+        .into_iter()
+        .map(|path| {
+            let stamp = file_stamp(&path);
+            Listed {
+                at_ms: stamp.unix_millis(),
+                key: path.to_string_lossy().into_owned(),
+                item: (path, stamp),
+            }
+        })
+        .collect();
+    scan.collect(listed, |(path, stamp)| omp_session(path, *stamp))
+}
+
+/// The session in one transcript and the project its header names.
+pub(super) fn omp_session(path: &Path, stamp: FileStamp) -> Option<Found> {
+    let read = indexed(AgentKind::Omp, path, stamp, || read_omp(path));
+    let project = read.cwd.clone()?;
+    let title = read.title.clone().unwrap_or_else(|| {
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("session")
+            .chars()
+            .take(13)
+            .collect()
+    });
+    Some(Found {
+        project,
+        session: AgentSession {
+            id: path.to_string_lossy().into_owned(),
+            title,
+            mtime: stamp.unix_secs(),
+        },
+        place: Some(path.to_path_buf()),
+    })
+}
+
+fn read_omp(path: &Path) -> Indexed {
+    let header = fs::File::open(path).ok().and_then(|file| {
+        BufReader::new(file)
+            .lines()
+            .take(40)
+            .map_while(Result::ok)
+            .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+            .find(|value| value.get("type").and_then(Value::as_str) == Some("session"))
+    });
+    let Some(header) = header else {
+        return Indexed::default();
+    };
+    let named = |key: &str| header.get(key).and_then(Value::as_str).and_then(condense);
+    Indexed {
+        id: None,
+        cwd: header
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        title: omp_title(path)
+            .or_else(|| named("title"))
+            .or_else(|| named("id")),
+    }
+}
+
+fn scan_omp_line(line: &str, named: &mut Option<String>, first_user: &mut Option<String>) {
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        return;
+    };
+    match value.get("type").and_then(Value::as_str) {
+        Some("title" | "session_info") => {
+            if let Some(title) = value
+                .get("title")
+                .or_else(|| value.get("name"))
+                .and_then(Value::as_str)
+                .and_then(condense)
+            {
+                *named = Some(title);
+            }
+        }
+        Some("session") if named.is_none() => {
+            *named = value
+                .get("title")
+                .and_then(Value::as_str)
+                .and_then(condense);
+        }
+        Some("message") if first_user.is_none() => {
+            let Some(message) = value.get("message") else {
+                return;
+            };
+            if message.get("role").and_then(Value::as_str) == Some("user") {
+                *first_user = message
+                    .get("content")
+                    .and_then(text_from_content)
+                    .and_then(|text| condense(&text));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn omp_title(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut named = None;
+    let mut first_user = None;
+    let head = read_prefix(&mut file, CLAUDE_HEAD_BYTES.min(len))?;
+    for line in head.lines() {
+        scan_omp_line(line, &mut named, &mut first_user);
+    }
+    if len > CLAUDE_HEAD_BYTES {
+        if let Some(tail) = read_suffix(&mut file, len.saturating_sub(CLAUDE_TAIL_BYTES)) {
+            for line in tail.lines().skip(1) {
+                scan_omp_line(line, &mut named, &mut first_user);
+            }
+        }
+    }
+    named.or(first_user)
+}
+
+/// OMP keeps a session's name in a first line padded to exactly this many bytes, so it can be rewritten in place.
+const OMP_TITLE_SLOT_BYTES: usize = 256;
+
+/// Names a session the way OMP's `/rename` does: its title line, and the title index its welcome screen reads.
+pub(super) fn rename_omp_session(
+    path: &Path,
+    name: &str,
+    title_index: Option<&Path>,
+) -> Result<(), String> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    let mut slot = vec![0u8; OMP_TITLE_SLOT_BYTES];
+    file.read_exact(&mut slot)
+        .map_err(|_| "this OMP session has no title line".to_string())?;
+    let current = serde_json::from_slice::<Value>(&slot[..OMP_TITLE_SLOT_BYTES - 1]).ok();
+    let is_slot = slot[OMP_TITLE_SLOT_BYTES - 1] == b'\n'
+        && current
+            .as_ref()
+            .and_then(|value| value.get("type"))
+            .and_then(Value::as_str)
+            == Some("title");
+    if !is_slot {
+        return Err("this OMP session has no title line".to_string());
+    }
+    let line = omp_title_slot(name, &now_iso8601()).ok_or("this OMP session has no title line")?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
+    file.write_all(line.as_bytes())
+        .map_err(|error| error.to_string())?;
+    if let (Some(db), Some(session_id)) = (title_index, omp_session_id(path)) {
+        record_omp_title(db, &session_id, name);
+    }
+    Ok(())
+}
+
+/// Cuts the title to fit the slot, as OMP does, rather than refusing a long name.
+fn omp_title_slot(title: &str, updated_at: &str) -> Option<String> {
+    let line = |title: &str, pad: &str| {
+        let slot = serde_json::json!({
+            "type": "title",
+            "v": 1,
+            "title": title,
+            "source": "user",
+            "updatedAt": updated_at,
+            "pad": pad,
+        });
+        format!("{slot}\n")
+    };
+    let chars: Vec<char> = title.chars().collect();
+    (0..=chars.len()).rev().find_map(|count| {
+        let title: String = chars[..count].iter().collect();
+        let pad = OMP_TITLE_SLOT_BYTES.checked_sub(line(&title, "").len())?;
+        Some(line(&title, &" ".repeat(pad)))
+    })
+}
+
+/// How far from its end a transcript is read for the model of its last reply.
+const LAST_MODEL_TAIL_BYTES: u64 = 4 * 1024 * 1024;
+
+/// The provider and model of the transcript's last reply.
+pub(super) fn omp_last_model(path: &Path) -> Option<(String, String)> {
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let tail = read_suffix(&mut file, len.saturating_sub(LAST_MODEL_TAIL_BYTES))?;
+    tail.lines()
+        .rev()
+        .filter(|line| line.contains("\"provider\""))
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|entry| {
+            let message = entry.get("message")?;
+            (message.get("role")?.as_str()? == "assistant").then_some(())?;
+            Some((
+                message.get("provider")?.as_str()?.to_owned(),
+                message.get("model")?.as_str()?.to_owned(),
+            ))
+        })
+}
+
+fn omp_session_id(path: &Path) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    BufReader::new(file)
+        .lines()
+        .take(40)
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .find(|value| value.get("type").and_then(Value::as_str) == Some("session"))?
+        .get("id")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// Where OMP's welcome screen looks up session names before it reads any session file.
+pub(super) fn omp_title_index() -> Option<PathBuf> {
+    omp_agent_root()
+        .map(|root| root.join("history.db"))
+        .filter(|db| db.is_file())
+}
+
+/// OMP treats its title index as a cache it can rebuild, so a failed write here does not fail the rename.
+fn record_omp_title(db: &Path, session_id: &str, title: &str) {
+    let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE) else {
+        return;
+    };
+    let _ = conn.busy_timeout(Duration::from_secs(5));
+    let _ = conn.execute(
+        "INSERT INTO session_titles (session_id, title, updated_at) \
+         VALUES (?1, ?2, CAST(strftime('%s','now') AS INTEGER)) \
+         ON CONFLICT(session_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
+        (session_id, title),
+    );
+}
+
+pub(crate) struct Omp;
+
+impl AgentOps for Omp {
+    fn home(&self) -> Option<PathBuf> {
+        omp_agent_root()
+    }
+
+    fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
+        omp_sessions(cwd)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, _config_path: Option<&str>) -> Vec<Hit> {
+        omp_recent(scan)
+    }
+
+    fn session_place(&self, path: &Path) -> Option<PathBuf> {
+        is_jsonl(path).then(|| path.to_path_buf())
+    }
+
+    fn session_at(
+        &self,
+        place: &Path,
+        cwd: &str,
+        _config_path: Option<&str>,
+    ) -> Option<AgentSession> {
+        in_project(omp_session(place, file_stamp(place)), cwd)
+    }
+
+    fn session_places(&self, _cwd: &str, _config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: omp_session_dirs()
+                .into_iter()
+                .map(|dir| (dir, RecursiveMode::Recursive))
+                .collect(),
+            listings: Vec::new(),
+        }
+    }
+
+    fn history(&self, session_id: &str, cwd: &Path) -> Result<Vec<Value>, String> {
+        history::omp(Path::new(session_id), cwd)
+    }
+
+    fn last_model(&self, session_id: &str) -> Option<(String, String)> {
+        omp_last_model(Path::new(session_id))
+    }
+
+    fn prose_line(&self) -> Option<fn(&str, &mut dyn Hear)> {
+        Some(message_prose)
+    }
+
+    fn rename_saved(
+        &self,
+        _cwd: &str,
+        session_id: &str,
+        name: &str,
+        _config_path: Option<&str>,
+    ) -> Option<Result<(), String>> {
+        Some(
+            session_file_within(session_id, &omp_session_dirs())
+                .and_then(|path| rename_omp_session(&path, name, omp_title_index().as_deref())),
+        )
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.extension_args(|data_dir| {
+            skills::skill_args(data_dir, skills::omp_args)
+        })))
+    }
+
+    fn chat_skills(
+        &self,
+        data_dir: &Path,
+        _library: &Path,
+        args: &mut Vec<String>,
+        _env: &mut BTreeMap<String, String>,
+    ) {
+        args.extend(skills::skill_args(Some(data_dir), skills::omp_args));
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(omp_agent_root()?.join("config.yml"))
+            .ok()
+            .and_then(|text| yaml_top_level_scalar(&text, "defaultModel"))
+            .and_then(|value| clean_model(&value))
+    }
+
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(omp_agent_root()?.join("config.yml"))
+            .ok()
+            .and_then(|text| yaml_top_level_scalar(&text, "defaultThinkingLevel"))
+            .and_then(|value| clean_effort("omp", &value))
+    }
+
+    fn route_chat(
+        &self,
+        route: &ChatRoute<'_>,
+        env: &mut BTreeMap<String, String>,
+        args: &mut Vec<String>,
+    ) {
+        let mut entry = serde_json::json!({ "id": route.model, "input": route.input() });
+        if let Some(compat) = chat_compat(route.model) {
+            entry["compat"] = compat;
+        }
+        let mut registered: Vec<serde_json::Value> = env
+            .get(MODEL_PROVIDERS_ENV)
+            .and_then(|text| serde_json::from_str(text).ok())
+            .unwrap_or_default();
+        match registered
+            .iter_mut()
+            .find(|provider| provider["id"] == route.id)
+        {
+            Some(provider) => {
+                let listed = provider["models"].as_array_mut();
+                if let Some(models) =
+                    listed.filter(|models| !models.iter().any(|known| known["id"] == route.model))
+                {
+                    models.push(entry);
+                }
+            }
+            None => registered.push(serde_json::json!({
+                "id": route.id,
+                "baseUrl": route.base_url,
+                "apiKey": route.key_name,
+                "api": "openai-completions",
+                "models": [entry],
+            })),
+        }
+        env.insert(
+            MODEL_PROVIDERS_ENV.into(),
+            serde_json::Value::from(registered).to_string(),
+        );
+        add_extension(route.omp_extension, args);
+        args.extend(["--model".to_owned(), route.agent_model.clone()]);
+    }
+
+    fn list_connected(
+        &self,
+        listed: &[ListedProvider<'_>],
+        omp_extension: &Path,
+        env: &mut BTreeMap<String, String>,
+        args: &mut Vec<String>,
+    ) {
+        let registered: Vec<_> = listed.iter().map(ListedProvider::registered).collect();
+        env.insert(
+            MODEL_PROVIDERS_ENV.into(),
+            serde_json::Value::from(registered).to_string(),
+        );
+        add_extension(omp_extension, args);
+    }
+
+    fn prepare_route(&self, omp_extension: &Path) -> std::io::Result<()> {
+        sikemux_process::files::write_atomic(omp_extension, OMP_EXTENSION.as_bytes(), false)
+    }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Omp.home_root()?.join("skills"))
+    }
+}
+
+fn add_extension(extension: &Path, args: &mut Vec<String>) {
+    let extension = extension.to_string_lossy().into_owned();
+    if !args.contains(&extension) {
+        args.extend(["-e".to_owned(), extension]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        omp_sessions_from_dirs, omp_title, omp_title_slot, rename_omp_session, OMP_TITLE_SLOT_BYTES,
+    };
+    use std::io::Write;
+
+    #[test]
+    fn omp_title_prefers_the_latest_explicit_name() {
+        let mut transcript = tempfile::NamedTempFile::new().unwrap();
+        writeln!(
+            transcript,
+            "{}",
+            serde_json::json!({"type":"title","title":"Initial title"})
+        )
+        .unwrap();
+        writeln!(
+            transcript,
+            "{}",
+            serde_json::json!({"type":"session","id":"session-1","cwd":"/repo"})
+        )
+        .unwrap();
+        writeln!(
+            transcript,
+            "{}",
+            serde_json::json!({"type":"message","message":{"role":"user","content":"Fallback prompt"}})
+        )
+        .unwrap();
+        writeln!(
+            transcript,
+            "{}",
+            serde_json::json!({"type":"title","title":"Renamed session"})
+        )
+        .unwrap();
+        transcript.flush().unwrap();
+
+        assert_eq!(
+            omp_title(transcript.path()).as_deref(),
+            Some("Renamed session")
+        );
+    }
+
+    #[test]
+    fn omp_session_listing_accepts_title_before_header() {
+        let root = tempfile::tempdir().unwrap();
+        let transcript = root.path().join("session.jsonl");
+        std::fs::write(
+            &transcript,
+            concat!(
+                "{\"type\":\"title\",\"title\":\"Ship OMP support\"}\n",
+                "{\"type\":\"session\",\"id\":\"session-1\",\"cwd\":\"/repo\"}\n",
+                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Fallback\"}}\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = omp_sessions_from_dirs("/repo", vec![root.path().to_path_buf()]);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, transcript.to_string_lossy());
+        assert_eq!(sessions[0].title, "Ship OMP support");
+    }
+
+    fn omp_session_with_slot(dir: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("session.jsonl");
+        let body = format!(
+            "{}{}\n{}\n",
+            omp_title_slot("Auto title", "2026-09-30T11:45:52.506Z").unwrap(),
+            r#"{"type":"session","version":3,"id":"01a0f222","timestamp":"2026-09-30T11:45:52.506Z","cwd":"/repo"}"#,
+            r#"{"type":"message","id":"96defca8","parentId":null,"message":{"role":"user","content":"Fix the flaky test"}}"#,
+        );
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_renamed_omp_session_keeps_its_fixed_title_line_and_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = omp_session_with_slot(dir.path());
+        let before = std::fs::read(&path).unwrap();
+        let index = dir.path().join("history.db");
+        rusqlite::Connection::open(&index)
+            .unwrap()
+            .execute_batch("CREATE TABLE session_titles (session_id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+            .unwrap();
+
+        rename_omp_session(&path, "Flaky test fix", Some(&index)).unwrap();
+
+        let after = std::fs::read(&path).unwrap();
+        assert_eq!(after.len(), before.len());
+        assert_eq!(
+            after[OMP_TITLE_SLOT_BYTES..],
+            before[OMP_TITLE_SLOT_BYTES..]
+        );
+        assert_eq!(after[OMP_TITLE_SLOT_BYTES - 1], b'\n');
+        assert_eq!(omp_title(&path).as_deref(), Some("Flaky test fix"));
+        let indexed: String = rusqlite::Connection::open(&index)
+            .unwrap()
+            .query_row(
+                "SELECT title FROM session_titles WHERE session_id = '01a0f222'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexed, "Flaky test fix");
+    }
+
+    #[test]
+    fn a_long_name_is_cut_to_fit_the_title_line() {
+        let slot = omp_title_slot(&"名".repeat(72), "2026-09-30T11:45:52.506Z").unwrap();
+        assert_eq!(slot.len(), OMP_TITLE_SLOT_BYTES);
+        assert!(serde_json::from_str::<serde_json::Value>(slot.trim_end()).is_ok());
+    }
+
+    #[test]
+    fn an_omp_session_without_a_title_line_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let body = format!(
+            "{}\n",
+            r#"{"type":"session","version":3,"id":"01a0f222","cwd":"/repo"}"#
+        )
+        .repeat(8);
+        std::fs::write(&path, &body).unwrap();
+
+        assert!(rename_omp_session(&path, "Name", None).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
+    }
+}

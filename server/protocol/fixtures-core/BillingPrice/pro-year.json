@@ -1,0 +1,7 @@
+{
+  "interval": "year",
+  "unit": {
+    "amount": 8000,
+    "currency": "usd"
+  }
+}

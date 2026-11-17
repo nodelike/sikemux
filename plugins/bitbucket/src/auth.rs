@@ -5,11 +5,12 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-use sikemux_plugin_api::account::{as_account, chosen};
+use serde::Deserialize;
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
-use sikemux_plugin_api::http;
+use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::oauth::Tokens;
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::{SignInStatus, StreamSink};
@@ -20,18 +21,15 @@ use crate::error::{BitbucketError, BitbucketResult};
 use crate::oauth;
 use crate::repo::{Place, User};
 
-/// Long enough to sign in to Atlassian from scratch, two-step login included.
 const PIPELINE_WRITE: &str = "pipeline:write";
 
 async fn identify(credential: &Credential) -> BitbucketResult<User> {
-    let request = credential.apply(client::HTTP.client()?.get(format!("{}/user", client::API)));
-    let response = client::HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = http::read_body(response, 1024 * 1024).await?;
-    if !status.is_success() {
-        return Err(client::classify(status, &bytes));
-    }
-    Ok(serde_json::from_slice(&bytes)?)
+    let request = credential.apply(client::HTTP.client()?.get(format!("{}/user", client::BASE)));
+    client::HTTP
+        .ask(request, Read::IDENTITY)
+        .await?
+        .succeeded()?
+        .parsed()
 }
 
 pub type Status = SignInStatus<Signed>;
@@ -44,7 +42,6 @@ fn can_write(session: &Session) -> bool {
         || session.scopes.iter().any(|scope| scope == PIPELINE_WRITE)
 }
 
-/// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
     let config = match config::load(data_dir) {
         Ok(config) => config,
@@ -98,32 +95,6 @@ pub async fn status(data_dir: &Path) -> Status {
     Status::checked(account.is_some(), signed, &check)
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listed {
-    pub id: String,
-    pub login: String,
-    pub display_name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub is_default: bool,
-}
-
-/// Every account signed in, the default first, as they were when they signed in.
-pub fn accounts(data_dir: &Path) -> BitbucketResult<Vec<Listed>> {
-    let config = config::load(data_dir)?;
-    Ok(config
-        .in_order()
-        .into_iter()
-        .map(|account| Listed {
-            is_default: config.default.as_deref() == Some(account.id.as_str()),
-            id: account.id,
-            login: account.login,
-            display_name: account.display_name,
-            avatar_url: account.avatar_url,
-        })
-        .collect())
-}
-
 fn new_account(
     user: Option<&User>,
     method: Method,
@@ -157,7 +128,6 @@ pub struct TokenSignIn {
     pub email: Option<String>,
 }
 
-/// Adds the account the token belongs to, and says which one it is.
 pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> BitbucketResult<String> {
     let token = input.token.trim().to_string();
     let email = input
@@ -167,12 +137,13 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> Bitbucke
     if token.is_empty() {
         return Err(BitbucketError::BadArg("no token was given".into()));
     }
+    let secret = store::entered_secret(token.clone()).await?;
     let credential = match &email {
         Some(email) => Credential::Basic {
             email: email.clone(),
-            token: token.clone(),
+            token: secret,
         },
-        None => Credential::Bearer(token.clone()),
+        None => Credential::Bearer(secret),
     };
     let user = match identify(&credential).await {
         Ok(user) => Some(user),
@@ -206,6 +177,7 @@ async fn save_sign_in(
     })
     .await?;
     client::forget(Some(&id)).await;
+    crate::push::forget(data_dir, &id);
     Ok(id)
 }
 
@@ -221,56 +193,23 @@ pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> Bitbuck
     Ok(id)
 }
 
-/// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> BitbucketResult<()> {
-    let chosen = chosen();
-    let removed = store::update(data_dir, move |config: &mut BitbucketConfig| {
-        let Some(id) = config
-            .account(chosen.as_deref())
-            .map(|account| account.id.clone())
-        else {
-            return Ok(None);
-        };
-        let removed = config.remove(&id);
-        if let Some(account) = &removed {
-            config::KEYCHAIN.delete(&account.keychain_account())?;
-        }
-        Ok(removed)
+    let removed = store::sign_out::<BitbucketConfig, _, _>(data_dir, chosen(), |account| {
+        Ok(config::KEYCHAIN.delete(&account.keychain_account())?)
     })
     .await?;
-    if let Some(account) = removed {
+    if let Some((account, ())) = removed {
         client::forget(Some(&account.id)).await;
+        crate::push::forget(data_dir, &account.id);
     }
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> BitbucketResult<()> {
-    store::update(data_dir, move |config: &mut BitbucketConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 /// The first account, default first, that can see the repository, so a
 /// project on a work workspace opens as the work account by itself.
 pub async fn account_for(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Option<String>> {
-    let path = repo.path("")?;
-    for account in config::load(data_dir)?.in_order() {
-        let id = account.id.clone();
-        let seen: BitbucketResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
-        match seen {
-            Ok(_) => return Ok(Some(id)),
-            Err(BitbucketError::Unconfigured) => return Ok(None),
-            Err(_) => continue,
-        }
-    }
-    Ok(None)
+    let accounts = answers::ids_in_order(&config::load(data_dir)?);
+    answers::first_that_sees(&client::API, data_dir, accounts, &repo.path("")?).await
 }
 
 #[cfg(test)]

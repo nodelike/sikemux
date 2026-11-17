@@ -33,11 +33,14 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
-# Every push to main gets its own run, so a red main always points at the push that broke it.
+# One run at a time per branch. A run that has started always finishes, so main keeps getting
+# results; of the pushes that arrive meanwhile only the newest runs next, and the older waiting
+# ones are cancelled. A new push to a pull request stops its running one.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Cargo.toml builds dependencies at full speed so `make dev` feels fast. CI only
 # tests them, and level 1 compiles in about half the time. The cache key carries
@@ -46,12 +49,10 @@ env:
   DEPS_OPT_LEVEL: 1
   # Tests and checks never read debug info, and leaving it out makes compiling and linking much faster.
   CARGO_PROFILE_DEV_DEBUG: 0
-  # The GPUI app and its crates, which a bare cargo run leaves out.
-  GPUI_PACKAGES: -p sikemux-gpui -p film-frame -p gpui-native-view -p gpui-terminal-grid -p gpui-transcript -p textmate-highlight
 
 jobs:
-  # Compares against main's last green run rather than the previous push, so a job that
-  # failed keeps running until it passes again.
+  # Compares against main's last run that ran to a result, and also runs every area a job of that
+  # run failed or was stopped in, so a failed job keeps running until it passes again.
   changes:
     name: What changed
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -59,15 +60,18 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: read
+      checks: read
       contents: read
     outputs:
       rust: ${{ steps.areas.outputs.rust }}
       simulator: ${{ steps.areas.outputs.simulator }}
+      helpers: ${{ steps.areas.outputs.helpers }}
       packaging: ${{ steps.areas.outputs.packaging }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           filter: blob:none
 
@@ -79,10 +83,31 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           base=""
+          rerun=""
           if [ "$EVENT" = pull_request ]; then
             base="$PR_BASE"
           elif [ "$EVENT" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
-            base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')"
+            read -r run base < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=50" \
+              --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0] // empty | "\(.id) \(.head_sha)"') || true
+            if [ -n "${run:-}" ]; then
+              failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | "\(.id)\t\(.name)"')" || base=""
+              # A helper job that a failed Linux check stopped proved nothing about its own area.
+              stopped() {
+                gh api "repos/$GITHUB_REPOSITORY/check-runs/$1/annotations" --jq '.[].message' 2>/dev/null | grep -q '^Stopped because '
+              }
+              while IFS=$'\t' read -r id job; do
+                case "$job" in
+                  "") ;;
+                  "Dependency audit" | "Frontend quality, build, and tests" | "GPUI in a real window") ;;
+                  "Linux compile check and core tests"*) rerun+=" rust packaging" ;;
+                  "Rust "* | "Core unit tests" | "GPUI app tests" | "GPUI on Linux in a real window") rerun+=" rust" ;;
+                  "iOS Simulator helper") stopped "$id" || rerun+=" simulator" ;;
+                  "Notch and voice helpers") stopped "$id" || rerun+=" helpers" ;;
+                  *) base="" ;;
+                esac
+              done <<<"$failed"
+              printf 'Run %s failed or stopped in:\n%s\n' "$run" "$failed"
+            fi
           fi
 
           git merge-base --is-ancestor "$base" HEAD 2>/dev/null || base=""
@@ -91,16 +116,18 @@ jobs:
 
           area() {
             name="$1" needs="$2" ignores="${3:-^$}"
-            if [ -z "$base" ] || printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/workflows/ci\.yml$|$needs"; then
+            if [ -z "$base" ] || [[ " $rerun " == *" $name "* ]] ||
+              printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/(workflows/ci\.yml$|actions/)|$needs"; then
               echo "$name=true" >>"$GITHUB_OUTPUT"
             else
               echo "$name=false" >>"$GITHUB_OUTPUT"
-              echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
+              echo "Skipped $name: nothing it checks changed, and it passed last run" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
-          area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|browser/|server/protocol/|rust-toolchain\.toml$)'
-          area simulator '^(helpers/sim/|crates/sikemux-simulator/|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
-          area packaging '^(scripts/build-linux\.sh$|scripts/build-cli-sidecar\.mjs$|packaging/linux/|packaging/icons/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
+          area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$|mobile/ios/Sikemux/UI/BackdropKinds\.generated\.h$|shared/backdrop/kinds\.generated\.ts$)'
+          area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/helper_build\.rs$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
+          area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-(notch-icons|notch-sources|wire-types)\.mjs$|crates/sikemux-(wire|view)/src/|shared/(ui|buddies|assets/agent-logos)/|brand/mark/|app/assets/icons/|crates/sikemux-core/src/assets/agent-catalog\.json$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
+          area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-agents/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or
   # unmaintained warning dependency-audit.json does not explain. Advisories arrive without a change
@@ -114,6 +141,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup pnpm
@@ -144,10 +172,12 @@ jobs:
   frontend:
     name: Frontend quality, build, and tests
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -163,115 +193,215 @@ jobs:
       - name: Install the generators' dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check project formatting
-        run: pnpm format:check
+      - name: Check generated files match their sources
+        run: pnpm check:generated
 
-      - name: Lint shared code
-        run: pnpm lint
+      - name: Install shellcheck
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/shellcheck.tar.xz" https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  $RUNNER_TEMP/shellcheck.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP/bin" --strip-components 1 shellcheck-v0.11.0/shellcheck
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
 
-      - name: Typecheck shared code
-        run: pnpm typecheck
+      - name: Check formatting, lint, types and release tooling
+        run: pnpm check:code
 
-      - name: Check the grammar manifest matches the installed grammars
-        run: pnpm grammars:check
-
-      - name: Check the generated wire types match the core's Rust
-        run: pnpm wire:check
-
-      - name: Check the generated agent tool list matches its source
-        run: pnpm agent-tools:check
-
-      - name: Check the generated agent catalog matches its source
-        run: pnpm agent-catalog:check
-
-      - name: Check the docs reference pages match their source
-        run: pnpm docs:reference:check
-
-      - name: Check the file icons match the installed icon theme
-        run: pnpm file-icons:check
-
-      - name: Check release tooling without credentials
-        run: pnpm release:check
-
-      - name: Lint shell scripts
-        run: brew install shellcheck && shellcheck scripts/*.sh
-
-  rust:
-    name: Rust formatting, lint, and tests
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: macos-latest
+  phone-compat:
+    name: Phones in the stores
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check the core still serves the phone builds in the stores
+        run: node scripts/check-phone-compat.mjs
+
+  # None needs the app built or a Mac: hakari.toml names the platforms workspace-hack is made for.
+  rust-format:
+    name: Rust formatting and workspace-hack
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          components: clippy rustfmt
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          components: rustfmt
 
       - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+        run: scripts/check-rust.sh fmt
 
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      # nextest runs every test binary at once; cargo test runs them one after another.
-      - name: Install cargo-nextest
+      - name: Install cargo-hakari
         run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/nextest.tar.gz" https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.149/cargo-nextest-0.9.149-universal-apple-darwin.tar.gz
-          echo "47b9941765a9ff94e304a3fe5444ac1c7593da655525b8b69f8f2b31a9217507  $RUNNER_TEMP/nextest.tar.gz" | shasum -a 256 -c -
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/hakari.tar.gz" https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-0.9.39/cargo-hakari-0.9.39-x86_64-unknown-linux-gnu.tar.gz
+          echo "699a3193a9bd1a8d914b970d3f50f3385f24fbd8b1294d0c0ff31fbe7c2c9f48  $RUNNER_TEMP/hakari.tar.gz" | shasum -a 256 -c -
           bin="${CARGO_HOME:-$HOME/.cargo}/bin"
           mkdir -p "$bin"
-          tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$bin"
+          tar -xzf "$RUNNER_TEMP/hakari.tar.gz" -C "$bin"
           echo "$bin" >>"$GITHUB_PATH"
 
-      - name: Run Rust tests
-        run: cargo nextest run --all-targets --all-features
+      - name: Check workspace-hack is up to date
+        run: scripts/check-rust.sh hakari
 
-      - name: Build without any plugins
-        run: cargo clippy -p sikemux-host --no-default-features --all-targets -- -D warnings
+      - name: Check the phones' backdrop shaders match the Mac's
+        run: scripts/check-rust.sh backdrop-shaders
 
-  # The job above leaves out the GPUI app, which this one builds alongside it.
-  gpui:
-    name: GPUI app formatting, lint, and tests
+      - name: Check the phone's Rust never links the core
+        run: scripts/check-rust.sh phone-deps
+
+  # The core's and the GPUI app's macOS-only code is linted only here; the build without plugins
+  # changes no macOS code, so the Linux job lints it.
+  rust-lint:
+    name: Rust lint
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          components: clippy rustfmt
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache: "true"
+          components: clippy
 
       - name: Run Clippy
-        run: cargo clippy $GPUI_PACKAGES --all-targets -- -D warnings
+        run: scripts/check-rust.sh clippy
+
+      - name: Run Clippy on the GPUI app
+        run: scripts/check-rust.sh gpui-clippy
+
+  # The tests run as two jobs so that each compiles the core once: one runner compiling it with and
+  # without its unit tests at once took ten minutes, and three to four for each alone.
+  rust-core-tests:
+    name: Core unit tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
+      # Built alone, the core takes 58 of its dependencies with other features than the whole workspace
+      # gives them. Building those again each run costs about a minute; a cache of this job's own was 590 MB.
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
+          cache-from: rust-tests
+
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      - name: Run the core's unit tests
+        run: scripts/check-rust.sh core-unit-tests
+
+  rust-tests:
+    name: Rust tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
+
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      - name: Run every test but the core's unit tests
+        run: scripts/check-rust.sh other-tests
+
+  # Branch protection requires a check of this name, which was one job before its work was split.
+  rust:
+    name: Rust formatting, lint, and tests
+    needs: [changes, rust-format, rust-lint, rust-core-tests, rust-tests, linux]
+    if: always() && needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every Rust job passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+
+  # The test jobs above leave out the GPUI app, which this one builds alongside them.
+  gpui:
+    name: GPUI app tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
 
       - name: Run Rust tests
-        run: cargo test $GPUI_PACKAGES --all-targets
+        run: scripts/check-rust.sh gpui-test
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the scripts' dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compare each backdrop's still frame on the Mac with the phones' shaders
+        run: node scripts/backdrop-stills.mjs --out "$RUNNER_TEMP/backdrop-stills"
+
+      - name: Upload the backdrop stills
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backdrop-stills
+          path: ${{ runner.temp }}/backdrop-stills
+          if-no-files-found: warn
 
   # Whether GPUI's Metal renderer draws on a runner: a window is opened in the runner's own
   # session and captured. It takes up to two hours, so it runs daily and by hand with
@@ -284,18 +414,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          cache: "true"
+          cache-from: gpui
 
       - name: Build the window probe
         run: cargo build --example window_probe
@@ -319,16 +445,36 @@ jobs:
           kill "$probe" 2>/dev/null || true
           test -s window-run/window.png
 
-      - name: Build the core and the fake agent
-        run: cargo build -p sikemux-core --bin sikemux-core --bin sikemux-fake-acp-agent
+      - name: Build the core and the fake agents
+        run: cargo build -p sikemux-core --bin sikemux-core --bin sikemux-fake-acp-agent --bin sikemux-fake-claude
 
       - name: Build the app with its in-app driver
         run: cargo build --features drive --bin sikemux --example fake_chat
         working-directory: app
 
+      - name: Time a long chat of MCP apps against one as long without
+        if: ${{ !cancelled() }}
+        working-directory: app
+        run: >-
+          python3 -I ci/mcp-apps-check.py --app ../target/debug/sikemux
+          --core ../target/debug/sikemux-core --agent ../target/debug/sikemux-fake-acp-agent
+          --seed ../target/debug/examples/fake_chat --claude ../target/debug/sikemux-fake-claude
+          --out "$RUNNER_TEMP/w/mcp-apps"
+
+      - name: Upload the MCP apps run's pictures and numbers
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcp-apps
+          path: |
+            ${{ runner.temp }}/w/mcp-apps/*.png
+            ${{ runner.temp }}/w/mcp-apps/*.json
+          if-no-files-found: warn
+
       # The checks' cores listen on sockets inside their output folders, and a socket's path must stay
       # under 104 bytes, which the checkout's own path would pass.
       - name: Drive the desk checks
+        if: ${{ !cancelled() }}
         working-directory: app
         run: >-
           python3 -I ci/desk-checks.py --app ../target/debug/sikemux
@@ -384,30 +530,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
 
       - name: Install GPUI's Linux packages, an X server and a window manager
         uses: ./.github/actions/apt-install
         with:
           packages: >-
-            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev
-            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libssl-dev libzstd-dev clang pkg-config
-            libwebkit2gtk-4.1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
             xvfb openbox x11-utils xdotool imagemagick mesa-vulkan-drivers fonts-dejavu-core
             xdg-desktop-portal xdg-desktop-portal-gtk dconf-gsettings-backend gsettings-desktop-schemas libglib2.0-bin
             gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly ffmpeg
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build the core and the fake agent
         run: cargo build --locked -p sikemux-core --bin sikemux-core --bin sikemux-fake-acp-agent
@@ -448,25 +588,32 @@ jobs:
   # Every release also ships Linux packages, so main must keep compiling there,
   # and the core must keep working as a Linux host.
   linux:
-    name: Linux compile check and core tests
+    name: Linux compile check and core tests (${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true'
-    runs-on: ubuntu-24.04
+    # The two architectures agreed on almost every push, so aarch64 waits for the nightly schedule.
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["x86_64","aarch64"]' || '["x86_64"]') }}
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    env:
+      CORE_CRATES: -p sikemux-core -p sikemux-calls -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-kernel -p sikemux-serve -p sikemux-workspace -p sikemux-chat -p sikemux-remote -p sikemux-repo -p sikemux-board -p sikemux-drivers -p sikemux-hostkit -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      # The Tauri app's, then GPUI's, as Zed's script/linux lists them.
+      # Mostly GPUI's, as Zed's script/linux lists them.
       - name: Install the Linux packages
         uses: ./.github/actions/apt-install
-        with:
-          packages: >-
-            libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev build-essential file
-            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libssl-dev libzstd-dev clang pkg-config
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -474,22 +621,45 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Check the app compiles on Linux
-        run: cargo check --all-targets --locked
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      # The tests that fail most often run first, so a broken push stops the Mac jobs sooner.
+      - name: Check the agent tools fit their budgets
+        if: matrix.arch == 'x86_64'
+        run: |
+          read -ra crates <<<"$CORE_CRATES"
+          cargo nextest run --locked "${crates[@]}" -E 'test(/^tools_mcp::tests::/)'
+
+      - name: Check the app compiles on Linux and passes Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Check the GPUI app on Linux
-        run: cargo clippy $GPUI_PACKAGES --all-targets --locked -- -D warnings
+        run: scripts/check-rust.sh gpui-clippy
 
+      - name: Build without any plugins
+        if: matrix.arch == 'x86_64'
+        run: scripts/check-rust.sh no-plugins
+
+      # nextest leaves doc tests out, so cargo runs those.
       - name: Run the core's tests on Linux
-        run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-client -p sikemux-keychain -p sikemux-host
+        run: |
+          read -ra crates <<<"$CORE_CRATES"
+          cargo nextest run --locked "${crates[@]}"
+          cargo test --locked --doc "${crates[@]}"
 
       # The packages are unsigned and go nowhere but this run.
       - name: Install what the app packs with
         if: needs.changes.outputs.packaging == 'true'
-        run: sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev libfontconfig-dev libfreetype-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good dpkg-dev rpm patchelf
+        run: xargs sudo apt-get install -y <packaging/linux/pack-packages.txt
 
-      - name: Pack the deb, rpm and AppImage
+      # These packages only prove the packing works, so they skip the release build's whole-program
+      # LTO, which tripled the compile. The Release workflow's Linux jobs still build with it.
+      - name: Pack the deb, tarball and AppImage
         if: needs.changes.outputs.packaging == 'true'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
         run: scripts/build-linux.sh
 
       - name: Install the deb on a clean Ubuntu
@@ -509,11 +679,10 @@ jobs:
         if: needs.changes.outputs.packaging == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sikemux-linux-packages
+          name: sikemux-linux-packages-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             target/release/bundle/deb/*.deb
-            target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
 
   simulator-helper:
@@ -526,6 +695,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
+      # A new device stays busy for about a quarter of an hour after it boots, so it boots while the job builds.
+      - name: Start an iPhone 17 Pro simulator
+        run: |
+          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
+          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
+          nohup scripts/boot-ci-simulator.sh "$udid" >"$RUNNER_TEMP/simulator-boot.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/simulator-boot.pid"
 
       - name: Install XcodeGen
         run: scripts/install-xcodegen.sh
@@ -534,16 +716,8 @@ jobs:
       # restore that only partly matches empties target first.
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache: "true"
 
       - name: Build the helper
         run: node scripts/build-sim-helper.mjs --dev
@@ -561,22 +735,61 @@ jobs:
       - name: Build the simulator tests
         run: cargo test -p sikemux-simulator --lib --no-run
 
-      # Booting earlier slowed the builds above by competing for the runner's three cores.
-      - name: Boot an iPhone 17 Pro simulator
-        timeout-minutes: 10
-        # "Booted" comes before the home screen takes input, and the tests no longer compile after it.
+      # A device still busy from its first boot fills the runner's memory and cores, and single
+      # screen reads then took up to a minute, so the tests wait until the load is below two per core.
+      - name: Wait for the simulator to settle
+        timeout-minutes: 20
         run: |
-          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
-          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
-          export SIKEMUX_SIM_DEVICE="$udid"
-          xcrun simctl boot "$SIKEMUX_SIM_DEVICE"
-          xcrun simctl bootstatus "$SIKEMUX_SIM_DEVICE" -b
-          xcrun simctl launch "$SIKEMUX_SIM_DEVICE" com.apple.Preferences
-          sleep 20
-          xcrun simctl terminate "$SIKEMUX_SIM_DEVICE" com.apple.Preferences
+          while kill -0 "$(cat "$RUNNER_TEMP/simulator-boot.pid")" 2>/dev/null; do sleep 5; done
+          cat "$RUNNER_TEMP/simulator-boot.log"
+          grep -q "The simulator is ready" "$RUNNER_TEMP/simulator-boot.log"
+          cores=$(sysctl -n hw.ncpu)
+          calm=0
+          while [ "$calm" -lt 2 ]; do
+            sleep 15
+            load=$(sysctl -n vm.loadavg | awk '{ print $2 }')
+            echo "Load $load"
+            if awk -v load="$load" -v cores="$cores" 'BEGIN { exit !(load < 2 * cores) }'; then calm=$((calm + 1)); else calm=0; fi
+          done
 
       - name: Drive a real simulator and the fixture app as an agent would
         env:
           SIKEMUX_SIM_EXECUTABLE: ${{ github.workspace }}/target/debug/sikemux-sim
           SIKEMUX_SIM_FIXTURE: ${{ github.workspace }}/helpers/sim/.build/fixture/Build/Products/Debug-iphonesimulator/SimFixture.app
         run: cargo test -p sikemux-simulator --lib -- --ignored --test-threads=1
+
+  # Nothing else compiles these before a release.
+  helpers:
+    name: Notch and voice helpers
+    needs: changes
+    if: needs.changes.outputs.helpers == 'true'
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Install the generators' dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the helpers
+        run: pnpm check:helpers

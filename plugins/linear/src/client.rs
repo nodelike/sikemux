@@ -3,9 +3,11 @@
 
 use std::path::Path;
 
+use reqwest::StatusCode;
 use serde_json::{json, Value};
-use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
-use sikemux_plugin_api::store::{self, Accounts, Held};
+use sikemux_plugin_api::http::{Http, Read, Redirects};
+use sikemux_plugin_api::store::{Accounts, Held};
+use sikemux_plugin_api::Service;
 
 use crate::config::{self, SignIn, Workspace};
 use crate::error::{Linear, LinearError, LinearResult};
@@ -13,13 +15,9 @@ use crate::oauth;
 
 const API: &str = "https://api.linear.app/graphql";
 
-/// The value at `path` in `value`, or null when there is none.
-pub fn at<'a>(value: &'a Value, path: &str) -> &'a Value {
-    value.pointer(path).unwrap_or(&Value::Null)
-}
-pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+pub use sikemux_plugin_api::json::at;
 
-pub static HTTP: Http<Linear> = Http::new(Redirects::Follow, Deadline::WholeAnswer, 8);
+pub static HTTP: Http<Linear> = Http::new(Redirects::Follow, 8);
 static KEYS: Held<String> = Held::secrets();
 
 pub fn forget(workspace: &str) {
@@ -33,14 +31,16 @@ pub struct Session {
 }
 
 impl Session {
-    /// The workspace named, or the default one.
     pub async fn of(data_dir: &Path, workspace: Option<&str>) -> LinearResult<Session> {
         let workspace = config::load(data_dir)?
             .account(workspace)
             .cloned()
             .ok_or(LinearError::Unconfigured)?;
         let key = match workspace.sign_in {
-            SignIn::Key => Some(key_of(&workspace).await?),
+            SignIn::Key => Some(
+                KEYS.secret(config::KEYCHAIN, &workspace.id, workspace.id.clone())
+                    .await?,
+            ),
             SignIn::Browser => None,
         };
         Ok(Session { workspace, key })
@@ -53,7 +53,7 @@ impl Session {
                 oauth::ACCESS
                     .with_access(
                         &self.workspace.id,
-                        || oauth::entry(&self.workspace),
+                        || self.workspace.id.clone(),
                         |access| {
                             let variables = variables.clone();
                             async move {
@@ -67,20 +67,11 @@ impl Session {
     }
 }
 
-async fn key_of(workspace: &Workspace) -> LinearResult<String> {
-    if let Some(key) = KEYS.get(&workspace.id) {
-        return Ok(key);
-    }
-    let reading = workspace.id.clone();
-    let key = store::blocking(move || Ok(config::KEYCHAIN.read(&reading)?))
-        .await?
-        .ok_or(LinearError::Unconfigured)?;
-    KEYS.put(&workspace.id, key.clone());
-    Ok(key)
-}
-
 /// Linear says a query failed in the body's `errors`, often with a 400.
-pub fn checked(status: u16, body: Value) -> LinearResult<Value> {
+pub fn checked(status: StatusCode, bytes: &[u8]) -> LinearResult<Value> {
+    let Ok(body) = serde_json::from_slice::<Value>(bytes) else {
+        return Err(Linear::refused(status, bytes, None));
+    };
     if let Some(error) = at(&body, "/errors")
         .as_array()
         .and_then(|errors| errors.first())
@@ -102,11 +93,8 @@ pub fn checked(status: u16, body: Value) -> LinearResult<Value> {
             _ => LinearError::Api(message),
         });
     }
-    if !(200..300).contains(&status) {
-        return Err(LinearError::Http {
-            status,
-            message: body.to_string().chars().take(200).collect(),
-        });
+    if !status.is_success() {
+        return Err(Linear::refused(status, bytes, None));
     }
     match body.get("data") {
         Some(data) if !data.is_null() => Ok(data.clone()),
@@ -120,21 +108,13 @@ pub async fn query_with(
     document: &str,
     variables: Value,
 ) -> LinearResult<Value> {
-    let response = HTTP
-        .send(
-            HTTP.client()?
-                .post(API)
-                .header("Authorization", authorization)
-                .json(&json!({ "query": document, "variables": variables })),
-        )
-        .await?;
-    let status = response.status().as_u16();
-    let bytes = http::read_body(response, MAX_RESPONSE_BYTES).await?;
-    let body: Value = serde_json::from_slice(&bytes).map_err(|_| LinearError::Http {
-        status,
-        message: String::from_utf8_lossy(&bytes).chars().take(200).collect(),
-    })?;
-    checked(status, body)
+    let request = HTTP
+        .client()?
+        .post(API)
+        .header("Authorization", authorization)
+        .json(&json!({ "query": document, "variables": variables }));
+    let answer = HTTP.ask(request, Read::ALL).await?;
+    checked(answer.status, &answer.bytes)
 }
 
 #[cfg(test)]
@@ -143,6 +123,12 @@ mod tests {
 
     #[test]
     fn linears_errors_read_in_words() {
+        let checked = |status: u16, body: Value| {
+            super::checked(
+                StatusCode::from_u16(status).expect("a status"),
+                body.to_string().as_bytes(),
+            )
+        };
         let auth = json!({ "errors": [{ "message": "Authentication required, not authenticated", "extensions": { "code": "AUTHENTICATION_ERROR", "userPresentableMessage": "You need to authenticate to access this operation." } }] });
         assert!(
             matches!(checked(400, auth), Err(LinearError::Auth(message)) if message.contains("authenticate"))
@@ -167,14 +153,5 @@ mod tests {
             checked(502, json!({})),
             Err(LinearError::Http { status: 502, .. })
         ));
-    }
-
-    #[tokio::test]
-    async fn a_request_without_a_key_is_refused_as_a_sign_in() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        match query_with("not-a-key", "query { viewer { id } }", json!({})).await {
-            Err(LinearError::Auth(_)) | Err(LinearError::Unreachable { .. }) => {}
-            other => panic!("{other:?}"),
-        }
     }
 }

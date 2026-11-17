@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import type { StashItem } from './api';
@@ -8,7 +9,6 @@ import { Face, useBearer } from './StashPicker';
 import { useStash } from './store';
 import { itemTitle, type ContextChip } from './words';
 
-/** A stash item as it sits in the composer: its picture or glyph and its title. */
 export function StashPreview({ item }: { item: StashItem }) {
   const styles = useStyles(makeStyles);
   const bearer = useBearer();
@@ -48,8 +48,8 @@ function ChipFace({ uri }: { uri: string }) {
   );
 }
 
-/** A link or text the draft carries, with its × to take it off. */
 export function StashChip({ chip, onRemove }: { chip: ContextChip; onRemove: () => void }) {
+  const t = useT();
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
@@ -65,7 +65,7 @@ export function StashChip({ chip, onRemove }: { chip: ContextChip; onRemove: () 
         hitSlop={10}
         style={styles.remove}
         accessibilityRole="button"
-        accessibilityLabel={`Remove ${chip.title}`}>
+        accessibilityLabel={t('Remove {title}', { title: chip.title })}>
         <Icon name="IconClose" size={10} color={colors.ground} />
       </Pressable>
     </View>

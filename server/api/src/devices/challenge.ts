@@ -24,7 +24,7 @@ export async function issueChallenge(
 }
 
 /** Uses up the account's challenge, refusing one that is unknown, already used or expired. */
-export async function consumeChallenge(
+async function consumeChallenge(
   db: Kysely<Tables>,
   userId: string,
   nonce: string,

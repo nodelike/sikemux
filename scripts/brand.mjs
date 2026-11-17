@@ -106,6 +106,8 @@ for (const ground of Object.keys(GROUNDS))
         `icon/icon-${ground}-${shape}-${size}.png`,
         size,
       ]);
+for (const size of [32, 128, 256, 512])
+  pngs.push(["icon/icon-dark-rounded.svg", `linux/icon-${size}.png`, size]);
 pngs.push(["icon/icon-dark-square.svg", "social/avatar-400.png", 400]);
 for (const kind of ["wordmark", "lockup"])
   for (const name of kind === "wordmark"

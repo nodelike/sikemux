@@ -1,0 +1,1275 @@
+[
+  {
+    "id": "bound-01",
+    "from": [
+      "workspace_inspect 49 KB, 2026-11-10"
+    ],
+    "category": "oversized_result",
+    "severity": "med",
+    "tools": [
+      "workspace_inspect",
+      "process_start"
+    ],
+    "prompt": "Restart the docs preview process that's set up in Sikemux for this project.",
+    "fixture": {
+      "project": "work",
+      "answers": [
+        {
+          "tool": "workspace_inspect",
+          "reply": {
+            "tasks": [
+              {
+                "id": "acme.web",
+                "label": "web dev server",
+                "command": "pnpm --filter web dev",
+                "cwd": "packages/web",
+                "foundIn": "sikemux.json"
+              },
+              {
+                "id": "acme.api",
+                "label": "api dev server",
+                "command": "pnpm --filter api dev",
+                "cwd": "packages/api",
+                "foundIn": "sikemux.json"
+              },
+              {
+                "id": "acme.docs-preview",
+                "label": "docs preview",
+                "command": "pnpm --dir docs preview --port 4173",
+                "cwd": "docs",
+                "foundIn": "sikemux.json"
+              },
+              {
+                "id": "acme.test",
+                "label": "unit tests",
+                "command": "pnpm test",
+                "cwd": ".",
+                "foundIn": "sikemux.json"
+              },
+              {
+                "id": "acme.lint",
+                "label": "lint",
+                "command": "pnpm lint",
+                "cwd": ".",
+                "foundIn": "sikemux.json"
+              }
+            ],
+            "configStatus": "ok",
+            "ports": [
+              {
+                "port": 4000,
+                "processId": "acme.api",
+                "url": "http://localhost:4000"
+              }
+            ],
+            "runs": [
+              {
+                "executionId": "run-1000",
+                "processId": "sh:docs-build-000",
+                "status": "stopped",
+                "label": "docs build (0)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-0-docs-build.log --flag-budget --flag-retry --flag-socket --flag-island --flag-test --flag-land --flag-cursor --flag-retry --flag-mark --flag-pane --flag-upload --flag-close --flag-host --flag-core --flag-socket --flag-composer --flag-close --flag-notch --flag-host --flag-retry --flag-timer --flag-flaky --flag-chat --flag-limit --flag-limit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794400000000
+              },
+              {
+                "executionId": "run-1001",
+                "processId": "sh:unit-tests-001",
+                "status": "completed",
+                "label": "unit tests (1)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-1-unit-tests.log --flag-chat --flag-upload --flag-notch --flag-bindings --flag-build --flag-core --flag-Android --flag-island --flag-flaky --flag-timer --flag-lint --flag-notch --flag-rail --flag-test --flag-cursor --flag-timer --flag-limit --flag-tab --flag-land --flag-test --flag-notch --flag-socket --flag-timer --flag-retry --flag-offset",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400060000
+              },
+              {
+                "executionId": "run-1002",
+                "processId": "sh:api-tests-002",
+                "status": "completed",
+                "label": "api tests (2)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-2-api-tests.log --flag-protocol --flag-cursor --flag-protocol --flag-land --flag-lint --flag-composer --flag-rail --flag-composer --flag-close --flag-timer --flag-lint --flag-row --flag-snapshot --flag-commit --flag-wire --flag-build --flag-page --flag-socket --flag-flaky --flag-mark --flag-core --flag-iPhone --flag-commit --flag-Android --flag-snapshot",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400120000
+              },
+              {
+                "executionId": "run-1003",
+                "processId": "sh:unit-tests-003",
+                "status": "completed",
+                "label": "unit tests (3)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-3-unit-tests.log --flag-commit --flag-push --flag-page --flag-snapshot --flag-cursor --flag-protocol --flag-socket --flag-close --flag-board --flag-fixture --flag-bytes --flag-socket --flag-retry --flag-lint --flag-budget --flag-timer --flag-wire --flag-build --flag-rebase --flag-bytes --flag-push --flag-a --flag-protocol --flag-push --flag-iPhone",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794400180000
+              },
+              {
+                "executionId": "run-1004",
+                "processId": "sh:lint-004",
+                "status": "completed",
+                "label": "lint (4)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-4-lint.log --flag-pane --flag-build --flag-bindings --flag-composer --flag-worktree --flag-worktree --flag-snapshot --flag-close --flag-iPhone --flag-wire --flag-worktree --flag-notch --flag-board --flag-bindings --flag-host --flag-notch --flag-board --flag-core --flag-push --flag-rebase --flag-chat --flag-Android --flag-close --flag-rail --flag-Android",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400240000
+              },
+              {
+                "executionId": "run-1005",
+                "processId": "sh:e2e-smoke-005",
+                "status": "completed",
+                "label": "e2e smoke (5)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-5-e2e-smoke.log --flag-cursor --flag-rail --flag-card --flag-build --flag-the --flag-Android --flag-core --flag-island --flag-land --flag-offset --flag-timer --flag-check --flag-bindings --flag-mark --flag-offset --flag-budget --flag-retry --flag-protocol --flag-notch --flag-worktree --flag-worktree --flag-worktree --flag-worktree --flag-test --flag-fixture",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794400300000
+              },
+              {
+                "executionId": "run-1006",
+                "processId": "sh:storybook-006",
+                "status": "completed",
+                "label": "storybook (6)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-6-storybook.log --flag-socket --flag-pane --flag-wire --flag-iPhone --flag-flaky --flag-commit --flag-page --flag-retry --flag-test --flag-the --flag-timer --flag-Android --flag-island --flag-test --flag-land --flag-offset --flag-a --flag-socket --flag-pane --flag-offset --flag-rebase --flag-Android --flag-limit --flag-card --flag-push",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794400360000
+              },
+              {
+                "executionId": "run-1007",
+                "processId": "sh:docs-build-007",
+                "status": "completed",
+                "label": "docs build (7)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-7-docs-build.log --flag-flaky --flag-snapshot --flag-protocol --flag-fixture --flag-fixture --flag-lint --flag-close --flag-Android --flag-test --flag-commit --flag-card --flag-fixture --flag-iPhone --flag-row --flag-a --flag-pane --flag-row --flag-land --flag-Android --flag-island --flag-a --flag-row --flag-lint --flag-budget --flag-close",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794400420000
+              },
+              {
+                "executionId": "run-1008",
+                "processId": "sh:release-build-008",
+                "status": "failed",
+                "label": "release build (8)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-8-release-build.log --flag-push --flag-chat --flag-island --flag-island --flag-mark --flag-commit --flag-limit --flag-chat --flag-offset --flag-tab --flag-composer --flag-worktree --flag-chat --flag-tab --flag-row --flag-snapshot --flag-push --flag-a --flag-a --flag-board --flag-fixture --flag-card --flag-tab --flag-page --flag-push",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400480000
+              },
+              {
+                "executionId": "run-1009",
+                "processId": "sh:docs-build-009",
+                "status": "failed",
+                "label": "docs build (9)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-9-docs-build.log --flag-chat --flag-test --flag-chat --flag-fixture --flag-tab --flag-commit --flag-pane --flag-fixture --flag-offset --flag-offset --flag-the --flag-fixture --flag-budget --flag-push --flag-budget --flag-close --flag-bytes --flag-flaky --flag-rebase --flag-tab --flag-fixture --flag-rail --flag-host --flag-limit --flag-commit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400540000
+              },
+              {
+                "executionId": "run-1010",
+                "processId": "sh:storybook-010",
+                "status": "completed",
+                "label": "storybook (10)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-10-storybook.log --flag-close --flag-iPhone --flag-iPhone --flag-bindings --flag-a --flag-Android --flag-cursor --flag-protocol --flag-budget --flag-Android --flag-offset --flag-page --flag-fixture --flag-bytes --flag-push --flag-Android --flag-notch --flag-notch --flag-bindings --flag-a --flag-the --flag-budget --flag-test --flag-row --flag-bindings",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400600000
+              },
+              {
+                "executionId": "run-1011",
+                "processId": "sh:e2e-smoke-011",
+                "status": "stopped",
+                "label": "e2e smoke (11)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-11-e2e-smoke.log --flag-card --flag-pane --flag-build --flag-mark --flag-composer --flag-cursor --flag-check --flag-card --flag-island --flag-core --flag-bindings --flag-retry --flag-push --flag-protocol --flag-bytes --flag-cursor --flag-row --flag-core --flag-mark --flag-bindings --flag-island --flag-Android --flag-row --flag-mark --flag-a",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400660000
+              },
+              {
+                "executionId": "run-1012",
+                "processId": "sh:typecheck-012",
+                "status": "completed",
+                "label": "typecheck (12)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-12-typecheck.log --flag-rail --flag-Android --flag-fixture --flag-offset --flag-flaky --flag-notch --flag-retry --flag-check --flag-row --flag-row --flag-notch --flag-fixture --flag-test --flag-notch --flag-retry --flag-composer --flag-tab --flag-board --flag-upload --flag-test --flag-mark --flag-wire --flag-notch --flag-a --flag-socket",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400720000
+              },
+              {
+                "executionId": "run-1013",
+                "processId": "sh:docs-build-013",
+                "status": "stopped",
+                "label": "docs build (13)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-13-docs-build.log --flag-wire --flag-mark --flag-island --flag-fixture --flag-mark --flag-composer --flag-row --flag-card --flag-notch --flag-tab --flag-wire --flag-bindings --flag-core --flag-flaky --flag-worktree --flag-wire --flag-check --flag-socket --flag-bytes --flag-composer --flag-host --flag-socket --flag-pane --flag-bytes --flag-lint",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400780000
+              },
+              {
+                "executionId": "run-1014",
+                "processId": "sh:typecheck-014",
+                "status": "failed",
+                "label": "typecheck (14)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-14-typecheck.log --flag-card --flag-bindings --flag-protocol --flag-chat --flag-test --flag-worktree --flag-snapshot --flag-iPhone --flag-bytes --flag-chat --flag-iPhone --flag-host --flag-mark --flag-worktree --flag-commit --flag-core --flag-tab --flag-push --flag-check --flag-close --flag-land --flag-a --flag-commit --flag-notch --flag-protocol",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400840000
+              },
+              {
+                "executionId": "run-1015",
+                "processId": "sh:unit-tests-015",
+                "status": "completed",
+                "label": "unit tests (15)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-15-unit-tests.log --flag-row --flag-offset --flag-build --flag-mark --flag-socket --flag-flaky --flag-chat --flag-test --flag-close --flag-card --flag-board --flag-upload --flag-rail --flag-board --flag-bindings --flag-host --flag-card --flag-worktree --flag-Android --flag-island --flag-mark --flag-timer --flag-snapshot --flag-check --flag-close",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400900000
+              },
+              {
+                "executionId": "run-1016",
+                "processId": "sh:unit-tests-016",
+                "status": "stopped",
+                "label": "unit tests (16)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-16-unit-tests.log --flag-socket --flag-board --flag-a --flag-limit --flag-close --flag-card --flag-close --flag-page --flag-chat --flag-socket --flag-card --flag-flaky --flag-protocol --flag-the --flag-commit --flag-notch --flag-core --flag-board --flag-offset --flag-bindings --flag-upload --flag-row --flag-composer --flag-flaky --flag-iPhone",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794400960000
+              },
+              {
+                "executionId": "run-1017",
+                "processId": "sh:unit-tests-017",
+                "status": "stopped",
+                "label": "unit tests (17)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-17-unit-tests.log --flag-lint --flag-limit --flag-lint --flag-row --flag-pane --flag-build --flag-wire --flag-mark --flag-rail --flag-board --flag-push --flag-a --flag-card --flag-upload --flag-the --flag-a --flag-mark --flag-notch --flag-tab --flag-mark --flag-fixture --flag-composer --flag-wire --flag-test --flag-bytes",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794401020000
+              },
+              {
+                "executionId": "run-1018",
+                "processId": "sh:storybook-018",
+                "status": "completed",
+                "label": "storybook (18)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-18-storybook.log --flag-mark --flag-lint --flag-pane --flag-chat --flag-commit --flag-tab --flag-limit --flag-bindings --flag-worktree --flag-push --flag-retry --flag-bindings --flag-the --flag-socket --flag-limit --flag-card --flag-host --flag-iPhone --flag-retry --flag-close --flag-bytes --flag-rebase --flag-mark --flag-bytes --flag-build",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794401080000
+              },
+              {
+                "executionId": "run-1019",
+                "processId": "sh:e2e-smoke-019",
+                "status": "failed",
+                "label": "e2e smoke (19)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-19-e2e-smoke.log --flag-protocol --flag-rail --flag-iPhone --flag-board --flag-wire --flag-the --flag-card --flag-land --flag-commit --flag-notch --flag-check --flag-composer --flag-upload --flag-lint --flag-pane --flag-push --flag-rail --flag-the --flag-commit --flag-rebase --flag-close --flag-fixture --flag-board --flag-mark --flag-budget",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401140000
+              },
+              {
+                "executionId": "run-1020",
+                "processId": "sh:e2e-smoke-020",
+                "status": "completed",
+                "label": "e2e smoke (20)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-20-e2e-smoke.log --flag-card --flag-close --flag-Android --flag-worktree --flag-cursor --flag-upload --flag-worktree --flag-a --flag-lint --flag-lint --flag-limit --flag-chat --flag-close --flag-cursor --flag-row --flag-Android --flag-bytes --flag-page --flag-rebase --flag-check --flag-snapshot --flag-Android --flag-build --flag-offset --flag-budget",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401200000
+              },
+              {
+                "executionId": "run-1021",
+                "processId": "sh:unit-tests-021",
+                "status": "completed",
+                "label": "unit tests (21)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-21-unit-tests.log --flag-row --flag-mark --flag-timer --flag-a --flag-cursor --flag-budget --flag-chat --flag-close --flag-a --flag-upload --flag-bindings --flag-limit --flag-land --flag-test --flag-rebase --flag-wire --flag-notch --flag-retry --flag-limit --flag-a --flag-limit --flag-island --flag-composer --flag-snapshot --flag-card",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401260000
+              },
+              {
+                "executionId": "run-1022",
+                "processId": "sh:api-tests-022",
+                "status": "completed",
+                "label": "api tests (22)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-22-api-tests.log --flag-bytes --flag-row --flag-socket --flag-fixture --flag-card --flag-socket --flag-card --flag-composer --flag-pane --flag-chat --flag-budget --flag-protocol --flag-snapshot --flag-rebase --flag-socket --flag-fixture --flag-build --flag-upload --flag-offset --flag-limit --flag-budget --flag-tab --flag-socket --flag-page --flag-Android",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401320000
+              },
+              {
+                "executionId": "run-1023",
+                "processId": "sh:release-build-023",
+                "status": "failed",
+                "label": "release build (23)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-23-release-build.log --flag-the --flag-fixture --flag-retry --flag-snapshot --flag-board --flag-test --flag-pane --flag-snapshot --flag-build --flag-row --flag-build --flag-protocol --flag-protocol --flag-protocol --flag-flaky --flag-notch --flag-tab --flag-lint --flag-close --flag-fixture --flag-a --flag-build --flag-protocol --flag-socket --flag-mark",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401380000
+              },
+              {
+                "executionId": "run-1024",
+                "processId": "sh:release-build-024",
+                "status": "completed",
+                "label": "release build (24)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-24-release-build.log --flag-pane --flag-socket --flag-cursor --flag-close --flag-Android --flag-row --flag-card --flag-land --flag-bindings --flag-page --flag-limit --flag-mark --flag-board --flag-flaky --flag-land --flag-chat --flag-snapshot --flag-snapshot --flag-worktree --flag-a --flag-iPhone --flag-the --flag-snapshot --flag-wire --flag-worktree",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401440000
+              },
+              {
+                "executionId": "run-1025",
+                "processId": "sh:typecheck-025",
+                "status": "completed",
+                "label": "typecheck (25)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-25-typecheck.log --flag-rebase --flag-check --flag-flaky --flag-commit --flag-the --flag-check --flag-commit --flag-worktree --flag-flaky --flag-tab --flag-the --flag-build --flag-card --flag-land --flag-socket --flag-worktree --flag-rebase --flag-cursor --flag-socket --flag-land --flag-host --flag-board --flag-retry --flag-board --flag-test",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401500000
+              },
+              {
+                "executionId": "run-1026",
+                "processId": "sh:release-build-026",
+                "status": "stopped",
+                "label": "release build (26)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-26-release-build.log --flag-board --flag-host --flag-mark --flag-check --flag-tab --flag-land --flag-host --flag-a --flag-limit --flag-worktree --flag-notch --flag-notch --flag-pane --flag-close --flag-retry --flag-core --flag-wire --flag-offset --flag-bindings --flag-budget --flag-build --flag-snapshot --flag-retry --flag-notch --flag-bindings",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401560000
+              },
+              {
+                "executionId": "run-1027",
+                "processId": "sh:api-tests-027",
+                "status": "completed",
+                "label": "api tests (27)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-27-api-tests.log --flag-build --flag-lint --flag-card --flag-budget --flag-card --flag-worktree --flag-budget --flag-composer --flag-lint --flag-fixture --flag-notch --flag-bytes --flag-worktree --flag-flaky --flag-iPhone --flag-budget --flag-iPhone --flag-socket --flag-pane --flag-mark --flag-snapshot --flag-notch --flag-chat --flag-wire --flag-commit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401620000
+              },
+              {
+                "executionId": "run-1028",
+                "processId": "sh:storybook-028",
+                "status": "stopped",
+                "label": "storybook (28)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-28-storybook.log --flag-composer --flag-close --flag-rail --flag-commit --flag-notch --flag-close --flag-check --flag-composer --flag-land --flag-card --flag-timer --flag-tab --flag-a --flag-core --flag-rebase --flag-core --flag-row --flag-pane --flag-rebase --flag-board --flag-commit --flag-retry --flag-snapshot --flag-board --flag-timer",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401680000
+              },
+              {
+                "executionId": "run-1029",
+                "processId": "sh:typecheck-029",
+                "status": "stopped",
+                "label": "typecheck (29)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-29-typecheck.log --flag-board --flag-composer --flag-rebase --flag-worktree --flag-budget --flag-wire --flag-host --flag-lint --flag-a --flag-bindings --flag-upload --flag-host --flag-fixture --flag-cursor --flag-snapshot --flag-the --flag-socket --flag-worktree --flag-row --flag-protocol --flag-wire --flag-composer --flag-test --flag-chat --flag-Android",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401740000
+              },
+              {
+                "executionId": "run-1030",
+                "processId": "sh:bench-030",
+                "status": "completed",
+                "label": "bench (30)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run bench -- --reporter=verbose --coverage --outputFile=/tmp/acme-30-bench.log --flag-close --flag-notch --flag-upload --flag-the --flag-bindings --flag-chat --flag-timer --flag-upload --flag-budget --flag-lint --flag-bindings --flag-limit --flag-card --flag-row --flag-limit --flag-host --flag-flaky --flag-test --flag-socket --flag-lint --flag-row --flag-cursor --flag-tab --flag-rebase --flag-card",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401800000
+              },
+              {
+                "executionId": "run-1031",
+                "processId": "sh:unit-tests-031",
+                "status": "completed",
+                "label": "unit tests (31)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-31-unit-tests.log --flag-protocol --flag-board --flag-check --flag-budget --flag-composer --flag-fixture --flag-row --flag-composer --flag-notch --flag-composer --flag-a --flag-core --flag-budget --flag-lint --flag-retry --flag-a --flag-tab --flag-snapshot --flag-budget --flag-core --flag-close --flag-card --flag-chat --flag-bytes --flag-host",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401860000
+              },
+              {
+                "executionId": "run-1032",
+                "processId": "sh:e2e-smoke-032",
+                "status": "completed",
+                "label": "e2e smoke (32)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-32-e2e-smoke.log --flag-commit --flag-core --flag-land --flag-worktree --flag-tab --flag-the --flag-build --flag-mark --flag-socket --flag-pane --flag-snapshot --flag-tab --flag-lint --flag-tab --flag-chat --flag-protocol --flag-chat --flag-card --flag-build --flag-test --flag-offset --flag-snapshot --flag-offset --flag-rail --flag-chat",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794401920000
+              },
+              {
+                "executionId": "run-1033",
+                "processId": "sh:storybook-033",
+                "status": "completed",
+                "label": "storybook (33)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-33-storybook.log --flag-worktree --flag-retry --flag-pane --flag-a --flag-page --flag-Android --flag-core --flag-retry --flag-retry --flag-rail --flag-worktree --flag-wire --flag-check --flag-flaky --flag-close --flag-iPhone --flag-commit --flag-tab --flag-rail --flag-budget --flag-row --flag-protocol --flag-upload --flag-lint --flag-bytes",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794401980000
+              },
+              {
+                "executionId": "run-1034",
+                "processId": "sh:storybook-034",
+                "status": "failed",
+                "label": "storybook (34)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-34-storybook.log --flag-wire --flag-iPhone --flag-test --flag-the --flag-close --flag-board --flag-close --flag-push --flag-core --flag-flaky --flag-notch --flag-pane --flag-rebase --flag-push --flag-lint --flag-host --flag-close --flag-retry --flag-fixture --flag-tab --flag-land --flag-island --flag-wire --flag-tab --flag-check",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402040000
+              },
+              {
+                "executionId": "run-1035",
+                "processId": "sh:api-tests-035",
+                "status": "completed",
+                "label": "api tests (35)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-35-api-tests.log --flag-composer --flag-limit --flag-worktree --flag-upload --flag-rebase --flag-upload --flag-protocol --flag-socket --flag-retry --flag-card --flag-tab --flag-socket --flag-page --flag-commit --flag-land --flag-board --flag-commit --flag-offset --flag-upload --flag-card --flag-check --flag-board --flag-lint --flag-the --flag-page",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794402100000
+              },
+              {
+                "executionId": "run-1036",
+                "processId": "sh:lint-036",
+                "status": "completed",
+                "label": "lint (36)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-36-lint.log --flag-test --flag-fixture --flag-protocol --flag-rebase --flag-card --flag-host --flag-snapshot --flag-bindings --flag-snapshot --flag-rail --flag-the --flag-lint --flag-Android --flag-page --flag-composer --flag-check --flag-check --flag-protocol --flag-land --flag-page --flag-close --flag-mark --flag-tab --flag-worktree --flag-iPhone",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402160000
+              },
+              {
+                "executionId": "run-1037",
+                "processId": "sh:storybook-037",
+                "status": "completed",
+                "label": "storybook (37)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-37-storybook.log --flag-fixture --flag-notch --flag-island --flag-check --flag-iPhone --flag-host --flag-test --flag-socket --flag-card --flag-offset --flag-close --flag-pane --flag-test --flag-core --flag-snapshot --flag-wire --flag-rail --flag-chat --flag-bindings --flag-core --flag-protocol --flag-offset --flag-composer --flag-island --flag-bytes",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402220000
+              },
+              {
+                "executionId": "run-1038",
+                "processId": "sh:release-build-038",
+                "status": "failed",
+                "label": "release build (38)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-38-release-build.log --flag-timer --flag-board --flag-land --flag-card --flag-card --flag-tab --flag-wire --flag-composer --flag-rail --flag-composer --flag-composer --flag-Android --flag-build --flag-cursor --flag-tab --flag-check --flag-socket --flag-worktree --flag-card --flag-composer --flag-mark --flag-row --flag-chat --flag-budget --flag-test",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794402280000
+              },
+              {
+                "executionId": "run-1039",
+                "processId": "sh:api-tests-039",
+                "status": "completed",
+                "label": "api tests (39)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-39-api-tests.log --flag-the --flag-fixture --flag-chat --flag-wire --flag-land --flag-upload --flag-build --flag-chat --flag-flaky --flag-retry --flag-tab --flag-page --flag-cursor --flag-tab --flag-socket --flag-land --flag-mark --flag-rail --flag-wire --flag-page --flag-card --flag-bytes --flag-the --flag-test --flag-limit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794402340000
+              },
+              {
+                "executionId": "run-1040",
+                "processId": "sh:docs-build-040",
+                "status": "stopped",
+                "label": "docs build (40)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-40-docs-build.log --flag-land --flag-commit --flag-Android --flag-upload --flag-pane --flag-card --flag-upload --flag-page --flag-budget --flag-pane --flag-the --flag-check --flag-core --flag-land --flag-rail --flag-offset --flag-lint --flag-socket --flag-pane --flag-upload --flag-snapshot --flag-notch --flag-fixture --flag-socket --flag-core",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402400000
+              },
+              {
+                "executionId": "run-1041",
+                "processId": "sh:storybook-041",
+                "status": "stopped",
+                "label": "storybook (41)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-41-storybook.log --flag-budget --flag-iPhone --flag-worktree --flag-board --flag-core --flag-build --flag-bytes --flag-lint --flag-core --flag-retry --flag-lint --flag-timer --flag-push --flag-core --flag-core --flag-a --flag-land --flag-budget --flag-tab --flag-worktree --flag-worktree --flag-pane --flag-the --flag-host --flag-iPhone",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402460000
+              },
+              {
+                "executionId": "run-1042",
+                "processId": "sh:lint-042",
+                "status": "completed",
+                "label": "lint (42)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-42-lint.log --flag-timer --flag-land --flag-protocol --flag-iPhone --flag-bindings --flag-the --flag-retry --flag-notch --flag-Android --flag-budget --flag-worktree --flag-close --flag-timer --flag-offset --flag-land --flag-mark --flag-iPhone --flag-Android --flag-push --flag-build --flag-iPhone --flag-row --flag-iPhone --flag-socket --flag-test",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402520000
+              },
+              {
+                "executionId": "run-1043",
+                "processId": "sh:api-tests-043",
+                "status": "stopped",
+                "label": "api tests (43)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-43-api-tests.log --flag-bindings --flag-upload --flag-fixture --flag-check --flag-retry --flag-page --flag-limit --flag-rebase --flag-close --flag-offset --flag-iPhone --flag-limit --flag-chat --flag-offset --flag-worktree --flag-offset --flag-tab --flag-fixture --flag-rail --flag-timer --flag-pane --flag-upload --flag-worktree --flag-row --flag-iPhone",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402580000
+              },
+              {
+                "executionId": "run-1044",
+                "processId": "sh:docs-build-044",
+                "status": "completed",
+                "label": "docs build (44)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-44-docs-build.log --flag-composer --flag-tab --flag-upload --flag-notch --flag-upload --flag-bytes --flag-check --flag-flaky --flag-rebase --flag-page --flag-protocol --flag-notch --flag-limit --flag-lint --flag-budget --flag-core --flag-lint --flag-cursor --flag-composer --flag-host --flag-rebase --flag-bytes --flag-land --flag-wire --flag-mark",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402640000
+              },
+              {
+                "executionId": "run-1045",
+                "processId": "sh:typecheck-045",
+                "status": "completed",
+                "label": "typecheck (45)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-45-typecheck.log --flag-offset --flag-snapshot --flag-protocol --flag-composer --flag-wire --flag-offset --flag-protocol --flag-rail --flag-fixture --flag-worktree --flag-test --flag-socket --flag-bindings --flag-push --flag-host --flag-land --flag-close --flag-wire --flag-mark --flag-mark --flag-bytes --flag-upload --flag-upload --flag-limit --flag-bindings",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402700000
+              },
+              {
+                "executionId": "run-1046",
+                "processId": "sh:docs-build-046",
+                "status": "completed",
+                "label": "docs build (46)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-46-docs-build.log --flag-mark --flag-rebase --flag-budget --flag-bindings --flag-a --flag-socket --flag-offset --flag-flaky --flag-tab --flag-bindings --flag-snapshot --flag-build --flag-iPhone --flag-chat --flag-socket --flag-push --flag-offset --flag-card --flag-iPhone --flag-check --flag-offset --flag-board --flag-protocol --flag-Android --flag-card",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794402760000
+              },
+              {
+                "executionId": "run-1047",
+                "processId": "sh:api-tests-047",
+                "status": "stopped",
+                "label": "api tests (47)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-47-api-tests.log --flag-offset --flag-mark --flag-composer --flag-check --flag-land --flag-upload --flag-tab --flag-rail --flag-worktree --flag-iPhone --flag-limit --flag-board --flag-check --flag-rebase --flag-iPhone --flag-card --flag-flaky --flag-row --flag-retry --flag-limit --flag-land --flag-wire --flag-notch --flag-row --flag-cursor",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794402820000
+              },
+              {
+                "executionId": "run-1048",
+                "processId": "sh:lint-048",
+                "status": "failed",
+                "label": "lint (48)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-48-lint.log --flag-land --flag-card --flag-rebase --flag-land --flag-timer --flag-Android --flag-land --flag-commit --flag-close --flag-wire --flag-chat --flag-rail --flag-offset --flag-retry --flag-build --flag-row --flag-card --flag-lint --flag-limit --flag-cursor --flag-bytes --flag-check --flag-the --flag-upload --flag-chat",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402880000
+              },
+              {
+                "executionId": "run-1049",
+                "processId": "sh:release-build-049",
+                "status": "completed",
+                "label": "release build (49)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-49-release-build.log --flag-mark --flag-land --flag-retry --flag-bindings --flag-snapshot --flag-chat --flag-offset --flag-budget --flag-upload --flag-a --flag-retry --flag-the --flag-timer --flag-push --flag-lint --flag-test --flag-row --flag-push --flag-island --flag-chat --flag-core --flag-cursor --flag-lint --flag-cursor --flag-bindings",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794402940000
+              },
+              {
+                "executionId": "run-1050",
+                "processId": "sh:docs-build-050",
+                "status": "completed",
+                "label": "docs build (50)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-50-docs-build.log --flag-bindings --flag-the --flag-composer --flag-Android --flag-wire --flag-test --flag-socket --flag-limit --flag-Android --flag-bytes --flag-board --flag-worktree --flag-card --flag-the --flag-retry --flag-budget --flag-notch --flag-push --flag-page --flag-budget --flag-cursor --flag-wire --flag-page --flag-row --flag-snapshot",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403000000
+              },
+              {
+                "executionId": "run-1051",
+                "processId": "sh:typecheck-051",
+                "status": "completed",
+                "label": "typecheck (51)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-51-typecheck.log --flag-retry --flag-island --flag-a --flag-worktree --flag-rail --flag-composer --flag-iPhone --flag-retry --flag-test --flag-the --flag-offset --flag-notch --flag-bytes --flag-tab --flag-Android --flag-core --flag-tab --flag-row --flag-page --flag-budget --flag-mark --flag-budget --flag-budget --flag-core --flag-offset",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403060000
+              },
+              {
+                "executionId": "run-1052",
+                "processId": "sh:bench-052",
+                "status": "failed",
+                "label": "bench (52)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run bench -- --reporter=verbose --coverage --outputFile=/tmp/acme-52-bench.log --flag-lint --flag-limit --flag-retry --flag-fixture --flag-island --flag-the --flag-rebase --flag-host --flag-protocol --flag-close --flag-budget --flag-wire --flag-rail --flag-chat --flag-test --flag-card --flag-chat --flag-budget --flag-upload --flag-flaky --flag-commit --flag-card --flag-retry --flag-board --flag-limit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403120000
+              },
+              {
+                "executionId": "run-1053",
+                "processId": "sh:storybook-053",
+                "status": "failed",
+                "label": "storybook (53)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-53-storybook.log --flag-budget --flag-pane --flag-close --flag-mark --flag-the --flag-iPhone --flag-card --flag-composer --flag-tab --flag-iPhone --flag-check --flag-tab --flag-rebase --flag-commit --flag-page --flag-composer --flag-rebase --flag-limit --flag-bytes --flag-island --flag-fixture --flag-fixture --flag-row --flag-the --flag-a",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403180000
+              },
+              {
+                "executionId": "run-1054",
+                "processId": "sh:e2e-smoke-054",
+                "status": "failed",
+                "label": "e2e smoke (54)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-54-e2e-smoke.log --flag-worktree --flag-offset --flag-cursor --flag-socket --flag-timer --flag-iPhone --flag-Android --flag-upload --flag-a --flag-flaky --flag-test --flag-offset --flag-iPhone --flag-push --flag-Android --flag-a --flag-a --flag-upload --flag-bindings --flag-budget --flag-limit --flag-upload --flag-socket --flag-upload --flag-socket",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403240000
+              },
+              {
+                "executionId": "run-1055",
+                "processId": "sh:docs-build-055",
+                "status": "stopped",
+                "label": "docs build (55)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-55-docs-build.log --flag-rebase --flag-test --flag-composer --flag-pane --flag-pane --flag-flaky --flag-upload --flag-upload --flag-limit --flag-close --flag-limit --flag-limit --flag-build --flag-fixture --flag-test --flag-bindings --flag-test --flag-budget --flag-pane --flag-build --flag-check --flag-commit --flag-host --flag-card --flag-a",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403300000
+              },
+              {
+                "executionId": "run-1056",
+                "processId": "sh:release-build-056",
+                "status": "failed",
+                "label": "release build (56)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-56-release-build.log --flag-land --flag-check --flag-page --flag-mark --flag-fixture --flag-build --flag-offset --flag-a --flag-core --flag-a --flag-host --flag-row --flag-test --flag-push --flag-fixture --flag-retry --flag-island --flag-timer --flag-pane --flag-close --flag-timer --flag-build --flag-iPhone --flag-host --flag-the",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403360000
+              },
+              {
+                "executionId": "run-1057",
+                "processId": "sh:e2e-smoke-057",
+                "status": "failed",
+                "label": "e2e smoke (57)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-57-e2e-smoke.log --flag-the --flag-push --flag-snapshot --flag-test --flag-snapshot --flag-rail --flag-snapshot --flag-cursor --flag-push --flag-mark --flag-card --flag-timer --flag-iPhone --flag-build --flag-pane --flag-chat --flag-snapshot --flag-iPhone --flag-flaky --flag-limit --flag-close --flag-snapshot --flag-notch --flag-test --flag-limit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403420000
+              },
+              {
+                "executionId": "run-1058",
+                "processId": "sh:docs-build-058",
+                "status": "completed",
+                "label": "docs build (58)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-58-docs-build.log --flag-worktree --flag-close --flag-host --flag-budget --flag-a --flag-land --flag-pane --flag-lint --flag-card --flag-host --flag-island --flag-mark --flag-iPhone --flag-rebase --flag-limit --flag-chat --flag-protocol --flag-bindings --flag-island --flag-page --flag-page --flag-budget --flag-upload --flag-push --flag-cursor",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403480000
+              },
+              {
+                "executionId": "run-1059",
+                "processId": "sh:bench-059",
+                "status": "stopped",
+                "label": "bench (59)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run bench -- --reporter=verbose --coverage --outputFile=/tmp/acme-59-bench.log --flag-bytes --flag-notch --flag-check --flag-iPhone --flag-protocol --flag-wire --flag-card --flag-cursor --flag-chat --flag-bindings --flag-commit --flag-protocol --flag-budget --flag-composer --flag-mark --flag-tab --flag-board --flag-lint --flag-offset --flag-Android --flag-Android --flag-composer --flag-check --flag-page --flag-row",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403540000
+              },
+              {
+                "executionId": "run-1060",
+                "processId": "sh:typecheck-060",
+                "status": "stopped",
+                "label": "typecheck (60)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-60-typecheck.log --flag-tab --flag-card --flag-test --flag-iPhone --flag-bytes --flag-test --flag-tab --flag-rebase --flag-Android --flag-Android --flag-lint --flag-lint --flag-host --flag-board --flag-tab --flag-test --flag-limit --flag-test --flag-board --flag-pane --flag-rebase --flag-protocol --flag-upload --flag-the --flag-worktree",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403600000
+              },
+              {
+                "executionId": "run-1061",
+                "processId": "sh:e2e-smoke-061",
+                "status": "failed",
+                "label": "e2e smoke (61)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-61-e2e-smoke.log --flag-a --flag-Android --flag-card --flag-page --flag-worktree --flag-the --flag-composer --flag-host --flag-timer --flag-cursor --flag-budget --flag-core --flag-chat --flag-bytes --flag-budget --flag-budget --flag-cursor --flag-chat --flag-rail --flag-budget --flag-flaky --flag-protocol --flag-host --flag-check --flag-card",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403660000
+              },
+              {
+                "executionId": "run-1062",
+                "processId": "sh:lint-062",
+                "status": "completed",
+                "label": "lint (62)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-62-lint.log --flag-worktree --flag-limit --flag-iPhone --flag-card --flag-host --flag-fixture --flag-protocol --flag-a --flag-offset --flag-core --flag-row --flag-bytes --flag-rail --flag-budget --flag-check --flag-the --flag-rebase --flag-snapshot --flag-test --flag-upload --flag-card --flag-island --flag-pane --flag-iPhone --flag-tab",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403720000
+              },
+              {
+                "executionId": "run-1063",
+                "processId": "sh:docs-build-063",
+                "status": "completed",
+                "label": "docs build (63)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-63-docs-build.log --flag-island --flag-pane --flag-fixture --flag-mark --flag-a --flag-limit --flag-land --flag-row --flag-commit --flag-core --flag-protocol --flag-pane --flag-rail --flag-worktree --flag-mark --flag-flaky --flag-offset --flag-push --flag-limit --flag-retry --flag-card --flag-board --flag-rebase --flag-worktree --flag-retry",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403780000
+              },
+              {
+                "executionId": "run-1064",
+                "processId": "sh:lint-064",
+                "status": "completed",
+                "label": "lint (64)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-64-lint.log --flag-limit --flag-push --flag-cursor --flag-card --flag-test --flag-chat --flag-lint --flag-worktree --flag-row --flag-chat --flag-worktree --flag-protocol --flag-pane --flag-iPhone --flag-bindings --flag-socket --flag-limit --flag-tab --flag-fixture --flag-budget --flag-notch --flag-chat --flag-Android --flag-push --flag-bytes",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403840000
+              },
+              {
+                "executionId": "run-1065",
+                "processId": "sh:storybook-065",
+                "status": "completed",
+                "label": "storybook (65)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-65-storybook.log --flag-notch --flag-budget --flag-bindings --flag-fixture --flag-push --flag-chat --flag-board --flag-rebase --flag-card --flag-host --flag-rail --flag-fixture --flag-the --flag-board --flag-push --flag-composer --flag-budget --flag-lint --flag-check --flag-fixture --flag-snapshot --flag-host --flag-offset --flag-limit --flag-close",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794403900000
+              },
+              {
+                "executionId": "run-1066",
+                "processId": "sh:docs-build-066",
+                "status": "stopped",
+                "label": "docs build (66)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-66-docs-build.log --flag-rebase --flag-retry --flag-close --flag-timer --flag-check --flag-bindings --flag-row --flag-push --flag-limit --flag-cursor --flag-the --flag-bytes --flag-the --flag-pane --flag-socket --flag-budget --flag-build --flag-card --flag-page --flag-test --flag-cursor --flag-Android --flag-chat --flag-rail --flag-wire",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794403960000
+              },
+              {
+                "executionId": "run-1067",
+                "processId": "sh:typecheck-067",
+                "status": "stopped",
+                "label": "typecheck (67)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-67-typecheck.log --flag-island --flag-iPhone --flag-offset --flag-page --flag-close --flag-bytes --flag-notch --flag-limit --flag-lint --flag-tab --flag-snapshot --flag-pane --flag-row --flag-close --flag-wire --flag-bytes --flag-flaky --flag-notch --flag-flaky --flag-card --flag-core --flag-chat --flag-bindings --flag-fixture --flag-snapshot",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794404020000
+              },
+              {
+                "executionId": "run-1068",
+                "processId": "sh:unit-tests-068",
+                "status": "completed",
+                "label": "unit tests (68)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-68-unit-tests.log --flag-Android --flag-snapshot --flag-composer --flag-snapshot --flag-iPhone --flag-island --flag-page --flag-the --flag-iPhone --flag-check --flag-protocol --flag-timer --flag-snapshot --flag-bytes --flag-build --flag-protocol --flag-land --flag-host --flag-core --flag-socket --flag-rail --flag-limit --flag-land --flag-limit --flag-budget",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404080000
+              },
+              {
+                "executionId": "run-1069",
+                "processId": "sh:unit-tests-069",
+                "status": "completed",
+                "label": "unit tests (69)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-69-unit-tests.log --flag-test --flag-mark --flag-fixture --flag-snapshot --flag-Android --flag-upload --flag-pane --flag-core --flag-limit --flag-bindings --flag-commit --flag-test --flag-bytes --flag-land --flag-commit --flag-fixture --flag-row --flag-notch --flag-pane --flag-build --flag-host --flag-commit --flag-host --flag-card --flag-notch",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404140000
+              },
+              {
+                "executionId": "run-1070",
+                "processId": "sh:release-build-070",
+                "status": "failed",
+                "label": "release build (70)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-70-release-build.log --flag-snapshot --flag-worktree --flag-commit --flag-mark --flag-board --flag-mark --flag-push --flag-pane --flag-budget --flag-snapshot --flag-flaky --flag-commit --flag-tab --flag-check --flag-lint --flag-bindings --flag-cursor --flag-limit --flag-close --flag-upload --flag-worktree --flag-notch --flag-worktree --flag-island --flag-timer",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404200000
+              },
+              {
+                "executionId": "run-1071",
+                "processId": "sh:storybook-071",
+                "status": "failed",
+                "label": "storybook (71)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-71-storybook.log --flag-the --flag-upload --flag-tab --flag-fixture --flag-page --flag-bytes --flag-retry --flag-mark --flag-island --flag-offset --flag-rebase --flag-offset --flag-Android --flag-limit --flag-page --flag-close --flag-pane --flag-upload --flag-bytes --flag-limit --flag-protocol --flag-limit --flag-rail --flag-test --flag-bytes",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404260000
+              },
+              {
+                "executionId": "run-1072",
+                "processId": "sh:unit-tests-072",
+                "status": "completed",
+                "label": "unit tests (72)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-72-unit-tests.log --flag-budget --flag-the --flag-land --flag-bindings --flag-lint --flag-notch --flag-card --flag-lint --flag-rail --flag-core --flag-upload --flag-check --flag-a --flag-host --flag-timer --flag-budget --flag-cursor --flag-retry --flag-snapshot --flag-timer --flag-row --flag-upload --flag-flaky --flag-core --flag-timer",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794404320000
+              },
+              {
+                "executionId": "run-1073",
+                "processId": "sh:storybook-073",
+                "status": "completed",
+                "label": "storybook (73)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-73-storybook.log --flag-the --flag-rebase --flag-page --flag-cursor --flag-bytes --flag-Android --flag-fixture --flag-core --flag-notch --flag-test --flag-close --flag-budget --flag-fixture --flag-pane --flag-Android --flag-limit --flag-the --flag-host --flag-the --flag-the --flag-bytes --flag-flaky --flag-close --flag-pane --flag-flaky",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404380000
+              },
+              {
+                "executionId": "run-1074",
+                "processId": "sh:api-tests-074",
+                "status": "completed",
+                "label": "api tests (74)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-74-api-tests.log --flag-timer --flag-composer --flag-wire --flag-rail --flag-retry --flag-land --flag-Android --flag-close --flag-build --flag-limit --flag-notch --flag-snapshot --flag-protocol --flag-bytes --flag-card --flag-retry --flag-upload --flag-the --flag-retry --flag-the --flag-budget --flag-offset --flag-close --flag-rebase --flag-lint",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404440000
+              },
+              {
+                "executionId": "run-1075",
+                "processId": "sh:typecheck-075",
+                "status": "completed",
+                "label": "typecheck (75)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run typecheck -- --reporter=verbose --coverage --outputFile=/tmp/acme-75-typecheck.log --flag-check --flag-land --flag-timer --flag-wire --flag-fixture --flag-iPhone --flag-Android --flag-flaky --flag-land --flag-budget --flag-iPhone --flag-limit --flag-core --flag-fixture --flag-rebase --flag-wire --flag-board --flag-timer --flag-commit --flag-build --flag-board --flag-retry --flag-offset --flag-budget --flag-page",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404500000
+              },
+              {
+                "executionId": "run-1076",
+                "processId": "sh:unit-tests-076",
+                "status": "stopped",
+                "label": "unit tests (76)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-76-unit-tests.log --flag-cursor --flag-host --flag-composer --flag-rebase --flag-rebase --flag-rebase --flag-page --flag-chat --flag-wire --flag-build --flag-the --flag-check --flag-card --flag-board --flag-host --flag-iPhone --flag-cursor --flag-upload --flag-build --flag-Android --flag-timer --flag-Android --flag-board --flag-notch --flag-snapshot",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404560000
+              },
+              {
+                "executionId": "run-1077",
+                "processId": "sh:bench-077",
+                "status": "completed",
+                "label": "bench (77)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run bench -- --reporter=verbose --coverage --outputFile=/tmp/acme-77-bench.log --flag-rebase --flag-tab --flag-chat --flag-lint --flag-page --flag-retry --flag-worktree --flag-protocol --flag-pane --flag-card --flag-cursor --flag-the --flag-rebase --flag-protocol --flag-island --flag-close --flag-island --flag-push --flag-socket --flag-chat --flag-worktree --flag-cursor --flag-row --flag-card --flag-row",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404620000
+              },
+              {
+                "executionId": "run-1078",
+                "processId": "sh:api-tests-078",
+                "status": "stopped",
+                "label": "api tests (78)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-78-api-tests.log --flag-pane --flag-tab --flag-close --flag-rail --flag-build --flag-land --flag-timer --flag-timer --flag-push --flag-worktree --flag-row --flag-Android --flag-composer --flag-upload --flag-snapshot --flag-land --flag-test --flag-land --flag-limit --flag-protocol --flag-close --flag-Android --flag-check --flag-page --flag-a",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404680000
+              },
+              {
+                "executionId": "run-1079",
+                "processId": "sh:release-build-079",
+                "status": "completed",
+                "label": "release build (79)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-79-release-build.log --flag-upload --flag-pane --flag-timer --flag-snapshot --flag-cursor --flag-timer --flag-pane --flag-card --flag-board --flag-host --flag-test --flag-wire --flag-cursor --flag-page --flag-bindings --flag-card --flag-upload --flag-commit --flag-tab --flag-rail --flag-rebase --flag-close --flag-a --flag-retry --flag-upload",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794404740000
+              },
+              {
+                "executionId": "run-1080",
+                "processId": "sh:docs-build-080",
+                "status": "completed",
+                "label": "docs build (80)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-80-docs-build.log --flag-socket --flag-page --flag-limit --flag-worktree --flag-flaky --flag-close --flag-card --flag-check --flag-timer --flag-chat --flag-budget --flag-close --flag-bytes --flag-mark --flag-worktree --flag-rail --flag-wire --flag-iPhone --flag-land --flag-composer --flag-chat --flag-rail --flag-upload --flag-card --flag-push",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404800000
+              },
+              {
+                "executionId": "run-1081",
+                "processId": "sh:bench-081",
+                "status": "completed",
+                "label": "bench (81)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run bench -- --reporter=verbose --coverage --outputFile=/tmp/acme-81-bench.log --flag-card --flag-mark --flag-budget --flag-fixture --flag-retry --flag-test --flag-Android --flag-check --flag-the --flag-tab --flag-lint --flag-cursor --flag-cursor --flag-wire --flag-budget --flag-test --flag-fixture --flag-check --flag-land --flag-card --flag-rebase --flag-flaky --flag-land --flag-fixture --flag-rebase",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404860000
+              },
+              {
+                "executionId": "run-1082",
+                "processId": "sh:api-tests-082",
+                "status": "stopped",
+                "label": "api tests (82)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-82-api-tests.log --flag-the --flag-protocol --flag-tab --flag-upload --flag-iPhone --flag-chat --flag-socket --flag-offset --flag-land --flag-bindings --flag-wire --flag-test --flag-rebase --flag-a --flag-limit --flag-socket --flag-wire --flag-commit --flag-check --flag-chat --flag-fixture --flag-flaky --flag-limit --flag-land --flag-Android",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404920000
+              },
+              {
+                "executionId": "run-1083",
+                "processId": "sh:e2e-smoke-083",
+                "status": "completed",
+                "label": "e2e smoke (83)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-83-e2e-smoke.log --flag-wire --flag-notch --flag-Android --flag-wire --flag-Android --flag-board --flag-core --flag-core --flag-composer --flag-Android --flag-a --flag-board --flag-timer --flag-build --flag-commit --flag-iPhone --flag-card --flag-snapshot --flag-test --flag-check --flag-protocol --flag-fixture --flag-flaky --flag-Android --flag-mark",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794404980000
+              },
+              {
+                "executionId": "run-1084",
+                "processId": "sh:e2e-smoke-084",
+                "status": "completed",
+                "label": "e2e smoke (84)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run e2e-smoke -- --reporter=verbose --coverage --outputFile=/tmp/acme-84-e2e-smoke.log --flag-flaky --flag-card --flag-tab --flag-land --flag-host --flag-card --flag-composer --flag-composer --flag-test --flag-rebase --flag-build --flag-core --flag-iPhone --flag-retry --flag-build --flag-Android --flag-limit --flag-a --flag-wire --flag-mark --flag-commit --flag-mark --flag-bindings --flag-wire --flag-the",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794405040000
+              },
+              {
+                "executionId": "run-1085",
+                "processId": "sh:release-build-085",
+                "status": "stopped",
+                "label": "release build (85)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-85-release-build.log --flag-host --flag-upload --flag-core --flag-pane --flag-board --flag-timer --flag-rail --flag-bindings --flag-rail --flag-row --flag-chat --flag-rail --flag-tab --flag-page --flag-close --flag-close --flag-page --flag-snapshot --flag-board --flag-rail --flag-pane --flag-bindings --flag-offset --flag-bytes --flag-limit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405100000
+              },
+              {
+                "executionId": "run-1086",
+                "processId": "sh:release-build-086",
+                "status": "stopped",
+                "label": "release build (86)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-86-release-build.log --flag-socket --flag-row --flag-core --flag-retry --flag-row --flag-push --flag-commit --flag-build --flag-limit --flag-snapshot --flag-close --flag-the --flag-core --flag-fixture --flag-bindings --flag-bytes --flag-board --flag-composer --flag-rail --flag-timer --flag-land --flag-upload --flag-iPhone --flag-land --flag-timer",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794405160000
+              },
+              {
+                "executionId": "run-1087",
+                "processId": "sh:unit-tests-087",
+                "status": "failed",
+                "label": "unit tests (87)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-87-unit-tests.log --flag-row --flag-socket --flag-flaky --flag-push --flag-composer --flag-check --flag-rebase --flag-timer --flag-retry --flag-build --flag-test --flag-snapshot --flag-wire --flag-mark --flag-a --flag-row --flag-island --flag-bindings --flag-a --flag-composer --flag-close --flag-chat --flag-offset --flag-rail --flag-iPhone",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405220000
+              },
+              {
+                "executionId": "run-1088",
+                "processId": "sh:release-build-088",
+                "status": "failed",
+                "label": "release build (88)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run release-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-88-release-build.log --flag-a --flag-test --flag-tab --flag-card --flag-a --flag-page --flag-limit --flag-timer --flag-protocol --flag-row --flag-composer --flag-wire --flag-test --flag-push --flag-test --flag-rail --flag-upload --flag-board --flag-flaky --flag-protocol --flag-snapshot --flag-cursor --flag-mark --flag-board --flag-flaky",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405280000
+              },
+              {
+                "executionId": "run-1089",
+                "processId": "sh:lint-089",
+                "status": "completed",
+                "label": "lint (89)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run lint -- --reporter=verbose --coverage --outputFile=/tmp/acme-89-lint.log --flag-island --flag-cursor --flag-chat --flag-chat --flag-Android --flag-bytes --flag-timer --flag-protocol --flag-worktree --flag-iPhone --flag-a --flag-limit --flag-rebase --flag-core --flag-page --flag-page --flag-row --flag-upload --flag-worktree --flag-retry --flag-land --flag-commit --flag-worktree --flag-composer --flag-commit",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794405340000
+              },
+              {
+                "executionId": "run-1090",
+                "processId": "sh:storybook-090",
+                "status": "failed",
+                "label": "storybook (90)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/admin run storybook -- --reporter=verbose --coverage --outputFile=/tmp/acme-90-storybook.log --flag-notch --flag-retry --flag-check --flag-row --flag-Android --flag-push --flag-composer --flag-host --flag-bytes --flag-limit --flag-the --flag-land --flag-test --flag-row --flag-rail --flag-socket --flag-check --flag-host --flag-tab --flag-mark --flag-bytes --flag-a --flag-chat --flag-bindings --flag-core",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405400000
+              },
+              {
+                "executionId": "run-1091",
+                "processId": "sh:api-tests-091",
+                "status": "completed",
+                "label": "api tests (91)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run api-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-91-api-tests.log --flag-upload --flag-budget --flag-offset --flag-board --flag-offset --flag-board --flag-limit --flag-island --flag-upload --flag-offset --flag-test --flag-card --flag-flaky --flag-row --flag-the --flag-host --flag-composer --flag-upload --flag-build --flag-flaky --flag-lint --flag-push --flag-budget --flag-iPhone --flag-flaky",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405460000
+              },
+              {
+                "executionId": "run-1092",
+                "processId": "sh:bench-092",
+                "status": "failed",
+                "label": "bench (92)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/web run bench -- --reporter=verbose --coverage --outputFile=/tmp/acme-92-bench.log --flag-protocol --flag-cursor --flag-island --flag-Android --flag-wire --flag-flaky --flag-mark --flag-bindings --flag-build --flag-core --flag-timer --flag-build --flag-board --flag-composer --flag-close --flag-island --flag-build --flag-protocol --flag-offset --flag-timer --flag-chat --flag-budget --flag-rebase --flag-tab --flag-notch",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 1,
+                "startedAt": 1794405520000
+              },
+              {
+                "executionId": "run-1093",
+                "processId": "sh:docs-build-093",
+                "status": "completed",
+                "label": "docs build (93)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/shared run docs-build -- --reporter=verbose --coverage --outputFile=/tmp/acme-93-docs-build.log --flag-offset --flag-fixture --flag-fixture --flag-lint --flag-a --flag-composer --flag-commit --flag-chat --flag-tab --flag-mark --flag-island --flag-rebase --flag-cursor --flag-worktree --flag-the --flag-push --flag-iPhone --flag-composer --flag-check --flag-notch --flag-check --flag-snapshot --flag-board --flag-build --flag-pane",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405580000
+              },
+              {
+                "executionId": "run-1094",
+                "processId": "sh:unit-tests-094",
+                "status": "completed",
+                "label": "unit tests (94)",
+                "command": "cd /Users/dev/work/acme && env NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter ./packages/api run unit-tests -- --reporter=verbose --coverage --outputFile=/tmp/acme-94-unit-tests.log --flag-notch --flag-socket --flag-page --flag-push --flag-wire --flag-bytes --flag-retry --flag-row --flag-rebase --flag-wire --flag-push --flag-test --flag-row --flag-chat --flag-Android --flag-core --flag-commit --flag-bytes --flag-push --flag-bindings --flag-tab --flag-offset --flag-offset --flag-board --flag-row",
+                "cwd": "/Users/dev/work/acme",
+                "exitCode": 0,
+                "startedAt": 1794405640000
+              }
+            ],
+            "cursor": "812"
+          }
+        }
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": [
+            "process_start",
+            "process_restart"
+          ],
+          "args": {
+            "$any": [
+              {
+                "processId": "/acme\\.docs-preview/"
+              },
+              {
+                "command": "/docs[\\s\\S]*preview/"
+              }
+            ]
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "process_start",
+          "args": {
+            "processId": "/acme\\.(web|api|test|lint)/"
+          },
+          "why": "started the wrong process"
+        }
+      ]
+    }
+  },
+  {
+    "id": "bound-02",
+    "from": [
+      "agent_read 30 KB, 2026-11-11"
+    ],
+    "category": "oversized_result",
+    "severity": "med",
+    "tools": [
+      "agent_read"
+    ],
+    "prompt": "What did @Shirou end up landing, and what does it say is still left?",
+    "fixture": {
+      "project": "sikemux",
+      "agents": [
+        {
+          "name": "Shirou",
+          "agentId": "agent-shirou",
+          "cli": "claude",
+          "status": "idle",
+          "canMessage": true
+        }
+      ],
+      "answers": [
+        {
+          "tool": "agent_read",
+          "reply": {
+            "turns": [
+              {
+                "state": "finished",
+                "asked": [
+                  {
+                    "from": "the person",
+                    "text": "Board limit limit bindings core test the core notch cursor flaky snapshot worktree timer android core board offset page flaky rebase wire protocol build push build push worktree row notch page rebase budget check the snapshot rebase wire lint rail island lint android host timer rebase cursor chat close commit check page composer check pane host the a retry card timer snapshot lint island lint island offset host row row host rebase protocol push upload page push wire the socket row chat test core land mark worktree budget notch timer android tab core snapshot worktree wire offset cursor commit "
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Commit mark core limit iphone row build mark pane mark tab core rail retry limit timer page test push timer limit limit upload core the the lint notch the lint worktree test cursor the bytes a tab rail snapshot notch timer board budget island mark android timer tab core page flaky android iphone row mark test a test socket iphone row snapshot protocol offset host retry budget the cursor check android composer push board iphone upload board limit test cursor socket push tab wire offset rebase a retry chat worktree cursor upload wire retry offset composer composer chat upload iphone cursor rail "
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Composer rebase cursor chat core lint worktree snapshot a composer close rail iphone push rebase rail the build worktree notch land flaky commit island rebase commit worktree budget socket flaky host push notch composer rebase tab protocol build push composer host upload board bytes a commit android composer bindings close tab board island bindings notch wire protocol composer iphone land push pane worktree rebase limit cursor pane lint fixture mark pane chat wire bindings card page wire cursor land island composer worktree page mark pane bindings flaky mark close island board rebase a bytes t"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Tab socket lint close chat build bindings worktree build push worktree protocol limit limit bindings board rail a land bytes push core a bytes protocol composer worktree push limit test rail build flaky board page chat upload worktree upload page iphone host tab lint android rebase upload notch lint limit limit rail timer chat timer snapshot row card host bytes timer push the flaky budget build upload cursor page retry composer flaky upload check pane push close core worktree offset chat board row close push host wire commit mark limit limit wire mark retry pane host mark bindings snapshot tab"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Retry iphone push push core close tab limit lint bindings bindings snapshot bytes fixture composer composer the mark wire bindings budget push lint bindings android cursor timer composer commit limit flaky notch host iphone bytes android page protocol worktree pane flaky build the land snapshot pane upload retry board lint tab flaky lint wire flaky iphone check wire protocol timer land build iphone notch socket upload the protocol snapshot close commit timer card test budget snapshot host snapshot tab island check the push close budget build limit offset budget card budget composer close bindi"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Check chat land bindings notch land card composer retry upload test timer limit worktree retry pane snapshot host snapshot iphone lint page cursor limit close android chat iphone bindings wire limit worktree close upload wire fixture tab pane land the upload offset mark host android build socket bytes retry mark core commit socket wire the bytes rail iphone rebase build the wire timer push timer tab fixture close island check row protocol host island limit android worktree page offset close retry commit page bytes lint timer timer core land fixture bytes budget bindings lint commit row limit a"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Timer wire worktree card flaky chat rail tab notch flaky chat card budget test tab row bytes card snapshot chat notch protocol chat island timer flaky mark cursor timer close core socket wire bindings mark notch mark flaky limit mark test protocol worktree island iphone tab timer fixture close bindings land offset retry worktree composer retry land upload the page pane protocol lint flaky bindings host close offset tab timer flaky push iphone land commit the card flaky composer land mark row push snapshot upload page push test push notch check page flaky upload composer card push tab wire a cu"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Bytes rebase android cursor card island board wire the a commit android snapshot mark fixture upload upload socket rail offset budget page worktree fixture iphone wire worktree chat offset row socket land commit row pane lint bindings cursor offset upload pane iphone land protocol commit timer protocol rebase push check the commit cursor fixture commit chat a composer protocol page upload limit android bytes android board rebase board socket mark card push timer timer row cursor bindings upload notch test tab host limit timer limit test land build composer android socket lint commit land mark "
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Android bindings pane the bytes protocol worktree wire worktree timer lint iphone cursor socket android lint lint card timer notch bytes commit socket tab cursor close cursor rail lint cursor push protocol push host socket snapshot check rail board card island a iphone limit board composer a pane retry worktree wire tab page build mark budget test tab composer retry bindings page retry close socket timer commit bindings the tab board island budget the limit check a pane check check a budget snapshot worktree offset commit rail retry core upload close limit offset commit snapshot page worktree "
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "A android pane android row close push land host push island cursor notch android bytes page timer commit chat offset card fixture upload budget lint budget notch protocol notch board land row row board bindings card the notch fixture test budget land android limit chat worktree close a offset bindings flaky retry island mark pane notch rail card page land android rail iphone row a push composer wire snapshot pane limit push rebase protocol pane check a test bytes the socket budget worktree push retry chat timer rebase core rebase bytes limit chat a card a card host composer chat push pane chec"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Fixture board bindings lint build close commit the snapshot composer iphone check offset page wire pane cursor retry pane land upload wire rail host bindings lint a flaky android the bindings lint android mark push test iphone protocol worktree close core commit budget bytes worktree commit upload cursor composer tab limit the upload bindings mark page chat timer host test a retry check socket flaky flaky snapshot bindings row host the rail chat island android limit island mark flaky row push snapshot socket push pane chat socket board rail the card board socket upload tab mark retry core notc"
+                  },
+                  {
+                    "from": "the person",
+                    "text": "Board worktree host check island core rebase android rebase rebase core android limit the composer page mark card offset rebase composer tab bytes flaky close offset upload retry worktree notch check budget wire notch bytes check protocol timer the fixture budget fixture mark commit cursor island rebase composer limit rebase push socket worktree row board offset bytes check socket limit island bytes chat offset card card fixture push row cursor fixture timer chat android socket row land row pane row iphone land composer rail android bytes protocol rail limit budget upload check rebase land hos"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Worktree build wire flaky wire limit fixture rail row android the bindings land snapshot row bytes composer offset land row commit rebase card a notch tab the timer card retry cursor rail lint island board check card composer card wire close row limit snapshot close tab bindings host build offset land upload wire rebase land upload build core host budget page card push composer rebase cursor bindings offset tab cursor land socket bytes pane commit socket close wire rebase worktree row core snapshot budget a test cursor timer protocol protocol host core fixture rail socket wire worktree snapsho"
+                  },
+                  {
+                    "from": "the person",
+                    "text": "Protocol flaky close chat socket timer the test snapshot close pane timer protocol retry tab commit fixture retry notch core cursor bindings core retry limit android check commit tab row the rail island board row card close check rebase card bytes lint notch worktree mark core retry lint lint composer rebase host island card lint tab bindings retry pane island budget land protocol bytes snapshot cursor android land commit tab protocol notch bytes retry check the island socket core timer check upload board chat wire build tab pane cursor offset protocol worktree wire pane pane retry rail host l"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Build pane island iphone android pane row test protocol test tab close retry core chat bytes card wire host android retry bindings upload iphone wire build chat cursor check notch android lint card check notch pane android bytes chat worktree upload check rebase android budget build chat budget island close tab protocol android rail host commit worktree flaky upload push flaky bytes pane budget row row socket build snapshot push a snapshot close tab snapshot board lint page cursor island close tab bindings fixture board chat cursor lint upload cursor page test the push tab android bytes lint r"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Notch protocol test notch flaky iphone page worktree protocol upload upload upload mark cursor test core budget bindings core timer push socket land bytes iphone land iphone bytes close commit the budget fixture lint android card test test composer flaky android snapshot board island island flaky check protocol composer iphone timer island upload mark card land tab build worktree notch pane bindings composer island mark composer test the test retry snapshot timer pane chat close iphone android card a host worktree offset row flaky build timer flaky close bytes cursor pane chat composer page ma"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "The check core core upload close composer android mark iphone android push bindings pane tab chat commit socket the fixture upload snapshot row commit socket page limit socket tab limit retry land core close budget push cursor iphone snapshot snapshot bindings card lint retry protocol cursor iphone host rebase limit mark lint cursor island budget limit flaky socket card chat composer tab cursor protocol notch composer snapshot timer retry worktree bytes worktree limit commit rebase worktree close chat budget commit bytes page host lint the lint snapshot page a flaky fixture core core page lint"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Wire core bytes island composer flaky pane limit upload rebase rail rebase board commit android land iphone chat push offset worktree lint snapshot check mark page tab iphone worktree row the the rail test composer protocol timer bytes card push test notch mark bytes rebase bindings card bytes core socket mark offset commit wire board build land lint bytes limit rebase row retry budget snapshot snapshot land a retry flaky notch rebase wire lint mark android page protocol upload check fixture bindings the board android tab cursor timer mark upload worktree rail cursor budget board limit compose"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Iphone timer snapshot retry island push bindings tab row retry iphone lint row iphone lint retry cursor lint rebase land rail board lint fixture tab offset check wire worktree test card land worktree check rebase fixture board flaky pane offset wire mark core limit iphone check upload android board island fixture bytes notch bytes core socket board worktree land worktree row build limit flaky card wire the upload island timer lint push page land card composer socket notch test page core flaky lint iphone budget rail limit flaky worktree worktree commit worktree worktree snapshot commit push ra"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Timer bytes composer timer host worktree pane timer board bindings android chat bytes composer mark flaky build upload budget rebase build bindings budget rebase offset board socket page page mark board page pane chat lint test land timer close land a row socket flaky check pane the protocol limit bindings wire board mark retry wire cursor notch page upload upload island protocol flaky fixture chat build limit commit commit row timer chat pane notch pane build timer island a chat rail a mark board host land socket limit board close cursor flaky worktree rebase mark cursor core chat bytes retry"
+                  },
+                  {
+                    "from": "the person",
+                    "text": "Protocol offset protocol tab commit offset tab flaky worktree iphone build tab socket row a wire tab tab card tab notch build a offset a socket push pane core the budget limit island card notch push limit iphone timer limit check push lint test upload rail push core a protocol test commit test android land fixture snapshot close commit check fixture bindings test row timer card mark rebase pane push card bytes a tab board row host rebase iphone host bindings bindings the flaky pane cursor island rebase a the close protocol upload pane timer island socket check commit offset notch protocol snap"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Test cursor bindings tab wire protocol timer cursor limit wire socket timer retry fixture iphone worktree budget composer budget fixture fixture page android flaky snapshot page rebase socket composer chat the worktree timer chat limit budget upload composer test tab the upload protocol retry worktree composer chat upload notch limit timer core card upload android protocol a fixture test test rail android row iphone offset mark check test mark rebase the socket a notch budget close mark notch offset offset page island socket retry bytes island offset build protocol worktree bytes the notch pan"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Close composer test close land board lint lint build android snapshot page timer commit tab the close socket upload flaky page pane row rebase protocol core offset timer budget pane close a retry a bytes bindings host retry rail offset build wire card bindings card lint push a check rebase test iphone wire iphone budget budget fixture offset check board composer the core island a commit chat island push commit the composer commit close island iphone test upload check host limit commit land socket island flaky protocol iphone pane row retry budget bytes island composer core row limit close budg"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Build worktree composer commit card a close pane budget card offset budget budget cursor android budget socket page socket worktree lint socket socket socket island the socket land socket android notch flaky snapshot budget mark board wire rail test card lint worktree core rail wire test protocol commit check pane a rebase chat test pane push bytes commit board offset the tab socket close iphone bytes bytes cursor lint bytes card rail upload android fixture test retry rebase card budget close timer cursor chat retry socket build the board bindings push land island rail bindings land card land "
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Chat rebase land composer budget fixture card the retry test bytes rebase land composer build a fixture wire snapshot flaky flaky protocol notch snapshot close worktree flaky snapshot fixture rail chat host wire retry flaky tab socket board land wire fixture composer commit notch retry socket mark chat fixture pane timer offset rebase flaky retry host row retry composer row iphone mark check pane test close fixture card protocol protocol bindings socket wire limit check test pane board bytes land socket flaky fixture fixture card rail mark the limit budget mark a budget fixture upload island b"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Chat a page protocol close wire pane upload build wire bindings tab lint check cursor tab socket worktree a iphone the land fixture chat socket fixture land mark snapshot pane offset pane tab fixture tab lint protocol board chat check upload core rail commit core bytes a timer land iphone composer the android page card page protocol fixture notch notch rebase bindings card composer notch flaky board core android bindings row bindings cursor check retry iphone chat host iphone close cursor wire core card timer bytes chat android board core test retry host test a build socket build rail bindings"
+                  },
+                  {
+                    "from": "the person",
+                    "text": "Composer snapshot bytes row cursor land row notch tab host socket cursor card timer rebase rail card budget composer core land row card socket retry offset fixture pane check the wire fixture commit budget rail protocol check chat host close pane island core worktree bindings chat land land rebase bytes snapshot land bindings chat limit pane board flaky upload mark bindings worktree offset core budget socket fixture cursor protocol commit timer island push push host check rail fixture a iphone worktree land flaky limit build notch budget pane limit composer cursor tab land lint budget card iph"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Socket the rail close composer the rail chat rail card composer a a flaky close close tab android fixture commit socket row push check build core fixture card commit retry close card iphone card close socket offset retry card bindings commit commit mark snapshot android tab page notch retry android host rebase build a chat lint socket fixture test socket cursor android tab wire protocol chat offset close bytes fixture timer host bindings the tab cursor pane test limit protocol composer card mark host row island commit retry a chat a chat mark build pane limit protocol offset tab rail pane lint"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Worktree check row lint retry page check close build retry check mark composer android rail limit composer protocol a tab check flaky mark row land fixture row lint socket test bytes socket offset rebase host fixture socket card bytes mark chat wire check fixture core land island wire check offset retry test protocol close limit board bindings upload notch bindings socket protocol offset upload lint bytes socket bytes commit host row close android worktree test retry upload build bytes bindings row test socket check iphone island page core iphone composer rail rebase host commit land flaky com"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Bindings tab snapshot test mark commit composer a card mark fixture android offset check check rail commit tab bytes core retry the chat timer push the card page upload upload check chat check board land lint land offset push worktree rebase build flaky chat the core limit timer composer budget retry iphone android lint card mark budget check rebase host lint bindings composer island commit bytes retry push rail check bindings island budget retry notch protocol commit fixture protocol pane commit land composer socket test flaky check a a chat land socket offset socket snapshot retry tab protoc"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Push timer test page cursor row socket fixture wire core the bytes chat pane pane land island land bytes flaky budget timer upload protocol cursor timer host a bindings host close rail row build mark push test chat page retry chat land host iphone rebase limit socket core tab check lint commit mark rail snapshot island mark the bytes android page rebase notch iphone rail a budget notch flaky timer land retry retry pane mark a mark pane mark protocol android notch pane android android limit wire a host bindings page card page board chat core pane mark limit protocol retry close the commit iphon"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Chat page rail tab cursor flaky protocol page pane board host mark retry snapshot the wire close socket notch core android check protocol iphone limit pane island commit core composer tab chat iphone core push offset host lint lint iphone limit pane wire close android tab cursor check flaky mark build rail core fixture wire cursor snapshot fixture board fixture row tab fixture cursor mark android mark iphone chat socket push rebase socket worktree test push host commit push worktree budget android protocol timer notch the upload fixture push mark limit worktree host offset lint iphone notch bu"
+                  },
+                  {
+                    "from": "the person",
+                    "text": "Budget rail build flaky bindings a offset check fixture wire snapshot board land row a push notch island check limit fixture flaky commit card rebase offset page timer card a land rebase socket land limit island the board commit build snapshot iphone rebase a socket tab pane retry bindings android lint chat chat retry host card flaky test android notch notch close android host tab upload snapshot rebase host close limit rail page bindings lint upload close retry iphone flaky upload a check limit iphone flaky protocol iphone test rail tab page push tab land flaky host check worktree core card w"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Wire row offset upload wire notch timer the wire wire a page limit commit bytes worktree mark android retry notch row android snapshot rail rebase iphone budget the mark mark the land core bytes tab timer rebase bytes core commit fixture cursor offset iphone check rebase tab board pane bytes offset the cursor check check budget notch card offset commit iphone timer island snapshot board close snapshot upload android host close timer core build cursor mark host the close cursor bindings test rebase board flaky page host wire card close wire budget land test upload snapshot lint pane socket budg"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Protocol budget check worktree fixture flaky upload android build retry page island bindings push limit rebase composer card mark upload wire fixture a close close upload pane protocol page fixture close build commit page rail bindings budget flaky budget rail mark card commit iphone iphone chat fixture chat card card retry chat iphone offset lint socket limit rebase island offset wire pane test core fixture check retry rebase chat budget protocol fixture row tab card iphone row flaky notch check worktree iphone bindings fixture fixture snapshot board timer land test notch snapshot cursor comm"
+                  },
+                  {
+                    "from": "Raijuta",
+                    "text": "Check pane protocol flaky build protocol limit land timer land fixture limit tab island bytes bytes rail land tab page tab lint build composer cursor socket core the pane notch socket pane mark mark bytes flaky composer bytes flaky build test tab cursor bytes the board retry host close board check timer the mark core push cursor island rail the timer tab rail chat test pane flaky board cursor mark check rebase worktree a socket page host flaky board mark android host land bytes a a retry host offset island budget rebase iphone land land notch bindings push land card island android iphone iphon"
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Mark timer timer test notch snapshot core protocol island the retry composer host bindings composer the composer push composer close fixture cursor rebase host commit fixture upload chat bytes retry wire mark composer upload page rail tab socket card close commit close commit budget close host lint socket mark wire composer android rail lint host check test mark host iphone cursor upload snapshot flaky budget iphone limit retry build mark upload commit retry test row tab mark worktree iphone chat bytes pane host card bytes protocol close composer protocol the chat bytes worktree test tab core "
+                  },
+                  {
+                    "from": "the person",
+                    "text": "Socket android close socket retry island tab card limit test rebase mark snapshot card tab test bytes snapshot timer wire build socket cursor fixture bindings android socket fixture host bindings bytes a rail cursor upload socket flaky check composer retry chat cursor board push iphone land core board iphone wire wire rail the bindings close island host composer limit android bytes card flaky flaky rebase close bytes chat the android upload push close lint cursor check notch cursor wire budget timer island tab lint row pane fixture commit bindings land push mark notch cursor chat offset board "
+                  },
+                  {
+                    "from": "Calcifer",
+                    "text": "Flaky limit wire land row fixture composer mark island rebase island build build worktree upload card fixture check pane wire push lint protocol land close land budget pane chat host budget card limit land a board notch retry commit land core upload host page row bytes lint chat commit commit fixture test rail snapshot test land tab board snapshot upload bindings commit core wire build core android check android budget rail iphone push board retry composer commit upload rail retry host host tab android land mark flaky flaky board wire mark worktree page card a worktree rebase rail rebase the l"
+                  },
+                  {
+                    "from": "Yahiko",
+                    "text": "Build test tab composer chat fixture cursor timer check flaky upload timer check row budget page close mark protocol flaky composer pane wire lint core land the chat flaky commit worktree composer budget host composer commit cursor composer rebase limit upload row notch lint board fixture fixture protocol the retry bytes rebase protocol chat page offset rail page fixture notch rebase iphone test card wire close lint protocol pane the socket close close rail land the host core mark protocol build push row land iphone test mark row snapshot flaky land build island pane chat rebase push commit pa"
+                  }
+                ],
+                "said": [
+                  "Island budget check bindings commit flaky commit iphone core a land chat worktree the iphone bytes tab bytes island wire land worktree card chat rail protocol iphone land retry a rebase chat check worktree upload snapshot island fixture tab island rail socket budget rail rail card budget mark bindings offset iphone bytes mark check build notch island bindings fixture offset flaky bindings board lint lint tab island offset timer chat bytes wire check timer bindings land snapshot wire notch iphone retry budget test close offset offset upload cursor mark android board socket rail row a a offset chat wire close protocol island composer rail tab check limit commit page a bindings commit land socket socket a offset flaky retry iphone build bytes board lint close pane wire page board notch the retry build chat lint close bytes notch fixture offset page android rebase island protocol rebase protocol tab chat board board mark composer bindings lint worktree upload chat test pane wire land protocol mark push mark snapshot a offset push worktree pane iphone push snapshot bytes worktree iphone row android host rail fixture mark pane tab budget composer push timer test card board push limit flaky fixture build rebase cursor cursor pane check host the lint card bindings notch notch page timer limit bindings iphone build test host protocol host host tab test android core rail mark android check chat budget host rebase board android test rail timer tab iphone fixture cursor island tab wire budget mark snapshot test a tab wire upload budget timer test island host pane lint limit page chat timer rail budget push land test fixture socket budget iphone lint android card notch test retry timer retry tab composer pane close card card close card snapshot rail card the lint protocol chat land composer core flaky.",
+                  "Chat the flaky commit test wire snapshot a chat pane push upload check rebase core budget island worktree chat lint core socket offset mark wire host cursor row fixture board rail core core pane bytes retry notch pane protocol timer composer notch mark flaky close land host the the card limit snapshot limit iphone tab fixture bindings lint host limit pane android budget worktree bytes the bytes build a rebase wire check row page chat commit socket bindings retry bytes close build upload build lint island iphone flaky close budget socket lint a land rail offset worktree limit mark core flaky flaky row protocol lint snapshot wire rebase test host chat rebase tab check fixture budget rebase worktree row notch board flaky cursor upload budget wire card tab android wire rebase offset board land android page row iphone host android board composer flaky notch a core close upload offset wire bytes lint cursor wire socket test test worktree lint mark a rebase land bindings fixture close a a android mark chat limit close close notch tab page row socket bindings build core wire card cursor composer check retry timer test island bytes core lint page retry flaky test host socket timer pane cursor board snapshot build rail timer host a build protocol cursor check lint notch board limit budget mark close test row snapshot commit chat land flaky check mark mark build lint land composer core mark board page page composer host protocol card offset pane bindings notch budget bindings notch the close card rail land card offset tab worktree protocol rail budget test lint bytes test rail fixture budget budget row core upload tab worktree worktree host tab land bytes notch budget build worktree bytes timer worktree mark worktree tab rebase android mark commit notch protocol upload close composer.",
+                  "Socket notch rail land board protocol fixture commit lint page land rail island bytes rail iphone close android timer row pane fixture commit test row android android notch chat commit build lint close board pane worktree the host chat rebase protocol the wire limit rebase the test chat worktree card composer a cursor test protocol core cursor bytes mark close composer wire build pane retry land timer upload flaky cursor a limit cursor snapshot notch android worktree android island protocol board push worktree iphone tab close timer bytes limit commit page host tab build timer check retry mark land mark test upload commit card budget card bytes board host row wire wire protocol protocol timer check flaky offset rail flaky composer bindings pane bindings pane snapshot bytes commit tab commit wire fixture upload limit rail retry rail wire socket socket wire a a fixture core mark close core chat bindings retry cursor core composer commit lint limit snapshot core worktree retry budget mark the check upload page host tab chat commit the a test retry host snapshot snapshot land test cursor rebase cursor check the rebase limit card core offset socket snapshot island row rebase test snapshot test worktree bytes test snapshot host mark page a flaky page fixture lint upload page core bytes page board bytes the fixture composer push timer protocol rebase test build limit page offset retry commit lint island composer timer worktree timer bytes a host protocol notch limit cursor android offset fixture lint limit island upload build bytes the android check retry composer a budget iphone card composer rebase chat row page check offset cursor android test composer wire row rebase push android wire rail notch build land a row board snapshot retry flaky iphone the worktree notch socket check commit socket android rebase bindings.",
+                  "Lint island upload cursor flaky protocol mark android snapshot flaky pane android lint chat the retry card test rail wire limit row check bindings rail check worktree android timer wire board card page island rail bindings offset land android composer a flaky tab lint the lint check test build protocol island iphone wire test close push worktree rail iphone pane socket the close bytes worktree close bindings composer protocol bytes retry core limit wire flaky a worktree commit tab composer cursor host push protocol island land bindings rebase socket build core build build flaky pane host check wire build tab limit fixture lint rebase offset close flaky wire socket timer wire host card snapshot card worktree test chat mark budget iphone mark host tab the fixture rebase commit rebase budget flaky notch limit close worktree bytes android lint core mark bindings build check wire protocol build cursor fixture offset offset bindings rail card limit mark a core a board island snapshot land pane host a protocol core tab close close limit chat lint rebase tab core land timer bytes protocol limit host land rebase test chat socket lint row flaky cursor wire core bytes push timer core limit iphone composer limit cursor mark island host commit card rebase check snapshot wire upload snapshot timer mark pane bytes retry iphone retry push lint close pane composer snapshot lint wire island core island socket upload socket rail bytes pane close rebase android row lint land socket android notch check budget host chat flaky upload close snapshot check upload worktree limit board land wire chat board rail protocol rail iphone protocol push bindings page budget worktree notch socket tab lint land board island composer limit test notch commit rebase chat offset check the the wire host limit land lint snapshot chat timer chat.",
+                  "Lint pane limit push notch fixture timer push rebase close the timer a cursor island rebase limit budget check snapshot pane host budget notch page pane snapshot upload fixture pane check fixture the card build bytes bindings limit wire offset bytes pane build island snapshot page rail tab lint worktree commit a test build push tab timer android rail core build flaky land cursor android test lint card mark core board budget protocol build notch commit card bytes the chat commit chat check tab host card commit a budget lint build the mark board bindings pane land flaky limit land commit flaky mark rail host card close cursor wire snapshot lint land row row upload commit core offset card notch rail fixture snapshot commit bindings composer card page test composer composer composer upload tab row composer bindings island snapshot push snapshot land bytes retry tab bytes limit chat host row fixture tab upload commit upload close board push flaky snapshot android mark row rail limit test row offset android rebase bindings lint pane cursor commit fixture close fixture commit worktree pane push a snapshot snapshot tab tab island mark flaky protocol chat page test commit android test tab notch budget check land close core test island upload lint limit rebase protocol fixture board commit lint island a tab snapshot rail close pane push cursor host tab socket bytes close row upload page bindings a row snapshot wire page bytes card board a core timer board row upload board bindings protocol pane pane composer android a limit bytes cursor board bindings snapshot core land the host core retry mark test snapshot cursor upload worktree bindings snapshot snapshot rail android mark worktree bindings mark core board board close composer flaky protocol budget land timer test mark island mark rail row pane bindings.",
+                  "A close commit chat check chat flaky retry core rail upload close fixture fixture bytes pane core lint limit pane android notch page protocol fixture iphone upload push notch pane commit flaky pane wire test flaky commit budget row row cursor notch android budget retry budget board cursor the snapshot timer core timer retry bindings commit host limit core socket host composer notch row land row worktree android host card land lint page close wire a check flaky worktree snapshot wire rail cursor flaky land upload composer timer the android retry build protocol check retry composer bytes composer wire card fixture wire rebase flaky chat rail land flaky push cursor protocol android retry host pane socket wire bytes cursor fixture offset bindings test cursor the core core composer mark flaky cursor chat wire commit pane timer check close wire offset rail row commit socket check page a flaky card core offset rail limit mark commit upload wire flaky check notch pane iphone lint island offset android mark board card cursor board wire android build card wire pane page iphone cursor tab wire bindings pane commit rail worktree lint worktree fixture worktree android land retry host budget card rail row commit pane rebase board bindings bindings land protocol mark row page pane bindings rail budget commit island card the host rail socket card close pane test build notch snapshot check page composer build board push retry timer budget bytes flaky timer upload a iphone timer card row close limit cursor host tab composer snapshot island commit protocol upload lint card flaky worktree budget push notch lint test tab page budget check build board board offset close chat upload close offset rebase push timer rail budget host commit board composer limit iphone limit bytes row mark build rail timer flaky notch rail."
+                ],
+                "tools": "41 tools: Edit upload.rs; Bash cargo test; git_commit; and 38 more",
+                "answer": "Landed 4be2a91 on main: the upload retry test now waits for the socket to close before it retries, so it no longer flakes. Still left: the Android build fails on the generated bindings, which I did not touch."
+              }
+            ],
+            "cursor": "chat-shirou:1664",
+            "more": false,
+            "name": "Shirou",
+            "agentId": "agent-shirou",
+            "cli": "claude",
+            "status": "idle"
+          }
+        }
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "agent_read"
+        }
+      ],
+      "reply": "/(?=[\\s\\S]*4be2a91)(?=[\\s\\S]*(binding|Android))/i",
+      "replyWhy": "did not report the commit it landed and what is left"
+    }
+  }
+]

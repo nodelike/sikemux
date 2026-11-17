@@ -1,23 +1,16 @@
 import { useAuth } from "@clerk/react";
+import { shareUrl } from "@shared/account/live";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { webCipher } from "@shared/share/cipher";
-import {
-  appShareLink,
-  parseShareLink,
-  type ShareLink,
-} from "@shared/share/link";
+import { parseShareLink, type ShareLink } from "@shared/share/link";
 import { ShareSession } from "@shared/share/session";
 import { SharedChat } from "./SharedChat.tsx";
-import { wearPicked } from "../chat/themes/bus.ts";
-import defaultPalette from "../chat/themes/defaultPalette.json";
+import { DEFAULT_PALETTE, wearPicked } from "../chat/themes/bus.ts";
 import "../chat/styles.css";
 
 import { config } from "../config.ts";
 
 const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
-
-/** The share socket of the API this page talks to. */
-const SOCKET = `${config.apiUrl.replace(/^http/, "ws")}/v1/share`;
 
 /**
  * A chat someone shared, at `/s/<id>#<key>`: the app's chat view, read-only, for anyone
@@ -29,7 +22,7 @@ export default function SharePage() {
 
   useEffect(() => {
     document.title = "Shared chat · Sikemux";
-    wearPicked(defaultPalette);
+    wearPicked(DEFAULT_PALETTE);
   }, []);
 
   if (!link)
@@ -59,7 +52,7 @@ function Watching({ link }: { link: ShareLink }) {
     () =>
       new ShareSession({
         link,
-        url: SOCKET,
+        url: shareUrl(config.apiUrl),
         cipher: webCipher(link),
         token: (fresh) => getToken(fresh ? { skipCache: true } : undefined),
       }),
@@ -72,21 +65,7 @@ function Watching({ link }: { link: ShareLink }) {
 
   return (
     <div className="shell share-page">
-      <SharedChat
-        session={session}
-        visible
-        actions={
-          <div className="agent-view-switch">
-            <button
-              type="button"
-              aria-pressed="false"
-              onClick={() => location.assign(appShareLink(link))}
-            >
-              Open in Sikemux
-            </button>
-          </div>
-        }
-      />
+      <SharedChat session={session} link={link} />
     </div>
   );
 }

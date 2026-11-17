@@ -1,4 +1,4 @@
-import type { SocketOptions } from "../sockets/socket.ts";
+import { SOCKET_DEFAULTS, type SocketOptions } from "../sockets/socket.ts";
 
 export const SHARE_PATH = "/v1/share";
 
@@ -24,14 +24,7 @@ export interface ShareOptions extends SocketOptions {
 }
 
 export const SHARE_OPTIONS: ShareOptions = {
-  challengeMs: 30_000,
-  helloTimeoutMs: 10_000,
-  heartbeatMs: 25_000,
-  silenceMs: 60_000,
-  authGraceMs: 30_000,
-  maxSockets: 20_000,
-  upgradesPerMinute: 60,
-  failedHellosPerMinute: 10,
+  ...SOCKET_DEFAULTS,
   hostMessagesPerSecond: 400,
   viewerMessagesPerSecond: 20,
   maxHostMessageBytes: 6 * 1024 * 1024,
@@ -42,5 +35,4 @@ export const SHARE_OPTIONS: ShareOptions = {
   maxLifetimeMs: 7 * 24 * 60 * 60_000,
   dropBytes: 16 * 1024 * 1024,
   framesPerMessage: 64,
-  reconnectSpreadMs: 15_000,
 };

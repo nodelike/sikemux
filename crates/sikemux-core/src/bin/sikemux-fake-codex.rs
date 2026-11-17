@@ -8,7 +8,7 @@
 //! - `stream N` sends N pieces of text;
 //! - `ask` asks to run a command and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an
-//!   interrupt;
+//!   interrupt; `hold PATH` waits for as long as that file exists;
 //! - `subagent MS` starts a subagent and ends the turn, and the subagent
 //!   finishes after MS;
 //! - `count` says how many turns came before this one;
@@ -87,7 +87,7 @@ impl Codex {
         self.waiting.locked().insert(id, answer);
         self.send(json!({ "id": id, "method": method, "params": params }));
         answered
-            .recv_timeout(Duration::from_secs(30))
+            .recv_timeout(Duration::from_secs(600))
             .unwrap_or(Value::Null)
     }
 
@@ -175,7 +175,7 @@ impl Codex {
                     answer["decision"].as_str(),
                     Some("accept" | "acceptForSession")
                 );
-                let mut done = command.clone();
+                let mut done = command;
                 done["status"] = json!(if allowed { "completed" } else { "declined" });
                 if allowed {
                     done["aggregatedOutput"] = json!("hi\n");
@@ -194,10 +194,14 @@ impl Codex {
                 );
             }
             "hold" => {
-                let ms: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(1000);
+                let word = words.next();
+                let ms: Option<u64> = word.and_then(|n| n.parse().ok());
+                let gate = word.filter(|_| ms.is_none());
                 self.say(&thread_id, &turn_id, &mut items, "holding");
-                let until = Instant::now() + Duration::from_millis(ms);
-                while Instant::now() < until {
+                let until = Instant::now() + Duration::from_millis(ms.unwrap_or(1000));
+                while gate.map_or(Instant::now() < until, |gate| {
+                    std::path::Path::new(gate).exists()
+                }) {
                     if self.interrupted.load(Ordering::Acquire) {
                         status = "interrupted";
                         break;

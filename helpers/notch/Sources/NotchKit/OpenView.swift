@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The open island's band: tabs left of the camera, Sikemux right of it.
 struct OpenHeader: View {
     let store: NotchStore
     @Bindable var island: IslandModel
@@ -62,7 +61,7 @@ struct OpenHeader: View {
         }
         HoverCapsule {
             store.openApp()
-            if let agentId = store.entries.lazy.compactMap(\.item.agentId).first { store.focus(agentId) }
+            if let agentId = store.entries.lazy.compactMap(\.agentId).first { store.focus(agentId) }
         } label: {
             IconView(icon: Icons.brand, size: 14)
                 .foregroundStyle(Theme.ink)
@@ -72,7 +71,6 @@ struct OpenHeader: View {
     }
 }
 
-/// The open island below its band: the inbox, or the composer.
 struct OpenBody: View {
     let store: NotchStore
     @Bindable var island: IslandModel
@@ -98,8 +96,22 @@ struct AgentList: View {
     let island: IslandModel
     let marks: Namespace.ID
 
+    /// The open island's width inside its inset, as IslandView lays it out.
+    private var listWidth: CGFloat { (island.geometry.hasNotch ? 680 : 560) - 2 * (Radii.open.top + 12) }
+
+    /// How tall the list grows: a few rows, or with a call's card open in it, the screen below the island's own
+    /// header, so the card and its Go with this fit whole.
+    private var room: CGFloat {
+        guard !store.calls.isEmpty else { return Self.rows }
+        return max(Self.rows, island.canvas.height - island.geometry.height - Self.chrome)
+    }
+
+    private static let rows: CGFloat = 330
+    /// The island's header, its padding and its shadow, above and below the list.
+    private static let chrome: CGFloat = 110
+
     var body: some View {
-        if store.entries.isEmpty {
+        if store.entries.isEmpty && store.view.hostAlerts.isEmpty && store.view.busy == nil {
             VStack(spacing: 14) {
                 Text("No agents open").font(Theme.ui(13)).foregroundStyle(Theme.inkDim)
                 Button {
@@ -121,10 +133,18 @@ struct AgentList: View {
             .padding(.vertical, 18)
             .onAppear { island.listScrolls = false }
         } else {
+            ScrollViewReader { scroller in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
+                    CallsInList(store: store, island: island, width: listWidth)
+                    if let busy = store.view.busy {
+                        BusyRow(store: store, busy: busy)
+                    }
+                    ForEach(store.view.hostAlerts) { alert in
+                        HostAlertRow(store: store, entry: alert)
+                    }
                     ForEach(store.entries) { entry in
-                        if entry.mark == .needs {
+                        if entry.mark == .needs, entry.ask != nil {
                             AskCard(store: store, island: island, entry: entry, marks: marks)
                         } else {
                             EntryRow(store: store, entry: entry, marks: marks)
@@ -132,12 +152,15 @@ struct AgentList: View {
                     }
                 }
                 .background(GeometryReader { proxy in
-                    Color.clear.onAppear { island.listScrolls = proxy.size.height > 330 }
-                        .onChange(of: proxy.size.height) { _, height in island.listScrolls = height > 330 }
+                    Color.clear.onAppear { island.listScrolls = proxy.size.height > room }
+                        .onChange(of: proxy.size.height) { _, height in island.listScrolls = height > room }
                 })
             }
-            .frame(maxHeight: 330)
+            .frame(maxHeight: room)
             .fixedSize(horizontal: false, vertical: true)
+            .onAppear { scroller.scrollTo(CallsInList.footer, anchor: .bottom) }
+            .onChange(of: island.listCall) { _, _ in scroller.scrollTo(CallsInList.footer, anchor: .bottom) }
+            }
         }
     }
 }
@@ -158,6 +181,66 @@ struct EntryRow: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
                 .modifier(CalledWave(calledAt: entry.calledAt))
                 .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// A host in trouble: the server in amber, or red once it is serious, what is wrong with how long, then the host.
+struct HostAlertRow: View {
+    let store: NotchStore
+    let entry: Entry
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            store.open(entry)
+        } label: {
+            HStack(spacing: 10) {
+                IconView(icon: Icons.server, size: 16)
+                    .foregroundStyle(entry.item?.hostAlert?.level == .danger ? Theme.danger : Theme.warn)
+                    .frame(width: 20, height: 20)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(entry.item?.what ?? "").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                    SinceText(mark: .needs, since: entry.since).fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(entry.title).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                    .frame(maxWidth: 150, alignment: .trailing).fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// This Mac overloaded by agents' work: the server in amber, Mac busy, then the load and the builds.
+struct BusyRow: View {
+    let store: NotchStore
+    let busy: String
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            store.openApp()
+        } label: {
+            HStack(spacing: 10) {
+                IconView(icon: Icons.server, size: 16)
+                    .foregroundStyle(Theme.warn)
+                    .frame(width: 20, height: 20)
+                Text("Mac busy").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(busy).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1).fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -201,9 +284,22 @@ struct RowLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AgentLook(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
+            Group {
+                if entry.isChief {
+                    IconView(icon: Icons.brand, size: 15).foregroundStyle(Theme.accent).frame(width: 20, height: 20)
+                } else {
+                    AgentLook(entry: entry, size: 20)
+                }
+            }
+            .matchedGeometryEffect(id: entry.id, in: marks)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(entry.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                if entry.isChief {
+                    Text("@Chief").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1).fixedSize()
+                    Text(entry.agent?.titled == true ? entry.title : "Chief of staff")
+                        .font(Theme.ui(13)).foregroundStyle(Theme.inkFaint).lineLimit(1)
+                } else {
+                    Text(entry.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                }
                 if entry.mark == .working, let attempt = entry.reconnecting {
                     Text(attempt > 0 ? "Reconnecting… \(attempt)" : "Reconnecting…")
                         .font(Theme.ui(11.5))
@@ -215,15 +311,15 @@ struct RowLine: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             ProjectLabel(project: entry.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
-            if entry.item.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.nextTrigger != nil || entry.mark != .idle {
+            if entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.inLine != nil || entry.mark != .idle {
                 HStack(spacing: 8) {
-                    if let name = entry.item.name {
+                    if let name = entry.name, !entry.isChief {
                         Text("@\(name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
                     }
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
                     if entry.tasks > 0 { ShellCount(count: entry.tasks) }
-                    if let at = entry.nextTrigger { TriggerTime(at: at) }
-                    StateMark(mark: entry.mark)
+                    if let line = entry.inLine { LinePlace(line: line) }
+                    TurnMark(mark: entry.mark, turn: entry.agent?.turn)
                 }
             }
         }
@@ -255,10 +351,13 @@ struct AskCard: View {
     }
 }
 
-/// Dropping a file: start an agent with it, or hand it to the agent that worked last.
+/// Dropping a file: start an agent with it, answer the question waiting with it, or hand it to
+/// the agent that worked last.
 struct DropTargets: View {
     let store: NotchStore
     let island: IslandModel
+
+    private var asking: Entry? { store.entries.first { $0.question != nil } }
 
     private var recent: Entry? {
         store.entries.first { $0.isChat && ($0.mark == .working || $0.mark == .needs) } ?? store.entries.first(where: \.isChat)
@@ -272,7 +371,14 @@ struct DropTargets: View {
                 Text("\(agentName(island.provider)) in \(island.project?.name ?? store.defaultProject?.name ?? "a project")")
                     .font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim)
             }
-            if let recent {
+            if let asking, let question = asking.question {
+                target(Self.answering) {
+                    AgentLook(entry: asking, size: 20)
+                    Text("Answer \(agentName(asking.provider))").font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
+                    Text(question.text).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                }
+            }
+            if let recent, recent.id != asking?.id {
                 target(recent.id) {
                     AgentLook(entry: recent, size: 20)
                     Text("Send to \(agentName(recent.provider))").font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
@@ -303,9 +409,14 @@ struct DropTargets: View {
             }
     }
 
+    private static let answering = "answer"
+
     private func drop(_ paths: [String], on id: String) {
         guard !paths.isEmpty else { return }
-        if id == "new" {
+        if id == Self.answering, let question = asking?.question {
+            store.answer(question, paths: paths)
+            island.set(.closed)
+        } else if id == "new" {
             island.attachments = paths
             island.tab = .compose
             island.set(.open)

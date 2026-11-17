@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vault.json",
+  "$defs": {
+    "VaultEntryId": {
+      "description": "A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "VaultSealed": {
+      "description": "What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "minLength": 1,
+      "maxLength": 87400
+    },
+    "VaultGeneration": {
+      "description": "Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999
+    },
+    "VaultRevision": {
+      "description": "How many times an entry was written. It starts at 1 and goes up by one each write.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999
+    },
+    "VaultRevisionParam": {
+      "description": "An entry's revision, as the writer last saw it, in a query string.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,8}$"
+    },
+    "PluginId": {
+      "description": "The connector a sign-in is for, such as sikemux.github.",
+      "type": "string",
+      "pattern": "^sikemux\\.[a-z0-9-]{1,48}$"
+    },
+    "RecoveryKey": {
+      "description": "The X25519 public key the person's recovery code makes, in lowercase hex.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "WrappedKey": {
+      "description": "The vault key, sealed for one host.",
+      "type": "object",
+      "properties": {
+        "hostKey": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "wrapped": { "$ref": "#/$defs/VaultSealed" }
+      },
+      "required": ["hostKey", "wrapped"],
+      "additionalProperties": false
+    },
+    "VaultEntry": {
+      "description": "One sign-in in the vault, sealed under the vault key of its generation.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/VaultEntryId" },
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "generation": { "$ref": "#/$defs/VaultGeneration" },
+        "sealed": { "$ref": "#/$defs/VaultSealed" },
+        "revision": { "$ref": "#/$defs/VaultRevision" },
+        "updatedBy": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "generation",
+        "sealed",
+        "revision",
+        "updatedBy",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "Vault": {
+      "description": "The account's vault, as the host that asked sees it.",
+      "type": "object",
+      "properties": {
+        "generation": { "$ref": "#/$defs/VaultGeneration" },
+        "recoveryKey": { "$ref": "#/$defs/RecoveryKey" },
+        "recoveryWrap": {
+          "description": "The vault key sealed for the recovery key.",
+          "$ref": "#/$defs/VaultSealed"
+        },
+        "key": {
+          "description": "The vault key sealed for the asking host at the current generation, or null when it has none yet.",
+          "anyOf": [{ "$ref": "#/$defs/VaultSealed" }, { "type": "null" }]
+        },
+        "holders": {
+          "description": "The hosts holding the key at the current generation.",
+          "type": "array",
+          "items": { "$ref": "devices.json#/$defs/DeviceKey" }
+        },
+        "waiting": {
+          "description": "The account's hosts without the key at the current generation, for a holder to wrap it for.",
+          "type": "array",
+          "items": { "$ref": "devices.json#/$defs/DeviceKey" }
+        },
+        "rotate": {
+          "description": "A host left the account, so a holder should replace the vault key.",
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultEntry" }
+        }
+      },
+      "required": [
+        "generation",
+        "recoveryKey",
+        "recoveryWrap",
+        "key",
+        "holders",
+        "waiting",
+        "rotate",
+        "entries"
+      ],
+      "additionalProperties": false
+    },
+    "VaultState": {
+      "type": "object",
+      "properties": {
+        "vault": {
+          "description": "Null until a host on the account makes the vault.",
+          "anyOf": [{ "$ref": "#/$defs/Vault" }, { "type": "null" }]
+        }
+      },
+      "required": ["vault"],
+      "additionalProperties": false
+    },
+    "VaultCreate": {
+      "description": "A host makes the account's vault, holding its key at generation 1.",
+      "type": "object",
+      "properties": {
+        "recoveryKey": { "$ref": "#/$defs/RecoveryKey" },
+        "recoveryWrap": { "$ref": "#/$defs/VaultSealed" },
+        "key": {
+          "description": "The vault key sealed for the asking host.",
+          "$ref": "#/$defs/VaultSealed"
+        }
+      },
+      "required": ["recoveryKey", "recoveryWrap", "key"],
+      "additionalProperties": false
+    },
+    "VaultKeysAdd": {
+      "description": "A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself.",
+      "type": "object",
+      "properties": {
+        "generation": { "$ref": "#/$defs/VaultGeneration" },
+        "keys": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WrappedKey" },
+          "minItems": 1,
+          "maxItems": 50
+        }
+      },
+      "required": ["generation", "keys"],
+      "additionalProperties": false
+    },
+    "VaultEntryReseal": {
+      "description": "An entry sealed again under the new key.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/VaultEntryId" },
+        "sealed": { "$ref": "#/$defs/VaultSealed" },
+        "revision": {
+          "description": "The entry's current revision.",
+          "$ref": "#/$defs/VaultRevision"
+        }
+      },
+      "required": ["id", "sealed", "revision"],
+      "additionalProperties": false
+    },
+    "VaultRotate": {
+      "description": "A host replaces the vault key: every wrap and every entry moves to the next generation at once.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "The current generation.",
+          "$ref": "#/$defs/VaultGeneration"
+        },
+        "recoveryWrap": { "$ref": "#/$defs/VaultSealed" },
+        "keys": {
+          "description": "The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/WrappedKey" },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "entries": {
+          "description": "Every entry in the vault, each once.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultEntryReseal" },
+          "maxItems": 500
+        }
+      },
+      "required": ["from", "recoveryWrap", "keys", "entries"],
+      "additionalProperties": false
+    },
+    "VaultEntryPut": {
+      "description": "A host adds or replaces an entry.",
+      "type": "object",
+      "properties": {
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "generation": {
+          "description": "The generation of the key it is sealed under, which must be current.",
+          "$ref": "#/$defs/VaultGeneration"
+        },
+        "sealed": { "$ref": "#/$defs/VaultSealed" },
+        "revision": {
+          "description": "The entry's revision as the writer last saw it, or 0 to add it.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999999
+        }
+      },
+      "required": ["plugin", "generation", "sealed", "revision"],
+      "additionalProperties": false
+    },
+    "VaultUse": {
+      "description": "How often one agent on the signing host used one entry.",
+      "type": "object",
+      "properties": {
+        "entryId": { "$ref": "#/$defs/VaultEntryId" },
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "actor": {
+          "description": "Who used it: an agent's name such as @Otter, or Sikemux for the host itself.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "count": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "firstAt": { "type": "string", "format": "date-time" },
+        "lastAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["entryId", "plugin", "actor", "count", "firstAt", "lastAt"],
+      "additionalProperties": false
+    },
+    "VaultUsesAdd": {
+      "description": "Uses a host made of the vault's entries since it last reported.",
+      "type": "object",
+      "properties": {
+        "uses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultUse" },
+          "minItems": 1,
+          "maxItems": 200
+        }
+      },
+      "required": ["uses"],
+      "additionalProperties": false
+    },
+    "VaultUseRow": {
+      "description": "Uses one host reported of one entry by one agent.",
+      "type": "object",
+      "properties": {
+        "entryId": { "$ref": "#/$defs/VaultEntryId" },
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "hostKey": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "hostName": {
+          "description": "The host's name, or null once it has left the account.",
+          "type": ["string", "null"]
+        },
+        "actor": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 },
+        "firstAt": { "type": "string", "format": "date-time" },
+        "lastAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "entryId",
+        "plugin",
+        "hostKey",
+        "hostName",
+        "actor",
+        "count",
+        "firstAt",
+        "lastAt"
+      ],
+      "additionalProperties": false
+    },
+    "VaultUses": {
+      "description": "Uses of the vault's entries in the last 30 days, newest first, at most 500.",
+      "type": "object",
+      "properties": {
+        "uses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultUseRow" }
+        }
+      },
+      "required": ["uses"],
+      "additionalProperties": false
+    },
+    "ModId": {
+      "description": "A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "ModDocumentId": {
+      "description": "A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ModSeq": {
+      "description": "Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "ModSeqParam": {
+      "description": "A ModSeq in a query string.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,15})$"
+    },
+    "ModDocument": {
+      "description": "The latest sealed copy of one mod document.",
+      "type": "object",
+      "properties": {
+        "mod": {
+          "$ref": "#/$defs/ModId"
+        },
+        "id": {
+          "$ref": "#/$defs/ModDocumentId"
+        },
+        "generation": {
+          "$ref": "#/$defs/VaultGeneration"
+        },
+        "sealed": {
+          "$ref": "#/$defs/VaultSealed"
+        },
+        "removed": {
+          "description": "The document was removed; the sealed copy is its marker.",
+          "type": "boolean"
+        },
+        "revision": {
+          "$ref": "#/$defs/VaultRevision"
+        },
+        "seq": {
+          "$ref": "#/$defs/ModSeq"
+        },
+        "updatedBy": {
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "mod",
+        "id",
+        "generation",
+        "sealed",
+        "removed",
+        "revision",
+        "seq",
+        "updatedBy",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "ModDocumentPut": {
+      "description": "One document a host stores, built on the revision it last saw.",
+      "type": "object",
+      "properties": {
+        "mod": {
+          "$ref": "#/$defs/ModId"
+        },
+        "id": {
+          "$ref": "#/$defs/ModDocumentId"
+        },
+        "sealed": {
+          "$ref": "#/$defs/VaultSealed"
+        },
+        "removed": {
+          "type": "boolean"
+        },
+        "revision": {
+          "description": "The document's revision as the host last saw it, or 0 for one the server does not hold.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999999
+        }
+      },
+      "required": ["mod", "id", "sealed", "removed", "revision"],
+      "additionalProperties": false
+    },
+    "ModsPush": {
+      "description": "Documents a host changed since its last push. Each is stored only if its revision is still the server's.",
+      "type": "object",
+      "properties": {
+        "generation": {
+          "description": "The generation of the key every document is sealed under, which must be current.",
+          "$ref": "#/$defs/VaultGeneration"
+        },
+        "documents": {
+          "description": "Each document once, at most 4 MiB of request in all.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModDocumentPut"
+          },
+          "minItems": 1,
+          "maxItems": 200
+        }
+      },
+      "required": ["generation", "documents"],
+      "additionalProperties": false
+    },
+    "ModStored": {
+      "description": "A document the push stored.",
+      "type": "object",
+      "properties": {
+        "mod": {
+          "$ref": "#/$defs/ModId"
+        },
+        "id": {
+          "$ref": "#/$defs/ModDocumentId"
+        },
+        "revision": {
+          "$ref": "#/$defs/VaultRevision"
+        },
+        "seq": {
+          "$ref": "#/$defs/ModSeq"
+        }
+      },
+      "required": ["mod", "id", "revision", "seq"],
+      "additionalProperties": false
+    },
+    "ModConflict": {
+      "description": "A document the push did not store, because another host wrote it first or it was purged.",
+      "type": "object",
+      "properties": {
+        "mod": {
+          "$ref": "#/$defs/ModId"
+        },
+        "id": {
+          "$ref": "#/$defs/ModDocumentId"
+        },
+        "current": {
+          "description": "The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModDocument"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["mod", "id", "current"],
+      "additionalProperties": false
+    },
+    "ModsPushed": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "description": "The account's latest seq after the push.",
+          "$ref": "#/$defs/ModSeq"
+        },
+        "stored": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModStored"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModConflict"
+          }
+        }
+      },
+      "required": ["seq", "stored", "conflicts"],
+      "additionalProperties": false
+    },
+    "ModPurge": {
+      "description": "A mod whose documents were all removed from the account, at that seq.",
+      "type": "object",
+      "properties": {
+        "mod": {
+          "$ref": "#/$defs/ModId"
+        },
+        "seq": {
+          "$ref": "#/$defs/ModSeq"
+        }
+      },
+      "required": ["mod", "seq"],
+      "additionalProperties": false
+    },
+    "ModsPulled": {
+      "description": "What changed after the seq asked for, oldest first. Apply documents and purges together in seq order.",
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModDocument"
+          }
+        },
+        "purges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModPurge"
+          }
+        },
+        "next": {
+          "description": "The seq to ask after next time.",
+          "$ref": "#/$defs/ModSeq"
+        },
+        "more": {
+          "description": "The page was full: ask again after next straight away.",
+          "type": "boolean"
+        },
+        "reset": {
+          "description": "The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list.",
+          "type": "boolean"
+        }
+      },
+      "required": ["documents", "purges", "next", "more", "reset"],
+      "additionalProperties": false
+    },
+    "ModFileId": {
+      "description": "A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ModFiles": {
+      "description": "The files the account holds for one mod.",
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModFileId"
+          }
+        }
+      },
+      "required": ["files"],
+      "additionalProperties": false
+    },
+    "ModFileStored": {
+      "type": "object",
+      "properties": {
+        "stored": {
+          "description": "False when the account held the file already, and the body was not read.",
+          "type": "boolean"
+        }
+      },
+      "required": ["stored"],
+      "additionalProperties": false
+    },
+    "ModsPurged": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "description": "The purge's seq.",
+          "$ref": "#/$defs/ModSeq"
+        }
+      },
+      "required": ["seq"],
+      "additionalProperties": false
+    }
+  }
+}

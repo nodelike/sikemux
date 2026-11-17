@@ -1,20 +1,22 @@
-//! The contract between Sikemux and a plugin. A plugin sees only what is in
-//! this crate: every exchange with the host is a method name and JSON, so the
-//! same plugin can later run in its own process without changing.
+//! The contract between Sikemux and a plugin, which is compiled into the core.
+//! Every exchange with the host is a method name and JSON, so the mods bridge
+//! and agent tools reach a plugin's methods by name.
 
 pub mod account;
 pub mod codehost;
+pub mod credential;
 mod error;
 pub mod http;
 pub mod images;
-mod manifest;
+pub mod json;
 pub mod network;
 pub mod oauth;
-pub mod process;
 pub mod ratelimit;
 pub mod service;
 pub mod signin;
 pub mod store;
+pub mod terminal;
+pub mod vault;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -24,19 +26,42 @@ use std::pin::Pin;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-pub use error::{Category, PluginError, PluginResult};
-pub use manifest::{
-    is_valid_id, AgentTool, CodeHostSpec, Compare, FormField, Listed, Manifest, TokenForm,
-};
-pub use network::{unreachable, Unreachable};
+pub use error::{FailureCategory, PluginError, PluginResult};
 pub use service::{Service, ServiceError, ServiceResult};
-pub use signin::SignInStatus;
+pub use signin::{SignInStatus, SignedInAs};
+pub use sikemux_base::http::Unreachable;
 
 pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Send + 'a>>;
 
-pub trait Plugin: Send + Sync {
-    fn manifest(&self) -> &Manifest;
+/// What `plugin!` writes for a plugin.
+pub trait Manifested {
+    fn manifest(&self) -> &str;
+}
 
+/// A plugin's entry point and its struct, from the `manifest.json` beside its
+/// sources, with any fields it keeps of its own.
+#[macro_export]
+macro_rules! plugin {
+    ($name:ident $(, $field:ident: $kind:ty = $value:expr)* $(,)?) => {
+        pub fn plugin() -> std::sync::Arc<dyn $crate::Plugin> {
+            std::sync::Arc::new($name {
+                $($field: $value,)*
+            })
+        }
+
+        struct $name {
+            $($field: $kind,)*
+        }
+
+        impl $crate::Manifested for $name {
+            fn manifest(&self) -> &str {
+                include_str!("../manifest.json")
+            }
+        }
+    };
+}
+
+pub trait Plugin: Manifested + Send + Sync {
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -74,18 +99,78 @@ pub trait Plugin: Send + Sync {
         BTreeMap::new()
     }
 
-    fn diagnostics(&self) -> Value {
-        Value::Null
+    /// A short-lived credential for one command against `ask.remote`, or None when this plugin
+    /// has no identity of the agents' own there. Only the core asks, never a mod or an agent.
+    fn credential<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _ask: &'a credential::Ask,
+    ) -> PluginFuture<'a, Option<credential::Credential>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Ends a credential `credential` handed out for `remote` before it expires.
+    fn revoke<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _remote: &'a str,
+        _secret: &'a str,
+    ) -> PluginFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    /// Merges a pull request in `remote` as the agents' own identity, with a credential that
+    /// never leaves the plugin. False when this plugin has no such identity there.
+    fn merge_as_agents<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _remote: &'a str,
+        _merge: codehost::asks::Merge,
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async { Ok(false) })
+    }
+
+    /// Who the core pushes to `remote` as, when this plugin can push there. Asked on hot paths,
+    /// so it answers from what it has, never the network.
+    fn acts_as(&self, _ctx: &PluginContext, _remote: &str) -> Option<credential::Acting> {
+        None
+    }
+
+    /// Where the plugin keeps its sign-ins, for the account vault. None keeps them out of it.
+    fn vault(&self) -> Option<&'static dyn vault::Book> {
+        None
     }
 }
 
 pub struct PluginContext {
     data_dir: PathBuf,
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl PluginContext {
     pub fn new(data_dir: PathBuf) -> Self {
-        Self { data_dir }
+        Self {
+            data_dir,
+            runtime: None,
+        }
+    }
+
+    /// Work the plugin starts by itself runs on `runtime`, the plugins' own threads.
+    pub fn on(mut self, runtime: tokio::runtime::Handle) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
+    /// Starts work that outlives the call that started it, such as a refresh a cached answer
+    /// asked for. Dropped when there is no runtime to run it.
+    pub fn spawn(&self, work: impl Future<Output = ()> + Send + 'static) {
+        let runtime = self
+            .runtime
+            .clone()
+            .or_else(|| tokio::runtime::Handle::try_current().ok());
+        if let Some(runtime) = runtime {
+            runtime.spawn(work);
+        }
     }
 
     /// A directory only this plugin writes to. It may not exist yet.
@@ -118,7 +203,7 @@ pub fn params<T: DeserializeOwned>(params: Value) -> PluginResult<T> {
 
 pub fn reply<T: serde::Serialize>(value: T) -> PluginResult<Value> {
     serde_json::to_value(value)
-        .map_err(|error| PluginError::new(Category::Internal, error.to_string()))
+        .map_err(|error| PluginError::new(FailureCategory::Internal, error.to_string()))
 }
 
 /// Waits for a call's work and hands back what it found as JSON.

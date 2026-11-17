@@ -14,7 +14,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::manager::BrowserManager;
-use crate::{BLANK_URL, USER_AGENT};
+use crate::{user_agent, BLANK_URL};
 use sikemux_base::http::{
     builder, data_url, fetch_image, follow_if, names_private_address, public_client, shared,
 };
@@ -192,7 +192,7 @@ async fn fetch(url: &Url, page: &Url) -> Option<String> {
         .ok()?
         .get(url.clone())
         .timeout(FETCH_TIMEOUT)
-        .header(reqwest::header::USER_AGENT, USER_AGENT);
+        .header(reqwest::header::USER_AGENT, user_agent());
     let (bytes, mime) = fetch_image(request, MAX_BYTES).await?;
     Some(data_url(mime, &bytes))
 }
@@ -326,7 +326,6 @@ mod tests {
         assert!(parse_links("\"[]\"").is_empty());
     }
 
-    /// Answers one request with the given body and hangs up.
     async fn serve(content_type: &str, body: Vec<u8>) -> Url {
         let head = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

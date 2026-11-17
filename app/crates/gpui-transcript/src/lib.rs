@@ -13,14 +13,16 @@ pub mod counts;
 mod draw;
 mod find;
 mod markdown;
+mod math_text;
 pub mod scroll_latch;
 mod select;
 mod transcript;
 
 pub use draw::{
-    Chip, CodeColours, CodeRuns, DrawFence, DrawImage, Fence, Fences, FileIcon, FileKind, FileOf,
-    FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Style,
+    Chip, CodeCard, CodeColours, CodeIcon, CodeRuns, DrawFence, DrawImage, Fence, Fences, FileIcon,
+    FileKind, FileOf, FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Style,
 };
 pub use find::{DocFind, FoundChanged, Query};
 pub use markdown::{Kind, Markdown, Marks, Node, Picture, Piece, Rich, Table};
+pub use select::DocSelect;
 pub use transcript::{init, AwayChanged, Change, Copy, EmptyChanged, Row, RowsChanged, Transcript};

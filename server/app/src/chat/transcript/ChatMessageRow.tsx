@@ -2,33 +2,46 @@ import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { basename } from "@shared/lib/paths";
 import {
-  AgentIcon,
   IconCheck,
   IconChevron,
+  IconCircleAlert,
+  IconCircleCheck,
   IconClose,
+  IconEye,
   IconFile,
   IconInfo,
-  IconPencil,
   IconPlug,
+  IconRun,
   IconTimer,
   IconUser,
   IconWarning,
+  IconWindow,
   IconWorkflow,
 } from "@shared/ui/Icons";
-import { Tooltip } from "../ui/Tooltip";
 import { AgentMark } from "../agents/AgentMark";
 import sikemuxMark from "../../../../../brand/mark/mark-purple.svg";
 import { AnsweredQuestion } from "./AgentQuestions";
 import { rateLabel, sentLabel, sentTitle } from "@shared/chat/messageMeta";
 import { durationLabel } from "@shared/chat/durationLabel";
+import {
+  endedDots,
+  endedHow,
+  endedName,
+  sentence,
+} from "@shared/chat/endedTasks";
+import { HIDE, leftOutCount, leftOutLine, SHOW } from "@shared/chat/leftOut";
 import { localImagePath } from "@shared/lib/imagePaths";
 import { useImagePreview } from "../files/imagePreview";
 import { ChatFileRef, useFileRef } from "../files/FileRef";
 import { ChatAgentContext, ChatSubagentsContext } from "./chatAgent";
 import { ChatImage } from "../files/ChatImage";
 import { imageTag } from "@shared/chat/composerInput";
-import { FoldedMarkdown, warmChatMarkdown } from "../markdown/ChatMarkdown";
-import { ChatPage } from "../pages/ChatPage";
+import {
+  FoldedMarkdown,
+  SentChipsContext,
+  warmChatMarkdown,
+  WhyChipsContext,
+} from "../markdown/ChatMarkdown";
 import { ToolGroup } from "../tools/ToolGroup";
 import { ToolRow } from "../tools/ToolRow";
 import {
@@ -49,13 +62,32 @@ import type {
   ChatMessage,
   ChatPart,
   ContentBlock,
+  EndedTasks,
   SubagentCard,
   TaskNotice,
-} from "@shared/chat/types";
+  WhyChip,
+} from "@shared/wire.generated";
 import { ContextChipLabel } from "./ContextChip";
+import { OverruledLine, WeekLine } from "./ChiefLines";
 import type { MdElement } from "@shared/markdown/types";
 import { Shimmer } from "../ui/Shimmer";
-import { MessageEditor } from "./MessageEditor";
+
+/** A page the agent showed. A viewer has no way to read it from here, so this names the page and where it is. */
+function PageCard({ title }: { title: string }) {
+  return (
+    <div
+      className="chat-page-card"
+      role="group"
+      aria-label={`Page ${title}, open on the computer`}
+    >
+      <IconWindow size={14} />
+      <span className="chat-page-card-title" title={title}>
+        {title}
+      </span>
+      <span className="chat-page-card-where">on the computer</span>
+    </div>
+  );
+}
 
 function ResourceLinkPart({
   content,
@@ -192,13 +224,19 @@ const MessagePart = memo(function MessagePart({
     );
   }
   if (part.kind === "tool")
-    return part.page ? <ChatPage page={part.page} /> : <ToolRow part={part} />;
+    return part.page ? (
+      <PageCard title={part.page.title} />
+    ) : (
+      <ToolRow part={part} />
+    );
   if (part.kind === "subagent")
     return <SubagentPart subagent={part.subagent} />;
   if (part.kind === "notice") return <NoticePart notice={part.notice} />;
+  if (part.kind === "tasks") return <TasksPart tasks={part.tasks} />;
   if (part.kind === "agent_notice")
     return <AgentNoticePart notice={part.notice} />;
   if (part.kind === "account") return <AccountPart move={part.move} />;
+  if (part.kind === "rotation") return null;
   return <ContentPart part={part} />;
 });
 
@@ -274,9 +312,7 @@ function PartGroups({
 }
 
 function NoticePart({ notice }: { notice: TaskNotice }) {
-  const subagent = useContext(ChatSubagentsContext).cards.get(
-    notice.subagent ?? "",
-  );
+  const subagent = useContext(ChatSubagentsContext).card(notice.subagent ?? "");
   if (subagent) return <SubagentPart subagent={subagent} />;
   return (
     <div className={`chat-notice state-${notice.state}`} role="status">
@@ -296,7 +332,67 @@ function NoticePart({ notice }: { notice: TaskNotice }) {
   );
 }
 
+/** The background tasks that ended in one turn: one line with a dot for each, opening onto the list. */
+function TasksPart({ tasks }: { tasks: EndedTasks }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="chat-tasks">
+      <button
+        type="button"
+        className="chat-tasks-line"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {tasks.failed ? (
+          <IconCircleAlert size={13} className="chat-tasks-failed" />
+        ) : (
+          <IconCircleCheck size={13} className="chat-tasks-done" />
+        )}
+        <span className="chat-tasks-name">{endedName(tasks)}</span>
+        <span className="chat-tasks-dots" aria-hidden>
+          {endedDots(tasks, 24).map((state, at) => (
+            <i key={at} className={`state-${state}`} />
+          ))}
+        </span>
+        <span className="chat-tasks-how">{endedHow(tasks)}</span>
+        <IconChevron size={10} className="chat-tasks-chevron" />
+      </button>
+      {open && (
+        <ul className="chat-tasks-list">
+          {tasks.tasks.map((task, at) => (
+            <li key={at} className={`state-${task.state}`}>
+              {task.state === "completed" ? (
+                <IconCheck size={13} />
+              ) : task.state === "failed" ? (
+                <IconClose size={13} />
+              ) : task.taskType === "monitor" ? (
+                <IconEye size={13} />
+              ) : (
+                <IconRun size={13} />
+              )}
+              <span
+                className="chat-tasks-task"
+                title={task.summary ?? undefined}
+              >
+                {sentence(task.name)}
+              </span>
+              {task.times > 1 && (
+                <span className="chat-tasks-times">×{task.times}</span>
+              )}
+              {task.state !== "completed" && (
+                <span className="chat-tasks-state">{task.state}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function AgentNoticePart({ notice }: { notice: AgentNotice }) {
+  if (notice.overruled) return <OverruledLine overruled={notice.overruled} />;
+  if (notice.week) return <WeekLine week={notice.week} />;
   return (
     <div
       className={`chat-notice agent severity-${notice.severity}`}
@@ -363,7 +459,7 @@ function SubagentStateMark({ state }: { state: SubagentCard["state"] }) {
 /* A folded subagent keeps streaming into a transcript nobody is reading, so its
    body is only built once the reader opens it. */
 function SubagentPart({ subagent }: { subagent: SubagentCard }) {
-  const agentType = useContext(ChatAgentContext).type;
+  const agentType = useContext(ChatAgentContext);
   const rows = useContext(ChatSubagentsContext).rows[subagent.sessionId];
   const [open, setOpen] = useState(false);
   const parts = useMemo(
@@ -380,11 +476,7 @@ function SubagentPart({ subagent }: { subagent: SubagentCard }) {
       <summary>
         <IconChevron size={9} className="chat-subagent-chevron" />
         <span className="chat-subagent-mark">
-          <AgentIcon
-            type={agentType}
-            size={18}
-            className={`agent-glyph ${agentType}`}
-          />
+          <AgentMark type={agentType} size={18} />
         </span>
         <span className="chat-subagent-name">{subagent.name}</span>
         {subagent.state === "running" ? (
@@ -440,18 +532,12 @@ function TeammateLetter({ id, letter }: { id: string; letter: AgentLetter }) {
             {letter.cli === "sikemux" ? (
               <img src={sikemuxMark} width={17} height={17} alt="" />
             ) : (
-              <AgentMark agentId={letter.agentId} cli={letter.cli} size={17} />
+              <AgentMark type={letter.cli} size={17} />
             )}
           </span>
           <span>
             Message from{" "}
-            <button
-              type="button"
-              className="chat-letter-name"
-              title={`Open ${letter.name}`}
-            >
-              {letter.name}
-            </button>
+            <span className="chat-letter-name">@{letter.name}</span>
           </span>
         </span>
       </div>
@@ -505,6 +591,39 @@ function AgentLetters({
   );
 }
 
+/**
+ * The quiet line under an answer some of whose sentences rested on no source and were left out. Show lists them
+ * under it, faint; the page cannot ask the host to put them back in place, as the apps do.
+ */
+function LeftOut({ message }: { message: ChatMessage }) {
+  const [open, setOpen] = useState(false);
+  const count = leftOutCount(message);
+  if (!count) return null;
+  return (
+    <div className="chat-left-out">
+      <div className="chat-left-out-line">
+        <span>{leftOutLine(count)}</span>
+        <span aria-hidden>·</span>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? HIDE : SHOW}
+        </button>
+      </div>
+      {open &&
+        (message.leftOut ?? []).map((out) => (
+          <p key={`${out.part}:${out.at}`} className="chat-left-out-text">
+            {out.text.trim()}
+          </p>
+        ))}
+    </div>
+  );
+}
+
+const NO_WHY_CHIPS: WhyChip[] = [];
+
 export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   live,
@@ -512,8 +631,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   rate,
   at,
   took,
-  onEdit,
-  from = 0,
+  kept = null,
 }: {
   message: ChatMessage;
   live: boolean;
@@ -521,37 +639,30 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   rate: number | null;
   at: number | null;
   took: number | null;
-  /** Given when the person may write this message again. */
-  onEdit?: (message: ChatMessage, text: string) => void;
   /** Where the shown parts start, when the work before them is folded away. */
-  from?: number;
+  kept?: readonly number[] | null;
 }) {
   const { parts, letters } = message;
-  const context = message.context ?? [];
-  const shown = useMemo(() => shownParts(parts, from), [parts, from]);
-  const [editing, setEditing] = useState(false);
+  const spans = message.spans;
+  const chips = useMemo(
+    () =>
+      new Map(
+        (spans ?? []).flatMap((span) =>
+          span.chip ? [[span.text, span.chip.label] as const] : [],
+        ),
+      ),
+    [spans],
+  );
+  const context = (message.context ?? []).filter(
+    (item) => !spans?.some((span) => span.chip?.carried === item.uri),
+  );
+  const shown = useMemo(() => shownParts(parts, kept), [parts, kept]);
   const attachments = message.attachments ?? [];
   const written = parts
     .flatMap((part) => (part.kind === "text" ? [part.text] : []))
     .join("\n\n");
   if (letters?.length)
     return <AgentLetters id={message.id} letters={letters} at={at} />;
-  if (editing && onEdit) {
-    return (
-      <article className={`chat-message ${message.role}`}>
-        <div className="chat-message-content">
-          <MessageEditor
-            initial={written}
-            onCancel={() => setEditing(false)}
-            onSend={(text) => {
-              setEditing(false);
-              onEdit(message, text);
-            }}
-          />
-        </div>
-      </article>
-    );
-  }
   return (
     <article className={`chat-message ${message.role}`}>
       <div className="chat-message-content">
@@ -577,21 +688,18 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             ))}
           </div>
         )}
-        <PartGroups parts={shown} live={live} typed={message.role === "user"} />
+        <SentChipsContext.Provider value={chips}>
+          <WhyChipsContext.Provider value={message.chips ?? NO_WHY_CHIPS}>
+            <PartGroups
+              parts={shown}
+              live={live}
+              typed={message.role === "user"}
+            />
+          </WhyChipsContext.Provider>
+        </SentChipsContext.Provider>
+        <LeftOut message={message} />
         {copyable && (
           <div className="chat-message-meta">
-            {onEdit && context.length === 0 && (
-              <Tooltip label="Edit message">
-                <button
-                  type="button"
-                  className="copy-btn"
-                  aria-label="Edit message"
-                  onClick={() => setEditing(true)}
-                >
-                  <IconPencil size={15} />
-                </button>
-              </Tooltip>
-            )}
             <CopyButton
               value={copyable}
               label={message.role === "user" ? "message" : "reply"}

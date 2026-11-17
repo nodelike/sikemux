@@ -6,23 +6,21 @@ import {
   type RefObject,
   type UIEvent,
 } from "react";
-import type { Agent } from "../agents/agent";
 import { ChatActivity } from "./ChatActivity";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
-import { copyText } from "@shared/chat/messageMeta";
+import { copyText, EARLIER_LOST, rowTime } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import { formatDetail, outlivesFold } from "@shared/chat/transcript";
-import type { PermissionAsk, ChatMessage, ChatRows } from "@shared/chat/types";
+import type { ChatMessage } from "@shared/wire.generated";
+import type { ChatRows } from "@shared/chat/rows";
 import { WorkSummary } from "./WorkSummary";
+import { TeamFold } from "./TeamFold";
+import { teamRows, type RunOpen } from "@shared/chat/team";
 
 /* A long transcript mounts its newest rows first and the older ones above
    them a slice at a time. Laid out from the bottom, rows added above the view
    never move it. */
 const FIRST_ROWS = 40;
-
-/** Said above a chat whose host no longer keeps its first turns. */
-export const EARLIER_LOST = "Earlier messages are no longer kept.";
 
 /** Where each finished turn that folds starts and ends among the rows, by the index of each row in it. */
 function foldSpans(
@@ -64,44 +62,26 @@ function useOlderRows(count: number): number {
   return Math.min(start, count);
 }
 
-export interface TranscriptPermissions {
-  requests: readonly PermissionAsk[];
-  /** The request whose answer is on its way. */
-  busy: string | null;
-  /** Without it the requests are shown but cannot be answered. */
-  onReply?: (requestId: string, optionId?: string) => void;
-}
-
 /**
  * The scrolling part of a chat: its messages, folded into work summaries,
- * what the agent is doing now, its plan and what it waits on. The agent's
- * pane and a shared chat draw it the same way.
+ * what the agent is doing now, its plan and what it waits on.
  */
 export function ChatTranscript({
   state,
-  agentType,
   foldMemory,
-  unfolded,
   scrollRef,
   contentRef,
   onScroll,
   activity,
-  permissions,
-  onEdit,
   before,
   after,
 }: {
   state: ChatRows;
-  agentType: Agent["type"];
   foldMemory: FoldMemory;
-  /** Shows every fold open, as while finding in the chat. */
-  unfolded: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   onScroll: (event: UIEvent<HTMLDivElement>) => void;
   activity: string | null;
-  permissions: TranscriptPermissions;
-  onEdit?: (message: ChatMessage, text: string) => void;
   /** Drawn above the messages. */
   before?: ReactNode;
   /** Drawn below everything else. */
@@ -118,9 +98,16 @@ export function ChatTranscript({
       if (!next.delete(id)) next.add(id);
       return next;
     });
-  const plan = useMemo(
-    () => (state.plan === undefined ? null : formatDetail(state.plan)),
-    [state.plan],
+  const runs = useMemo(
+    () =>
+      teamRows(state.messages, (id): RunOpen =>
+        openWork.has(`team-all/${id}`)
+          ? "all"
+          : openWork.has(`team/${id}`)
+            ? "open"
+            : "closed",
+      ),
+    [state.messages, openWork],
   );
 
   return (
@@ -135,17 +122,46 @@ export function ChatTranscript({
         <FoldMemoryContext value={foldMemory}>
           {state.messages.slice(firstRow).map((message, offset) => {
             const index = firstRow + offset;
+            const run = runs.get(message.id);
+            const head = run?.head && (
+              <TeamFold
+                line={run.head}
+                open={openWork.has(`team/${run.id}`)}
+                all={openWork.has(`team-all/${run.id}`)}
+                onToggle={() => toggleWork(`team/${run.id}`)}
+                onAll={() => toggleWork(`team-all/${run.id}`)}
+              />
+            );
+            if (run?.hidden)
+              return (
+                <div key={message.id} data-index={index} className="chat-row">
+                  {head}
+                </div>
+              );
+            if (run)
+              return (
+                <div key={message.id} data-index={index} className="chat-row">
+                  {head}
+                  <ChatMessageRow
+                    kept={run.shown}
+                    message={message}
+                    live={state.running && index === state.messages.length - 1}
+                    copyable={copyText(state.messages, index)}
+                    rate={message.meta?.rate ?? null}
+                    at={rowTime(message)}
+                    took={message.meta?.took ?? null}
+                  />
+                </div>
+              );
             const meta = message.meta;
             const span = spans.get(index);
             const fold = span && message.fold;
             const workId = fold ? fold.id : "";
-            const folded =
-              span !== undefined && !unfolded && !openWork.has(workId);
+            const folded = span !== undefined && !openWork.has(workId);
             const summary = span &&
               fold &&
               index === Math.max(span.start, firstRow) && (
                 <WorkSummary
-                  agent={agentType}
                   took={fold.took ?? null}
                   calls={fold.calls}
                   thought={fold.thought}
@@ -153,12 +169,8 @@ export function ChatTranscript({
                   onToggle={() => toggleWork(workId)}
                 />
               );
-            if (
-              span &&
-              folded &&
-              index < span.end &&
-              !message.parts.some(outlivesFold)
-            )
+            // A host older than v0.6.1-nightly.5 sends no `shown`, so its rows draw whole.
+            if (span && fold && folded && fold.shown?.length === 0)
               return (
                 <div key={message.id} data-index={index} className="chat-row">
                   {summary}
@@ -168,28 +180,13 @@ export function ChatTranscript({
               <div key={message.id} data-index={index} className="chat-row">
                 {summary}
                 <ChatMessageRow
-                  from={
-                    span && fold && folded
-                      ? index < span.end
-                        ? message.parts.length
-                        : fold.from
-                      : 0
-                  }
+                  kept={span && fold && folded ? (fold.shown ?? null) : null}
                   message={message}
                   live={state.running && index === state.messages.length - 1}
                   copyable={copyText(state.messages, index)}
                   rate={meta?.rate ?? null}
-                  at={
-                    message.role === "user"
-                      ? (message.sentAt ?? null)
-                      : (meta?.at ?? null)
-                  }
+                  at={rowTime(message)}
                   took={meta?.took ?? null}
-                  onEdit={
-                    onEdit && message.role === "user" && message.promptId
-                      ? onEdit
-                      : undefined
-                  }
                 />
               </div>
             );
@@ -197,31 +194,27 @@ export function ChatTranscript({
         </FoldMemoryContext>
         {activity &&
           (state.running ? (
-            <ChatActivity label={activity} agentType={agentType} />
+            <ChatActivity label={activity} />
           ) : (
             <div className="chat-activity" role="status">
               <span className="chat-activity-loader" aria-hidden="true" />
               <span className="chat-activity-label">{activity}</span>
             </div>
           ))}
-        {plan !== null && (
+        {state.plan && state.plan.length > 0 && (
           <details className="chat-plan">
             <summary>Plan</summary>
-            <pre>{plan}</pre>
+            <ul className="chat-plan-steps">
+              {state.plan.map((entry, index) => (
+                <li key={index} data-status={entry.status}>
+                  {entry.content}
+                </li>
+              ))}
+            </ul>
           </details>
         )}
-        {permissions.requests.map((request) => (
-          <PermissionRequest
-            key={request.requestId}
-            request={request}
-            busy={permissions.busy === request.requestId}
-            onReply={
-              permissions.onReply
-                ? (optionId) =>
-                    permissions.onReply?.(request.requestId, optionId)
-                : undefined
-            }
-          />
+        {state.permissions.map((request) => (
+          <PermissionRequest key={request.requestId} request={request} />
         ))}
         {after}
       </div>

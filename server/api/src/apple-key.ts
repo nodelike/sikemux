@@ -15,7 +15,7 @@ export interface AppleKey {
 const APPLE_ID = /^[A-Z0-9]{10}$/;
 
 /** Reads a .p8 key file, throwing a message that names what is wrong with it. */
-export function readAppleKey(path: string): KeyObject {
+function readAppleKey(path: string): KeyObject {
   let pem: string;
   try {
     pem = readFileSync(path, "utf8");

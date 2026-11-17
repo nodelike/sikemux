@@ -1,0 +1,22 @@
+# The rail and @Chief's Now card wearing a theme's type tokens: Avenir Next and Menlo, tighter
+# rows, 1.5-point borders and no shadows, over Nord's colours.
+stage 1440 900
+window 1440 900
+project storefront line-shop
+core saveTheme rice-type.json
+prefer themeId custom-type-rice
+core openChief {"project":"storefront"}
+chat Flint
+title "Fix the rounding in cart totals"
+say "shell pnpm test"
+chat Otter
+title "Check the refund totals"
+say "hello"
+chat Maple
+title "Bundle the storefront"
+say "shell pnpm build"
+chat Wren
+title "Some orders come out a cent off"
+say "hello"
+settle 8
+snap rail

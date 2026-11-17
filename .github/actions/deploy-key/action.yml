@@ -1,0 +1,21 @@
+name: Deploy key
+description: Writes citadel's SSH key and known hosts, for ssh -i ~/.ssh/deploy_key.
+inputs:
+  key:
+    description: The private key
+    required: true
+  known-hosts:
+    description: The server's known_hosts lines
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DEPLOY_SSH_KEY: ${{ inputs.key }}
+        DEPLOY_KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        install -d -m 700 ~/.ssh
+        install -m 600 /dev/null ~/.ssh/deploy_key
+        printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+        printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts

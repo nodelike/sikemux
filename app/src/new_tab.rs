@@ -1,7 +1,11 @@
 //! New…: every kind of tab the window can open, each by the command that opens
 //! it, so a kind joins the list once the window can do its command.
 
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 use gpui_kit::{Context, Window};
+
+use sikemux_view::layout::PaneKind;
 
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
@@ -9,12 +13,8 @@ use crate::keymap;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "palette.newTab")]
-pub struct NewTab;
-
 struct Choice {
-    command: &'static str,
+    command: CommandId,
     label: &'static str,
     detail: &'static str,
     icon: Icon,
@@ -22,64 +22,80 @@ struct Choice {
     in_project: bool,
 }
 
-const CHOICES: [Choice; 8] = [
-    Choice {
-        command: "terminal.new",
-        label: "Terminal",
-        detail: "A new shell",
-        icon: Icon::Terminal,
-        in_project: false,
-    },
-    Choice {
-        command: "agent.choose",
-        label: "Agent",
-        detail: "Start or resume an agent",
-        icon: Icon::Agent,
-        in_project: true,
-    },
-    Choice {
-        command: "browser.tabNew",
-        label: "Browser",
-        detail: "A page on the agent's desk",
-        icon: Icon::Globe,
-        in_project: true,
-    },
-    Choice {
-        command: "simulator.new",
-        label: "iOS Simulator",
-        detail: "Drive an iPhone on the agent's desk",
-        icon: Icon::Phone,
-        in_project: true,
-    },
-    Choice {
-        command: "palette.files",
-        label: "Files",
-        detail: "Open a project file",
-        icon: Icon::Editor,
-        in_project: true,
-    },
-    Choice {
-        command: "window.git",
-        label: "Git",
-        detail: "Changes, branches, remotes and stashes",
-        icon: Icon::Git,
-        in_project: true,
-    },
-    Choice {
-        command: "search.global",
-        label: "Search",
-        detail: "Search across the project",
-        icon: Icon::Search,
-        in_project: true,
-    },
-    Choice {
-        command: "window.board",
-        label: "Agent board",
-        detail: "What the project's agents are doing",
-        icon: Icon::Board,
-        in_project: true,
-    },
-];
+impl Choice {
+    /// A tab of `kind`, called and marked as such tabs are.
+    fn of(kind: PaneKind, command: CommandId, detail: &'static str, in_project: bool) -> Self {
+        let kind = crate::pane_kind::of(kind);
+        Self {
+            command,
+            label: kind.label,
+            detail,
+            icon: kind.icon,
+            in_project,
+        }
+    }
+}
+
+fn choices() -> [Choice; 9] {
+    [
+        Choice::of(
+            PaneKind::Terminal,
+            actions::NewTerminal::ID,
+            t!("A new shell"),
+            false,
+        ),
+        Choice::of(
+            PaneKind::Agent,
+            actions::ChooseAgent::ID,
+            t!("Start or resume an agent"),
+            true,
+        ),
+        Choice {
+            command: actions::NewPage::ID,
+            label: t!("Browser"),
+            detail: t!("A page on the agent's desk"),
+            icon: Icon::Globe,
+            in_project: true,
+        },
+        Choice {
+            command: actions::NewSimulator::ID,
+            label: t!("Simulator"),
+            detail: t!("Drive a phone on the agent's desk"),
+            icon: Icon::Phone,
+            in_project: true,
+        },
+        Choice::of(
+            PaneKind::Files,
+            actions::OpenFile::ID,
+            t!("Open a project file"),
+            true,
+        ),
+        Choice::of(
+            PaneKind::Git,
+            actions::FocusGit::ID,
+            t!("Changes, branches and stashes"),
+            true,
+        ),
+        Choice::of(
+            PaneKind::Search,
+            actions::FocusSearch::ID,
+            t!("Search across the project"),
+            true,
+        ),
+        Choice::of(
+            PaneKind::Hosts,
+            actions::FocusHosts::ID,
+            t!("Hosts and paired phones"),
+            false,
+        ),
+        Choice::of(
+            PaneKind::Mod,
+            actions::OpenMod::ID,
+            t!("A panel you or an agent made"),
+            false,
+        ),
+    ]
+}
 
 /// The row that sets Sikemux up on the SSH host in front.
 const INSTALL: &str = "host.install";
@@ -91,15 +107,16 @@ impl Workbench {
             return self.toggle_ssh_new_tab(alias, window, cx);
         }
         let in_project = matches!(self.strip(), Some(Strip::Project(_)));
-        let rows = CHOICES
+        let rows = choices()
             .iter()
-            .filter(|choice| cx.build_action(choice.command, None).is_ok())
-            .filter(|choice| cfg!(target_os = "macos") || choice.command != "simulator.new")
+            .filter(|choice| {
+                cfg!(target_os = "macos") || choice.command != actions::NewSimulator::ID
+            })
             .map(|choice| {
                 let shut = choice.in_project && !in_project;
-                Row::new(choice.command, choice.label)
+                Row::new(choice.command.name(), choice.label)
                     .meta(if shut {
-                        "open a project first"
+                        t!("open a project first")
                     } else {
                         choice.detail
                     })
@@ -110,10 +127,10 @@ impl Workbench {
             .collect();
         let spec = Spec::new(
             "palette.newTab",
-            "open a new tab…",
+            t!("open a new tab…"),
             rows,
             |row, _, window, cx| {
-                keymap::dispatch(&row.key, window, cx);
+                keymap::dispatch_named(&row.key, window, cx);
             },
         )
         .numbered()
@@ -122,23 +139,27 @@ impl Workbench {
     }
 
     fn toggle_ssh_new_tab(&mut self, alias: String, window: &mut Window, cx: &mut Context<Self>) {
+        let (set_up_icon, set_up_label) = self.set_up_label(&alias);
         let rows = vec![
-            Row::new("terminal.new", "SSH terminal")
-                .meta(format!("A new login on {alias}"))
-                .keys(keymap::hint("terminal.new", cx))
+            Row::new(actions::NewTerminal::ID.name(), t!("SSH terminal"))
+                .meta(t!("A new login on {alias}", alias = alias))
+                .keys(keymap::hint(actions::NewTerminal::ID, cx))
                 .mark(Mark::Icon(Icon::Terminal)),
-            Row::new(INSTALL, "Install Sikemux")
-                .meta(format!("What Sikemux adds on {alias}, and the installer"))
-                .keys(keymap::hint("agent.new", cx))
-                .mark(Mark::Icon(Icon::Download)),
+            Row::new(INSTALL, set_up_label)
+                .meta(t!(
+                    "What Sikemux is on {alias}, and what sets it up",
+                    alias = alias
+                ))
+                .keys(keymap::hint(actions::NewChat::ID, cx))
+                .mark(Mark::Icon(set_up_icon)),
         ];
         let spec = Spec::new(
             "palette.newTab",
-            "open a new tab…",
+            t!("open a new tab…"),
             rows,
             move |row, bench, window, cx| match row.key.as_ref() {
                 INSTALL => bench.open_install_pane(&alias),
-                command => keymap::dispatch(command, window, cx),
+                command => keymap::dispatch_named(command, window, cx),
             },
         )
         .width(440.);

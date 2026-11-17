@@ -7,7 +7,7 @@ use gpui_kit::{
     ParentElement, Styled, Subscription, Window,
 };
 use gpui_transcript::Change;
-use sikemux_wire::chat::ChatMessage;
+use sikemux_view::chat::ChatMessage;
 
 use super::{text_of, CancelEdit, Drawn};
 use crate::core::ChatAsk;
@@ -145,7 +145,7 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
         .justify_end()
         .gap(SPACE_1H)
         .child(
-            Button::new("edit-cancel", "Cancel", Variant::Outline).on_click({
+            Button::new("edit-cancel", t!("Cancel"), Variant::Outline).on_click({
                 let (bench, agent) = (bench.clone(), agent.to_owned());
                 move |_, _, cx| {
                     bench
@@ -155,7 +155,7 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
             }),
         )
         .child(
-            Button::new("edit-send", "Send", Variant::Primary).on_click(move |_, _, cx| {
+            Button::new("edit-send", t!("Send"), Variant::Primary).on_click(move |_, _, cx| {
                 bench
                     .update(cx, |bench, cx| bench.send_edit(&send, cx))
                     .ok();
@@ -170,9 +170,9 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
         .gap(SPACE_2)
         .px(SPACE_3)
         .py(SPACE_2)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(looks.line)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .bg(looks.bubble)
         .child(
             Textarea::new(&editing.draft)

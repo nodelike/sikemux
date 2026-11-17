@@ -1,25 +1,28 @@
 //! A phone reaching a core only through a relay, the way it does from outside
 //! the host's network. Needs an `iroh-relay` binary, named by
-//! `SIKEMUX_IROH_RELAY`; without it the test passes without running.
+//! `SIKEMUX_IROH_RELAY`, so it runs only when asked:
+//! `SIKEMUX_IROH_RELAY=… cargo test -p sikemux-core --test relay -- --ignored`.
 
 #![cfg(unix)]
 
+use sikemux_process::command::{Child, Stdio};
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, RelayMode};
 use serde_json::json;
-use sikemux_core::accounts::network;
-use sikemux_core::accounts::protocol::Relay;
-use sikemux_core::client::{probe, ClientEvent, CoreClient};
-use sikemux_core::grid::{decode_frame, Screen};
-use sikemux_core::protocol::{
+use sikemux_client::accounts::network;
+use sikemux_client::client::{ClientEvent, CoreClient};
+use sikemux_client::remote::{self, SecretKey};
+use sikemux_core::client::probe;
+use sikemux_core::server::{self, ServerConfig};
+use sikemux_grid::{decode_frame, Screen};
+use sikemux_wire::accounts::protocol::Relay;
+use sikemux_wire::protocol::{
     BuildIdentity, DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn,
 };
-use sikemux_core::remote::{self, SecretKey};
-use sikemux_core::server::{self, ServerConfig};
 
 const WAIT: Duration = Duration::from_secs(60);
 /// A phone that dials before the core has joined the relay waits out QUIC's
@@ -76,11 +79,9 @@ fn remote_file(socket: &Path) -> PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs an iroh-relay binary named by SIKEMUX_IROH_RELAY"]
 async fn a_phone_reaches_a_core_through_the_relay_alone() {
-    let Some(binary) = std::env::var_os("SIKEMUX_IROH_RELAY") else {
-        eprintln!("SIKEMUX_IROH_RELAY is not set; skipping the relay test");
-        return;
-    };
+    let binary = std::env::var_os("SIKEMUX_IROH_RELAY").expect("SIKEMUX_IROH_RELAY");
     sikemux_process::user_environment::search_path_only_from_now();
     std::env::set_var("SHELL", "/bin/sh");
     let dir = tempfile::tempdir().expect("temp dir");
@@ -111,7 +112,7 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
         },
     });
     std::fs::write(remote_file(&socket), stored.to_string()).expect("remote file");
-    server::trust_remote_file(&socket, &core_key).expect("host key");
+    server::remote::trust_remote_file(&socket, &core_key).expect("host key");
     let config = ServerConfig {
         idle_exit: Duration::from_secs(600),
         build: BuildIdentity {
@@ -178,8 +179,11 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
             client.ack(stream, screen.header.frame);
         }
     }
-    client.kill(id).await.expect("the phone ends the terminal");
+    client
+        .ask(ask::Kill { id })
+        .await
+        .expect("the phone ends the terminal");
 
-    let _ = app.shutdown(true).await;
+    let _ = app.ask(ask::Shutdown { stop_all: true }).await;
     let _ = core.join();
 }

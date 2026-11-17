@@ -28,8 +28,9 @@ final class NotchPanel: NSPanel {
 
 /// One island per screen the settings show it on, rebuilt whenever the screens change.
 final class Panels {
-    /// Room for the widest island, its tallest list and its shadow. Only the island is drawn.
-    static let canvas = CGSize(width: 760, height: 560)
+    /// Room for the widest island and its shadow, as tall as the screen so a call's card in the list fits whole.
+    /// Only the island is drawn.
+    static let width: CGFloat = 760
 
     private let store: NotchStore
     private var panels: [CGDirectDisplayID: (panel: NotchPanel, island: IslandModel)] = [:]
@@ -37,6 +38,9 @@ final class Panels {
     private var monitors: [Any] = []
     private var dragCount = 0
     private var pointerScreen: CGDirectDisplayID?
+    private var devRunning = false
+    private var fullScreen: Set<CGDirectDisplayID> = []
+    private var looking = false
 
     init(store: NotchStore) {
         self.store = store
@@ -103,10 +107,10 @@ final class Panels {
         for (id, screen) in wanted {
             let geometry = NotchGeometry.of(screen)
             let frame = CGRect(
-                x: geometry.centerX - Self.canvas.width / 2,
-                y: screen.frame.maxY - Self.canvas.height,
-                width: Self.canvas.width,
-                height: Self.canvas.height
+                x: geometry.centerX - Self.width / 2,
+                y: screen.frame.minY,
+                width: Self.width,
+                height: screen.frame.height
             )
             if let entry = panels[id] {
                 entry.panel.setFrame(frame, display: true)
@@ -156,9 +160,10 @@ final class Panels {
             let current = wantedScreens().first.flatMap(Self.displayId)
             if current != pointerScreen { rebuild() }
         }
-        let yielding = !store.options.dev && store.settings.yieldToDev && Handover.devIsRunning(stateDir: store.options.stateDir)
+        let watchingDev = !store.options.dev && store.settings.yieldToDev
+        let yielding = watchingDev && devRunning
+        lookAround(watchingDev: watchingDev)
         let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty
-        let fullScreen = FullScreen.displays()
         for (_, entry) in panels {
             entry.island.checkPointer()
         }
@@ -172,6 +177,25 @@ final class Panels {
             let hidden = yielding || covered
             if entry.island.hidden != hidden {
                 withAnimation(.smooth(duration: 0.2)) { entry.island.hidden = hidden }
+            }
+        }
+    }
+
+    /// Opening Dev's lock file and listing the windows have each stalled the main thread for
+    /// seconds on some Macs, so both run off it and the next tick reads the answers.
+    private func lookAround(watchingDev: Bool) {
+        guard !looking else { return }
+        looking = true
+        let stateDir = store.options.stateDir
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let running = watchingDev && Handover.devIsRunning(stateDir: stateDir)
+            let filled = FullScreen.displays(filledBy: front)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.devRunning = running
+                self.fullScreen = filled
+                self.looking = false
             }
         }
     }
@@ -229,8 +253,8 @@ final class Panels {
 
 /// Which displays the frontmost app fills, as a full-screen app does.
 enum FullScreen {
-    static func displays() -> Set<CGDirectDisplayID> {
-        guard let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+    static func displays(filledBy front: pid_t?) -> Set<CGDirectDisplayID> {
+        guard let front,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else { return [] }
         var filled: Set<CGDirectDisplayID> = []

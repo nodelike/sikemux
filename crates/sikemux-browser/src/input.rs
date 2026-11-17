@@ -426,7 +426,6 @@ pub fn guard_keyboard() {
     }
 }
 
-/// When the agent and the person last used the pointer and the keyboard.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct LastInput {
     agent_pointer: Option<Instant>,
@@ -480,6 +479,9 @@ pub fn note_person(event: &NSEvent) {
         NSEventType::LeftMouseDown | NSEventType::RightMouseDown | NSEventType::OtherMouseDown => {
             note(|last| last.person_pointer = Some(now));
             let clicked = clicked_view(event);
+            if let Some(tab_id) = clicked.as_deref().and_then(crate::macos::tab_id_holding) {
+                crate::person::touched(&tab_id);
+            }
             PERSON_CLICKED.with(|slot| *slot.borrow_mut() = clicked.as_deref().map(Weak::from));
         }
         _ => note(|last| last.person_pointer = Some(now)),
@@ -491,8 +493,6 @@ fn clicked_view(event: &NSEvent) -> Option<Retained<NSView>> {
     window.contentView()?.hitTest(event.locationInWindow())
 }
 
-/// Whether the app's latest pointer or key input came from an agent rather
-/// than the person.
 pub fn agent_input_is_latest() -> bool {
     let last = LAST_INPUT.with(Cell::get);
     let now = Instant::now();

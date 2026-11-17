@@ -3,32 +3,28 @@ name: Server
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "server/**"
-      - "crates/sikemux-core/src/accounts/**"
+      - "crates/sikemux-corekit/src/accounts/**"
       - "crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"
+      - "scripts/generate-wire-types.mjs"
+      - "crates/sikemux-wire/src/**"
+      - "crates/sikemux-view/src/**"
       - "brand/mark/**"
-      - "crates/sikemux-core/src/server/themes/**"
+      # The Connectors page draws each service's mark from the desktop app's icons.
+      - "app/assets/icons/**"
+      - "crates/sikemux-corekit/src/themes/**"
+      - "crates/sikemux-corekit/src/themes.rs"
       - "crates/sikemux-markdown/**"
       - "crates/sikemux-markdown-wasm/**"
+      - "crates/sikemux-web-device/**"
       - mobile/app/certs/updates-certificate.pem
       - .github/workflows/server.yml
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "server/**"
-      - "crates/sikemux-core/src/accounts/**"
-      - "crates/sikemux-wire/src/accounts/**"
-      # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
-      - "shared/**"
-      - "brand/mark/**"
-      - "crates/sikemux-core/src/server/themes/**"
-      - "crates/sikemux-markdown/**"
-      - "crates/sikemux-markdown-wasm/**"
-      - mobile/app/certs/updates-certificate.pem
-      - .github/workflows/server.yml
+    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -39,10 +35,10 @@ jobs:
     name: Server checks
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     concurrency:
       group: server-check-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       postgres:
         image: postgres:17
@@ -64,6 +60,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -82,11 +80,29 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Setup Rust, for a shared chat's page to parse markdown as the core does
-        working-directory: .
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --target wasm32-unknown-unknown --no-self-update
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: wasm32-unknown-unknown
+
+      # The web app reads a host's look over iroh, from Rust built for the browser. ring's C needs
+      # LLVM's clang and llvm-ar for wasm, and wasm-bindgen must match the crate's version.
+      - name: Setup wasm-bindgen and LLVM, for the web app's own device
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/wasm-bindgen.tar.gz" https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz
+          echo "82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  $RUNNER_TEMP/wasm-bindgen.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/wasm-bindgen.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl" >>"$GITHUB_PATH"
+          llvm="$(ls -d /usr/lib/llvm-* | sort -V | tail -1)/bin"
+          echo "CC_wasm32_unknown_unknown=$llvm/clang" >>"$GITHUB_ENV"
+          echo "AR_wasm32_unknown_unknown=$llvm/llvm-ar" >>"$GITHUB_ENV"
 
       - name: Check, test and build
         run: pnpm check
+        # Only the build that deploys reports to Sentry, and sends Sentry its source maps.
+        env:
+          VITE_SENTRY_DSN: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'https://89ce77be8ce1c97146774b0233f889d6@o4512409824919552.ingest.de.sentry.io/4512409866272848' || '' }}
+          VITE_SENTRY_RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.sha || '' }}
+          SENTRY_AUTH_TOKEN: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.SENTRY_AUTH_TOKEN || '' }}
 
       - name: Pack the release
         run: pnpm pack:release
@@ -113,21 +129,27 @@ jobs:
       group: server-deploy
       cancel-in-progress: false
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
       - name: Fetch the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: server-release
 
+      - name: Set up the deploy key
+        uses: ./.github/actions/deploy-key
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
       - name: Send it to citadel
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
-          install -d -m 700 ~/.ssh
-          install -m 600 /dev/null ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "sikemux-deploy@$DEPLOY_HOST" "$GITHUB_SHA" < release.tar.gz
 

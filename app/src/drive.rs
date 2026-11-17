@@ -1,7 +1,7 @@
 //! Drives the window from step files, for the real-window checks of the test bundle only: it
-//! is built with the `drive` feature, which no release build turns on. Steps come
-//! over the socket named by `SIKEMUX_GPUI_DRIVE` and go through the window's own event
-//! dispatch, so nothing is posted to the system and no Accessibility grant is needed.
+//! is built with the `drive` feature, which no release build turns on. Steps come over the
+//! socket named by `SIKEMUX_GPUI_DRIVE`, a named pipe on Windows, and go through the window's
+//! own event dispatch, so nothing is posted to the system and no Accessibility grant is needed.
 //!
 //! Steps, one per line and ended by a line `end`, in points from the window's top-left corner:
 //!   activate | move x y | click x y | double x y | right x y | drag x1 y1 x2 y2 [steps]
@@ -9,20 +9,24 @@
 //!   state, answered with what the desks hold and where the keys are, as JSON on its line
 //!   register, which takes the core's window calls without activating the window
 //!   resize width height, in points
+//!   frames start, then frames, answered with how far apart the window's frames came in between
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui_kit::{
-    point, px, AnyWindowHandle, App, AsyncApp, Entity, Keystroke, Modifiers, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, Point, ScrollDelta,
-    ScrollEvent, ScrollSource, TouchPhase,
+    point, px, AnyWindowHandle, App, AsyncApp, Entity, Focusable, Keystroke, Modifiers,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, Point,
+    ScrollDelta, ScrollEvent, ScrollSource, TouchPhase, Window,
 };
+use serde_json::{json, Value};
+use sikemux_client::local;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
+use crate::desk::{DeskItem, DeskKind};
 use crate::workbench::Workbench;
 
 const SETTLE: Duration = Duration::from_millis(60);
@@ -41,45 +45,64 @@ pub fn listen(window: AnyWindowHandle, bench: Entity<Workbench>, cx: &mut App) {
     let Some(path) = std::env::var_os("SIKEMUX_GPUI_DRIVE") else {
         return;
     };
-    let _ = std::fs::remove_file(&path);
-    let listener = match UnixListener::bind(&path) {
-        Ok(listener) => listener,
-        Err(error) => return eprintln!("sikemux: the window driver could not listen: {error}"),
-    };
-    let (runs, mut asked) = mpsc::unbounded_channel::<(String, UnixStream)>();
+    let (runs, mut asked) = mpsc::unbounded_channel::<(String, mpsc::UnboundedSender<String>)>();
     std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            let Ok(reading) = stream.try_clone() else {
-                continue;
-            };
-            let steps: Vec<String> = BufReader::new(reading)
-                .lines()
-                .map_while(Result::ok)
-                .take_while(|line| line.trim() != "end")
-                .collect();
-            if runs.send((steps.join("\n"), stream)).is_err() {
-                break;
-            }
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => return eprintln!("sikemux: the window driver could not start: {error}"),
+        };
+        if let Err(error) = runtime.block_on(serve(PathBuf::from(path), runs)) {
+            eprintln!("sikemux: the window driver could not listen: {error}");
         }
     });
     cx.spawn(async move |cx| {
-        while let Some((steps, mut stream)) = asked.recv().await {
+        while let Some((steps, said)) = asked.recv().await {
             for line in steps.lines().map(str::trim) {
                 if line.is_empty() || line.starts_with('#') {
                     continue;
                 }
-                let said = match run(line, window, &bench, cx).await {
+                let _ = said.send(match run(line, window, &bench, cx).await {
                     Ok(None) => format!("did: {line}\n"),
                     Ok(Some(answer)) => format!("did: {line} {answer}\n"),
                     Err(problem) => format!("{problem}: {line}\n"),
-                };
-                let _ = stream.write_all(said.as_bytes());
+                });
                 cx.background_executor().timer(SETTLE).await;
             }
-            let _ = stream.write_all(b"done\n");
+            let _ = said.send("done\n".to_string());
         }
     })
     .detach();
+}
+
+/// Takes one step file at a time on the driver's socket, or its named pipe on Windows, and
+/// writes back each line the window says about it.
+async fn serve(
+    path: PathBuf,
+    runs: mpsc::UnboundedSender<(String, mpsc::UnboundedSender<String>)>,
+) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(&path);
+    let mut listener = local::Listener::bind(&path)?;
+    loop {
+        let (reading, mut writing) = tokio::io::split(listener.accept().await?);
+        let mut lines = BufReader::new(reading).lines();
+        let mut steps = Vec::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim() == "end" {
+                break;
+            }
+            steps.push(line);
+        }
+        let (said, mut saying) = mpsc::unbounded_channel();
+        if runs.send((steps.join("\n"), said)).is_err() {
+            return Ok(());
+        }
+        while let Some(line) = saying.recv().await {
+            let _ = writing.write_all(line.as_bytes()).await;
+        }
+    }
 }
 
 async fn run(
@@ -93,6 +116,16 @@ async fn run(
             .update(cx, |_, window, cx| bench.read(cx).drive_state(window, cx))
             .map(|state| Some(state.to_string()))
             .map_err(|_| "the window is gone");
+    }
+    if line == "frames start" {
+        FRAMES.with_borrow_mut(|frames| *frames = Some(vec![std::time::Instant::now()]));
+        return send(window, cx, |window, _| window.on_next_frame(framed)).map(|()| None);
+    }
+    if line == "frames" {
+        let frames = FRAMES
+            .with_borrow_mut(Option::take)
+            .ok_or("frames were not started")?;
+        return Ok(Some(frame_times(&frames).to_string()));
     }
     if line == "register" {
         bench.read_with(cx, |bench, _| {
@@ -287,7 +320,55 @@ fn send(
         .map_err(|_| "the window is gone")
 }
 
+/// Notes when each frame came while frames are being timed, and asks for the next.
+fn framed(window: &mut gpui_kit::Window, _: &mut App) {
+    let timing = FRAMES.with_borrow_mut(|frames| {
+        frames
+            .as_mut()
+            .map(|frames| frames.push(std::time::Instant::now()))
+            .is_some()
+    });
+    if timing {
+        window.on_next_frame(framed);
+    }
+}
+
+/// The gaps between frames in milliseconds: how many, the middle, the slowest twentieth and
+/// hundredth, the longest, how many passed 25 and 50 ms, and when each past 50 ms ended, in ms
+/// from the start.
+fn frame_times(frames: &[std::time::Instant]) -> Value {
+    let long: Vec<[f64; 2]> = frames
+        .windows(2)
+        .filter_map(|pair| {
+            let gap = (pair[1] - pair[0]).as_secs_f64() * 1000.;
+            let at = (pair[1] - frames[0]).as_secs_f64() * 1000.;
+            (gap > 50.).then_some([at.round(), gap.round()])
+        })
+        .collect();
+    let mut gaps: Vec<f64> = frames
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).as_secs_f64() * 1000.)
+        .collect();
+    gaps.sort_by(f64::total_cmp);
+    let at = |share: f64| {
+        gaps.get(((gaps.len() as f64 * share) as usize).min(gaps.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0.)
+    };
+    json!({
+        "frames": gaps.len(),
+        "p50": at(0.5),
+        "p95": at(0.95),
+        "p99": at(0.99),
+        "max": gaps.last().copied().unwrap_or(0.),
+        "over25": gaps.iter().filter(|gap| **gap > 25.).count(),
+        "over50": gaps.iter().filter(|gap| **gap > 50.).count(),
+        "long": long,
+    })
+}
+
 thread_local! {
+    static FRAMES: RefCell<Option<Vec<std::time::Instant>>> = const { RefCell::new(None) };
     static SPOTS: RefCell<BTreeMap<String, [f32; 4]>> = const { RefCell::new(BTreeMap::new()) };
 }
 
@@ -343,4 +424,86 @@ pub fn trace(what: std::fmt::Arguments) {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_millis());
     eprintln!("sikemux trace {now} {what}");
+}
+
+impl Workbench {
+    /// What each desk holds and where the keys are, for the test bundle's driver to check.
+    pub fn drive_state(&self, window: &Window, cx: &App) -> Value {
+        let desks = &self.desks.read(cx);
+        let agents: std::collections::BTreeSet<&String> = (desks.strips.keys())
+            .chain(desks.items.keys())
+            .chain(desks.kinds.keys())
+            .chain(desks.pages.keys())
+            .collect();
+        let item = |item: &DeskItem| match item {
+            DeskItem::File(path) => json!({ "file": path }),
+            DeskItem::Terminal { session, title } => {
+                json!({ "terminal": title, "session": session })
+            }
+        };
+        let desk = |agent: &String| {
+            let page = desks.pages.get(agent);
+            let address = page.map(|page| page.address.read(cx));
+            let floating = desks
+                .floating
+                .as_ref()
+                .filter(|floating| floating.agent == *agent);
+            let floating_focused = floating.is_some_and(|floating| {
+                floating.input.read(cx).focus_handle(cx).is_focused(window)
+            });
+            let pages = desks.strips.get(agent).map(|strip| {
+                (strip.tabs.iter())
+                    .map(|tab| {
+                        json!({
+                            "title": tab.title,
+                            "url": tab.url,
+                            "active": tab.active,
+                            "loading": tab.loading,
+                            "back": tab.can_go_back,
+                            "forward": tab.can_go_forward,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
+            json!({
+                "open": self.desk_open_anywhere(agent),
+                "kind": match desks.kinds.get(agent).copied().unwrap_or_default() {
+                    DeskKind::Simulator => "simulator",
+                    DeskKind::Calls => "calls",
+                    _ => "pages",
+                },
+                "pages": pages,
+                "items": desks.items.get(agent).map(|items| items.iter().map(item).collect::<Vec<_>>()),
+                "front": desks.front.get(agent).map(item),
+                "pageFocused": page.is_some_and(|page| page.focus.is_focused(window)),
+                "pageBounds": page.and_then(|page| page.surface.placed()).map(|frame| {
+                    let bounds = frame.visible;
+                    [bounds.left(), bounds.top(), bounds.size.width, bounds.size.height].map(f32::from)
+                }),
+                "addressFocused": floating_focused || address.is_some_and(|address| address.focus_handle(cx).is_focused(window)),
+                "addressFloating": floating.is_some(),
+                "address": address.map(|address| address.value().to_string()),
+            })
+        };
+        let files = (self.editors.read(cx).open_files(cx).into_iter())
+            .map(|(path, line, dirty)| json!({ "path": path, "line": line, "dirty": dirty }))
+            .collect::<Vec<_>>();
+        let size = window.viewport_size();
+        json!({
+            "window": [f32::from(size.width), f32::from(size.height)],
+            "contexts": window.context_stack().iter().map(|context| format!("{context:?}")).collect::<Vec<_>>(),
+            "desks": agents.into_iter().map(|agent| (agent.clone(), desk(agent))).collect::<serde_json::Map<_, _>>(),
+            "files": files,
+            "spots": crate::drive::spots(),
+            "rail": match self.rails.page {
+                sikemux_view::prefs::TabRailPage::Agents => "agents",
+                sikemux_view::prefs::TabRailPage::Terminals => "terminals",
+                sikemux_view::prefs::TabRailPage::Files => "files",
+            },
+            "railBounds": self.rails.frame.get(),
+            "tree": self.files.drive_state(),
+            "git": self.git.pane.as_ref().map(|git| git.read(cx).drive_state()),
+            "sky": crate::ui::grain::drive_state(window, cx),
+        })
+    }
 }

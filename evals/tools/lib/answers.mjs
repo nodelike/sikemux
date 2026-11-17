@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { tmpdir } from 'node:os';
+import { platform, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
 import { valueMatches, toolMatches } from './match.mjs';
@@ -235,22 +235,29 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
           note: 'The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.',
         },
       };
-    case 'task_start': {
+    case 'process_start': {
       const executionId = `exec-eval-${++state.executions}`;
-      return { value: { executionId, taskId: `sh:${args.label ?? 'task'}`, project, status: 'running', label: args.label ?? args.command, command: args.command, ready: false } };
+      return { value: { executionId, processId: `sh:${args.label ?? 'process'}`, project, status: 'running', label: args.label ?? args.command, command: args.command, ready: false } };
     }
-    case 'task_read':
-      return { value: { executionId: args.executionId, status: 'exited', exitCode: 0, output: fixture.taskOutput ?? 'done\n' } };
-    case 'task_stop':
-    case 'task_restart':
-      return { value: { executionId: args.executionId, status: tool === 'task_stop' ? 'stopped' : 'running' } };
+    case 'process_read':
+      return { value: { executionId: args.executionId, status: 'exited', exitCode: 0, output: fixture.processOutput ?? 'done\n' } };
+    case 'process_stop':
+    case 'process_restart':
+      return { value: { executionId: args.executionId, status: tool === 'process_stop' ? 'stopped' : 'running' } };
     case 'events_wait':
       return {
         value: {
-          events: [{ kind: 'task.exited', executionId: args.executionId ?? 'exec-eval-1', exitCode: 0 }],
+          events: [{ kind: 'process.exited', executionId: args.executionId ?? 'exec-eval-1', exitCode: 0 }],
           cursor: String(++state.cursor),
         },
       };
+    case 'trigger_add': {
+      const on = args.process ?? args.agent ?? args.ci;
+      const note = on
+        ? `Once ${on} ends or gets where until says, it sends this chat its prompt with what happened, so end your turn now rather than waiting or polling.`
+        : 'When it fires, it sends this chat its prompt, as a message you read like any other.';
+      return { value: { trigger: 1, note } };
+    }
     case 'agent_list':
       return { value: { project, agents } };
     case 'agent_send': {
@@ -268,6 +275,7 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
           cli: args.cli ?? 'claude',
           reportsBack: true,
           note: 'Fern is starting in its own tab and gets your prompt once it is ready. Each time its turn ends, its final answer comes to you as a message.',
+          next: 'Its answer wakes you, so end your turn once your own work is done rather than waiting, polling or calling agent_wait.',
         },
       };
     case 'agent_read':
@@ -290,14 +298,18 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
       };
     case 'app_console':
       return { value: { recorded: 0, matched: 0, messages: [] } };
+    case 'theme_read':
+      return { value: themesRead() };
+    case 'theme_set':
+      return { value: { wearing: args.save?.name ? 'custom-saved' : (args.theme ?? 'aura-noir'), clamped: [], undo: { theme: 'aura-noir', adjust: { scrollbars: 'scrolling' } } } };
     case 'workspace_inspect':
-      return { value: { project, roots: [project], tasks: [] } };
+      return { value: { project, roots: [project], processes: [] } };
     case 'ui_open':
       return { value: { opened: args.kind ?? 'file' } };
-    case 'board_list':
-      return { value: { cards: [] } };
-    case 'board_add':
-      return { value: { card: 1, title: args.title, status: 'open' } };
+    case 'task_list':
+      return { value: { tasks: [] } };
+    case 'task_add':
+      return { value: { task: 1, title: args.title, status: 'open' } };
     case 'sim_devices':
       return { value: { devices: [{ udid: 'SIM-EVAL-1', name: 'iPhone 17', state: 'Booted', runtime: 'iOS 26.0' }] } };
     case 'sim_screenshot':
@@ -319,6 +331,35 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
     default:
       return { value: { ok: true } };
   }
+}
+
+// What the core's theme_read answers on a person wearing the default theme, with the guide's theme topic.
+function themesRead() {
+  const guide = readRepo('tools/SIKEMUX_GUIDE.md');
+  const start = guide.indexOf('## theme:');
+  const end = guide.indexOf('\n## ', start + 1);
+  const theme = JSON.parse(readRepo('crates/sikemux-corekit/src/themes/curated.json')).find((theme) => theme.id === 'aura-noir');
+  return {
+    wearing: 'aura-noir',
+    adjust: { scrollbars: 'scrolling' },
+    themes: [
+      { id: 'aura', name: 'Aura', dark: true, yours: false },
+      { id: 'umbra', name: 'Umbra', dark: true, yours: false },
+      { id: 'aura-noir', name: 'Aura Noir', dark: true, yours: false },
+      { id: 'ayu-dark', name: 'Ayu Dark', dark: true, yours: false },
+      { id: 'tokyo-night', name: 'Tokyo Night', dark: true, yours: false },
+      { id: 'catppuccin-mocha', name: 'Catppuccin Mocha', dark: true, yours: false },
+      { id: 'dracula', name: 'Dracula', dark: true, yours: false },
+      { id: 'gruvbox-dark', name: 'Gruvbox Dark', dark: true, yours: false },
+      { id: 'nord', name: 'Nord', dark: true, yours: false },
+      { id: 'one-dark', name: 'One Dark', dark: true, yours: false },
+      { id: 'solarized-dark', name: 'Solarized Dark', dark: true, yours: false },
+      { id: 'aura-day', name: 'Aura Day', dark: false, yours: false },
+    ],
+    ghostty: '463 more from Ghostty\'s catalogue, each with the id ghostty- and its name in kebab case',
+    theme,
+    guide: guide.slice(start, end < 0 ? undefined : end).trim(),
+  };
 }
 
 // Commits for real in the case's repo, so an agent that checks the result finds the commit it was told about.
@@ -390,8 +431,12 @@ const THEME = {
 };
 
 // The page as Sikemux draws it: its theme and base styles ahead of everything the agent wrote.
+export function baseCss() {
+  return readRepo('crates/sikemux-base/src/pages.rs').match(/const BASE_CSS: &str = "([^"]+)";/)[1];
+}
+
 function themed(path) {
-  const base = readRepo('crates/sikemux-base/src/pages.rs').match(/const BASE_CSS: &str = "([^"]+)";/)[1];
+  const base = baseCss();
   const theme = `:root{color-scheme:dark;${Object.entries(THEME).map(([name, value]) => `${name}:${value};`).join('')}}`;
   const head = `<meta charset="utf-8"><base href="${pathToFileURL(dirname(path)).href}/"><style id="sikemux-theme">${theme}</style><style>${base}</style>`;
   return head + readFileSync(path, 'utf8');
@@ -426,6 +471,7 @@ function preview(args, repo, profile) {
 const PREVIEWERS = '/private/tmp/sikemux-tool-eval-previewers';
 
 function draw(profile, page, width, shot, script = '', tallest = 14_400) {
+  if (platform() !== 'darwin') return { error: 'pages are drawn only on a Mac' };
   const output = execFileSync('/usr/bin/sandbox-exec', ['-f', profile, previewer(), page, '/', String(width), shot, script, String(tallest)], {
     encoding: 'utf8',
     timeout: 30_000,

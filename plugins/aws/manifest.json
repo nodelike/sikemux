@@ -1,22 +1,7 @@
 {
   "id": "sikemux.aws",
   "name": "AWS",
-  "version": "0.1.0",
-  "sikemux": ">=0.4",
   "callTimeoutSecs": 150,
-  "views": {
-    "accountView": { "everySecs": 300 },
-    "agentProfileView": { "everySecs": 300 },
-    "billingView": { "everySecs": 600 },
-    "ecsClustersView": { "everySecs": 30 },
-    "ecsServicesView": { "everySecs": 30 },
-    "ecsTasksView": { "everySecs": 15 },
-    "ec2View": { "everySecs": 60 },
-    "lambdaView": { "everySecs": 60 },
-    "sqsView": { "everySecs": 60 },
-    "s3View": { "everySecs": 300 }
-  },
-  "writes": ["pickAgentProfile"],
   "environment": [
     "AWS_CLI",
     "AWS_CONFIG_FILE",
@@ -25,7 +10,11 @@
     "AWS_DEFAULT_REGION",
     "AWS_CA_BUNDLE"
   ],
-  "accountMethods": ["setDefaultAccount", "signIn"],
+  "accountMethods": [
+    "setDefaultAccount",
+    "signIn"
+  ],
+  "family": {"name": "aws", "description": "AWS, through the person's own profiles."},
   "tools": [
     {
       "name": "aws_profiles",
@@ -57,11 +46,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         }
       }
     },
@@ -76,6 +65,7 @@
           "{cluster} {tasks} tasks",
           "{cluster}/{service}",
           "{cluster}",
+          "{service}",
           "clusters"
         ]
       },
@@ -84,11 +74,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "cluster": {
           "type": "string",
@@ -96,7 +86,7 @@
         },
         "service": {
           "type": "string",
-          "description": "Name; with no tasks, its deployments and events."
+          "description": "Name; with no tasks, its deployments and events. Alone, searched for in every cluster."
         },
         "tasks": {
           "type": "string",
@@ -123,11 +113,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "name": {
           "type": "string",
@@ -155,11 +145,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "loadBalancer": {
           "type": "string",
@@ -190,11 +180,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "group": {
           "type": "string",
@@ -236,11 +226,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "namespace": {
           "type": "string",
@@ -283,23 +273,81 @@
         "icon": "window",
         "target": [
           "EC2 {name}",
+          "EC2 {state}",
           "EC2 instances"
         ]
       },
       "method": "agentEc2",
-      "description": "EC2 instances with name, state, type and addresses.",
+      "description": "EC2 instances with name, state, type, zone, VPC and addresses, or EBS volumes with their size and instances; at most 100.",
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "name": {
           "type": "string",
-          "description": "Only instances whose name, id or IP contains this."
+          "description": "Only those whose name, id, IP or instance contains this."
+        },
+        "state": {
+          "type": "string",
+          "description": "e.g. running, or available for unattached volumes"
+        },
+        "type": {
+          "type": "string",
+          "description": "e.g. t3.large or gp3"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Key=Value or Key"
+        },
+        "vpc": {
+          "type": "string",
+          "description": "VPC id"
+        },
+        "volumes": {
+          "type": "boolean",
+          "description": "EBS volumes instead, largest first."
+        }
+      }
+    },
+    {
+      "name": "aws_cost",
+      "row": {
+        "verb": "cost",
+        "kind": "read",
+        "icon": "activity",
+        "target": [
+          "AWS cost of {service}",
+          "AWS cost by {groupBy}",
+          "AWS cost"
+        ]
+      },
+      "method": "agentCost",
+      "description": "Spend from Cost Explorer up to yesterday, biggest groups first. Costs $0.01 a call.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Default: the agents' profile."
+        },
+        "days": {
+          "type": "integer",
+          "description": "Default 30, at most 365."
+        },
+        "daily": {
+          "type": "boolean",
+          "description": "Per day, not per month."
+        },
+        "groupBy": {
+          "type": "string",
+          "description": "Default SERVICE; or REGION, USAGE_TYPE and the like."
+        },
+        "service": {
+          "type": "string",
+          "description": "Only this SERVICE."
         }
       }
     }

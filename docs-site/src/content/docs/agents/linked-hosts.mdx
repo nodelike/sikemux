@@ -3,19 +3,27 @@ title: Linked hosts
 description: "Agents that start workers on your other hosts, and the sign-ins they use there."
 ---
 
-Every host signed in to your account links with every other on its own, so an agent on one starts workers on another. A host that turned on **Require approval for new devices** asks you first. Removing a host from your account unlinks it everywhere.
+Every host signed in to your account links with every other on its own, so an agent on one starts workers on another. A host that turned on **Require approval for new devices** asks you first; if you turn a link down there, the other host stops asking. A host that can't be reached or is busy is tried again on its own, more slowly each time, up to every five minutes, while the rest link. Removing a host from your account unlinks it everywhere. A host that was off when it was removed learns of it the next time it reaches another, and lets the link and its teams go.
 
-A worker on another host runs there on that host's own sign-in for its CLI, in a checkout of its own. Its commits come back to a branch in the lead's checkout each time its turn ends.
+A worker on another host runs there on that host's own sign-in for its CLI, in a checkout of its own. Its commits come back to a branch in the lead's checkout each time its turn ends. A lead or worker that went to sleep stays on its team and wakes when its teammate writes to it; only closing an agent takes it off. A question a worker asks waits for you on both hosts, and answering it on either closes it on the other.
+
+On its lead's host a worker is a row like any other agent's, under its lead with a server mark beside its name, a curved arrow on it, that names its host when you point at it: its title, counts, turn and tags, and in the inbox what it waits on you for and how its turn went. Click the row to open its chat on its host. Its Close button and right-click menu work from there too: rename it, edit its title, tag, snooze, settle, sleep, resume or close it, and answer its permission requests. Its buddy, pin, project, worktree, permissions and sharing are changed on the host it runs on. While that host is out of reach the row dims, and the mark's tooltip says so. A worker that closed reopens on its host when its lead asks: tell the lead to reopen it, or write to it by name, and it takes up its session again in its checkout there.
 
 ## Sign-ins
 
-An agent uses the sign-ins of the host it runs on, whichever host started or messaged it: that host's plugin tools such as Jira, GitHub, AWS or Slack, its database logins and its browser tabs. A worker on another host gets that host's sign-ins, never this one's. Sign-ins never leave the host they were made on.
+An agent uses the sign-ins of the host it runs on, whichever host started or messaged it: that host's [connectors](/agents/connectors/) such as Jira, GitHub, AWS or Slack, its saved databases and its browser tabs. A worker on another host gets that host's sign-ins. A sign-in in your [account vault](/agents/connectors/#account-vault) reaches every host on your account.
 
 ## Sending a project to another host
 
-**Settings › General › Session transfer** sends the project in front to another host you've linked, with its chats and tabs. Pick the host, then:
+**Settings → General → Session transfer** sends the project in front to another host you've linked, with its chats and tabs. Pick the host, then:
 
 - **Copy** leaves the project here as it is.
-- **Move** closes its chats here and removes their saved conversations, but only once the other host has every chat and tab. If anything doesn't arrive whole, nothing here changes.
+- **Move** closes here each chat the other host took and removes its saved conversation. If a chat goes on here while the move runs, none closes here and the other host drops the ones it took, so no chat is left on both. A move whose uncommitted changes don't apply on the other host sends no chats.
 
 Tick **Bring uncommitted changes** to take the checkout's uncommitted work along. Chats come along when their agent keeps them in files, as Claude Code and Codex do; the others stay here. A chat that came along runs on the other host's sign-in the next time you send to it. Sikemux then says what went and what stayed, and opens the project on the other host.
+
+When the other host already has a checkout of the repository, the session goes into it only if it is on the same branch and commit, and, when uncommitted changes come along, has none of its own. Otherwise nothing is sent, and **Into a worktree** sends it into a new worktree of that checkout at this host's commit instead. A commit the other host lacks comes over from here.
+
+## The Devices page
+
+The [Devices page](/getting-started/hosts/) shows how busy each of your hosts is and what needs you on them.

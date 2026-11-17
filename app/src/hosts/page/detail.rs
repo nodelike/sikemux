@@ -1,0 +1,1931 @@
+//! The chosen host's detail: what it is, what about it needs the person and the fix for it,
+//! how busy it has been, what its agents run and use, what happened on it lately, and what
+//! it is.
+
+use crate::ui::Clicks;
+use std::collections::BTreeMap;
+
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{
+    div, px, AnyElement, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ParentElement, SharedString, Styled,
+};
+use sikemux_view::host_stats::{
+    AgentUse, AlertLevel, ClearedFor, HostAlert, HostAlertKind, HostEventKind, HostStats,
+    ProcessUse, StatsSpan,
+};
+use sikemux_view::inbox::AgentShown;
+use sikemux_view::updates::UpdateOutcomeState;
+use sikemux_wire::protocol::AgentStatus;
+
+use super::board::tile;
+use super::chart::{history, Series};
+use super::diagnosis;
+use super::model::{self, Listed, State};
+use super::{card, hair, ink, wash};
+use crate::hosts::{HostChoice, Place, Sending};
+use crate::icons::Icon;
+use crate::theme::{
+    radius_1, radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    SPACE_3H, SPACE_4, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
+    TEXT_XL, TEXT_XS,
+};
+use crate::ui::{self, Button, IconButton, Segmented, Variant};
+use crate::workbench::Workbench;
+
+/// The share of a resource past which a host struggles, dashed across its chart.
+const LIMIT: f32 = 0.9;
+const CHART_HEIGHT: f32 = 44.;
+const ACTIVITY_SHOWN: usize = 8;
+const TOP_SHOWN: usize = 8;
+
+pub fn detail(
+    bench: &Workbench,
+    host: &Listed,
+    listed: &[Listed],
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let stats = host.stats();
+    div()
+        .px(px(22.))
+        .pt(SPACE_6)
+        .pb(px(56.))
+        .flex()
+        .flex_col()
+        .child(head(bench, host, &t, cx))
+        .when_some(stats, |detail, stats| {
+            detail.child(about(host, stats, &t, cx))
+        })
+        .children(needs_you(bench, host, listed, &t, cx))
+        .when_some(stats, |detail, stats| {
+            detail.child(resources(bench, host, stats, &t, cx))
+        })
+        .when_some(
+            stats.filter(|stats| !stats.top.is_empty()),
+            |detail, stats| detail.child(top(bench, host, stats, &t, cx)),
+        )
+        .when_some(
+            stats.filter(|stats| !stats.events.is_empty()),
+            |detail, stats| detail.child(activity(host, stats, &t, cx)),
+        )
+        .children(agents(bench, host, listed, &t, cx))
+        .into_any_element()
+}
+
+fn head(bench: &Workbench, host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+    let tint = host.state.tint(t);
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_3H)
+        .min_w_0()
+        .child(tile(host, 48., 24., t))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    ui::text(host.name.clone(), TEXT_XL, FontWeight::SEMIBOLD)
+                        .truncate()
+                        .letter_spacing(-0.02)
+                        .text_color(t.text_primary),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(9.))
+                        .min_w_0()
+                        .child(pill(&host.state.words(), tint)),
+                ),
+        )
+        .child(
+            div()
+                .flex_none()
+                .self_start()
+                .mt(SPACE_1)
+                .flex()
+                .gap(SPACE_1H)
+                .children(host.online().then(|| terminal_button(host, cx)))
+                .children(
+                    host.online()
+                        .then(|| new_chat_button(bench, host, cx))
+                        .flatten(),
+                )
+                .children(menu_button(bench, host, cx))
+                .child(
+                    IconButton::new("hosts-detail-close", Icon::Close, t!("Close"))
+                        .on_click(cx.listener(|bench, _, _, cx| bench.close_on_page(cx))),
+                ),
+        )
+}
+
+/// A state as a soft pill in its own colour, after a dot.
+fn pill(words: &str, tint: Hsla) -> Div {
+    div()
+        .flex_none()
+        .h(px(22.))
+        .pl(SPACE_2)
+        .pr(px(9.))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .rounded(px(11.))
+        .bg(tint.opacity(0.13))
+        .text_color(tint)
+        .child(div().size(px(6.)).rounded_full().bg(tint))
+        .child(ui::text(words.to_owned(), TEXT_2XS_H, FontWeight::MEDIUM))
+}
+
+fn terminal_button(host: &Listed, cx: &mut Context<Workbench>) -> AnyElement {
+    let place = host.place.clone();
+    Button::new("hosts-terminal", t!("Terminal"), Variant::Outline)
+        .icon(Icon::Terminal)
+        .on_click(cx.listener(move |bench, _, _, cx| match &place {
+            Place::This => {
+                bench.choose_host(HostChoice::This, cx);
+                bench.new_loose_terminal(cx);
+            }
+            Place::Account(key) => bench.new_terminal_on(key, cx),
+        }))
+        .into_any_element()
+}
+
+/// A new chat on the host, in the project in front there; none where it has no project.
+fn new_chat_button(
+    bench: &Workbench,
+    host: &Listed,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let has_project = host
+        .view()
+        .is_some_and(|view| !view.workspace.projects.is_empty());
+    if !has_project {
+        return None;
+    }
+    let place = host.place.clone();
+    let in_front = bench.place() == place;
+    Some(
+        IconButton::new("hosts-new-chat", Icon::Plus, t!("New chat here"))
+            .on_click(cx.listener(move |bench, _, window, cx| match &place {
+                Place::Account(key) => bench.new_chat_on(key, cx),
+                Place::This if in_front => bench.new_chat(window, cx),
+                Place::This => {
+                    bench.choose_host(HostChoice::This, cx);
+                    bench.pick_project(crate::pickers::picker::ThenPicked::StartChat, window, cx);
+                }
+            }))
+            .into_any_element(),
+    )
+}
+
+/// The host's own menu, as its row in the rail has it.
+fn menu_button(
+    bench: &Workbench,
+    host: &Listed,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let t = Tokens::get(cx).clone();
+    let trigger = gpui_kit::component::button::Button::new("hosts-more")
+        .child(ui::icon(Icon::More, 13.).text_color(t.text_secondary));
+    let trigger = {
+        use gpui_kit::component::button::ButtonVariants;
+        trigger.ghost().compact().rounded(radius_2())
+    };
+    use gpui_kit::component::menu::DropdownMenu;
+    match &host.place {
+        Place::This => {
+            let menu =
+                crate::rail::this_host_menu(cx.weak_entity(), bench.feeds.this.approval, false);
+            Some(
+                trigger
+                    .dropdown_menu_with_anchor(gpui_kit::Anchor::TopRight, ui::menu(menu))
+                    .into_any_element(),
+            )
+        }
+        Place::Account(_) => {
+            let menu = crate::rail::account_host_menu(bench, host.row?, false, cx)?;
+            Some(
+                trigger
+                    .dropdown_menu_with_anchor(gpui_kit::Anchor::TopRight, ui::menu(menu))
+                    .into_any_element(),
+            )
+        }
+    }
+}
+
+/// A section's head: its icon and spaced capitals, how many it holds, and what sits at its end.
+fn section(
+    icon: Icon,
+    label: &str,
+    count: Option<String>,
+    aside: Option<AnyElement>,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Div {
+    div()
+        .mt(px(28.))
+        .mb(SPACE_3)
+        .h(px(22.))
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(ui::icon(icon, 13.).text_color(t.text_tertiary))
+        .child(ui::caps(label, cx))
+        .children(count.map(|count| {
+            div()
+                .px(SPACE_1H)
+                .rounded(px(8.))
+                .bg(ink(t, 0.06))
+                .child(ui::mono(count, TEXT_3XS, cx))
+        }))
+        .children(aside.map(|aside| div().ml_auto().child(aside)))
+}
+
+/// "as of 14:02" at a section's end, once the numbers under it are no longer current.
+fn as_of(host: &Listed, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let at = host.stats_as_of()?;
+    let words = t!("as of {time}", time = crate::ui::time::clock(at));
+    Some(ui::mono(words, TEXT_3XS, cx).into_any_element())
+}
+
+/// Asks this host's core again why `host` is out of reach, or whether this one can be reached,
+/// once the last answer is old enough.
+fn ask_diagnosis(host: &Listed, cx: &mut Context<Workbench>) {
+    let recent = (host.feed)
+        .and_then(|feed| feed.diagnosis_asked)
+        .is_some_and(|asked| asked.elapsed() < std::time::Duration::from_secs(10));
+    if recent {
+        return;
+    }
+    let key = match &host.place {
+        Place::This => None,
+        Place::Account(key) => Some(key.clone()),
+    };
+    cx.spawn(async move |bench, cx| {
+        let _ = bench.update(cx, |bench, cx| bench.read_diagnosis(key, cx));
+    })
+    .detach();
+}
+
+/// A host's last update, when it failed, with what the tool said and a way to try again.
+fn update_failed(host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let updates = host.view().and_then(crate::hosts::host_updates)?;
+    let (state, reason) = crate::hosts::failed_update(&updates)?;
+    let outcome = updates.outcome.as_ref();
+    let to = outcome.and_then(|outcome| outcome.to.clone()).or_else(|| {
+        updates
+            .available
+            .as_ref()
+            .map(|release| release.version.clone())
+    });
+    let title = match (state, to) {
+        (UpdateOutcomeState::RolledBack, Some(to)) => t!("Update to {to} was undone", to = to),
+        (UpdateOutcomeState::RolledBack, None) => t!("The last update was undone").to_owned(),
+        (_, Some(to)) => t!("Update to {to} failed", to = to),
+        (_, None) => t!("The last update failed").to_owned(),
+    };
+    let said = format!(
+        "{} {}",
+        t!(
+            "{name} stays on {version}.",
+            name = host.name,
+            version = updates.current
+        ),
+        reason.unwrap_or(t!("Its update did not finish."))
+    );
+    let evidence = outcome.and_then(|outcome| outcome.evidence.clone());
+    let mut fixes = Vec::new();
+    let alias = host.row.and_then(|row| row.ssh.clone());
+    if let Some(alias) = alias {
+        fixes.push(
+            Button::new("update-try-again", t!("Try again"), Variant::Primary)
+                .on_click(cx.listener(move |bench, _, _, cx| {
+                    bench.set_up_host(&alias, crate::hosts::install_pane::SetUp::Update, cx)
+                }))
+                .into_any_element(),
+        );
+    }
+    let copied = [said.clone(), evidence.clone().unwrap_or_default()].join("\n");
+    fixes.push(diagnosis::copy_button(
+        "update-copy",
+        t!("Copy output"),
+        copied,
+        cx,
+    ));
+    Some(alert_card(
+        t.warn,
+        Icon::Warning,
+        title,
+        outcome.map(|outcome| crate::hosts::lasted(outcome.at)),
+        said,
+        evidence.map(|evidence| diagnosis::evidence(&evidence, t, cx)),
+        fixes,
+        t,
+        cx,
+    ))
+}
+
+/// A set-up over SSH that stopped short, with what ssh said and a way to try again.
+fn set_up_stopped(
+    bench: &Workbench,
+    host: &Listed,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let row = host.row?;
+    let problem = row.setup.as_ref()?.problem.clone()?;
+    let alias = row.ssh.clone()?;
+    let mut fixes = Vec::new();
+    if let Some(set_up) = bench.set_up_offered(&alias) {
+        let retry = alias.clone();
+        fixes.push(
+            Button::new("set-up-try-again", t!("Try again"), Variant::Primary)
+                .on_click(cx.listener(move |bench, _, _, cx| bench.set_up_host(&retry, set_up, cx)))
+                .into_any_element(),
+        );
+    }
+    fixes.push(diagnosis::copy_button(
+        "set-up-copy",
+        t!("Copy output"),
+        problem.clone(),
+        cx,
+    ));
+    Some(alert_card(
+        t.warn,
+        Icon::Warning,
+        t!("Set-up on {name} stopped", name = host.name),
+        None,
+        String::new(),
+        Some(diagnosis::evidence(&problem, t, cx)),
+        fixes,
+        t,
+        cx,
+    ))
+}
+
+/// A fix the page offers for what needs the person, and what it does when pressed.
+struct Fix {
+    words: String,
+    run: Box<Run>,
+}
+
+type Run = dyn Fn(&mut Workbench, &mut Context<Workbench>);
+
+fn needs_you(
+    bench: &Workbench,
+    host: &Listed,
+    listed: &[Listed],
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Option<Div> {
+    let mut shown: Vec<AnyElement> = Vec::new();
+    let offline = matches!(host.state, State::Offline { .. });
+    if offline || host.is_this() {
+        ask_diagnosis(host, cx);
+    }
+    let diagnosis = host.feed.and_then(|feed| feed.diagnosis.as_ref());
+    if let State::Offline { since } = host.state {
+        let agents = host.agents().count();
+        let went = match agents {
+            0 => String::new(),
+            1 => t!("1 agent was on it when it went.").to_owned(),
+            count => t!("{count} agents were on it when it went.", count = count),
+        };
+        let said = match diagnosis {
+            Some(diagnosis) => format!("{went} {}", diagnosis::summary(diagnosis, &host.name)),
+            None => format!("{went} {}", t!("Sikemux keeps trying to reach it.")),
+        };
+        let title = t!("{name} is out of reach", name = host.name);
+        shown.push(alert_card(
+            t.danger,
+            Icon::Power,
+            title,
+            since.map(crate::hosts::lasted),
+            said.trim().to_owned(),
+            diagnosis.map(|diagnosis| diagnosis::steps(diagnosis, &host.name, t)),
+            diagnosis.map_or_else(Vec::new, |diagnosis| {
+                diagnosis::fixes(bench, host, diagnosis, cx)
+            }),
+            t,
+            cx,
+        ));
+    }
+    let signed_in = (bench.this_view()).is_some_and(|view| view.account.is_some());
+    let own = diagnosis
+        .filter(|diagnosis| host.is_this() && signed_in && diagnosis::failed(diagnosis).is_some());
+    if let Some(diagnosis) = own {
+        shown.push(alert_card(
+            t.danger,
+            Icon::Power,
+            t!("Out of reach from your devices").to_owned(),
+            None,
+            diagnosis::summary(diagnosis, &host.name),
+            Some(diagnosis::steps(diagnosis, &host.name, t)),
+            diagnosis::fixes(bench, host, diagnosis, cx),
+            t,
+            cx,
+        ));
+    }
+    shown.extend(update_failed(host, t, cx));
+    shown.extend(set_up_stopped(bench, host, t, cx));
+    let alerts = host
+        .fresh_stats()
+        .into_iter()
+        .flat_map(|stats| &stats.alerts);
+    for (at, alert) in alerts.enumerate() {
+        let (said, fixes) = explain(bench, host, listed, alert);
+        let tint = crate::hosts::alert_tint(alert.level, t);
+        let icon = match alert.level {
+            AlertLevel::Danger => Icon::Warning,
+            AlertLevel::Warn => Icon::Gauge,
+        };
+        let fixes = fixes
+            .into_iter()
+            .enumerate()
+            .map(|(index, fix)| {
+                let run = std::rc::Rc::new(fix.run);
+                Button::new(
+                    SharedString::from(format!("host-fix-{at}-{index}")),
+                    fix.words,
+                    Variant::Primary,
+                )
+                .on_click(cx.listener(move |bench, _, _, cx| run(bench, cx)))
+                .into_any_element()
+            })
+            .collect();
+        shown.push(alert_card(
+            tint,
+            icon,
+            title_of(alert, host.stats()),
+            Some(crate::hosts::lasted(alert.since)),
+            said,
+            None,
+            fixes,
+            t,
+            cx,
+        ));
+    }
+    if shown.is_empty() {
+        return None;
+    }
+    let count = shown.len().to_string();
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .child(section(
+                Icon::Warning,
+                t!("Needs you"),
+                Some(count),
+                None,
+                t,
+                cx,
+            ))
+            .child(div().flex().flex_col().gap(SPACE_2).children(shown)),
+    )
+}
+
+fn title_of(alert: &HostAlert, stats: Option<&HostStats>) -> String {
+    let lasted = crate::hosts::lasted(alert.since);
+    match alert.kind {
+        HostAlertKind::Memory => {
+            let swap = stats.map_or(0, |stats| stats.now.swap_used);
+            if alert.pressure {
+                return match swap > 0 {
+                    true => t!("Memory short, {swap} GB in swap", swap = model::gb(swap)),
+                    false => t!("Memory short, {percent}% used", percent = alert.percent),
+                };
+            }
+            match swap > 0 {
+                true => t!(
+                    "Memory at {percent}%, {swap} GB in swap",
+                    percent = alert.percent,
+                    swap = model::gb(swap)
+                ),
+                false => t!("Memory at {percent}%", percent = alert.percent),
+            }
+        }
+        HostAlertKind::Cpu => t!(
+            "CPU at {percent}% for {lasted}",
+            percent = alert.percent,
+            lasted = lasted
+        ),
+        HostAlertKind::Disk => t!("Disk at {percent}%", percent = alert.percent),
+        HostAlertKind::Offline => t!("Out of reach for {lasted}", lasted = lasted),
+        HostAlertKind::Unknown => t!("Load at {percent}%", percent = alert.percent),
+    }
+}
+
+/// What an alert comes from, in a sentence, and the fixes the app can make for it now.
+fn explain(
+    bench: &Workbench,
+    host: &Listed,
+    listed: &[Listed],
+    alert: &HostAlert,
+) -> (String, Vec<Fix>) {
+    let Some(stats) = host.stats() else {
+        return (String::new(), Vec::new());
+    };
+    let busiest = |by: fn(&AgentUse) -> u64| {
+        (stats.agents.iter())
+            .filter(|agent| by(agent) > 0)
+            .max_by_key(|agent| by(agent))
+    };
+    let top = match alert.kind {
+        HostAlertKind::Cpu => busiest(|agent| agent.cpu as u64),
+        HostAlertKind::Memory => busiest(|agent| agent.memory),
+        _ => None,
+    };
+    let roomiest = roomiest_other(host, listed);
+    let mut said: Vec<String> = Vec::new();
+    if let Some(agent) = top {
+        let name = host.agent_name(&agent.agent_id);
+        said.push(match (alert.kind, &agent.command) {
+            (HostAlertKind::Cpu, None) => t!(
+                "{name} uses the most, {cpu}.",
+                name = name,
+                cpu = model::percent(agent.cpu)
+            ),
+            (HostAlertKind::Cpu, Some(command)) => t!(
+                "{name} uses the most, {cpu}, running {command}.",
+                name = name,
+                cpu = model::percent(agent.cpu),
+                command = command
+            ),
+            (_, None) => t!(
+                "{name} holds the most, {memory} GB.",
+                name = name,
+                memory = model::gb(agent.memory)
+            ),
+            (_, Some(command)) => t!(
+                "{name} holds the most, {memory} GB, running {command}.",
+                name = name,
+                memory = model::gb(agent.memory),
+                command = command
+            ),
+        });
+    }
+    if alert.kind == HostAlertKind::Disk {
+        if let Some(part) = stats.disk_parts.first() {
+            said.push(t!(
+                "{part} takes the most, {size}.",
+                part = part_words(part.kind),
+                size = model::size(part.bytes)
+            ));
+        }
+    }
+    let moving = top.zip(roomiest).and_then(|(agent, other)| {
+        move_fix(bench, host, other, &agent.agent_id).map(|fix| (other, fix))
+    });
+    if let Some((other, _)) = &moving {
+        said.push(t!("{host} has room.", host = other.name));
+    }
+    let fixes: Vec<Fix> = moving.map(|(_, fix)| fix).into_iter().collect();
+    (said.join(" "), fixes)
+}
+
+/// The host other than `host` with the most memory free, among those that can take a project.
+fn roomiest_other<'a>(host: &Listed, listed: &'a [Listed]) -> Option<&'a Listed<'a>> {
+    (listed.iter())
+        .filter(|other| other.key != host.key)
+        .filter(|other| other.fresh_stats().is_some())
+        .filter(|other| other.state == State::Healthy)
+        .max_by_key(|other| {
+            other.fresh_stats().map_or(0, |stats| {
+                (stats.about.memory_total).saturating_sub(stats.now.memory_used)
+            })
+        })
+}
+
+/// Moving the project the agent works in to `to`, with every chat of it, named for the agent
+/// when it is the project's only one there.
+fn move_fix(bench: &Workbench, host: &Listed, to: &Listed, agent: &str) -> Option<Fix> {
+    let shown = host.agent(agent)?;
+    let project = shown.project.clone()?;
+    let alone = host
+        .agents()
+        .filter(|other| other.project.as_ref() == Some(&project))
+        .count()
+        == 1;
+    let name = shown
+        .project_name
+        .clone()
+        .unwrap_or_else(|| project.clone());
+    let destination = match &to.place {
+        Place::Account(key) => key.clone(),
+        Place::This => bench.remote.as_ref()?.core_id.clone(),
+    };
+    let words = match alone {
+        true => t!(
+            "Move {name} to {host}",
+            name = host.agent_name(agent),
+            host = to.name
+        ),
+        false => t!("Move {name} to {host}", name = name, host = to.name),
+    };
+    let (from, label) = (host.place.clone(), to.name.clone());
+    Some(Fix {
+        words,
+        run: Box::new(move |bench, cx| {
+            bench.move_session_asking(
+                Sending {
+                    from: from.clone(),
+                    project: project.clone(),
+                    name: name.clone(),
+                    host: destination.clone(),
+                    label: label.clone(),
+                    after: None,
+                    moving: true,
+                    uncommitted: true,
+                },
+                cx,
+            )
+        }),
+    })
+}
+
+/// Closing the agent, which stops what it runs, once the person agrees.
+fn close_fix(host: &Listed, agent: &str) -> Option<Fix> {
+    host.agent(agent)?;
+    let (place, id, name) = (host.place.clone(), agent.to_owned(), host.agent_name(agent));
+    Some(Fix {
+        words: t!("Close {name}", name = name),
+        run: Box::new(move |bench, cx| bench.close_agent_on(&place, &id, &name, cx)),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn alert_card(
+    tint: Hsla,
+    icon: Icon,
+    title: String,
+    lasted: Option<String>,
+    said: String,
+    body: Option<AnyElement>,
+    fixes: Vec<AnyElement>,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    div()
+        .flex()
+        .gap(SPACE_3H)
+        .pl(SPACE_4)
+        .pr(px(18.))
+        .py(SPACE_4)
+        .rounded(radius_3())
+        .border(crate::theme::border())
+        .border_color(crate::theme::mix(tint, t.border, 0.26))
+        .bg(wash(tint, t, 0.06))
+        .child(
+            div()
+                .size(px(30.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(9.))
+                .bg(tint.opacity(0.15))
+                .child(ui::icon(icon, 15.).text_color(tint)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_2)
+                        .h(px(20.))
+                        .child(
+                            ui::text(title, TEXT_MD, FontWeight::SEMIBOLD)
+                                .truncate()
+                                .text_color(t.text_primary),
+                        )
+                        .children(
+                            lasted
+                                .map(|lasted| ui::mono(lasted, TEXT_2XS, cx).ml_auto().flex_none()),
+                        ),
+                )
+                .when(!said.is_empty(), |text| {
+                    text.child(
+                        div()
+                            .mt(px(2.))
+                            .text_size(crate::theme::ui_text(TEXT_SM))
+                            .text_color(t.text_secondary)
+                            .child(said),
+                    )
+                })
+                .children(body)
+                .when(!fixes.is_empty(), |text| {
+                    text.child(
+                        div()
+                            .mt(SPACE_3H)
+                            .flex()
+                            .flex_wrap()
+                            .gap(SPACE_1H)
+                            .children(fixes),
+                    )
+                }),
+        )
+        .into_any_element()
+}
+
+fn resources(
+    bench: &Workbench,
+    host: &Listed,
+    stats: &HostStats,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Div {
+    let open = bench.hosts_page.history_open;
+    let spans = [StatsSpan::Minutes15, StatsSpan::Hour, StatsSpan::Day];
+    let picked = spans
+        .iter()
+        .position(|span| *span == bench.hosts_page.span)
+        .unwrap_or(1);
+    let switch = Segmented::words(
+        "hosts-span",
+        vec![
+            ("15m".into(), None),
+            ("1h".into(), None),
+            ("24h".into(), None),
+        ],
+        picked,
+    )
+    .on_select(cx.listener(move |bench, at: &usize, _, cx| {
+        bench.hosts_page.span = spans[*at];
+        bench.watch_hosts_page();
+        bench.parts.redraw_stage(cx);
+    }));
+    let now = stats.now;
+    let about = &stats.about;
+    let end = now
+        .at
+        .max(stats.history.last().map_or(0, |sample| sample.at));
+    let start = end.saturating_sub(span_ms(bench.hosts_page.span));
+    let tint = |kind: HostAlertKind| {
+        host.level(kind)
+            .map_or(t.text_secondary, |level| crate::hosts::alert_tint(level, t))
+    };
+    let series = |kind: HostAlertKind,
+                  share: &dyn Fn(&sikemux_view::host_stats::HostSample) -> f32| {
+        let marks = (stats.events.iter())
+            .filter(|event| event.at >= start)
+            .filter_map(|event| match (&event.what, kind) {
+                (HostEventKind::Killed { agent_id, .. }, HostAlertKind::Memory) => Some((
+                    event.at,
+                    match agent_id.as_deref() {
+                        Some(id) => t!("{name} killed", name = host.agent_name(id)),
+                        None => t!("a process killed").to_owned(),
+                    },
+                )),
+                (HostEventKind::CommandStarted { agent_id, command }, HostAlertKind::Cpu) => {
+                    Some((
+                        event.at,
+                        t!(
+                            "{name} started {command}",
+                            name = host.agent_name(agent_id),
+                            command = command
+                        ),
+                    ))
+                }
+                (HostEventKind::BuildOutputCleared { bytes, .. }, HostAlertKind::Disk) => Some((
+                    event.at,
+                    t!("{size} freed from build output", size = model::size(*bytes)),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let newest = marks.iter().map(|(at, _)| *at).max();
+        Series {
+            points: (stats.history.iter().chain(std::iter::once(&now)))
+                .filter(|sample| sample.at >= start)
+                .map(|sample| (sample.at, share(sample)))
+                .collect(),
+            start,
+            end,
+            tint: tint(kind),
+            marks: marks
+                .into_iter()
+                .map(|(at, words)| (at, (Some(at) == newest).then_some(words)))
+                .collect(),
+            limit: Some(LIMIT),
+        }
+    };
+    let share_of = |used: u64, total: u64| match total {
+        0 => 0.,
+        total => used as f32 / total as f32,
+    };
+    let (memory_total, disk_total) = (about.memory_total, about.disk_total);
+    let cores_used = model::cores_used(now.cpu, about.cores);
+    let cores_idle = format!(
+        "{:.1}",
+        (about.cores as f64 - now.cpu as f64 * about.cores as f64 / 1000.).max(0.)
+    );
+    let (memory_used, memory_of) =
+        model::used_of(now.memory_used, memory_total, model::Unit::Memory);
+    let (disk_used, disk_of) = model::used_of(now.disk_used, disk_total, model::Unit::Disk);
+    let rows = [
+        (
+            HostAlertKind::Cpu,
+            t!("CPU"),
+            Icon::Activity,
+            t!("{used} / {all} cores", used = cores_used, all = about.cores),
+            t!("{idle} cores idle", idle = cores_idle),
+            series(HostAlertKind::Cpu, &|sample| sample.cpu as f32 / 1000.),
+        ),
+        (
+            HostAlertKind::Memory,
+            t!("Memory"),
+            Icon::Stack,
+            format!("{memory_used} / {memory_of}"),
+            match now.swap_used {
+                0 => t!("No swap").to_owned(),
+                swap => t!("{swap} GB swap", swap = model::gb(swap)),
+            },
+            series(HostAlertKind::Memory, &|sample| {
+                share_of(sample.memory_used, memory_total)
+            }),
+        ),
+        (
+            HostAlertKind::Disk,
+            t!("Disk"),
+            Icon::Database,
+            format!("{disk_used} / {disk_of}"),
+            t!(
+                "{size} free",
+                size = model::size(disk_total.saturating_sub(now.disk_used))
+            ),
+            series(HostAlertKind::Disk, &|sample| {
+                share_of(sample.disk_used, disk_total)
+            }),
+        ),
+    ];
+    let mut charts: Vec<Div> = Vec::new();
+    let mut gauges: Vec<Div> = Vec::new();
+    for (at, (kind, label, icon, amount, extra, series)) in rows.into_iter().enumerate() {
+        let share = host.percent(kind).map(|percent| percent / 100.);
+        let level = host
+            .level(kind)
+            .map(|level| crate::hosts::alert_tint(level, t));
+        gauges.push(
+            div()
+                .flex_1()
+                .min_w_0()
+                .px(SPACE_3H)
+                .pt(SPACE_3)
+                .pb(SPACE_3H)
+                .flex()
+                .flex_col()
+                .rounded(radius_3())
+                .border(crate::theme::border())
+                .border_color(hair(t))
+                .bg(card(t))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_1H)
+                        .child(ui::icon(icon, 12.).text_color(t.text_tertiary))
+                        .child(ui::caps(label, cx)),
+                )
+                .child(
+                    ui::text(
+                        share.map_or_else(
+                            || "—".to_owned(),
+                            |share| format!("{:.0}%", share * 100.),
+                        ),
+                        TEXT_XL,
+                        FontWeight::MEDIUM,
+                    )
+                    .mt(SPACE_2)
+                    .letter_spacing(-0.02)
+                    .text_color(level.unwrap_or(t.text_primary)),
+                )
+                .child(div().mt(SPACE_2H).child(super::chart::ticks(
+                    share.unwrap_or(0.),
+                    level.unwrap_or(ink(t, 0.62)),
+                    ink(t, 0.1),
+                    7.,
+                )))
+                .child(
+                    ui::mono(amount, TEXT_2XS, cx)
+                        .mt(SPACE_2H)
+                        .truncate()
+                        .text_color(t.text_secondary),
+                )
+                .child(
+                    ui::mono(extra, TEXT_3XS_H, cx)
+                        .mt(SPACE_0)
+                        .truncate()
+                        .text_color(t.text_tertiary),
+                ),
+        );
+        if open {
+            charts.push(
+                div()
+                    .px(SPACE_4)
+                    .pt(SPACE_3H)
+                    .pb(SPACE_3)
+                    .when(at > 0, |row| {
+                        row.border_t(crate::theme::border()).border_color(hair(t))
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_1H)
+                            .child(ui::icon(icon, 12.).text_color(t.text_tertiary))
+                            .child(
+                                ui::text(label, TEXT_XS, FontWeight::NORMAL)
+                                    .text_color(t.text_tertiary),
+                            ),
+                    )
+                    .child(
+                        div().mt(SPACE_3).child(match series.points.len() {
+                            0 | 1 => div()
+                                .h(px(CHART_HEIGHT))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    ui::text(
+                                        t!("Gathering history"),
+                                        TEXT_2XS_H,
+                                        FontWeight::NORMAL,
+                                    )
+                                    .text_color(t.text_disabled),
+                                )
+                                .into_any_element(),
+                            _ => history(series, CHART_HEIGHT, t),
+                        }),
+                    )
+                    .when(kind == HostAlertKind::Disk, |row| {
+                        row.child(axis(start, end, t, cx))
+                    }),
+            );
+        }
+    }
+    let fold = div()
+        .id("hosts-history-fold")
+        .mt(SPACE_2)
+        .h(px(24.))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .text_color(t.text_tertiary)
+        .hover(|row| row.text_color(t.text_secondary))
+        .clicks(cx.listener(|bench, _, _, cx| {
+            bench.hosts_page.history_open = !bench.hosts_page.history_open;
+            bench.parts.redraw_stage(cx);
+        }))
+        .child(
+            ui::icon(Icon::Chevron, 12.)
+                .text_color(t.text_tertiary)
+                .when(open, |chevron| {
+                    chevron.with_transformation(gpui_kit::Transformation::rotate(
+                        gpui_kit::radians(std::f32::consts::FRAC_PI_2),
+                    ))
+                }),
+        )
+        .child(ui::text(t!("History"), TEXT_XS, FontWeight::NORMAL))
+        .children(open.then(|| div().ml_auto().child(switch)));
+    div()
+        .flex()
+        .flex_col()
+        .child(section(
+            Icon::Gauge,
+            t!("Resources"),
+            None,
+            as_of(host, cx),
+            t,
+            cx,
+        ))
+        .child(div().flex().gap(SPACE_2H).children(gauges))
+        .child(fold)
+        .when(open, |section| {
+            section.child(
+                div()
+                    .mt(SPACE_2)
+                    .rounded(radius_3())
+                    .border(crate::theme::border())
+                    .border_color(hair(t))
+                    .bg(card(t))
+                    .overflow_hidden()
+                    .children(charts),
+            )
+        })
+        .children(disk_parts(stats, t, cx))
+}
+
+fn span_ms(span: StatsSpan) -> u64 {
+    match span {
+        StatsSpan::Now | StatsSpan::Minutes15 => 15 * 60_000,
+        StatsSpan::Hour => 60 * 60_000,
+        StatsSpan::Day => 24 * 60 * 60_000,
+    }
+}
+
+/// Five times under the charts, from where they start to now.
+fn axis(start: u64, end: u64, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+    let step = end.saturating_sub(start) / 4;
+    div()
+        .mt(SPACE_1)
+        .flex()
+        .justify_between()
+        .children((0..5).map(|at| {
+            let words = match at {
+                4 => t!("now").to_owned(),
+                at => crate::ui::time::clock(start + step * at),
+            };
+            ui::mono(words, TEXT_3XS, cx).text_color(t.text_disabled)
+        }))
+}
+
+fn part_words(kind: sikemux_view::host_stats::DiskPartKind) -> &'static str {
+    use sikemux_view::host_stats::DiskPartKind;
+    match kind {
+        DiskPartKind::BuildOutput => t!("Build output"),
+        DiskPartKind::Worktrees => t!("Worktrees"),
+        DiskPartKind::Caches => t!("Caches"),
+        DiskPartKind::Containers => t!("Containers"),
+        DiskPartKind::Other | DiskPartKind::Unknown => t!("Everything else"),
+    }
+}
+
+fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Option<Div> {
+    if stats.disk_parts.is_empty() {
+        return None;
+    }
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .child(section(Icon::Database, t!("Disk use"), None, None, t, cx))
+            .child(
+                div()
+                    .px(SPACE_4)
+                    .py(SPACE_1)
+                    .rounded(radius_3())
+                    .border(crate::theme::border())
+                    .border_color(hair(t))
+                    .bg(card(t))
+                    .children(stats.disk_parts.iter().enumerate().map(|(at, part)| {
+                        div()
+                            .h(px(32.))
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_3)
+                            .when(at > 0, |row| {
+                                row.border_t(crate::theme::border()).border_color(hair(t))
+                            })
+                            .child(
+                                ui::text(part_words(part.kind), TEXT_SM, FontWeight::NORMAL)
+                                    .flex_1()
+                                    .truncate()
+                                    .text_color(t.text_tertiary),
+                            )
+                            .child(
+                                ui::mono(model::size(part.bytes), TEXT_XS, cx)
+                                    .text_color(t.text_primary),
+                            )
+                    })),
+            ),
+    )
+}
+
+/// One agent's row as the detail lists it.
+struct AgentLine<'a> {
+    id: String,
+    shown: Option<&'a AgentShown>,
+    using: Option<&'a AgentUse>,
+    killed: bool,
+}
+
+fn agents(
+    bench: &Workbench,
+    host: &Listed,
+    listed: &[Listed],
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Option<Div> {
+    let stats = host.stats();
+    let using: Vec<&AgentUse> = stats.into_iter().flat_map(|stats| &stats.agents).collect();
+    let killed = host.killed();
+    let mut lines: Vec<AgentLine> = (using.iter())
+        .map(|using| AgentLine {
+            id: using.agent_id.clone(),
+            shown: host.agent(&using.agent_id),
+            using: Some(*using),
+            killed: killed.contains(&using.agent_id),
+        })
+        .collect();
+    for shown in host.agents() {
+        if !lines.iter().any(|line| line.id == shown.agent_id) {
+            lines.push(AgentLine {
+                id: shown.agent_id.clone(),
+                shown: Some(shown),
+                using: None,
+                killed: killed.contains(&shown.agent_id),
+            });
+        }
+    }
+    let total = lines.len();
+    lines.retain(|line| {
+        let busy = line.shown.is_some_and(|shown| {
+            matches!(shown.status, AgentStatus::Working | AgentStatus::Blocked)
+        });
+        let using = line
+            .using
+            .is_some_and(|using| using.cpu > 0 || using.memory > 0);
+        busy || using || line.killed
+    });
+    if total == 0 {
+        return None;
+    }
+    let people: BTreeMap<String, Vec<&AgentLine>> =
+        lines.iter().fold(BTreeMap::new(), |mut people, line| {
+            if let Some(person) = line.using.and_then(|using| using.person.clone()) {
+                people.entry(person).or_default().push(line);
+            }
+            people
+        });
+    let move_to: Vec<&Listed> = (listed.iter())
+        .filter(|other| other.key != host.key && other.online())
+        .collect();
+    let row = |line: &AgentLine, indent: bool, cx: &mut Context<Workbench>| {
+        agent_row(bench, host, &move_to, line, indent, t, cx)
+    };
+    let mut rows: Vec<AnyElement> = Vec::new();
+    if people.is_empty() {
+        for line in &lines {
+            rows.push(row(line, false, cx));
+        }
+    } else {
+        let share = |lines: &Vec<&AgentLine>| -> u32 {
+            (lines.iter())
+                .filter_map(|line| line.using)
+                .map(|using| using.cpu as u32)
+                .sum()
+        };
+        let mut people: Vec<(&String, &Vec<&AgentLine>)> = people.iter().collect();
+        people.sort_by_key(|(_, lines)| std::cmp::Reverse(share(lines)));
+        for (person, lines) in people {
+            let folded = bench.hosts_page.folded.contains(person);
+            rows.push(person_row(person, lines, folded, t, cx));
+            if !folded {
+                for line in lines {
+                    rows.push(row(line, true, cx));
+                }
+            }
+        }
+        for line in lines
+            .iter()
+            .filter(|line| line.using.and_then(|using| using.person.as_ref()).is_none())
+        {
+            rows.push(row(line, false, cx));
+        }
+    }
+    let (label, count) = match people.is_empty() {
+        true => (t!("Agents"), total.to_string()),
+        false => (t!("People & agents"), format!("{} · {total}", people.len())),
+    };
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .child(section(
+                if people.is_empty() {
+                    Icon::Agents
+                } else {
+                    Icon::User
+                },
+                label,
+                Some(count),
+                Some(super::board::counts(host.counts(), t).into_any_element()),
+                t,
+                cx,
+            ))
+            .child(match rows.is_empty() {
+                true => ui::text(
+                    t!("None of them is using CPU or memory right now"),
+                    TEXT_XS,
+                    FontWeight::NORMAL,
+                )
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+                false => list(t)
+                    .children(rows.into_iter().enumerate().map(|(at, row)| {
+                        div()
+                            .when(at > 0, |row| {
+                                row.border_t(crate::theme::border()).border_color(hair(t))
+                            })
+                            .child(row)
+                    }))
+                    .into_any_element(),
+            }),
+    )
+}
+
+fn list(t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .rounded(radius_3())
+        .border(crate::theme::border())
+        .border_color(hair(t))
+        .bg(card(t))
+        .overflow_hidden()
+}
+
+/// A share and a size stacked at a row's end, as each agent's use shows.
+fn using(
+    cpu: Option<u16>,
+    memory: Option<u64>,
+    quiet: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Div {
+    let cpu = cpu
+        .filter(|cpu| *cpu > 0)
+        .map_or_else(|| "—".to_owned(), model::percent);
+    div()
+        .flex_none()
+        .min_w(px(52.))
+        .flex()
+        .flex_col()
+        .items_end()
+        .child(ui::mono(cpu, TEXT_XS, cx).text_color(if quiet {
+            t.text_disabled
+        } else {
+            t.text_primary
+        }))
+        .children(
+            memory.map(|memory| ui::mono(format!("{} GB", model::gb(memory)), TEXT_3XS_H, cx)),
+        )
+}
+
+fn agent_row(
+    bench: &Workbench,
+    host: &Listed,
+    move_to: &[&Listed],
+    line: &AgentLine,
+    indent: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let shown = line.shown;
+    let status = shown.map_or(AgentStatus::Idle, |shown| shown.status);
+    let idle = !matches!(status, AgentStatus::Working | AgentStatus::Blocked) && !line.killed;
+    let name = host.agent_name(&line.id);
+    let command = line.using.and_then(|using| using.command.clone());
+    let since = line.using.and_then(|using| using.command_since);
+    let mark = match shown {
+        Some(shown) => ui::still_mark(&shown.cli, shown.face.as_ref(), status.group(), 14., cx),
+        None => ui::icon(Icon::Agent, 14.)
+            .text_color(t.text_tertiary)
+            .into_any_element(),
+    };
+    let group = SharedString::from(format!("host-agent-{}", line.id));
+    let second: AnyElement = match (line.killed, &command) {
+        (true, _) => div()
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .min_w_0()
+            .child(
+                ui::text(t!("Killed for memory"), TEXT_2XS_H, FontWeight::NORMAL)
+                    .flex_none()
+                    .text_color(t.danger),
+            )
+            .children(command.clone().map(|command| {
+                ui::mono(command, TEXT_2XS, cx)
+                    .truncate()
+                    .line_through()
+                    .text_color(t.text_tertiary)
+            }))
+            .into_any_element(),
+        (false, Some(command)) if !idle || line.using.is_some_and(|using| using.cpu > 0) => {
+            ui::mono(command.clone(), TEXT_2XS, cx)
+                .truncate()
+                .text_color(t.text_secondary)
+                .into_any_element()
+        }
+        _ => ui::text(
+            match status {
+                AgentStatus::Asleep => t!("Asleep"),
+                AgentStatus::Stopped => t!("Stopped"),
+                AgentStatus::Starting => t!("Starting"),
+                _ => t!("Idle"),
+            },
+            TEXT_2XS_H,
+            FontWeight::NORMAL,
+        )
+        .text_color(t.text_tertiary)
+        .into_any_element(),
+    };
+    let menu = agent_menu(bench, host, move_to, &line.id, cx);
+    div()
+        .id(group.clone())
+        .group(group.clone())
+        .flex()
+        .items_center()
+        .gap(px(11.))
+        .pl(if indent { px(26.) } else { SPACE_3 })
+        .pr(SPACE_2H)
+        .py(px(9.))
+        .hover(|row| row.bg(t.surface_hover))
+        .child(
+            div()
+                .size(px(24.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(7.))
+                .bg(ink(t, 0.05))
+                .when(idle, |mark| mark.opacity(0.55))
+                .child(mark),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .gap(SPACE_2)
+                        .min_w_0()
+                        .child(
+                            ui::text(name, TEXT_SM, FontWeight::MEDIUM)
+                                .flex_none()
+                                .text_color(if idle {
+                                    t.text_tertiary
+                                } else {
+                                    t.text_primary
+                                }),
+                        )
+                        .children(shown.and_then(|shown| shown.project_name.clone()).map(
+                            |project| {
+                                ui::text(project, TEXT_2XS_H, FontWeight::NORMAL)
+                                    .truncate()
+                                    .text_color(t.text_tertiary)
+                            },
+                        ))
+                        .children(since.filter(|_| !idle).map(|since| {
+                            ui::mono(format!("· {}", crate::ui::time::age(since)), TEXT_3XS_H, cx)
+                                .flex_none()
+                                .text_color(t.text_disabled)
+                        })),
+                )
+                .child(second),
+        )
+        .child(using(
+            line.using.map(|using| using.cpu),
+            line.using.map(|using| using.memory),
+            idle,
+            t,
+            cx,
+        ))
+        .child(
+            div()
+                .w(px(22.))
+                .flex_none()
+                .invisible()
+                .group_hover(group, |more| more.visible())
+                .children(menu),
+        )
+        .into_any_element()
+}
+
+/// What can be done to one agent from here: moving its project to another host, and closing it.
+fn agent_menu(
+    bench: &Workbench,
+    host: &Listed,
+    move_to: &[&Listed],
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    if !host.online() {
+        return None;
+    }
+    let mut fixes: Vec<Fix> = (move_to.iter())
+        .filter_map(|to| move_fix(bench, host, to, agent))
+        .collect();
+    fixes.extend(close_fix(host, agent));
+    if fixes.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let fixes: Vec<(String, std::rc::Rc<Run>)> = fixes
+        .into_iter()
+        .map(|fix| (fix.words, std::rc::Rc::from(fix.run)))
+        .collect();
+    let bench_entity = cx.weak_entity();
+    let trigger = {
+        use gpui_kit::component::button::ButtonVariants;
+        gpui_kit::component::button::Button::new(SharedString::from(format!(
+            "host-agent-more-{agent}"
+        )))
+        .ghost()
+        .compact()
+        .rounded(radius_1())
+        .child(ui::icon(Icon::More, 12.).text_color(t.text_secondary))
+    };
+    use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+    Some(
+        trigger
+            .dropdown_menu_with_anchor(
+                gpui_kit::Anchor::TopRight,
+                ui::menu(move |popup, _, _| {
+                    fixes.iter().fold(popup, |popup, (words, run)| {
+                        let (bench, run) = (bench_entity.clone(), run.clone());
+                        popup.item(PopupMenuItem::new(words.clone()).on_click(move |_, _, cx| {
+                            let _ = bench.update(cx, |bench, cx| run(bench, cx));
+                        }))
+                    })
+                }),
+            )
+            .into_any_element(),
+    )
+}
+
+fn person_row(
+    person: &str,
+    lines: &[&AgentLine],
+    folded: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let running = lines
+        .iter()
+        .filter(|line| {
+            line.shown.is_some_and(|shown| {
+                matches!(shown.status, AgentStatus::Working | AgentStatus::Blocked)
+            })
+        })
+        .count();
+    let idle = lines.len() - running;
+    let cpu: u16 = lines
+        .iter()
+        .filter_map(|line| line.using)
+        .map(|using| using.cpu)
+        .sum();
+    let memory: u64 = lines
+        .iter()
+        .filter_map(|line| line.using)
+        .map(|using| using.memory)
+        .sum();
+    let summary = match (running, idle) {
+        (0, idle) => t!("{idle} idle", idle = idle),
+        (running, 0) => t!("{running} running", running = running),
+        (running, idle) => t!(
+            "{running} running · {idle} idle",
+            running = running,
+            idle = idle
+        ),
+    };
+    let key = person.to_owned();
+    div()
+        .id(SharedString::from(format!("host-person-{person}")))
+        .flex()
+        .items_center()
+        .gap(px(11.))
+        .px(SPACE_3)
+        .py(px(9.))
+        .bg(ink(t, 0.02))
+        .hover(|row| row.bg(t.surface_hover))
+        .clicks(cx.listener(move |bench, _, _, cx| {
+            let folded = &mut bench.hosts_page.folded;
+            if !folded.remove(&key) {
+                folded.insert(key.clone());
+            }
+            bench.parts.redraw_stage(cx);
+        }))
+        .child(ui::initials(person, person, 24., cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    ui::text(person.to_owned(), TEXT_SM, FontWeight::MEDIUM)
+                        .text_color(t.text_primary),
+                )
+                .child(
+                    ui::text(
+                        match folded {
+                            true => t!("{summary} · hidden", summary = summary),
+                            false => summary,
+                        },
+                        TEXT_2XS_H,
+                        FontWeight::NORMAL,
+                    )
+                    .text_color(t.text_tertiary),
+                ),
+        )
+        .child(using(Some(cpu), Some(memory), false, t, cx))
+        .child(div().w(px(22.)).flex_none())
+        .into_any_element()
+}
+
+fn top(
+    bench: &Workbench,
+    host: &Listed,
+    stats: &HostStats,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Div {
+    let open = bench.hosts_page.top_open;
+    let by_memory = bench.hosts_page.top_by_memory;
+    let fold = div()
+        .id("hosts-top-fold")
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .clicks(cx.listener(|bench, _, _, cx| {
+            bench.hosts_page.top_open = !bench.hosts_page.top_open;
+            bench.parts.redraw_stage(cx);
+        }))
+        .child(
+            ui::icon(Icon::Chevron, 12.)
+                .text_color(t.text_tertiary)
+                .when(open, |chevron| {
+                    chevron.with_transformation(gpui_kit::Transformation::rotate(
+                        gpui_kit::radians(std::f32::consts::FRAC_PI_2),
+                    ))
+                }),
+        )
+        .child(ui::caps(t!("Top processes"), cx))
+        .child(
+            div()
+                .px(SPACE_1H)
+                .rounded(px(8.))
+                .bg(ink(t, 0.06))
+                .child(ui::mono(
+                    stats.top.len().min(TOP_SHOWN).to_string(),
+                    TEXT_3XS,
+                    cx,
+                )),
+        )
+        .children(as_of(host, cx).map(|as_of| div().ml(SPACE_2).child(as_of)));
+    let head = div()
+        .mt(px(28.))
+        .mb(SPACE_3)
+        .h(px(22.))
+        .flex()
+        .items_center()
+        .child(fold)
+        .children(open.then(|| {
+            div().ml_auto().child(
+                Segmented::words(
+                    "hosts-top-by",
+                    vec![(t!("CPU").into(), None), (t!("Memory").into(), None)],
+                    usize::from(by_memory),
+                )
+                .on_select(cx.listener(|bench, at: &usize, _, cx| {
+                    bench.hosts_page.top_by_memory = *at == 1;
+                    bench.parts.redraw_stage(cx);
+                })),
+            )
+        }));
+    let mut top: Vec<&ProcessUse> = stats.top.iter().collect();
+    match by_memory {
+        true => top.sort_by_key(|process| std::cmp::Reverse(process.memory)),
+        false => top.sort_by_key(|process| std::cmp::Reverse(process.cpu)),
+    }
+    top.truncate(TOP_SHOWN);
+    div().flex().flex_col().child(head).when(open, |section| {
+        section.child(
+            list(t).children(top.iter().enumerate().map(|(at, process)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2H)
+                    .px(SPACE_3)
+                    .h(px(34.))
+                    .when(at > 0, |row| {
+                        row.border_t(crate::theme::border()).border_color(hair(t))
+                    })
+                    .child(app_icon(bench, process, t))
+                    .child(
+                        ui::mono(process.name.clone(), TEXT_XS, cx)
+                            .truncate()
+                            .text_color(t.text_secondary),
+                    )
+                    .children(process.app.is_none().then(|| {
+                        ui::mono(process.pid.to_string(), TEXT_3XS_H, cx)
+                            .text_color(t.text_disabled)
+                    }))
+                    .children(process.agent_id.as_deref().map(|agent| {
+                        ui::text(host.agent_name(agent), TEXT_2XS_H, FontWeight::MEDIUM)
+                            .text_color(t.text_primary)
+                    }))
+                    .child(div().flex_1())
+                    .child(
+                        ui::mono(format!("{} GB", model::gb(process.memory)), TEXT_3XS_H, cx)
+                            .flex_none()
+                            .w(px(56.))
+                            .text_right()
+                            .text_color(t.text_tertiary),
+                    )
+                    .child(
+                        ui::mono(model::percent(process.cpu), TEXT_XS, cx)
+                            .flex_none()
+                            .w(px(40.))
+                            .text_right()
+                            .text_color(t.text_primary),
+                    )
+            })),
+        )
+    })
+}
+
+/// The app's own icon, or a plain tile where it has none.
+pub(super) fn app_icon(bench: &Workbench, process: &ProcessUse, t: &Tokens) -> AnyElement {
+    let side = px(16.);
+    let icon = (process.app.as_ref())
+        .and_then(|app| bench.hosts_page.app_icons.get(app))
+        .and_then(Option::clone);
+    match icon {
+        Some(icon) => gpui_kit::img(icon)
+            .size(side)
+            .flex_none()
+            .rounded(px(4.))
+            .into_any_element(),
+        None => div()
+            .size(side)
+            .flex_none()
+            .rounded(px(4.5))
+            .bg(ink(t, 0.05))
+            .border(crate::theme::border())
+            .border_color(hair(t))
+            .into_any_element(),
+    }
+}
+
+fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+    let rows: Vec<Div> = stats
+        .events
+        .iter()
+        .take(ACTIVITY_SHOWN)
+        .filter_map(|event| {
+            let (icon, tint, words) = match &event.what {
+                HostEventKind::AlertStarted { alert, percent } => (
+                    Icon::Warning,
+                    t.warn,
+                    t!(
+                        "{kind} passed {percent}%",
+                        kind = crate::hosts::alert_kind_word(*alert),
+                        percent = percent
+                    ),
+                ),
+                HostEventKind::AlertEnded { alert } => (
+                    Icon::Check,
+                    t.text_tertiary,
+                    t!("{kind} back to normal", kind = crate::hosts::alert_kind_word(*alert)),
+                ),
+                HostEventKind::Killed { agent_id, name } => (
+                    Icon::Warning,
+                    t.danger,
+                    match agent_id {
+                        Some(agent) => t!(
+                            "Killed {agent}’s {name} to free memory",
+                            agent = host.agent_name(agent),
+                            name = name
+                        ),
+                        None => t!("Killed {name} to free memory", name = name),
+                    },
+                ),
+                HostEventKind::CommandStarted { agent_id, command } => (
+                    Icon::Run,
+                    t.text_tertiary,
+                    t!(
+                        "{name} started {command}",
+                        name = host.agent_name(agent_id),
+                        command = command
+                    ),
+                ),
+                HostEventKind::BuildOutputCleared {
+                    worktree,
+                    bytes,
+                    reason,
+                } => (
+                    Icon::Trash,
+                    t.text_tertiary,
+                    match reason {
+                        ClearedFor::Closed => t!(
+                            "Removed build output from {worktree}, freeing {size}, its agent closed",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                        ClearedFor::Landed => t!(
+                            "Removed build output from {worktree}, freeing {size}, its agent landed everything",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                        ClearedFor::LowSpace => t!(
+                            "Removed build output from {worktree}, freeing {size}, as free space ran low",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                        ClearedFor::Unknown => t!(
+                            "Removed build output from {worktree}, freeing {size}",
+                            worktree = worktree,
+                            size = model::size(*bytes)
+                        ),
+                    },
+                ),
+                HostEventKind::SettleFailed {
+                    worktree,
+                    command,
+                    output,
+                } => (
+                    Icon::Warning,
+                    t.danger,
+                    match output.lines().last() {
+                        Some(said) => t!(
+                            "{command} failed in {worktree}: {said}",
+                            command = command,
+                            worktree = worktree,
+                            said = said
+                        ),
+                        None => t!(
+                            "{command} failed in {worktree}",
+                            command = command,
+                            worktree = worktree
+                        ),
+                    },
+                ),
+                HostEventKind::Unknown => return None,
+            };
+            Some(
+                div()
+                    .min_h(px(36.))
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_3)
+                    .child(
+                        div()
+                            .size(px(24.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .bg(crate::theme::mix(tint, t.surface_raised, 0.13))
+                            .child(ui::icon(icon, 12.).text_color(tint)),
+                    )
+                    .child(
+                        ui::text(words, TEXT_SM, FontWeight::NORMAL)
+                            .flex_1()
+                            .truncate()
+                            .text_color(t.text_secondary),
+                    )
+                    .child(ui::mono(crate::ui::time::clock(event.at), TEXT_2XS, cx).flex_none()),
+            )
+        })
+        .collect();
+    div()
+        .flex()
+        .flex_col()
+        .child(section(Icon::Activity, t!("Activity"), None, None, t, cx))
+        .child(
+            div()
+                .relative()
+                .px(SPACE_4)
+                .py(SPACE_1H)
+                .rounded(radius_3())
+                .border(crate::theme::border())
+                .border_color(hair(t))
+                .bg(card(t))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(28.))
+                        .top(SPACE_6)
+                        .bottom(SPACE_6)
+                        .w(px(1.))
+                        .bg(hair(t)),
+                )
+                .children(rows),
+        )
+}
+
+fn glyph(icon: Icon, t: &Tokens) -> AnyElement {
+    ui::icon(icon, 13.)
+        .text_color(t.text_tertiary)
+        .into_any_element()
+}
+
+fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+    let about = &stats.about;
+    let (logo, tint) = model::logo(about.mark, t);
+    let system_tint = if host.online() { tint } else { t.text_tertiary };
+    let rows: Vec<(AnyElement, &str, String, bool)> = [
+        about
+            .model
+            .clone()
+            .map(|model| (glyph(Icon::Laptop, t), t!("Model"), model, false)),
+        Some((
+            ui::icon(logo, 13.)
+                .text_color(system_tint)
+                .into_any_element(),
+            t!("System"),
+            about.system.clone(),
+            false,
+        )),
+        about
+            .gpu
+            .clone()
+            .map(|gpu| (glyph(Icon::Cube, t), t!("Graphics"), gpu, false)),
+        Some((
+            glyph(Icon::Logo, t),
+            "Sikemux",
+            about.core_version.clone(),
+            true,
+        )),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    div()
+        .flex()
+        .flex_col()
+        .child(section(Icon::InfoCircle, t!("About"), None, None, t, cx))
+        .child(
+            div()
+                .px(SPACE_4)
+                .py(SPACE_1)
+                .rounded(radius_3())
+                .border(crate::theme::border())
+                .border_color(hair(t))
+                .bg(card(t))
+                .children(
+                    rows.into_iter()
+                        .enumerate()
+                        .map(|(at, (glyph, label, value, mono))| {
+                            div()
+                                .h(px(32.))
+                                .flex()
+                                .items_center()
+                                .gap(px(9.))
+                                .when(at > 0, |row| {
+                                    row.border_t(crate::theme::border()).border_color(hair(t))
+                                })
+                                .child(glyph)
+                                .child(
+                                    ui::text(label, TEXT_SM, FontWeight::NORMAL)
+                                        .text_color(t.text_tertiary),
+                                )
+                                .child(
+                                    match mono {
+                                        true => ui::mono(value, TEXT_XS, cx),
+                                        false => ui::text(value, TEXT_SM, FontWeight::NORMAL),
+                                    }
+                                    .ml_auto()
+                                    .truncate()
+                                    .text_color(t.text_primary),
+                                )
+                        }),
+                ),
+        )
+}
+
+impl Workbench {
+    /// Closes the agent `id` on the host at `place`, once the person agrees, which stops it.
+    pub fn close_agent_on(&mut self, place: &Place, id: &str, name: &str, cx: &mut Context<Self>) {
+        let (place, id) = (place.clone(), id.to_owned());
+        self.confirm(
+            t!("Close {name}?", name = name),
+            t!("It stops what it is running now."),
+            t!("Close"),
+            true,
+            move |bench, yes, _, _| {
+                if yes {
+                    crate::core::Target::new(&bench.asks, place.clone())
+                        .call_typed::<sikemux_calls::call::CloseAgents>(
+                        sikemux_calls::workspace::CloseAgentsParams {
+                            agent_ids: vec![id.clone()],
+                        },
+                    );
+                }
+            },
+            cx,
+        );
+    }
+}

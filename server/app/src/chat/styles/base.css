@@ -218,44 +218,6 @@
   font-style: normal;
   font-display: swap;
 }
-:root {
-  --void: #100e16;
-  --rail: #17141e;
-  --rail-2: #201c2b;
-  --pane: #17141e;
-  --line: #262130;
-  --line-soft: #1a1723;
-  --ink: #e7e5ef;
-  --ink-dim: #8b8898;
-  --ink-faint: #736f80;
-  --acc: #a277ff;
-  --acc-soft: rgba(162, 119, 255, 0.13);
-  --acc-line: rgba(162, 119, 255, 0.32);
-  --live: #61ffca;
-  --warn: #ffca85;
-  --cmd: #ff6ac1;
-  --danger: #ff6767;
-  --git-modified: #e2c08d;
-  --git-untracked: #73c991;
-  --git-added: #81b88b;
-  --git-deleted: #d75f47;
-  --git-renamed: #6c8cd5;
-  /* theme-locked rainbow — ends repeat (--acc) so it tiles seamlessly */
-  --yolo-rainbow: linear-gradient(
-    90deg,
-    var(--acc),
-    var(--cmd),
-    var(--danger),
-    var(--warn),
-    var(--live),
-    var(--acc)
-  );
-  --mono:
-    "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, "SF Mono", Menlo,
-    monospace;
-  --kbd: -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
-}
-
 * {
   margin: 0;
   padding: 0;
@@ -277,11 +239,7 @@ body {
 }
 
 body {
-  background: color-mix(
-    in srgb,
-    var(--bg, var(--void)) calc(var(--window-opacity, 1) * 100%),
-    transparent
-  );
+  background: var(--bg, var(--void));
   color: var(--ink);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -301,15 +259,6 @@ button {
 
 ::selection {
   background: color-mix(in srgb, var(--acc) 38%, transparent);
-}
-
-.kbd {
-  font-family: var(--kbd);
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  color: var(--ink-dim);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
 /* Inline "copy this string" affordance (branch names, ids, paths). */

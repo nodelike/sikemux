@@ -1,11 +1,21 @@
+#[cfg(unix)]
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
-use crate::protocol::{BuildIdentity, SessionId};
+#[cfg(unix)]
+use sikemux_process::vars;
+#[cfg(unix)]
+use sikemux_pty::launch::OPTIONAL_PTY_ENV;
 
+use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
+use sikemux_wire::protocol::BuildIdentity;
+#[cfg(unix)]
+use sikemux_wire::protocol::SessionId;
+
+#[cfg(unix)]
 use super::handover::{self, Recovery};
 use super::{ServerConfig, ServerError, DEFAULT_IDLE_EXIT, NEVER_IDLE_EXIT};
 
@@ -15,14 +25,26 @@ const USAGE: &str = "usage: sikemux core [--socket <path>] [--cli-endpoint <path
 struct CoreArgs {
     socket: Option<PathBuf>,
     idle_exit: Option<Duration>,
+    handover_settle: Option<Duration>,
+    update_patience: Option<Duration>,
     cli_endpoint: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     upgrade_info: bool,
+    #[cfg(target_os = "macos")]
+    watch_handover: Option<PathBuf>,
+    #[cfg(unix)]
     resume: Option<PathBuf>,
+    #[cfg(unix)]
     listener_fd: Option<RawFd>,
+    #[cfg(unix)]
     lock_fd: Option<RawFd>,
+    #[cfg(unix)]
     tools_fd: Option<RawFd>,
+    #[cfg(unix)]
+    model_proxy_fd: Option<RawFd>,
+    #[cfg(unix)]
     sessions: Vec<(SessionId, RawFd, Option<u32>)>,
+    #[cfg(unix)]
     chat_fds: Vec<RawFd>,
 }
 
@@ -32,6 +54,7 @@ fn number<T: std::str::FromStr>(value: Option<String>, flag: &str) -> Result<T, 
         .ok_or_else(|| format!("{flag} needs a whole number"))
 }
 
+#[cfg(unix)]
 fn handed_over_session(value: Option<String>) -> Result<(SessionId, RawFd, Option<u32>), String> {
     let value = value.ok_or("--session needs id:fd:pid")?;
     let mut parts = value.split(':');
@@ -74,15 +97,42 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
                     "--idle-exit-ms",
                 )?));
             }
+            "--handover-settle-ms" => {
+                parsed.handover_settle = Some(Duration::from_millis(number(
+                    args.next(),
+                    "--handover-settle-ms",
+                )?));
+            }
+            "--update-patience-ms" => {
+                parsed.update_patience = Some(Duration::from_millis(number(
+                    args.next(),
+                    "--update-patience-ms",
+                )?));
+            }
+            #[cfg(unix)]
             "--resume" => {
                 parsed.resume = Some(args.next().ok_or("--resume needs a directory")?.into());
             }
+            #[cfg(unix)]
             "--listen-fd" => parsed.listener_fd = Some(number(args.next(), "--listen-fd")?),
+            #[cfg(unix)]
             "--lock-fd" => parsed.lock_fd = Some(number(args.next(), "--lock-fd")?),
+            #[cfg(unix)]
             "--tools-fd" => parsed.tools_fd = Some(number(args.next(), "--tools-fd")?),
+            #[cfg(unix)]
+            "--model-proxy-fd" => {
+                parsed.model_proxy_fd = Some(number(args.next(), "--model-proxy-fd")?)
+            }
+            #[cfg(unix)]
             "--session" => parsed.sessions.push(handed_over_session(args.next())?),
+            #[cfg(unix)]
             "--chat-fd" => parsed.chat_fds.push(number(args.next(), "--chat-fd")?),
             flag if flag == UPGRADE_INFO_ARG => parsed.upgrade_info = true,
+            #[cfg(target_os = "macos")]
+            flag if flag == super::rollback::WATCH_ARG => {
+                parsed.watch_handover =
+                    Some(args.next().ok_or("--watch-handover needs the app")?.into());
+            }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -98,9 +148,13 @@ pub fn main(
     build: BuildIdentity,
     plugins: Option<super::plugins::Provided>,
 ) -> i32 {
+    // Read before the environment forgets it, so a core its harness only named this way keeps it.
+    let default_socket = crate::default_socket_path();
+    // Nothing else runs yet, so the process environment is safe to change.
+    #[cfg(unix)]
+    forget_starting_terminal();
     #[cfg(unix)]
     if let Some(path) = with_system_path(&std::env::var("PATH").unwrap_or_default()) {
-        // Nothing else runs yet, so the process environment is safe to change.
         std::env::set_var("PATH", path);
     }
     #[cfg(unix)]
@@ -125,6 +179,25 @@ pub fn main(
             }
         };
     }
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = args.watch_handover {
+        let Some(socket) = args.socket else {
+            eprintln!(
+                "sikemux core: {} needs --socket",
+                super::rollback::WATCH_ARG
+            );
+            return 2;
+        };
+        return super::rollback::watch(super::rollback::Watch {
+            bundle,
+            socket,
+            cli_endpoint: args.cli_endpoint,
+            data_dir: args.data_dir,
+            idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
+        });
+    }
+    super::updates::roll_back_a_failing_update(&build.version);
+    #[cfg(unix)]
     if let Some(directory) = args.resume {
         let mut recovery = Recovery {
             directory,
@@ -132,12 +205,14 @@ pub fn main(
             listener_fd: args.listener_fd,
             lock_fd: args.lock_fd,
             tools_fd: args.tools_fd,
+            model_proxy_fd: args.model_proxy_fd,
             cli_endpoint: args.cli_endpoint,
             data_dir: args.data_dir,
             idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
             sessions: args.sessions,
             chat_fds: args.chat_fds,
             inherited: HashMap::new(),
+            children: Vec::new(),
             plugins,
         };
         // Taken before anything opens a descriptor of its own.
@@ -146,37 +221,78 @@ pub fn main(
             .into_iter()
             .filter_map(|fd| Some((fd, handover::file_type(fd)?)))
             .collect();
+        recovery.children = super::reaper::children_now();
+        super::log_times::start();
         std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
         sikemux_process::jobs::own();
-        let exit = exit_code(run_runtime(handover::resume(recovery, build)));
+        let exit = exit_code(super::on_runtime(handover::resume(recovery, build)));
         sikemux_process::jobs::leave();
+        super::log_times::flush();
         return exit;
     }
-    let Some(socket) = args.socket.or_else(crate::default_socket_path) else {
+    super::log_times::start();
+    let Some(socket) = args.socket.or(default_socket) else {
         eprintln!("sikemux core: HOME is not set, so pass --socket");
         return 2;
     };
     std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
     sikemux_process::jobs::own();
-    let exit = exit_code(super::run(ServerConfig {
+    let production = ServerConfig::production(
         socket,
-        idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
-        cli_endpoint: args
-            .cli_endpoint
+        args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
+        args.cli_endpoint
             .or_else(crate::cli::endpoint::default_endpoint_path),
-        attachment_dir: args
-            .data_dir
-            .as_deref()
-            .and_then(super::attachments::pasted_dir),
-        data_dir: args.data_dir,
+        args.data_dir,
         build,
-        remote_direct_only: false,
-        accounts_api: Some(crate::accounts::api_base()),
-        secret_store: true,
         plugins,
+    );
+    let exit = exit_code(super::run(ServerConfig {
+        handover_settle: args.handover_settle.unwrap_or(production.handover_settle),
+        update_patience: args.update_patience.unwrap_or(production.update_patience),
+        ..production
     }));
     sikemux_process::jobs::leave();
+    super::log_times::flush();
     exit
+}
+
+/// Forgets what Sikemux gave the terminal or agent this core was started
+/// from, as when an agent runs `sikemux restart`: that agent's identity, its
+/// zsh startup folder and its git shim, which every terminal and agent this
+/// core starts would otherwise inherit.
+#[cfg(unix)]
+fn forget_starting_terminal() {
+    for name in OPTIONAL_PTY_ENV.iter().chain(&vars::LAUNCHING_SESSION) {
+        std::env::remove_var(name);
+    }
+    crate::agent_shell::leave();
+    let path = std::env::var("PATH").unwrap_or_default();
+    if let Some(path) = crate::git_guard::shim::path_without_shim(&path) {
+        std::env::set_var("PATH", path);
+    }
+    forget_appimage_runtime();
+}
+
+/// Forgets what the AppImage set for the app's own GTK and GLib, and hands back the person's
+/// `XDG_DATA_DIRS`, which it had put its own folders in front of.
+#[cfg(unix)]
+fn forget_appimage_runtime() {
+    let Ok(appdir) = std::env::var("APPDIR") else {
+        return;
+    };
+    let added = format!("{appdir}/usr/share:/usr/share:");
+    if let Some(theirs) = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .and_then(|dirs| dirs.strip_prefix(&added).map(str::to_owned))
+    {
+        match theirs.is_empty() {
+            true => std::env::remove_var("XDG_DATA_DIRS"),
+            false => std::env::set_var("XDG_DATA_DIRS", theirs),
+        }
+    }
+    for name in vars::APPIMAGE_RUNTIME {
+        std::env::remove_var(name);
+    }
 }
 
 /// `path` with the system folders added when it lacks them. A core keeps
@@ -242,18 +358,6 @@ mod path_tests {
             Some("/usr/bin:/bin:/usr/sbin:/sbin")
         );
     }
-}
-
-fn run_runtime(
-    work: impl std::future::Future<Output = Result<(), ServerError>>,
-) -> Result<(), ServerError> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("sikemux-core")
-        .build()?;
-    let result = runtime.block_on(work);
-    runtime.shutdown_timeout(Duration::from_millis(100));
-    result
 }
 
 fn exit_code(result: Result<(), ServerError>) -> i32 {

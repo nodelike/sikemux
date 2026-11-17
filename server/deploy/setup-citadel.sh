@@ -62,6 +62,9 @@ chown root:sikemux /etc/sikemux/api.env
 chmod 640 /etc/sikemux/api.env
 grep -q '^GEOIP_DIR=' /etc/sikemux/api.env ||
   echo 'GEOIP_DIR=/var/lib/sikemux-places' >>/etc/sikemux/api.env
+# Sentry's project sikemux-api. The DSN is a public key; only citadel has it, so nothing else reports.
+grep -q '^SENTRY_DSN=' /etc/sikemux/api.env ||
+  echo 'SENTRY_DSN=https://17b6c2227b3e9779893205a1d5db6d59@o4512409824919552.ingest.de.sentry.io/4512409866141776' >>/etc/sikemux/api.env
 
 step "stash: files written by the API, encrypted with a key kept in /etc/sikemux/stash.key"
 # The backup reads the files, which the key already encrypts, through the sikemux-stash group;
@@ -137,12 +140,17 @@ install -m 644 "$here/sikemux-purge.timer" /etc/systemd/system/sikemux-purge.tim
 install -m 644 "$here/sikemux-places.service" /etc/systemd/system/sikemux-places.service
 install -m 644 "$here/sikemux-places.timer" /etc/systemd/system/sikemux-places.timer
 install -D -m 755 -o root -g root "$here/update-places" /usr/local/lib/sikemux/update-places
+install -m 644 "$here/sikemux-leaderboard.service" /etc/systemd/system/sikemux-leaderboard.service
+install -m 644 "$here/sikemux-leaderboard.timer" /etc/systemd/system/sikemux-leaderboard.timer
+install -D -m 755 -o root -g root "$here/update-leaderboard" /usr/local/lib/sikemux/update-leaderboard
 systemctl daemon-reload
 systemctl enable sikemux-api >/dev/null
 [ "$stash_changed" = 0 ] || systemctl try-restart sikemux-api
 systemctl enable --now sikemux-purge.timer >/dev/null
 systemctl enable --now sikemux-places.timer >/dev/null
 [ -f /var/lib/sikemux-places/dbip-asn-lite.mmdb ] || systemctl start sikemux-places
+# Needs POSTHOG_API_KEY, a PostHog personal key that can write insights.
+[ ! -f /etc/sikemux/leaderboard.env ] || systemctl enable --now sikemux-leaderboard.timer >/dev/null
 
 step "backups: nightly, encrypted to an offline age key, sent to R2"
 if ! command -v age >/dev/null || ! command -v rclone >/dev/null; then
@@ -301,6 +309,8 @@ if [ -f /etc/sikemux/watch.env ]; then
 else
   echo "the watch waits for /etc/sikemux/watch.env holding DISCORD_WEBHOOK_URL, the #alerts webhook" >&2
 fi
+
+deploy_hash "$here" >/usr/local/lib/sikemux/deploy.hash
 
 step "done"
 echo "citadel is ready for the first deploy"

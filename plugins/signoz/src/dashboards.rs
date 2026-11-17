@@ -7,16 +7,119 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
+use crate::filter::text_of;
 use crate::filter::{Narrows, Scope};
-use crate::query::View;
-pub use sikemux_plugin_signoz_views::{
-    Column, Dashboard, DashboardSummary, Layout, Panel, PanelData, PanelRequest, Series, Variable,
-};
+use crate::services::Point;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardSummary {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub panels: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Variable {
+    pub name: String,
+    pub options: Vec<String>,
+    pub selected: String,
+}
+
+/// Where a panel sits on SigNoz's grid of twelve columns.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Layout {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Panel {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    pub unit: String,
+    pub layout: Layout,
+    /// Whether Sikemux can draw it. Anything else links out to SigNoz.
+    pub drawable: bool,
+    /// The panel's saved query, handed back unchanged to run it.
+    pub query: Value,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Dashboard {
+    pub id: String,
+    pub title: String,
+    pub variables: Vec<Variable>,
+    pub panels: Vec<Panel>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Series {
+    pub label: String,
+    pub points: Vec<Point>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Column {
+    pub name: String,
+    pub aggregation: bool,
+}
+
+/// What one panel draws: lines over time, a table, or one number.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "shape", rename_all = "camelCase")]
+pub enum PanelData {
+    Series {
+        series: Vec<Series>,
+    },
+    Table {
+        columns: Vec<Column>,
+        rows: Vec<Vec<Value>>,
+    },
+    Value {
+        value: Option<f64>,
+    },
+}
+
+pub fn plain_values<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, String>, D::Error> {
+    BTreeMap::<String, Value>::deserialize(deserializer)?
+        .into_iter()
+        .map(|(name, value)| {
+            text_of(value)
+                .map(|text| (name.clone(), text))
+                .map_err(|problem| serde::de::Error::custom(format!("`{name}`: {problem}")))
+        })
+        .collect()
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelRequest {
+    pub kind: String,
+    pub query: Value,
+    #[serde(default)]
+    pub variables: BTreeMap<String, String>,
+    #[serde(flatten)]
+    pub scope: Scope,
+}
 
 fn text(value: &Value, key: &str) -> String {
     value
@@ -64,8 +167,6 @@ pub async fn list(data_dir: &Path) -> SignozResult<Vec<DashboardSummary>> {
 #[derive(Deserialize)]
 pub struct DashboardRequest {
     pub id: String,
-    #[serde(default)]
-    pub view: View,
 }
 
 /// A panel as an agent reads it: enough to pick one and ask for its data.
@@ -87,13 +188,6 @@ pub struct DashboardOutline {
     pub title: String,
     pub variables: Vec<Variable>,
     pub panels: Vec<PanelSummary>,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub enum DashboardReply {
-    Full(Dashboard),
-    Outline(DashboardOutline),
 }
 
 fn outline(dashboard: Dashboard) -> DashboardOutline {
@@ -123,12 +217,8 @@ fn checked_id(id: &str) -> SignozResult<&str> {
     Ok(id)
 }
 
-pub async fn get(data_dir: &Path, request: DashboardRequest) -> SignozResult<DashboardReply> {
-    let dashboard = fetch(data_dir, &request.id).await?;
-    Ok(match request.view {
-        View::Pane => DashboardReply::Full(dashboard),
-        View::Agent => DashboardReply::Outline(outline(dashboard)),
-    })
+pub async fn get(data_dir: &Path, request: DashboardRequest) -> SignozResult<DashboardOutline> {
+    Ok(outline(fetch(data_dir, &request.id).await?))
 }
 
 pub async fn fetch(data_dir: &Path, id: &str) -> SignozResult<Dashboard> {
@@ -382,10 +472,7 @@ fn request_type(kind: &str) -> SignozResult<&'static str> {
 pub struct SavedPanelRequest {
     pub dashboard_id: String,
     pub panel_id: String,
-    #[serde(
-        default,
-        deserialize_with = "sikemux_plugin_signoz_views::plain_values"
-    )]
+    #[serde(default, deserialize_with = "plain_values")]
     pub variables: BTreeMap<String, String>,
     #[serde(flatten)]
     pub scope: Scope,

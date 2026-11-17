@@ -7,14 +7,14 @@
 //! - `stream N` sends N pieces of text;
 //! - `ask` asks permission and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on a
-//!   cancel;
+//!   cancel; `hold PATH` waits for as long as that file exists;
 //! - `plan` sets out a plan of three steps, one done, one under way, one to do;
 //! - `exit CODE` ends the process at once;
 //! - `who` says which account the process runs as;
 //! - `run COMMAND` runs a shell command in the session's folder, as a tool
 //!   call, and says what it printed;
 //! - `tool METHOD JSON` calls one of Sikemux's agent tools, as the agent, and
-//!   says the answer;
+//!   says the answer, or the prompt's lines after it when it has more;
 //! - `show JSON` shows a page with Sikemux's page_show tool, as a tool call
 //!   whose output is the tool's answer, so the reply carries the page, and
 //!   says the answer;
@@ -45,7 +45,6 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-/// What a session was started with.
 #[derive(Clone, Default)]
 struct Session {
     cwd: Option<PathBuf>,
@@ -164,7 +163,19 @@ fn prompt_text(params: &Value) -> String {
         .to_owned()
 }
 
-/// Runs `command` in the session's folder, answering what it printed.
+/// Every block of the prompt as text: what a turn said, and what came with it.
+fn prompt_all(params: &Value) -> String {
+    (params["prompt"].as_array().into_iter().flatten())
+        .map(|block| {
+            block["text"]
+                .as_str()
+                .or_else(|| block["resource"]["text"].as_str())
+                .map_or_else(|| block.to_string(), str::to_owned)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn run_command(session: &Session, command: &str) -> String {
     let mut shell = sikemux_process::user_environment::command("/bin/sh");
     shell.args(["-c", command]);
@@ -182,7 +193,6 @@ fn run_command(session: &Session, command: &str) -> String {
     }
 }
 
-/// Calls one of Sikemux's agent tools over the endpoint the session names.
 fn call_tool(session: &Session, method: &str, params: &str) -> String {
     match tool_answer(session, method, params) {
         Ok(answer) => format!("tool answered: {answer}"),
@@ -267,7 +277,8 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
     let line = command_line(text);
     let mut words = line.split_whitespace();
     let command = words.next().unwrap_or_default();
-    let argument = words.next().and_then(|word| word.parse::<u64>().ok());
+    let first_word = words.next();
+    let argument = first_word.and_then(|word| word.parse::<u64>().ok());
     let mut said = String::new();
     let mut say = |piece: &str| {
         agent.say(session_id, "agent_message_chunk", piece);
@@ -300,8 +311,11 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
         "hold" => {
             say("holding ");
             let deadline = Instant::now() + Duration::from_millis(argument.unwrap_or(1_000));
+            let gate = first_word.filter(|_| argument.is_none());
             let mut reason = "end_turn";
-            while Instant::now() < deadline {
+            while gate.map_or(Instant::now() < deadline, |gate| {
+                std::path::Path::new(gate).exists()
+            }) {
                 if agent.cancelled.swap(false, Ordering::AcqRel) {
                     reason = "cancelled";
                     break;
@@ -387,6 +401,21 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
             say(&output);
             "end_turn"
         }
+        "edit" => {
+            let path = line.trim_start().trim_start_matches("edit").trim();
+            let id = format!("edit-{path}");
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call", "toolCallId": id, "title": format!("Edit {path}"), "kind": "edit", "status": "in_progress" }),
+            );
+            let written = std::fs::write(path, "edited\n");
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed", "content": [{ "type": "diff", "path": path, "oldText": "", "newText": "edited\n" }] }),
+            );
+            say(&format!("edited: {written:?}"));
+            "end_turn"
+        }
         "show" => {
             let params = line.trim_start().trim_start_matches("show").trim();
             agent.update(
@@ -408,10 +437,39 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
             say(&said);
             "end_turn"
         }
+        // A row for one of our tools called with these arguments, without calling it.
+        "call" => {
+            let rest = line.trim_start().trim_start_matches("call").trim();
+            let (tool, input) = rest.split_once(' ').unwrap_or((rest, "{}"));
+            let input: Value = serde_json::from_str(input).unwrap_or_default();
+            let title = format!("mcp__sikemux-tools__{tool}");
+            let id = format!(
+                "call-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            );
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call", "toolCallId": id, "title": title, "kind": "other", "status": "in_progress", "rawInput": input }),
+            );
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed" }),
+            );
+            say("called");
+            "end_turn"
+        }
         "tool" => {
             let rest = line.trim_start().trim_start_matches("tool").trim();
             let (method, params) = rest.split_once(' ').unwrap_or((rest, "{}"));
-            say(&call_tool(&session, method, params.trim()));
+            let (params, then) = params.split_once('\n').unwrap_or((params, ""));
+            let answer = call_tool(&session, method, params.trim());
+            match then.trim() {
+                "" => say(&answer),
+                then => say(then),
+            }
             "end_turn"
         }
         _ => {
@@ -536,7 +594,14 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
             std::thread::spawn(move || {
                 let session_id = params["sessionId"].as_str().unwrap_or_default().to_owned();
                 agent.cancelled.store(false, Ordering::Release);
-                let stop_reason = run_turn(&agent, &session_id, &prompt_text(&params));
+                let text = prompt_text(&params);
+                let stop_reason = match text.trim() {
+                    "context" => {
+                        agent.say(&session_id, "agent_message_chunk", &prompt_all(&params));
+                        "end_turn"
+                    }
+                    _ => run_turn(&agent, &session_id, &text),
+                };
                 agent.reply(&id, json!({ "stopReason": stop_reason }));
             });
         }

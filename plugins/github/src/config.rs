@@ -2,12 +2,12 @@
 // GitHub. A token typed in is saved in the Keychain; one already in the
 // environment, or held by the `gh` CLI, is used where it is and never copied.
 
+use sikemux_process::command::Command;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use sikemux_plugin_api::process;
+use sikemux_plugin_api::http;
 use sikemux_plugin_api::store::{self, Accounts, Held, Secrets};
 use sikemux_plugin_api::{accounts, keychain_service};
 
@@ -83,17 +83,15 @@ impl GithubConfig {
     pub fn host_hint(&self) -> String {
         host_for(
             self.account(None).map(|account| account.host.as_str()),
-            process::user_environment::var("GH_HOST").as_deref(),
+            sikemux_process::user_environment::var("GH_HOST").as_deref(),
         )
     }
 
-    /// The host of the account named, or of the default one.
     pub fn host_of(&self, id: Option<&str>) -> String {
         self.account(id)
             .map_or_else(|| self.host_hint(), |account| account.host.clone())
     }
 
-    /// Whether any account signed in here is on this host.
     pub fn serves(&self, host: &str) -> bool {
         if self.accounts.is_empty() {
             return self.host_hint() == host;
@@ -116,37 +114,8 @@ pub fn load(data_dir: &Path) -> GithubResult<GithubConfig> {
     Ok(store::load(data_dir)?)
 }
 
-fn valid_label(label: &str) -> bool {
-    !label.is_empty()
-        && label.len() <= 63
-        && !label.starts_with('-')
-        && !label.ends_with('-')
-        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
-
-/// A bare hostname, with a port only when one was given. People paste whole
-/// URLs, so a scheme, a user and a path are trimmed off rather than refused.
 pub fn validate_host(raw: &str) -> GithubResult<String> {
-    let bad = || GithubError::BadArg("that is not a GitHub hostname".into());
-    let trimmed = raw.trim();
-    let after_scheme = trimmed.split_once("://").map_or(trimmed, |(_, rest)| rest);
-    let authority = after_scheme.split('/').next().unwrap_or(after_scheme);
-    let authority = authority.split('@').next_back().unwrap_or(authority);
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((host, port)) => (host, Some(port)),
-        None => (authority, None),
-    };
-    if let Some(port) = port {
-        let numeric =
-            !port.is_empty() && port.len() <= 5 && port.chars().all(|c| c.is_ascii_digit());
-        if !numeric {
-            return Err(bad());
-        }
-    }
-    if host.is_empty() || host.len() > 253 || !host.split('.').all(valid_label) {
-        return Err(bad());
-    }
-    Ok(authority.to_ascii_lowercase())
+    http::bare_host(raw).ok_or_else(|| GithubError::BadArg("that is not a GitHub hostname".into()))
 }
 
 /// github.com serves its API from a host of its own; every other GitHub serves
@@ -164,7 +133,7 @@ fn run(
     input: Option<&[u8]>,
     timeout: Duration,
 ) -> GithubResult<std::process::Output> {
-    process::run(command, input, timeout, OUTPUT_LIMIT, None)
+    sikemux_process::run(command, input, timeout, OUTPUT_LIMIT, None)
         .map_err(|error| GithubError::Transport(error.to_string()))
 }
 
@@ -180,7 +149,9 @@ fn token_vars(host: &str) -> [&'static str; 2] {
 
 fn env_entry(host: &str) -> Option<(&'static str, String)> {
     token_vars(host).into_iter().find_map(|name| {
-        let token = process::user_environment::var(name)?.trim().to_string();
+        let token = sikemux_process::user_environment::var(name)?
+            .trim()
+            .to_string();
         (!token.is_empty()).then_some((name, token))
     })
 }
@@ -197,7 +168,7 @@ pub fn env_variable(host: &str) -> Option<&'static str> {
 /// The token the `gh` CLI is already signed in with, so somebody who has run
 /// `gh auth login` never types one here.
 pub fn gh_cli_token(host: &str, login: Option<&str>) -> Option<String> {
-    let mut command = process::user_environment::command("gh");
+    let mut command = sikemux_process::user_environment::command("gh");
     command.args(["auth", "token", "--hostname", host]);
     if let Some(login) = login.filter(|login| !login.is_empty()) {
         command.args(["--user", login]);
@@ -273,6 +244,25 @@ pub fn resolve(
     Ok(Some((account, token)))
 }
 
+impl sikemux_plugin_api::vault::Listing for Account {
+    fn secret_account(&self) -> Option<String> {
+        matches!(self.source, TokenSource::Keychain).then(|| self.id.clone())
+    }
+
+    fn label(&self) -> String {
+        format!("{} on {}", self.login, self.host)
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Listed<Account> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "accounts",
+        "id",
+        Some("default"),
+        KEYCHAIN,
+    );
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,15 +301,6 @@ mod tests {
         ] {
             assert!(validate_host(raw).is_err(), "{raw}");
         }
-    }
-
-    #[test]
-    fn github_dot_com_has_its_own_api_host() {
-        assert_eq!(api_base("github.com"), "https://api.github.com");
-        assert_eq!(
-            api_base("git.example.com"),
-            "https://git.example.com/api/v3"
-        );
     }
 
     fn account(host: &str, login: &str) -> Account {

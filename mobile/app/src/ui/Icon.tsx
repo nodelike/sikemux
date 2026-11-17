@@ -1,6 +1,6 @@
 import { parse, SvgAst, type JsxAST } from 'react-native-svg';
 
-import { DRAWN_ICONS } from './drawnIcons';
+import { DRAWN_ICONS } from '@shared/ui/drawnIcons';
 import { ICONS, type IconName } from './icons.generated';
 import { useAgentBrand } from '@shared/agents/catalog';
 
@@ -24,7 +24,7 @@ export function Icon({ name, size = 16, color, filled }: { name: IconName; size?
 
 export function DrawnIcon({ name, size = 16, color }: { name: keyof typeof DRAWN_ICONS; size?: number; color?: string }) {
   const colors = useColors();
-  const xml = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${DRAWN_ICONS[name]}</svg>`;
+  const xml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${DRAWN_ICONS[name]}</svg>`;
   return <SvgAst ast={svg(xml)} override={{ width: size, height: size, color: color ?? colors.secondary }} />;
 }
 
@@ -44,7 +44,7 @@ const PROVIDER_ICONS: Record<Provider, IconName> = {
   muse: 'IconMuse',
 };
 
-export function isProvider(name: string): name is Provider {
+function isProvider(name: string): name is Provider {
   return name in PROVIDER_ICONS;
 }
 

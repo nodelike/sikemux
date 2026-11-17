@@ -2,28 +2,26 @@
 //! agent palette, the project picker, New… and the themes. Each fills a list of
 //! rows; the person types to narrow it, moves through it and picks one.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, list, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, FontWeight,
-    Hsla, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, ListAlignment, ListState,
-    MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window,
+    div, list, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, FontWeight, Hsla,
+    InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, ListAlignment, ListState,
+    MouseButton, ParentElement, SharedString, Styled, Subscription, Window,
 };
 
 use crate::icons::Icon;
-use crate::plugin_pane::Failure;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_5, TEXT_3XS, TEXT_3XS_H,
-    TEXT_MD, TEXT_SM, TEXT_XL,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_3XS, TEXT_3XS_H, TEXT_MD,
+    TEXT_SM, TEXT_XL,
 };
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Next, PageDown, PageUp, Previous};
 use crate::workbench::Workbench;
-
-actions!(palette, [Next, Previous, PageDown, PageUp, Choose, Close]);
 
 const ROW_HEIGHT: f32 = 30.;
 pub(crate) const HEAD_HEIGHT: f32 = 54.;
@@ -31,19 +29,17 @@ const INSET: f32 = ui::FLOAT_INSET;
 /// A hairline between groups, with the room around it.
 const RULE_HEIGHT: f32 = 17.;
 const SHOWN: usize = 200;
+const NUMBER_WIDTH: f32 = 8.;
+/// A row too narrow cuts its detail before its title.
+const META_GIVES_WAY: f32 = 1000.;
 const PAGE: isize = 8;
 
 pub fn install(cx: &mut App) {
-    let context = Some("Palette > Input");
+    let context = "Palette > Input";
+    list_picker::bind(context, list_picker::Tab::Steps, cx);
     cx.bind_keys([
-        KeyBinding::new("down", Next, context),
-        KeyBinding::new("tab", Next, context),
-        KeyBinding::new("up", Previous, context),
-        KeyBinding::new("shift-tab", Previous, context),
-        KeyBinding::new("pagedown", PageDown, context),
-        KeyBinding::new("pageup", PageUp, context),
-        KeyBinding::new("enter", Choose, context),
-        KeyBinding::new("escape", Close, context),
+        KeyBinding::new("pagedown", PageDown, Some(context)),
+        KeyBinding::new("pageup", PageUp, Some(context)),
     ]);
 }
 
@@ -56,7 +52,7 @@ pub enum Mark {
     /// An agent's CLI, in its brand colour.
     Agent(String),
     /// An open agent: its face, or its CLI's mark when faces are off.
-    Open(Box<crate::workbench::AgentRow>),
+    Open(Box<crate::agents::rows::AgentRow>),
 }
 
 #[derive(Clone)]
@@ -73,13 +69,15 @@ pub struct Row {
     /// An agent's @name, dimmed after its title.
     pub handle: Option<SharedString>,
     /// What an open agent is doing, drawn in place of the meta as the rail draws it.
-    pub state: Option<sikemux_wire::protocol::AgentStatus>,
+    pub state: Option<sikemux_view::turn::TurnState>,
     pub mark: Option<Mark>,
     /// The heading the row sits under while nothing is typed.
     pub group: Option<SharedString>,
     pub disabled: bool,
     /// The palette's armed choice does not reach this row, which says so while it is chosen.
     pub unarmed: bool,
+    /// Made from what is typed, it comes after the rows typing matches rather than before them.
+    pub trailing: bool,
     /// Everything typing matches against.
     pub search: String,
 }
@@ -100,7 +98,13 @@ impl Row {
             group: None,
             disabled: false,
             unarmed: false,
+            trailing: false,
         }
+    }
+
+    pub fn trailing(mut self) -> Self {
+        self.trailing = true;
+        self
     }
 
     pub fn unarmed(mut self, unarmed: bool) -> Self {
@@ -124,8 +128,8 @@ impl Row {
         self
     }
 
-    pub fn state(mut self, state: sikemux_wire::protocol::AgentStatus) -> Self {
-        self.state = Some(state);
+    pub fn state(mut self, state: Option<sikemux_view::turn::TurnState>) -> Self {
+        self.state = state;
         self
     }
 
@@ -176,14 +180,16 @@ pub struct Spec {
     pub browse: Option<Pick>,
     /// Heard when the palette closes with nothing picked.
     pub cancel: Option<Leave>,
+    /// Heard after each change to what is typed, and once the palette closes however it does.
+    pub typing: Option<Leave>,
     /// The row highlighted while nothing is typed, such as the theme worn now.
     pub start: Option<SharedString>,
-    /// A row made of what is typed, offered first when no row has its key.
-    pub typed: Option<Typed>,
     /// A choice beside the field that the pick reads, such as the mode an agent starts in.
     pub choice: Option<Choice>,
     /// A button beside the field that does something the rows cannot, such as opening a folder.
     pub aside: Option<Aside>,
+    /// A row made from what is typed, offered first, such as a folder named by its path.
+    typed: Option<Typed>,
     /// Drawn as the command deck: wider and taller, its rows' words in tracked capitals and
     /// their keys in keycaps.
     deck: bool,
@@ -227,16 +233,17 @@ impl Spec {
         Self {
             id,
             placeholder: placeholder.into(),
-            empty: "no matches".into(),
+            empty: t!("no matches").into(),
             rows,
             width: 560.,
             pick: Rc::new(pick),
             browse: None,
             cancel: None,
+            typing: None,
             start: None,
-            typed: None,
             choice: None,
             aside: None,
+            typed: None,
             deck: false,
             numbered: false,
             on_stage: false,
@@ -265,11 +272,6 @@ impl Spec {
         self
     }
 
-    pub fn typed(mut self, typed: impl Fn(&str) -> Option<Row> + 'static) -> Self {
-        self.typed = Some(Rc::new(typed));
-        self
-    }
-
     pub fn choice(mut self, choice: Choice) -> Self {
         self.choice = Some(choice);
         self
@@ -286,6 +288,11 @@ impl Spec {
             label: label.into(),
             press: Rc::new(press),
         });
+        self
+    }
+
+    pub fn typed(mut self, typed: impl Fn(&str) -> Option<Row> + 'static) -> Self {
+        self.typed = Some(Rc::new(typed));
         self
     }
 
@@ -332,25 +339,21 @@ impl Line {
     fn height(self) -> f32 {
         match self {
             Line::Rule => RULE_HEIGHT,
-            _ => ROW_HEIGHT,
+            _ => crate::theme::dense(ROW_HEIGHT),
         }
     }
 }
 
-/// The open palette: what it offers, what the person typed, and the lines
-/// that shows.
 pub struct Palette {
     spec: Spec,
     input: Entity<InputState>,
+    /// How many of the spec's rows its opener gave, before the one made from what is typed.
+    given: usize,
     lines: Vec<Line>,
     selected: Option<usize>,
     list: ListState,
     /// What had focus before the palette took it, to hand it back.
     before: Option<FocusHandle>,
-    /// The last row is the one made of what was typed.
-    typed_shown: bool,
-    /// Why its rows could not be read, and how to read them again.
-    failed: Option<(Failure, Leave)>,
     _typing: Subscription,
 }
 
@@ -359,9 +362,13 @@ impl Palette {
         self.spec.id
     }
 
+    fn numbering(&self, cx: &App) -> bool {
+        self.spec.numbered && self.input.read(cx).value().is_empty()
+    }
+
     /// The number `line` goes by in a numbered palette while nothing is typed.
     fn number_of(&self, line: usize, cx: &App) -> Option<usize> {
-        let numbering = self.spec.numbered && self.input.read(cx).value().is_empty();
+        let numbering = self.numbering(cx);
         let rows = self.lines[..=line.min(self.lines.len().saturating_sub(1))]
             .iter()
             .filter(|line| matches!(line, Line::Row(_)))
@@ -376,16 +383,12 @@ impl Palette {
     }
 
     fn filter(&mut self, query: &str) {
-        if self.typed_shown {
-            self.spec.rows.pop();
-            self.typed_shown = false;
-        }
+        self.spec.rows.truncate(self.given);
         let typed = self
             .spec
             .typed
             .as_ref()
-            .and_then(|typed| typed(query.trim()))
-            .filter(|row| !self.spec.rows.iter().any(|kept| kept.key == row.key));
+            .and_then(|typed| typed(query.trim()));
         let rows = &self.spec.rows;
         self.lines = if self.spec.ruled {
             ruled(rows, query.trim())
@@ -407,9 +410,12 @@ impl Palette {
                 .collect()
         };
         if let Some(row) = typed {
+            let line = Line::Row(self.spec.rows.len());
+            match row.trailing {
+                true => self.lines.push(line),
+                false => self.lines.insert(0, line),
+            }
             self.spec.rows.push(row);
-            self.lines.insert(0, Line::Row(self.spec.rows.len() - 1));
-            self.typed_shown = true;
         }
         self.list.reset(self.lines.len());
         let start = self
@@ -428,6 +434,11 @@ impl Palette {
             .position(|line| matches!(line, Line::Row(place) if rows[*place].key == *key))
     }
 
+    /// What is typed in its field.
+    pub fn query(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+
     /// The key of the row highlighted now.
     pub fn highlighted(&self) -> Option<SharedString> {
         self.selected
@@ -439,25 +450,13 @@ impl Palette {
     /// and the row they had reached.
     pub fn refill(&mut self, rows: Vec<Row>, cx: &App) {
         let reached = self.highlighted();
-        self.failed = None;
+        self.given = rows.len();
         self.spec.rows = rows;
-        self.typed_shown = false;
         let query = self.input.read(cx).value().to_string();
         self.filter(&query);
         if let Some(line) = reached.and_then(|key| self.line_of(&key)) {
             self.select(Some(line));
         }
-    }
-
-    /// Offers nothing, saying why in place of the rows, with `retry` to read them again.
-    pub fn failed(
-        &mut self,
-        failure: Failure,
-        retry: impl Fn(&mut Workbench, &mut Window, &mut Context<Workbench>) + 'static,
-        cx: &App,
-    ) {
-        self.refill(Vec::new(), cx);
-        self.failed = Some((failure, Rc::new(retry)));
     }
 
     fn choosable(&self, line: usize) -> bool {
@@ -552,8 +551,12 @@ impl Workbench {
             |bench, input, event: &InputEvent, window, cx| {
                 if let InputEvent::Change = event {
                     let query = input.read(cx).value().to_string();
-                    if let Some(palette) = bench.overlays.palette.as_mut() {
+                    let typing = bench.overlays.palette.as_mut().and_then(|palette| {
                         palette.filter(&query);
+                        palette.spec.typing.clone()
+                    });
+                    if let Some(typing) = typing {
+                        typing(bench, window, cx);
                     }
                     bench.browse(window, cx);
                     bench.parts.redraw(&bench.parts.finder, cx);
@@ -562,14 +565,17 @@ impl Workbench {
         );
         input.update(cx, |state, cx| state.focus(window, cx));
         let mut palette = Palette {
+            given: spec.rows.len(),
             spec,
             input,
             lines: Vec::new(),
             selected: None,
-            list: ListState::new(0, ListAlignment::Top, px(ROW_HEIGHT * 8.)),
+            list: ListState::new(
+                0,
+                ListAlignment::Top,
+                px(crate::theme::dense(ROW_HEIGHT) * 8.),
+            ),
             before,
-            typed_shown: false,
-            failed: None,
             _typing: typing,
         };
         palette.filter("");
@@ -580,8 +586,14 @@ impl Workbench {
 
     /// Closes the open palette with nothing picked.
     pub fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(cancel) = self.leave_palette(window, cx).and_then(|spec| spec.cancel) {
+        let Some(spec) = self.leave_palette(window, cx) else {
+            return;
+        };
+        if let Some(cancel) = spec.cancel {
             cancel(self, window, cx);
+        }
+        if let Some(typing) = spec.typing {
+            typing(self, window, cx);
         }
     }
 
@@ -650,9 +662,12 @@ impl Workbench {
             return;
         };
         if let Some(spec) = self.leave_palette(window, cx) {
-            let pick = spec.pick;
+            let (pick, typing) = (spec.pick, spec.typing);
             cx.defer_in(window, move |bench, window, cx| {
-                pick(&row, bench, window, cx)
+                pick(&row, bench, window, cx);
+                if let Some(typing) = typing {
+                    typing(bench, window, cx);
+                }
             });
         }
     }
@@ -665,8 +680,9 @@ pub(crate) fn list_room(window: &Window, deck: bool) -> f32 {
         true => 680_f32.min(height * 0.72),
         false => height * 0.62,
     };
-    let rows = ((panel - HEAD_HEIGHT - 1. - 2. * INSET - 2.) / ROW_HEIGHT).floor();
-    rows.max(1.) * ROW_HEIGHT
+    let row = crate::theme::dense(ROW_HEIGHT);
+    let rows = ((panel - HEAD_HEIGHT - 1. - 2. * INSET - 2.) / row).floor();
+    rows.max(1.) * row
 }
 
 pub fn overlay(
@@ -702,11 +718,8 @@ pub fn overlay(
             .flex()
             .justify_center()
             .items_start()
-            .pt(viewport.height * 0.13)
-            .bg(Hsla {
-                a: 0.68,
-                ..t.surface_sunken
-            })
+            .pt(viewport.height * list_picker::BACKDROP_TOP)
+            .bg(list_picker::backdrop_color(&t))
             .occlude()
             .on_mouse_down(MouseButton::Left, close)
             .child(
@@ -765,7 +778,7 @@ pub fn overlay(
                             .gap(SPACE_2H)
                             .h(px(HEAD_HEIGHT))
                             .px(px(2. * INSET))
-                            .border_b_1()
+                            .border_b(crate::theme::border())
                             .border_color(t.border)
                             .child(ui::icon(Icon::Search, 15.).text_color(t.text_tertiary))
                             .child(
@@ -805,28 +818,6 @@ pub fn overlay(
                             ),
                     )
                     .map(|panel| {
-                        if let Some((failure, retry)) = palette.failed.clone() {
-                            return panel.child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .pb(SPACE_5)
-                                    .child(crate::plugin_pane::failure(&failure, cx))
-                                    .child(
-                                        ui::Button::new(
-                                            "palette-retry",
-                                            "Try again",
-                                            ui::Variant::Outline,
-                                        )
-                                        .on_click(
-                                            cx.listener(move |bench, _, window, cx| {
-                                                retry(bench, window, cx)
-                                            }),
-                                        ),
-                                    ),
-                            );
-                        }
                         if count == 0 {
                             return panel.child(
                                 div()
@@ -864,7 +855,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         Some(Line::Heading(place)) => {
             let group = palette.spec.rows[*place].group.clone().unwrap_or_default();
             return div()
-                .h(px(ROW_HEIGHT))
+                .h(px(crate::theme::dense(ROW_HEIGHT)))
                 .px(SPACE_2)
                 .flex()
                 .items_end()
@@ -887,7 +878,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
     };
     let armed = palette.spec.choice.as_ref().is_some_and(Choice::armed_now);
     let meta: SharedString = match row.unarmed && armed {
-        true => "opens safe".into(),
+        true => t!("opens safe").into(),
         false => row.meta.clone(),
     };
     let selected = palette.selected == Some(line);
@@ -904,9 +895,9 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         .flex()
         .items_center()
         .gap(SPACE_2H)
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .px(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_SM))
         .text_color(ink)
         .when(selected, |element| element.bg(t.surface_chosen))
@@ -925,12 +916,16 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                     bench.browse(window, cx);
                     bench.parts.redraw(&bench.parts.finder, cx);
                 }))
-                .on_click(
-                    cx.listener(move |bench, _, window, cx| bench.pick(Some(line), window, cx)),
-                )
+                .clicks(cx.listener(move |bench, _, window, cx| bench.pick(Some(line), window, cx)))
         })
-        .when_some(palette.number_of(line, cx), |element, number| {
-            element.child(ui::kbd(number.to_string(), cx).flex_none())
+        .when(palette.numbering(cx), |element| {
+            element.child(
+                div().w(px(NUMBER_WIDTH)).flex_none().children(
+                    palette
+                        .number_of(line, cx)
+                        .map(|number| ui::kbd(number.to_string(), cx)),
+                ),
+            )
         })
         .when_some(row.mark.clone(), |element, mark| {
             element.child(
@@ -947,7 +942,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                     }),
             )
         })
-        .child(div().flex_1().min_w_0().truncate().child(ui::found(
+        .child(div().flex_grow(1.).min_w_0().truncate().child(ui::found(
             row.title.clone(),
             &palette.input.read(cx).value(),
             cx,
@@ -955,11 +950,8 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         .when_some(row.handle.clone(), |element, handle| {
             element.child(ui::meta(handle, cx).flex_none())
         })
-        .map(|element| {
-            match row
-                .state
-                .and_then(|state| ui::status_mark(&row.key, state, cx))
-            {
+        .map(
+            |element| match ui::turn_mark(&row.key, row.state.as_ref()) {
                 Some(state) => element.child(div().flex_none().child(state)),
                 None if meta.is_empty() => element,
                 None if palette.spec.deck => element.child(
@@ -971,34 +963,23 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                 None if row.meta_is_path => {
                     element.child(ui::mono(meta, TEXT_3XS_H, cx).flex_none())
                 }
-                None => element.child(ui::meta(meta, cx).flex_none()),
-            }
-        })
+                None => element.child(
+                    ui::meta(meta, cx)
+                        .min_w_0()
+                        .truncate()
+                        .flex_shrink(META_GIVES_WAY),
+                ),
+            },
+        )
         .when_some(row.keys.clone(), |element, keys| {
             element.child(match palette.spec.deck {
-                true => keycap(keys, selected, cx),
+                true => ui::keycap(keys, cx)
+                    .min_w(px(40.))
+                    .when(selected, |keycap| keycap.text_color(t.text_primary)),
                 false => ui::kbd(keys, cx).flex_none().pl(SPACE_1H),
             })
         })
         .into_any_element()
-}
-
-/// A shortcut in a key's box, inked as the row is.
-fn keycap(keys: SharedString, selected: bool, cx: &App) -> gpui_kit::Div {
-    let t = Tokens::get(cx);
-    ui::kbd(keys, cx)
-        .flex_none()
-        .min_w(px(40.))
-        .px(SPACE_1H)
-        .py(px(1.))
-        .line_height(theme::ui_text(TEXT_SM))
-        .flex()
-        .justify_center()
-        .border_1()
-        .border_color(t.border)
-        .bg(t.surface_sunken)
-        .rounded(theme::RADIUS_1)
-        .when(selected, |keycap| keycap.text_color(t.text_primary))
 }
 
 /// The choice beside the field as main's safety switch draws it: a sunken box of tracked mono
@@ -1012,9 +993,9 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
         .items_center()
         .gap(SPACE_0)
         .p(SPACE_0)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(Hsla {
             a: t.surface_sunken.a * 0.46,
             ..t.surface_sunken
@@ -1036,18 +1017,18 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .flex()
                         .items_center()
                         .gap(px(5.))
-                        .rounded(theme::RADIUS_2)
+                        .rounded(theme::radius_2())
                         .text_color(ink)
                         .when(on, |option| {
                             option
                                 .bg(t.surface_raised)
-                                .border_1()
+                                .border(crate::theme::border())
                                 .border_color(t.border)
                         })
                         .when(!on, |option| {
                             option.hover(move |style| style.text_color(t.text_primary))
                         })
-                        .on_click(cx.listener(move |bench, _, window, cx| {
+                        .clicks(cx.listener(move |bench, _, window, cx| {
                             chosen.set(at);
                             if let Some(palette) = &bench.overlays.palette {
                                 let input = palette.input.clone();
@@ -1064,7 +1045,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
                                         .letter_spacing(0.08)
                                 }
                             }
-                            .font_family(theme::MONO),
+                            .font_family(theme::mono_font()),
                         )
                 }),
         )

@@ -15,32 +15,63 @@ use gpui_kit::{
     px, App, AppContext, Context, Focusable, IntoElement, ScrollHandle, SharedString, Styled, Task,
     Window,
 };
-use sikemux_core::server::plugins::{Category, Outcome};
-use sikemux_core::server::{
-    call, ClosedAgentsParams, ReleasesParams, SearchParams, ShownStashItem, TrackedParams,
-};
+use sikemux_calls::call;
+use sikemux_calls::codehost::CodeHostProjectParams;
+use sikemux_calls::codehost::TrackedContextParams;
+use sikemux_calls::names::ClosedAgentsParams;
+use sikemux_calls::plugins::PluginOutcome;
+use sikemux_calls::saved::SessionSearchParams;
+use sikemux_calls::stash::ShownStashItem;
 use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
-use sikemux_wire::protocol::{ChatContext, ProjectInfo};
+use sikemux_plugin_api::FailureCategory;
+use sikemux_view::workspace::ProjectInfo;
+use sikemux_wire::protocol::{ChatContext, PermissionMode};
 
 use super::Composing;
+use crate::drag::DraggedChat;
 use crate::icons::Icon;
 use crate::ui::{self, DockMenu, DockRow, DockScope};
 use crate::workbench::Workbench;
+use sikemux_view::chat::{AGENT_URI, EARLIER_URI};
 
 const SHOWN: usize = 8;
-/// How many stash items the tray over the draft shows.
 const STASH_SHOWN: usize = 8;
-const AGENT: &str = "agent:";
-const FILE: &str = "file:";
-const FOLDER: &str = "folder:";
-const EARLIER: &str = "earlier:";
-const TRACKED: &str = "tracked:";
-const COMMAND: &str = "command:";
+pub(crate) const AGENT: &str = "agent:";
+pub(crate) const FILE: &str = "file:";
+pub(crate) const FOLDER: &str = "folder:";
+pub(crate) const EARLIER: &str = "earlier:";
+pub(crate) const TRACKED: &str = "tracked:";
+pub(crate) const COMMAND: &str = "command:";
 /// Earlier chats the core is asked for, and how long it may read transcripts for them.
 const EARLIER_SHOWN: usize = 4;
 const EARLIER_BUDGET_MS: u64 = 600;
 /// How long the person's typing must settle before the core searches earlier chats.
 const SETTLE: Duration = Duration::from_millis(150);
+
+/// A command Sikemux answers itself rather than sending to the agent; an agent's command of
+/// the same name is left out of the menu.
+#[derive(Clone, Copy, PartialEq)]
+enum Own {
+    Side,
+    Model,
+    Clear,
+    Fork,
+    Yolo,
+}
+
+impl Own {
+    const ALL: [Own; 5] = [Own::Side, Own::Model, Own::Clear, Own::Fork, Own::Yolo];
+
+    fn name(self) -> &'static str {
+        match self {
+            Own::Side => "side",
+            Own::Model => "model",
+            Own::Clear => "clear",
+            Own::Fork => "fork",
+            Own::Yolo => "yolo",
+        }
+    }
+}
 
 /// A word the caret is at the end of that starts with one of the menu's triggers.
 #[derive(Clone, PartialEq)]
@@ -53,11 +84,15 @@ struct Typed {
 
 fn typed(text: &str, caret: usize) -> Option<Typed> {
     let before = text.get(..caret)?;
-    let start = before.rfind(char::is_whitespace).map_or(0, |at| at + 1);
+    let start = before
+        .char_indices()
+        .rfind(|(_, ch)| ch.is_whitespace())
+        .map_or(0, |(at, ch)| at + ch.len_utf8());
     let mut word = before[start..].chars();
     let trigger = word
         .next()
-        .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))?;
+        .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))
+        .filter(|&first| first != '/' || before[..start].trim().is_empty())?;
     Some(Typed {
         trigger,
         start,
@@ -71,8 +106,9 @@ enum Choice {
     Mate {
         id: String,
         name: String,
-        title: String,
-        project: Option<String>,
+        title: Option<String>,
+        project: String,
+        /// The project is the one this chat is in.
         provider: String,
     },
     Entry {
@@ -84,6 +120,7 @@ enum Choice {
         description: String,
         hint: Option<String>,
     },
+    Own(Own, String),
     /// A saved chat no agent holds, which the core opens again for the message: one
     /// the person named and closed, or one found by what was said in it.
     Earlier {
@@ -142,15 +179,21 @@ fn tracked_empty(
     tracked: Option<&Tracked>,
     trigger: char,
 ) -> Option<String> {
-    let (things, matches) = match trigger {
-        '!' => ("pull requests", "No open pull request matches"),
-        _ => ("issues", "No open issue matches"),
+    let (pick, matches) = match trigger {
+        '!' => (
+            t!("Open a project to pick its pull requests"),
+            t!("No open pull request matches"),
+        ),
+        _ => (
+            t!("Open a project to pick its issues"),
+            t!("No open issue matches"),
+        ),
     };
     let Some(project) = project else {
-        return Some(format!("Open a project to pick its {things}"));
+        return Some(pick.to_owned());
     };
     if project.code_host.is_none() {
-        return Some("This project has no remote on a code host".into());
+        return Some(t!("This project has no remote on a code host").into());
     }
     match tracked {
         Some(Tracked::Failed(why)) => Some(why.to_string()),
@@ -159,7 +202,6 @@ fn tracked_empty(
     }
 }
 
-/// A closed agent the person named, as the core's `closedAgents` lists it.
 /// The menu on show: the word it answers, what it offers for it, and the one picked.
 pub struct Menu {
     typed: Typed,
@@ -241,10 +283,10 @@ impl Composing {
             } else if let Some(uri) = token
                 .id()
                 .strip_prefix(AGENT)
-                .map(|agent| format!("sikemux://agent/{agent}"))
+                .map(|agent| format!("{AGENT_URI}{agent}"))
                 .or_else(|| {
                     let chat = token.id().strip_prefix(EARLIER)?;
-                    Some(format!("sikemux://earlier/{chat}"))
+                    Some(format!("{EARLIER_URI}{chat}"))
                 })
             {
                 if !context.iter().any(|item: &ChatContext| item.uri == uri) {
@@ -264,7 +306,7 @@ impl Composing {
                 context.push(item.clone());
             }
         }
-        paths.truncate(sikemux_core::server::chat::prompt::MAX_ATTACHMENTS);
+        paths.truncate(sikemux_calls::chat::MAX_ATTACHMENTS);
         (paths, context)
     }
 }
@@ -272,28 +314,19 @@ impl Composing {
 impl Workbench {
     /// Opens, changes or closes the menu of `agent`'s draft after the person changed it.
     pub fn offer(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let Some(composing) = self
-            .chats
-            .open
-            .get(agent)
-            .and_then(|chat| chat.composer.as_ref())
-        else {
+        let Some(composing) = self.composing(agent) else {
             return;
         };
         let draft = composing.draft.read(cx);
-        let typed = typed(&draft.value(), draft.cursor());
+        let typed =
+            typed(&draft.value(), draft.cursor()).filter(|typed| names(agent, typed.trigger));
         let kept = composing.menu.as_ref().map(|menu| &menu.typed);
         let pinned = composing.menu.as_ref().is_some_and(|menu| menu.pinned);
         if typed.as_ref() == kept && !pinned {
             return;
         }
         let menu = typed.map(|typed| self.menu(agent, typed, cx));
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             composing.menu = menu;
         }
         cx.notify();
@@ -303,24 +336,7 @@ impl Workbench {
         let needle = typed.needle.to_lowercase();
         let choices: Rc<[Choice]> = match typed.trigger {
             '@' => self.mates(agent, &needle).into(),
-            '/' => self
-                .chats
-                .open
-                .get(agent)
-                .and_then(|chat| chat.state.as_ref())
-                .map_or(Vec::new(), |head| {
-                    head.commands
-                        .iter()
-                        .filter(|command| command.name.to_lowercase().contains(&needle))
-                        .take(SHOWN)
-                        .map(|command| Choice::Command {
-                            name: command.name.clone(),
-                            description: command.description.clone(),
-                            hint: command.hint.clone(),
-                        })
-                        .collect()
-                })
-                .into(),
+            '/' => self.commands(agent, &needle).into(),
             '#' | '!' => {
                 let tracked = self.tracked_of(agent);
                 tracked_choices(tracked, typed.trigger, &typed.needle).into()
@@ -379,12 +395,7 @@ impl Workbench {
     /// Opens the Stash's tray over the draft of `agent`'s chat, with the keys in the draft so the
     /// arrows, Return and Escape work in it, or closes it.
     pub fn toggle_stash_tray(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
             return;
         };
         composing.draft.read(cx).focus_handle(cx).focus(window, cx);
@@ -400,25 +411,14 @@ impl Workbench {
         };
         let mut menu = self.menu(agent, typed, cx);
         menu.pinned = true;
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             composing.menu = Some(menu);
         }
         cx.notify();
     }
 
     fn tracked_of(&self, agent: &str) -> Option<&Tracked> {
-        self.chats
-            .open
-            .get(agent)?
-            .composer
-            .as_ref()?
-            .tracked
-            .as_ref()
+        self.composing(agent)?.tracked.as_ref()
     }
 
     /// Asks the chat's core for its project's open issues and pull requests, the first time
@@ -431,19 +431,23 @@ impl Workbench {
         let host = project.code_host.as_ref()?.label.clone();
         let path = project.path.to_string_lossy().into_owned();
         let answer = (self.chat_target(agent))
-            .request_typed::<call::CodeHostTracked>(ReleasesParams { project: path });
-        let composing = self.chats.open.get_mut(agent)?.composer.as_mut()?;
+            .request_typed::<call::CodeHostTracked>(CodeHostProjectParams { project: path });
+        let composing = self.composing_mut(agent)?;
         composing.tracked = Some(Tracked::Reading);
         let agent = agent.to_owned();
         Some(cx.spawn(async move |this, cx| {
             let tracked = match answer.await {
-                Ok(Outcome::Failed(failed)) if failed.category == Category::Auth => {
+                Ok(PluginOutcome::Failed(failed)) if failed.category == FailureCategory::Auth => {
                     Tracked::Failed(
-                        format!("Sign in to {host} in the Git pane to pick from its issues").into(),
+                        t!(
+                            "Sign in to {host} in the Git pane to pick from its issues",
+                            host = host
+                        )
+                        .into(),
                     )
                 }
-                Ok(Outcome::Failed(failed)) => Tracked::Failed(failed.message.into()),
-                Ok(Outcome::Value(items)) => Tracked::Listed(
+                Ok(PluginOutcome::Failed(failed)) => Tracked::Failed(failed.message.into()),
+                Ok(PluginOutcome::Value(items)) => Tracked::Listed(
                     serde_json::from_value::<Vec<TrackedItem>>(items)
                         .unwrap_or_default()
                         .into(),
@@ -452,12 +456,7 @@ impl Workbench {
             };
             this.update(cx, |bench, cx| {
                 let project = bench.project().cloned();
-                let Some(composing) = bench
-                    .chats
-                    .open
-                    .get_mut(&agent)
-                    .and_then(|chat| chat.composer.as_mut())
-                else {
+                let Some(composing) = bench.composing_mut(&agent) else {
                     return;
                 };
                 if let Some(menu) = composing
@@ -481,36 +480,83 @@ impl Workbench {
 
     /// The other named agents whose name starts with `needle`: the chat's own project's
     /// first, then every other project's.
+    fn commands(&self, agent: &str, needle: &str) -> Vec<Choice> {
+        let Some(head) = (self.chats.open.get(agent)).and_then(|chat| chat.state.as_ref()) else {
+            return Vec::new();
+        };
+        let saved = self.saved_agent(agent);
+        let yolo = saved.filter(|saved| {
+            (self.reads.catalog.kind(&saved.provider))
+                .is_some_and(|kind| kind.can_skip_asking(self.in_terminal(agent)))
+        });
+        let own = Own::ALL.into_iter().filter_map(|own| {
+            let description = match own {
+                Own::Side => saved
+                    .filter(|saved| !saved.terminal)
+                    .map(|_| t!("Ask aside, with this chat's context").to_owned()),
+                Own::Model => head.model.as_ref().map(|_| t!("Pick the model").to_owned()),
+                Own::Clear => saved.map(|_| t!("Start a fresh chat with this agent").to_owned()),
+                Own::Fork => (saved.is_some() && head.turned).then(|| {
+                    t!("Go on in a new chat that takes this one's words along").to_owned()
+                }),
+                Own::Yolo => yolo.map(|saved| match saved.permission_mode {
+                    PermissionMode::Bypass => t!("Ask before acting again").to_owned(),
+                    PermissionMode::WorkspaceWrite | PermissionMode::Auto => {
+                        t!("Act without asking").to_owned()
+                    }
+                }),
+            }?;
+            Some((own, description))
+        });
+        let own: Vec<(Own, String)> = own.collect();
+        let taken: Vec<&str> = own.iter().map(|(own, _)| own.name()).collect();
+        let theirs = (head.commands.iter())
+            .filter(|command| !taken.contains(&command.name.as_str()))
+            .map(|command| Choice::Command {
+                name: command.name.clone(),
+                description: command.description.clone(),
+                hint: command.hint.clone(),
+            });
+        let own = own
+            .into_iter()
+            .map(|(own, description)| Choice::Own(own, description));
+        own.chain(theirs)
+            .filter(|choice| match choice {
+                Choice::Own(own, _) => own.name().contains(needle),
+                Choice::Command { name, .. } => name.to_lowercase().contains(needle),
+                _ => false,
+            })
+            .take(SHOWN)
+            .collect()
+    }
+
     fn mates(&self, agent: &str, needle: &str) -> Vec<Choice> {
+        let agent = (crate::calls::reply::call_of(agent))
+            .and_then(|call| self.call_at(call))
+            .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
         let own = self
             .shown()
             .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
             .map(|saved| saved.project.clone());
-        let mut projects: Vec<(&str, Option<String>)> = Vec::new();
-        if let Some(own) = &own {
-            projects.push((own, None));
-        }
-        projects.extend(
-            self.projects()
-                .iter()
-                .filter(|project| Some(&project.id) != own.as_ref())
-                .map(|project| (project.id.as_str(), Some(project.name.clone()))),
-        );
+        let mut projects: Vec<&ProjectInfo> = self.projects().iter().collect();
+        projects.sort_by_key(|project| Some(&project.id) != own.as_ref());
         projects
             .into_iter()
-            .flat_map(|(project, name)| {
-                self.agents_of(project).into_iter().filter_map(move |row| {
-                    let mate = row.name.clone().filter(|mate| {
-                        row.id != agent && mate.to_lowercase().starts_with(needle)
-                    })?;
-                    Some(Choice::Mate {
-                        id: row.id,
-                        name: mate,
-                        title: row.title,
-                        project: name.clone(),
-                        provider: row.provider,
+            .flat_map(|project| {
+                self.agents_of(&project.id)
+                    .into_iter()
+                    .filter_map(move |row| {
+                        let mate = row.name.clone().filter(|mate| {
+                            row.id != agent && mate.to_lowercase().starts_with(needle)
+                        })?;
+                        Some(Choice::Mate {
+                            id: row.id,
+                            name: mate,
+                            title: row.titled.then_some(row.title),
+                            project: project.name.clone(),
+                            provider: row.provider,
+                        })
                     })
-                })
             })
             .take(SHOWN)
             .collect()
@@ -554,7 +600,7 @@ impl Workbench {
         });
         let wanted = needle.trim().to_lowercase();
         let search = (!wanted.is_empty()).then(|| {
-            let params = SearchParams {
+            let params = SessionSearchParams {
                 query: wanted.clone(),
                 projects: Some(vec![PathBuf::from(&cwd)]),
                 limit: Some(EARLIER_SHOWN),
@@ -567,10 +613,7 @@ impl Workbench {
             let offer = |choices: Vec<Choice>, cx: &mut gpui_kit::AsyncApp| {
                 this.update(cx, |bench: &mut Workbench, cx| {
                     let menu = bench
-                        .chats
-                        .open
-                        .get_mut(&agent)
-                        .and_then(|chat| chat.composer.as_mut())
+                        .composing_mut(&agent)
                         .and_then(|composing| composing.menu.as_mut());
                     if let Some(menu) = menu.filter(|_| !choices.is_empty()) {
                         menu.choices = menu.choices.iter().cloned().chain(choices).collect();
@@ -640,10 +683,7 @@ impl Workbench {
             let entries = ranking.await;
             this.update(cx, |bench, cx| {
                 if let Some(menu) = bench
-                    .chats
-                    .open
-                    .get_mut(&agent)
-                    .and_then(|chat| chat.composer.as_mut())
+                    .composing_mut(&agent)
                     .and_then(|composing| composing.menu.as_mut())
                 {
                     menu.choices = entries.into();
@@ -658,21 +698,16 @@ impl Workbench {
     /// Ranks the menu of `agent`'s draft again, once the core has listed the project's files.
     pub fn files_listed(&mut self, cx: &mut Context<Self>) {
         let menus: Vec<(String, String)> = self
-            .chats
-            .open
-            .iter()
-            .filter_map(|(agent, chat)| {
-                let typed = &chat.composer.as_ref()?.menu.as_ref()?.typed;
-                (typed.trigger == '+').then(|| (agent.clone(), typed.needle.clone()))
+            .composers()
+            .filter_map(|(owner, composing)| {
+                let typed = &composing.menu.as_ref()?.typed;
+                (typed.trigger == '+').then(|| (owner.to_owned(), typed.needle.clone()))
             })
             .collect();
         for (agent, needle) in menus {
             let ranking = self.rank_entries(&agent, needle, cx);
             if let Some(menu) = self
-                .chats
-                .open
-                .get_mut(&agent)
-                .and_then(|chat| chat.composer.as_mut())
+                .composing_mut(&agent)
                 .and_then(|composing| composing.menu.as_mut())
             {
                 menu._ranking = Some(ranking);
@@ -680,18 +715,61 @@ impl Workbench {
         }
     }
 
+    /// Puts a chat dragged from the agent rail into `agent`'s draft at the caret, as naming it
+    /// with `@` does: its agent, for the core to describe, or a closed chat, which the core opens
+    /// again for the message.
+    pub fn mention_chat(
+        &mut self,
+        agent: &str,
+        chat: &DraggedChat,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(composing) = self.composing_mut(agent) else {
+            return;
+        };
+        let token = match (&chat.agent, &chat.recent) {
+            (Some((id, name)), _) => {
+                Some(InlineToken::new(format!("{AGENT}{id}"), format!("@{name}")))
+            }
+            (None, Some(recent)) => {
+                let uri = recent
+                    .split_once(':')
+                    .map(|(cli, session)| format!("{EARLIER_URI}{cli}/{session}"));
+                if let Some(uri) =
+                    uri.filter(|uri| !composing.context.iter().any(|held| held.uri == *uri))
+                {
+                    composing.context.push(ChatContext {
+                        uri,
+                        title: chat.label.to_string(),
+                        text: String::new(),
+                    });
+                }
+                None
+            }
+            (None, None) => None,
+        };
+        composing.draft.update(cx, |draft, cx| {
+            if let Some(token) = token {
+                if let Err(error) = draft.replace_with_token(token, window, cx) {
+                    eprintln!("sikemux: a dropped chat did not go into the draft: {error}");
+                }
+                draft.replace(" ", window, cx);
+            }
+            draft.focus_handle(cx).focus(window, cx);
+        });
+        cx.notify();
+    }
+
     /// Moves the menu's pick by `by`, round its ends.
     pub fn pick_choice(&mut self, agent: &str, by: isize, cx: &mut Context<Self>) {
         if let Some(menu) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
+            .composing_mut(agent)
             .and_then(|composing| composing.menu.as_mut())
         {
-            let count = menu.choices.len() as isize;
+            let count = menu.choices.len();
             if count > 0 {
-                menu.selected = (menu.selected as isize + by).rem_euclid(count) as usize;
+                menu.selected = crate::ui::list_picker::stepped(menu.selected, by, count);
                 menu.scroll.scroll_to_item(menu.selected);
                 cx.notify();
             }
@@ -707,12 +785,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
             return;
         };
         let Some(start) = (composing.menu.as_ref())
@@ -731,12 +804,7 @@ impl Workbench {
     }
 
     pub fn dismiss_menu(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             composing.menu = None;
             cx.notify();
         }
@@ -752,12 +820,7 @@ impl Workbench {
     ) {
         let project = self.project().map(|project| project.path.clone());
         let target = self.chat_target(agent);
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
             return;
         };
         let Some(menu) = composing.menu.take() else {
@@ -766,6 +829,32 @@ impl Workbench {
         let Some(choice) = menu.choices.get(index.unwrap_or(menu.selected)).cloned() else {
             return;
         };
+        if let Choice::Own(own, _) = choice {
+            composing.draft.update(cx, |draft, cx| {
+                let end = draft.cursor();
+                draft.set_selected_range(menu.typed.start..end, cx);
+                draft.replace("", window, cx);
+            });
+            if own == Own::Side {
+                let text = composing.draft.read(cx).value().trim().to_owned();
+                composing
+                    .draft
+                    .update(cx, |draft, cx| draft.set_value("", window, cx));
+                self.side_chat(agent, text, cx);
+                return cx.notify();
+            }
+            match own {
+                Own::Side => {}
+                Own::Model => composing.model_open = true,
+                Own::Clear => self.fresh_chat(agent),
+                Own::Fork => self.fork_chat(agent, cx),
+                Own::Yolo => {
+                    crate::keymap::count(crate::workbench::actions::ToggleYolo::ID.name(), cx);
+                    self.toggle_yolo(agent)
+                }
+            }
+            return cx.notify();
+        }
         let stashed = match &choice {
             Choice::Stashed(shown) => Some(shown.item.id.clone()),
             _ => None,
@@ -776,15 +865,16 @@ impl Workbench {
         }
         if let (Choice::Tracked(item), Some(project)) = (&choice, &project) {
             let id = tracked_id(item);
-            let answer = target.request_typed::<call::CodeHostTrackedContext>(TrackedParams {
-                project: project.to_string_lossy().into_owned(),
-                kind: item.kind,
-                number: item.number,
-            });
+            let answer =
+                target.request_typed::<call::CodeHostTrackedContext>(TrackedContextParams {
+                    project: project.to_string_lossy().into_owned(),
+                    kind: item.kind,
+                    number: item.number,
+                });
             let agent = agent.to_owned();
             cx.spawn(async move |this, cx| {
                 let context = match answer.await {
-                    Ok(Outcome::Value(context)) => {
+                    Ok(PluginOutcome::Value(context)) => {
                         serde_json::from_value::<ChatContext>(context).ok()
                     }
                     _ => None,
@@ -793,12 +883,7 @@ impl Workbench {
                     return;
                 };
                 this.update(cx, |bench, cx| {
-                    if let Some(composing) = bench
-                        .chats
-                        .open
-                        .get_mut(&agent)
-                        .and_then(|chat| chat.composer.as_mut())
-                    {
+                    if let Some(composing) = bench.composing_mut(&agent) {
                         composing.tracked_context.insert(id, context);
                         bench.typed_draft(&agent, cx);
                     }
@@ -815,7 +900,7 @@ impl Workbench {
             ..
         } = &choice
         {
-            let uri = format!("sikemux://earlier/{cli}/{session}");
+            let uri = format!("{EARLIER_URI}{cli}/{session}");
             if !composing.context.iter().any(|held| held.uri == uri) {
                 composing.context.push(ChatContext {
                     uri,
@@ -864,7 +949,7 @@ impl Workbench {
                     format!("{EARLIER}{cli}/{session}"),
                     format!("@{name}"),
                 )),
-                Choice::Earlier { .. } | Choice::Stashed(_) => {
+                Choice::Earlier { .. } | Choice::Stashed(_) | Choice::Own(..) => {
                     draft.replace("", window, cx);
                     None
                 }
@@ -930,13 +1015,19 @@ fn ranked_entries(needle: &str, files: &Arc<Vec<String>>) -> Vec<Choice> {
 }
 
 /// The kinds of thing the menu names, in the order its heading lists them.
-const SCOPES: [(char, &str); 5] = [
-    ('@', "Agents"),
-    ('#', "Issues"),
-    ('!', "Pull requests"),
-    ('+', "Files"),
-    ('&', "Stash"),
+const SCOPES: [(char, Icon, &str); 5] = [
+    ('@', Icon::Agents, n!("Agents")),
+    ('#', Icon::Issue, n!("Issues")),
+    ('!', Icon::PullRequest, n!("Pull requests")),
+    ('+', Icon::File, n!("Files")),
+    ('&', Icon::Stash, n!("Stash")),
 ];
+
+/// Whether `owner`'s draft names things with `trigger`. A call's reply names agents and
+/// files alone: its answer carries no issue, and a command acts on a chat.
+fn names(owner: &str, trigger: char) -> bool {
+    crate::calls::reply::call_of(owner).is_none() || matches!(trigger, '@' | '+')
+}
 
 /// The menu over the draft of `agent`'s chat, while it offers anything, under a heading of the
 /// kinds of thing it names; `repo` is the project's on its code host. It reads `bench`, which
@@ -955,15 +1046,16 @@ pub fn dock(
     }
     let headed = |dock: DockMenu| {
         if trigger == '/' {
-            return dock.titled("Session commands", "ACP");
+            return dock.titled(t!("Commands"), "");
         }
         let scopes = SCOPES
             .iter()
-            .map(|&(key, label)| {
+            .filter(|(key, ..)| names(agent, *key))
+            .map(|&(key, icon, label)| {
                 let (this, agent) = (cx.weak_entity(), agent.to_owned());
                 DockScope {
-                    key: key.to_string().into(),
-                    label: label.into(),
+                    icon,
+                    label: crate::i18n::tr(label).into(),
                     on: key == trigger,
                     choose: Rc::new(move |window: &mut Window, cx: &mut App| {
                         this.update(cx, |bench, cx| bench.switch_scope(&agent, key, window, cx))
@@ -973,22 +1065,21 @@ pub fn dock(
             })
             .collect();
         let aside = match trigger {
-            '+' => "attach",
             '#' | '!' => repo.unwrap_or_default(),
-            _ => "mention",
+            _ => "",
         };
         dock.heading(scopes, aside.to_owned())
     };
     if menu.choices.is_empty() {
         let blank = menu.typed.needle.is_empty();
         let empty = match trigger {
-            '@' if blank => Some(DockMenu::empty("No other agent yet")),
-            '@' => Some(DockMenu::empty("No agent or earlier chat matches")),
+            '@' if blank => Some(DockMenu::empty(t!("No other agent yet"))),
+            '@' => Some(DockMenu::empty(t!("No agent or earlier chat matches"))),
             '+' if files.project.is_none() => {
-                Some(DockMenu::empty("Open a project to pick its files"))
+                Some(DockMenu::empty(t!("Open a project to pick its files")))
             }
             '+' if !files.listed() => Some(DockMenu::loading()),
-            '+' => Some(DockMenu::empty("Nothing in the project matches")),
+            '+' => Some(DockMenu::empty(t!("Nothing in the project matches"))),
             '#' | '!' => Some(
                 menu.empty
                     .clone()
@@ -1000,7 +1091,6 @@ pub fn dock(
     }
     let this = cx.weak_entity();
     let tint = crate::theme::Tokens::get(cx).text_tertiary;
-    let mut shown_project: Option<&str> = None;
     let mut shown_kind = None;
     let rows = menu.choices.iter().enumerate().map(|(index, choice)| {
         let (this, agent) = (this.clone(), agent.to_owned());
@@ -1018,19 +1108,17 @@ pub fn dock(
                 project,
                 provider,
             } => {
-                let group = (project.as_deref() != shown_project)
-                    .then(|| project.clone().map(SharedString::from))
-                    .flatten();
-                shown_project = project.as_deref();
                 let row = bench.agent_by_id(id);
-                DockRow::new(format!("@{name}"), choose)
-                    .mark(
-                        row.as_ref()
-                            .map_or_else(|| ui::mark(provider, 13.), |agent| agent.mark(13., cx)),
-                    )
-                    .detail(title.clone())
-                    .state(row.and_then(|agent| ui::status_mark(&agent.id, agent.status, cx)))
-                    .group(group)
+                let shown = DockRow::new(format!("@{name}"), choose).mark(
+                    row.as_ref()
+                        .map_or_else(|| ui::mark(provider, 13.), |agent| agent.mark(13., cx)),
+                );
+                match title {
+                    Some(title) => shown.detail(title.clone()),
+                    None => shown,
+                }
+                .place(project.clone())
+                .state(row.and_then(|agent| ui::turn_mark(&agent.id, agent.turn.as_ref())))
             }
             Choice::Entry { path, folder } => {
                 let parent = path.rsplit_once('/').map_or(".", |(parent, _)| parent);
@@ -1049,6 +1137,7 @@ pub fn dock(
                     )
                 };
                 DockRow::new(leaf(path).to_owned(), choose)
+                    .code()
                     .mark(mark)
                     .detail(parent.to_owned())
             }
@@ -1056,9 +1145,18 @@ pub fn dock(
                 name,
                 description,
                 hint,
-            } => DockRow::new(format!("/{name}"), choose)
-                .detail(description.clone())
-                .aside(hint.clone().map(SharedString::from)),
+            } => {
+                let row = DockRow::new(format!("/{name}"), choose).code();
+                match hint {
+                    Some(hint) if description.is_empty() => row.detail(hint.clone()),
+                    hint => row
+                        .detail(description.clone())
+                        .aside(hint.clone().map(SharedString::from)),
+                }
+            }
+            Choice::Own(own, description) => DockRow::new(format!("/{}", own.name()), choose)
+                .code()
+                .detail(description.clone()),
             Choice::Earlier {
                 cli,
                 name,
@@ -1066,19 +1164,16 @@ pub fn dock(
                 active_at,
                 ..
             } => {
-                let kind = if name.is_some() {
-                    "Closed"
-                } else {
-                    "Earlier chats"
-                };
-                let group = (shown_kind != Some(kind)).then_some(SharedString::from(kind));
-                shown_kind = Some(kind);
+                let divided = shown_kind != Some(name.is_some());
+                shown_kind = Some(name.is_some());
                 let row = match name {
-                    Some(name) => DockRow::new(format!("@{name}"), choose).detail(title.clone()),
+                    Some(name) => DockRow::new(format!("@{name}"), choose)
+                        .detail(title.clone())
+                        .aside(Some(t!("closed").into())),
                     None => DockRow::new(title.clone(), choose)
                         .aside(active_at.map(|at| crate::ui::time::age(at).into())),
                 };
-                row.mark(ui::mark(cli, 13.)).group(group)
+                row.mark(ui::mark(cli, 13.)).divided(divided)
             }
             Choice::Tracked(item) => {
                 let (sign, icon) = match item.kind {

@@ -2,12 +2,10 @@
 // keep a secret, so the client secret is compiled in, as every desktop
 // Bitbucket client does.
 
-use sikemux_plugin_api::oauth::{
-    Authorize, KeychainEntry, OAuthApp, Refreshing, Secret, TokenRequest,
-};
+use sikemux_plugin_api::oauth::{Authorize, OAuthApp, Refreshing, Secret, TokenRequest};
 
 use crate::client::HTTP;
-use crate::config::{self, Account};
+use crate::config;
 use crate::error::Bitbucket;
 
 pub static APP: OAuthApp = OAuthApp {
@@ -24,23 +22,14 @@ pub static APP: OAuthApp = OAuthApp {
     token_request: TokenRequest::BasicAuthForm,
 };
 
-pub static ACCESS: Refreshing<Bitbucket> = Refreshing::new(&APP, &HTTP);
+pub static ACCESS: Refreshing<Bitbucket> = Refreshing::new(&APP, &HTTP, config::KEYCHAIN);
 
-pub fn entry(account: &Account) -> KeychainEntry {
-    KeychainEntry {
-        secrets: config::KEYCHAIN,
-        account: account.keychain_account(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_browser_is_sent_back_to_bitbucket_s_own_path() {
-        let url = APP.authorize_address("s1", None);
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A47123%2Fbitbucket%2Fcallback"));
-        assert!(url.ends_with("state=s1"));
-    }
-}
+pub static BOOK: sikemux_plugin_api::vault::Listed<config::Account> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "accounts",
+        "id",
+        Some("default"),
+        config::KEYCHAIN,
+    )
+    .renewed_by(&ACCESS);

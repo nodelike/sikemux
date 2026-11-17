@@ -1,9 +1,9 @@
 ---
 title: Open a project
-description: "Projects, and the sikemux.json that adds actions and tasks to one."
+description: "Projects, and the sikemux.json that adds actions and processes to one."
 ---
 
-A project is a folder: its editor, terminals, Git and search all work in that directory. Open one with `⌘O`, or from a terminal with the `sikemux` CLI:
+A project is a folder: its editor, terminals, Git and search all work in that directory. Open one with `⌘O`, where you can also type a folder's path such as `~/code/app`, or from a terminal with the `sikemux` CLI:
 
 ```bash
 sikemux .
@@ -12,13 +12,21 @@ sikemux src/App.tsx:42:5
 
 Install the CLI from **Settings → Command line**.
 
+## New and cloned projects
+
+`⌘O` also starts a project from nothing. Type a name that matches no project, such as `Pinball Stats`, and pick **New project “Pinball Stats”**: Sikemux makes the folder `pinball-stats` with an empty git repository and opens it. Paste a repository's address instead, such as `git@github.com:team/app.git` or `https://codeberg.org/team/app`, and pick **Clone app**: the project opens at once and the repository comes down in the background, its progress at the end of the project's row in the side rail. If the clone fails, the row says so and hovering it says why; click it to close the project and remove its folder.
+
+Both go in the folder you keep projects in: the first folder under **Settings → General → Project folders**, else the folder most of your projects are in, else your home folder, never inside another repository. A name that is taken gets `-2` after it. With a [linked host](/agents/linked-hosts/) in front, the project is made on that host. A clone signs in to the code host the way `git` on that host does, with its SSH keys or credential helper.
+
+A repository you have on more than one host of your account is one project, with a copy on each; the side rail lists it once, and its tree switches between the copies. [On a server](/getting-started/install/#on-a-server) says how.
+
 Sikemux is also listed under **Open With** in Finder and in apps that use it, such as Raycast. A folder opens as a project, and a text file opens in the editor of the repository it belongs to.
 
 Markdown opens as it reads, and a `.dbml` schema opens as a diagram of its tables with a line between each pair of columns that refer to each other; **Source** above it shows the text. Drag the canvas or scroll to move around, pinch or scroll with `⌘` to zoom, drag a table to move it (where you leave the tables, and the pan and zoom, are kept across restarts), and point at a table to light up its relationships. Double-click a table to jump to it in the source, or the empty canvas to fit everything in view. An HTML file opens as its source; **Preview** above it draws the page as a browser would, with the styles and pictures beside it, and its web links open in your browser.
 
 ## Moving around
 
-Swipe sideways with two fingers on the trackpad to move between a project's tabs, one tab per swipe.
+The arrows at the left of the top bar go back to the tab you had in front before this one and forward again, as a browser does through pages: a chat, a file, a terminal, Git or a browser tab, in whichever project or host it was. ⌘[ and ⌘] do the same, and so do the back and forward buttons on a mouse and a two-finger swipe sideways on the trackpad, one step per swipe, the tab you go back to coming in from the left. A tab closed since is passed over, and an arrow is greyed when there is nowhere left to go. Going to a new tab after going back forgets the way forward. A tab that shows a file only to look at, until you open another in its place, counts as one tab, so going back to it shows the file it holds now. In a file, ⌘[ and ⌘] first go back to where you were before a jump, such as to a definition, and on a browser page that has the keys they go back and forward in the page instead.
 
 The rail on the right has three pages, picked from the icons at its foot or by swiping across the rail:
 
@@ -28,30 +36,33 @@ The rail on the right has three pages, picked from the icons at its foot or by s
 
 The tree opens its folders to the file in front. Drag a file or folder onto a folder to move it there, or onto the tree's empty space to move it to the project's folder; its open tabs and unsaved edits go with it. Files dragged in from Finder are copied, on this host only. Dropped anywhere outside the tree, a chat or a terminal, Finder's files go to the terminal you are typing in, else to the chat in front.
 
-Each project's row in the side rail shows the faces of its open agents, with a count of any past five, and a mark for how they stand together: working, waiting on you, or finished unseen. At the top of the **Agents** and **Terminals** pages, **All projects** counts the agents in other projects that are waiting on you.
+The sort button beside **Projects** in the side rail lists them by **Recent**, the one you last worked in first (the default), **Created**, the first you opened first, or **Manual**, the order you drag them in. Dragging a project puts the list in **Manual**.
 
-A terminal shows the folder its shell is in and how its last command went (running, done, or exit and its code) in its bottom corner. An SSH terminal's tab has a dot instead: green once connected, amber while connecting, red when it gave up.
+Each project's row in the side rail shows the faces of its open agents, with a count of any past five, and a mark for how they stand together: working, waiting on you, or finished unseen. At the top of the **Agents** and **Terminals** pages, **All projects** counts what in other projects waits on you, and the Dock icon's badge counts it everywhere: a decision to make, such as a question, a permission or a pull request to merge; something only you can do, such as signing in, giving a secret or typing in a terminal; or something to fix, such as a failed turn or check. Work under way and finished turns don't count.
 
-## Project settings
+A terminal shows the folder its shell is in and how its last command went (running, done, or exit and its code) in its bottom corner. An SSH terminal's tab has a dot instead: green once connected, amber while connecting, red when it gave up. Closing a terminal's tab or pane, with `⌘W` or otherwise, ends its shell and anything running in it, without asking. A process's output tab is different: closing it leaves the process running.
 
-Right-click a project in the side rail and pick **Project settings**, or run **Project settings** from the command palette, to open them in a tab of their own. Its pages:
+## The Playbook
+
+**Playbook** at the end of the project's tree in the side rail, `⌘⌥6`, or **Playbook** in the command palette opens the project's Playbook in a tab of its own. Its first pages hold what you decided once that every later agent goes by; [The Playbook](/agents/playbook/) describes them. Under a hairline come the project's settings:
 
 - **General**: whether new chats start in a worktree, whether the project may start language servers, and the Space it sits under.
-- **Tasks**: the tasks you added, each of which can be run, edited or removed, and **Add a task**, the same form as the run button's menu. Under them, the tasks found in the build files, by folder, with a filter.
+- **Processes**: the processes you added, each of which can be run, edited or removed, and **Add a process**, the same form as the run button's menu. Under them, the processes found in the build files, by folder, with a filter.
+- **Setup**: what a new checkout of the project runs, what runs before one is removed, the ports each checkout gets, the heavy commands that take turns and the things agents use one at a time, all from `sikemux.json`, and whether that was proved on a fresh checkout. **Set up** hands the job to an agent, which writes `sikemux.json` and proves it; **Check again** proves it once more; when a step failed, its last line and **Open log** show under it, and **Fix with an agent** hands the failure to one. See [setting a project up](/getting-started/run/#setting-a-project-up).
 - **Git**: the repository the project's Git views use, when its folder holds several.
 - **sikemux.json**: whether the project has one, whether you trust it, and any mistakes in it. **Open** shows the file in the editor.
 
 ## A folder with several repositories
 
-When the project folder is not a repository itself but holds several, such as `backend/` and `web/`, the Git pane lists them. Star one, or pick it in [project settings](#project-settings), and it becomes the project's default: the Git pane opens it, the top bar shows its branch, the diff pane reviews it, and new agent worktrees are cut from it. When the folder holds only one repository, that one is used without asking. The choice stays on your Mac.
+When the project folder is not a repository itself but holds several, such as `backend/` and `web/`, the Git pane lists them. Star one, or pick it on the Playbook's [Git page](#the-playbook), and it becomes the project's default: the Git pane opens it, the top bar shows its branch, the diff pane reviews it, and new agent worktrees are cut from it. When the folder holds only one repository, that one is used without asking. The choice stays on your Mac.
 
-## CI in the top bar
+A project's checkout of its default branch, such as `main`, keeps up with the remote by itself: every ten minutes Sikemux fetches that branch and fast-forwards the checkout to it. It does so only when the checkout has no changes, no untracked files, no commits of its own and no merge or rebase under way, and no agent is at work in it; otherwise it leaves the checkout as it is. A checkout on any other branch, or one whose branch follows no remote, is never touched.
 
-When the project's repository is on GitHub and you are signed in to it, the top bar shows CI for the newest pushed commit on your branch, next to the branch: the mark of the most pressing run (failed, then running, then queued) and how many runs are done of all, how many failed, or how many passed. Runs a tag on that commit started count too. Hover it for a card listing every workflow's run with its time, how long the rest should take, and **Re-run failed jobs** when one failed; click a run to open it in the Git pane.
+The Git pane's fourth page, **Pull requests** (`4`), lists the repository's open pull requests. Each offers **review this** or **fix the comments**, which hands it to an agent in a checkout of its own.
 
 ## Project config
 
-Check a `sikemux.json` into a project to add actions, tasks and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
+Check a `sikemux.json` into a project to add actions, processes and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
 
 ```json
 {
@@ -70,10 +81,75 @@ Check a `sikemux.json` into a project to add actions, tasks and a preview to the
 }
 ```
 
-Agents can start, read and stop these tasks too. Tasks keep running in Sikemux's background process while the window is closed.
+Processes go in its `tasks` list. Agents can start, read and stop them too. They keep running in the background while the window is closed.
+
+`ports` and `env` give each checkout its own ports and environment, and `worktree` runs setup steps when a checkout is made and removed; see [each checkout's own ports](/getting-started/run/#each-checkouts-own-ports).
+
+`ship` lists your project's own commands that put work live, such as `"ship": ["make deploy", "scripts/release.sh"]`, matched by their leading words: an agent running one waits for you to allow it first, like a deploy ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)). Claude Code, Grok and Hermes catch them; other agents catch them only when the script runs a program Sikemux knows, such as `vercel`.
+
+`heavy` lists the project's heavy commands, by the program and its first words, such as `{ "command": "pnpm test", "final": true }`. `pnpm test` then matches `pnpm test --run` and not `pnpm install`. An agent running one [waits its turn](/getting-started/run/#heavy-commands-take-turns) on the host with the built-in ones, such as `cargo build`; `"final": true` marks a check run before a commit, which goes ahead of the others. `{ "command": "jest", "light": true }` keeps a command out of the line, and `"heavy": []` turns the line off for the project. Never list a dev server or a watcher, which would hold its turn until stopped. A command run by its path, such as `./gradlew`, does not wait.
+
+`resources` names what only so many agents can use at once, such as `"resources": { "port-3000": { "label": "The app on port 3000", "port": 3000 } }`. Each takes a `label`, a `count` (one unless you say), and an optional `port`, which Sikemux checks nothing else listens on before handing it out. A process or `heavy` entry lists what it holds while it runs in `needs`, such as `"needs": ["port-3000"]`: it starts once everything it needs is free, and lets go when it ends. Agents can also hold one for their turn; see [Things used one at a time](/getting-started/run/#things-used-one-at-a-time).
+
+`planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
+
+### The project's check
+
+`check` says what proves the project's work sound. Give it a command, which Sikemux runs on each commit on the project's branch, as committed:
+
+```json
+{ "version": 1, "check": "pnpm check" }
+```
+
+Or name the CI workflows that count, when the project's CI is its check:
+
+```json
+{ "version": 1, "check": { "ci": ["CI"] } }
+```
+
+Sikemux then reads the code host's runs on the project's branch as pushed, instead of building it, so the agent's commit has to be on that branch and pushed. Every workflow named has to pass on the pushed branch's newest commit, which holds the agent's. Other branches on the remote, such as work in progress, decide nothing. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict.
+
+A check command runs only once you trust `sikemux.json`: the first commit it would check asks you. While the file has a mistake, Sikemux reads no check from it.
+
+When the full check is slow, name a quicker one beside it:
+
+```json
+{ "version": 1, "check": "pnpm check", "fastCheck": "pnpm check:quick" }
+```
+
+The fast check runs on each commit. The full check runs on the first commit after Sikemux starts, then again once three times its last length has passed, at least 5 minutes and at most 60, and on every commit while it is failing. Each run has `SIKEMUX_CHECK_SEED` in its environment, a number that stays the same for one agent and differs between agents, so a fast check can run a repeatable sample and agents together still cover everything.
+
+When a check fails, Sikemux tests the commits since the last sound one to find the one that broke it, for up to 15 minutes, and tells only that commit's agent. If none can be singled out, one agent owns the failure and the others are told who.
+
+### Checks before a land
+
+`landChecks` lists quick commands a teammate's land must pass before it goes on the branch, each run only when the land changes a path in its `when`:
+
+```json
+{
+  "version": 1,
+  "landChecks": [
+    {
+      "label": "the phone's eslint",
+      "command": "cd app && eslint \"$@\"",
+      "when": ["app/**/*.{ts,tsx}"]
+    }
+  ]
+}
+```
+
+Each runs from the project's root in a checkout at the land, with the land's changed files that match `when` as its arguments. A check can name a `fix`, such as the generator its `--check` runs: the queue runs it first and commits what it changes on top of the land, as it does with rustfmt on the Rust a land changed. One that still fails sends the land back to its agent with the end of its output, unless it fails on the branch without the land as well. Keep them to a few seconds: lands wait on them in turn.
+
+### The changed page
+
+When an agent's turn changes the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the turn's commit passes the check, or as the turn ends when the work is uncommitted or the project names no check, in a new tab on its agent's desk, keeps screenshots of it at the tab's width and at a phone's and a tablet's with the turn, and closes the tab again. A tab the agent already has open on that site is used instead, and left open. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.
+
+It opens a server's own address, or the `preview` URL when that names the same server, never the route the change touched, and it never starts a server. It takes nothing when no server is running, when the only server is in another checkout, or when the window is closed. It also takes nothing for a page that needs you to sign in first, for a change that isn't a web page, or when the server answers with a listing of its files or an error page instead of the page. `"preview": false` turns this off.
+
+Sikemux versions before this one reject `false` there and ignore the whole file, so leave the field out until everyone working on the project has updated.
 
 ## Quitting
 
-Terminals, agents and tasks keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped: its window says so, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.
+Terminals, agents and processes keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped. Chats stay open asleep, each on its saved conversation with its name and tab, and start again only when you open or write to one: messages from agents and triggers wait for it until then. A turn they were in shows as stopped. Sikemux's window says it is stopped, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.
 
 On a Mac, the window's close button hides Sikemux as `⌘H` does. Click it in the Dock, follow a `sikemux://` link or run `sikemux open` to bring the window back as you left it.

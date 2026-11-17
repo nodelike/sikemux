@@ -4,12 +4,12 @@
 
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::http::{self, AddressProblem, PlainHttp};
 use sikemux_plugin_api::keychain_service;
-use sikemux_plugin_api::process::sync::Locked;
-use sikemux_plugin_api::store::{self, Secrets};
+use sikemux_plugin_api::store::{self, Held, Secrets};
+use url::Url;
 
 use crate::error::{RundeckError, RundeckResult};
 
@@ -69,83 +69,102 @@ impl Saved {
 }
 
 /// Reading the Keychain starts a process, so the sign-in is kept in memory once read.
-static SAVED: Mutex<Option<Saved>> = Mutex::new(None);
+/// The token read lately.
+static TOKEN: Held<String> = Held::secrets();
 
 pub async fn load(data_dir: &Path) -> RundeckResult<Saved> {
-    if let Some(saved) = SAVED.locked().clone() {
-        return Ok(saved);
-    }
     let dir = data_dir.to_path_buf();
-    let saved = store::blocking(move || {
-        Ok(Saved {
-            settings: store::load(&dir)?,
-            token: KEYCHAIN.read(TOKEN_ACCOUNT)?,
-        })
-    })
-    .await?;
-    *SAVED.locked() = Some(saved.clone());
-    Ok(saved)
+    let settings = store::blocking(move || Ok(store::load(&dir)?)).await?;
+    let token = match TOKEN
+        .secret(KEYCHAIN, TOKEN_ACCOUNT, TOKEN_ACCOUNT.to_owned())
+        .await
+    {
+        Ok(token) => Some(token),
+        Err(RundeckError::Unconfigured) => None,
+        Err(error) => return Err(error),
+    };
+    Ok(Saved { settings, token })
 }
 
-/// Saves the settings and puts the token in the Keychain, or takes it out when there is none.
-pub async fn save(data_dir: &Path, saved: Saved) -> RundeckResult<()> {
-    let dir = data_dir.to_path_buf();
-    let kept = saved.clone();
-    store::blocking(move || {
-        match &kept.token {
+/// Changes the settings and puts the token in the Keychain, or takes it out when there is none.
+pub async fn sign(
+    data_dir: &Path,
+    token: Option<String>,
+    change: impl FnOnce(&mut Settings) + Send + 'static,
+) -> RundeckResult<()> {
+    store::update(data_dir, move |settings: &mut Settings| {
+        match &token {
             Some(token) => KEYCHAIN.write(TOKEN_ACCOUNT, token),
             None => KEYCHAIN.delete(TOKEN_ACCOUNT),
         }?;
-        Ok(store::save(&dir, &kept.settings)?)
+        change(settings);
+        Ok(())
     })
     .await?;
-    *SAVED.locked() = Some(saved);
+    TOKEN.forget(None);
     Ok(())
 }
 
-/// Saves the settings alone, leaving the token where it is.
-pub async fn save_settings(data_dir: &Path, settings: Settings) -> RundeckResult<()> {
-    let mut saved = load(data_dir).await?;
-    let dir = data_dir.to_path_buf();
-    let written = settings.clone();
-    store::blocking(move || Ok(store::save(&dir, &written)?)).await?;
-    saved.settings = settings;
-    *SAVED.locked() = Some(saved);
-    Ok(())
+/// Changes the settings alone, leaving the token where it is.
+pub async fn change_settings(
+    data_dir: &Path,
+    change: impl FnOnce(&mut Settings) + Send + 'static,
+) -> RundeckResult<()> {
+    store::update(data_dir, move |settings: &mut Settings| {
+        change(settings);
+        Ok(())
+    })
+    .await
 }
+
+impl sikemux_plugin_api::vault::Whole for Settings {
+    fn identity(&self) -> Option<String> {
+        (!self.url.is_empty()).then(|| format!("{}|{}", self.url, self.user))
+    }
+
+    fn label(&self) -> String {
+        if self.user.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{} on {}", self.user, self.url)
+        }
+    }
+
+    fn secrets(&self) -> Vec<(Secrets, String)> {
+        vec![(KEYCHAIN, TOKEN_ACCOUNT.to_owned())]
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Single<Settings> =
+    sikemux_plugin_api::vault::Single::new("config.json");
 
 #[cfg(test)]
-pub fn validate_base_url(raw: &str) -> RundeckResult<()> {
+pub fn validate_base_url(raw: &str) -> RundeckResult<Url> {
     validate_base_url_with_policy(raw, false)
 }
 
 pub fn validate_base_url_with_policy(
     raw: &str,
     allow_insecure_private_http: bool,
-) -> RundeckResult<()> {
-    let url =
-        url::Url::parse(raw).map_err(|_| RundeckError::BadArg("invalid Rundeck URL".into()))?;
-    if url.username() != "" || url.password().is_some() {
-        return Err(RundeckError::BadArg(
-            "credentials in the Rundeck URL are not allowed".into(),
-        ));
-    }
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(RundeckError::BadArg(
-            "Rundeck URL must use HTTP or HTTPS".into(),
-        ));
-    }
-    if url.host_str().is_none() {
-        return Err(RundeckError::BadArg(
-            "Rundeck URL must include a host".into(),
-        ));
-    }
-    if url.scheme() == "http" && !allow_insecure_private_http {
-        return Err(RundeckError::BadArg(
-            "plaintext HTTP requires explicit private-network acknowledgement".into(),
-        ));
-    }
-    Ok(())
+) -> RundeckResult<Url> {
+    let plain = match allow_insecure_private_http {
+        true => PlainHttp::Acknowledged,
+        false => PlainHttp::Refused,
+    };
+    http::base_url(raw, plain).map_err(|problem| {
+        RundeckError::BadArg(
+            match problem {
+                AddressProblem::NotAnAddress => "invalid Rundeck URL",
+                AddressProblem::HoldsCredentials => {
+                    "credentials in the Rundeck URL are not allowed"
+                }
+                AddressProblem::Scheme => {
+                    "Rundeck URL must use HTTPS, or plaintext HTTP with explicit private-network acknowledgement"
+                }
+            }
+            .into(),
+        )
+    })
 }
 
 fn is_allowed_private_ip(ip: IpAddr) -> bool {
@@ -199,9 +218,7 @@ pub async fn validate_transport(
     raw: &str,
     allow_insecure_private_http: bool,
 ) -> RundeckResult<ValidatedTransport> {
-    validate_base_url_with_policy(raw, allow_insecure_private_http)?;
-    let url =
-        url::Url::parse(raw).map_err(|_| RundeckError::BadArg("invalid Rundeck URL".into()))?;
+    let url = validate_base_url_with_policy(raw, allow_insecure_private_http)?;
     let host = url
         .host_str()
         .ok_or(RundeckError::BadArg(

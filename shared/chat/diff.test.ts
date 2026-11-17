@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collapseDiff, fencedDiff } from "./diff";
-import type { DiffLine } from "./types";
+import type { DiffLine } from "../wire.generated";
 
 const same = (text: string): DiffLine => ({ sign: " ", text });
 

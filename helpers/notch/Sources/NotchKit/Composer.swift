@@ -175,7 +175,6 @@ struct Composer: View {
     }
 }
 
-/// The composer's toggle: a bolt and YOLO in the rainbow, or a shield and SAFE.
 struct YoloToggle: View {
     @Binding var on: Bool
 

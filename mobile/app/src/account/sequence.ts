@@ -1,4 +1,4 @@
-import { reconnectDelay } from '@protocol/live';
+import { reconnectDelay } from '@shared/account/renewal';
 
 import { problem } from '@/core/problem';
 import { AccountDeleting, ApiProblem } from './api';
@@ -69,7 +69,6 @@ export class AccountSequence {
     this.deps.hostsStale();
   }
 
-  /** The system gave the phone a new notification token. */
   pushChanged() {
     if (this.registered) this.push();
   }

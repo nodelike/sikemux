@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 // Writes what the notch helper shares with the app: its settings from
 // helpers/notch/settings.json, for the core's Rust and the helper's Swift,
-// its colours from the share page's base.css, and the app's buddies from
-// shared/buddies, which the helper runs to draw them. `--check` fails when one is
-// out of date instead of writing it.
+// its colours from shared/ui/palette.css, and the app's buddies from
+// shared/buddies, which the helper runs to draw them. The Swift is build output;
+// `--check` fails when the committed Rust is out of date instead of writing it.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { build } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const settingsSource = resolve(root, "helpers/notch/settings.json");
-const cssSource = resolve(root, "server/app/src/chat/styles/base.css");
-const settingsRustPath = resolve(root, "crates/sikemux-wire/src/notch.rs");
+const cssSource = resolve(root, "shared/ui/palette.css");
+const settingsRustPath = resolve(root, "crates/sikemux-view/src/notch.rs");
 const settingsSwiftPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Settings.generated.swift",
@@ -26,35 +26,19 @@ const buddiesSwiftPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Buddies.generated.swift",
 );
-const check = process.argv.includes("--check");
 
-/** The helper's colour names and the base.css variable each one is. */
+/** The helper's colour names and the palette variable each one is. */
 const COLOURS = {
   ink: "--ink",
   inkDim: "--ink-dim",
   inkFaint: "--ink-faint",
   accent: "--acc",
-  accentSoft: "--acc-soft",
-  accentLine: "--acc-line",
   onAccent: "--void",
   live: "--live",
   warn: "--warn",
   command: "--cmd",
   danger: "--danger",
 };
-
-async function emit(path, contents) {
-  let actual = null;
-  try {
-    actual = await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  if (actual === contents) return;
-  if (check) throw new Error(`Generated notch source is stale: ${path}`);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, contents);
-}
 
 const { settings } = JSON.parse(await readFile(settingsSource, "utf8"));
 const entries = Object.entries(settings);
@@ -127,7 +111,7 @@ const swiftType = ([key, setting]) => (setting.choices ? pascal(key) : "Bool");
 const swiftValue = ([, setting]) =>
   setting.choices ? `.${setting.default}` : String(setting.default);
 
-await emit(
+await write(
   settingsSwiftPath,
   `// ${banner("helpers/notch/settings.json")}
 
@@ -173,8 +157,7 @@ ${helperReads
 
 const css = await readFile(cssSource, "utf8");
 const rootBlock = css.match(/^:root\s*\{([^}]*)\}/m)?.[1];
-if (!rootBlock)
-  throw new Error("server/app/src/chat/styles/base.css has no :root block");
+if (!rootBlock) throw new Error("shared/ui/palette.css has no :root block");
 const variables = Object.fromEntries(
   [...rootBlock.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(
     ([, name, value]) => [name, value.trim()],
@@ -185,9 +168,7 @@ const hex = (channel) => Number(channel).toString(16).padStart(2, "0");
 function swiftColour(variable) {
   const value = variables[variable];
   if (!value)
-    throw new Error(
-      `server/app/src/chat/styles/base.css does not define ${variable}`,
-    );
+    throw new Error(`shared/ui/palette.css does not define ${variable}`);
   if (/^#[0-9a-f]{6}$/i.test(value))
     return `Color(hex: "${value.toLowerCase()}")`;
   const rgba = value.match(
@@ -199,21 +180,23 @@ function swiftColour(variable) {
   return `Color(hex: "#${hex(red)}${hex(green)}${hex(blue)}").opacity(${Number(alpha)})`;
 }
 
-await emit(
+await write(
   themeSwiftPath,
-  `// ${banner("server/app/src/chat/styles/base.css")}
+  `// ${banner("shared/ui/palette.css")}
 
 import SwiftUI
 
-extension Theme {
+extension Colours {
+    /// Sikemux's own colours, which the island wears until the core sends the person's palette.
+    static let own = Colours(
 ${Object.entries(COLOURS)
-  .map(
-    ([name, variable]) => `    static let ${name} = ${swiftColour(variable)}`,
-  )
-  .join("\n")}
+  .map(([name, variable]) => `        ${name}: ${swiftColour(variable)}`)
+  .join(",\n")}
+    )
 }
 `,
 );
+import { emit, write } from "./lib/generated.mjs";
 
 const [bundle] = await build({
   root,
@@ -229,11 +212,11 @@ const buddiesScript = bundle.output[0].code.trim();
 if (buddiesScript.includes('"""#'))
   throw new Error("the buddies script ends the Swift string it is kept in");
 
-await emit(
+await write(
   buddiesSwiftPath,
   `// ${banner("shared/buddies")}
 
-/// Defines \`SikemuxBuddies.notchBuddy(buddies, agentId, state)\`, which returns an agent's buddy as an SVG document, or null when it shows its agent's mark.
+/// Defines \`SikemuxBuddies.notchFace(face, state)\`, an agent's face as an SVG document or null for one it does not know, and \`styledFace(agentId, style)\`, the face a host's style gives an agent.
 let buddiesScript = #"""
 ${buddiesScript}
 """#

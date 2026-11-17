@@ -1,10 +1,8 @@
 import { requireOptionalNativeModule } from 'expo';
-import type { ApnsEnvironment } from '@protocol';
 
 export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string };
 
-/** How an answer from a card went, as the card then says. */
-export type AnswerOutcome = 'answered' | 'rejected' | 'gone' | 'failed';
+export type AnswerOutcome = 'answered' | 'sent' | 'rejected' | 'gone' | 'failed';
 
 type NotifyModule = {
   setPhone(phone: string): void;
@@ -15,8 +13,8 @@ type NotifyModule = {
   shown(): Promise<ShownCard[]>;
   dismiss(tag: string): void;
   settle(tag: string, outcome: AnswerOutcome): void;
-  /** iOS only: which of Apple's push servers issued this build's token. */
-  apnsEnvironment?(): ApnsEnvironment;
+  showAgents(title: string, text: string | null, url: string | null): void;
+  cancelAgents(): void;
 };
 
 /** The phone's half of notifications: the keys hosts seal cards with, and the cards showing. */

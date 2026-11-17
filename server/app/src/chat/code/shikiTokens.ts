@@ -1,10 +1,10 @@
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { bundledLanguages, createHighlighter } from "./shiki";
-import type { Grammar, HighlighterCore } from "shiki/core";
-import { createCodeTheme } from "../themes/codeTheme";
-import type { Theme } from "../themes/index";
+import type { HighlighterCore } from "shiki/core";
+import { createCodeTheme } from "@shared/chat/codeTheme";
+import type { Theme } from "@shared/wire.generated";
 import { codeLines } from "./codeLines";
-import type { CodeLine } from "@shared/chat/types";
+import type { CodeLine } from "./tokens";
 
 /* The half of the chat highlighter that carries Shiki with it. Nothing reaches
    it until a fence with a grammar we have is on screen, so a session that never
@@ -58,11 +58,6 @@ async function loadGrammar(
 }
 
 /** The grammar itself, for reading a file one line at a time. */
-export async function textMateGrammar(lang: string): Promise<Grammar | null> {
-  const shiki = await highlighter();
-  return (await loadGrammar(shiki, lang)) ? shiki.getLanguage(lang) : null;
-}
-
 async function prepare(
   lang: string,
   theme: Theme,

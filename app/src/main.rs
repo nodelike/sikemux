@@ -1,20 +1,36 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use gpui_kit::{
-    point, px, size, AppContext, Bounds, Styled, TitlebarOptions, WindowBounds, WindowDecorations,
+    px, size, AppContext, Bounds, Styled, TitlebarOptions, WindowBounds, WindowDecorations,
     WindowOptions,
 };
-use sikemux_gpui::{console, core, icons, memory, theme, workbench, WINDOW_SIZE};
+use sikemux_gpui::{
+    console, core, icons, memory, theme, window_buttons_at, workbench, WINDOW_SIZE,
+};
+use sikemux_hostkit::crash_reports::{self, Process};
 
 fn main() {
-    sikemux_host::panic_reports::record_panics("app");
     #[cfg(target_os = "linux")]
-    sikemux_browser::choose_page_rendering();
+    hand_cli_to_core();
+    #[cfg(windows)]
+    start_core_at_sign_in();
+    let began = std::time::SystemTime::now();
+    sikemux_hostkit::panic_reports::record_panics("app", sikemux_buildinfo::COMMIT);
+    crash_reports::start(Process::App, None, None);
+    #[cfg(target_os = "linux")]
+    {
+        sikemux_browser::choose_page_rendering();
+        sikemux_gpui::xwayland_scale::choose();
+    }
     console::install();
     let (handed, opened) = tokio::sync::mpsc::unbounded_channel();
     #[cfg(target_os = "linux")]
-    if !sikemux_gpui::handoff::take_over(handed.clone()) {
+    if !sikemux_gpui::second_start::take_over(handed.clone()) {
         return;
     }
-    let link = core::start(core::Home::default());
+    let linking = std::time::SystemTime::now();
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
+    let linked = std::time::SystemTime::now();
     let app = gpui_kit::application();
     #[cfg(target_os = "linux")]
     let app = app.with_windowing(gpui_kit::WindowingRequest::Windowed(x11_session()));
@@ -25,6 +41,7 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
         theme::install(cx);
+        sikemux_gpui::i18n::speak(None);
         memory::log(cx);
         cx.set_app_identity(core::IDENTIFIER, core::NAME);
         let behind = std::env::var_os(sikemux_process::vars::LAUNCH_BEHIND).is_some();
@@ -37,8 +54,7 @@ fn main() {
             titlebar: Some(TitlebarOptions {
                 title: Some("Sikemux".into()),
                 appears_transparent: cfg!(target_os = "macos"),
-                // The top of the 14 pt lights, which centres them in the 36 pt top bar.
-                traffic_light_position: cfg!(target_os = "macos").then(|| point(px(16.), px(11.))),
+                traffic_light_position: cfg!(target_os = "macos").then(window_buttons_at),
             }),
             window_decorations: Some(WindowDecorations::Server),
             app_id: Some(core::IDENTIFIER.into()),
@@ -59,6 +75,14 @@ fn main() {
                 root.style().background = Some(gpui_kit::transparent_black().into());
             });
         }
+        crash_reports::started(
+            began,
+            vec![
+                ("start the core", linking, linked),
+                ("open the window", linked, std::time::SystemTime::now()),
+            ],
+        );
+        cx.on_app_quit(|_| async { crash_reports::stop() }).detach();
         sikemux_gpui::follow_opened(bench.clone(), opened, cx);
         #[cfg(feature = "drive")]
         sikemux_gpui::drive::listen(window, bench, cx);
@@ -77,4 +101,39 @@ fn x11_session() -> gpui_kit::GraphicalEnvironment {
         session.wayland_display = None;
     }
     session
+}
+
+/// Windows' Run entry starts the app, not the core, so a console window does not open at
+/// sign-in; started that way, the app starts what keeps the core up and exits without a window.
+#[cfg(windows)]
+fn start_core_at_sign_in() {
+    use sikemux_hostkit::login_item::{start_at_sign_in, START_CORE_ARG};
+    if let [arg, file] = &std::env::args_os().skip(1).collect::<Vec<_>>()[..] {
+        if arg == START_CORE_ARG {
+            std::process::exit(start_at_sign_in(file.as_ref()));
+        }
+    }
+}
+
+/// A Linux package puts the window on PATH as `sikemux`, so `sikemux login` and the other
+/// commands reach it; they belong to the core's CLI. The window itself is given only links.
+#[cfg(target_os = "linux")]
+fn hand_cli_to_core() {
+    use std::os::unix::process::CommandExt;
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let Some(first) = args.first() else {
+        return;
+    };
+    if first.to_string_lossy().contains("://") {
+        return;
+    }
+    let Some(core) = sikemux_hostkit::cli_paths::cli_executable_path() else {
+        eprintln!("sikemux: the core is not installed beside the app");
+        std::process::exit(1);
+    };
+    // The CLI takes this process's place, in the person's own shell, which already has their PATH.
+    #[allow(clippy::disallowed_methods)]
+    let error = std::process::Command::new(core).args(args).exec();
+    eprintln!("sikemux: could not run the core: {error}");
+    std::process::exit(1);
 }

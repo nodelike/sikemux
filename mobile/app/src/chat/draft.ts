@@ -2,9 +2,12 @@ import type { ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
 import type { ChatRows } from '@shared/chat/rows';
+import type { Say } from '@shared/lib/say';
+import { CHAT_DRAFT, type DraftExtra } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import type { DraftStore } from './kept';
+import { IMAGE, tagPictures, untagPicture } from './imageTags';
 import { editDraft, keptTokens, outgoing, tokensOf, trackedOf, type DraftToken } from './mentions';
 import { fitting, pathsOf, type Attachment } from './uploads';
 import { contextChipsOf, withContext, type ContextChip } from '@/stash/words';
@@ -12,9 +15,9 @@ import { contextChipsOf, withContext, type ContextChip } from '@/stash/words';
 /** How long typing rests before the draft is saved on the host. */
 const DRAFT_SAVE_MS = 600;
 
-/** A file the host's draft holds, known here only by where the host keeps it. */
 const PICTURE = /\.(jpe?g|png|gif|webp|heic|heif)$/i;
 
+/** A file the host's draft holds, known here only by where the host keeps it. */
 function hostFile(path: string): Attachment {
   return {
     id: `draft:${path}`,
@@ -31,6 +34,7 @@ function hostFile(path: string): Attachment {
 export type Named = { paths: string[]; context: ContextChip[] };
 
 type Host = {
+  say: Say;
   /** Where writing not saved on the host yet is kept, so it outlives the app quitting. */
   store?: DraftStore;
   /** The chat's draft as the host last sent it. */
@@ -53,7 +57,7 @@ export class Draft {
   private tracked: Record<string, ContextChip> = {};
   /** The host's revision of this chat's draft that the composer last took in. */
   private rev: number | undefined;
-  /** What the host's draft carries beside its text and files, which only the Mac reads; saved back as it came. */
+  /** What the host's draft carries that this build does not read; saved back as it came. */
   private extra: Record<string, unknown> = {};
   /** Changes made here since the draft was last saved, which the host's draft must not replace. */
   private edits = 0;
@@ -79,7 +83,10 @@ export class Draft {
   /** Answers whether the draft named anything before, so its chips must be drawn again. */
   write(text: string): boolean {
     const named = this.tokens.length > 0;
+    const tagged = this.tokens.filter((token) => token.id.startsWith(IMAGE)).map((token) => token.id);
     ({ text: this.text, tokens: this.tokens } = editDraft(this.text, text, this.tokens));
+    // Deleting a picture's tag takes the picture off the message, as on the Mac.
+    for (const id of tagged) if (!this.tokens.some((token) => token.id === id)) this.detach(id.slice(IMAGE.length));
     this.edited();
     return named;
   }
@@ -104,9 +111,13 @@ export class Draft {
     this.edited();
   }
 
-  /** Adds what was picked, leaving out what the host would refuse; answers why some was left out. */
-  attach(picked: Attachment[]): string | null {
-    const { fits, notice } = fitting(this.attachments.length, picked);
+  /**
+   * Adds what was picked, leaving out what the host would refuse, and names each new picture in the words at `caret`;
+   * answers why some was left out.
+   */
+  attach(picked: Attachment[], caret?: number): string | null {
+    const { fits, notice } = fitting(this.attachments.length, picked, this.host.say);
+    ({ text: this.text, tokens: this.tokens } = tagPictures(this.text, this.tokens, this.attachments.length, fits, caret));
     this.attachments = [...this.attachments, ...fits];
     this.edited();
     return notice;
@@ -120,9 +131,15 @@ export class Draft {
   /** Answers whether it could, which it cannot while a file is going up. */
   removeAttachment(id: string): boolean {
     if (this.uploading()) return false;
-    this.attachments = this.attachments.filter((attachment) => attachment.id !== id);
+    this.detach(id);
     this.edited();
     return true;
+  }
+
+  /** Takes the file `id` off the message with its tags, counting the later pictures down. */
+  private detach(id: string) {
+    this.attachments = this.attachments.filter((attachment) => attachment.id !== id);
+    ({ text: this.text, tokens: this.tokens } = untagPicture(this.text, this.tokens, id, this.attachments));
   }
 
   uploading() {
@@ -206,7 +223,7 @@ export class Draft {
     const paths = pathsOf(this.attachments);
     const { attachments: _files, context: _chips, ...rest } = this.extra;
     const draft = {
-      key: `chat:${this.agentId}`,
+      key: `${CHAT_DRAFT}${this.agentId}`,
       text: this.text,
       extra: {
         ...rest,
@@ -241,9 +258,8 @@ export class Draft {
     if (this.edits) return;
     const host = this.host.held();
     if (host?.rev === this.rev && host) return;
-    const extra = host?.extra && typeof host.extra === 'object' ? (host.extra as Record<string, unknown>) : {};
-    const { attachments, context, tokens, tracked, ...rest } = extra;
-    const paths = Array.isArray(attachments) ? attachments.filter((path): path is string => typeof path === 'string') : [];
+    const extra: DraftExtra = host?.extra ?? {};
+    const { attachments: paths = [], context, tokens, tracked, ...rest } = extra;
     const kept = new Map(this.attachments.flatMap((attachment) => (attachment.path ? [[attachment.path, attachment] as const] : [])));
     this.rev = host?.rev;
     this.extra = rest;

@@ -3,8 +3,10 @@
 //! the core picks the palette from the samples, as it works a theme out of
 //! Ghostty's colours.
 
+use super::CoreResult;
 use base64::Engine;
-use serde::Deserialize;
+pub use sikemux_calls::wallpaper::PixelsParams;
+use sikemux_view::theme::Theme;
 
 /// Pixels sampled at most, spread evenly over the image.
 const SAMPLES: usize = 24_000;
@@ -13,13 +15,6 @@ const CUTS: u32 = 5;
 const MAX_PIXEL_BYTES: usize = 4 * 1024 * 1024;
 /// The hues of red, yellow, green, cyan, blue and magenta.
 const ANSI_HUES: [f64; 6] = [29.0, 100.0, 142.0, 195.0, 262.0, 328.0];
-
-#[derive(Deserialize)]
-pub(crate) struct PixelsParams {
-    pub name: String,
-    /// The wallpaper's pixels as RGBA bytes, in base64.
-    pub pixels: String,
-}
 
 #[derive(Clone, Copy)]
 struct Lch {
@@ -154,7 +149,7 @@ fn clusters(rgba: &[u8]) -> Result<Vec<Cluster>, String> {
         .collect())
 }
 
-/// The first of `clusters` that `better` puts above all the rest.
+/// The cluster with the highest `key`, the earliest of any tied.
 fn first_best(clusters: &[Cluster], key: impl Fn(&Cluster) -> f64) -> Option<Cluster> {
     clusters
         .iter()
@@ -289,6 +284,13 @@ pub(crate) fn pixels(params: &PixelsParams) -> Result<Vec<u8>, String> {
         return Err("the wallpaper's pixels are not RGBA".into());
     }
     Ok(bytes)
+}
+
+pub(crate) fn theme_from_pixels(params: PixelsParams) -> CoreResult<Theme> {
+    let rgba = pixels(&params)?;
+    let (colours, accent) = colours(&rgba)?;
+    super::themes::from_colours(&params.name, &colours, Some(&accent))
+        .ok_or_else(|| "the wallpaper gave no theme".into())
 }
 
 #[cfg(test)]

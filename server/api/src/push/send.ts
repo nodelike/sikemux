@@ -6,7 +6,7 @@ import type { RateLimiter } from "../limits.ts";
 import type { Logger } from "../log.ts";
 import type { Delivery, PushProviders } from "./provider.ts";
 
-export interface PushLimits {
+interface PushLimits {
   /** Pushes a minute from one host to one phone. */
   perPair: number;
   /** Pushes a minute to one phone, from all its hosts together. */
@@ -17,20 +17,26 @@ export interface PushLimits {
   giveUpMs: number;
   /** The longest Retry-After the sender honours; a longer one gives up instead. */
   maxRetryAfterMs: number;
+  /** How many pushes, by id, are remembered so one sent again is answered without going out twice. */
+  remembered: number;
 }
 
-export const PUSH_LIMITS: PushLimits = {
+const PUSH_LIMITS: PushLimits = {
   perPair: 30,
   perPhone: 120,
   retryDelaysMs: [1_000, 2_000, 4_000],
   giveUpMs: 60_000,
   maxRetryAfterMs: 30_000,
+  remembered: 20_000,
 };
+
+/** Results worth trying again rather than answering a repeat with. */
+const PASSING: ReadonlySet<PushResult> = new Set(["throttled", "failed"]);
 
 /** A token that failed this many times in a row, with no success in 30 days, is deleted. */
 const FAILURES_BEFORE_FORGETTING = 20;
 
-export interface Sender {
+interface Sender {
   userId: string;
   key: string;
 }
@@ -57,6 +63,11 @@ export class Pusher {
   private readonly limits: PushLimits;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
+  /** By sender and push id, oldest first, until each push expires. */
+  private readonly answered = new Map<
+    string,
+    { result: Promise<PushResult>; expiresAt: number }
+  >();
 
   constructor(options: PusherOptions) {
     this.db = options.db;
@@ -68,7 +79,38 @@ export class Pusher {
     this.sleep = options.sleep ?? sleep;
   }
 
-  async push(sender: Sender, push: LivePush): Promise<PushResult> {
+  /**
+   * A host that lost its connection before the answer sends the push again with the same id;
+   * that gets the first one's answer instead of reaching the phone twice.
+   */
+  push(sender: Sender, push: LivePush): Promise<PushResult> {
+    if (!push.id) return this.deliver(sender, push);
+    const id = `${sender.key}:${push.id}`;
+    const earlier = this.answered.get(id);
+    if (earlier && earlier.expiresAt > this.now()) {
+      this.log.info(
+        { from: sender.key.slice(0, 8), to: push.to.slice(0, 8) },
+        "pushed already",
+      );
+      return earlier.result;
+    }
+    const result = this.deliver(sender, push);
+    this.answered.delete(id);
+    this.answered.set(id, { result, expiresAt: Date.parse(push.expiresAt) });
+    for (const oldest of this.answered.keys()) {
+      if (this.answered.size <= this.limits.remembered) break;
+      this.answered.delete(oldest);
+    }
+    const forget = () => {
+      if (this.answered.get(id)?.result === result) this.answered.delete(id);
+    };
+    result.then((answer) => {
+      if (PASSING.has(answer)) forget();
+    }, forget);
+    return result;
+  }
+
+  private async deliver(sender: Sender, push: LivePush): Promise<PushResult> {
     const started = this.now();
     const expiresAt = Date.parse(push.expiresAt);
     const facts = {
@@ -92,8 +134,15 @@ export class Pusher {
 
     const target = await this.target(sender, push.to);
     if (!target) return finish("not_allowed");
-    const { token, platform } = target;
-    if (!token || !platform) return finish("no_token");
+    const activity = push.kind === "activity" || push.kind === "activity_end";
+    const platform = activity
+      ? target.phonePlatform === "ios"
+        ? "apns"
+        : null
+      : target.platform;
+    const token = activity ? push.activityToken : target.token;
+    if (!token || !platform)
+      return finish(activity ? "not_set_up" : "no_token");
 
     if (
       !this.limiter.allow(
@@ -114,6 +163,7 @@ export class Pusher {
       delivery = await provider.send({
         token,
         kind: push.kind,
+        sentAt: started,
         collapseId: push.collapseId,
         blob: push.blob,
         ttlSeconds: (expiresAt - this.now()) / 1000,
@@ -139,6 +189,15 @@ export class Pusher {
       attempts: attempt + 1,
       ...(delivery.outcome === "sent" ? {} : { why: delivery.reason }),
     };
+    if (activity)
+      return finish(
+        delivery.outcome === "sent"
+          ? "sent"
+          : delivery.outcome === "dead"
+            ? "no_token"
+            : "failed",
+        detail,
+      );
     switch (delivery.outcome) {
       case "sent":
         await this.db
@@ -152,7 +211,7 @@ export class Pusher {
         await this.db
           .deleteFrom("push_tokens")
           .where("device_key", "=", push.to)
-          .where("token", "=", target.token)
+          .where("token", "=", token)
           .execute();
         return finish("no_token", { ...detail, forgot: true });
       case "retry":
@@ -162,7 +221,7 @@ export class Pusher {
     }
   }
 
-  /** The phone's token, when the sender is a host and the phone a client on one account. */
+  /** The phone and its token, when the sender is a host and the phone a client on one account. */
   private async target(sender: Sender, phone: string) {
     const row = await this.db
       .selectFrom("devices as phone")
@@ -171,6 +230,7 @@ export class Pusher {
         "push_tokens.platform",
         "push_tokens.token",
         "push_tokens.apns_environment",
+        "phone.platform as phonePlatform",
       ])
       .where("phone.key", "=", phone)
       .where("phone.role", "=", "client")

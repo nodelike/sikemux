@@ -3,19 +3,15 @@
 // on the person. Bitbucket numbers issues apart from pull requests, so a
 // thread says which it is.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sikemux_plugin_api::codehost::asks::{
-    InboxQuery, IssueQuery, IssueRef, NewIssue, NotificationRef, RepoRef, SetIssueState,
-};
+use sikemux_plugin_api::codehost::asks::{IssueQuery, IssueRef, NewIssue, RepoRef, SetIssueState};
 use sikemux_plugin_api::codehost::{
     Comment, Issue, IssuePage, Label, Notification, Release, TimelineItem,
 };
-use sikemux_plugin_api::store;
 
 use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
@@ -133,7 +129,8 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> BitbucketResult<IssuePa
     if let Some(filter) = state_filter(input.state.as_deref().unwrap_or_default()) {
         query.push(("q", filter));
     }
-    let found: IssueRows = client::get(data_dir, &input.repo.path("/issues")?, &query)
+    let found: IssueRows = client::API
+        .get(data_dir, &input.repo.path("/issues")?, &query)
         .await
         .map_err(no_tracker)?;
     let issues: Vec<Issue> = found
@@ -153,7 +150,8 @@ fn issue_path(issue: &IssueRef, rest: &str) -> BitbucketResult<String> {
 }
 
 pub async fn get(data_dir: &Path, input: IssueRef) -> BitbucketResult<Issue> {
-    let row: IssueRow = client::get(data_dir, &issue_path(&input, "")?, &[])
+    let row: IssueRow = client::API
+        .get(data_dir, &issue_path(&input, "")?, &[])
         .await
         .map_err(no_tracker)?;
     let mut issue = issue_of(&input.repo, row);
@@ -165,14 +163,15 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> BitbucketResult<Issue> 
     if input.title.trim().is_empty() {
         return Err(BitbucketError::BadArg("an issue needs a title".into()));
     }
-    let row: IssueRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/issues")?,
-        &json!({ "title": input.title.trim(), "content": { "raw": input.body } }),
-    )
-    .await
-    .map_err(no_tracker)?;
+    let row: IssueRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/issues")?,
+            &json!({ "title": input.title.trim(), "content": { "raw": input.body } }),
+        )
+        .await
+        .map_err(no_tracker)?;
     Ok(issue_of(&input.repo, row))
 }
 
@@ -184,14 +183,15 @@ pub async fn set_state(data_dir: &Path, input: SetIssueState) -> BitbucketResult
     } else {
         "resolved"
     };
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &issue_path(&input.issue, "/changes")?,
-        &json!({ "changes": { "state": { "new": state } } }),
-    )
-    .await
-    .map_err(no_tracker)?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &issue_path(&input.issue, "/changes")?,
+            &json!({ "changes": { "state": { "new": state } } }),
+        )
+        .await
+        .map_err(no_tracker)?;
     Ok(())
 }
 
@@ -249,14 +249,15 @@ pub async fn add_comment(data_dir: &Path, issue: &IssueRef, body: &str) -> Bitbu
     if body.is_empty() {
         return Err(BitbucketError::BadArg("a comment needs some text".into()));
     }
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &issue_path(issue, "/comments")?,
-        &json!({ "content": { "raw": body } }),
-    )
-    .await
-    .map_err(no_tracker)?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &issue_path(issue, "/comments")?,
+            &json!({ "content": { "raw": body } }),
+        )
+        .await
+        .map_err(no_tracker)?;
     Ok(())
 }
 
@@ -279,7 +280,6 @@ struct ChangeRow {
     changes: Changes,
 }
 
-/// A state change read as closing or reopening, saying why it closed.
 fn state_event(change: ChangeRow) -> Option<TimelineItem> {
     let new = change.changes.state?.new?;
     let kind = if OPEN_STATES.contains(&new.as_str()) {
@@ -404,34 +404,18 @@ struct WaitingRow {
     links: Links,
 }
 
-/// When each item was marked done, so an update after that brings it back.
-type Dismissed = BTreeMap<String, String>;
-
-fn dismissed_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("inbox-done.json")
-}
-
-fn dismissed(data_dir: &Path) -> BitbucketResult<Dismissed> {
-    Ok(store::read_file(&dismissed_path(data_dir))?)
-}
-
-fn save_dismissed(data_dir: &Path, done: &Dismissed) -> BitbucketResult<()> {
-    Ok(store::write_file(&dismissed_path(data_dir), done)?)
-}
-
-fn notification(row: WaitingRow, reason: &str, done: &Dismissed) -> Option<Notification> {
+fn notification(row: WaitingRow, reason: &str) -> Option<Notification> {
     let repo = row
         .destination
         .and_then(|destination| destination.repository)
         .and_then(|repo| repo.full_name)?;
     let id = format!("{repo}#{}", row.id);
-    let unread = done.get(&id).is_none_or(|at| *at < row.updated_on);
     Some(Notification {
         title: row.title,
         kind: "PullRequest".into(),
         reason: reason.into(),
         number: Some(row.id),
-        unread,
+        unread: true,
         updated_at: row.updated_on,
         url: row.links.html.href,
         repo,
@@ -441,8 +425,8 @@ fn notification(row: WaitingRow, reason: &str, done: &Dismissed) -> Option<Notif
 
 /// Open pull requests that ask the person for a review in the repositories
 /// they work in, then their own open ones. Bitbucket keeps no read state, so
-/// marking one done is kept here until the pull request changes again.
-pub async fn inbox(data_dir: &Path, input: InboxQuery) -> BitbucketResult<Vec<Notification>> {
+/// each counts as unread.
+pub async fn inbox(data_dir: &Path) -> BitbucketResult<Vec<Notification>> {
     let me = format!(
         "{{{}}}",
         crate::client::Session::current(data_dir).await?.account.id
@@ -452,64 +436,34 @@ pub async fn inbox(data_dir: &Path, input: InboxQuery) -> BitbucketResult<Vec<No
     let asks = futures::future::join_all(repos.iter().map(|repo| {
         let path = format!("/repositories/{}/{}/pullrequests", repo.owner, repo.name);
         let query = [("q", wanted.clone()), ("pagelen", "20".to_string())];
-        async move { client::get::<client::Page<WaitingRow>>(data_dir, &path, &query).await }
+        async move {
+            client::API
+                .get::<client::Page<WaitingRow>>(data_dir, &path, &query)
+                .await
+        }
     }))
     .await;
-    let mine: client::Page<WaitingRow> = client::get(
-        data_dir,
-        &format!("/pullrequests/{me}"),
-        &[("state", "OPEN".into()), ("pagelen", "30".into())],
-    )
-    .await?;
-    let done = dismissed(data_dir)?;
+    let mine: client::Page<WaitingRow> = client::API
+        .get(
+            data_dir,
+            &format!("/pullrequests/{me}"),
+            &[("state", "OPEN".into()), ("pagelen", "30".into())],
+        )
+        .await?;
     let mut found: Vec<Notification> = asks
         .into_iter()
         .filter_map(Result::ok)
         .flat_map(|page| page.values)
-        .filter_map(|row| notification(row, "review requested", &done))
+        .filter_map(|row| notification(row, "review requested"))
         .chain(
             mine.values
                 .into_iter()
-                .filter_map(|row| notification(row, "your pull request", &done)),
+                .filter_map(|row| notification(row, "your pull request")),
         )
-        .filter(|item| input.all || item.unread)
         .collect();
     found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     found.dedup_by(|a, b| a.id == b.id);
     Ok(found)
-}
-
-pub fn mark_read(data_dir: &Path, input: NotificationRef) -> BitbucketResult<()> {
-    let mut done = dismissed(data_dir)?;
-    done.insert(input.id, now_iso());
-    save_dismissed(data_dir, &done)
-}
-
-/// Marks done everything the inbox shows now.
-pub async fn mark_all_read(data_dir: &Path) -> BitbucketResult<()> {
-    let waiting = inbox(
-        data_dir,
-        InboxQuery {
-            all: false,
-            per_page: None,
-        },
-    )
-    .await?;
-    let mut done = dismissed(data_dir)?;
-    let at = now_iso();
-    for item in waiting {
-        done.insert(item.id, at.clone());
-    }
-    save_dismissed(data_dir, &done)
-}
-
-/// Now as Bitbucket writes times, so it compares with them as text.
-fn now_iso() -> String {
-    time::OffsetDateTime::now_utc()
-        .format(time::macros::format_description!(
-            "[year]-[month]-[day]T[hour]:[minute]:[second].000000+00:00"
-        ))
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -626,46 +580,5 @@ mod tests {
         );
         assert_eq!(release.author.as_deref(), Some("ankit"));
         assert_eq!(release.url, "https://bitbucket.org/team/app/src/v2.4.0-rc1");
-    }
-
-    #[test]
-    fn a_pull_request_marked_done_comes_back_once_it_changes() {
-        let row = |updated: &str| -> WaitingRow {
-            serde_json::from_value(json!({
-                "id": 7, "title": "Fix VAT", "updated_on": updated,
-                "destination": { "repository": { "full_name": "team/app" } }
-            }))
-            .expect("parses")
-        };
-        let mut done = Dismissed::new();
-        done.insert(
-            "team/app#7".into(),
-            "2026-10-09T10:00:00.000000+00:00".into(),
-        );
-        assert!(
-            !notification(
-                row("2026-10-09T09:00:00.000000+00:00"),
-                "review requested",
-                &done
-            )
-            .expect("item")
-            .unread
-        );
-        assert!(
-            notification(
-                row("2026-10-09T11:00:00.000000+00:00"),
-                "review requested",
-                &done
-            )
-            .expect("item")
-            .unread
-        );
-    }
-
-    #[test]
-    fn now_is_written_the_way_bitbucket_writes_times() {
-        let now = now_iso();
-        assert!(now.ends_with(".000000+00:00"), "{now}");
-        assert_eq!(now.len(), "2026-10-10T00:00:00.000000+00:00".len());
     }
 }

@@ -17,7 +17,6 @@ export function SectionLabel({ children, count, action }: { children: string; co
   );
 }
 
-/** Rows straight on the ground, a little apart, the way the Mac's rail lists agents. */
 export function Rows({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const styles = useStyles(makeStyles);
   return <View style={[styles.rows, style]}>{children}</View>;
@@ -26,53 +25,68 @@ export function Rows({ children, style }: { children: ReactNode; style?: StylePr
 export function Row({
   mark,
   name,
+  lead,
   host,
   title,
+  aside,
   detail,
   place,
   end,
   onPress,
+  onLongPress,
   dim,
   detailLines = 1,
   under,
+  after,
 }: {
   mark?: ReactNode;
   /** The agent's name, small and dim with the row's counts and state at its end, as the Mac's rail sets it. */
   name?: string | null;
-  /** The linked host the agent runs on, set after its name. */
+  /** The agent it works under, named before its own name when the row does not hang under that agent's row. */
+  lead?: string;
+  /** The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to TalkBack. */
   host?: string;
   title?: string;
+  /** Quiet words after the title on its line, such as what a chief's chat is on. */
+  aside?: string;
   detail?: ReactNode;
   /** The project the row belongs to, marked with the folder the Mac's rail puts beside it. */
   place?: string | null;
   end?: ReactNode;
   onPress?: () => void;
+  onLongPress?: () => void;
   dim?: boolean;
   detailLines?: number;
   /** One more line below the detail. */
   under?: ReactNode;
+  /** A control of its own at the row's end, beside the row's press rather than inside it, as nested presses misbehave on iOS. */
+  after?: ReactNode;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const where = host ? `on ${host}` : undefined;
   const handle = name ? `@${name}` : undefined;
   const label = title ?? handle;
-  const named = title && handle ? [handle, where].filter(Boolean).join(' ') : undefined;
-  return (
+  const named = title ? handle : undefined;
+  const row = (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole={onPress ? 'button' : undefined}
-      style={({ pressed }) => [styles.row, pressed && onPress && styles.rowPressed]}>
+      style={({ pressed }) => [
+        styles.row,
+        !place && !detail && !under && styles.rowOneLine,
+        after ? styles.rowBeside : null,
+        pressed && onPress && styles.rowPressed,
+      ]}>
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
         <View style={styles.rowLabel}>
           <Text style={[styles.rowTitle, { color: dim ? colors.tertiary : colors.ink }]} numberOfLines={1}>
             {label}
           </Text>
-          {where && !named ? (
-            <Text style={styles.rowWhere} numberOfLines={1}>
-              {' '}
-              {where}
+          {aside ? (
+            <Text style={styles.rowAside} numberOfLines={1}>
+              {aside}
             </Text>
           ) : null}
         </View>
@@ -95,8 +109,18 @@ export function Row({
           </Text>
         ) : null}
       </View>
-      {named || end ? (
+      {named || lead || host || end ? (
         <View style={styles.rowEnd}>
+          {host ? (
+            <View style={dim && styles.rowHostDim} accessible accessibilityLabel={host}>
+              <Icon name="IconRemoteHost" size={11} color={colors.live} />
+            </View>
+          ) : null}
+          {lead ? (
+            <Text style={styles.rowName} numberOfLines={1}>
+              {`@${lead} ›`}
+            </Text>
+          ) : null}
           {named ? (
             <Text style={styles.rowName} numberOfLines={1}>
               {named}
@@ -106,6 +130,13 @@ export function Row({
         </View>
       ) : null}
     </Pressable>
+  );
+  if (!after) return row;
+  return (
+    <View style={styles.rowWith}>
+      {row}
+      {after}
+    </View>
   );
 }
 
@@ -130,12 +161,16 @@ const makeStyles = (colors: Palette) => {
       paddingVertical: 6,
       borderRadius: 9,
     },
+    rowOneLine: { minHeight: 36 },
     rowPressed: { backgroundColor: colors.active },
+    rowWith: { flexDirection: 'row', alignItems: 'center', paddingRight: ROW_INSET },
+    rowBeside: { flex: 1, minWidth: 0 },
     mark: { width: MARK, height: MARK, alignItems: 'center', justifyContent: 'center' },
     rowBody: { flex: 1, minWidth: 0 },
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
-    rowWhere: { flexShrink: 0, fontFamily: fonts.ui, color: colors.tertiary },
+    rowHostDim: { opacity: 0.55 },
+    rowAside: { flexShrink: 1, marginLeft: 6, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
     rowName: { maxWidth: 110, fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary },
     rowDetail: { ...type.meta, fontSize: 12, marginTop: 1 },
     rowPlace: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },

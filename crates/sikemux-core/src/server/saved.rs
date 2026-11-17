@@ -1,24 +1,27 @@
 //! Sessions the agent CLIs saved, found from a vague memory of them for
 //! `agent_sessions` and the composer, and which of them are open now.
 
+pub(crate) use super::chat::Saved;
+use crate::server::chat_state::ChatParts;
+use crate::server::workspace_state::WorkspaceParts;
+pub use sikemux_calls::saved::SessionSearchParams;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::agent_accounts::folders::{sessions_root, sessions_shared};
 use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::{account_variable, named_account};
-use crate::protocol::ChatLaunch;
+use crate::sessions::asked;
 use crate::sessions::recent::RecentProvider;
 use crate::sessions::search::{self, Scope, SearchRequest, SearchResult, SessionMatch, MAX_LIMIT};
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::connection::blocking;
-use super::messages::{self, Reach};
 use super::workspace::project_of;
 use super::{Core, CoreResult};
 
@@ -43,7 +46,7 @@ fn providers(core: &Core) -> Vec<RecentProvider> {
         .filter_map(|agent| kept(agent, None))
         .collect();
     for profile in core
-        .workspaces
+        .workspaces()
         .accounts()
         .into_iter()
         .flat_map(|book| book.profiles)
@@ -58,13 +61,13 @@ fn providers(core: &Core) -> Vec<RecentProvider> {
     providers
 }
 
-/// The agent now running each saved session, by CLI and session id.
+/// The agent open on each saved session, by CLI and session id, whether or
+/// not it runs now.
 fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<String>)> {
-    messages::listed(core)
+    crate::server::roster::listed(core)
         .into_iter()
-        .filter(|agent| agent.reach != Reach::Stopped)
         .filter_map(|agent| {
-            let session = core.names.session_of(&agent.agent_id)?;
+            let session = core.names().session_of(&agent.agent_id)?;
             Some(((agent.cli, session), (agent.agent_id, agent.name)))
         })
         .collect()
@@ -75,9 +78,11 @@ fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<Strin
 fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
     let wanted: Vec<PathBuf> = projects
         .iter()
-        .map(|project| std::fs::canonicalize(project).unwrap_or_else(|_| project.into()))
+        .map(|project| {
+            sikemux_process::files::real_path(project).unwrap_or_else(|_| project.into())
+        })
         .collect();
-    let mut known = core.workspaces.project_paths();
+    let mut known = core.workspaces().project_paths();
     known.extend(wanted.iter().cloned());
     let auto_worktrees: Vec<PathBuf> = wanted
         .iter()
@@ -93,6 +98,78 @@ fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
                 .iter()
                 .any(|folder| project.starts_with(folder))
     })
+}
+
+/// The file of `session`, a session of `agent` that `agent_id` ran, and the account it runs on.
+/// Accounts can share one sessions folder, so where the file lies names the account only when
+/// nothing recorded it, and then the one the person chose comes first among those sharing it.
+pub(crate) fn session_file(
+    core: &Core,
+    agent_id: &str,
+    agent: AgentKind,
+    session: &str,
+    project: &str,
+) -> Option<(PathBuf, Option<String>)> {
+    let (file, kept_on) = providers(core)
+        .into_iter()
+        .filter(|provider| provider.agent == agent)
+        .find_map(|provider| {
+            let root = crate::agent_accounts::folders::root(
+                agent.as_str(),
+                provider.config_path.as_deref(),
+            )?;
+            crate::sessions::transcript::find(agent, &root, Some(project), session)
+                .map(|file| (file, provider.config_path))
+        })?;
+    let account = recorded_account(core, agent_id, agent).unwrap_or_else(|| {
+        let chosen = chosen_account(core, agent);
+        if sessions_shared(agent.as_str(), chosen.as_deref(), kept_on.as_deref()) {
+            chosen
+        } else {
+            kept_on
+        }
+    });
+    Some((file, account))
+}
+
+/// The account folder to ask `agent_id`'s CLI on: the one it runs on, else the one the person
+/// chose.
+pub(crate) fn account_of(core: &Core, agent_id: &str, agent: AgentKind) -> Option<String> {
+    recorded_account(core, agent_id, agent).unwrap_or_else(|| chosen_account(core, agent))
+}
+
+/// The account folder `agent_id` runs on, when known: its launch's while its chat runs, else the
+/// profile its record keeps through sleep, close and restarts.
+fn recorded_account(core: &Core, agent_id: &str, agent: AgentKind) -> Option<Option<String>> {
+    if let Some(chat) = core.chats().get(agent_id) {
+        let launch = chat.current_launch();
+        return Some(named_account(agent.as_str(), &launch.env).map(str::to_owned));
+    }
+    let profile = (core.workspaces().agent(agent_id))
+        .and_then(|kept| kept.profile_id)
+        .or_else(|| core.names().ran_session(agent_id)?.profile)?;
+    let book = core.workspaces().accounts().unwrap_or_default();
+    Some(
+        book.profile(&profile)
+            .and_then(|profile| profile.config_path.clone()),
+    )
+}
+
+fn chosen_account(core: &Core, agent: AgentKind) -> Option<String> {
+    let book = core.workspaces().accounts()?;
+    book.profile(&book.chosen(agent.as_str()))?
+        .config_path
+        .clone()
+}
+
+/// What the person typed in `project`'s saved sessions, a list per session,
+/// newest session first.
+pub(crate) fn typed_in(core: &Core, project: &str, budget: Duration) -> Vec<Vec<String>> {
+    asked::asked(
+        &providers(core),
+        &scope_of(core, vec![project.to_owned()]),
+        budget,
+    )
 }
 
 fn run_search(
@@ -144,10 +221,10 @@ fn scope(core: &Core, request: &HarnessRequest) -> Result<Option<Vec<String>>, S
         Some(_) => return Err("allProjects must be a boolean".into()),
     }
     let project = match request.params.get("project") {
-        None | Some(Value::Null) => messages::caller_project(core, request),
+        None | Some(Value::Null) => super::caller::project_of(core, request),
         Some(Value::String(path)) if !path.trim().is_empty() => {
             let path = Path::new(path.trim());
-            std::fs::canonicalize(path)
+            sikemux_process::files::real_path(path)
                 .map_err(|_| format!("{} is not a folder on this host", path.display()))?
                 .to_string_lossy()
                 .into_owned()
@@ -162,7 +239,6 @@ fn day(unix_ms: u64) -> String {
     at.get(..10).unwrap_or(&at).to_owned()
 }
 
-/// What `agent_sessions` answers.
 pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let query = query_param(&request.params)?;
     let limit = limit_param(&request.params)?;
@@ -207,21 +283,12 @@ pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     .map_err(|error| error.to_string())
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchParams {
-    pub query: String,
-    #[serde(default)]
-    pub projects: Option<Vec<PathBuf>>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub budget_ms: Option<u64>,
-}
-
 /// The `agentSessions` call: the same search for the person's composer, which
 /// leaves out sessions open now.
-pub(crate) async fn call(core: &Arc<Core>, params: SearchParams) -> CoreResult<Vec<SessionMatch>> {
+pub(crate) async fn call(
+    core: &Arc<Core>,
+    params: SessionSearchParams,
+) -> CoreResult<Vec<SessionMatch>> {
     let core = core.clone();
     blocking(move || {
         let query = query_param(&json!({ "query": params.query }))?;
@@ -274,19 +341,6 @@ pub(crate) fn same_account(
         "\"{}\" was saved on another {provider} account than the one you run on, which keeps its sessions apart, so it cannot be reopened from here; ask the person to open it from Recent",
         saved.title
     ))
-}
-
-/// A saved session `agent_spawn` resumes.
-#[derive(Clone)]
-pub(crate) struct Saved {
-    pub session_id: String,
-    pub cli: String,
-    pub project: PathBuf,
-    pub title: String,
-    /// The account folder of the CLI that saved it, when not the default one.
-    pub config_path: Option<String>,
-    /// The agent running it now, and its name.
-    pub open: Option<(String, Option<String>)>,
 }
 
 /// Finds the session `session_id`, of `cli` when given, among every project's.

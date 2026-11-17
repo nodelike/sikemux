@@ -16,6 +16,8 @@ import {
   unauthorized,
   type Env,
 } from "./http.ts";
+import { standingDevices } from "./devices/standing.ts";
+import { reportAs } from "./sentry.ts";
 
 export interface Identity {
   userId: string;
@@ -42,7 +44,7 @@ export interface Verifier {
   verify(token: string): Promise<Identity>;
 }
 
-export interface VerifierOptions {
+interface VerifierOptions {
   issuer: string;
   macClientId: string;
   /** Browser origins a session token may come from. Native apps send none. */
@@ -229,15 +231,12 @@ async function signedIdentity(
   );
   if (!signedBy(key, message, signature))
     throw unauthorized(`The request is not signed by that ${signer.via}.`);
-  const device = await db
-    .selectFrom("devices")
-    .innerJoin("users", "users.id", "devices.user_id")
-    .select(["devices.user_id", "users.deleted_at"])
+  const device = await standingDevices(db)
+    .select("devices.user_id")
     .where("devices.key", "=", key)
     .where("devices.role", "=", signer.role)
     .executeTakeFirst();
-  if (!device || device.deleted_at)
-    throw unauthorized(`This ${signer.via} is not on an account.`);
+  if (!device) throw unauthorized(`This ${signer.via} is not on an account.`);
   const expiresAt = signedAt + HOST_CLOCK_SECONDS * 1000;
   takeSignature(signature, expiresAt);
   return {
@@ -317,6 +316,7 @@ export function requireIdentity(
     c.set("identity", identity);
     c.set("checkBody", checkBody);
     c.set("log", c.get("log").child({ userId: identity.userId }));
+    reportAs(identity.userId);
     await next();
   };
 }

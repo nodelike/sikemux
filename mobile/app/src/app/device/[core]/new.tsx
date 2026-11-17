@@ -5,18 +5,23 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { File } from 'expo-file-system';
 
 import { composerPlaceholder } from '@shared/chat/chatStatus';
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage, ConfigPicker, LauncherInfo } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
 import { ComposerAttachments } from '@/chat/Attachments';
 import { ChatTitle } from '@/chat/ChatTitle';
 import { newChatDraft, type NewChatDraft } from '@/chat/kept';
-import { Activity, Message } from '@/chat/Transcript';
+import { Message } from '@/chat/Transcript';
+import { Activity } from '@/chat/Activity';
 import { startChat } from '@/chat/start';
+import { ConfigSheet, type RoutePick } from '@/chat/ConfigSheet';
+import { ModelChip } from '@/chat/ModelChip';
+import { currentLabel, useAgents } from '@/chat/sessionConfig';
 import { AttachSheet } from '@/chat/AttachSheet';
-import { YoloToggle } from '@/chat/Composer';
+import { yoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { WorktreeSwitch } from '@/chat/Worktree';
 import { ComposerInput } from '@/chat/ComposerInput';
 import { fitting, type Attachment } from '@/chat/uploads';
+import { dropTag, tagTokens, writeTags } from '@/chat/imageTags';
 import { api } from '@/account/api';
 import { stashPrompt, type StashItem } from '@/stash/api';
 import { downloadedFile, intoMessage, stashIdsOf } from '@/stash/attach';
@@ -27,18 +32,23 @@ import { stashToken, takeStash } from '@/stash/store';
 import { usePromptStash } from '@/stash/usePromptStash';
 import { contextChip, stashQuery, withContext, withoutQuery } from '@/stash/words';
 import { MAX_ATTACHMENTS } from '@shared/wire.generated';
-import type { LauncherInfo } from '@/core/protocol';
 import { problem as problemOf } from '@/core/problem';
-import { callHost } from '@/core/hostCalls';
-import { useLive } from '@/devices/hub';
+import { callHost, useHostCall } from '@/core/hostCalls';
+import { SmartPick } from '@/chat/Notices';
+import { useDevices, useLive } from '@/devices/hub';
+import { deviceName } from '@/devices/paired';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { haptics } from '@/ui/haptics';
-import { AgentFace } from '@/devices/Buddy';
+import { crumbsOf, useCrew } from '@/devices/Crew';
+import { Welcome } from '@/chat/Welcome';
+import { KeyboardDismissArea } from '@/ui/KeyboardDismissArea';
+import { HostContext } from '@/chat/hostFiles';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { type Glyph, PromptGlyph } from '@/ui/prompt';
 import { Nav, Screen, useKeyboardShown } from '@/ui/screen';
 import { Working } from '@/devices/AgentMarks';
 import { Sheet, SheetLabel } from '@/ui/Sheet';
+import { useT } from '@/i18n';
 import { fonts, type Palette, useColors, useStyles, useType } from '@/ui/theme';
 
 /** How long typing rests before the new chat's draft is written down. */
@@ -48,8 +58,6 @@ function keepNewChat(store: ReturnType<typeof newChatDraft>, held: NewChatDraft)
   if (held.text || held.attachments.length || held.chips.length) store.save(held);
   else store.clear();
 }
-
-const IDLE = composerPlaceholder({ connection: 'ready', running: false }, { resuming: false, disconnected: false });
 
 /** The account a launcher runs on, as the core names it after the agent: "Claude · Work" is Work. */
 const accountName = (launcher: LauncherInfo) => {
@@ -78,47 +86,6 @@ function sendingOf(draft: string, attachments: Attachment[]): Sending {
   };
 }
 
-function AgentSheet({
-  visible,
-  onClose,
-  launchers,
-  chosen,
-  onChoose,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  launchers: LauncherInfo[];
-  chosen?: LauncherInfo;
-  onChoose: (launcher: LauncherInfo) => void;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const agents = launchers.filter((launcher, index) => launchers.findIndex((first) => first.provider === launcher.provider) === index);
-  return (
-    <Sheet visible={visible} onClose={onClose}>
-      <SheetLabel>Agent</SheetLabel>
-      <View style={styles.agents}>
-        {agents.map((launcher) => {
-          const on = launcher.provider === chosen?.provider;
-          return (
-            <Pressable
-              key={launcher.provider}
-              onPress={() => onChoose(on && chosen ? chosen : launcher)}
-              style={[styles.agent, on && styles.agentOn]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}>
-              <AgentIcon provider={launcher.provider} size={22} />
-              <Text style={[styles.agentText, on && { color: colors.ink }]} numberOfLines={1}>
-                {agentLabel(launcher.provider)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </Sheet>
-  );
-}
-
 function SettingsSheet({
   visible,
   onClose,
@@ -134,13 +101,14 @@ function SettingsSheet({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.sheetHead}>
         <AgentIcon provider={chosen.provider} size={20} />
         <Text style={styles.sheetTitle}>{agentLabel(chosen.provider)}</Text>
       </View>
-      <SheetLabel>Account</SheetLabel>
+      <SheetLabel>{t('Account')}</SheetLabel>
       <View style={styles.group}>
         {accounts.map((launcher, index) => {
           const on = launcher.id === chosen.id;
@@ -170,24 +138,34 @@ export default function NewChat() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const {
     core,
     project: linkedProject,
     launcher: linkedLauncher,
   } = useLocalSearchParams<{ core: string; project?: string; launcher?: string }>();
   const live = useLive(core);
+  const { devices } = useDevices();
+  const known = devices.find((device) => device.core === core);
+  const hostName = known ? deviceName(known, t) : t('the host');
+  const [focused, setFocused] = useState(false);
+  /** Where the caret sits in the draft, where a picked picture's tag goes. */
+  const caret = useRef<number | undefined>(undefined);
   const workspace = live.snapshot?.workspace;
   const [launcherId, setLauncherId] = useState<string | undefined>(linkedLauncher);
   const [chosenMode, setChosenMode] = useState<string>();
+  /** The model and effort picked for the chat before it starts, by their config ids. */
+  const [chosenConfig, setChosenConfig] = useState<Record<string, string>>({});
+  /** A connected provider's model picked in place of the agent's own. */
+  const [routed, setRouted] = useState<RoutePick>();
   const [projectId, setProjectId] = useState<string | undefined>(linkedProject);
   const kept = useMemo(() => newChatDraft(core), [core]);
   const [held] = useState(() => kept.load());
   const [draft, setDraft] = useState(held?.text ?? '');
-  const [sheet, setSheet] = useState<'agent' | 'project' | 'attach' | 'stash' | 'settings'>();
+  const [sheet, setSheet] = useState<'model' | 'project' | 'attach' | 'stash' | 'settings'>();
   const [attachments, setAttachments] = useState<Attachment[]>(
     () => held?.attachments.filter((attachment) => new File(attachment.uri).exists) ?? [],
   );
-  /** Stashed links and text picked for the message, shown as chips and sent as words. */
   const [chips, setChips] = useState<StashItem[]>(held?.chips ?? []);
   const [sending, setSending] = useState<Sending>();
   const starting = Boolean(sending);
@@ -213,6 +191,10 @@ export default function NewChat() {
     [workspace, projectId],
   );
   const mode = chosenMode ?? launcher?.permissionMode ?? '';
+  const agents = useAgents(core);
+  /** `picker` with what the person picked before the chat starts as its current choice. */
+  const picked = (picker: ConfigPicker | null | undefined): ConfigPicker | undefined =>
+    picker ? { ...picker, current: chosenConfig[picker.id] ?? picker.current } : undefined;
   const worktree = (flipped?.project === project?.id ? flipped?.on : undefined) ?? project?.worktreeDefault ?? false;
   const flipWorktree = () => {
     if (!project || live.status !== 'open') return;
@@ -220,7 +202,7 @@ export default function NewChat() {
     setFlipped({ project: project.id, on });
     callHost(live.connection, 'setWorktreeDefault', { project: project.path, on }).catch((error: unknown) => {
       setFlipped(undefined);
-      setProblem(`Could not change the worktree default: ${problemOf(error)}`);
+      setProblem(t('Could not change the worktree default: {problem}', { problem: problemOf(error) }));
     });
   };
   const room = MAX_ATTACHMENTS - attachments.length;
@@ -231,7 +213,7 @@ export default function NewChat() {
   const prompt = usePromptStash({
     stash: async () => {
       const token = stashToken();
-      if (!token) throw new Error('Sign in again.');
+      if (!token) throw new Error(t('Sign in again.'));
       const held = { draft, attachments, chips };
       stashedFrom.current = held;
       setDraft('');
@@ -264,11 +246,13 @@ export default function NewChat() {
   const blocked =
     live.status !== 'open'
       ? live.snapshot
-        ? 'Reconnecting to the host…'
-        : 'Not connected to the host yet.'
+        ? t('Reconnecting to the host…')
+        : t('Not connected to the host yet.')
       : workspace && !project
-        ? 'No open projects on the host.'
+        ? t('No open projects on the host.')
         : undefined;
+  const crew = useCrew();
+  const crumbs = useMemo(() => crumbsOf(crew, undefined, project?.id, live.snapshot), [crew, project?.id, live.snapshot]);
   const noAgents = Boolean(workspace && !workspace.launchers.length);
   const absent: Glyph | undefined = noAgents ? 'IconAgent' : live.status === 'open' && workspace && !project ? 'IconFolder' : undefined;
   const busy = useRef(false);
@@ -290,11 +274,15 @@ export default function NewChat() {
   const attach = (picking: Promise<Attachment[]>) => {
     picking
       .then((picked) => {
-        const { fits, notice } = fitting(attachments.length, picked);
+        const { fits, notice } = fitting(attachments.length, picked, t);
         if (notice) setProblem(notice);
+        const held = attachments.length;
         setAttachments((now) => [...now, ...fits]);
+        // Each picture is named in the words at the caret, as `[Image #n]`, where the host puts it.
+        const numbers = fits.flatMap((file, index) => (file.kind === 'image' ? [held + index + 1] : []));
+        setDraft((now) => writeTags(now, caret.current, numbers));
       })
-      .catch((error: unknown) => setProblem(`Could not pick: ${problemOf(error)}`));
+      .catch((error: unknown) => setProblem(t('Could not pick: {problem}', { problem: problemOf(error) })));
   };
 
   const fromStash = (items: StashItem[], base = draft) => {
@@ -304,6 +292,20 @@ export default function NewChat() {
     if (put.files) attach(put.files);
     void takeStash(put.restored);
   };
+
+  const smartPick = useHostCall(
+    launcher && project && live.status === 'open' ? live.connection : undefined,
+    'smartPick',
+    { launcher: launcher?.id ?? '', project: project?.id ?? '' },
+    '',
+  ).data;
+
+  const routes = useHostCall(
+    launcher && live.status === 'open' ? live.connection : undefined,
+    'modelRoutes',
+    { agent: launcher?.provider ?? '' },
+    '',
+  ).data;
 
   const start = async () => {
     const text = withContext(draft.trim(), chips.map(contextChip));
@@ -322,6 +324,15 @@ export default function NewChat() {
         launcherId: launcher.id,
         projectId: project.id,
         mode: chosenMode,
+        config: [launcher.model?.id, launcher.effort?.id].flatMap((id) =>
+          id && chosenConfig[id] !== undefined ? [{ id, value: chosenConfig[id] }] : [],
+        ),
+        route: routed && {
+          provider: launcher.provider,
+          profileId: launcher.id.split(':')[1],
+          model: routed.model,
+          modelProvider: routed.provider,
+        },
         text,
         attachments: shown.attachments,
         worktree,
@@ -350,7 +361,13 @@ export default function NewChat() {
   return (
     <Screen>
       <Nav
-        title={launcher ? <ChatTitle provider={launcher.provider} title={`New ${agentLabel(launcher.provider)} chat`} /> : undefined}
+        title={
+          launcher ? (
+            <HostContext value={core}>
+              <ChatTitle provider={launcher.provider} title={t('New chat')} crumbs={crumbs} />
+            </HostContext>
+          ) : undefined
+        }
         end={
           accounts.length > 1 && !started ? (
             <Pressable
@@ -358,7 +375,7 @@ export default function NewChat() {
               hitSlop={6}
               style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.active }]}
               accessibilityRole="button"
-              accessibilityLabel="Chat settings">
+              accessibilityLabel={t('Chat settings')}>
               <Icon name="IconMoreVertical" size={16} color={colors.tertiary} />
             </Pressable>
           ) : undefined
@@ -366,52 +383,36 @@ export default function NewChat() {
       />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         {sending ? (
-          <View style={styles.sending}>
+          <KeyboardDismissArea style={styles.sending}>
             <Message message={sending.message} unsent={{ state: 'sending' }} sentFiles={sending.files} />
-            {launcher ? <Activity provider={launcher.provider} label={step ?? 'Starting'} since={sending.since} /> : null}
-          </View>
+            {launcher ? <Activity provider={launcher.provider} doing={{ verb: step ?? t('Starting') }} since={sending.since} /> : null}
+          </KeyboardDismissArea>
         ) : (
-          <View style={styles.welcome}>
-            {absent ? (
-              <PromptGlyph icon={absent} small />
-            ) : launcher ? (
-              <AgentFace agentId={project?.id} provider={launcher.provider} size={38} logoSize={40} />
-            ) : null}
-            <Text style={styles.welcomeTitle}>{project?.name ?? 'New chat'}</Text>
-            {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>No agents on the host.</Text> : null}
+          <KeyboardDismissArea style={styles.welcome}>
+            {absent ? <PromptGlyph icon={absent} small /> : project ? <Welcome project={project.name} /> : null}
+            {smartPick && launcher && !problem && !blocked ? <SmartPick move={smartPick} provider={launcher.provider} /> : null}
+            {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>{t('No agents on the host.')}</Text> : null}
             {problem ? <Text style={styles.problem}>{problem}</Text> : null}
             {!problem && blocked ? (
               <Text style={[type.meta, { textAlign: 'center' }]} accessibilityLiveRegion="polite">
                 {blocked}
               </Text>
             ) : null}
-          </View>
+          </KeyboardDismissArea>
         )}
         <SafeAreaView edges={typing ? [] : ['bottom']} style={styles.wrap}>
           {prompt.toast}
           {mention !== undefined ? <StashMenu query={mention} onPick={(item) => fromStash([item], withoutQuery(draft))} /> : null}
-          {project ? (
-            <View style={styles.strip}>
-              <Pressable
-                style={styles.stripProject}
-                onPress={() => setSheet('project')}
-                disabled={Boolean(started)}
-                accessibilityRole="button"
-                accessibilityLabel="Project">
-                <Icon name="IconFolder" size={13} color={colors.live} />
-                <Text style={styles.stripName}>{project.name}</Text>
-                <View style={{ transform: [{ rotate: '90deg' }] }}>
-                  <Icon name="IconChevron" size={10} color={colors.inkFaint} />
-                </View>
-              </Pressable>
-              {project.git ? <WorktreeSwitch on={worktree || inWorktree} disabled={starting || inWorktree} onFlip={flipWorktree} /> : null}
-            </View>
-          ) : null}
-          <View style={styles.composer}>
+          <View style={[styles.composer, mode === 'bypass' ? styles.yoloComposer : focused && { borderColor: colors.borderSelected }]}>
             {attachments.length || chips.length ? (
               <ComposerAttachments
                 attachments={attachments}
-                onRemove={(id) => !starting && setAttachments((now) => now.filter((attachment) => attachment.id !== id))}
+                onRemove={(id) => {
+                  const at = attachments.findIndex((attachment) => attachment.id === id);
+                  if (starting || at < 0) return;
+                  setAttachments((now) => now.filter((attachment) => attachment.id !== id));
+                  setDraft((now) => dropTag(now, at + 1));
+                }}
                 onRetry={start}
                 lead={chips.map((chip) => (
                   <StashChip
@@ -422,7 +423,19 @@ export default function NewChat() {
                 ))}
               />
             ) : null}
-            <ComposerInput value={draft} onChangeText={setDraft} placeholder={IDLE} editable={!starting} autoFocus />
+            <ComposerInput
+              value={draft}
+              tokens={tagTokens(draft, attachments.length)}
+              onChangeText={setDraft}
+              placeholder={composerPlaceholder({ connection: 'ready', running: false }, { resuming: false, disconnected: false }, t)}
+              editable={!starting}
+              autoFocus
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onSelectionChange={(event) => {
+                caret.current = event.nativeEvent.selection.start;
+              }}
+            />
             <View style={styles.bar}>
               <Pressable
                 onPress={() => setSheet('attach')}
@@ -433,7 +446,7 @@ export default function NewChat() {
                   (starting || room <= 0) && { opacity: 0.4 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Add photos or files"
+                accessibilityLabel={t('Add photos or files')}
                 accessibilityState={{ disabled: starting || room <= 0 }}>
                 <Icon name="IconPlus" size={17} color={colors.inkDim} />
               </Pressable>
@@ -448,19 +461,13 @@ export default function NewChat() {
                 />
               ) : null}
               {launcher ? (
-                <Pressable
-                  style={styles.picker}
-                  onPress={() => setSheet('agent')}
+                <ModelChip
+                  provider={launcher.provider}
+                  model={routed?.model ?? currentLabel(picked(launcher.model))}
+                  effort={currentLabel(picked(launcher.effort))}
                   disabled={Boolean(started)}
-                  hitSlop={5}
-                  accessibilityRole="button"
-                  accessibilityLabel="Agent">
-                  <AgentIcon provider={launcher.provider} size={16} />
-                  <Text style={styles.pickerText}>{agentLabel(launcher.provider)}</Text>
-                  <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
-                    <Icon name="IconChevron" size={10} color={colors.accent} />
-                  </View>
-                </Pressable>
+                  onPress={() => setSheet('model')}
+                />
               ) : null}
               <View style={{ flex: 1 }} />
               <Pressable
@@ -470,13 +477,43 @@ export default function NewChat() {
                 hitSlop={5}
                 style={[styles.send, !sendable && { opacity: 0.28 }]}
                 accessibilityRole="button"
-                accessibilityLabel="Start"
+                accessibilityLabel={t('Start')}
                 accessibilityHint={blocked}
                 accessibilityState={{ disabled: !sendable, busy: starting }}>
                 {starting ? <Working /> : <Icon name="IconArrowUp" size={16} color={colors.ground} />}
               </Pressable>
             </View>
           </View>
+          {project ? (
+            <View style={styles.place}>
+              <View style={styles.placeHost}>
+                <Icon name="IconLaptop" size={12} color={colors.tertiary} />
+                <Text style={styles.placeQuiet} numberOfLines={1}>
+                  {hostName}
+                </Text>
+              </View>
+              <Text style={styles.slash} importantForAccessibility="no" accessibilityElementsHidden>
+                /
+              </Text>
+              <Pressable
+                style={styles.placeProject}
+                onPress={() => setSheet('project')}
+                disabled={Boolean(started)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={t('Project, {project}', { project: project.name })}>
+                <Icon name="IconFolder" size={12} color={colors.live} />
+                <Text style={styles.placeName} numberOfLines={1}>
+                  {project.name}
+                </Text>
+                <View style={{ transform: [{ rotate: '90deg' }] }}>
+                  <Icon name="IconChevron" size={10} color={colors.inkFaint} />
+                </View>
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              {project.git ? <WorktreeSwitch on={worktree || inWorktree} disabled={starting || inWorktree} onFlip={flipWorktree} /> : null}
+            </View>
+          ) : null}
         </SafeAreaView>
       </KeyboardAvoidingView>
       <AttachSheet
@@ -488,17 +525,36 @@ export default function NewChat() {
         onStash={fromStash}
         onStashPrompt={stashable ? prompt.stash : undefined}
       />
-      <AgentSheet
-        visible={sheet === 'agent'}
-        onClose={() => setSheet(undefined)}
-        launchers={workspace?.launchers ?? []}
-        chosen={launcher}
-        onChoose={(next) => {
-          setLauncherId(next.id);
-          setChosenMode(undefined);
-          setSheet(undefined);
-        }}
-      />
+      {launcher ? (
+        <ConfigSheet
+          visible={sheet === 'model'}
+          onClose={() => setSheet(undefined)}
+          provider={launcher.provider}
+          agents={agents}
+          onAgent={(agent) => {
+            setLauncherId(workspace?.launchers.find((known) => known.provider === agent)?.id);
+            setChosenMode(undefined);
+            setChosenConfig({});
+            setRouted(undefined);
+          }}
+          model={picked(launcher.model)}
+          effort={picked(launcher.effort)}
+          speed={undefined}
+          onPick={(picker, value) => {
+            setChosenConfig((chosen) => ({ ...chosen, [picker.id]: value }));
+            if (picker.id === launcher.model?.id) {
+              setRouted(undefined);
+              setSheet(undefined);
+            }
+          }}
+          routes={routes ?? []}
+          routed={routed}
+          onRoute={(pick) => {
+            setRouted(pick);
+            setSheet(undefined);
+          }}
+        />
+      ) : null}
       {launcher ? (
         <SettingsSheet
           visible={sheet === 'settings'}
@@ -530,54 +586,28 @@ const makeStyles = (colors: Palette) => {
     welcome: {
       flex: 1,
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 12,
+      // Nothing floats mid-screen: the start sits just above the composer it leads into.
+      justifyContent: 'flex-end',
+      gap: 10,
       paddingHorizontal: 28,
+      paddingBottom: 28,
     },
     sending: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 28 },
-    welcomeTitle: { fontFamily: fonts.uiSemibold, fontSize: 20, letterSpacing: -0.55, color: colors.ink },
     problem: { fontFamily: fonts.ui, fontSize: 13.5, color: colors.danger, textAlign: 'center' },
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
-    strip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginHorizontal: 14,
-      marginBottom: -1,
-      paddingVertical: 5,
-      paddingLeft: 12,
-      paddingRight: 6,
-      borderWidth: 1,
-      borderBottomWidth: 0,
-      borderColor: colors.border,
-      borderTopLeftRadius: 12,
-      borderTopRightRadius: 12,
-      backgroundColor: colors.composer,
-    },
-    stripProject: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 4 },
-    stripName: { fontFamily: fonts.uiMedium, fontSize: 13.5, color: colors.ink },
-    composer: { padding: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    // Where the chat will run, picked from the line under the box as on the Mac's new chat.
+    place: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 36, marginTop: 4, paddingHorizontal: 8 },
+    placeHost: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
+    placeQuiet: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
+    placeProject: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 6 },
+    placeName: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
+    slash: { fontFamily: fonts.ui, fontSize: 13, color: colors.borderStrong },
+    composer: { padding: 6, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    yoloComposer: { borderColor: yoloEdge(colors) },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-    picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7 },
-    pickerText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.accent },
     more: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
-
-    agents: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    agent: {
-      width: '23.6%',
-      height: 66,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 6,
-    },
-    agentOn: { backgroundColor: colors.active, borderColor: colors.borderStrong },
-    agentText: { fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
 
     sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },

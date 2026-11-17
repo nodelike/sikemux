@@ -1,20 +1,20 @@
 //! A markdown, DBML or HTML file drawn the way it reads, beside its source. In markdown,
 //! links open, a web address in the browser and a file in its editor.
 
+use crate::reading::reading_style;
+use crate::ui::Clicks;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, img, point, px, AnyElement, App, AppContext, Context, Entity, FocusHandle,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton,
-    ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement,
-    Styled, StyledImage, Subscription, Window,
+    actions, div, img, point, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity,
+    FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    MouseButton, ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
 };
-use gpui_transcript::{DocFind, Markdown, Pen, Query, Style};
-use serde_json::Value;
-use sikemux_markdown::{Doc, Op, Options};
+use gpui_transcript::{Copy, DocFind, DocSelect, Markdown, Query, Style};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{Document, FileKey, OpenAt};
@@ -36,23 +36,16 @@ const WIDTH: f32 = 860.;
 const REVEAL_FRAMES: u8 = 2;
 
 pub(super) fn install(cx: &mut App) {
-    let find = if cfg!(target_os = "macos") {
-        "cmd-f"
+    let (find, copy) = if cfg!(target_os = "macos") {
+        ("cmd-f", "cmd-c")
     } else {
-        "ctrl-f"
+        ("ctrl-f", "ctrl-c")
     };
-    cx.bind_keys([KeyBinding::new(find, FindInPreview, Some(CONTEXT))]);
+    cx.bind_keys([
+        KeyBinding::new(find, FindInPreview, Some(CONTEXT)),
+        KeyBinding::new(copy, Copy, Some(CONTEXT)),
+    ]);
 }
-
-const OPTIONS: Options = Options {
-    gfm: true,
-    html_as_text: false,
-    file_links: true,
-    html_images: true,
-    html_layout: true,
-    references: false,
-    file_paths: false,
-};
 
 /// Whether a file's editor shows its text or the markdown it renders to.
 #[derive(Clone, Copy, PartialEq)]
@@ -90,15 +83,6 @@ pub(super) fn first_mode(path: &Path) -> Mode {
     }
 }
 
-/// `text` as the tree the transcript draws.
-pub(crate) fn render(text: &str) -> Markdown {
-    let blocks = match Doc::read(text, OPTIONS).into_iter().next() {
-        Some(Op::List { c, .. }) => Value::Array(c),
-        _ => Value::Array(Vec::new()),
-    };
-    Markdown::new(&blocks, text.encode_utf16().count())
-}
-
 /// The bar over a markdown, DBML or HTML file's editor that switches it between its
 /// source and how it reads.
 pub(super) fn toolbar(
@@ -118,7 +102,7 @@ pub(super) fn toolbar(
             .h(px(20.))
             .flex()
             .items_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_color(if chosen {
                 t.text_primary
@@ -126,7 +110,7 @@ pub(super) fn toolbar(
                 t.text_tertiary
             })
             .when(chosen, |choice| choice.bg(t.surface_chosen))
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 this.update(cx, |bench, cx| {
                     super::show_mode(bench, &key, shows, window, cx)
                 })
@@ -140,15 +124,15 @@ pub(super) fn toolbar(
         .gap(SPACE_0)
         .h(px(28.))
         .px(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
-        .child(choice("markdown-source", "Source", Mode::Source))
+        .child(choice("markdown-source", t!("Source"), Mode::Source))
         .child(choice(
             "markdown-preview",
             match look {
-                Look::Markdown | Look::Page => "Preview",
-                Look::Diagram => "Diagram",
+                Look::Markdown | Look::Page => t!("Preview"),
+                Look::Diagram => t!("Diagram"),
             },
             Mode::Preview,
         ))
@@ -160,6 +144,7 @@ pub(super) struct Body {
     pub(super) path: PathBuf,
     pub(super) markdown: Rc<Markdown>,
     pub(super) found: Option<Rc<DocFind>>,
+    pub(super) select: DocSelect,
     pub(super) scroll: ScrollHandle,
     pub(super) focus: FocusHandle,
     /// How pictures on the web are fetched; none while the file is on another host, whose
@@ -191,20 +176,37 @@ impl RenderOnce for Body {
             ruled_headings: true,
             ..reading_style(TEXT_SIZE, cx)
         });
-        let pen = match &self.found {
-            Some(found) => found.pen(style, &self.markdown),
-            None => Pen::new(style),
-        };
+        let pen = (self.select).pen(style, &self.markdown, self.found.as_deref());
         let id = SharedString::from(format!("markdown-{}", self.path.display()));
         let focus = self.focus.clone();
+        let (pressed, dragged, released, copied) = (
+            self.select.clone(),
+            self.select.clone(),
+            self.select.clone(),
+            self.select,
+        );
+        let (markdown, copying) = (self.markdown.clone(), self.markdown.clone());
         div()
             .id(id.clone())
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .track_focus(&self.focus)
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                focus.focus(window, cx)
+            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                focus.focus(window, cx);
+                pressed.press(event, &markdown);
+                window.refresh();
+            })
+            .on_mouse_move(move |event, window, _| {
+                if dragged.drag(event) {
+                    window.refresh();
+                }
+            })
+            .on_mouse_up(MouseButton::Left, move |_, _, _| released.release())
+            .on_action(move |_: &Copy, _, cx| {
+                if let Some(text) = copied.selected_text(&copying) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
             })
             .child(
                 div()
@@ -255,7 +257,7 @@ pub(super) fn open_find(
         return;
     };
     let input = finding.unwrap_or_else(|| {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in file"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find in file")));
         let typed = {
             let key = key.clone();
             cx.subscribe(&input, move |bench, _, event: &InputEvent, cx| {
@@ -360,7 +362,8 @@ fn reveal_in(document: &mut Document, cx: &mut Context<super::Editors>) {
     };
     finding.reveal = finding.reveal.saturating_sub(1);
     let style = reading_style(TEXT_SIZE, cx);
-    let offset = (finding.found.as_ref()).and_then(|found| found.current_offset(&markdown, &style));
+    let offset = (finding.found.as_ref())
+        .and_then(|found| found.current_offset(&markdown, &style, &document.preview_select));
     if let Some(offset) = offset {
         let scroll = &document.preview_scroll;
         let (line, room) = (px(PAD_Y) + offset, room(scroll));
@@ -385,7 +388,7 @@ pub(super) fn bar(this: &Entity<Workbench>, key: &FileKey, finding: &Finding, cx
     let label = match finding.found.as_ref().map(|found| found.found()) {
         Some((current, total)) if total > 0 => format!("{}/{total}", current + 1),
         _ if finding.input.read(cx).value().is_empty() => "0/0".to_owned(),
-        _ => "No results".to_owned(),
+        _ => t!("No results").to_owned(),
     };
     let on = |act: fn(&mut Workbench, &FileKey, &mut Window, &mut Context<Workbench>)| {
         let (this, key) = (this.clone(), key.clone());
@@ -410,52 +413,6 @@ pub(super) fn bar(this: &Entity<Workbench>, key: &FileKey, finding: &Finding, cx
         )
         .on_step(step)
         .on_close(on(close_find))
-}
-
-/// [`reading_style`] whose web links open what they name in the app, as
-/// [`crate::links::web_opener`] does.
-pub(crate) fn reading_linked(
-    text_size: f32,
-    bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
-    cx: &App,
-) -> Style {
-    Style {
-        on_link: Some(crate::links::web_opener(bench.clone())),
-        ..reading_style(text_size, cx)
-    }
-}
-
-/// How the app reads markdown at `text_size` points at the default text size, growing and
-/// shrinking with the person's choice as the rest of the interface's text does.
-pub(crate) fn reading_style(text_size: f32, cx: &App) -> Style {
-    let t = Tokens::get(cx);
-    let mut mono = gpui_kit::font(theme::MONO);
-    mono.fallbacks = Some(gpui_kit::FontFallbacks::from_fonts(vec![
-        theme::MONO_ICONS.into()
-    ]));
-    Style {
-        font: theme::UI.into(),
-        mono,
-        text_size: px(text_size * theme::text_scale(cx)),
-        line_height: 1.72,
-        ink: t.text_primary,
-        ink_dim: t.text_tertiary,
-        ink_faint: t.text_disabled,
-        accent: t.accent,
-        line: Hsla { a: 0.8, ..t.line },
-        line_soft: t.line_soft,
-        selection: Hsla { a: 0.3, ..t.accent },
-        mark_ground: Hsla { a: 0.1, ..t.accent },
-        table_ground: Hsla {
-            a: 0.72,
-            ..t.line_soft
-        },
-        code_ground: Hsla {
-            a: 0.72,
-            ..t.surface_sunken
-        },
-        ..Style::default()
-    }
 }
 
 /// A picture the markdown shows at its own size, no wider than the text: a file beside the
@@ -511,42 +468,4 @@ fn follow(folder: &Path, link: &str, window: &mut Window, cx: &mut App) {
         column: None,
     };
     window.dispatch_action(Box::new(at), cx);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn query(text: &str, match_case: bool, whole_word: bool) -> Query {
-        Query {
-            text: text.to_owned(),
-            match_case,
-            whole_word,
-        }
-    }
-
-    const TEXT: &str = "# Notes\n\nFoo the food, then foo again.\n\n- one foo\n- `foo()` in code\n";
-
-    #[test]
-    fn find_counts_every_place_in_the_preview_as_it_reads() {
-        let markdown = render(TEXT);
-        let count = |query: Query| DocFind::new(&markdown, &query).found().1;
-        assert_eq!(count(query("foo", false, false)), 5);
-        assert_eq!(count(query("Foo", true, false)), 1);
-        assert_eq!(count(query("foo", false, true)), 4);
-        assert_eq!(count(query("absent", false, false)), 0);
-        assert_eq!(count(query("#", false, false)), 0);
-    }
-
-    #[test]
-    fn stepping_goes_round_the_places_found() {
-        let markdown = render(TEXT);
-        let mut found = DocFind::new(&markdown, &query("foo", false, true));
-        found.step(false);
-        assert_eq!(found.found(), (3, 4));
-        found.step(true);
-        assert_eq!(found.found(), (0, 4));
-        found.step(true);
-        assert_eq!(found.found(), (1, 4));
-    }
 }

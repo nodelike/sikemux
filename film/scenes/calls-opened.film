@@ -1,0 +1,23 @@
+# A call shows what its asker opened before asking: the file at the line it pointed at, and the
+# changes of its checkout, on the desk's Calls page.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies calls-opened.json
+project storefront shop-site
+patch site-fix.diff
+chat Wren
+title "Cart totals a cent off"
+say "Some orders come out a cent off at checkout. Find out why."
+settle 8
+front Wren
+settle 2
+snap opened-desk
+click 733,56
+move 1100,700 0.3
+settle 2
+snap calls-opened
+key cmd-k
+settle 2
+snap calls-opened-alone

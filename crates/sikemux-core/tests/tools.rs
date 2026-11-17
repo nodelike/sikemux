@@ -12,17 +12,18 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use sikemux_client::client::{ClientEvent, CoreClient};
 use sikemux_core::cli::auth::{new_nonce, same_secret, server_proof};
 use sikemux_core::cli::protocol::{
     CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenRequest,
     CliOpenTarget, CliServerResponse, CliTargetKind, HarnessRequest, CLI_PROTOCOL_VERSION,
 };
-use sikemux_core::client::{probe, ClientEvent, CoreClient};
-use sikemux_core::protocol::{
+use sikemux_core::client::probe;
+use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_wire::protocol::{
     ask, encode_control, read_frame_sync, ClientMessage, Request, WindowAnswer, WindowCall,
     PROTOCOL, PROTOCOL_VERSION,
 };
-use sikemux_core::server::{self, ServerConfig, ServerError};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -199,7 +200,7 @@ fn window_open(endpoint: &Path) -> bool {
 
 fn project_dir() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().expect("project");
-    let path = std::fs::canonicalize(dir.path()).expect("canonical");
+    let path = sikemux_process::files::real_path(dir.path()).expect("canonical");
     (dir, path)
 }
 
@@ -248,7 +249,6 @@ async fn play_window(
                 client.window_open_closed(call_id);
                 continue;
             }
-            WindowCall::OpenPlugin { plugin, .. } => Err(format!("{plugin} is not played here")),
         };
         client.answer_window(call_id, answer.into());
     }
@@ -257,7 +257,7 @@ async fn play_window(
 async fn open_window(core: &TestCore) -> (std::sync::Arc<CoreClient>, tokio::task::JoinHandle<()>) {
     let (client, events) = CoreClient::connect(&core.socket).await.expect("connect");
     let client = std::sync::Arc::new(client);
-    client.register_window().await.expect("register");
+    client.ask(ask::RegisterWindow).await.expect("register");
     let player = tokio::spawn(play_window(client.clone(), events));
     (client, player)
 }
@@ -275,12 +275,15 @@ async fn tools_answer_without_a_window() {
         .expect("the project");
 
     assert!(!window_open(&endpoint));
-    assert!(
-        call(&endpoint, &project, "task.read", json!({ "taskId": "dev" }))
-            .await
-            .unwrap_err()
-            .contains("has not been started")
-    );
+    assert!(call(
+        &endpoint,
+        &project,
+        "process.read",
+        json!({ "processId": "dev" })
+    )
+    .await
+    .unwrap_err()
+    .contains("has not been started"));
     assert_eq!(
         call(
             &endpoint,
@@ -332,7 +335,7 @@ async fn tools_answer_without_a_window() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_task_starts_and_stops_with_no_window_open() {
+async fn a_process_starts_and_stops_with_no_window_open() {
     let dir = tempfile::tempdir().expect("dir");
     let (_project_dir, project) = project_dir();
     let core = start_core(dir.path(), &dir.path().join("data"));
@@ -350,17 +353,17 @@ async fn a_task_starts_and_stops_with_no_window_open() {
         "idempotencyKey": "first",
         "readyWhen": "READY",
     });
-    let started = call(&endpoint, &project, "task.start", params.clone())
+    let started = call(&endpoint, &project, "process.start", params.clone())
         .await
         .unwrap();
     assert_eq!(started["status"], "running", "{started}");
     assert_eq!(started["ready"], true, "{started}");
-    assert!(started["taskId"]
+    assert!(started["processId"]
         .as_str()
         .unwrap()
         .starts_with("sh:printf-ready-"));
     let execution_id = started["executionId"].as_str().unwrap().to_owned();
-    let again = call(&endpoint, &project, "task.start", params)
+    let again = call(&endpoint, &project, "process.start", params)
         .await
         .unwrap();
     assert_eq!(again["executionId"], execution_id);
@@ -368,7 +371,7 @@ async fn a_task_starts_and_stops_with_no_window_open() {
     let read = call(
         &endpoint,
         &project,
-        "task.read",
+        "process.read",
         json!({ "executionId": execution_id, "plain": true }),
     )
     .await
@@ -382,7 +385,10 @@ async fn a_task_starts_and_stops_with_no_window_open() {
     )
     .await
     .unwrap();
-    assert_eq!(&kinds(&history)[..2], ["task.starting", "task.running"]);
+    assert_eq!(
+        &kinds(&history)[..2],
+        ["process.starting", "process.running"]
+    );
 
     let cursor = history["cursor"].as_str().unwrap().to_owned();
     let waiting = {
@@ -400,15 +406,15 @@ async fn a_task_starts_and_stops_with_no_window_open() {
     let stopped = call(
         &endpoint,
         &project,
-        "task.stop",
-        json!({ "taskId": started["taskId"] }),
+        "process.stop",
+        json!({ "processId": started["processId"] }),
     )
     .await
     .unwrap();
     assert_eq!(stopped["status"], "stopped");
     let woken = waiting.await.unwrap().unwrap();
     assert!(
-        kinds(&woken).contains(&"task.stopping".to_owned()),
+        kinds(&woken).contains(&"process.stopping".to_owned()),
         "{woken}"
     );
     let inspect = call(&endpoint, &project, "workspace.inspect", json!({}))
@@ -426,7 +432,7 @@ async fn a_call_waiting_on_a_window_that_leaves_fails_and_a_new_window_takes_ove
     let endpoint = core.endpoint.clone();
 
     let (silent, mut silent_events) = CoreClient::connect(&core.socket).await.expect("connect");
-    silent.register_window().await.expect("register");
+    silent.ask(ask::RegisterWindow).await.expect("register");
     let pending = {
         let (endpoint, project) = (endpoint.clone(), project.clone());
         tokio::spawn(async move {
@@ -574,7 +580,7 @@ async fn run_status(endpoint: &Path, project: &Path, execution_id: &str, until: 
         let read = call(
             endpoint,
             project,
-            "task.read",
+            "process.read",
             json!({ "executionId": execution_id, "plain": true }),
         )
         .await
@@ -588,18 +594,18 @@ async fn run_status(endpoint: &Path, project: &Path, execution_id: &str, until: 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_sikemux_json_task_runs_once_the_person_trusts_the_file_and_asks_again_when_it_changes() {
+async fn a_sikemux_json_process_runs_once_the_person_trusts_the_file_and_again_when_it_changes() {
     let dir = tempfile::tempdir().expect("dir");
     let (_project_dir, project) = project_dir();
     let core = start_core(dir.path(), &dir.path().join("data"));
     let endpoint = core.endpoint.clone();
     let (person, _events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let start = |key: &str| json!({ "taskId": "hello", "idempotencyKey": key });
+    let start = |key: &str| json!({ "processId": "hello", "idempotencyKey": key });
 
-    let absent = call(&endpoint, &project, "task.start", start("absent")).await;
+    let absent = call(&endpoint, &project, "process.start", start("absent")).await;
     assert!(absent.unwrap_err().contains("has no sikemux.json"));
     std::fs::write(project.join("sikemux.json"), "{").unwrap();
-    let invalid = call(&endpoint, &project, "task.start", start("invalid")).await;
+    let invalid = call(&endpoint, &project, "process.start", start("invalid")).await;
     assert!(invalid.unwrap_err().contains("sikemux.json is invalid"));
 
     let config = json!({
@@ -607,7 +613,7 @@ async fn a_sikemux_json_task_runs_once_the_person_trusts_the_file_and_asks_again
         "tasks": [{ "id": "hello", "label": "Hello", "command": "printf 'HELLO\\n'; sleep 30" }],
     });
     std::fs::write(project.join("sikemux.json"), config.to_string()).unwrap();
-    let waiting = call(&endpoint, &project, "task.start", start("first"))
+    let waiting = call(&endpoint, &project, "process.start", start("first"))
         .await
         .unwrap();
     assert_eq!(waiting["status"], "awaiting-trust", "{waiting}");
@@ -628,8 +634,8 @@ async fn a_sikemux_json_task_runs_once_the_person_trusts_the_file_and_asks_again
     let restarted = call(
         &endpoint,
         &project,
-        "task.restart",
-        json!({ "taskId": "hello" }),
+        "process.restart",
+        json!({ "processId": "hello" }),
     )
     .await
     .unwrap();
@@ -640,14 +646,14 @@ async fn a_sikemux_json_task_runs_once_the_person_trusts_the_file_and_asks_again
     call(
         &endpoint,
         &project,
-        "task.stop",
+        "process.stop",
         json!({ "executionId": replaced }),
     )
     .await
     .unwrap();
 
     std::fs::write(project.join("sikemux.json"), format!("{config}\n")).unwrap();
-    let again = call(&endpoint, &project, "task.start", start("changed"))
+    let again = call(&endpoint, &project, "process.start", start("changed"))
         .await
         .unwrap();
     assert_eq!(again["status"], "awaiting-trust", "{again}");

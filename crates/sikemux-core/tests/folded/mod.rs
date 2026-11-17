@@ -3,16 +3,17 @@
 
 #![allow(dead_code)]
 
-use std::time::Duration;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
-use sikemux_core::client::ClientEvent;
-use sikemux_core::protocol::{ChatAttachment, Event};
-use sikemux_wire::chat::{
+use sikemux_client::client::ClientEvent;
+use sikemux_view::chat::{
     ChatChange, ChatConnection, ChatHead, ChatMessage, ChatPart, ChatRole, ChatView, StopReason,
 };
+use sikemux_wire::protocol::{ChatAttachment, Event};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 #[derive(Clone, Debug, Default)]
@@ -270,9 +271,11 @@ impl Chat {
     }
 
     /// Takes in the next event, and answers the number of the frame it
-    /// applied, when the event was one of this chat's.
-    async fn pump(&mut self) -> Option<u64> {
-        let Ok(event) = tokio::time::timeout(self.wait, self.events.recv()).await else {
+    /// applied, when the event was one of this chat's. Gives up once this chat
+    /// has been quiet for `wait` since `heard`, however busy the other events are.
+    async fn pump(&mut self, heard: &mut Instant) -> Option<u64> {
+        let quiet_until = tokio::time::Instant::from_std(*heard + self.wait);
+        let Ok(event) = tokio::time::timeout_at(quiet_until, self.events.recv()).await else {
             panic!(
                 "timed out waiting for the chat, which holds {:#?}",
                 self.folded.view
@@ -295,22 +298,25 @@ impl Chat {
             }
             self.floor = None;
         }
+        *heard = Instant::now();
         self.folded.frames += 1;
         self.folded.apply(&changes);
         Some(seq)
     }
 
     pub async fn next_frame(&mut self) -> u64 {
+        let mut heard = Instant::now();
         loop {
-            if let Some(seq) = self.pump().await {
+            if let Some(seq) = self.pump(&mut heard).await {
                 return seq;
             }
         }
     }
 
     pub async fn until(&mut self, mut found: impl FnMut(&Folded) -> bool) -> &Folded {
+        let mut heard = Instant::now();
         while !found(&self.folded) {
-            self.pump().await;
+            self.pump(&mut heard).await;
         }
         &self.folded
     }
@@ -355,4 +361,27 @@ impl Chat {
         self.said = text.len();
         text[from..].to_owned()
     }
+}
+
+/// Every file under `dir` that holds `words`, but for the private files answers wait in.
+pub fn holding(dir: &Path, words: &str) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.ends_with("agent-secrets") {
+            continue;
+        }
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            found.extend(holding(&path, words));
+        } else if kind.is_file()
+            && std::fs::read(&path)
+                .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(words))
+        {
+            found.push(path);
+        }
+    }
+    found
 }

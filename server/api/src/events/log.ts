@@ -10,7 +10,7 @@ import type { Tables } from "../db.ts";
 /** The channel every account change is announced on, carrying only the account's id. */
 export const EVENTS_CHANNEL = "sikemux_events";
 
-export interface NewEvent {
+interface NewEvent {
   userId: string;
   type: AccountEventType;
   subject?: string;

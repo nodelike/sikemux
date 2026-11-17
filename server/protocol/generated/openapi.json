@@ -140,7 +140,7 @@
         "operationId": "listDevices",
         "summary": "Your devices",
         "security": [{ "session": [] }, { "host": [] }],
-        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "description": "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
         "parameters": [
           {
             "name": "role",
@@ -352,7 +352,7 @@
         "operationId": "createJoinTicket",
         "summary": "A ticket for this phone to join one of your hosts without a code",
         "security": [{ "session": [] }, { "host": [] }],
-        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "description": "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
         "parameters": [
           {
             "name": "key",
@@ -828,6 +828,14 @@
               }
             }
           },
+          "409": {
+            "description": "You are the only owner of an org: make someone else its owner, or delete it, first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "default": {
             "description": "Something went wrong.",
             "content": {
@@ -885,6 +893,690 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/AccountProfile" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/allowance": {
+      "get": {
+        "operationId": "getAccountAllowance",
+        "summary": "The plan of the account a host is on, and what it may use",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "responses": {
+          "200": {
+            "description": "The allowance; plan.changed says when to read it again. Until billing is live, every feature is allowed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Allowance" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs": {
+      "post": {
+        "operationId": "createOrg",
+        "summary": "Make an org, with you as its owner",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new org. It has no seats beyond its owner until it has a Team plan.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgCreate.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listOrgs",
+        "summary": "The orgs you are in",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "Each org with your role and its seats.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgList" }
+              }
+            }
+          },
+          "404": {
+            "description": "Your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/join": {
+      "post": {
+        "operationId": "joinOrg",
+        "summary": "Accept an invite and join its org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgJoin" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "You are in the org, with the invite's role. The invite is used up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgJoin.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No invite has that token, or it was used, revoked or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "You are already in the org, or it has no free seat because its Team plan lapsed or its seats were cut.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/name": {
+      "post": {
+        "operationId": "renameOrg",
+        "summary": "Rename an org, as its owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgRename" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The org under its new name.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgRename.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}": {
+      "delete": {
+        "operationId": "deleteOrg",
+        "summary": "Delete an org, as its owner",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The org, its members and its invites are gone."
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org still has a subscription that has not ended; cancel it first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/members": {
+      "get": {
+        "operationId": "listOrgMembers",
+        "summary": "Everyone in an org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The members with their roles.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgMemberList" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/members/{memberId}/role": {
+      "put": {
+        "operationId": "setOrgMemberRole",
+        "summary": "Change a member's role",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "memberId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgRoleChange" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The member with the new role. An admin changes admins and users; only an owner makes or unmakes an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgMember" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgRoleChange.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "It would leave the org with no owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/members/{memberId}": {
+      "delete": {
+        "operationId": "removeOrgMember",
+        "summary": "Take someone out of an org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "memberId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "They are no longer in the org, and their seat is free. An admin removes admins and users; only an owner removes an owner."
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "It would leave the org with no owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/leave": {
+      "post": {
+        "operationId": "leaveOrg",
+        "summary": "Leave an org",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "You are no longer in the org, and your seat is free."
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "You are its only owner: make someone else an owner, or delete the org.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/invites": {
+      "post": {
+        "operationId": "createOrgInvite",
+        "summary": "Make an invite link, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgInviteCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The invite and its link, shown only now. It holds a seat until it is accepted, revoked or expires in 7 days.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgInviteCreated" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgInviteCreate.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it. Only an owner invites an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listOrgInvites",
+        "summary": "An org's pending invites, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invites not yet accepted, revoked or expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgInviteList" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/invites/{inviteId}": {
+      "delete": {
+        "operationId": "revokeOrgInvite",
+        "summary": "Revoke an invite, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "inviteId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The link no longer works and its seat is free. Revoking one already used, revoked or expired changes nothing."
+          },
+          "403": {
+            "description": "Your role in the org does not allow it. Only an owner revokes an invite to be an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no invite with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
               }
             }
           },
@@ -1521,6 +2213,1612 @@
           }
         }
       }
+    },
+    "/v1/share": {
+      "get": {
+        "operationId": "openShare",
+        "summary": "One connection per host publishing shared chats, and one per viewer watching one",
+        "security": [{ "session": [] }, { "host": [] }],
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "x-websocket": {
+          "send": { "$ref": "#/components/schemas/ShareClientMessage" },
+          "receive": { "$ref": "#/components/schemas/ShareServerMessage" }
+        },
+        "responses": {
+          "101": {
+            "description": "The connection is open. The server sends a challenge; the client answers with hello within 10 seconds. Its close codes are ShareCloseCode."
+          },
+          "429": {
+            "description": "Too many connections from this address.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault": {
+      "get": {
+        "operationId": "getVault",
+        "summary": "The account's vault as this host sees it: its entries, the key sealed for this host, and the hosts still waiting for it",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "responses": {
+          "200": {
+            "description": "The vault, or null when the account has none yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createVault",
+        "summary": "Make the account's vault, with its key sealed for this host and for the recovery key",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The vault, at generation 1. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "409": {
+            "description": "The account already has a vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/keys": {
+      "put": {
+        "operationId": "addVaultKeys",
+        "summary": "Seal the vault key for hosts on the account: a holder for any of them, a host restoring the vault from its recovery key only for itself",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultKeysAdd" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The vault with the new holders. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "400": {
+            "description": "A key is for a device that is not a host on the account.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the key at that generation, and the keys are not only for itself.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/rotate": {
+      "post": {
+        "operationId": "rotateVault",
+        "summary": "Replace the vault key, sealing every entry again under the new one",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultRotate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The vault at the next generation. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "400": {
+            "description": "A key is for a device that is not a host on the account, or leaves out this host.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the key at that generation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/entries/{id}": {
+      "put": {
+        "operationId": "putVaultEntry",
+        "summary": "Add an entry to the vault, or replace one",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultEntryPut" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The entry as it is now. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultEntry" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteVaultEntry",
+        "summary": "Take an entry out of the vault",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/VaultRevisionParam" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Removed. Every host hears vault.changed." },
+          "400": {
+            "description": "The revision is missing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry with that id is in the vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The revision is not the entry's current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/uses": {
+      "post": {
+        "operationId": "addVaultUses",
+        "summary": "Report the uses this host's agents made of the vault's entries",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultUsesAdd" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Recorded." },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listVaultUses",
+        "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
+        "security": [{ "session": [] }, { "host": [] }, { "device": [] }],
+        "description": "The phone's or the web app's sign-in, the Mac app's OAuth token, or a request signed by a host or a phone on the account.",
+        "parameters": [
+          {
+            "name": "entry",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/VaultEntryId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to 500 uses, the most recent first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultUses" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mods/documents": {
+      "post": {
+        "operationId": "pushModDocuments",
+        "summary": "Store the mod documents this host changed, each only if its revision is still the server's",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModsPush" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was stored and what conflicted. When anything was stored, the account's other hosts hear mods.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModsPushed" }
+              }
+            }
+          },
+          "400": {
+            "description": "A document is named twice.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the vault key at that generation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "413": {
+            "description": "Storing the push would take the account past 64 MiB of sealed mod documents, or the request is over 4 MiB.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "This host pushed more than 30 times in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "pullModDocuments",
+        "summary": "The mod documents and purges after a seq, a page at a time",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/ModSeqParam" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to 500 documents or 4 MiB of sealed text, oldest first, with the purges among them.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModsPulled" }
+              }
+            }
+          },
+          "400": {
+            "description": "since is missing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mods/{mod}/files": {
+      "get": {
+        "operationId": "listModFiles",
+        "summary": "The ids of the files the account holds for one mod",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every file of the mod, in no order.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModFiles" }
+              }
+            }
+          },
+          "400": {
+            "description": "The mod id is not valid.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mods/{mod}/files/{file}": {
+      "put": {
+        "operationId": "putModFile",
+        "summary": "Store one of a mod's files, such as a picture, sealed under the vault key by the host",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored, or held already. When stored, the account's other hosts hear mods.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModFileStored" }
+              }
+            }
+          },
+          "400": {
+            "description": "The mod or file id is not valid, or the body does not match its X-Body-Sha256.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "413": {
+            "description": "The file is over 25 MiB sealed, or the account's mod files would be over 256 MiB (message names which).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "This host stored more than 120 files in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "The server keeps no files.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getModFile",
+        "summary": "One of a mod's files, as the host sealed it",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sealed bytes.",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account holds no such file.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeModFile",
+        "summary": "Remove one of a mod's files no host's copy of the mod names any more",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The account no longer holds the file, whether or not it did."
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mods/{mod}/documents": {
+      "delete": {
+        "operationId": "purgeModDocuments",
+        "summary": "Remove every document of one mod from the account, when the person removes the mod",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purged, with the mod's files. The account's other hosts hear mods.changed and see the purge in their next pull.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModsPurged" }
+              }
+            }
+          },
+          "400": {
+            "description": "The mod id is not valid.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/catalog": {
+      "get": {
+        "operationId": "getBillingCatalog",
+        "summary": "Every plan and product on sale, with prices",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "The catalog.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingCatalog" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing": {
+      "get": {
+        "operationId": "getBilling",
+        "summary": "Your plan, or an org's, and what it pays for",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The plan, what it allows and its subscriptions.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingOverview" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner reads its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/checkout": {
+      "post": {
+        "operationId": "startCheckout",
+        "summary": "Open the provider's page to buy a product",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CheckoutRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Where to pay. Nothing changes until the provider says the payment went through.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Checkout" }
+              }
+            }
+          },
+          "400": {
+            "description": "The product is not sold by that interval, for that payer or in that quantity.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner buys for it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The payer already holds this plan, or a Shed product not yet on sale outside staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}": {
+      "patch": {
+        "operationId": "changeSubscription",
+        "summary": "Change a subscription's quantity, product or interval, now and prorated or at renewal",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubscriptionChange" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The subscription as it stands once the provider has taken the change; one at renewal shows in atRenewal.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "400": {
+            "description": "The change is not one this subscription can make.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended, a refund of it is waiting, or the payment for a change now did not go through and nothing changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}/preview": {
+      "post": {
+        "operationId": "previewSubscriptionChange",
+        "summary": "What a change would charge now and at the next renewal, changing nothing",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubscriptionChange" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The charge now and at renewal, as the provider works them out.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChangePreview" }
+              }
+            }
+          },
+          "400": {
+            "description": "The change is not one this subscription can make.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended, a refund of it is waiting, or its payment method cannot be charged mid-period.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}/cancel": {
+      "post": {
+        "operationId": "cancelSubscription",
+        "summary": "End a subscription when its paid period ends",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription, set to end at currentPeriodEnd. Repeating it changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}/resume": {
+      "post": {
+        "operationId": "resumeSubscription",
+        "summary": "Take back a cancellation before the period ends",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription, renewing again.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended, or a refund of it is waiting.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}/refund": {
+      "post": {
+        "operationId": "refundSubscription",
+        "summary": "Refund a plan in its first days and end it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription with the refund asked for. It stops renewing at once; it ends, and its payments turn refunded, when the provider pays the refund, which may be later. Asking again changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended, or its refund is not open: a plan is refunded within the catalog's refundDays of first paying for it, once for each kind of plan.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/invoices": {
+      "get": {
+        "operationId": "listInvoices",
+        "summary": "Your payments, or an org's",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every payment, newest first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InvoiceList" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner reads its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/invoices/{invoiceId}/refund": {
+      "post": {
+        "operationId": "refundInvoice",
+        "summary": "Refund the plan an invoice paid for, in its first days, and end it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invoice with its plan's refund asked for, as refundSubscription does. It turns refunded, and the plan ends, when the provider says the refund is made, which may be later.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such invoice of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The invoice is not one the plan's refund returns: a plan is refunded within the catalog's refundDays of first paying for it, once for each kind of plan.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/invoices/{invoiceId}/receipt": {
+      "get": {
+        "operationId": "getInvoiceReceipt",
+        "summary": "Where one payment's receipt is",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider's receipt page for the payment.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingLink" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such invoice of the account's, the provider has no receipt for it, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/portal": {
+      "get": {
+        "operationId": "getBillingPortal",
+        "summary": "The provider's own page for payment methods and receipts",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where the provider's page is.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingLink" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner reads its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The provider has no such page, the payer has never paid, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/paddle": {
+      "get": {
+        "operationId": "getPaddleCheckout",
+        "summary": "What the checkout page opens Paddle's checkout with",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Paddle's public client token and which of its environments it is for.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaddleCheckout" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing does not go through Paddle.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "Paddle is not set up yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/provider": {
+      "post": {
+        "operationId": "receiveBillingEvent",
+        "summary": "The payment provider telling the API what it billed",
+        "security": [],
+        "description": "Called by Clerk, signed with Svix's headers.",
+        "responses": {
+          "204": {
+            "description": "Handled, already handled, or not an event the API acts on."
+          },
+          "401": {
+            "description": "The provider's signature is missing or wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1539,9 +3837,14 @@
             "description": "How many days a deleted account can still be restored: deletesAt is this long after the deletion.",
             "type": "integer",
             "minimum": 1
+          },
+          "staff": { "$ref": "#/components/schemas/Staff" },
+          "plan": {
+            "description": "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
+            "$ref": "#/components/schemas/PlanId"
           }
         },
-        "required": ["status", "restorableDays"],
+        "required": ["status", "restorableDays", "staff", "plan"],
         "additionalProperties": false
       },
       "AccountDeletion": {
@@ -1585,7 +3888,7 @@
           "type": { "$ref": "#/components/schemas/AccountEventType" },
           "at": { "type": "string", "format": "date-time" },
           "key": {
-            "description": "The device the event is about. Only on device events.",
+            "description": "The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.",
             "$ref": "#/components/schemas/DeviceKey"
           },
           "role": {
@@ -1614,7 +3917,10 @@
           "stash.added",
           "stash.changed",
           "stash.removed",
-          "stash.seen"
+          "stash.seen",
+          "vault.changed",
+          "mods.changed",
+          "plan.changed"
         ]
       },
       "AccountProfile": {
@@ -1627,15 +3933,44 @@
             "type": ["string", "null"],
             "format": "uri",
             "maxLength": 2048
-          }
+          },
+          "staff": { "$ref": "#/components/schemas/Staff" }
         },
-        "required": ["email", "name", "imageUrl"],
+        "required": ["email", "name", "imageUrl", "staff"],
         "additionalProperties": false
       },
       "AccountStatus": {
         "description": "Active, or deleting: deleted on request and still restorable until deletesAt.",
         "type": "string",
         "enum": ["active", "deleting"]
+      },
+      "Allowance": {
+        "description": "What an account or org may use. Until billing is live, features lists everything for everyone.",
+        "type": "object",
+        "properties": {
+          "plan": { "$ref": "#/components/schemas/PlanId" },
+          "features": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PlanFeature" }
+          },
+          "boxes": {
+            "description": "The Shed boxes it has bought and paid for.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ShedBoxes" }
+          },
+          "seatOrgs": {
+            "description": "For a person: the orgs whose paid Team plan they hold a seat in.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgId" }
+          },
+          "giftEnds": {
+            "description": "For a person holding the plan as a gift, with nothing paid: when it ends.",
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["plan", "features", "boxes"],
+        "additionalProperties": false
       },
       "ApiError": {
         "description": "The body of every response that is not a success.",
@@ -1692,6 +4027,138 @@
         "type": "string",
         "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
       },
+      "BillingCatalog": {
+        "description": "Everything on sale, what it costs and what each plan includes.",
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BillingProduct" }
+          },
+          "plans": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BillingPlan" }
+          },
+          "refundDays": {
+            "description": "How many days after a subscription's first payment it may be refunded in full.",
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": ["products", "plans", "refundDays"],
+        "additionalProperties": false
+      },
+      "BillingInterval": { "type": "string", "enum": ["month", "year"] },
+      "BillingLink": {
+        "description": "A page of the provider's: its portal for payment methods, or one payment's receipt.",
+        "type": "object",
+        "properties": { "url": { "type": "string", "format": "uri" } },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "BillingOverview": {
+        "description": "A person's or an org's plan, what it allows and what it pays for.",
+        "type": "object",
+        "properties": {
+          "allowance": { "$ref": "#/components/schemas/Allowance" },
+          "subscriptions": {
+            "description": "Every subscription that has not ended, then the ended ones, newest first.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Subscription" }
+          },
+          "live": {
+            "description": "Whether plans are enforced and sold to everyone. Until then billing answers only staff.",
+            "type": "boolean"
+          },
+          "canBuy": {
+            "description": "Whether checkouts and changes can be made: a payment provider is set up, and for an org, payer is absent or you.",
+            "type": "boolean"
+          },
+          "payer": {
+            "description": "For an org whose plans have not all ended: who pays for them. Left out for a person, and for an org with nothing open.",
+            "$ref": "#/components/schemas/PlanPayer"
+          },
+          "card": {
+            "description": "Left out when the provider holds no card for this payer, or could not be asked.",
+            "$ref": "#/components/schemas/PaymentCard"
+          }
+        },
+        "required": ["allowance", "subscriptions", "live", "canBuy"],
+        "additionalProperties": false
+      },
+      "BillingPayer": {
+        "description": "Who a product may be bought by: a person, an org, or either.",
+        "type": "string",
+        "enum": ["person", "org", "either"]
+      },
+      "BillingPlan": {
+        "description": "A plan and everything it includes, the plans it includes counted in.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/PlanId" },
+          "name": { "type": "string" },
+          "features": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PlanFeature" }
+          }
+        },
+        "required": ["id", "name", "features"],
+        "additionalProperties": false
+      },
+      "BillingPrice": {
+        "description": "What one unit costs each interval.",
+        "type": "object",
+        "properties": {
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "unit": { "$ref": "#/components/schemas/Money" }
+        },
+        "required": ["interval", "unit"],
+        "additionalProperties": false
+      },
+      "BillingProduct": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/BillingProductId" },
+          "name": { "type": "string" },
+          "kind": { "$ref": "#/components/schemas/BillingProductKind" },
+          "unit": { "$ref": "#/components/schemas/BillingUnit" },
+          "payer": { "$ref": "#/components/schemas/BillingPayer" },
+          "plan": {
+            "description": "Only on plans: the plan it is.",
+            "$ref": "#/components/schemas/PlanId"
+          },
+          "maxQuantity": { "type": "integer", "minimum": 1 },
+          "prices": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BillingPrice" }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "unit",
+          "payer",
+          "maxQuantity",
+          "prices"
+        ],
+        "additionalProperties": false
+      },
+      "BillingProductId": {
+        "description": "What can be bought: a plan, or one of the Shed's boxes.",
+        "type": "string",
+        "enum": ["pro", "team", "shed", "shed_always_on", "shed_large"]
+      },
+      "BillingProductKind": {
+        "description": "A plan, held once; or a Shed box, bought by the box on any plan.",
+        "type": "string",
+        "enum": ["plan", "shed"]
+      },
+      "BillingUnit": {
+        "description": "What the quantity counts: the one account, a seat in an org, or a box.",
+        "type": "string",
+        "enum": ["account", "seat", "box"]
+      },
       "Challenge": {
         "description": "A one-time value a device signs to prove it holds its key.",
         "type": "object",
@@ -1701,6 +4168,27 @@
         },
         "required": ["nonce", "expiresAt"],
         "additionalProperties": false
+      },
+      "ChangePreview": {
+        "description": "What a change would charge, asked without making it.",
+        "type": "object",
+        "properties": {
+          "now": {
+            "description": "Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price.",
+            "$ref": "#/components/schemas/Money"
+          },
+          "renewal": {
+            "description": "The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period.",
+            "$ref": "#/components/schemas/RenewalCharge"
+          }
+        },
+        "required": ["now"],
+        "additionalProperties": false
+      },
+      "ChangeWhen": {
+        "description": "now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.",
+        "type": "string",
+        "enum": ["now", "renewal"]
       },
       "Channel": {
         "description": "Which build a host runs. Dev, nightly and stable cores are separate hosts.",
@@ -1716,6 +4204,30 @@
         },
         "required": ["nightly", "stable"],
         "additionalProperties": false
+      },
+      "Checkout": {
+        "description": "The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns.",
+        "type": "object",
+        "properties": { "url": { "type": "string", "format": "uri" } },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "CheckoutRequest": {
+        "description": "Buy a product. The server sets the price from the catalog.",
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "orgId": { "$ref": "#/components/schemas/OrgId" }
+        },
+        "required": ["product", "interval", "quantity"],
+        "additionalProperties": false
+      },
+      "Currency": {
+        "description": "An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own.",
+        "type": "string",
+        "pattern": "^[a-z]{3}$"
       },
       "Device": {
         "type": "object",
@@ -1763,6 +4275,10 @@
           "name": { "type": "string", "minLength": 1, "maxLength": 64 },
           "platform": { "$ref": "#/components/schemas/Platform" },
           "channel": { "$ref": "#/components/schemas/Channel" },
+          "handsOnly": {
+            "description": "A client whose join tickets say it never signs for the person. Once set it stays set.",
+            "type": "boolean"
+          },
           "nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
           "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
         },
@@ -1840,6 +4356,23 @@
           "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
         },
         "required": ["platform", "token", "app", "nonce", "signature"],
+        "additionalProperties": false
+      },
+      "Flags": {
+        "description": "Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.",
+        "type": "object",
+        "properties": {
+          "off": {
+            "description": "The names of the features switched off, such as staffFeed.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$",
+              "maxLength": 64
+            }
+          }
+        },
+        "required": ["off"],
         "additionalProperties": false
       },
       "Health": {
@@ -2199,6 +4732,71 @@
         "type": "string",
         "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$"
       },
+      "Invoice": {
+        "description": "A payment the provider took or tried to take.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/InvoiceId" },
+          "lines": {
+            "description": "What it paid for, one line for each product the subscription holds.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/components/schemas/InvoiceLine" }
+          },
+          "reason": { "$ref": "#/components/schemas/InvoiceReason" },
+          "total": { "$ref": "#/components/schemas/Money" },
+          "status": { "$ref": "#/components/schemas/InvoiceStatus" },
+          "at": { "type": "string", "format": "date-time" },
+          "refundRequestedAt": {
+            "description": "A refund was asked of the provider, which has not made it yet.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "refundableUntil": {
+            "description": "Only on a plan's first payment, while the plan may still be refunded.",
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["id", "lines", "reason", "total", "status", "at"],
+        "additionalProperties": false
+      },
+      "InvoiceId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "InvoiceLine": {
+        "description": "One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.",
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["product", "quantity"],
+        "additionalProperties": false
+      },
+      "InvoiceList": {
+        "type": "object",
+        "properties": {
+          "invoices": {
+            "description": "Newest first.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Invoice" }
+          }
+        },
+        "required": ["invoices"],
+        "additionalProperties": false
+      },
+      "InvoiceReason": {
+        "description": "Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change.",
+        "type": "string",
+        "enum": ["first_payment", "renewal", "change"]
+      },
+      "InvoiceStatus": {
+        "description": "disputed: the payer's bank took the payment back, and the plan it paid for ended.",
+        "type": "string",
+        "enum": ["paid", "failed", "refunded", "disputed"]
+      },
       "JoinRequest": {
         "description": "Which host on the account the phone wants to join.",
         "type": "object",
@@ -2207,7 +4805,7 @@
         "additionalProperties": false
       },
       "JoinTicket": {
-        "description": "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.",
+        "description": "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly, then `|look-only` when it has lookOnly.",
         "type": "object",
         "properties": {
           "v": {
@@ -2248,6 +4846,14 @@
             "description": "What the account calls the host in via.",
             "type": "string",
             "maxLength": 64
+          },
+          "handsOnly": {
+            "description": "The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away.",
+            "type": "boolean"
+          },
+          "lookOnly": {
+            "description": "The joining device is a browser that may only read the host's look, over ALPN sikemux/look/1; the host never pairs it. A host too old to know it finds the signature wrong and turns the browser away.",
+            "type": "boolean"
           },
           "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
         },
@@ -2434,6 +5040,11 @@
         "properties": {
           "type": { "const": "push" },
           "ref": { "$ref": "#/components/schemas/PushRef" },
+          "id": {
+            "description": "Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
           "to": {
             "description": "The phone's device key.",
             "$ref": "#/components/schemas/DeviceKey"
@@ -2443,6 +5054,11 @@
             "description": "Opaque to the server. A later push with the same collapseId replaces or clears the notification this one shows.",
             "type": "string",
             "pattern": "^[0-9a-f]{32}$"
+          },
+          "activityToken": {
+            "description": "For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16,512}$"
           },
           "blob": {
             "description": "The sealed notification, in standard base64.",
@@ -2555,6 +5171,229 @@
         "required": ["macos", "linux", "ios", "android"],
         "additionalProperties": false
       },
+      "ModConflict": {
+        "description": "A document the push did not store, because another host wrote it first or it was purged.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "current": {
+            "description": "The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/ModDocument" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["mod", "id", "current"],
+        "additionalProperties": false
+      },
+      "ModDocument": {
+        "description": "The latest sealed copy of one mod document.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "removed": {
+            "description": "The document was removed; the sealed copy is its marker.",
+            "type": "boolean"
+          },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "seq": { "$ref": "#/components/schemas/ModSeq" },
+          "updatedBy": { "$ref": "#/components/schemas/DeviceKey" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "mod",
+          "id",
+          "generation",
+          "sealed",
+          "removed",
+          "revision",
+          "seq",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "ModDocumentId": {
+        "description": "A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "ModDocumentPut": {
+        "description": "One document a host stores, built on the revision it last saw.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "removed": { "type": "boolean" },
+          "revision": {
+            "description": "The document's revision as the host last saw it, or 0 for one the server does not hold.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999999999
+          }
+        },
+        "required": ["mod", "id", "sealed", "removed", "revision"],
+        "additionalProperties": false
+      },
+      "ModFileId": {
+        "description": "A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "ModFiles": {
+        "description": "The files the account holds for one mod.",
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModFileId" }
+          }
+        },
+        "required": ["files"],
+        "additionalProperties": false
+      },
+      "ModFileStored": {
+        "type": "object",
+        "properties": {
+          "stored": {
+            "description": "False when the account held the file already, and the body was not read.",
+            "type": "boolean"
+          }
+        },
+        "required": ["stored"],
+        "additionalProperties": false
+      },
+      "ModId": {
+        "description": "A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "ModPurge": {
+        "description": "A mod whose documents were all removed from the account, at that seq.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "seq": { "$ref": "#/components/schemas/ModSeq" }
+        },
+        "required": ["mod", "seq"],
+        "additionalProperties": false
+      },
+      "ModSeq": {
+        "description": "Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "ModSeqParam": {
+        "description": "A ModSeq in a query string.",
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,15})$"
+      },
+      "ModsPulled": {
+        "description": "What changed after the seq asked for, oldest first. Apply documents and purges together in seq order.",
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModDocument" }
+          },
+          "purges": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModPurge" }
+          },
+          "next": {
+            "description": "The seq to ask after next time.",
+            "$ref": "#/components/schemas/ModSeq"
+          },
+          "more": {
+            "description": "The page was full: ask again after next straight away.",
+            "type": "boolean"
+          },
+          "reset": {
+            "description": "The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list.",
+            "type": "boolean"
+          }
+        },
+        "required": ["documents", "purges", "next", "more", "reset"],
+        "additionalProperties": false
+      },
+      "ModsPurged": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "description": "The purge's seq.",
+            "$ref": "#/components/schemas/ModSeq"
+          }
+        },
+        "required": ["seq"],
+        "additionalProperties": false
+      },
+      "ModsPush": {
+        "description": "Documents a host changed since its last push. Each is stored only if its revision is still the server's.",
+        "type": "object",
+        "properties": {
+          "generation": {
+            "description": "The generation of the key every document is sealed under, which must be current.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "documents": {
+            "description": "Each document once, at most 4 MiB of request in all.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModDocumentPut" },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": ["generation", "documents"],
+        "additionalProperties": false
+      },
+      "ModsPushed": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "description": "The account's latest seq after the push.",
+            "$ref": "#/components/schemas/ModSeq"
+          },
+          "stored": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModStored" }
+          },
+          "conflicts": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModConflict" }
+          }
+        },
+        "required": ["seq", "stored", "conflicts"],
+        "additionalProperties": false
+      },
+      "ModStored": {
+        "description": "A document the push stored.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "seq": { "$ref": "#/components/schemas/ModSeq" }
+        },
+        "required": ["mod", "id", "revision", "seq"],
+        "additionalProperties": false
+      },
+      "Money": {
+        "description": "An amount in the currency's smallest unit, such as cents.",
+        "type": "object",
+        "properties": {
+          "amount": { "type": "integer", "minimum": 0 },
+          "currency": { "$ref": "#/components/schemas/Currency" }
+        },
+        "required": ["amount", "currency"],
+        "additionalProperties": false
+      },
       "Network": {
         "description": "How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.",
         "type": "object",
@@ -2565,9 +5404,218 @@
             "minItems": 1,
             "items": { "$ref": "#/components/schemas/Relay" }
           },
-          "minimumVersions": { "$ref": "#/components/schemas/MinimumVersions" }
+          "minimumVersions": { "$ref": "#/components/schemas/MinimumVersions" },
+          "flags": { "$ref": "#/components/schemas/Flags" }
         },
         "required": ["relays", "minimumVersions"],
+        "additionalProperties": false
+      },
+      "Org": {
+        "description": "An org you are in.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgId" },
+          "name": { "$ref": "#/components/schemas/OrgName" },
+          "role": {
+            "description": "Your role in it.",
+            "$ref": "#/components/schemas/OrgRole"
+          },
+          "seats": { "$ref": "#/components/schemas/OrgSeats" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "role", "seats", "createdAt"],
+        "additionalProperties": false
+      },
+      "OrgCreate": {
+        "description": "A new org, with you as its owner.",
+        "type": "object",
+        "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "OrgId": {
+        "description": "An org's id, a UUID in lowercase.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgInvite": {
+        "description": "An invite still waiting to be accepted. It holds a seat until it is accepted, revoked or expires.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgInviteId" },
+          "role": {
+            "description": "The role whoever accepts it joins with.",
+            "$ref": "#/components/schemas/OrgRole"
+          },
+          "invitedBy": {
+            "description": "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
+            "type": ["string", "null"],
+            "maxLength": 256
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "role", "invitedBy", "createdAt", "expiresAt"],
+        "additionalProperties": false
+      },
+      "OrgInviteCreate": {
+        "type": "object",
+        "properties": { "role": { "$ref": "#/components/schemas/OrgRole" } },
+        "required": ["role"],
+        "additionalProperties": false
+      },
+      "OrgInviteCreated": {
+        "description": "A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.",
+        "type": "object",
+        "properties": {
+          "invite": { "$ref": "#/components/schemas/OrgInvite" },
+          "token": { "$ref": "#/components/schemas/OrgInviteToken" },
+          "link": { "type": "string", "format": "uri", "maxLength": 2048 }
+        },
+        "required": ["invite", "token", "link"],
+        "additionalProperties": false
+      },
+      "OrgInviteId": {
+        "description": "An invite's id, a UUID in lowercase.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgInviteList": {
+        "description": "The org's pending invites, newest first.",
+        "type": "object",
+        "properties": {
+          "invites": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgInvite" }
+          }
+        },
+        "required": ["invites"],
+        "additionalProperties": false
+      },
+      "OrgInviteToken": {
+        "description": "The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{43}$"
+      },
+      "OrgJoin": {
+        "description": "Accepting an invite.",
+        "type": "object",
+        "properties": {
+          "token": { "$ref": "#/components/schemas/OrgInviteToken" }
+        },
+        "required": ["token"],
+        "additionalProperties": false
+      },
+      "OrgList": {
+        "description": "The orgs you are in, oldest first.",
+        "type": "object",
+        "properties": {
+          "orgs": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Org" }
+          }
+        },
+        "required": ["orgs"],
+        "additionalProperties": false
+      },
+      "OrgMember": {
+        "description": "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OrgMemberId" },
+          "role": { "$ref": "#/components/schemas/OrgRole" },
+          "name": { "type": ["string", "null"], "maxLength": 256 },
+          "imageUrl": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "joinedAt": { "type": "string", "format": "date-time" },
+          "you": {
+            "description": "True on the row of the person asking.",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "role", "name", "imageUrl", "joinedAt", "you"],
+        "additionalProperties": false
+      },
+      "OrgMemberId": {
+        "description": "A membership's id, a UUID in lowercase: one person's place in one org.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgMemberList": {
+        "description": "Everyone in the org, in the order they joined.",
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgMember" }
+          }
+        },
+        "required": ["members"],
+        "additionalProperties": false
+      },
+      "OrgName": {
+        "description": "What the org is called, as its members see it.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "OrgRename": {
+        "type": "object",
+        "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "OrgRole": {
+        "description": "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
+        "type": "string",
+        "enum": ["owner", "admin", "user"]
+      },
+      "OrgRoleChange": {
+        "type": "object",
+        "properties": { "role": { "$ref": "#/components/schemas/OrgRole" } },
+        "required": ["role"],
+        "additionalProperties": false
+      },
+      "OrgSeats": {
+        "description": "Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.",
+        "type": "object",
+        "properties": {
+          "held": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["held", "limit"],
+        "additionalProperties": false
+      },
+      "PaddleCheckout": {
+        "description": "Paddle.js opens its checkout with a client token, which Paddle makes public by design.",
+        "type": "object",
+        "properties": {
+          "clientToken": { "type": "string" },
+          "environment": { "$ref": "#/components/schemas/PaddleEnvironment" }
+        },
+        "required": ["clientToken", "environment"],
+        "additionalProperties": false
+      },
+      "PaddleEnvironment": {
+        "type": "string",
+        "enum": ["sandbox", "production"]
+      },
+      "PaymentCard": {
+        "description": "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",
+        "type": "object",
+        "properties": {
+          "brand": {
+            "description": "The provider's name for the card's network, such as visa.",
+            "type": "string"
+          },
+          "last4": { "type": "string", "pattern": "^[0-9]{4}$" },
+          "expMonth": { "type": "integer", "minimum": 1, "maximum": 12 },
+          "expYear": { "type": "integer", "minimum": 2000 }
+        },
+        "required": ["brand", "last4", "expMonth", "expYear"],
         "additionalProperties": false
       },
       "PendingHost": {
@@ -2612,9 +5660,43 @@
         ],
         "additionalProperties": false
       },
-      "Platform": {
+      "PlanFeature": {
+        "description": "Something a paid plan includes. Free's are everyone's and are not listed.",
         "type": "string",
-        "enum": ["macos", "linux", "ios", "android"]
+        "enum": [
+          "sync",
+          "move_work",
+          "history_search",
+          "own_triggers",
+          "org_hosts",
+          "org_shared_setup",
+          "org_model_keys",
+          "org_github",
+          "org_bot_triggers",
+          "chat_handover",
+          "org_roles",
+          "org_policy"
+        ]
+      },
+      "PlanId": {
+        "description": "A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.",
+        "type": "string",
+        "enum": ["free", "pro", "team"]
+      },
+      "PlanPayer": {
+        "description": "you: the person asking pays, and may change seats, resume, see the card and open the payment page. another_owner: another of the org's owners pays, and only they may. departed: whoever paid no longer owns the org, so its plans end at the period's end and can be bought again once ended.",
+        "type": "string",
+        "enum": ["you", "another_owner", "departed"]
+      },
+      "Platform": {
+        "description": "A web client is the web app in a browser, which may only read its hosts' look.",
+        "type": "string",
+        "enum": ["macos", "linux", "ios", "android", "web"]
+      },
+      "PluginId": {
+        "description": "The connector a sign-in is for, such as sikemux.github.",
+        "type": "string",
+        "pattern": "^sikemux\\.[a-z0-9-]{1,48}$"
       },
       "PushApp": {
         "description": "Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.",
@@ -2622,9 +5704,9 @@
         "enum": ["production", "dev"]
       },
       "PushKind": {
-        "description": "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority.",
+        "description": "alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. activity updates the phone's Live Activity named by activityToken, and activity_end ends it.",
         "type": "string",
-        "enum": ["alert", "clear"]
+        "enum": ["alert", "clear", "activity", "activity_end"]
       },
       "PushPlatform": {
         "description": "Which service delivers to the phone: Apple's push service, or Firebase Cloud Messaging.",
@@ -2671,6 +5753,11 @@
         "required": ["enabled", "updatedAt"],
         "additionalProperties": false
       },
+      "RecoveryKey": {
+        "description": "The X25519 public key the person's recovery code makes, in lowercase hex.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
       "Relay": {
         "type": "object",
         "properties": {
@@ -2693,10 +5780,29 @@
         "required": ["url", "region", "quicPort"],
         "additionalProperties": false
       },
+      "RenewalCharge": {
+        "type": "object",
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "amount": { "$ref": "#/components/schemas/Money" }
+        },
+        "required": ["at", "amount"],
+        "additionalProperties": false
+      },
       "RevokeReason": {
         "description": "Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted.",
         "type": "string",
         "enum": ["removed", "signed_out", "account_deleted"]
+      },
+      "ScheduledChange": {
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["product", "interval", "quantity"],
+        "additionalProperties": false
       },
       "Sealed": {
         "description": "What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.",
@@ -3084,6 +6190,19 @@
         "required": ["type", "share"],
         "additionalProperties": false
       },
+      "ShedBoxes": {
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["product", "quantity"],
+        "additionalProperties": false
+      },
+      "Staff": {
+        "description": "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
+        "type": "boolean"
+      },
       "StashAdd": {
         "description": "A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body.",
         "type": "object",
@@ -3339,6 +6458,370 @@
           "note": { "$ref": "#/components/schemas/StashNote" },
           "taken": { "type": "boolean" }
         },
+        "additionalProperties": false
+      },
+      "Subscription": {
+        "description": "One product bought in a quantity, billed each interval.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/SubscriptionId" },
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "status": { "$ref": "#/components/schemas/SubscriptionStatus" },
+          "currentPeriodEnd": { "type": "string", "format": "date-time" },
+          "cancelAtPeriodEnd": {
+            "description": "It ends at currentPeriodEnd unless resumed first.",
+            "type": "boolean"
+          },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "endedAt": { "type": "string", "format": "date-time" },
+          "atRenewal": {
+            "description": "A change asked for at renewal, which takes over at currentPeriodEnd.",
+            "$ref": "#/components/schemas/ScheduledChange"
+          },
+          "refundableUntil": {
+            "description": "While the plan may still be refunded: within the catalog's refundDays of first paying for it, and only once for each kind of plan a payer buys.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "refundRequestedAt": {
+            "description": "A refund was asked for and the provider has not settled it yet. The plan ends when it is paid, and cannot be resumed or changed until then.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "refundAmount": {
+            "description": "What the refund returns, or returns once paid: every payment on the plan in its first refundDays.",
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "id",
+          "product",
+          "interval",
+          "quantity",
+          "status",
+          "currentPeriodEnd",
+          "cancelAtPeriodEnd",
+          "startedAt"
+        ],
+        "additionalProperties": false
+      },
+      "SubscriptionChange": {
+        "description": "A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.",
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "when": {
+            "description": "Now when left out.",
+            "$ref": "#/components/schemas/ChangeWhen"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SubscriptionId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "SubscriptionStatus": {
+        "description": "active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.",
+        "type": "string",
+        "enum": ["active", "lapsed", "ended"]
+      },
+      "Vault": {
+        "description": "The account's vault, as the host that asked sees it.",
+        "type": "object",
+        "properties": {
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "recoveryKey": { "$ref": "#/components/schemas/RecoveryKey" },
+          "recoveryWrap": {
+            "description": "The vault key sealed for the recovery key.",
+            "$ref": "#/components/schemas/VaultSealed"
+          },
+          "key": {
+            "description": "The vault key sealed for the asking host at the current generation, or null when it has none yet.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/VaultSealed" },
+              { "type": "null" }
+            ]
+          },
+          "holders": {
+            "description": "The hosts holding the key at the current generation.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DeviceKey" }
+          },
+          "waiting": {
+            "description": "The account's hosts without the key at the current generation, for a holder to wrap it for.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DeviceKey" }
+          },
+          "rotate": {
+            "description": "A host left the account, so a holder should replace the vault key.",
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultEntry" }
+          }
+        },
+        "required": [
+          "generation",
+          "recoveryKey",
+          "recoveryWrap",
+          "key",
+          "holders",
+          "waiting",
+          "rotate",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "VaultCreate": {
+        "description": "A host makes the account's vault, holding its key at generation 1.",
+        "type": "object",
+        "properties": {
+          "recoveryKey": { "$ref": "#/components/schemas/RecoveryKey" },
+          "recoveryWrap": { "$ref": "#/components/schemas/VaultSealed" },
+          "key": {
+            "description": "The vault key sealed for the asking host.",
+            "$ref": "#/components/schemas/VaultSealed"
+          }
+        },
+        "required": ["recoveryKey", "recoveryWrap", "key"],
+        "additionalProperties": false
+      },
+      "VaultEntry": {
+        "description": "One sign-in in the vault, sealed under the vault key of its generation.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/VaultEntryId" },
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "updatedBy": { "$ref": "#/components/schemas/DeviceKey" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "id",
+          "plugin",
+          "generation",
+          "sealed",
+          "revision",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "VaultEntryId": {
+        "description": "A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$"
+      },
+      "VaultEntryPut": {
+        "description": "A host adds or replaces an entry.",
+        "type": "object",
+        "properties": {
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "generation": {
+            "description": "The generation of the key it is sealed under, which must be current.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": {
+            "description": "The entry's revision as the writer last saw it, or 0 to add it.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999999999
+          }
+        },
+        "required": ["plugin", "generation", "sealed", "revision"],
+        "additionalProperties": false
+      },
+      "VaultEntryReseal": {
+        "description": "An entry sealed again under the new key.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/VaultEntryId" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": {
+            "description": "The entry's current revision.",
+            "$ref": "#/components/schemas/VaultRevision"
+          }
+        },
+        "required": ["id", "sealed", "revision"],
+        "additionalProperties": false
+      },
+      "VaultGeneration": {
+        "description": "Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 999999999
+      },
+      "VaultKeysAdd": {
+        "description": "A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself.",
+        "type": "object",
+        "properties": {
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "keys": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/WrappedKey" },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": ["generation", "keys"],
+        "additionalProperties": false
+      },
+      "VaultRevision": {
+        "description": "How many times an entry was written. It starts at 1 and goes up by one each write.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 999999999
+      },
+      "VaultRevisionParam": {
+        "description": "An entry's revision, as the writer last saw it, in a query string.",
+        "type": "string",
+        "pattern": "^[1-9][0-9]{0,8}$"
+      },
+      "VaultRotate": {
+        "description": "A host replaces the vault key: every wrap and every entry moves to the next generation at once.",
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "The current generation.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "recoveryWrap": { "$ref": "#/components/schemas/VaultSealed" },
+          "keys": {
+            "description": "The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/WrappedKey" },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "entries": {
+            "description": "Every entry in the vault, each once.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultEntryReseal" },
+            "maxItems": 500
+          }
+        },
+        "required": ["from", "recoveryWrap", "keys", "entries"],
+        "additionalProperties": false
+      },
+      "VaultSealed": {
+        "description": "What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "minLength": 1,
+        "maxLength": 87400
+      },
+      "VaultState": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "description": "Null until a host on the account makes the vault.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/Vault" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["vault"],
+        "additionalProperties": false
+      },
+      "VaultUse": {
+        "description": "How often one agent on the signing host used one entry.",
+        "type": "object",
+        "properties": {
+          "entryId": { "$ref": "#/components/schemas/VaultEntryId" },
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "actor": {
+            "description": "Who used it: an agent's name such as @Otter, or Sikemux for the host itself.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "count": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+          "firstAt": { "type": "string", "format": "date-time" },
+          "lastAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "entryId",
+          "plugin",
+          "actor",
+          "count",
+          "firstAt",
+          "lastAt"
+        ],
+        "additionalProperties": false
+      },
+      "VaultUseRow": {
+        "description": "Uses one host reported of one entry by one agent.",
+        "type": "object",
+        "properties": {
+          "entryId": { "$ref": "#/components/schemas/VaultEntryId" },
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "hostKey": { "$ref": "#/components/schemas/DeviceKey" },
+          "hostName": {
+            "description": "The host's name, or null once it has left the account.",
+            "type": ["string", "null"]
+          },
+          "actor": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 },
+          "firstAt": { "type": "string", "format": "date-time" },
+          "lastAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "entryId",
+          "plugin",
+          "hostKey",
+          "hostName",
+          "actor",
+          "count",
+          "firstAt",
+          "lastAt"
+        ],
+        "additionalProperties": false
+      },
+      "VaultUses": {
+        "description": "Uses of the vault's entries in the last 30 days, newest first, at most 500.",
+        "type": "object",
+        "properties": {
+          "uses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultUseRow" }
+          }
+        },
+        "required": ["uses"],
+        "additionalProperties": false
+      },
+      "VaultUsesAdd": {
+        "description": "Uses a host made of the vault's entries since it last reported.",
+        "type": "object",
+        "properties": {
+          "uses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultUse" },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": ["uses"],
+        "additionalProperties": false
+      },
+      "WrappedKey": {
+        "description": "The vault key, sealed for one host.",
+        "type": "object",
+        "properties": {
+          "hostKey": { "$ref": "#/components/schemas/DeviceKey" },
+          "wrapped": { "$ref": "#/components/schemas/VaultSealed" }
+        },
+        "required": ["hostKey", "wrapped"],
         "additionalProperties": false
       }
     },

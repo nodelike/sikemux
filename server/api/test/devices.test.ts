@@ -92,7 +92,7 @@ describe("registering a device", () => {
     expect(await body(response, "Device")).not.toHaveProperty("channel");
   });
 
-  it("updates a device registered again, keeping one row", async () => {
+  it("updates a device registered again, keeping one row and its name", async () => {
     const token = await macToken("user_a");
     const mac = newDevice();
     await call("/v1/devices", token, {
@@ -108,7 +108,7 @@ describe("registering a device", () => {
     });
     expect(again.status).toBe(200);
     expect(await body(again, "Device")).toMatchObject({
-      name: "Renamed Mac",
+      name: "Studio Mac",
       channel: "nightly",
     });
     expect(

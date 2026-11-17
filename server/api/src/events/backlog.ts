@@ -14,29 +14,40 @@ const STASH_EVENTS = accountEventTypeValues.filter((type) =>
 /**
  * Which of an account's events a connection may read. Hosts learn of phones only when one is
  * revoked; phones never learn of other phones; the web app sees the whole account. Everyone hears
- * of the stash.
+ * of the stash, and hosts of the vault, of other hosts' mod changes and of other hosts renamed.
  */
-export function visibleTo(role: LiveRole, ownKey: string | null) {
+function visibleTo(role: LiveRole, ownKey: string | null) {
   return (eb: ExpressionBuilder<Tables, "events">): Expression<SqlBool> => {
     if (role === "web") return eb.lit(true);
     const own = ownKey === null ? eb.lit(false) : eb("subject", "=", ownKey);
     const accountDeleted = eb("type", "=", "account.deleted");
     const stash = eb("type", "in", STASH_EVENTS);
-    if (role === "host")
-      return eb.or([
-        own,
-        accountDeleted,
-        stash,
-        eb.and([
-          eb("type", "=", "device.revoked"),
-          eb("subject_role", "=", "client"),
+    if (role === "host") {
+      const mods = eb("type", "=", "mods.changed");
+      return eb.and([
+        eb.or([
+          own,
+          accountDeleted,
+          stash,
+          eb("type", "=", "vault.changed"),
+          mods,
+          eb.and([
+            eb("type", "=", "device.revoked"),
+            eb("subject_role", "=", "client"),
+          ]),
+          eb.and([
+            eb("type", "=", "device.changed"),
+            eb("subject_role", "=", "host"),
+          ]),
         ]),
+        eb.not(eb.and([mods, own])),
       ]);
+    }
     return eb.or([own, accountDeleted, stash, eb("subject_role", "=", "host")]);
   };
 }
 
-export interface BacklogQuery {
+interface BacklogQuery {
   userId: string;
   role: LiveRole;
   key: string | null;

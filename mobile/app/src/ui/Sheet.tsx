@@ -1,20 +1,8 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Easing,
-  Keyboard,
-  Modal,
-  PanResponder,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Dimensions, Easing, Keyboard, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useT } from '@/i18n';
 import { LockCover } from '@/lock/LockScreen';
 import { pauseBackdrop, useStill } from './motion';
 import { fonts, type Palette, useStyles } from './theme';
@@ -29,22 +17,7 @@ const OPEN_DRAG = 60;
 const OPEN_SPEED = 0.5;
 
 /** A sheet that rests `peek` tall and drags up to fill the screen; its content sets `full` back to false. */
-export type Expand = { full: boolean; peek: number; onFull: (full: boolean) => void };
-
-/** How far the keyboard covers the screen; Android lifts a sheet above it by itself. */
-function useKeyboardHeight(): number {
-  const [height, setHeight] = useState(0);
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const show = Keyboard.addListener('keyboardWillShow', (event) => setHeight(event.endCoordinates.height));
-    const hide = Keyboard.addListener('keyboardWillHide', () => setHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  return height;
-}
+type Expand = { full: boolean; peek: number; onFull: (full: boolean) => void };
 
 /**
  * A sheet that slides up while the screen behind it dims in place. A tap on the
@@ -73,10 +46,10 @@ export function Sheet({
   children: ReactNode;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const still = useStill();
   // A modal measures no safe area of its own, so the screen behind it lends its inset.
   const insets = useSafeAreaInsets();
-  const keyboard = useKeyboardHeight();
   const [mounted, setMounted] = useState(visible);
   if (visible && !mounted) setMounted(true);
   const [progress] = useState(() => new Animated.Value(0));
@@ -162,12 +135,11 @@ export function Sheet({
       <View style={styles.grabber} />
     </View>
   );
-  const bottom = keyboard ? keyboard + 12 : insets.bottom + 12;
 
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} onDismiss={onDismiss} statusBarTranslucent>
       <Animated.View style={[StyleSheet.absoluteFill, styles.scrim, { opacity: progress }]}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel={t('Close')} />
       </Animated.View>
       <View style={[styles.dock, { paddingTop: expand ? 0 : insets.top + 24 }]} pointerEvents="box-none">
         <Animated.View
@@ -177,7 +149,7 @@ export function Sheet({
             styles.sheet,
             tall && { height: '82%' },
             expand && { height: offscreen },
-            { paddingBottom: bottom, transform: [{ translateY: Animated.add(Animated.add(rise, rest), drag) }] },
+            { paddingBottom: insets.bottom + 12, transform: [{ translateY: Animated.add(Animated.add(rise, rest), drag) }] },
           ]}>
           {handle}
           {scrolls ? (

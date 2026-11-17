@@ -1,8 +1,8 @@
-import { Platform } from 'react-native';
-import type { ApnsEnvironment, Device, DeviceRegistration, JoinTicket, PushApp, PushTokenRegistration, PushTokenState } from '@protocol';
-import { ApiProblem, connectApi } from '@protocol/api';
+import type { Device, DeviceRegistration, JoinTicket, PushApp, PushTokenRegistration, PushTokenState } from '@sikemux/protocol';
+import { ApiProblem, connectApi } from '@shared/account/api';
 
 import { deviceIdentity } from '@/phone/identity';
+import { translate } from '@/i18n';
 import { phoneName } from '@/phone/name';
 import { apiUrl } from './config';
 
@@ -19,8 +19,7 @@ export class AccountDeleting extends Error {
 
 export const OFFLINE = "Can't reach Sikemux. Check the phone is online.";
 
-/** The API's routes, signed in with `token`. */
-export const api = (token: TokenSource) => connectApi({ url: apiUrl(), token, offline: OFFLINE });
+export const api = (token: TokenSource) => connectApi({ url: apiUrl(), token, offline: translate(OFFLINE), say: translate });
 
 /**
  * Adds this phone to the account, proving it holds its key. Doing it again only updates its name.
@@ -46,7 +45,7 @@ async function addPhone(token: TokenSource, userId: string): Promise<Device> {
     key: device.id(),
     role: 'client',
     name: phoneName().slice(0, 64),
-    platform: Platform.OS === 'ios' ? 'ios' : 'android',
+    platform: 'android',
     nonce: challenge.nonce,
     signature: device.signRegistration(challenge.nonce, userId),
   };
@@ -64,15 +63,15 @@ export async function removePhone(token: TokenSource): Promise<void> {
   }
 }
 
-/** Sends this phone's notifications to its FCM or APNs token, proving the phone holds its key. */
+/** Sends this phone's notifications to its FCM token, proving the phone holds its key. */
 export async function setPushToken(
   token: TokenSource,
-  push: { token: string; tokenSha256: string; app: PushApp; apnsEnvironment?: ApnsEnvironment },
+  push: { token: string; tokenSha256: string; app: PushApp },
 ): Promise<PushTokenState> {
   const challenge = await api(token).createChallenge();
   const device = await deviceIdentity();
   const registration: PushTokenRegistration = {
-    ...(push.apnsEnvironment ? { platform: 'apns', apnsEnvironment: push.apnsEnvironment } : { platform: 'fcm' }),
+    platform: 'fcm',
     token: push.token,
     app: push.app,
     nonce: challenge.nonce,
@@ -92,7 +91,6 @@ export async function clearPushToken(token: TokenSource): Promise<void> {
   }
 }
 
-/** The hosts signed in to the account. */
 /** The account's device or host with this key, if it is still on the account. */
 export async function accountDevice(token: TokenSource, key: string): Promise<Device | undefined> {
   return (await api(token).listDevices({})).devices.find((device) => device.key === key);
@@ -113,7 +111,12 @@ export async function joinTicket(token: TokenSource, host: string): Promise<Join
   return api(token).createJoinTicket(device.id(), { host });
 }
 
-/** Deletes the account and every device on it, with Apple's code for the server to revoke when it signs in with Apple. */
-export async function deleteAccount(token: TokenSource, appleAuthorizationCode?: string) {
-  return api(token).deleteAccount(appleAuthorizationCode ? { appleAuthorizationCode } : undefined);
+/** Deletes the account and every device on it. */
+export async function deleteAccount(token: TokenSource) {
+  return api(token).deleteAccount();
+}
+
+/** Whether the account belongs to someone who makes Sikemux, which the account sheet says. */
+export async function accountIsStaff(token: TokenSource): Promise<boolean> {
+  return (await api(token).getAccount()).staff;
 }

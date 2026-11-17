@@ -6,6 +6,10 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+mod no_engine;
+#[cfg(windows)]
+mod windows;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +20,11 @@ use std::time::{Duration, Instant};
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+use no_engine as platform;
 use platform::{Picture, Writer};
+#[cfg(windows)]
+use windows as platform;
 
 use crate::manager::BrowserManager;
 use serde_json::{json, Value};
@@ -42,6 +50,7 @@ impl Drop for Session {
     }
 }
 
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
 struct Frame {
     image: Picture,
     at: Duration,
@@ -222,7 +231,7 @@ fn default_path(folder: &Path, title: &str) -> PathBuf {
         .collect();
     let name = cleaned.trim();
     let name = if name.is_empty() { "Recording" } else { name };
-    crate::manager::unique_download_path(folder, &format!("{name}.{}", platform::extension()))
+    crate::downloads::unique_download_path(folder, &format!("{name}.{}", platform::extension()))
 }
 
 #[cfg(test)]

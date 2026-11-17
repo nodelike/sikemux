@@ -1,15 +1,19 @@
 //! Shell commands the person adds beside the built-in ones.
 
+use crate::ui::Clicks;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    ParentElement, SharedString, Styled, Subscription, Window,
 };
-use sikemux_wire::protocol::{CustomCommand, CustomCommandPlacement};
+use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
 
 use crate::icons::Icon;
+use crate::settings::index::Page::Actions;
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -18,15 +22,47 @@ use crate::theme::{
 use crate::ui;
 use crate::workbench::Workbench;
 
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(
+        Actions,
+        "Your actions",
+        "custom commands command deck scripts",
+    ),
+    section(Actions, "New action", "custom command add create"),
+    row(Actions, "New action", "Name", "title"),
+    row(Actions, "New action", "Description", "detail"),
+    row(Actions, "New action", "Command", "shell script"),
+    row(
+        Actions,
+        "New action",
+        "Where output lands",
+        "placement terminal split popup background",
+    ),
+    row(Actions, "New action", "Contexts", "project ssh aws plugin"),
+];
+
 /// The kinds of tab an action can be offered in.
-const CONTEXTS: [&str; 3] = ["project", "command", "ssh"];
+const CONTEXTS: [&str; 3] = [n!("project"), n!("command"), "ssh"];
 
 const PLACEMENTS: [(CustomCommandPlacement, Icon, &str); 5] = [
-    (CustomCommandPlacement::Terminal, Icon::Terminal, "Terminal"),
-    (CustomCommandPlacement::Split, Icon::PanelRight, "Split"),
-    (CustomCommandPlacement::Popup, Icon::Window, "Popup"),
-    (CustomCommandPlacement::Background, Icon::Bolt, "Background"),
-    (CustomCommandPlacement::Replace, Icon::Rotate, "Replace"),
+    (
+        CustomCommandPlacement::Terminal,
+        Icon::Terminal,
+        n!("Terminal"),
+    ),
+    (CustomCommandPlacement::Split, Icon::PanelRight, n!("Split")),
+    (CustomCommandPlacement::Popup, Icon::Window, n!("Popup")),
+    (
+        CustomCommandPlacement::Background,
+        Icon::Bolt,
+        n!("Background"),
+    ),
+    (
+        CustomCommandPlacement::Replace,
+        Icon::Replace,
+        n!("Replace"),
+    ),
 ];
 
 /// The action being written: a saved one being changed, or a new one.
@@ -49,9 +85,9 @@ fn new_id() -> String {
 }
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let title = cx.new(|cx| InputState::new(window, cx).placeholder("Display name"));
-    let detail = cx.new(|cx| InputState::new(window, cx).placeholder("What it does"));
-    let command = cx.new(|cx| TextareaState::new(window, cx).placeholder("shell command"));
+    let title = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Display name")));
+    let detail = cx.new(|cx| InputState::new(window, cx).placeholder(t!("What it does")));
+    let command = cx.new(|cx| TextareaState::new(window, cx).placeholder(t!("shell command")));
     let typing = vec![
         super::follow_typing(bench, &title, cx),
         super::follow_typing(bench, &detail, cx),
@@ -113,11 +149,7 @@ fn load(
 fn change(bench: &Workbench, edit: impl FnOnce(&mut Vec<CustomCommand>)) {
     let mut commands = bench.preferences().custom_commands.clone();
     edit(&mut commands);
-    crate::settings::set(
-        bench,
-        "customCommands",
-        serde_json::to_value(commands).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::CustomCommands(commands));
 }
 
 fn save(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -165,7 +197,7 @@ pub fn render(
 
     let saved: AnyElement = match commands.is_empty() {
         true => rows::note(
-            "No custom actions yet. The built-ins are already searchable from the command deck.",
+            t!("No custom actions yet. The built-ins are already searchable from the command deck."),
             cx,
         ),
         false => div()
@@ -174,8 +206,11 @@ pub fn render(
                 let chosen = command.id == fields.id;
                 let picked = command.clone();
                 let contexts = match command.contexts.is_empty() {
-                    true => "all contexts".to_owned(),
-                    false => command.contexts.join(", "),
+                    true => t!("all contexts").to_owned(),
+                    false => (command.contexts.iter())
+                        .map(|context| crate::i18n::tr(context))
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 };
                 div()
                     .id(SharedString::from(format!("action-{}", command.id)))
@@ -184,7 +219,7 @@ pub fn render(
                     .gap(SPACE_0)
                     .px(SPACE_4)
                     .py(px(9.))
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.line_soft)
                     .cursor_pointer()
                     .when_else(
@@ -204,10 +239,10 @@ pub fn render(
                             .text_color(t.text_tertiary)
                             .child(format!(
                                 "{} · {contexts}",
-                                placement_name(command.placement).to_lowercase()
+                                crate::i18n::tr(placement_name(command.placement)).to_lowercase()
                             )),
                     )
-                    .on_click(move |_, window, cx| {
+                    .clicks(move |_, window, cx| {
                         let picked = picked.clone();
                         this.update(cx, |bench, cx| load(bench, Some(picked), window, cx))
                     })
@@ -226,7 +261,7 @@ pub fn render(
             "action-placement",
             PLACEMENTS
                 .iter()
-                .map(|(_, icon, name)| (*icon, SharedString::from(*name)))
+                .map(|(_, icon, name)| (*icon, SharedString::from(crate::i18n::tr(name))))
                 .collect(),
             chosen,
         )
@@ -244,7 +279,7 @@ pub fn render(
         .children(CONTEXTS.iter().map(|context| {
             let this = this.clone();
             Checkbox::new(SharedString::from(format!("action-context-{context}")))
-                .label(*context)
+                .label(crate::i18n::tr(context))
                 .checked(fields.contexts.iter().any(|chosen| chosen == context))
                 .on_click(move |on: &bool, _, cx| {
                     let on = *on;
@@ -265,7 +300,7 @@ pub fn render(
             .gap(SPACE_2)
             .px(SPACE_4)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
@@ -297,13 +332,13 @@ pub fn render(
         .gap(SPACE_2)
         .p(SPACE_4)
         .child(
-            ui::Button::new("action-new", "New", ui::Variant::Outline).on_click(
+            ui::Button::new("action-new", t!("New"), ui::Variant::Outline).on_click(
                 move |_, window, cx| fresh.update(cx, |bench, cx| load(bench, None, window, cx)),
             ),
         )
         .when(editing, |buttons| {
             buttons.child(
-                ui::Button::new("action-delete", "Delete", ui::Variant::Outline)
+                ui::Button::new("action-delete", t!("Delete"), ui::Variant::Outline)
                     .icon(Icon::Trash)
                     .on_click(move |_, window, cx| {
                         let id = id.clone();
@@ -315,7 +350,7 @@ pub fn render(
             )
         })
         .child(
-            ui::Button::new("action-save", "Save", ui::Variant::Primary)
+            ui::Button::new("action-save", t!("Save"), ui::Variant::Primary)
                 .icon(Icon::Check)
                 .disabled(!ready)
                 .on_click(move |_, window, cx| {
@@ -324,52 +359,56 @@ pub fn render(
         );
     let form = div()
         .child(rows::row(
-            "Name",
+            t!("Name"),
             None,
             div().w(px(320.)).child(ui::Field::new(&fields.title)),
             cx,
         ))
         .child(rows::row(
-            "Description",
-            Some("Shown under the name in the deck."),
+            t!("Description"),
+            Some(t!("Shown under the name in the deck.")),
             div().w(px(320.)).child(ui::Field::new(&fields.detail)),
             cx,
         ))
         .child(stacked(
-            "Command",
-            "Runs unsandboxed in the active session's directory, with SIKEMUX_SESSION_* and SIKEMUX_PROJECT set.",
+            t!("Command"),
+            t!("Runs unsandboxed in the active session's directory, with SIKEMUX_SESSION_* and SIKEMUX_PROJECT set."),
             div()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.line)
-                .rounded(theme::RADIUS_2)
-                .font_family(theme::MONO)
+                .rounded(theme::radius_2())
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .child(Textarea::new(&fields.command).h(px(96.)).bordered(false))
                 .into_any_element(),
         ))
         .child(stacked(
-            "Where output lands",
-            "A terminal tab, a split, a popup, a background toast, or this pane.",
+            t!("Where output lands"),
+            t!("A terminal tab, a split, a popup, a background toast, or this pane."),
             div().child(placement).into_any_element(),
         ))
         .child(stacked(
-            "Contexts",
-            "Leave all unticked to offer it everywhere.",
+            t!("Contexts"),
+            t!("Leave all unticked to offer it everywhere."),
             contexts.into_any_element(),
         ))
         .child(buttons);
 
     vec![
         rows::section(
-            "Your actions",
-            Some(format!("{} saved", commands.len()).into()),
-            Some("Shell commands that sit beside the built-in ones.".into()),
+            n!("Your actions"),
+            Some(t!("{count} saved", count = commands.len()).into()),
+            Some(t!("Shell commands that sit beside the built-in ones.").into()),
             lit("Your actions"),
             saved,
             cx,
         ),
         rows::section(
-            if editing { "Edit action" } else { "New action" },
+            if editing {
+                n!("Edit action")
+            } else {
+                n!("New action")
+            },
             None,
             None,
             lit("New action"),

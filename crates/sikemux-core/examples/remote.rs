@@ -7,23 +7,26 @@
 //!   remote mac <socket> publish            offers the fake agent to devices
 //!   remote mac <socket> chat [prompt]      starts a chat with it
 //!   remote mac <socket> say <agent> <text>
-//!   remote mac <socket> backdrop on|off [image.jpg]  publishes the pane backdrop
 //!   remote mac <socket> chats              lists the chats running on the core
 //!   remote mac <socket> sleepy             keeps a sleeping chat for a device to wake
+//!   remote mac <socket> login              signs the core in by a code a phone approves
+//!   remote mac <socket> owner <user-id>    signs the core in to an account, as far as devices can tell
+//!   remote mac <socket> trust <device-id> [full|watch]  pairs a device by its key, as joining does
+//!   remote mac <socket> children <probe> <repo>  has the core start `probe` each way it starts
+//!                                          programs, naming each run by its first argument
 //! As a device, keeping its key in `<key-file>`:
 //!   remote device <key-file> sessions <core-id>
 
+use sikemux_wire::protocol::ask;
 use std::path::Path;
 use std::time::Duration;
 
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, RelayMode};
-use sikemux_core::accounts::network;
-use sikemux_core::client::CoreClient;
-use sikemux_core::protocol::{
-    BackdropImage, DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn,
-};
-use sikemux_core::remote::{self, SecretKey};
+use sikemux_client::accounts::network;
+use sikemux_client::client::CoreClient;
+use sikemux_client::remote::{self, SecretKey};
+use sikemux_wire::protocol::{DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn};
 
 type Failure = Box<dyn std::error::Error>;
 
@@ -38,7 +41,25 @@ async fn main() -> Result<(), Failure> {
         ["mac", socket, "say", agent, text @ ..] => say(Path::new(socket), agent, &text.join(" ")).await,
         ["mac", socket, "sleepy"] => sleepy(Path::new(socket)).await,
         ["mac", socket, "chats"] => chats(Path::new(socket)).await,
-        ["mac", socket, "backdrop", texture, image @ ..] => backdrop(Path::new(socket), *texture == "on", image.first().copied()).await,
+        ["mac", socket, "login"] => login(Path::new(socket)).await,
+        ["mac", socket, "owner", owner] => {
+            let (client, _events) = CoreClient::connect(Path::new(socket)).await?;
+            println!("{:#?}", client.set_owner(Some(owner.to_string())).await?);
+            Ok(())
+        }
+        ["mac", socket, "trust", device, access @ ..] => {
+            let (client, _events) = CoreClient::connect(Path::new(socket)).await?;
+            let access = if access.first() == Some(&"watch") { DeviceAccess::Watch } else { DeviceAccess::Full };
+            let allowed = sikemux_wire::protocol::AllowedDevice {
+                id: device.to_string(),
+                name: "Simulator".into(),
+                platform: "ios".into(),
+                access,
+            };
+            println!("{:#?}", client.allow_devices(vec![allowed]).await?);
+            Ok(())
+        }
+        ["mac", socket, "children", probe, repo] => children(Path::new(socket), probe, repo).await,
         ["mac", socket, action] => mac(Path::new(socket), action).await,
         ["device", key, "sessions", core] => sessions(Path::new(key), core).await,
         _ => Err("usage: remote mac <socket> on|off|allow|status|spawn|publish|chat|say | remote device <key-file> sessions <core-id>".into()),
@@ -64,6 +85,21 @@ async fn mac(socket: &Path, action: &str) -> Result<(), Failure> {
     Ok(())
 }
 
+/// Signs the core in to the accounts server at `SIKEMUX_API_URL` by a code, as
+/// `sikemux login` does, printing the code to enter on the phone.
+async fn login(socket: &Path) -> Result<(), Failure> {
+    let (client, _events) = CoreClient::connect(socket).await?;
+    let code = client
+        .call("accountSignInByCode", serde_json::json!({}))
+        .await?;
+    println!("enter {} on the phone", code["code"]);
+    client
+        .call("accountSignInFinish", serde_json::json!({}))
+        .await?;
+    println!("signed in to {:?}", client.remote_status().await?.owner);
+    Ok(())
+}
+
 async fn spawn(socket: &Path) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
     let launch = LaunchIdentity {
@@ -80,6 +116,54 @@ async fn spawn(socket: &Path) -> Result<(), Failure> {
     Ok(())
 }
 
+/// A shell running `probe`, a terminal that is `probe`, a terminal whose shell starts it, git
+/// running `repo`'s post-checkout hook, and an agent whose program it is. Each is reported and
+/// none stops the rest.
+async fn children(socket: &Path, probe: &str, repo: &str) -> Result<(), Failure> {
+    let (client, _events) = CoreClient::connect(socket).await?;
+    let launch = || LaunchIdentity {
+        version: env!("CARGO_PKG_VERSION").into(),
+        ..LaunchIdentity::default()
+    };
+    let terminal = SpawnTarget::Terminal(TerminalSpawn {
+        cols: 80,
+        rows: 24,
+        cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+        startup: Some(format!("{probe} terminal")),
+        ..TerminalSpawn::default()
+    });
+    let shell = client.spawn(launch(), terminal).await;
+    println!("terminal: {shell:?}");
+    let checkout = client
+        .call(
+            "git.checkout",
+            serde_json::json!({ "repo": repo, "branch": "other" }),
+        )
+        .await;
+    println!("git: {checkout:?}");
+    let accounts = serde_json::json!({
+        "profiles": [{
+            "id": "probe",
+            "name": "Probe",
+            "provider": "opencode",
+            "accent": "#a277ff",
+            "executablePath": probe,
+        }],
+    });
+    let project = serde_json::json!({ "id": "tmp", "name": "tmp", "path": std::env::temp_dir() });
+    let agent = async {
+        client.call("setAgentAccounts", accounts).await?;
+        client.call("addProject", project).await?;
+        client
+            .start_chat("opencode:probe".into(), "tmp".into(), None)
+            .await
+            .map(|(agent, _)| agent)
+    }
+    .await;
+    println!("agent: {agent:?}");
+    Ok(())
+}
+
 /// The fake agent is built beside this example, one directory up.
 fn fake_agent() -> Result<std::path::PathBuf, Failure> {
     let examples = std::env::current_exe()?;
@@ -87,7 +171,7 @@ fn fake_agent() -> Result<std::path::PathBuf, Failure> {
         .parent()
         .and_then(Path::parent)
         .ok_or("the example is not inside a target directory")?;
-    Ok(debug.join("sikemux-fake-acp-agent"))
+    Ok(debug.join("sikemux-fake-opencode"))
 }
 
 async fn publish(socket: &Path) -> Result<(), Failure> {
@@ -122,52 +206,23 @@ async fn chat(socket: &Path, prompt: &str) -> Result<(), Failure> {
     println!("chat {agent}");
     if !prompt.is_empty() {
         client
-            .acp_prompt(agent, None, prompt.into(), Vec::new(), Vec::new())
+            .ask(ask::AcpPrompt {
+                agent_id: agent,
+                message_id: None,
+                text: prompt.into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await?;
     }
     Ok(())
-}
-
-async fn backdrop(socket: &Path, texture: bool, image: Option<&str>) -> Result<(), Failure> {
-    let (client, _events) = CoreClient::connect(socket).await?;
-    let picture = match image {
-        Some(path) => {
-            let bytes = std::fs::read(path)?;
-            Some(BackdropImage {
-                id: format!("{:x}", bytes.len()),
-                data_url: format!("data:image/jpeg;base64,{}", base64(&bytes)),
-            })
-        }
-        None => None,
-    };
-    client.publish_backdrop(texture, picture).await?;
-    println!("published the backdrop");
-    Ok(())
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for (index, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            if index <= chunk.len() {
-                out.push(char::from(TABLE[((n >> shift) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 async fn chats(socket: &Path) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&client.acp_list().await?)?
+        serde_json::to_string_pretty(&client.ask(ask::AcpList).await?)?
     );
     Ok(())
 }
@@ -196,7 +251,13 @@ async fn sleepy(socket: &Path) -> Result<(), Failure> {
 async fn say(socket: &Path, agent: &str, text: &str) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
     client
-        .acp_prompt(agent.into(), None, text.into(), Vec::new(), Vec::new())
+        .ask(ask::AcpPrompt {
+            agent_id: agent.into(),
+            message_id: None,
+            text: text.into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await?;
     Ok(())
 }
@@ -232,13 +293,13 @@ async fn sessions(key_file: &Path, core: &str) -> Result<(), Failure> {
     let started = std::time::Instant::now();
     let (client, _events) = remote::connect(&endpoint, core_addr(core)?).await?;
     println!("connected in {:?}", started.elapsed());
-    for session in client.list().await? {
+    for session in client.ask(ask::List).await? {
         println!(
             "{} {:?} running={}",
             session.id, session.kind, session.running
         );
     }
-    for chat in client.acp_list().await? {
+    for chat in client.ask(ask::AcpList).await? {
         println!(
             "chat {} {} in {}",
             chat.agent_id,

@@ -85,7 +85,7 @@ pub async fn feedback(data_dir: &Path, input: FeedbackQuery) -> GitlabResult<Vec
     let reviewers_path = input.pull.path("/reviewers")?;
     let (discussions, reviewers) = futures::try_join!(
         client::get_all::<Discussion>(data_dir, &discussions_path, &[], DISCUSSION_PAGES),
-        client::get::<Vec<Reviewer>>(data_dir, &reviewers_path, &[]),
+        client::API.get::<Vec<Reviewer>>(data_dir, &reviewers_path, &[]),
     )?;
     let newer = |at: &str| input.since.as_deref().is_none_or(|since| at >= since);
     let notes = discussions.into_iter().flat_map(|discussion| {
@@ -141,13 +141,14 @@ pub async fn answer(data_dir: &Path, input: Answers) -> GitlabResult<()> {
                 .path(&format!("/discussions/{discussion}/notes"))?,
             None => input.pull.path("/discussions")?,
         };
-        let _: Value = client::send_json(
-            data_dir,
-            Method::POST,
-            &path,
-            &json!({ "body": reply.body }),
-        )
-        .await?;
+        let _: Value = client::API
+            .send_json(
+                data_dir,
+                Method::POST,
+                &path,
+                &json!({ "body": reply.body }),
+            )
+            .await?;
     }
     Ok(())
 }

@@ -20,6 +20,28 @@
     const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", button: "button", submit: "button", reset: "button", image: "button", range: "slider", search: "searchbox" };
 
     const compact = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+    // An error saying what a call names is not on the page yet, which a page still drawing may show in a moment.
+    const missing = (message) => Object.assign(new Error(message), { missing: true });
+    const submitControl = (element) => {
+        const control = element.closest("button, input");
+        if (!control || control.disabled) return null;
+        const type = (control.getAttribute("type") || (control.tagName === "BUTTON" ? "submit" : "text")).toLowerCase();
+        return type === "submit" || type === "image" ? control : null;
+    };
+    const localHost = (host) => host === "localhost" || host === "[::1]" || host.endsWith(".local") || host.startsWith("127.");
+    // A form read by its attributes, since a field named "action" or "method" hides the properties.
+    const writeOfForm = (form, control) => {
+        const method = ((control && control.getAttribute("formmethod")) || form.getAttribute("method") || "get").toUpperCase();
+        if (method === "GET" || method === "DIALOG") return null;
+        let url;
+        try {
+            url = new URL((control && control.getAttribute("formaction")) || form.getAttribute("action") || location.href, document.baseURI);
+        } catch {
+            return null;
+        }
+        if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
+        return { method, origin: url.origin, path: url.pathname };
+    };
     const shown = (element) => {
         const rect = element.getBoundingClientRect();
         if (rect.width < 1 || rect.height < 1) return false;
@@ -402,6 +424,21 @@
             .map(compact)
             .filter(Boolean);
     const clip = (text, cap) => (text.length > cap ? `${text.slice(0, cap)}…` : text);
+    // The part of `text` a read asks for: `chars` around the first place `around`
+    // shows, or the last `tail` characters. Null when it asks for neither.
+    const excerpt = (text, read) => {
+        if (!read) return null;
+        if (read.tail != null) {
+            const from = Math.max(0, text.length - read.tail);
+            return { text: (from > 0 ? "…" : "") + text.slice(from), textLength: text.length, textCut: undefined };
+        }
+        if (read.around == null) return null;
+        const at = text.toLowerCase().indexOf(compact(read.around).toLowerCase());
+        if (at < 0) return { text: "", textLength: text.length, textCut: undefined, note: `"${read.around}" is not in the text` };
+        const from = Math.max(0, at - Math.floor(read.chars / 2));
+        const to = Math.min(text.length, from + read.chars);
+        return { text: (from > 0 ? "…" : "") + text.slice(from, to) + (to < text.length ? "…" : ""), textAt: at, textLength: text.length, textCut: undefined };
+    };
     const without = (lines, taken) => {
         const counts = new Map();
         for (const line of taken) counts.set(line, (counts.get(line) || 0) + 1);
@@ -487,7 +524,9 @@
         const scope = target.role ? ` with role ${target.role}` : "";
         const labelled = matching(target.text, target.role);
         const found = labelled.length || target.role ? labelled : textHolders(target.text);
-        return { found, none: `nothing${scope} shows or is labelled "${target.text}"; try browser_find with part of the words`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
+        const otherRoles = target.role && !found.length ? matching(target.text, null) : [];
+        const hint = otherRoles.length ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}` : "; try browser_find with part of the words";
+        return { found, none: `nothing${scope} shows or is labelled "${target.text}"${hint}`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
     };
     const centre = (element) => {
         const rect = rectOf(element);
@@ -511,6 +550,7 @@
     // the pointer, so clicks and hit tests pass straight through it.
     const OVERLAY_STYLE = [
         ":host { all: initial; }",
+        ":host([aside]) .layer * { pointer-events: none !important; }",
         ".layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483647; font: 600 12px/1.3 -apple-system, system-ui, sans-serif; }",
         ".layer.quiet .pointer, .layer.quiet .ripple { visibility: hidden; }",
         ".pointer { position: absolute; left: 0; top: 0; width: 18px; height: 18px; margin: -2.1px 0 0 -2.1px; transition: transform 220ms cubic-bezier(.2,.7,.3,1), opacity 400ms; opacity: 0; }",
@@ -523,12 +563,47 @@
         ".box.marks { border-width: 1px; }",
         ".tag { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; padding: 1px 5px; border-radius: 3px; background: #ff4f7b; color: #fff; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }",
         ".box.marks .tag { bottom: auto; top: 0; margin: 0; padding: 0 3px; font-size: 10px; border-radius: 0 0 3px 0; }",
+        ".snip { position: absolute; inset: 0; pointer-events: auto; cursor: crosshair; }",
+        ".snip-box { position: absolute; border: 1.5px solid var(--snip); border-radius: 2px; background: color-mix(in srgb, var(--snip) 8%, transparent); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .12); }",
+        ".snip-box.taken { box-shadow: none; animation: taken 520ms ease-out forwards; }",
+        "@keyframes taken { from { background: color-mix(in srgb, var(--snip) 40%, transparent); } to { background: transparent; border-color: transparent; } }",
+        ".hover { position: absolute; border: 1.5px solid var(--snip); border-radius: 4px; background: color-mix(in srgb, var(--snip) 10%, transparent); pointer-events: none; }",
+        ".ring { position: absolute; border: 1.5px dashed var(--pin-accent); border-radius: 6px; pointer-events: auto; cursor: pointer; }",
+        ".pill, .float { font: 500 12px/1.4 Figtree, -apple-system, system-ui, sans-serif; color: var(--pin-ink); background: var(--pin-ground); border: 1px solid var(--pin-line); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }",
+        ".pill { position: absolute; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; white-space: nowrap; pointer-events: auto; cursor: pointer; }",
+        ".pill .quiet, .float .quiet { color: var(--pin-quiet); }",
+        ".done { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--pin-accent); box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, .3); display: grid; place-items: center; pointer-events: auto; cursor: pointer; }",
+        ".done svg { width: 9px; height: 9px; }",
+        ".float { position: absolute; width: 300px; border-radius: 12px; padding: 10px 12px; box-sizing: border-box; pointer-events: auto; }",
+        ".float.wide { width: 340px; }",
+        ".float input { all: unset; display: block; width: 100%; font: 500 13px/1.4 Figtree, -apple-system, system-ui, sans-serif; color: var(--pin-ink); caret-color: var(--pin-accent); }",
+        ".float input::placeholder { color: var(--pin-quiet); }",
+        ".float .what { margin-top: 6px; color: var(--pin-quiet); font-size: 11.5px; }",
+        ".float .foot { display: flex; align-items: center; gap: 8px; margin: 9px -12px -10px; padding: 8px 12px; border-top: 1px solid var(--pin-line); color: var(--pin-quiet); font-size: 11.5px; }",
+        ".float .foot .grow { flex: 1; }",
+        ".float .said { margin-top: 4px; }",
+        ".float .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }",
+        ".float .shots b { display: block; font-size: 10px; letter-spacing: .14em; color: var(--pin-quiet); margin-bottom: 4px; }",
+        ".float .shots img { display: block; width: 100%; border-radius: 5px; background: #fff; }",
+        ".float .thread div { display: flex; gap: 10px; margin: 3px 0; }",
+        ".float .thread .who { flex: none; width: 46px; color: var(--pin-quiet); overflow: hidden; text-overflow: ellipsis; }",
+        ".float button { all: unset; height: 24px; padding: 0 10px; border-radius: 5px; border: 1px solid var(--pin-line); color: var(--pin-ink); cursor: pointer; }",
         ".caption { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); max-width: 80%; padding: 10px 16px; border-radius: 8px; background: rgba(17, 17, 20, .86); color: #fff; font-size: 15px; font-weight: 500; text-align: center; }",
     ].join("\n");
     const POINTER_SVG =
         '<svg viewBox="0 0 20 20" width="18" height="18"><defs><linearGradient id="fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c3a3ff"/><stop offset="1" stop-color="#7c4dff"/></linearGradient></defs>' +
         '<path d="M2.4 3.3 Q1.8 1.8 3.3 2.4 L15.8 7.3 Q18.2 8.3 15.6 8.8 L11.6 9.7 Q10 10 9.7 11.6 L8.8 15.6 Q8.3 18.2 7.3 15.8 Z" fill="url(#fill)" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>';
     let overlay = null;
+    // While the agent's pointer shows, every overlay on the page, a snip catcher or pin ring
+    // included, lets the agent's clicks through to the page beneath.
+    const AGENT_POINTER_MS = 2500;
+    let asideTimer = 0;
+    const standAside = () => {
+        const hosts = document.querySelectorAll("sikemux-overlay");
+        hosts.forEach((host) => host.setAttribute("aside", ""));
+        clearTimeout(asideTimer);
+        asideTimer = setTimeout(() => hosts.forEach((host) => host.removeAttribute("aside")), AGENT_POINTER_MS);
+    };
     let placedInput = null;
     let uploadLanded = false;
     let watchingUploads = false;
@@ -567,6 +642,348 @@
         return note;
     };
 
+    // Snip mode: the person drags a box over the page, and the app takes a picture of what it
+    // covers. The box is gone before the answer goes, so that picture never shows it.
+    const SNIP_ELEMENTS = 6;
+    const SNIP_HTML = 600;
+    const SNIP_SMALLEST = 4;
+    let snipWaiter = null;
+    let snipMissed = null;
+    const answerSnip = (value) => {
+        if (!snipWaiter) return (snipMissed = value);
+        const waiter = snipWaiter;
+        snipWaiter = null;
+        waiter(value);
+    };
+    const selectorOf = (element) => {
+        const steps = [];
+        for (let node = element; node instanceof Element && steps.length < 5; node = node.parentElement) {
+            if (node.id && !/\d{4,}/.test(node.id)) {
+                steps.unshift(`#${CSS.escape(node.id)}`);
+                break;
+            }
+            const classes = [...node.classList].filter((name) => !/\d{4,}|[:[\]]/.test(name)).slice(0, 2);
+            let step = node.tagName.toLowerCase() + classes.map((name) => `.${CSS.escape(name)}`).join("");
+            const twins = node.parentElement ? [...node.parentElement.children].filter((other) => other.tagName === node.tagName) : [];
+            if (twins.length > 1) step += `:nth-of-type(${twins.indexOf(node) + 1})`;
+            steps.unshift(step);
+            if (node === document.body) break;
+        }
+        return steps.join(" > ");
+    };
+    const snipEntry = (element) => ({ selector: selectorOf(element), tag: element.tagName.toLowerCase(), text: describe(element), html: clip(compact(element.outerHTML), SNIP_HTML) });
+    // The outermost elements lying mostly inside `area`, or the smallest one holding all of it.
+    const snipped = (area) => {
+        const overlap = (rect) =>
+            Math.max(0, Math.min(rect.right, area.right) - Math.max(rect.left, area.left)) * Math.max(0, Math.min(rect.bottom, area.bottom) - Math.max(rect.top, area.top));
+        const inside = [];
+        let more = 0;
+        const visit = (element) => {
+            const rect = element.getBoundingClientRect();
+            const size = rect.width * rect.height;
+            if (size >= 1 && overlap(rect) >= size * 0.6 && shown(element)) {
+                if (inside.length < SNIP_ELEMENTS) inside.push(element);
+                else more += 1;
+                return;
+            }
+            if (size >= 1 && !overlap(rect)) return;
+            for (const child of element.children) visit(child);
+        };
+        if (document.body) visit(document.body);
+        const found = { left: area.left, top: area.top, width: area.right - area.left, height: area.bottom - area.top, viewport: { width: innerWidth, height: innerHeight }, url: location.href, title: document.title };
+        if (inside.length) return { ...found, elements: inside.map(snipEntry), ...(more ? { more } : {}) };
+        let holder = elementAt((area.left + area.right) / 2, (area.top + area.bottom) / 2);
+        for (; holder && holder !== document.body; holder = parentAcross(holder)) {
+            const rect = rectOf(holder);
+            if (rect.left <= area.left && rect.top <= area.top && rect.right >= area.right && rect.bottom >= area.bottom) break;
+        }
+        return holder ? { ...found, holder: snipEntry(holder) } : found;
+    };
+    // A thin crosshair in the app's accent, outlined in white so it shows on any page.
+    const snipCursor = (accent) => {
+        const arms = "M12 2v7M12 15v7M2 12h7M15 12h7";
+        const svg =
+            `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>` +
+            `<path d='${arms}' stroke='white' stroke-width='3' stroke-linecap='round'/>` +
+            `<path d='${arms}' stroke='${accent}' stroke-width='1.5' stroke-linecap='round'/>` +
+            `<circle cx='12' cy='12' r='1.2' fill='${accent}'/></svg>`;
+        return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") 12 12, crosshair`;
+    };
+    const endOnEscape = (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        stopSnipping();
+        answerSnip({ ended: true });
+    };
+    const stopSnipping = () => {
+        if (overlay) overlay.layer.querySelectorAll(".snip, .snip-box, .hover, .float.asking").forEach((node) => node.remove());
+        hovered = null;
+        removeEventListener("keydown", endOnEscape, true);
+    };
+    const snipLayer = () => {
+        const { layer: root } = layer();
+        if (root.querySelector(".snip")) return;
+        const catcher = document.createElement("div");
+        catcher.className = "snip";
+        let start = null;
+        let drawn = null;
+        const corner = (event) => ({ x: Math.min(Math.max(event.clientX, 0), innerWidth), y: Math.min(Math.max(event.clientY, 0), innerHeight) });
+        const between = (from, to) => ({ left: Math.min(from.x, to.x), top: Math.min(from.y, to.y), right: Math.max(from.x, to.x), bottom: Math.max(from.y, to.y) });
+        const draw = (rect) => Object.assign(drawn.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
+        catcher.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            catcher.setPointerCapture(event.pointerId);
+            start = corner(event);
+            drawn = document.createElement("div");
+            drawn.className = "snip-box";
+            draw(between(start, start));
+            root.append(drawn);
+        });
+        catcher.addEventListener("pointermove", (event) => (start ? draw(between(start, corner(event))) : outline(catcher, event)));
+        catcher.addEventListener("pointerleave", () => outline(catcher, null));
+        catcher.addEventListener("pointerup", (event) => {
+            if (!start) return;
+            const area = between(start, corner(event));
+            start = null;
+            drawn.remove();
+            if (area.right - area.left < SNIP_SMALLEST || area.bottom - area.top < SNIP_SMALLEST) return askPin(catcher, event);
+            catcher.style.pointerEvents = "none";
+            const found = snipped(area);
+            catcher.style.pointerEvents = "";
+            root.classList.add("quiet");
+            requestAnimationFrame(() => requestAnimationFrame(() => answerSnip(found)));
+        });
+        root.append(catcher);
+        addEventListener("keydown", endOnEscape, true);
+    };
+    const flashTaken = (taken) => {
+        const node = document.createElement("div");
+        node.className = "snip-box taken";
+        Object.assign(node.style, { left: `${taken.left}px`, top: `${taken.top}px`, width: `${taken.width}px`, height: `${taken.height}px` });
+        layer().layer.append(node);
+        setTimeout(() => node.remove(), 600);
+    };
+
+    // Pins: a click in snip mode puts a note on the element under it. Placed pins draw a ring on
+    // their element while open, a done mark once answered, and a float to read or answer them.
+    const CHECK_SVG = '<svg viewBox="0 0 10 10"><path d="M2 5.2 4.1 7.2 8 2.8" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const PIN_SVG = '<svg viewBox="0 0 12 12" width="10" height="10"><path d="M4.5 1.5h3M5 1.5v3.2L3 7h6L7 4.7V1.5M6 7v3.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    let pinWaiter = null;
+    const pinMissed = [];
+    const answerPin = (value) => {
+        if (!pinWaiter) return pinMissed.push(value);
+        const waiter = pinWaiter;
+        pinWaiter = null;
+        waiter(value);
+    };
+    const pinState = { list: [], marks: [], open: null, look: null };
+    let hovered = null;
+    const hitUnder = (catcher, event) => {
+        catcher.style.pointerEvents = "none";
+        const found = elementAt(event.clientX, event.clientY);
+        catcher.style.pointerEvents = "";
+        return found && found !== document.documentElement && found !== document.body ? found : null;
+    };
+    const outlineOn = (element) => {
+        if (!element) return hovered && (hovered.node.remove(), (hovered = null));
+        if (!hovered) {
+            const node = document.createElement("div");
+            node.className = "hover";
+            layer().layer.append(node);
+            hovered = { node };
+        }
+        hovered.element = element;
+        place(hovered);
+    };
+    const outline = (catcher, event) => {
+        if (layer().layer.querySelector(".float.asking")) return;
+        outlineOn(event ? hitUnder(catcher, event) : null);
+    };
+    const kindOf = (element) => {
+        const tag = element.tagName.toLowerCase();
+        const role = element.getAttribute("role");
+        if (tag === "button" || role === "button") return "button";
+        if (tag === "a") return "link";
+        if (/^(input|textarea|select)$/.test(tag)) return "field";
+        if (/^h[1-6]$/.test(tag)) return "heading";
+        if (tag === "img" || tag === "svg") return "picture";
+        if (/^(ul|ol|table)$/.test(tag)) return "list";
+        return "";
+    };
+    const pinLabel = (element) => {
+        const words = clip(compact(describe(element)).replace(/^"|"$/g, "").replace(/[^\p{L}\p{N})]+$/u, ""), 40);
+        const kind = kindOf(element);
+        return kind ? `${words} ${kind}` : words;
+    };
+    const pageName = () => clip(compact(document.title.split(/\s[·|–—-]\s/)[0] || location.pathname), 40);
+    const floatNear = (node, rect) => {
+        const width = node.offsetWidth || 300;
+        const left = Math.min(Math.max(rect.left, 8), innerWidth - width - 8);
+        const below = rect.bottom + 8;
+        const top = below + (node.offsetHeight || 90) > innerHeight - 8 ? Math.max(rect.top - (node.offsetHeight || 90) - 8, 8) : below;
+        Object.assign(node.style, { left: `${left}px`, top: `${top}px` });
+    };
+    const closeFloat = () => {
+        if (layer().layer.querySelector(".float.asking")) outlineOn(null);
+        layer().layer.querySelectorAll(".float").forEach((node) => node.remove());
+        pinState.open = null;
+        pinState.marks.forEach(placePinMark);
+    };
+    const askPin = (catcher, event) => {
+        const element = hitUnder(catcher, event);
+        if (!element) return;
+        closeFloat();
+        const look = pinState.look || {};
+        const float = document.createElement("div");
+        float.className = "float asking";
+        float.innerHTML = `<input placeholder="Say what to change…"><div class="what">${PIN_SVG} <span></span></div><div class="foot"><span class="grow"></span><span>↵</span></div>`;
+        float.querySelector(".what span").textContent = `${pinLabel(element)} · ${pageName()} · this width`;
+        float.querySelector(".foot .grow").textContent = look.to ? `Goes to ${look.to}` : "Goes to the agent on this desk";
+        layer().layer.append(float);
+        floatNear(float, rectOf(element));
+        outlineOn(element);
+        const input = float.querySelector("input");
+        input.addEventListener("keydown", (key) => {
+            key.stopPropagation();
+            if (key.key === "Escape") return closeFloat();
+            if (key.key !== "Enter" || !compact(input.value)) return;
+            key.preventDefault();
+            const rect = rectOf(element);
+            closeFloat();
+            answerSnip({ pin: { note: compact(input.value), label: pinLabel(element), page: pageName(), selector: selectorOf(element), html: clip(compact(element.outerHTML), SNIP_HTML), url: location.href, title: document.title, viewport: { width: innerWidth, height: innerHeight }, rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height } } });
+        });
+        input.focus();
+    };
+    const minutes = (ms) => `about ${Math.max(1, Math.round(ms / 60000))} min`;
+    const ago = (ms) => (ms < 60000 ? "just now" : `${Math.round(ms / 60000)} min ago`);
+    const openPin = (pin) => {
+        closeFloat();
+        const element = document.querySelector(pin.selector);
+        if (!element) return;
+        const float = document.createElement("div");
+        float.className = "float wide";
+        const said = [...pin.notes].reverse().find((note) => note.by === "agent");
+        if (pin.state === "answered" && !pin.reopened) {
+            float.innerHTML = `<div><b></b> <span class="quiet"></span></div><div class="said"></div><div class="shots"></div><div class="foot"><input class="grow" placeholder="Still off? Say what…"><button>Looks right</button></div>`;
+            float.querySelector("b").textContent = pin.who;
+            float.querySelector(".quiet").textContent = `answered · ${ago(Date.now() - pin.since)}`;
+            float.querySelector(".said").textContent = said ? clip(said.words, 280) : "";
+            const shots = float.querySelector(".shots");
+            for (const [name, src] of [["BEFORE", pin.beforeData], ["AFTER", pin.afterData]]) {
+                if (!src) continue;
+                const cell = document.createElement("div");
+                cell.innerHTML = `<b>${name}</b><img>`;
+                cell.querySelector("img").src = src;
+                shots.append(cell);
+            }
+            if (!shots.children.length) shots.remove();
+        } else {
+            float.innerHTML = `<div class="thread"></div><div class="foot"><span class="grow"></span></div>`;
+            const thread = float.querySelector(".thread");
+            for (const note of pin.notes) {
+                const row = document.createElement("div");
+                row.innerHTML = `<span class="who"></span><span></span>`;
+                row.firstChild.textContent = note.by === "agent" ? pin.who : "You";
+                row.lastChild.textContent = clip(note.words, 200);
+                thread.append(row);
+            }
+            float.querySelector(".foot .grow").textContent = pin.stopped ? `${pin.who} stopped before answering` : `${pin.reopened ? "Reopened" : "Sent"} · ${pin.who} · ${minutes(Date.now() - pin.since)}`;
+            if (pin.state === "answered") {
+                float.querySelector(".foot").insertAdjacentHTML("beforeend", "<button>Looks right</button>");
+            }
+            const input = document.createElement("input");
+            input.placeholder = "Add to it…";
+            input.style.marginTop = "8px";
+            float.insertBefore(input, float.querySelector(".foot"));
+        }
+        const input = float.querySelector("input");
+        input.addEventListener("keydown", (key) => {
+            key.stopPropagation();
+            if (key.key === "Escape") return closeFloat();
+            if (key.key !== "Enter" || !compact(input.value)) return;
+            answerPin({ note: { id: pin.id, words: compact(input.value) } });
+            closeFloat();
+        });
+        const right = float.querySelector("button");
+        if (right) right.addEventListener("click", () => (answerPin({ looksRight: { id: pin.id } }), closeFloat()));
+        layer().layer.append(float);
+        floatNear(float, rectOf(element));
+        input.focus();
+        pinState.open = pin.id;
+        pinState.marks.forEach(placePinMark);
+    };
+    const placePinMark = (mark) => {
+        if (!mark.element.isConnected) mark.element = document.querySelector(mark.pin.selector) || mark.element;
+        const rect = mark.element.isConnected ? visibleRect(mark.element) : null;
+        for (const node of mark.nodes) node.style.display = rect ? "" : "none";
+        if (!rect) return;
+        const [first, second] = mark.nodes;
+        if (mark.pin.state === "answered" && !mark.pin.reopened) {
+            Object.assign(first.style, { left: `${rect.right}px`, top: `${rect.top}px` });
+            return;
+        }
+        Object.assign(first.style, { left: `${rect.left - 5}px`, top: `${rect.top - 5}px`, width: `${rect.width + 8}px`, height: `${rect.height + 8}px` });
+        if (second) Object.assign(second.style, { left: `${rect.left - 4}px`, top: `${rect.bottom + 8}px`, display: pinState.open === mark.pin.id ? "none" : "" });
+    };
+    let pinFrame = 0;
+    const followPins = () => {
+        if (pinFrame) return;
+        pinFrame = requestAnimationFrame(() => {
+            pinFrame = 0;
+            pinState.marks.forEach(placePinMark);
+        });
+    };
+    let followingPins = false;
+    const drawPins = () => {
+        const { layer: root } = layer();
+        pinState.marks.forEach((mark) => mark.nodes.forEach((node) => node.remove()));
+        pinState.marks = [];
+        const look = pinState.look || {};
+        root.style.setProperty("--pin-accent", look.accent || "#a277ff");
+        root.style.setProperty("--pin-ground", look.ground || "#1c1b21");
+        root.style.setProperty("--pin-ink", look.ink || "#e7e5ef");
+        root.style.setProperty("--pin-quiet", look.quiet || "#8b8898");
+        root.style.setProperty("--pin-line", look.line || "#2c2b33");
+        for (const pin of pinState.list) {
+            const element = document.querySelector(pin.selector);
+            if (!element) continue;
+            const nodes = [];
+            if (pin.state === "answered" && !pin.reopened) {
+                const done = document.createElement("div");
+                done.className = "done";
+                done.innerHTML = CHECK_SVG;
+                nodes.push(done);
+            } else {
+                const ring = document.createElement("div");
+                ring.className = "ring";
+                const pill = document.createElement("div");
+                pill.className = "pill";
+                pill.innerHTML = `<span></span><span class="quiet"></span>`;
+                pill.firstChild.textContent = pin.who;
+                pill.lastChild.textContent = `· ${pin.stopped ? "stopped" : pin.working ? minutes(Date.now() - pin.since) : "sent"}`;
+                nodes.push(ring, pill);
+            }
+            for (const node of nodes) {
+                node.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    pinState.open === pin.id ? closeFloat() : openPin(pin);
+                });
+                root.append(node);
+            }
+            const mark = { pin, element, nodes };
+            placePinMark(mark);
+            pinState.marks.push(mark);
+        }
+        if (pinState.open && !pinState.list.some((pin) => pin.id === pinState.open)) closeFloat();
+        if (!followingPins) {
+            followingPins = true;
+            addEventListener("scroll", followPins, { capture: true, passive: true });
+            addEventListener("resize", followPins, { passive: true });
+        }
+    };
+
     const scrollerOf = (element) => {
         for (let node = element; node; node = parentAcross(node)) {
             if (node === document.body || node === document.documentElement) break;
@@ -580,7 +997,7 @@
     window.__sikemux = {
         // "changes" answers with what differs from the previous read of this
         // page, and with everything when there was none.
-        state(mode, fullText) {
+        state(mode, fullText, read) {
             const listed = listing();
             const lines = pageLines();
             const last = window.__sikemuxLast;
@@ -600,7 +1017,8 @@
                 elements: kept.map(([, listedEntry]) => listedEntry.line).join("\n"),
                 ...(dropped.length ? { offscreen: offscreenNote(dropped, "elements are") } : {}),
                 text: clip(text, cap),
-                ...(text.length > cap ? { textLength: text.length } : {}),
+                ...(text.length > cap ? { textLength: text.length, textCut: "around, tail or fullText read past the cut" } : {}),
+                ...excerpt(text, read),
             };
         },
         find(query, role) {
@@ -647,7 +1065,7 @@
             const { found } = match;
             const listed = () => lines(found.slice(0, 10));
             if (found.length === 1 && (target.index == null || target.index === found[0][0])) return found[0][0];
-            if (!found.length) throw new Error(match.none);
+            if (!found.length) throw missing(match.none);
             if (target.index != null) {
                 if (found.some(([id]) => id === target.index)) return target.index;
                 throw new Error(`element [${target.index}] is not one of the ${found.length} that match; nothing was done. Pass one of these numbers as index:\n${listed()}`);
@@ -661,6 +1079,7 @@
                 throw new Error(`element [${index}] is "${describe(element)}", not "${expectLabel}"; nothing was done`);
             }
             element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            standAside();
             const point = centre(element);
             const top = elementAt(point.x, point.y);
             const covered = top && !within(top, element) && !within(element, top) ? describe(top) : null;
@@ -680,6 +1099,7 @@
         // say what it hit.
         hitAt(x, y, expectLabel) {
             if (x > innerWidth || y > innerHeight) throw new Error(`${x},${y} is outside the ${innerWidth}×${innerHeight} viewport; nothing was done`);
+            standAside();
             const top = elementAt(x, y);
             if (!top || top === document.documentElement || top === document.body) {
                 if (expectLabel != null) throw new Error(`nothing but the page itself is at ${x},${y}, not "${expectLabel}"; nothing was done`);
@@ -716,7 +1136,10 @@
             const into = describe(element);
             if (target == null) return { replacing: replace ? selectContents(element) : false, into };
             element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-            if (isFrame(element)) return { replacing: false, clickFirst: centre(element), into };
+            if (isFrame(element)) {
+                standAside();
+                return { replacing: false, clickFirst: centre(element), into };
+            }
             element.focus({ preventScroll: true });
             return { replacing: selectContents(element), into };
         },
@@ -740,6 +1163,21 @@
             target.dispatchEvent(new PointerEvent("pointermove", init));
             target.dispatchEvent(new MouseEvent("mousemove", init));
             return { hovered: describe(target), note: "Sikemux is in the background, so the page got hover events but CSS :hover styles do not apply" };
+        },
+        // The write sending the form under this point would make, if any.
+        writeAt(x, y) {
+            const element = elementAt(x, y);
+            const control = element && submitControl(element);
+            return control && control.form ? writeOfForm(control.form, control) : null;
+        },
+        // The write pressing Enter in this field would make, if any.
+        writeOfField(target) {
+            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            if (!element || isFrame(element)) return null;
+            const control = submitControl(element);
+            if (control) return control.form ? writeOfForm(control.form, control) : null;
+            const entersForm = element.tagName === "INPUT" && !["button", "reset", "file", "hidden"].includes(element.type);
+            return entersForm && element.form ? writeOfForm(element.form, null) : null;
         },
         // A long value shows its end, where typing lands, with its length.
         valueOf(target) {
@@ -774,6 +1212,7 @@
         },
         mark(x, y, ripple) {
             const { layer: root, pointer } = layer();
+            standAside();
             // A tab nobody can see runs no transitions, which would leave the
             // pointer stuck where it started.
             pointer.style.transition = document.visibilityState === "visible" ? "" : "none";
@@ -787,7 +1226,7 @@
                 setTimeout(() => ripple.remove(), 600);
             }
             clearTimeout(overlay.fade);
-            overlay.fade = setTimeout(() => pointer.classList.remove("shown"), 2500);
+            overlay.fade = setTimeout(() => pointer.classList.remove("shown"), AGENT_POINTER_MS);
             return {};
         },
         annotate(index, x, y, text, durationMs) {
@@ -839,9 +1278,9 @@
         viewportSize() {
             return { width: innerWidth, height: innerHeight };
         },
-        // The file input an upload names, shown or hidden behind a styled drop
-        // zone, or the page's only one when it names none, laid under the
-        // pointer until `unplaceFileInput` so a real click opens its chooser.
+        // Where a real click opens the chooser of the file input an upload names,
+        // or of the page's only one when it names none. A hidden input, or one
+        // something covers, is laid on top of the page until `unplaceFileInput`.
         // Null when the target is something else to click, such as a button.
         fileInput(target) {
             const isFileInput = (element) => element.tagName === "INPUT" && element.type === "file";
@@ -854,22 +1293,44 @@
                     const listed = lines(inputs.slice(0, 10).map((input) => [numberFor(input), input]));
                     throw new Error(`${inputs.length} file inputs match; nothing was done. Pass one of these numbers as index:\n${listed}`);
                 }
-                if (target == null && !inputs.length) throw new Error("the page has no file input; pass the number or selector of the button that opens a chooser");
+                if (target == null && !inputs.length) throw missing("the page has no file input; pass the number or selector of the button that opens a chooser");
                 element = inputs[0] || null;
             } else if (target.index != null && target.text == null) {
                 const picked = pick(target.index);
                 element = isFileInput(picked) ? picked : null;
             }
             if (!element) return null;
-            const style = element.getAttribute("style");
-            placedInput = { element, style };
+            const named = { index: numberFor(element), label: describe(element) };
+            const middle = (rect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+            if (shown(element)) {
+                element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+                const rect = visibleRect(element);
+                const at = rect && middle(rect);
+                if (at && reaches(element, at.x, at.y)) return { ...named, ...at };
+            }
+            placedInput = { element, style: element.getAttribute("style") };
             element.style.cssText += ";position:fixed!important;left:0!important;top:0!important;width:24px!important;height:24px!important;margin:0!important;display:block!important;visibility:visible!important;opacity:0.01!important;pointer-events:auto!important;transform:none!important;z-index:2147483647!important";
-            const rect = rectOf(element);
+            let rect = rectOf(element);
             if (rect.width < 1 || rect.height < 1) {
                 this.unplaceFileInput();
                 throw new Error("the file input sits inside something hidden; pass the number or selector of the button that opens its chooser");
             }
-            return { index: numberFor(element), label: describe(element), x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            // A modal dialog, or an ancestor that makes its own layer, can still cover it; the top layer is above both.
+            if (!reaches(element, middle(rect).x, middle(rect).y) && typeof element.showPopover === "function") {
+                placedInput.popover = element.getAttribute("popover");
+                element.setAttribute("popover", "manual");
+                try {
+                    element.showPopover();
+                } catch {}
+                rect = rectOf(element);
+            }
+            const at = middle(rect);
+            if (!reaches(element, at.x, at.y)) {
+                const over = elementAt(at.x, at.y);
+                this.unplaceFileInput();
+                throw new Error(`the file input stays under ${over ? describe(over) : "something else"}, so a click cannot reach it; pass the number or selector of the button that opens its chooser`);
+            }
+            return { ...named, ...at };
         },
         // Whether a file input on the page took files since the last call,
         // which says the page really got them.
@@ -888,7 +1349,14 @@
         },
         unplaceFileInput() {
             if (placedInput) {
-                const { element, style } = placedInput;
+                const { element, style, popover } = placedInput;
+                if (popover !== undefined) {
+                    try {
+                        element.hidePopover();
+                    } catch {}
+                    if (popover == null) element.removeAttribute("popover");
+                    else element.setAttribute("popover", popover);
+                }
                 if (style == null) element.removeAttribute("style");
                 else element.setAttribute("style", style);
             }
@@ -901,6 +1369,64 @@
         // The height the page's content needs, which a short page's scrollHeight hides behind the viewport's.
         contentHeight() {
             return Math.ceil(document.documentElement.getBoundingClientRect().height);
+        },
+        // Turns snip mode on or off. On, it draws in `accent`, flashes `taken`, the box answered
+        // last, and waits for the next box the person drags, or Escape; a later call takes the
+        // wait over.
+        snip(on, taken, accent) {
+            const missed = snipMissed;
+            snipMissed = null;
+            if (snipWaiter) answerSnip(null);
+            if (!on) {
+                stopSnipping();
+                return null;
+            }
+            if (missed && missed.ended) return missed;
+            snipLayer();
+            const color = /^#[0-9a-f]{6}$/i.test(accent || "") ? accent : "#a277ff";
+            overlay.layer.style.setProperty("--snip", color);
+            overlay.layer.querySelector(".snip").style.cursor = snipCursor(color);
+            overlay.layer.classList.remove("quiet");
+            if (taken) flashTaken(taken);
+            if (missed) return missed;
+            return new Promise((resolve) => {
+                snipWaiter = resolve;
+            });
+        },
+        // The pins placed on this page, drawn over it, with the app's colours and who a new pin
+        // goes to.
+        pins(list, look) {
+            pinState.list = Array.isArray(list) ? list : [];
+            pinState.look = look || null;
+            drawPins();
+            return {};
+        },
+        pageAt() {
+            return location.href;
+        },
+        // Where the element `selector` finds sits in the viewport, when it is in sight; nothing
+        // scrolls.
+        pinRect(selector) {
+            let element = null;
+            try {
+                element = document.querySelector(selector);
+            } catch {
+                return null;
+            }
+            const rect = element && visibleRect(element);
+            return rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
+        },
+        // Waits for the person to answer a pin: another note, or that it looks right.
+        pinWait() {
+            if (pinWaiter) {
+                const waiter = pinWaiter;
+                pinWaiter = null;
+                waiter(null);
+            }
+            if (pinMissed.length) return pinMissed.shift();
+            return new Promise((resolve) => {
+                pinWaiter = resolve;
+            });
         },
         pointerVisible(visible) {
             if (overlay) overlay.layer.classList.toggle("quiet", !visible);
@@ -921,14 +1447,15 @@
             else scroller.scrollBy({ top: deltaY ?? 600, behavior: "instant" });
             return scrollState(scroller);
         },
-        extract(selector) {
+        extract(selector, read) {
             const roots = selector ? selected(selector) : [document.body];
             if (selector && roots.length === 0) throw new Error(`nothing matches "${selector}"`);
             const CAP = 40000;
-            const textOf = (root) => compact((root && (root.innerText || root.textContent)) || "") || compact(root && (root.getAttribute("aria-label") || root.getAttribute("alt") || root.getAttribute("title") || root.value || ""));
+            const keptLines = (text) => String(text).split("\n").map(compact).filter(Boolean).join("\n");
+            const textOf = (root) => keptLines((root && (root.innerText || root.textContent)) || "") || compact(root && (root.getAttribute("aria-label") || root.getAttribute("alt") || root.getAttribute("title") || root.value || ""));
             if (!selector || roots.length === 1) {
                 const text = textOf(roots[0]);
-                return { url: location.href, title: document.title, text: clip(text, CAP), matches: roots.length };
+                return { url: location.href, title: document.title, text: clip(text, CAP), matches: roots.length, ...excerpt(text, read) };
             }
             let room = CAP;
             const parts = [];

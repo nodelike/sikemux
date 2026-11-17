@@ -1,0 +1,16 @@
+# A call stays open while the person asks the agent about it: the question and the answer go in
+# the chat, and the call's folded row stays at the end of the transcript until a choice is picked.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+replies call-follow-up.json
+project storefront shop
+chat Wren
+title "Cache the product pages"
+say "question {\"questions\":[{\"question\":\"Which store should the product page cache use?\",\"header\":\"Cache store\",\"options\":[{\"label\":\"Redis (recommended)\",\"description\":\"Fast, shared by every app server, already running in staging\"},{\"label\":\"SQLite\",\"description\":\"No server to keep up, one file per app server\"}]}]}"
+settle 6
+say "Would SQLite hold up with three app servers reading the cache at once?"
+settle 8
+front Wren
+settle 2
+snap follow-up

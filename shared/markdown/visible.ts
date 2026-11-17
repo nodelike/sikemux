@@ -9,7 +9,6 @@ function inside(element: MdElement): readonly MdNode[] {
     return [];
 }
 
-/** How many characters of `node` a reader sees. */
 export function visibleLength(node: MdNode): number {
     if (typeof node === "string") return node.length;
     const known = lengths.get(node);
@@ -24,7 +23,6 @@ export function visibleLength(node: MdNode): number {
     return length;
 }
 
-/** The characters a reader sees, in order. */
 export function visibleText(nodes: readonly MdNode[]): string {
     return nodes
         .map((node) => {

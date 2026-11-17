@@ -11,7 +11,7 @@ Codex is OpenAI's coding agent. Sikemux runs the `codex` CLI, signed in with Cha
 |---|---|
 | Command | `codex` |
 | Chat in Sikemux | Yes, and its own TUI |
-| Permission modes | Normal and YOLO |
+| Permission modes | Normal, Auto and YOLO |
 | Effort levels | minimal, low, medium, high, xhigh, max |
 | Several accounts | Yes |
 | Plan limits in the rail | Yes |
@@ -40,7 +40,7 @@ A Codex chat talks to `codex app-server`, Codex's own JSON-RPC server. Every ste
 
 ## Accounts and limits
 
-Each Codex account is its own `CODEX_HOME` folder. Add one in **Settings → Accounts → Codex → Add account**. The rail's **Limits** shows each rate-limit window Codex reports for the selected account, with its reset time.
+Each Codex account is its own `CODEX_HOME` folder. Add one in **Settings → Accounts → Codex → Add account**. The rail's **Limits** shows how much of Codex's 7-day window is left, added up across your accounts, with each account's own line and reset time when you hover.
 
 ## Skills
 

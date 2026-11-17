@@ -1,0 +1,19 @@
+# The rail under @Chief: workers the chief started hang on its tree line, and agents the person
+# started stand on their own below it.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+project storefront line-shop
+core openChief {"project":"storefront"}
+chat Flint
+title "Fix the rounding in cart totals"
+lead Chief
+chat Maple
+title "Bundle the storefront"
+lead Chief
+chat Otter
+title "Check the refund totals"
+chat Wren
+title "Some orders come out a cent off"
+settle 6
+snap rail

@@ -1,77 +1,78 @@
 //! A log of the messages between agents in each project: who sent what kind
 //! to whom, when, and what became of it. One line of JSON each, never the
 //! text, in a file per project that starts over once it fills, keeping the
-//! one before.
+//! one before. Questions asked aside are kept the same way in a log of their own, with
+//! their text.
 
+pub use sikemux_calls::messages::{MessageOutcome, MessageRow, MessageTone};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
 
-use super::Kind;
+use super::MessageKind;
 
 const FOLDER: &str = "agent-messages";
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 pub(crate) const MAX_READ: usize = 500;
 
-/// What became of a message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Outcome {
-    /// Taken into the turn the agent was working on.
-    Steered,
-    /// Started a turn of the agent's.
-    NewTurn,
-    /// Typed into a terminal agent's prompt, not yet seen taken.
-    Typed,
-    /// Waits for the agent to be free.
-    Waiting,
-    /// Reached the agent after waiting, or a terminal agent took it.
-    Delivered,
-    /// The agent did not take it, so it waits again.
-    Returned,
-    /// The same text went to the same agent a moment before.
-    Repeat,
-    Refused,
-    /// Dropped unread: its agent closed, or it was withdrawn.
-    Dropped,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Entry {
+pub(crate) struct MessageEntry {
     pub at: u64,
-    /// The sending agent's id, `person`, `board` or `auto`; unknown for a
-    /// message that came back unread.
+    /// The sending agent's id, or a [`super::Sender`]'s; unknown for a message that came back
+    /// unread.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     /// What the sender was called then, as its name goes once it closes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<Kind>,
+    pub kind: Option<MessageKind>,
     pub to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to_name: Option<String>,
-    pub outcome: Outcome,
+    pub outcome: MessageOutcome,
 }
 
-pub(crate) struct MessageLog {
+/// A question one agent asked about another and the answer it got, in place of its turns.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AskEntry {
+    pub at: u64,
+    pub from: String,
+    pub from_name: String,
+    pub to: String,
+    pub to_name: String,
+    pub question: String,
+    pub answer: String,
+}
+
+pub(crate) struct MessageLog<T = MessageEntry> {
     folder: Option<PathBuf>,
     /// When each project last logged a message, held while writing.
     latest: Mutex<BTreeMap<String, u64>>,
+    entry: std::marker::PhantomData<T>,
 }
 
 impl MessageLog {
     /// Without a data folder nothing is logged.
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        Self::in_folder(data_dir, FOLDER)
+    }
+}
+
+impl<T: Serialize + DeserializeOwned> MessageLog<T> {
+    pub(crate) fn in_folder(data_dir: Option<&Path>, folder: &str) -> Self {
         Self {
-            folder: data_dir.map(|dir| dir.join(FOLDER)),
+            folder: data_dir.map(|dir| dir.join(folder)),
             latest: Mutex::new(BTreeMap::new()),
+            entry: std::marker::PhantomData,
         }
     }
 
@@ -91,7 +92,7 @@ impl MessageLog {
         ))
     }
 
-    pub(crate) fn append(&self, project: &str, entry: &Entry) {
+    pub(crate) fn append(&self, project: &str, at: u64, entry: &T) {
         let Some((current, old)) = self.files(project) else {
             return;
         };
@@ -100,7 +101,7 @@ impl MessageLog {
         };
         line.push(b'\n');
         let mut latest = self.latest.locked();
-        latest.insert(project.to_owned(), entry.at);
+        latest.insert(project.to_owned(), at);
         let full = std::fs::metadata(&current)
             .is_ok_and(|file| file.len() + line.len() as u64 > MAX_FILE_BYTES);
         let written = (|| {
@@ -122,7 +123,7 @@ impl MessageLog {
     }
 
     /// The project's latest entries, newest first, at most `limit`.
-    pub(crate) fn read(&self, project: &str, limit: usize) -> Vec<Entry> {
+    pub(crate) fn read(&self, project: &str, limit: usize) -> Vec<T> {
         let Some((current, old)) = self.files(project) else {
             return Vec::new();
         };
@@ -132,7 +133,7 @@ impl MessageLog {
             let Ok(file) = std::fs::File::open(path) else {
                 continue;
             };
-            let mut lines: Vec<Entry> = std::io::BufReader::new(file)
+            let mut lines: Vec<T> = std::io::BufReader::new(file)
                 .lines()
                 .map_while(Result::ok)
                 .filter_map(|line| serde_json::from_str(&line).ok())
@@ -148,47 +149,17 @@ impl MessageLog {
     }
 }
 
-/// Whether a message still waits for its agent, or never reached it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Tone {
-    Held,
-    Failed,
-}
-
-/// One message between agents, from being sent to what last became of it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Row {
-    pub sent_at: u64,
-    pub at: u64,
-    /// The sending agent's id, or `person`, `board`, `auto` or `sikemux`.
-    pub from: Option<String>,
-    /// The sending agent's name now, else when it was logged; none for those that are
-    /// not agents.
-    pub from_name: Option<String>,
-    pub to: String,
-    pub to_name: Option<String>,
-    pub kind: Option<Kind>,
-    pub outcome: Outcome,
-    /// It waited for its agent before it got where it is.
-    pub waited: bool,
-    pub tone: Option<Tone>,
-}
-
-const NOT_AGENTS: [&str; 4] = ["person", "board", "auto", "sikemux"];
-
-fn still_going(outcome: Outcome) -> bool {
+fn still_going(outcome: MessageOutcome) -> bool {
     matches!(
         outcome,
-        Outcome::Typed | Outcome::Waiting | Outcome::Returned
+        MessageOutcome::Typed | MessageOutcome::Waiting | MessageOutcome::Returned
     )
 }
 
-fn tone(outcome: Outcome) -> Option<Tone> {
+fn tone(outcome: MessageOutcome) -> Option<MessageTone> {
     match outcome {
-        Outcome::Waiting | Outcome::Returned => Some(Tone::Held),
-        Outcome::Refused | Outcome::Dropped => Some(Tone::Failed),
+        MessageOutcome::Waiting | MessageOutcome::Returned => Some(MessageTone::Held),
+        MessageOutcome::Refused | MessageOutcome::Dropped => Some(MessageTone::Failed),
         _ => None,
     }
 }
@@ -197,17 +168,20 @@ fn tone(outcome: Outcome) -> Option<Tone> {
 /// and again when one that waited is delivered, taken back or dropped; a later line
 /// belongs to the oldest message still waiting for the same agent from the same sender.
 /// `name_of` gives an open agent's name now, ahead of the one it was logged with.
-pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) -> Vec<Row> {
+pub(crate) fn rows(
+    entries: &[MessageEntry],
+    name_of: impl Fn(&str) -> Option<String>,
+) -> Vec<MessageRow> {
     let name = |id: Option<&str>, logged: &Option<String>| {
-        let id = id.filter(|id| !NOT_AGENTS.contains(id))?;
+        let id = id.filter(|id| super::Sender::of(id).is_none())?;
         name_of(id).or_else(|| logged.clone())
     };
-    let mut rows: Vec<Row> = Vec::with_capacity(entries.len());
+    let mut rows: Vec<MessageRow> = Vec::with_capacity(entries.len());
     let mut going: Vec<usize> = Vec::new();
     for entry in entries.iter().rev() {
         let later = matches!(
             entry.outcome,
-            Outcome::Delivered | Outcome::Returned | Outcome::Dropped
+            MessageOutcome::Delivered | MessageOutcome::Returned | MessageOutcome::Dropped
         );
         let earlier = later
             .then(|| {
@@ -221,7 +195,7 @@ pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) 
             .flatten();
         if let Some(waiting) = earlier {
             let row = &mut rows[going[waiting]];
-            row.waited |= !matches!(row.outcome, Outcome::Typed);
+            row.waited |= !matches!(row.outcome, MessageOutcome::Typed);
             row.outcome = entry.outcome;
             row.tone = tone(entry.outcome);
             row.at = entry.at;
@@ -233,7 +207,7 @@ pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) 
         if still_going(entry.outcome) {
             going.push(rows.len());
         }
-        rows.push(Row {
+        rows.push(MessageRow {
             sent_at: entry.at,
             at: entry.at,
             from: entry.from.clone(),

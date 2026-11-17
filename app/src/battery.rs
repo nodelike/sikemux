@@ -1,4 +1,13 @@
-/// This device's battery, as its power sources last reported.
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{
+    div, px, AnyElement, App, Hsla, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled,
+};
+
+use crate::icons::Icon;
+use crate::theme::Tokens;
+use crate::workbench::Workbench;
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct Battery {
     pub percent: u8,
@@ -8,19 +17,64 @@ pub struct Battery {
     pub minutes: Option<u32>,
 }
 
+use crate::ui;
 #[cfg(target_os = "macos")]
 pub use mac::{read, watch};
 
 #[cfg(target_os = "linux")]
 pub use linux::{read, watch};
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn read() -> Option<Battery> {
-    None
-}
+#[cfg(windows)]
+pub use windows::{read, watch};
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn watch(_changed: impl Fn() + Send + 'static) {}
+/// Windows says how the battery stands when asked, and only to a window when it changes, so a
+/// thread of its own asks once a minute.
+#[cfg(windows)]
+mod windows {
+    use std::time::Duration;
+
+    use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+
+    use super::Battery;
+
+    const NO_BATTERY: u8 = 128;
+    const UNKNOWN: u8 = 255;
+
+    pub fn read() -> Option<Battery> {
+        let mut status = SYSTEM_POWER_STATUS::default();
+        // SAFETY: the call only writes the struct it is handed.
+        if unsafe { GetSystemPowerStatus(&mut status) } == 0
+            || status.BatteryFlag & NO_BATTERY != 0
+            || status.BatteryFlag == UNKNOWN
+            || status.BatteryLifePercent == UNKNOWN
+        {
+            return None;
+        }
+        let charging = status.ACLineStatus == 1;
+        Some(Battery {
+            percent: status.BatteryLifePercent.min(100),
+            charging,
+            minutes: (!charging && status.BatteryLifeTime != u32::MAX)
+                .then_some(status.BatteryLifeTime / 60),
+        })
+    }
+
+    /// Calls `changed`, from a thread of its own, whenever the battery reads differently.
+    pub fn watch(changed: impl Fn() + Send + 'static) {
+        let _ = std::thread::Builder::new()
+            .name("battery".into())
+            .spawn(move || {
+                let mut last = read();
+                loop {
+                    std::thread::sleep(Duration::from_secs(60));
+                    let now = read();
+                    if now != std::mem::replace(&mut last, now) {
+                        changed();
+                    }
+                }
+            });
+    }
+}
 
 /// UPower's summary of the batteries, which it keeps on the system bus.
 #[cfg(target_os = "linux")]
@@ -210,4 +264,99 @@ mod mac {
             CFRunLoop::get_main().add_source(&source, kCFRunLoopDefaultMode);
         }
     }
+}
+
+pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
+    let t = Tokens::get(cx).clone();
+    let battery = bench.battery.as_ref()?;
+    let percent = battery.percent;
+    let tint = match percent {
+        _ if battery.charging => t.live,
+        0..=10 => t.danger,
+        11..=20 => t.warn,
+        _ => t.accent,
+    };
+    let time = battery
+        .minutes
+        .map(|minutes| format!("{}:{:02}", minutes / 60, minutes % 60));
+    let about = match (battery.charging, time) {
+        (true, Some(time)) => t!(
+            "{percent}% · charging · {time} until full",
+            percent = percent,
+            time = time
+        ),
+        (true, None) => t!("{percent}% · charging", percent = percent),
+        (false, Some(time)) => t!(
+            "{percent}% · {time} remaining",
+            percent = percent,
+            time = time
+        ),
+        (false, None) => format!("{percent}%"),
+    };
+    let unit = 12. / 13.;
+    let at = |units: f32| px(units * unit);
+    let level = f32::from(percent) / 100.;
+    let fill = if level > 0. {
+        (20.5 * level).max(2.2)
+    } else {
+        0.
+    };
+    let frame = Hsla { a: 0.45, ..tint };
+    let bolt = |glyph: Icon, color: Hsla| {
+        ui::icon(glyph, 19. * unit)
+            .w(at(12.))
+            .absolute()
+            .left(at(7.))
+            .top(at(-3.))
+            .text_color(color)
+    };
+    let icon = div()
+        .relative()
+        .flex_none()
+        .w(at(28.))
+        .h(at(13.))
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .top_0()
+                .w(at(24.5))
+                .h(at(13.))
+                .border(at(1.))
+                .border_color(frame)
+                .rounded(at(4.1)),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(at(25.4))
+                .top(at(4.4))
+                .w(at(1.6))
+                .h(at(4.2))
+                .rounded_r(at(1.6))
+                .bg(frame),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(at(2.))
+                .top(at(2.))
+                .w(at(fill))
+                .h(at(9.))
+                .rounded(at(2.2))
+                .bg(tint),
+        )
+        .when(battery.charging, |icon| {
+            icon.child(bolt(Icon::BatteryBoltGap, t.surface_sunken))
+                .child(bolt(Icon::BatteryBolt, tint))
+        });
+    Some(
+        div()
+            .id("battery")
+            .flex()
+            .items_center()
+            .tooltip(ui::tooltip(about))
+            .child(icon)
+            .into_any_element(),
+    )
 }

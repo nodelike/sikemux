@@ -20,7 +20,8 @@ pub enum Kind {
     Bullets,
     Numbers(u64),
     Item(Option<bool>),
-    Code(Option<SharedString>),
+    /// A code block's language, and the file it shows when its fence names one.
+    Code(Option<SharedString>, Option<SharedString>),
     Rule,
     Table(Box<Table>),
     /// A list with no tag of its own, as a table's rows and its cells are.
@@ -35,7 +36,11 @@ pub enum Kind {
     Emphasis,
     Strong,
     Strike,
+    /// Words drawn in the faint ink, as words the reader asked to see that were left out.
+    Faint,
     InlineCode,
+    /// LaTeX math in a line of text, kept as written and drawn as Unicode.
+    Math,
     Link(SharedString),
     /// A name that could be a file, as the message wrote it.
     Path(SharedString),
@@ -56,7 +61,9 @@ impl Kind {
                 | Kind::Emphasis
                 | Kind::Strong
                 | Kind::Strike
+                | Kind::Faint
                 | Kind::InlineCode
+                | Kind::Math
                 | Kind::Link(_)
                 | Kind::Path(_)
                 | Kind::Break
@@ -93,6 +100,9 @@ impl Marks {
     pub const STRIKE: Marks = Marks(4);
     pub const CODE: Marks = Marks(8);
     pub const LINK: Marks = Marks(16);
+    pub const FAINT: Marks = Marks(32);
+    /// A script in a formula that Unicode has no small letters for.
+    pub const SMALL: Marks = Marks(64);
 
     pub fn has(self, other: Marks) -> bool {
         self.0 & other.0 != 0
@@ -163,6 +173,7 @@ impl Node {
         match &self.kind {
             Kind::Text => self.text.replace('|', "\\|"),
             Kind::InlineCode => format!("`{}`", self.text.replace('|', "\\|")),
+            Kind::Math => format!("${}$", self.text.replace('|', "\\|")),
             Kind::Strong => format!("**{}**", inner()),
             Kind::Emphasis => format!("*{}*", inner()),
             Kind::Strike => format!("~~{}~~", inner()),
@@ -213,7 +224,7 @@ impl Node {
     /// The node's content as it is drawn, worked out once until a patch reaches inside it.
     pub fn flow(&self) -> &[Piece] {
         self.flow.get_or_init(|| {
-            if let Kind::Code(_) = self.kind {
+            if let Kind::Code(..) = self.kind {
                 return vec![Piece::Text(Rich {
                     text: self.text.trim_end_matches('\n').to_owned().into(),
                     ..Rich::default()
@@ -269,7 +280,7 @@ impl Node {
     /// A code block's first lines up to `limit` characters, ending at a line break when
     /// one comes in the second half.
     fn code_head(&self, limit: usize) -> Option<Node> {
-        let Kind::Code(_) = self.kind else {
+        let Kind::Code(..) = self.kind else {
             return None;
         };
         let end = self
@@ -320,12 +331,26 @@ impl Builder {
         let (marks, link) = match &node.kind {
             Kind::Text => return self.push(&node.text, marks),
             Kind::InlineCode => return self.push(&node.text, with(Marks::CODE)),
+            Kind::Math => {
+                for (text, look) in crate::math_text::runs(&node.text) {
+                    let mut kept = marks;
+                    if look.italic {
+                        kept = Marks(kept.0 | Marks::EMPHASIS.0);
+                    }
+                    if look.small {
+                        kept = Marks(kept.0 | Marks::SMALL.0);
+                    }
+                    self.push(&text, kept);
+                }
+                return;
+            }
             Kind::Break => return self.push("\n", marks),
             Kind::FootnoteRef(n) => return self.push(&superscript(*n), marks),
             Kind::Image { alt, .. } => return self.push(alt, marks),
             Kind::Strong => (with(Marks::STRONG), link),
             Kind::Emphasis => (with(Marks::EMPHASIS), link),
             Kind::Strike => (with(Marks::STRIKE), link),
+            Kind::Faint => (with(Marks::FAINT), link),
             Kind::Link(href) if link.is_none() => (with(Marks::LINK), Some(href)),
             _ => (marks, link),
         };
@@ -382,10 +407,12 @@ struct Element {
     start: Option<u64>,
     checked: Option<bool>,
     lang: Option<SharedString>,
+    name: Option<SharedString>,
     /// A table's side for each column, or the one side of an aligned block.
     align: Value,
     summary: SharedString,
     open: bool,
+    math: bool,
     href: SharedString,
     src: SharedString,
     alt: SharedString,
@@ -416,7 +443,7 @@ impl From<Wire> for Node {
             "ul" => Kind::Bullets,
             "ol" => Kind::Numbers(element.start.unwrap_or(1)),
             "li" => Kind::Item(element.checked),
-            "pre" => Kind::Code(element.lang),
+            "pre" => Kind::Code(element.lang, element.name),
             "hr" => Kind::Rule,
             "table" => Kind::Table(Box::new(Table {
                 align: (element.align.as_array().into_iter().flatten())
@@ -433,6 +460,8 @@ impl From<Wire> for Node {
             "em" => Kind::Emphasis,
             "strong" => Kind::Strong,
             "del" => Kind::Strike,
+            "faint" => Kind::Faint,
+            "code" if element.math => Kind::Math,
             "code" => Kind::InlineCode,
             "a" => Kind::Link(element.href),
             "path" => Kind::Path(element.href),
@@ -568,11 +597,6 @@ impl Markdown {
         };
         let hidden = total - kept;
         (hidden >= limit / 10).then_some((blocks, hidden))
-    }
-
-    /// Whether the tree matches the text; when it does not, draw the text as it is.
-    pub fn is_current(&self) -> bool {
-        self.units.is_some()
     }
 
     /// Applies a patch `{ n, o }`, leaving every block it does not reach as it was.

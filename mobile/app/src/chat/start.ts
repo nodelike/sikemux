@@ -3,15 +3,20 @@ import type { ConnectionLike } from '@sikemux/native';
 
 import { problem as problemOf } from '@/core/problem';
 import { callHost } from '@/core/hostCalls';
+import { translate } from '@/i18n';
 import { chatSession } from './useChat';
 import { uploadEach, type Attachment } from './uploads';
 
 /** A new chat's first message, and how far an earlier try at sending it got. */
-export type FirstMessage = {
+type FirstMessage = {
   core: string;
   launcherId: string;
   projectId: string;
   mode: string | undefined;
+  /** The model and effort picked before the chat started, model first, since the efforts on offer depend on it. */
+  config: { id: string; value: string }[];
+  /** A connected provider's model picked in place of the agent's own, which the chat moves onto as it starts. */
+  route?: { provider: string; profileId?: string; model: string; modelProvider: string };
   text: string;
   attachments: Attachment[];
   worktree: boolean;
@@ -22,8 +27,7 @@ export type FirstMessage = {
 };
 
 /** `failed` hands the files back as they ended up, and says whether the host made the worktree for the next try. */
-export type StartOutcome =
-  { kind: 'started'; agentId: string } | { kind: 'failed'; problem: string; files: Attachment[]; inWorktree: boolean };
+type StartOutcome = { kind: 'started'; agentId: string } | { kind: 'failed'; problem: string; files: Attachment[]; inWorktree: boolean };
 
 type Progress = {
   /** The agent is running on the host, before its first message has gone. */
@@ -44,16 +48,24 @@ export async function startChat(connection: ConnectionLike, first: FirstMessage,
     if (!agentId) {
       agentId = await connection.startChat(first.launcherId, first.projectId, first.mode);
       progress.started(agentId);
+      if (first.route) await callHost(connection, 'handOff', { agentId, ...first.route });
+      else for (const { id, value } of first.config) await connection.setChatConfig(agentId, id, value);
     }
     if (first.worktree && !inWorktree) {
-      progress.step('Creating worktree');
+      progress.step(translate('Creating worktree'));
       const made = await callHost(connection, 'createAgentWorktree', { agentId, message: first.text });
       inWorktree = true;
-      if (made.setupError) return failed(`${made.setupError}. The worktree is kept at ${made.worktree?.path}; send again to start there.`);
-      progress.step('Starting the agent in the worktree');
+      if (made.setupError)
+        return failed(
+          translate('{problem}. The worktree is kept at {path}; send again to start there.', {
+            problem: made.setupError,
+            path: made.worktree?.path ?? '',
+          }),
+        );
+      progress.step(translate('Starting the agent in the worktree'));
     }
     const { sent, files } = await upload(connection, agentId, first.attachments);
-    if (!sent) return failed('Could not send every file to the host', files);
+    if (!sent) return failed(translate('Could not send every file to the host'), files);
     chatSession(first.core, agentId).sendWhenAttached(first.text, sent);
     return { kind: 'started', agentId };
   } catch (error) {

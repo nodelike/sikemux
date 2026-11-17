@@ -9,14 +9,16 @@ use std::time::{Duration, Instant};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use sikemux_loopback::{challenge, redirect_uri, Callback, LoopbackError};
+use sikemux_loopback::{challenge, redirect_uri, LoopbackError};
 
-pub use sikemux_loopback::new_state;
+pub use sikemux_loopback::{new_state, Callback};
 
 use crate::http::{read_body, Http};
 use crate::service::{Service, ServiceError};
 use crate::store::{blocking, Secrets};
-use crate::StreamSink;
+use crate::vault::{self, Refresh, Renew, SharedAccess};
+use crate::{PluginFuture, StreamSink};
+use sikemux_process::clock::epoch_ms;
 
 /// Long enough to sign up or find a password, short enough that a forgotten
 /// sign-in does not hold the shared port all day.
@@ -234,12 +236,6 @@ impl OAuthApp {
     }
 }
 
-/// Where a sign-in's refresh token is kept.
-pub struct KeychainEntry {
-    pub secrets: Secrets,
-    pub account: String,
-}
-
 #[derive(Clone)]
 pub struct Access {
     pub token: String,
@@ -249,15 +245,27 @@ pub struct Access {
 
 impl Access {
     fn of(tokens: &Tokens) -> Self {
+        Self::new(
+            &tokens.access_token,
+            &tokens.scopes,
+            Duration::from_secs(tokens.expires_in),
+        )
+    }
+
+    fn shared(shared: &SharedAccess) -> Self {
+        let left = shared.expires_at.saturating_sub(epoch_ms());
+        Self::new(&shared.token, &shared.scopes, Duration::from_millis(left))
+    }
+
+    fn new(token: &str, scopes: &str, life: Duration) -> Self {
         Self {
-            token: tokens.access_token.clone(),
-            scopes: tokens
-                .scopes
+            token: token.to_owned(),
+            scopes: scopes
                 .split([' ', ','])
                 .filter(|scope| !scope.is_empty())
                 .map(str::to_owned)
                 .collect(),
-            expires: Instant::now() + Duration::from_secs(tokens.expires_in),
+            expires: Instant::now() + life,
         }
     }
 }
@@ -266,14 +274,17 @@ impl Access {
 pub struct Refreshing<S: 'static> {
     app: &'static OAuthApp,
     http: &'static Http<S>,
+    /// Where each sign-in's refresh token is kept.
+    secrets: Secrets,
     held: tokio::sync::Mutex<BTreeMap<String, Access>>,
 }
 
 impl<S: Service> Refreshing<S> {
-    pub const fn new(app: &'static OAuthApp, http: &'static Http<S>) -> Self {
+    pub const fn new(app: &'static OAuthApp, http: &'static Http<S>, secrets: Secrets) -> Self {
         Self {
             app,
             http,
+            secrets,
             held: tokio::sync::Mutex::const_new(BTreeMap::new()),
         }
     }
@@ -297,11 +308,17 @@ impl<S: Service> Refreshing<S> {
 
     /// One refresh at a time: the lock is held across it, because spending a
     /// refresh token twice would sign the account out.
-    pub async fn access(
-        &self,
-        account: &str,
-        entry: KeychainEntry,
-    ) -> Result<Access, ServiceError<S>> {
+    pub async fn access(&self, account: &str, entry: String) -> Result<Access, ServiceError<S>> {
+        let service = self.secrets.service();
+        match vault::refresh(service, &entry) {
+            Refresh::Here => {}
+            Refresh::Use(shared) => {
+                self.secrets.used(&entry);
+                return Ok(Access::shared(&shared));
+            }
+            Refresh::Wait(why) => return Err(ServiceError::Auth(why)),
+        }
+        self.secrets.used(&entry);
         let mut held = self.held.lock().await;
         if let Some(access) = held
             .get(account)
@@ -309,22 +326,36 @@ impl<S: Service> Refreshing<S> {
         {
             return Ok(access.clone());
         }
-        let KeychainEntry {
-            secrets,
-            account: entry_account,
-        } = entry;
-        let reading = entry_account.clone();
-        let refresh_token = blocking(move || Ok(secrets.read(&reading)?))
-            .await?
-            .ok_or(ServiceError::Unconfigured)?;
+        let access = self.refresh_now(entry).await?;
+        held.insert(account.to_owned(), access.clone());
+        Ok(access)
+    }
+
+    /// Spends the refresh token kept under `entry`, keeps the one it is traded for, and hands
+    /// the new access token to the vault for the hosts that only read this sign-in.
+    async fn refresh_now(&self, entry: String) -> Result<Access, ServiceError<S>> {
+        let secrets = self.secrets;
+        let reading = entry.clone();
+        let refresh_token =
+            blocking(move || Ok(sikemux_keychain::read(secrets.service(), &reading)?))
+                .await?
+                .ok_or(ServiceError::Unconfigured)?;
         let tokens = self.app.refresh(self.http, &refresh_token).await?;
         if tokens.refresh_token != refresh_token {
             let replacement = tokens.refresh_token.clone();
-            blocking(move || Ok(secrets.write(&entry_account, &replacement)?)).await?;
+            let writing = entry.clone();
+            blocking(move || Ok(secrets.write(&writing, &replacement)?)).await?;
         }
-        let access = Access::of(&tokens);
-        held.insert(account.to_owned(), access.clone());
-        Ok(access)
+        vault::refreshed(
+            secrets.service(),
+            &entry,
+            SharedAccess {
+                token: tokens.access_token.clone(),
+                scopes: tokens.scopes.clone(),
+                expires_at: epoch_ms().saturating_add(tokens.expires_in.saturating_mul(1000)),
+            },
+        );
+        Ok(Access::of(&tokens))
     }
 
     /// The service refused `rejected`, so it is dropped and a fresh one
@@ -334,7 +365,7 @@ impl<S: Service> Refreshing<S> {
         &self,
         account: &str,
         rejected: &str,
-        entry: KeychainEntry,
+        entry: String,
     ) -> Result<Access, ServiceError<S>> {
         {
             let mut held = self.held.lock().await;
@@ -353,7 +384,7 @@ impl<S: Service> Refreshing<S> {
     pub async fn with_access<T, F, Fut>(
         &self,
         account: &str,
-        entry: impl Fn() -> KeychainEntry,
+        entry: impl Fn() -> String,
         send: F,
     ) -> Result<T, ServiceError<S>>
     where
@@ -368,5 +399,18 @@ impl<S: Service> Refreshing<S> {
             }
             answered => answered,
         }
+    }
+}
+
+impl<S: Service + Sync> Renew for Refreshing<S> {
+    /// Waits for any refresh under way, so the refresh token is never spent twice.
+    fn renew<'a>(&'a self, identity: &'a str) -> PluginFuture<'a, ()> {
+        Box::pin(async move {
+            let _turn = self.held.lock().await;
+            self.refresh_now(identity.to_owned())
+                .await
+                .map(drop)
+                .map_err(crate::PluginError::from)
+        })
     }
 }

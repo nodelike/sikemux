@@ -1,0 +1,733 @@
+//! Mods: panels the person or their agents make as a web page. Each is a folder of the mods
+//! folder holding an `index.html` and a `mod.json` that says what the mod is called and what it
+//! reads and writes. The core lists them, follows their files and serves their pages.
+
+mod bridge;
+mod data;
+mod folder;
+mod schema;
+mod sync;
+pub use bridge::{BridgeParams, BridgeWrite};
+pub use sikemux_calls::mods::{change_prompt, follows, make_prompt, Moved};
+pub(super) use sync::{catch_up, heard};
+
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::parts::Parts;
+pub use sikemux_calls::mods::{
+    AllowParams, BadgeParams, ModAsk, ModBatchParams, ModChange, ModExample, ModInfo, ModList,
+    ModPage, ModParams, OffParams, PinModParams,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use notify::{RecursiveMode, Watcher};
+use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
+
+use super::changed::Topic;
+use super::connection::blocking;
+use super::kept::Kept;
+use super::skill_library::{resolved, watch_target};
+use super::{Core, CoreError, CoreResult};
+
+pub(super) use bridge::{read, write};
+pub(super) use data::{tool_read, tool_write};
+
+/// The mods Sikemux ships for the person to copy into their mods folder and change: each
+/// one's id, `mod.json` and `index.html`.
+const EXAMPLES: [(&str, &str, &str); 1] = [(
+    "pull-requests",
+    include_str!("mods/examples/pull-requests/mod.json"),
+    include_str!("mods/examples/pull-requests/index.html"),
+)];
+
+const MANIFEST: &str = "mod.json";
+const SETTLED: &str = "mods.json";
+const OWNERS: &str = "mod-folders.json";
+const MAX_BADGE_CHARS: usize = 24;
+const PAGE: &str = "index.html";
+const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+const MAX_MODS: usize = 256;
+const MAX_ID: usize = 64;
+const MAX_NAME_CHARS: usize = 60;
+const MAX_DESCRIPTION_CHARS: usize = 400;
+const MAX_DECLARED: usize = 64;
+/// How long a mod's folder stays still before its change counts, as an agent writes several files.
+const QUIET: Duration = Duration::from_millis(150);
+
+/// A collection of the mod's own data, as its `mod.json` describes it.
+#[derive(Deserialize)]
+struct Collection {
+    #[serde(default)]
+    description: Option<String>,
+    /// A JSON Schema each of its documents must match, in the subset `schema` checks.
+    #[serde(default)]
+    schema: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Manifest {
+    name: String,
+    #[serde(default)]
+    icon: Option<String>,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    reads: Vec<String>,
+    #[serde(default)]
+    writes: Vec<String>,
+    #[serde(default)]
+    connect: Vec<String>,
+    #[serde(default)]
+    collections: BTreeMap<String, Collection>,
+}
+
+/// What the person decided about the mods, kept in the data folder rather than beside the mods,
+/// so a mod cannot decide it for itself.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Settled {
+    /// The writes the person allowed each mod, by id.
+    #[serde(default)]
+    allowed: BTreeMap<String, Vec<String>>,
+    /// The origins the person allowed each mod's page to reach with those writes, by id.
+    #[serde(default)]
+    connects: BTreeMap<String, Vec<String>>,
+    /// The project folder each pinned mod shows in, by id.
+    #[serde(default)]
+    pinned: BTreeMap<String, String>,
+    #[serde(default)]
+    off: BTreeSet<String>,
+    /// The last list of writes by an agent the person dismissed in each mod's pane, by id.
+    #[serde(default)]
+    dismissed: BTreeMap<String, i64>,
+}
+
+/// The account each mod's folder follows, by id, kept for the host since the mods folder is one
+/// for every account. A folder with none has not followed one yet.
+#[derive(Default, Serialize, Deserialize)]
+struct Owners {
+    #[serde(default)]
+    accounts: BTreeMap<String, String>,
+}
+
+pub(crate) struct Mods {
+    folder: Option<PathBuf>,
+    settled: Mutex<Settled>,
+    kept: Kept,
+    owners: Mutex<Owners>,
+    owners_kept: Kept,
+    data: data::Store,
+    sync: sync::Sync,
+}
+
+impl Mods {
+    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let kept = Kept::new(data_dir, SETTLED);
+        let owners_kept = Kept::new(data_dir, OWNERS);
+        Self {
+            folder: sikemux_process::paths::config_file("mods", ""),
+            settled: Mutex::new(kept.load()),
+            kept,
+            owners: Mutex::new(owners_kept.load()),
+            owners_kept,
+            data: data::Store::new(data_dir),
+            sync: sync::Sync::default(),
+        }
+    }
+
+    /// Whether the person allowed `writes` and `connect`, all a mod declares, for the mod `id`.
+    fn allowed(&self, id: &str, writes: &[String], connect: &[String]) -> bool {
+        if writes.is_empty() && connect.is_empty() {
+            return true;
+        }
+        let settled = self.settled.locked();
+        settled
+            .allowed
+            .get(id)
+            .is_some_and(|allowed| allowed == writes)
+            && settled.connects.get(id).map_or(&[][..], Vec::as_slice) == connect
+    }
+
+    fn is_off(&self, id: &str) -> bool {
+        self.settled.locked().off.contains(id)
+    }
+
+    fn settle(&self, change: impl FnOnce(&mut Settled)) {
+        let mut settled = self.settled.locked();
+        change(&mut settled);
+        self.kept.save_soon(&*settled);
+    }
+
+    /// The account the mod `id`'s folder follows.
+    fn owner(&self, id: &str) -> Option<String> {
+        self.owners.locked().accounts.get(id).cloned()
+    }
+
+    fn set_owner(&self, id: &str, account: Option<&str>) {
+        let mut owners = self.owners.locked();
+        let changed = match account {
+            Some(account) => {
+                (owners.accounts.insert(id.to_owned(), account.to_owned())).as_deref()
+                    != Some(account)
+            }
+            None => owners.accounts.remove(id).is_some(),
+        };
+        if changed {
+            self.owners_kept.save_soon(&*owners);
+        }
+    }
+
+    fn folder(&self) -> CoreResult<PathBuf> {
+        self.folder
+            .clone()
+            .ok_or_else(|| CoreError::from("this host has no folder for mods"))
+    }
+}
+
+/// Whether `id` can name a mod's folder: lowercase letters, digits and dashes.
+pub fn is_mod_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_ID
+        && !id.starts_with('-')
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn read_manifest(folder: &Path) -> Result<Manifest, String> {
+    let path = folder.join(MANIFEST);
+    let size = std::fs::metadata(&path)
+        .map_err(|_| format!("it has no {MANIFEST}"))?
+        .len();
+    if size > MAX_MANIFEST_BYTES {
+        return Err(format!("its {MANIFEST} is over 64 KiB"));
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("its {MANIFEST} could not be read: {error}"))?;
+    let mut manifest: Manifest = serde_json::from_str(&text)
+        .map_err(|error| format!("its {MANIFEST} does not read: {error}"))?;
+    manifest.name = manifest.name.trim().chars().take(MAX_NAME_CHARS).collect();
+    if manifest.name.is_empty() {
+        return Err(format!("its {MANIFEST} gives no name"));
+    }
+    manifest.description = manifest
+        .description
+        .trim()
+        .chars()
+        .take(MAX_DESCRIPTION_CHARS)
+        .collect();
+    for declared in [&mut manifest.reads, &mut manifest.writes] {
+        declared.retain(|name| !name.trim().is_empty());
+        declared.truncate(MAX_DECLARED);
+        declared.sort();
+        declared.dedup();
+    }
+    manifest.connect = manifest
+        .connect
+        .iter()
+        .map(|entry| origin(entry))
+        .collect::<Result<_, _>>()?;
+    manifest.connect.truncate(MAX_DECLARED);
+    manifest.connect.sort();
+    manifest.connect.dedup();
+    if manifest.collections.len() > MAX_DECLARED {
+        return Err(format!(
+            "its {MANIFEST} names more than {MAX_DECLARED} collections"
+        ));
+    }
+    for (name, collection) in &mut manifest.collections {
+        if !data::is_name(name) {
+            return Err(format!(
+                "its {MANIFEST} names a collection \"{name}\"; a collection is named with 1 to 64 letters, digits, dashes, underscores or dots"
+            ));
+        }
+        if let Some(problem) = (collection.schema.as_ref())
+            .and_then(|found| schema::unsupported(found, &format!("collections.{name}.schema")))
+        {
+            return Err(format!("in its {MANIFEST}, {problem}"));
+        }
+        collection.description = (collection.description.take())
+            .map(|said| said.trim().chars().take(MAX_DESCRIPTION_CHARS).collect())
+            .filter(|said: &String| !said.is_empty());
+    }
+    Ok(manifest)
+}
+
+/// `entry` as an origin a mod's page may reach: `https://` or `wss://`, a host whose first
+/// label may be `*` for any one below it, and maybe a port.
+fn origin(entry: &str) -> Result<String, String> {
+    let shown: String = entry.chars().take(80).collect();
+    let bad = || {
+        format!(
+            "\"{shown}\" in its {MANIFEST}'s connect is not an origin such as https://api.example.com"
+        )
+    };
+    let entry = entry.trim().to_ascii_lowercase();
+    let (scheme, rest) = entry.split_once("://").ok_or_else(bad)?;
+    let (host, port) = match rest.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (rest, None),
+    };
+    let port_fits = |port: &str| {
+        port.bytes().all(|byte| byte.is_ascii_digit())
+            && port.parse::<u16>().is_ok_and(|port| port > 0)
+    };
+    let label_fits = |label: &str| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    };
+    let (named, least) = match host.strip_prefix("*.") {
+        Some(named) => (named, 2),
+        None => (host, 1),
+    };
+    let fits = matches!(scheme, "https" | "wss")
+        && port.is_none_or(port_fits)
+        && host.len() <= 253
+        && named.split('.').count() >= least
+        && named.split('.').all(label_fits);
+    match fits {
+        true => Ok(entry),
+        false => Err(bad()),
+    }
+}
+
+fn info(id: String, folder: &Path) -> ModInfo {
+    let read = read_manifest(folder).and_then(|manifest| match folder.join(PAGE).is_file() {
+        true => Ok(manifest),
+        false => Err(format!("it has no {PAGE}")),
+    });
+    match read {
+        Ok(manifest) => ModInfo {
+            id,
+            name: manifest.name,
+            icon: manifest.icon,
+            description: manifest.description,
+            reads: manifest.reads,
+            writes: manifest.writes,
+            connect: manifest.connect,
+            problem: None,
+            note: None,
+            allowed: false,
+            badge: None,
+            project: None,
+            off: false,
+        },
+        Err(problem) => ModInfo {
+            name: id.clone(),
+            id,
+            icon: None,
+            description: String::new(),
+            reads: Vec::new(),
+            writes: Vec::new(),
+            connect: Vec::new(),
+            problem: Some(problem),
+            note: None,
+            allowed: false,
+            badge: None,
+            project: None,
+            off: false,
+        },
+    }
+}
+
+fn list_in(folder: &Path) -> Vec<ModInfo> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut mods: Vec<ModInfo> = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| {
+            let id = entry.file_name().into_string().ok()?;
+            is_mod_id(&id).then(|| info(id, &entry.path()))
+        })
+        .collect();
+    mods.sort_by_key(|shown| shown.name.to_lowercase());
+    mods.truncate(MAX_MODS);
+    mods
+}
+
+pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
+    let folder = core.mods().folder()?;
+    let worker = core.clone();
+    let (mut mods, badges, notes) = blocking(move || {
+        let examples = EXAMPLES
+            .iter()
+            .filter_map(|(id, manifest, _)| {
+                let manifest: Manifest = serde_json::from_str(manifest).ok()?;
+                Some(ModExample {
+                    id: (*id).to_owned(),
+                    name: manifest.name,
+                    description: manifest.description,
+                    added: folder.join(id).exists(),
+                })
+            })
+            .collect();
+        let list = ModList {
+            mods: list_in(&folder),
+            folder,
+            examples,
+        };
+        let data = &worker.mods().data;
+        let notes = data.folder_notes().unwrap_or_default();
+        Ok((list, data.badges().unwrap_or_default(), notes))
+    })
+    .await?;
+    for shown in &mut mods.mods {
+        shown.allowed = core
+            .mods()
+            .allowed(&shown.id, &shown.writes, &shown.connect);
+        shown.badge = badges.get(&shown.id).cloned();
+        shown.note =
+            (core.mods().sync.problem(&shown.id)).or_else(|| notes.get(&shown.id).cloned());
+        let settled = core.mods().settled.locked();
+        shown.project = settled.pinned.get(&shown.id).cloned();
+        shown.off = settled.off.contains(&shown.id);
+    }
+    Ok(mods)
+}
+
+/// Every client lists the mods again, with no mod's page read again.
+fn settled_changed(core: &Core) {
+    core.changed(What::ReadIn(Topic::Mods, None, Some(Vec::new())));
+}
+
+/// Keeps what the person decided about a mod's writes and the origins it reaches. An approval
+/// holds only for what the mod declares now, so one shown before its `mod.json` changed is
+/// turned down.
+pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<()> {
+    match params.writes {
+        Some(mut writes) => {
+            let folder = mod_folder(core, &params.id)?;
+            let manifest =
+                blocking(move || read_manifest(&folder).map_err(CoreError::from)).await?;
+            let mut connect = params.connect;
+            for declared in [&mut writes, &mut connect] {
+                declared.sort();
+                declared.dedup();
+            }
+            if writes != manifest.writes || connect != manifest.connect {
+                return Err(
+                    "what this mod asks for changed since; open it again to be asked".into(),
+                );
+            }
+            core.mods().settle(|settled| {
+                settled.allowed.insert(params.id.clone(), writes);
+                match connect.is_empty() {
+                    true => settled.connects.remove(&params.id),
+                    false => settled.connects.insert(params.id, connect),
+                };
+            });
+        }
+        None => core.mods().settle(|settled| {
+            settled.allowed.remove(&params.id);
+            settled.connects.remove(&params.id);
+        }),
+    }
+    settled_changed(core);
+    Ok(())
+}
+
+/// Keeps the few words a mod shows beside its name in its own data, so they last a restart and
+/// go wherever its data goes.
+pub(super) async fn set_badge(core: &Arc<Core>, params: BadgeParams) -> CoreResult<()> {
+    let folder = shown_folder(core, &params.id)?;
+    let badge = params
+        .badge
+        .map(|badge| {
+            badge
+                .trim()
+                .chars()
+                .take(MAX_BADGE_CHARS)
+                .collect::<String>()
+        })
+        .filter(|badge| !badge.is_empty());
+    let host = data::host_key(core)?;
+    let worker = core.clone();
+    let moved = blocking(move || {
+        if !folder.is_dir() {
+            return Ok(false);
+        }
+        (worker.mods().data).set_badge(&params.id, badge.as_deref(), &host)
+    })
+    .await?;
+    if moved {
+        core.mods().sync.changed();
+        settled_changed(core);
+    }
+    Ok(())
+}
+
+/// A mod's page with every local picture and font it names inlined, so a client on another
+/// host shows it as this one does, and closed to the network but for the origins the person
+/// allowed it.
+pub(super) async fn page(core: &Arc<Core>, params: ModParams) -> CoreResult<ModPage> {
+    let folder = shown_folder(core, &params.id)?;
+    let id = params.id.clone();
+    let (html, shown) = blocking(move || {
+        let shown = info(params.id, &folder);
+        if let Some(problem) = &shown.problem {
+            return Err(CoreError::from(format!("this mod cannot show: {problem}")));
+        }
+        Ok((crate::pages::build(&folder.join(PAGE), None)?, shown))
+    })
+    .await?;
+    let allowed = core.mods().allowed(&id, &shown.writes, &shown.connect);
+    let reaches = match allowed {
+        true => shown.connect.as_slice(),
+        false => &[],
+    };
+    let html = crate::pages::network_closed(&html, reaches);
+    let ask = (!allowed && !shown.connect.is_empty()).then_some(ModAsk {
+        name: shown.name,
+        writes: shown.writes,
+        connect: shown.connect,
+    });
+    Ok(ModPage { html, ask })
+}
+
+fn mod_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
+    if !is_mod_id(id) {
+        return Err("that is not a mod's id".into());
+    }
+    Ok(core.mods().folder()?.join(id))
+}
+
+/// The last list of writes to the mod's data, when an agent made it and the person has not
+/// dismissed it.
+pub(super) async fn changed(core: &Arc<Core>, params: ModParams) -> CoreResult<Option<ModChange>> {
+    let last = data::changed_by_agent(core, &params.id).await?;
+    let dismissed = core
+        .mods()
+        .settled
+        .locked()
+        .dismissed
+        .get(&params.id)
+        .copied();
+    Ok(last
+        .filter(|last| Some(last.batch) != dismissed)
+        .map(|last| ModChange {
+            batch: last.batch,
+            by: last.by,
+            name: last.name,
+            at: last.at,
+            documents: last.documents,
+        }))
+}
+
+pub(super) async fn undo_change(core: &Arc<Core>, params: ModBatchParams) -> CoreResult<()> {
+    data::undo_batch(core, &params.id, params.batch).await
+}
+
+pub(super) fn dismiss_change(core: &Core, params: ModBatchParams) -> CoreResult<()> {
+    mod_folder(core, &params.id)?;
+    core.mods().settle(|settled| {
+        settled.dismissed.insert(params.id, params.batch);
+    });
+    Ok(())
+}
+
+/// The name of the mod `id`, when it can show, for an agent opening it.
+pub(super) async fn title(core: &Core, id: &str) -> Result<String, String> {
+    let folder = shown_folder(core, id).map_err(|error| error.to_string())?;
+    let id = id.to_owned();
+    blocking(move || {
+        let shown = info(id, &folder);
+        Ok(match (folder.is_dir(), shown.problem) {
+            (false, _) => Err(format!("there is no mod in {}", folder.display())),
+            (true, Some(problem)) => Err(format!("this mod cannot show: {problem}")),
+            (true, None) => Ok(shown.name),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Whether `name` can name one of a mod's collections.
+pub(crate) fn is_collection(name: &str) -> bool {
+    data::is_name(name)
+}
+
+/// Fails unless the mod `id` is there and on.
+pub(crate) fn is_there(core: &Core, id: &str) -> Result<(), String> {
+    let folder = shown_folder(core, id).map_err(|error| error.to_string())?;
+    match folder.is_dir() {
+        true => Ok(()),
+        false => Err(format!("there is no mod {id} on this host")),
+    }
+}
+
+/// The folder of a mod that is on, which alone shows and reads.
+fn shown_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
+    match core.mods().is_off(id) {
+        true => Err("this mod is turned off; Settings, Mods turns it on".into()),
+        false => mod_folder(core, id),
+    }
+}
+
+pub(super) fn pin(core: &Core, params: PinModParams) -> CoreResult<()> {
+    mod_folder(core, &params.id)?;
+    core.mods().settle(|settled| match params.project {
+        Some(project) => {
+            settled.pinned.insert(params.id, project);
+        }
+        None => {
+            settled.pinned.remove(&params.id);
+        }
+    });
+    settled_changed(core);
+    Ok(())
+}
+
+pub(super) fn turn_off(core: &Core, params: OffParams) -> CoreResult<()> {
+    mod_folder(core, &params.id)?;
+    core.mods().settle(|settled| {
+        match params.off {
+            true => settled.off.insert(params.id.clone()),
+            false => settled.off.remove(&params.id),
+        };
+    });
+    core.changed(What::ReadIn(Topic::Mods, None, Some(vec![params.id])));
+    Ok(())
+}
+
+/// Copies the example `id` into the mods folder, where the person can change it.
+pub(super) async fn add_example(core: &Arc<Core>, params: ModParams) -> CoreResult<()> {
+    let (_, manifest, page) = EXAMPLES
+        .iter()
+        .find(|(id, _, _)| *id == params.id)
+        .ok_or_else(|| CoreError::from("Sikemux has no example mod by that id"))?;
+    let folder = mod_folder(core, &params.id)?;
+    blocking(move || {
+        if folder.exists() {
+            return Err(CoreError::from(format!(
+                "{} is there already",
+                folder.display()
+            )));
+        }
+        std::fs::create_dir_all(&folder)?;
+        std::fs::write(folder.join(PAGE), page)?;
+        std::fs::write(folder.join(MANIFEST), manifest)?;
+        Ok(())
+    })
+    .await
+}
+
+/// Moves a mod's folder to the Trash and forgets its data and what the person decided about it.
+pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()> {
+    let folder = mod_folder(core, &params.id)?;
+    let (worker, id) = (core.clone(), params.id.clone());
+    blocking(move || {
+        folder::to_trash(&folder).map_err(CoreError::from)?;
+        worker.mods().data.clear(&id)
+    })
+    .await?;
+    core.mods().settle(|settled| {
+        settled.allowed.remove(&params.id);
+        settled.connects.remove(&params.id);
+        settled.pinned.remove(&params.id);
+        settled.off.remove(&params.id);
+        settled.dismissed.remove(&params.id);
+    });
+    core.mods().set_owner(&params.id, None);
+    super::triggers::mod_removed(core, &params.id);
+    core.mods().sync.changed();
+    settled_changed(core);
+    Ok(())
+}
+
+/// The mods whose files moved, by the paths a change names under `folder`.
+fn touched(folder: &Path, paths: &[PathBuf]) -> BTreeSet<String> {
+    paths
+        .iter()
+        .filter_map(|path| path.strip_prefix(folder).ok())
+        .filter_map(|rest| rest.components().next())
+        .filter_map(|first| first.as_os_str().to_str())
+        .filter(|id| is_mod_id(id))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Follows the mods folder while the core runs, including before it is made, and tells every
+/// client which mods changed, so a list reads again and an open mod shows its new page.
+pub(crate) fn watch(core: &Arc<Core>) {
+    let Some(folder) = core.mods().folder.clone() else {
+        return;
+    };
+    let core = Arc::downgrade(core);
+    std::thread::Builder::new()
+        .name("sikemux-mods".into())
+        .spawn(move || {
+            let real = resolved(&folder);
+            let (changed, changes) = std::sync::mpsc::channel::<Vec<PathBuf>>();
+            let concerned = real.clone();
+            let Ok(mut watcher) =
+                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    if let Ok(event) = event {
+                        let paths: Vec<PathBuf> = event
+                            .paths
+                            .into_iter()
+                            .filter(|path| {
+                                path.starts_with(&concerned) || concerned.starts_with(path)
+                            })
+                            .collect();
+                        if !paths.is_empty() {
+                            let _ = changed.send(paths);
+                        }
+                    }
+                })
+            else {
+                return;
+            };
+            let mut watching = None;
+            let mut follow = |watcher: &mut notify::RecommendedWatcher| {
+                let target = watch_target(&folder);
+                if watching.as_ref() != Some(&target)
+                    && watcher.watch(&target, RecursiveMode::Recursive).is_ok()
+                {
+                    if let Some(old) = watching.replace(target) {
+                        let _ = watcher.unwatch(&old);
+                    }
+                }
+            };
+            follow(&mut watcher);
+            while let Ok(first) = changes.recv() {
+                std::thread::sleep(QUIET);
+                let mut paths = first;
+                while let Ok(more) = changes.try_recv() {
+                    paths.extend(more);
+                }
+                follow(&mut watcher);
+                let Some(core) = core.upgrade() else {
+                    return;
+                };
+                let ids: Vec<String> = touched(&real, &paths).into_iter().collect();
+                core.mods().sync.folders_changed(&ids);
+                core.changed(What::ReadIn(Topic::Mods, None, Some(ids)));
+            }
+        })
+        .ok();
+}
+
+impl super::part::Part for Mods {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        watch(core);
+        self.data.attach(core);
+        vec![tokio::spawn(sync::run(Arc::downgrade(core)))]
+    }
+
+    fn flush(&self) {
+        self.kept.flush();
+        self.owners_kept.flush();
+    }
+}

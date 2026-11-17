@@ -1,20 +1,32 @@
 use std::fmt;
 use std::io::{self, Read, Write};
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc, Arc,
 };
 use std::time::{Duration, Instant};
 
+pub mod android_sdk;
+pub mod cgroups;
 pub mod clock;
+pub mod command;
+
+use command::{Child, Command, Stdio};
 pub mod files;
 pub mod jobs;
+pub mod line;
+pub mod machine;
 pub mod memory_pressure;
+pub mod names;
 pub mod paths;
+pub mod procs;
 pub mod sync;
+mod tree;
 pub mod user_environment;
 pub mod vars;
+
+pub use tree::{spawn_tree, terminate_tree};
 
 #[derive(Debug)]
 pub enum ProcessRunError {
@@ -67,43 +79,12 @@ impl ProcessCancellation {
     }
 }
 
-/// Asks the process `pid` and everything it started to stop, or makes them when `force`.
-/// The process must lead its own group, as children started with `process_group(0)` and
-/// terminals do, and must not be reaped yet, so its pid and group still belong to it.
-pub fn terminate_tree(pid: u32, force: bool) {
-    #[cfg(unix)]
-    {
-        let Ok(pid) = i32::try_from(pid) else {
-            return;
-        };
-        if pid == 0 {
-            return;
-        }
-        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
-        // SAFETY: `kill` takes only integers. pid is non-zero, so this never becomes
-        // kill(0), which would signal our own process group.
-        unsafe {
-            libc::kill(-pid, signal);
-            libc::kill(pid, signal);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let mut command = crate::user_environment::command("taskkill");
-        command.args(["/PID", &pid.to_string(), "/T"]);
-        if force {
-            command.arg("/F");
-        }
-        let _ = command.status();
-    }
-}
-
 fn kill_group(pid: u32) {
     terminate_tree(pid, true);
 }
 
 /// Kills the child and everything it started, then reaps it.
-pub fn kill_and_reap(child: &mut std::process::Child) {
+pub fn kill_and_reap(child: &mut Child) {
     kill_group(child.id());
     let _ = child.kill();
     let _ = child.wait();
@@ -118,6 +99,8 @@ enum RunEvent {
 /// the child's exit and each drained pipe arrive as events. A run with no
 /// token waits with no timer at all.
 const CANCEL_CHECK_INTERVAL: Duration = Duration::from_millis(250);
+/// How often a run whose waits do not count asks whether it waits.
+const WAIT_LOOK_INTERVAL: Duration = Duration::from_secs(2);
 
 fn read_bounded(
     mut pipe: impl Read,
@@ -170,16 +153,51 @@ pub fn run_with_pid(
     cancellation: Option<&ProcessCancellation>,
     started: impl FnOnce(u32),
 ) -> Result<Output, ProcessRunError> {
+    run_counting(
+        command,
+        input,
+        timeout,
+        max_output_bytes,
+        cancellation,
+        started,
+        None,
+    )
+}
+
+/// [`run`], whose `timeout` counts only the time `waiting`, asked of the child's pid every
+/// few seconds, says the child is not waiting for its turn. `started` hears the child's pid.
+pub fn run_not_counting_waits(
+    command: &mut Command,
+    timeout: Duration,
+    max_output_bytes: usize,
+    started: impl FnOnce(u32),
+    waiting: &dyn Fn(u32) -> bool,
+) -> Result<Output, ProcessRunError> {
+    run_counting(
+        command,
+        None,
+        timeout,
+        max_output_bytes,
+        None,
+        started,
+        Some(waiting),
+    )
+}
+
+fn run_counting(
+    command: &mut Command,
+    input: Option<&[u8]>,
+    timeout: Duration,
+    max_output_bytes: usize,
+    cancellation: Option<&ProcessCancellation>,
+    started: impl FnOnce(u32),
+    waiting: Option<&dyn Fn(u32) -> bool>,
+) -> Result<Output, ProcessRunError> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     if input.is_some() {
         command.stdin(Stdio::piped());
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = command.spawn().map_err(ProcessRunError::Spawn)?;
+    let mut child = spawn_tree(command).map_err(ProcessRunError::Spawn)?;
     started(child.id());
     let stdout = child.stdout.take().ok_or_else(|| {
         kill_and_reap(&mut child);
@@ -229,7 +247,10 @@ pub fn run_with_pid(
         let _ = events.send(RunEvent::Exited(child.wait()));
     });
 
-    let deadline = Instant::now() + timeout;
+    let mut left = timeout;
+    let mut counted_to = Instant::now();
+    let mut counting = true;
+    let mut next_look = counted_to;
     let mut completed_status = None;
     let mut readers_finished = 0_u8;
     let status = loop {
@@ -246,7 +267,16 @@ pub fn run_with_pid(
                 break Ok(status);
             }
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let now = Instant::now();
+        if counting {
+            left = left.saturating_sub(now - counted_to);
+        }
+        counted_to = now;
+        if let Some(waiting) = waiting.filter(|_| now >= next_look) {
+            counting = !waiting(pid);
+            next_look = now + WAIT_LOOK_INTERVAL;
+        }
+        let remaining = left;
         if remaining.is_zero() {
             // The direct child may already have exited while a descendant
             // retains one of its pipes. The process-group kill closes those
@@ -257,6 +287,10 @@ pub fn run_with_pid(
         let wait = match cancellation {
             Some(_) => remaining.min(CANCEL_CHECK_INTERVAL),
             None => remaining,
+        };
+        let wait = match waiting {
+            Some(_) => wait.min(WAIT_LOOK_INTERVAL),
+            None => wait,
         };
         match arrivals.recv_timeout(wait) {
             Ok(RunEvent::ReaderFinished) => readers_finished += 1,
@@ -311,17 +345,42 @@ pub fn run_with_pid(
     })
 }
 
+/// `text` as one word for a POSIX shell.
+pub fn single_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A slow child must not be polled awake: the wait returns when the
-    /// process exits, not when a timer next fires.
+    /// `script` run by the platform's own shell.
+    fn shell(script: &str) -> Command {
+        #[cfg(unix)]
+        let (program, flags) = ("sh", ["-c"].as_slice());
+        #[cfg(windows)]
+        let (program, flags) = ("cmd", ["/D", "/C"].as_slice());
+        let mut command = crate::user_environment::command(program);
+        command.args(flags).arg(script);
+        command
+    }
+
+    /// A script that waits about `seconds`, through a program the shell starts, so the
+    /// waiting process is the shell's child rather than the shell itself.
+    fn waiting(seconds: u32) -> String {
+        if cfg!(windows) {
+            format!("ping -n {} 127.0.0.1 >NUL", seconds + 1)
+        } else {
+            format!("sleep {seconds}")
+        }
+    }
+
     #[test]
-    fn a_slow_child_is_waited_on_not_polled() {
-        let mut command = crate::user_environment::command("sh");
-        command.args(["-c", "sleep 0.3; echo done"]);
-        let started = Instant::now();
+    fn a_slow_child_is_waited_for_and_its_output_kept() {
+        #[cfg(unix)]
+        let mut command = shell("sleep 0.3; echo done");
+        #[cfg(windows)]
+        let mut command = shell("ping -n 2 127.0.0.1 >NUL & echo done");
         let out = run(
             &mut command,
             None,
@@ -333,13 +392,12 @@ mod tests {
 
         assert!(out.status.success());
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "done");
-        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[test]
     fn a_child_that_outlives_its_deadline_is_killed() {
-        let mut command = crate::user_environment::command("sh");
-        command.args(["-c", "sleep 30"]);
+        let mut command = shell(&waiting(30));
+        let started = Instant::now();
         let error = run(
             &mut command,
             None,
@@ -350,6 +408,8 @@ mod tests {
         .expect_err("the deadline must be enforced");
 
         assert!(matches!(error, ProcessRunError::Timeout(_)), "{error}");
+        // The waiting grandchild holds the output pipes, so the run ends only once it is gone too.
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[test]
@@ -361,8 +421,7 @@ mod tests {
             trigger.cancel();
         });
 
-        let mut command = crate::user_environment::command("sh");
-        command.args(["-c", "sleep 30"]);
+        let mut command = shell(&waiting(30));
         let started = Instant::now();
         let error = run(
             &mut command,
@@ -375,5 +434,23 @@ mod tests {
 
         assert!(matches!(error, ProcessRunError::Cancelled), "{error}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_tree_asked_to_stop_stops_without_force() {
+        let mut child =
+            spawn_tree(shell(&waiting(60)).stdout(Stdio::null())).expect("spawn the tree");
+        std::thread::sleep(Duration::from_millis(500));
+
+        terminate_tree(child.id(), false);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut status = None;
+        while status.is_none() && Instant::now() < deadline {
+            status = child.try_wait().expect("wait for the tree");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        kill_and_reap(&mut child);
+        assert!(status.is_some(), "the tree ignored being asked to stop");
     }
 }

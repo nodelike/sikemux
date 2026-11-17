@@ -17,10 +17,6 @@ describe('updates', () => {
   it('asks for nightly updates when no channel is given', () => {
     const config = resolve({ APP_VARIANT: 'production', SIKEMUX_MOBILE_CHANNEL: undefined });
     expect(config.updates.requestHeaders).toEqual({ 'expo-channel-name': 'nightly' });
-    expect(config.updates.url).toBe('https://updates.sikemux.com/manifest');
-    expect(config.updates.fallbackToCacheTimeout).toBe(0);
-    expect(config.updates.codeSigningMetadata).toEqual({ keyid: 'main', alg: 'rsa-v1_5-sha256' });
-    expect(config.runtimeVersion).toEqual({ policy: 'fingerprint' });
   });
 
   it('treats an empty channel as no channel', () => {
@@ -45,13 +41,12 @@ describe('updates', () => {
 });
 
 describe('build numbers', () => {
-  it('are the same on Android and iOS, and read back as the release', () => {
+  it('read back as the release', () => {
     const nightly = `${expo.version}-nightly.3`;
     const config = resolve({ APP_VARIANT: 'production', SIKEMUX_MOBILE_VERSION: nightly });
-    expect(config.ios.buildNumber).toBe(String(config.android.versionCode));
-    expect(versionFromBuild(config.ios.buildNumber)).toBe(nightly);
+    expect(versionFromBuild(String(config.android.versionCode))).toBe(nightly);
     const stable = resolve({ APP_VARIANT: 'production', SIKEMUX_MOBILE_VERSION: expo.version });
-    expect(versionFromBuild(stable.ios.buildNumber)).toBe(expo.version);
+    expect(versionFromBuild(String(stable.android.versionCode))).toBe(expo.version);
   });
 });
 

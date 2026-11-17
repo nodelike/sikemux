@@ -5,12 +5,21 @@ use gpui_kit::component::WindowExt;
 use gpui_kit::{App, ClickEvent, ClipboardItem, Context, WeakEntity, Window};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
-use serde_json::{json, Value};
-use sikemux_wire::protocol::{PermissionMode, PinnedChat, WorkspaceAgent};
+use sikemux_view::workspace::{PinnedChat, WorkspaceAgent};
+use sikemux_wire::protocol::PermissionMode;
 
+use crate::agents::rows::AgentRow;
+use crate::core::Target;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_calls::names::{HireAgentParams, RenameAgentParams};
+use sikemux_calls::params::AgentParams;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::PinnedParams;
+use sikemux_calls::workspace::UpdateAgentParams;
 
 /// What a link's parts escape, as a browser's encodeURIComponent does.
 const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
@@ -27,7 +36,18 @@ const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
 /// The agent's menu as it was when it was drawn.
 pub struct AgentMenu {
     bench: WeakEntity<Workbench>,
-    agent: WorkspaceAgent,
+    id: String,
+    name: Option<String>,
+    title: String,
+    own_tags: Vec<String>,
+    asleep: bool,
+    /// The host whose core its calls go to.
+    place: Place,
+    /// Its record on this host. An agent on another host has none, and its menu leaves out
+    /// what works on one: its buddy, pin, project, worktree, permissions, share and link.
+    record: Option<WorkspaceAgent>,
+    /// Its row, for an agent on another host, which that host closes.
+    elsewhere: Option<AgentRow>,
     /// The other agents of its project, which Close Others closes.
     others: Vec<String>,
     /// Whether it can move to another project now, as the Mac's canMoveAgentToProject says.
@@ -41,17 +61,24 @@ pub struct AgentMenu {
     in_front: bool,
     /// Agents wear faces, which it can have one of its own of.
     faces_on: bool,
+    /// It is its project's @Chief, which keeps its own seat.
+    chief: bool,
+    snoozed: bool,
+    settled: bool,
+    /// Every tag on this host's chats, in order.
+    tags: Vec<String>,
 }
 
 impl AgentMenu {
     pub fn new(bench: &Workbench, agent_id: &str, cx: &Context<Workbench>) -> Option<Self> {
-        let workspace = &bench.view.as_ref()?.workspace;
+        let workspace = &bench.this_view()?.workspace;
         let agent = workspace
             .agents
             .iter()
             .find(|agent| agent.id == agent_id)?
             .clone();
         let catalog = bench.reads.catalog.kind(&agent.provider);
+        let row = bench.agent_by_id(agent_id);
         let project = workspace
             .projects
             .iter()
@@ -76,11 +103,11 @@ impl AgentMenu {
                 .filter(|other| other.project == agent.project && other.id != agent.id)
                 .map(|other| other.id.clone())
                 .collect(),
-            can_move: agent.worktree.is_none()
-                && (agent.resume_id.is_none()
+            can_move: agent.worktree.is_some()
+                || (agent.resume_id.is_none()
                     || catalog.is_some_and(|kind| kind.relocatable_sessions)
                         && (agent.asleep
-                            || bench.agent_by_id(&agent.id).is_none_or(|row| {
+                            || row.as_ref().is_none_or(|row| {
                                 !matches!(
                                     row.status,
                                     sikemux_wire::protocol::AgentStatus::Working
@@ -88,91 +115,162 @@ impl AgentMenu {
                                 ) && row.tasks + row.subagents == 0
                             }))),
             pinned: workspace.pinned.clone(),
-            can_skip_permissions: catalog.is_some_and(|kind| kind.bypass),
+            can_skip_permissions: catalog
+                .is_some_and(|kind| kind.can_skip_asking(bench.in_terminal(&agent.id))),
             can_share: catalog.is_some_and(|kind| kind.chat.is_some()),
             link,
             in_front: bench.agent().is_some_and(|front| front.id == agent.id),
             faces_on: bench.shown().is_some_and(|view| view.face_style.on),
-            agent,
+            chief: project.is_some_and(|project| project.chief.as_deref() == Some(&agent.id)),
+            snoozed: row.as_ref().is_some_and(|row| row.snoozed_until.is_some()),
+            settled: row.as_ref().is_some_and(|row| row.settled_at.is_some()),
+            tags: (workspace.agents.iter())
+                .flat_map(|agent| agent.tags.iter().cloned())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            id: agent.id.clone(),
+            name: agent.name.clone(),
+            title: agent.title.clone(),
+            own_tags: agent.tags.clone(),
+            asleep: agent.asleep,
+            place: Place::This,
+            record: Some(agent),
+            elsewhere: None,
         })
     }
 
-    pub fn build(&self, mut popup: PopupMenu) -> PopupMenu {
-        let agent = &self.agent;
-        let id = agent.id.clone();
-        let (bench, renamed, name) = (
+    /// The menu of `row`, wherever its agent runs: the whole menu for one on the host in
+    /// front, and for one on another host what that host does to it from its row.
+    pub fn of_row(bench: &Workbench, row: &AgentRow, cx: &Context<Workbench>) -> Option<Self> {
+        if row.place == bench.place() {
+            return Self::new(bench, &row.id, cx);
+        }
+        let place = bench.asked_at(row);
+        let in_use = (bench.view_at(&row.place).into_iter())
+            .flat_map(|view| &view.workspace.agents)
+            .flat_map(|agent| agent.tags.iter().cloned());
+        Some(Self {
+            bench: cx.entity().downgrade(),
+            id: row.id.clone(),
+            name: row.name.clone(),
+            title: row.handle().map_or_else(String::new, |_| row.title.clone()),
+            own_tags: row.tags.clone(),
+            asleep: row.status == sikemux_wire::protocol::AgentStatus::Asleep,
+            others: Vec::new(),
+            can_move: false,
+            pinned: Vec::new(),
+            can_skip_permissions: false,
+            can_share: false,
+            link: None,
+            in_front: false,
+            faces_on: false,
+            chief: false,
+            snoozed: row.snoozed_until.is_some(),
+            settled: row.settled_at.is_some(),
+            tags: in_use
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            place,
+            record: None,
+            elsewhere: Some(row.clone()),
+        })
+    }
+
+    pub fn build(
+        &self,
+        mut popup: PopupMenu,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
+    ) -> PopupMenu {
+        let id = self.id.clone();
+        let record = self.record.as_ref();
+        let asked = self.place.clone();
+        let (bench, renamed, name, place) = (
             self.bench.clone(),
             id.clone(),
-            agent.name.clone().unwrap_or_default(),
+            self.name.clone().unwrap_or_default(),
+            asked.clone(),
         );
-        popup = popup.item(PopupMenuItem::new("Rename…").icon(Icon::Pencil).on_click(
-            move |_, _, cx| {
-                let (renamed, name) = (renamed.clone(), name.clone());
-                let _ = bench.update(cx, |bench, cx| {
-                    bench.prompt(
-                        "Rename agent",
-                        name.clone(),
-                        move |bench, typed, _, _| {
-                            if !typed.is_empty() && typed != name {
-                                bench.call(
-                                    "renameAgent",
-                                    json!({ "agentId": renamed, "name": typed }),
-                                );
-                            }
-                        },
-                        cx,
-                    )
-                });
-            },
-        ));
-        let (bench, retitled, title, in_front) = (
+        popup = popup.item(
+            PopupMenuItem::new(t!("Rename…"))
+                .icon(Icon::Pencil)
+                .on_click(move |_, _, cx| {
+                    let (renamed, name, place) = (renamed.clone(), name.clone(), place.clone());
+                    let _ = bench.update(cx, |bench, cx| {
+                        bench.prompt(
+                            t!("Rename agent"),
+                            name.clone(),
+                            move |bench, typed, _, _| {
+                                if !typed.is_empty() && typed != name {
+                                    Target::new(&bench.asks, place.clone())
+                                        .call_typed::<call::RenameAgent>(RenameAgentParams {
+                                            agent_id: renamed.clone(),
+                                            name: typed,
+                                        });
+                                }
+                            },
+                            cx,
+                        )
+                    });
+                }),
+        );
+        let (bench, retitled, title, in_front, place) = (
             self.bench.clone(),
             id.clone(),
-            agent.title.clone(),
+            self.title.clone(),
             self.in_front,
+            asked.clone(),
         );
-        popup = popup
-            .item(
-                PopupMenuItem::new("Edit Title…")
-                    .icon(Icon::Pencil)
-                    .on_click(move |_, window, cx| {
-                        let (bench, retitled, title) =
-                            (bench.clone(), retitled.clone(), title.clone());
-                        if in_front {
-                            window.defer(cx, move |window, cx| {
-                                let _ = bench
-                                    .update(cx, |bench, cx| bench.retitle(&retitled, false, window, cx));
+        popup = popup.item(
+            PopupMenuItem::new(t!("Edit Title…"))
+                .icon(Icon::Pencil)
+                .on_click(move |_, window, cx| {
+                    let (bench, retitled, title) = (bench.clone(), retitled.clone(), title.clone());
+                    let place = place.clone();
+                    if in_front {
+                        window.defer(cx, move |window, cx| {
+                            let _ = bench.update(cx, |bench, cx| {
+                                bench.retitle(&retitled, false, window, cx)
                             });
-                            return;
-                        }
-                        let _ = bench.update(cx, |bench, cx| {
-                            bench.prompt(
-                                "Edit title",
-                                title.clone(),
-                                move |bench, typed, _, _| {
-                                    if !typed.is_empty() && typed != title {
-                                        bench.call(
-                                            "updateAgent",
-                                            json!({ "agentId": retitled, "patch": { "title": typed, "renamed": true } }),
-                                        );
-                                    }
-                                },
-                                cx,
-                            )
                         });
-                    }),
-            );
-        if self.faces_on {
+                        return;
+                    }
+                    let _ = bench.update(cx, |bench, cx| {
+                        bench.prompt(
+                            t!("Edit title"),
+                            title.clone(),
+                            move |bench, typed, _, _| {
+                                if !typed.is_empty() && typed != title {
+                                    Target::new(&bench.asks, place.clone())
+                                        .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                                            retitled.clone(),
+                                            AgentPatch {
+                                                title: Some(typed),
+                                                renamed: Some(true),
+                                                ..AgentPatch::default()
+                                            },
+                                        ));
+                                }
+                            },
+                            cx,
+                        )
+                    });
+                }),
+        );
+        if self.faces_on && record.is_some() {
             let (bench, picked) = (self.bench.clone(), id.clone());
             popup = popup.item(
-                PopupMenuItem::new("Change Buddy…")
+                PopupMenuItem::new(t!("Change Buddy…"))
                     .icon(Icon::User)
                     .on_click(move |_, _, cx| {
                         let _ = bench.update(cx, |bench, cx| bench.open_buddy_picker(&picked, cx));
                     }),
             );
         }
-        if let Some(resume) = &agent.resume_id {
+        let resumed = record.and_then(|agent| Some((agent, agent.resume_id.as_ref()?)));
+        if let Some((agent, resume)) = resumed {
             let pin = PinnedChat {
                 provider: agent.provider.clone(),
                 session_id: resume.clone(),
@@ -193,76 +291,143 @@ impl AgentMenu {
                 chats.push(pin.clone());
             }
             popup = popup.item(
-                PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" })
+                PopupMenuItem::new(if pinned { t!("Unpin") } else { t!("Pin") })
                     .icon(Icon::Pin)
-                    .on_click(self.call("setPinnedChats", json!({ "chats": chats }))),
+                    .on_click(self.on_bench(move |bench, _| {
+                        Target::here(&bench.asks).call_typed::<call::SetPinnedChats>(PinnedParams {
+                            chats: chats.clone(),
+                        })
+                    })),
             );
         }
-        if agent.asleep {
-            let (bench, row) = (self.bench.clone(), id.clone());
-            popup = popup.item(PopupMenuItem::new("Resume").icon(Icon::Rotate).on_click(
-                move |_, _, cx| {
-                    let _ = bench.update(cx, |bench, _| bench.open_agent(&row));
-                },
-            ));
-        } else if agent.resume_id.is_some() {
-            popup = popup
-                .item(
-                    PopupMenuItem::new("Sleep")
-                        .icon(Icon::Power)
-                        .on_click(self.call("sleepAgent", json!({ "agentId": id }))),
-                )
-                .item(
-                    PopupMenuItem::new(if agent.keep_alive {
-                        "Allow Auto-Sleep"
-                    } else {
-                        "Keep Alive"
-                    })
-                    .icon(Icon::Pin)
-                    .on_click(self.call(
-                        "updateAgent",
-                        json!({ "agentId": id, "patch": { "keepAlive": !agent.keep_alive } }),
-                    )),
-                );
+        if record.is_some() && !self.chief {
+            popup = popup.item(self.hire_item());
         }
-        let (bench, moved) = (self.bench.clone(), id.clone());
-        popup = popup.item(
-            PopupMenuItem::new("Move to Project…")
-                .icon(Icon::Folder)
-                .disabled(!self.can_move)
-                .on_click(move |_, window, cx| {
-                    let (bench, moved) = (bench.clone(), moved.clone());
-                    window.defer(cx, move |window, cx| {
-                        let _ = bench
-                            .update(cx, |bench, cx| bench.pick_project_for(&moved, window, cx));
-                    });
-                }),
+        popup = crate::agents::tags::menu_item(
+            popup,
+            self.bench.clone(),
+            asked.clone(),
+            &id,
+            self.own_tags.clone(),
+            self.tags.clone(),
+            window,
+            cx,
         );
-        if agent.worktree.is_some() {
-            let (bench, removed) = (self.bench.clone(), id.clone());
-            popup = popup.separator().item(
-                PopupMenuItem::new("Remove worktree…")
-                    .icon(Icon::Trash)
+        popup = crate::agents::settled::menu_items(
+            popup,
+            self.bench.clone(),
+            asked.clone(),
+            &id,
+            self.snoozed,
+            self.settled,
+            window,
+            cx,
+        );
+        if self.asleep {
+            let (row, place, local) = (id.clone(), asked, record.is_some());
+            popup = popup.item(
+                PopupMenuItem::new(t!("Resume"))
+                    .icon(Icon::Resume)
+                    .on_click(self.on_bench(move |bench, cx| match local {
+                        true => bench.open_agent(&row, cx),
+                        false => {
+                            Target::new(&bench.asks, place.clone()).call_typed::<call::ReopenAgent>(
+                                AgentParams {
+                                    agent_id: row.clone(),
+                                },
+                            )
+                        }
+                    })),
+            );
+        } else if record.is_none_or(|agent| agent.resume_id.is_some()) {
+            popup = popup.item(PopupMenuItem::new(t!("Sleep")).icon(Icon::Power).on_click(
+                self.on_bench({
+                    let (id, place) = (id.clone(), asked);
+                    move |bench, _| {
+                        Target::new(&bench.asks, place.clone()).call_typed::<call::SleepAgent>(
+                            AgentParams {
+                                agent_id: id.clone(),
+                            },
+                        )
+                    }
+                }),
+            ));
+        }
+        if let Some(agent) = record.filter(|agent| !agent.asleep && agent.resume_id.is_some()) {
+            popup = popup.item(
+                PopupMenuItem::new(if agent.keep_alive {
+                    t!("Allow Auto-Sleep")
+                } else {
+                    t!("Keep Alive")
+                })
+                .icon(Icon::Pin)
+                .on_click({
+                    let (id, keep_alive) = (id.clone(), !agent.keep_alive);
+                    self.on_bench(move |bench, _| {
+                        Target::here(&bench.asks).call_typed::<call::UpdateAgent>(
+                            UpdateAgentParams::new(
+                                id.clone(),
+                                AgentPatch {
+                                    keep_alive: Some(keep_alive),
+                                    ..AgentPatch::default()
+                                },
+                            ),
+                        )
+                    })
+                }),
+            );
+        }
+        if record.is_some() {
+            let (bench, moved) = (self.bench.clone(), id.clone());
+            popup = popup.item(
+                PopupMenuItem::new(t!("Move to Project…"))
+                    .icon(Icon::Folder)
+                    .disabled(!self.can_move)
                     .on_click(move |_, window, cx| {
-                        let _ = bench.update(cx, |bench, cx| {
-                            bench.remove_worktree(&removed, false, window, cx)
+                        let (bench, moved) = (bench.clone(), moved.clone());
+                        window.defer(cx, move |window, cx| {
+                            let _ = bench
+                                .update(cx, |bench, cx| bench.pick_project_for(&moved, window, cx));
                         });
                     }),
             );
         }
+        if record.is_some_and(|agent| agent.worktree.is_some()) {
+            let (bench, removed) = (self.bench.clone(), id.clone());
+            popup = popup.separator().item(
+                PopupMenuItem::new(t!("Remove worktree…"))
+                    .icon(Icon::Trash)
+                    .on_click(move |_, window, cx| {
+                        let _ = bench
+                            .update(cx, |bench, cx| bench.remove_worktree(&removed, window, cx));
+                    }),
+            );
+        }
+        let Some(agent) = record else {
+            let row = self.elsewhere.clone();
+            return popup.separator().item(
+                PopupMenuItem::new(t!("Close"))
+                    .icon(Icon::Close)
+                    .on_click(self.on_bench(move |bench, cx| {
+                        if let Some(row) = &row {
+                            bench.close_elsewhere(row, cx);
+                        }
+                    })),
+            );
+        };
         popup = popup
             .separator()
             .item(
-                PopupMenuItem::new("Close")
+                PopupMenuItem::new(t!("Close"))
                     .icon(Icon::Close)
-                    .action(Box::new(crate::keymap::CloseTab))
+                    .action(Box::new(crate::workbench::actions::CloseTab))
                     .on_click(self.on_bench({
                         let id = id.clone();
                         move |bench, cx| bench.close_agents(vec![id.clone()], cx)
                     })),
             )
             .item(
-                PopupMenuItem::new("Close Others")
+                PopupMenuItem::new(t!("Close Others"))
                     .icon(Icon::Close)
                     .disabled(self.others.is_empty())
                     .on_click(self.on_bench({
@@ -271,7 +436,7 @@ impl AgentMenu {
                     })),
             );
         if self.can_skip_permissions {
-            let yolo = agent.permission_mode == "bypass";
+            let yolo = agent.permission_mode == PermissionMode::Bypass;
             let mode = if yolo {
                 PermissionMode::WorkspaceWrite
             } else {
@@ -279,9 +444,9 @@ impl AgentMenu {
             };
             popup = popup.separator().item(
                 PopupMenuItem::new(if yolo {
-                    "Disable YOLO Mode"
+                    t!("Disable YOLO Mode")
                 } else {
-                    "Enable YOLO Mode"
+                    t!("Enable YOLO Mode")
                 })
                 .icon(if yolo { Icon::Lock } else { Icon::BoltFill })
                 .on_click(self.on_bench({
@@ -294,7 +459,7 @@ impl AgentMenu {
         if self.can_share {
             let (bench, shared) = (self.bench.clone(), id.clone());
             popup = popup.item(
-                PopupMenuItem::new("Share Read-Only…")
+                PopupMenuItem::new(t!("Share Read-Only…"))
                     .icon(Icon::Share)
                     .on_click(move |_, window, cx| {
                         let (bench, shared) = (bench.clone(), shared.clone());
@@ -307,16 +472,56 @@ impl AgentMenu {
         }
         let link = self.link.clone();
         popup.item(
-            PopupMenuItem::new("Copy Link")
+            PopupMenuItem::new(t!("Copy Link"))
                 .icon(Icon::Copy)
                 .disabled(link.is_none())
                 .on_click(move |_, window, cx| {
                     if let Some(link) = &link {
                         cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
-                        window.push_notification(toast::success("Copied link"), cx);
+                        window.push_notification(toast::success(t!("Copied link")), cx);
                     }
                 }),
         )
+    }
+
+    /// "Hire…": asks for the role's name and what it covers, as "Marketer: reach and growth".
+    fn hire_item(&self) -> PopupMenuItem {
+        let (bench, hired) = (self.bench.clone(), self.id.clone());
+        let name = self.name.clone().unwrap_or_default();
+        PopupMenuItem::new(t!("Hire…"))
+            .icon(Icon::Briefcase)
+            .on_click(move |_, _, cx| {
+                let (hired, initial) = (hired.clone(), format!("{name}: "));
+                let _ = bench.update(cx, |bench, cx| {
+                    bench.prompt(
+                        t!("Hire for a standing role, as Role: what it covers"),
+                        initial,
+                        move |bench, typed, window, cx| {
+                            let Some((name, role)) = typed.split_once(':') else {
+                                window.push_notification(
+                                    toast::error(t!(
+                                        "Write the role's name, a colon, then what it covers"
+                                    )),
+                                    cx,
+                                );
+                                return;
+                            };
+                            let (name, role) = (name.trim(), role.trim());
+                            if name.is_empty() || role.is_empty() {
+                                return;
+                            }
+                            Target::here(&bench.asks).call_typed::<call::HireAgent>(
+                                HireAgentParams {
+                                    agent_id: hired.clone(),
+                                    name: name.trim_start_matches('@').to_owned(),
+                                    role: role.to_owned(),
+                                },
+                            );
+                        },
+                        cx,
+                    )
+                });
+            })
     }
 
     /// A menu item's click that works on the bench.
@@ -327,19 +532,6 @@ impl AgentMenu {
         let bench = self.bench.clone();
         move |_, _, cx| {
             let _ = bench.update(cx, |bench, cx| work(bench, cx));
-        }
-    }
-
-    /// A menu item's click that makes a core call.
-    fn call(
-        &self,
-        method: &'static str,
-        params: Value,
-    ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + Clone + 'static {
-        let bench = self.bench.clone();
-        move |_, _, cx| {
-            let params = params.clone();
-            let _ = bench.update(cx, |bench, _| bench.call(method, params));
         }
     }
 }

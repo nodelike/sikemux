@@ -1,0 +1,29 @@
+name: Import the Developer ID certificate
+description: Puts the certificate in a keychain of its own for codesign to find.
+inputs:
+  certificate:
+    description: The certificate, base64
+    required: true
+  password:
+    description: The certificate's password
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        APPLE_CERTIFICATE: ${{ inputs.certificate }}
+        APPLE_CERTIFICATE_PASSWORD: ${{ inputs.password }}
+      run: |
+        keychain="$RUNNER_TEMP/release.keychain-db"
+        password="$(openssl rand -base64 24)"
+        security create-keychain -p "$password" "$keychain"
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$password" "$keychain"
+        base64 --decode <<<"$APPLE_CERTIFICATE" >"$RUNNER_TEMP/certificate.p12"
+        security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        rm "$RUNNER_TEMP/certificate.p12"
+        security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
+        keychains=("$keychain")
+        while read -r existing; do keychains+=("${existing//\"/}"); done < <(security list-keychains -d user)
+        security list-keychains -d user -s "${keychains[@]}"

@@ -6,10 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use sikemux_plugin_api::process;
-use sikemux_plugin_api::process::sync::Locked;
-use sikemux_plugin_api::process::user_environment::shell_var;
 use sikemux_plugin_api::PluginContext;
+use sikemux_process::sync::Locked;
+use sikemux_process::user_environment::shell_var;
 
 use crate::auth;
 use crate::error::AwsResult;
@@ -37,10 +36,9 @@ struct Picks {
     default: Option<String>,
     #[serde(default)]
     projects: BTreeMap<PathBuf, String>,
-    /// The profile the AWS pane shows, which the plugin's sign-in is checked
-    /// as.
+    /// The profile the plugin's sign-in is checked as.
     #[serde(default)]
-    pane: Option<String>,
+    account: Option<String>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +60,7 @@ pub struct AgentProfile {
     pub source: AgentProfileSource,
 }
 
-/// What the pane shows: the picks for one project, and what they come to.
+/// The picks for one project, or for every project, and what they come to.
 #[derive(Serialize)]
 pub struct AgentProfilePicks {
     pub(crate) project: Option<String>,
@@ -78,7 +76,6 @@ pub(crate) fn agent_profile(ctx: &PluginContext, project: Option<&Path>) -> Opti
     effective(&picks, project.as_deref(), shell_var, auth::profile_names)
 }
 
-/// AWS_PROFILE for an agent or terminal started in `project`.
 pub(crate) fn environment(ctx: &PluginContext, project: &Path) -> BTreeMap<String, String> {
     agent_profile(ctx, Some(project))
         .and_then(|picked| picked.profile)
@@ -121,23 +118,26 @@ pub(crate) fn pick(
     Ok(picks(ctx, project))
 }
 
-pub(crate) fn pane_profile(ctx: &PluginContext) -> Option<String> {
-    read(ctx.data_dir()).pane
+pub(crate) fn account_profile(ctx: &PluginContext) -> Option<String> {
+    read(ctx.data_dir()).account
 }
 
-/// Picks the profile the AWS pane shows; no profile clears the pick.
-pub(crate) fn pick_pane(ctx: &PluginContext, profile: Option<String>) -> AwsResult<Option<String>> {
+/// Picks the profile the plugin's sign-in is checked as; no profile clears the pick.
+pub(crate) fn pick_account(
+    ctx: &PluginContext,
+    profile: Option<String>,
+) -> AwsResult<Option<String>> {
     let profile = profile.filter(|profile| !profile.trim().is_empty());
     let _turn = WRITING.locked();
     let mut saved = read(ctx.data_dir());
-    saved.pane.clone_from(&profile);
+    saved.account.clone_from(&profile);
     save(ctx, &saved)?;
     Ok(profile)
 }
 
 fn save(ctx: &PluginContext, picks: &Picks) -> AwsResult<()> {
     let bytes = serde_json::to_vec_pretty(picks)?;
-    process::files::write_atomic(&ctx.data_dir().join(PICKS_FILE), &bytes, false)?;
+    sikemux_process::files::write_atomic(&ctx.data_dir().join(PICKS_FILE), &bytes, false)?;
     Ok(())
 }
 

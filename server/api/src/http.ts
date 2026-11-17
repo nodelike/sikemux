@@ -19,7 +19,7 @@ export interface Env {
 }
 
 /** What an error says beyond its code and message, such as how recently to verify again. */
-export type ErrorExtras = Omit<ErrorDetail, "code" | "message" | "requestId">;
+type ErrorExtras = Omit<ErrorDetail, "code" | "message" | "requestId">;
 
 /** Thrown by a handler to answer with an error the caller can act on. */
 export class ApiFailure extends Error {
@@ -83,16 +83,18 @@ export function requestContext(log: Logger): MiddlewareHandler<Env> {
 
 const MAX_BODY_BYTES = 64 * 1024;
 
-/** Refuses a body over 64 KB, the most any JSON request needs. */
-export function limitBody<E extends Env = Env>(): MiddlewareHandler<E> {
+/** Refuses a body over `maxSize` bytes: by default 64 KB, enough for any JSON request but the vault's. */
+export function limitBody<E extends Env = Env>(
+  maxSize = MAX_BODY_BYTES,
+): MiddlewareHandler<E> {
   return bodyLimit({
-    maxSize: MAX_BODY_BYTES,
+    maxSize,
     onError: (c) =>
       errorResponse(
         c,
         413,
         "payload_too_large",
-        `Request bodies are limited to ${MAX_BODY_BYTES} bytes.`,
+        `Request bodies are limited to ${maxSize} bytes.`,
       ),
   });
 }
@@ -158,6 +160,10 @@ export function unauthorized(message: string): ApiFailure {
 
 export function forbidden(message: string): ApiFailure {
   return new ApiFailure(403, "forbidden", message);
+}
+
+export function conflict(message: string): ApiFailure {
+  return new ApiFailure(409, "conflict", message);
 }
 
 export function notFound(message: string): ApiFailure {

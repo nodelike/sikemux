@@ -1,17 +1,7 @@
-//! What the core and the phone share with the accounts server at
-//! api.sikemux.com, generated from `server/protocol/schema`.
+//! What the phone shares with the accounts server at api.sikemux.com, generated from
+//! `server/protocol/schema`. The core holds the rest of the schema's types.
 
 pub mod protocol;
-
-impl From<crate::protocol::BuildChannel> for protocol::Channel {
-    fn from(build: crate::protocol::BuildChannel) -> Self {
-        match build {
-            crate::protocol::BuildChannel::Dev => Self::Dev,
-            crate::protocol::BuildChannel::Nightly => Self::Nightly,
-            crate::protocol::BuildChannel::Stable => Self::Stable,
-        }
-    }
-}
 
 #[cfg(test)]
 type RoundTrip = serde_json::Result<serde_json::Value>;
@@ -51,13 +41,6 @@ mod tests {
             }
         }
         assert!(checked > 0, "no fixtures under {}", fixtures.display());
-        Ok(())
-    }
-
-    #[test]
-    fn unknown_enum_values_still_read() -> serde_json::Result<()> {
-        let code: super::protocol::ErrorCode = serde_json::from_str("\"added_later\"")?;
-        assert_eq!(code, super::protocol::ErrorCode::Unknown);
         Ok(())
     }
 }

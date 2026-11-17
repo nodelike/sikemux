@@ -1,12 +1,6 @@
+import { english, type Say } from "../lib/say";
 import { safeWebUrl } from "../lib/urls";
-import type { ChatRows } from "./rows";
-import { DEFAULT_TOOL_ROW, type ToolRow } from "../wire.generated";
-import type { ToolAction, ToolCall } from "./types";
-
-/** What the call's row shows; a host older than the row sends none, which reads as the core's default. */
-export function rowOf(tool: ToolCall): ToolRow {
-    return tool.row ?? DEFAULT_TOOL_ROW;
-}
+import type { ToolAction, ToolCall } from "../wire.generated";
 
 /* The core works out what each call did and to what; these are only the words the app says it in. */
 const ACTION_WORDS: Record<ToolAction, string> = {
@@ -23,37 +17,8 @@ const ACTION_WORDS: Record<ToolAction, string> = {
     other: "tool",
 };
 
-const ACTION_SENTENCES: Partial<Record<ToolAction, string>> = {
-    read: "Reading…",
-    edit: "Editing…",
-    delete: "Deleting…",
-    move: "Moving…",
-    search: "Searching…",
-    execute: "Running a command…",
-    think: "Thinking…",
-    fetch: "Fetching…",
-    switch_mode: "Switching mode…",
-};
-
-/* The running row is one line, so it says what the agent is doing rather than quote the call back. */
-export function activityLabel(tool: ToolCall): string {
-    return rowOf(tool).activity ?? ACTION_SENTENCES[rowOf(tool).action] ?? "Working…";
-}
-
-export function toolKind(tool: ToolCall): string {
-    return rowOf(tool).verb ?? rowOf(tool).server ?? ACTION_WORDS[rowOf(tool).action];
-}
-
-export function toolTarget(tool: ToolCall): string {
-    return rowOf(tool).target;
-}
-
-export function toolDetail(tool: ToolCall): string | null {
-    return rowOf(tool).detail ?? null;
-}
-
-export function toolPath(tool: ToolCall): string | null {
-    return rowOf(tool).path ?? null;
+export function toolKind(tool: ToolCall, say: Say = english): string {
+    return tool.row.verb ?? tool.row.server ?? say(ACTION_WORDS[tool.row.action]);
 }
 
 export function toolUrl(target: string): { before: string; raw: string; url: string; after: string } | null {
@@ -67,11 +32,4 @@ export function toolUrl(target: string): { before: string; raw: string; url: str
 export function toolRunning(tool: ToolCall): boolean {
     const status = tool.status ?? "pending";
     return status !== "completed" && status !== "failed" && status !== "cancelled";
-}
-
-/** What the running call at the end of the chat is doing, in its row's words. */
-export function activeToolLabel(chat: Pick<ChatRows, "messages" | "activeTool">): string | null {
-    if (!chat.activeTool) return null;
-    const part = chat.messages.at(-1)?.parts.find((candidate) => candidate.id === chat.activeTool);
-    return part?.kind === "tool" ? activityLabel(part.tool) : null;
 }

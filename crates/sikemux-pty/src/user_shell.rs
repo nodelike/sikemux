@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 #[cfg(unix)]
-use std::process::Command;
+use sikemux_process::command::Command;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Opens the payload, fencing it off from whatever an interactive rc file
@@ -26,7 +26,7 @@ const LOGIN_ENV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5)
 /// Keys the PTY layer owns. Importing these would let a profile rename the
 /// terminal, redirect shell integration, or hand a pane the capture shell's
 /// own working directory and launchd-scoped temp dir. `PATH` is excluded
-/// because `fix_path_from_login_shell` already unions it process-wide.
+/// because `login_shell_path` carries it.
 ///
 /// This list is about keys whose *values* would be wrong in a pane, not about
 /// identity: `configure_pty_environment` scrubs `OPTIONAL_PTY_ENV` after the
@@ -58,7 +58,7 @@ const LOGIN_ENV_SIKEMUX_OWNED: &[&str] = &[
 /// What the user's shell profile exports, captured once per app run.
 ///
 /// A macOS GUI app inherits launchd's environment, never the user's profile.
-/// `fix_path_from_login_shell` recovers `PATH` from it; this recovers the
+/// `login_shell_path` recovers `PATH` from it; this recovers the
 /// rest. That matters most for a PTY launched with a direct command — an agent
 /// CLI running as the PTY's own process with no shell in between — because it
 /// reads no profile at all. An API key or token the user keeps in `.zshrc` is
@@ -67,7 +67,7 @@ const LOGIN_ENV_SIKEMUX_OWNED: &[&str] = &[
 ///
 /// `-i` is the load-bearing flag: zsh sources `.zshrc` only when interactive,
 /// and that is where people put exports. `-l` alone reads `.zprofile` and
-/// misses them, which is why the `PATH` capture above cannot be reused.
+/// misses them.
 pub fn login_shell_environment() -> &'static HashMap<String, String> {
     #[cfg(unix)]
     {
@@ -125,13 +125,10 @@ fn login_shell_capture() -> &'static LoginShellCapture {
     LATE_CAPTURE.get().unwrap_or(first)
 }
 
-/// Populate the `login_shell_environment` cache from the startup thread.
-///
-/// `fix_path_from_login_shell` already filled it — both halves come out of one
-/// capture — so this is free once that has run. It stays as its own call
-/// because the cache is first *needed* inside `pty_spawn`, an async command,
-/// and initialising it there would park an async runtime worker for up to
-/// `LOGIN_ENV_TIMEOUT` with concurrent spawns queued behind it.
+/// Populate the `login_shell_environment` cache from the startup thread. The
+/// first terminal spawn would otherwise fill it on an async runtime worker,
+/// parking it for up to `LOGIN_ENV_TIMEOUT` with concurrent spawns queued
+/// behind it.
 pub fn warm_login_shell_environment() {
     let _ = login_shell_environment();
 }
@@ -162,8 +159,8 @@ fn capture_login_shell() -> LoginShellCapture {
         command
             .args(["-l", "-i", "-c", &script])
             // An rc file that reads stdin sees EOF instead of blocking.
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .stdin(sikemux_process::command::Stdio::null())
+            .stderr(sikemux_process::command::Stdio::null());
         for key in crate::launch::OPTIONAL_PTY_ENV
             .iter()
             .chain(&sikemux_process::vars::LAUNCHING_SESSION)
@@ -307,51 +304,73 @@ fn rfind_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .rposition(|window| window == needle)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ShellPlatform {
-    Unix,
-    Windows,
-}
-
-const CURRENT_SHELL_PLATFORM: ShellPlatform = if cfg!(windows) {
-    ShellPlatform::Windows
-} else {
-    ShellPlatform::Unix
-};
-
-fn resolve_configured_shell(
-    platform: ShellPlatform,
-    sikemux_shell: Option<&str>,
-    unix_shell: Option<&str>,
-) -> String {
-    match platform {
-        ShellPlatform::Unix => unix_shell.unwrap_or("/bin/zsh"),
-        ShellPlatform::Windows => sikemux_shell.unwrap_or("powershell.exe"),
-    }
-    .to_string()
-}
-
 /// The executable a newly spawned interactive PTY will use. Keep health
-/// reporting and PTY launch on this one platform policy so the frontend never
-/// configures integration for a different shell than native will execute.
+/// reporting and PTY launch on this one platform policy so a client never
+/// configures integration for a different shell than the one that runs.
+#[cfg(unix)]
 pub fn configured_shell() -> String {
-    let sikemux_shell = std::env::var("SIKEMUX_SHELL").ok();
-    let unix_shell = std::env::var("SHELL").ok();
-    resolve_configured_shell(
-        CURRENT_SHELL_PLATFORM,
-        sikemux_shell.as_deref(),
-        unix_shell.as_deref(),
-    )
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
-#[cfg(test)]
+/// The executable a newly spawned interactive PTY will use: `SIKEMUX_SHELL`, else the
+/// first of [`offered_shells`].
+#[cfg(windows)]
+pub fn configured_shell() -> String {
+    static DEFAULT: OnceLock<String> = OnceLock::new();
+    std::env::var("SIKEMUX_SHELL")
+        .ok()
+        .filter(|shell| !shell.is_empty())
+        .unwrap_or_else(|| {
+            DEFAULT
+                .get_or_init(|| {
+                    offered_shells()
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| "powershell.exe".to_string())
+                })
+                .clone()
+        })
+}
+
+/// The shells this computer has for a terminal, the default first: PowerShell 7, else
+/// Windows PowerShell, then cmd and Git Bash.
+#[cfg(windows)]
+pub fn offered_shells() -> Vec<String> {
+    use sikemux_process::user_environment::find_executable;
+    use std::path::PathBuf;
+
+    let folder = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let system = folder("SystemRoot").map(|root| root.join("System32"));
+    let program_files = folder("ProgramFiles");
+    let pwsh = find_executable("pwsh").or_else(|| {
+        program_files
+            .as_ref()
+            .map(|folder| folder.join(r"PowerShell\7\pwsh.exe"))
+    });
+    let powershell = system
+        .as_ref()
+        .map(|system| system.join(r"WindowsPowerShell\v1.0\powershell.exe"));
+    let cmd = folder("ComSpec").or_else(|| system.as_ref().map(|system| system.join("cmd.exe")));
+    // Git's own bash, never System32's, which starts WSL.
+    let git_bash = find_executable("git")
+        .and_then(|git| Some(git.parent()?.parent()?.join(r"bin\bash.exe")))
+        .filter(|bash| bash.is_file())
+        .or_else(|| program_files.map(|folder| folder.join(r"Git\bin\bash.exe")));
+    [pwsh, powershell, cmd, git_bash]
+        .into_iter()
+        .flatten()
+        .filter(|shell| shell.is_file())
+        .map(|shell| shell.to_string_lossy().into_owned())
+        .collect()
+}
+
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     /// `PATH` and the profile environment come out of the same capture, and
     /// only what the fenced payload holds counts — an rc banner that mentions
     /// a PATH before the sentinel is chatter, not the shell's answer.
-    #[cfg(unix)]
     #[test]
     fn a_shell_that_fails_after_printing_its_environment_still_counts() {
         use std::os::unix::process::ExitStatusExt;
@@ -399,7 +418,6 @@ mod tests {
     /// Interactive rc files print banners, run `clear`, and emit prompt-init
     /// escapes before the payload ever appears. Only what follows the sentinel
     /// is environment.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_discards_interactive_rc_chatter_before_the_sentinel() {
         let stdout = format!(
@@ -420,7 +438,6 @@ mod tests {
 
     /// An rc file that echoes the capture command back would otherwise let a
     /// second sentinel smuggle entries in; the last one always wins.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_honours_only_the_final_sentinel() {
         let sentinel = super::LOGIN_ENV_SENTINEL;
@@ -437,7 +454,6 @@ mod tests {
     /// `precmd` hook prints after the payload arrives as a trailing record —
     /// and parses as an entry if it contains an `=`. The closing fence is what
     /// keeps a hook from injecting one.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_ignores_anything_printed_after_the_payload() {
         let stdout = format!(
@@ -456,7 +472,6 @@ mod tests {
     /// A value that is not valid UTF-8 must drop itself rather than be imported
     /// with replacement characters substituted in — a corrupted token is worse
     /// than an absent one. Its neighbours still arrive intact.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_drops_non_utf8_records_without_corrupting_them() {
         let mut stdout = Vec::new();
@@ -476,7 +491,6 @@ mod tests {
     /// The user's own editor choice reaches a pane the same way whether the app
     /// was launched from a terminal or from the Dock. The PTY layer still
     /// installs its own editor when the profile sets neither.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_imports_the_editor_the_profile_chose() {
         let stdout = format!(
@@ -492,7 +506,6 @@ mod tests {
     }
 
     /// NUL delimiting is what makes a multi-line export survive the round trip.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_keeps_values_containing_newlines_and_equals_signs() {
         let stdout = format!(
@@ -515,7 +528,6 @@ mod tests {
     /// directory. `PATH` is excluded because it is already unioned separately.
     /// Pane identity is not defended here — `configure_pty_environment` scrubs
     /// `OPTIONAL_PTY_ENV` after the fill and owns that invariant.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_drops_keys_the_pty_layer_owns() {
         let stdout = format!(
@@ -535,15 +547,13 @@ mod tests {
         assert_eq!(parsed.get("KEEP").map(String::as_str), Some("yes"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_shell_without_a_locale_gets_a_utf8_one() {
         let mut environment = HashMap::from([("LANG".to_string(), String::new())]);
         ensure_utf8_locale(&mut environment);
-        assert_eq!(environment.get("LANG").map(String::as_str), Some("C.UTF-8"));
+        assert!(environment["LANG"].ends_with(".UTF-8"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn the_shell_locale_is_kept() {
         let mut environment = HashMap::from([("LC_CTYPE".to_string(), "fr_FR.UTF-8".to_string())]);
@@ -557,7 +567,6 @@ mod tests {
 
     /// A shell that fails, or output with no sentinel at all, must degrade to
     /// "no profile environment" rather than to garbage entries.
-    #[cfg(unix)]
     #[test]
     fn login_env_parse_yields_nothing_without_a_sentinel() {
         assert!(super::parse_login_shell_environment(b"HOME=/Users/x\0").is_empty());

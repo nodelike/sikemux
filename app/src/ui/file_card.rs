@@ -2,15 +2,16 @@
 //! it: a chevron that folds the diff under it, the file's icon, its folder quiet before its
 //! name, then whatever the caller adds at the end.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, App, Div, InteractiveElement, ParentElement, Pixels, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window,
+    div, px, App, Div, InteractiveElement, ParentElement, Pixels, SharedString, Stateful, Styled,
+    Window,
 };
 
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{self, Tokens, RADIUS_2, SPACE_2, TEXT_SM};
+use crate::theme::{self, radius_2, Tokens, SPACE_2, TEXT_SM};
 
 const FILE_HEAD_HEIGHT: Pixels = px(32.);
 
@@ -49,8 +50,7 @@ pub fn file_head(
         .child(div().text_color(t.text_primary).child(base.clone()))
         .when_some(open_file, |name, open_file| {
             name.hover(|name| name.underline())
-                .tooltip(super::tooltip("Open in editor"))
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     cx.stop_propagation();
                     open_file(window, cx);
                 })
@@ -62,17 +62,17 @@ pub fn file_head(
         .flex()
         .items_center()
         .gap(px(7.))
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .map(|head| {
             if open {
-                head.rounded_t(RADIUS_2).border_b_0()
+                head.rounded_t(radius_2()).border_b_0()
             } else {
-                head.rounded(RADIUS_2)
+                head.rounded(radius_2())
             }
         })
         .bg(t.surface)
-        .font_family(theme::UI)
+        .font_family(theme::ui_font())
         .cursor_pointer()
         .child(motion::turn(
             format!("{id}:chevron"),

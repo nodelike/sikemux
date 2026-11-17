@@ -2,23 +2,37 @@
 //! same ones. Agents' tabs follow the workspace: a new agent gets a tab at the
 //! end of its project's strip, and a tab goes once nothing it shows is left.
 
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::device_view::DeviceViewCore;
+use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
+use crate::server::serving::ServeCore;
+use crate::server::workspace::AddProjectParamsExt;
+use crate::server::workspace_state::WorkspaceParts;
+pub use sikemux_calls::layout::{
+    ActivateProjectParams, HostParams, OpenPaths, PaneParams, PathOpened, ResizeSplit, TabParams,
+    TabsParams,
+};
+pub use sikemux_calls::layout::{Side, SplitPane};
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
-use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{CliOpenTarget, CliTargetKind};
-use crate::protocol::{Layout, Pane, PaneKind, SessionId, SessionInfo, SplitDir, Tab, Workspace};
+use sikemux_view::layout::{Layout, Pane, PaneKind, SplitDir, Tab};
+use sikemux_view::workspace::Workspace;
+use sikemux_wire::protocol::{SessionId, SessionInfo};
 
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
 
 const FILE: &str = "layout.json";
-const MAX_TABS: usize = 64;
 
 pub(crate) struct Layouts {
     layout: Mutex<Layout>,
@@ -108,6 +122,12 @@ impl Layouts {
     }
 }
 
+impl super::part::Part for Layouts {
+    fn flush(&self) {
+        self.kept.flush();
+    }
+}
+
 /// The layout as `device` is sent it, or this host's own clients when there is none, fitted
 /// to the workspace and sessions.
 pub(crate) fn view(
@@ -116,23 +136,23 @@ pub(crate) fn view(
     sessions: &[SessionInfo],
     device: Option<&str>,
 ) -> Layout {
-    let mut layout = core.layouts.layout.locked().clone();
-    if let Some(front) = device.and_then(|device| core.layouts.fronts.locked().get(device).cloned())
+    let mut layout = core.layouts().layout.locked().clone();
+    if let Some(front) =
+        device.and_then(|device| core.layouts().fronts.locked().get(device).cloned())
     {
         front.lay_over(&mut layout);
     }
     on_linked_host(core, fitted(layout, workspace, sessions))
 }
 
-/// The paired devices with what they have in front of their own.
 pub(crate) fn fronted(core: &Core) -> HashSet<String> {
-    core.layouts.fronts.locked().keys().cloned().collect()
+    core.layouts().fronts.locked().keys().cloned().collect()
 }
 
 /// The layout, with the chosen host dropped once it is no longer linked with this one.
 fn on_linked_host(core: &Core, mut layout: Layout) -> Layout {
     if let Some(chosen) = &layout.chosen_host {
-        if !core.remote.links().iter().any(|link| &link.id == chosen) {
+        if !core.remote().links().iter().any(|link| &link.id == chosen) {
             layout.chosen_host = None;
         }
     }
@@ -140,28 +160,44 @@ fn on_linked_host(core: &Core, mut layout: Layout) -> Layout {
 }
 
 fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -> Layout {
-    let agents: HashSet<&str> = workspace
+    let agents: HashMap<&str, &str> = workspace
         .agents
         .iter()
-        .map(|agent| agent.id.as_str())
+        .map(|agent| (agent.id.as_str(), agent.project.as_str()))
         .collect();
     let terminals: HashSet<String> = sessions
         .iter()
         .map(|session| session.id.to_string())
         .collect();
-    let shown = |kind: PaneKind, target: &str| match kind {
-        PaneKind::Agent | PaneKind::Desk => agents.contains(target),
+    let shown_in = |project: Option<&str>, kind: PaneKind, target: &str| match kind {
+        PaneKind::Agent | PaneKind::Desk => agents
+            .get(target)
+            .is_some_and(|held| project.is_none_or(|project| *held == project)),
         PaneKind::Terminal => terminals.contains(target),
-        _ => true,
+        // A kind no core makes any more, saved in an older layout.
+        PaneKind::Unknown => false,
+        PaneKind::Files
+        | PaneKind::Git
+        | PaneKind::Search
+        | PaneKind::Board
+        | PaneKind::ProjectSettings
+        | PaneKind::InstallSikemux
+        | PaneKind::Stash
+        | PaneKind::Asks
+        | PaneKind::Hosts
+        | PaneKind::Mod => true,
     };
+    let shown = |kind: PaneKind, target: &str| shown_in(None, kind, target);
     layout
         .projects
         .retain(|id, _| workspace.projects.iter().any(|project| &project.id == id));
     for project in &workspace.projects {
         let strip = layout.projects.entry(project.id.clone()).or_default();
+        // An agent moved to another project leaves this strip for that one's.
+        let shown_here = |kind: PaneKind, target: &str| shown_in(Some(&project.id), kind, target);
         strip
             .tabs
-            .retain_mut(|tab| keep_shown(&mut tab.pane, &shown));
+            .retain_mut(|tab| keep_shown(&mut tab.pane, &shown_here));
         let mut created: Vec<_> = workspace
             .agents
             .iter()
@@ -174,10 +210,7 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
             })
             .collect();
         created.sort_by_key(|agent| agent.created_at);
-        for agent in created
-            .into_iter()
-            .take(MAX_TABS.saturating_sub(strip.tabs.len()))
-        {
+        for agent in created {
             strip.tabs.push(tab(
                 format!("agent:{}", agent.id),
                 PaneKind::Agent,
@@ -189,7 +222,8 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
             .as_ref()
             .is_some_and(|active| strip.tabs.iter().any(|tab| &tab.id == active));
         if !active_shown {
-            strip.active = strip.tabs.first().map(|tab| tab.id.clone());
+            strip.active = latest_in(strip, &layout.recent)
+                .or_else(|| strip.tabs.first().map(|tab| tab.id.clone()));
         }
     }
     let active_shown = layout
@@ -199,6 +233,7 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
     if !active_shown {
         layout.active_project = workspace.projects.first().map(|project| project.id.clone());
     }
+    let recent = &layout.recent;
     layout.hosts.retain(|_, strip| {
         strip
             .tabs
@@ -208,7 +243,8 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
             .as_ref()
             .is_some_and(|active| strip.tabs.iter().any(|tab| &tab.id == active))
         {
-            strip.active = strip.tabs.first().map(|tab| tab.id.clone());
+            strip.active =
+                latest_in(strip, recent).or_else(|| strip.tabs.first().map(|tab| tab.id.clone()));
         }
         !strip.tabs.is_empty()
     });
@@ -228,7 +264,8 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         .as_ref()
         .is_some_and(|active| terminals.tabs.iter().any(|tab| &tab.id == active))
     {
-        terminals.active = terminals.tabs.first().map(|tab| tab.id.clone());
+        terminals.active = latest_in(terminals, &layout.recent)
+            .or_else(|| terminals.tabs.first().map(|tab| tab.id.clone()));
     }
     layout.terminals_in_front &= !terminals.tabs.is_empty();
     if layout.terminals_in_front {
@@ -300,8 +337,12 @@ fn holds(pane: &Pane, kind: PaneKind, target: &str) -> bool {
     }
 }
 
-fn view_id() -> String {
+pub(super) fn view_id() -> String {
     format!("pane-{}", uuid::Uuid::new_v4().simple())
+}
+
+pub(super) fn window_id() -> String {
+    format!("win-{}", uuid::Uuid::new_v4().simple())
 }
 
 /// Puts `new` beside the view `beside`, answering whether that view is in `pane`.
@@ -426,15 +467,36 @@ fn find_view<'a>(pane: &'a Pane, view: &str) -> Option<&'a Pane> {
     }
 }
 
-fn agents_in(pane: &Pane, found: &mut Vec<String>) {
+fn targets_in(pane: &Pane, kind: PaneKind, found: &mut Vec<String>) {
     match pane {
         Pane::View {
-            kind: PaneKind::Agent,
-            target,
-            ..
-        } => found.push(target.clone()),
+            kind: held, target, ..
+        } if *held == kind => found.push(target.clone()),
         Pane::View { .. } => {}
-        Pane::Split { panes, .. } => panes.iter().for_each(|pane| agents_in(pane, found)),
+        Pane::Split { panes, .. } => panes.iter().for_each(|pane| targets_in(pane, kind, found)),
+    }
+}
+
+fn terminal_shown(layout: &Layout, target: &str) -> bool {
+    layout
+        .projects
+        .values()
+        .chain(layout.hosts.values())
+        .chain(std::iter::once(&layout.terminals))
+        .flat_map(|strip| &strip.tabs)
+        .any(|tab| holds(&tab.pane, PaneKind::Terminal, target))
+}
+
+/// Ends the shells of terminals whose last view closed. A process's output and an agent's
+/// terminal keep running without a view.
+fn stop_shells(core: &Arc<Core>, terminals: &[String]) {
+    for id in terminals.iter().filter_map(|target| target.parse().ok()) {
+        let plain = core
+            .session(id)
+            .is_some_and(|session| !session.is_task() && session.agent.is_none());
+        if plain {
+            super::spare::stop(core, id);
+        }
     }
 }
 
@@ -450,25 +512,90 @@ fn tab(id: String, kind: PaneKind, target: String) -> Tab {
 /// Changes the layout as clients see it now, keeps it and tells them.
 /// An edit a paired device asked for moves only what it has in front; the tabs it opens,
 /// closes or moves change for everyone.
+/// The latest tab the person had in front that `strip` still shows.
+fn latest_in(strip: &sikemux_view::layout::ProjectLayout, recent: &[String]) -> Option<String> {
+    recent
+        .iter()
+        .find(|id| strip.tabs.iter().any(|tab| &tab.id == *id))
+        .cloned()
+}
+
+/// The strip that shows tab `id`.
+fn strip_of(layout: &Layout, id: &str) -> Option<At> {
+    let holds =
+        |strip: &sikemux_view::layout::ProjectLayout| strip.tabs.iter().any(|tab| tab.id == id);
+    if holds(&layout.terminals) {
+        return Some(At::terminals());
+    }
+    (layout.projects.iter().find(|(_, strip)| holds(strip)))
+        .map(|(project, _)| At::project(project))
+        .or_else(|| {
+            (layout.hosts.iter().find(|(_, strip)| holds(strip))).map(|(alias, _)| At::host(alias))
+        })
+}
+
+fn front_tab(layout: &Layout) -> Option<&String> {
+    if layout.chosen_host.is_some() {
+        return None;
+    }
+    let strip = match (&layout.active_host, layout.terminals_in_front) {
+        (_, true) => Some(&layout.terminals),
+        (Some(host), false) => layout.hosts.get(host),
+        (None, false) => layout.projects.get(layout.active_project.as_ref()?),
+    };
+    strip?.active.as_ref()
+}
+
+const RECENT_TABS: usize = 32;
+
+/// Puts the tab in front at the head of the tabs the person had in front, forgetting closed ones.
+fn remember_front(layout: &mut Layout) {
+    let front = front_tab(layout).cloned();
+    let mut recent = std::mem::take(&mut layout.recent);
+    if let Some(front) = front {
+        recent.retain(|id| id != &front);
+        recent.insert(0, front);
+    }
+    recent.retain(|id| strip_of(layout, id).is_some());
+    recent.truncate(RECENT_TABS);
+    layout.recent = recent;
+}
+
+/// Brings forward the latest tab the person had in front that is still open, in whichever strip.
+fn bring_back_latest(layout: &mut Layout) {
+    let Some((at, id)) =
+        (layout.recent.iter()).find_map(|id| strip_of(layout, id).map(|at| (at, id.clone())))
+    else {
+        return;
+    };
+    if let Ok(strip) = strip_at(layout, &at) {
+        strip.active = Some(id);
+        bring_forward(layout, &at);
+    }
+}
+
 fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> CoreResult<T> {
     let workspace = core.workspace_view();
     let sessions = core.session_infos();
     let device = asker();
     let answer = {
-        let mut kept = core.layouts.layout.locked();
-        let mut fronts = core.layouts.fronts.locked();
+        let mut kept = core.layouts().layout.locked();
+        let mut fronts = core.layouts().fronts.locked();
         let shared = on_linked_host(core, fitted(kept.clone(), &workspace, &sessions));
         let mut layout = shared.clone();
         if let Some(front) = device.as_ref().and_then(|device| fronts.get(device)) {
             front.lay_over(&mut layout);
         }
         let answer = change(&mut layout)?;
+        if device.is_none() {
+            remember_front(&mut layout);
+        }
         if let Some(device) = device {
             fronts.insert(device, Front::of(&layout));
             Front::of(&shared).lay_over(&mut layout);
         }
         let paired: HashSet<String> = core
-            .remote
+            .remote()
             .status()
             .devices
             .into_iter()
@@ -476,53 +603,53 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
             .collect();
         fronts.retain(|device, _| paired.contains(device));
         *kept = layout;
-        core.layouts.kept.save(&*kept);
+        core.layouts().kept.save_soon(&*kept);
         answer
     };
-    core.view_changed_now();
-    core.spares.front_changed();
+    core.changed(What::ViewNow);
+    core.spares().front_changed();
     Ok(answer)
+}
+
+/// Whether whoever asks has the agent `id` in front, in the tab in front of `project`'s strip.
+pub(crate) fn agent_in_front(core: &Core, id: &str, project: &str) -> bool {
+    let layout = view(
+        core,
+        &core.workspace_view(),
+        &core.session_infos(),
+        asker().as_deref(),
+    );
+    let at = At::project(project);
+    let active = layout.projects.get(project).and_then(|strip| {
+        let active = strip.active.as_ref()?;
+        strip.tabs.iter().find(|tab| &tab.id == active)
+    });
+    in_front(&layout, &at) && active.is_some_and(|tab| holds(&tab.pane, PaneKind::Agent, id))
 }
 
 /// The project the person has in front, by id, as the layout last said.
 pub(crate) fn front_project(core: &Core) -> Option<String> {
-    core.layouts.layout.locked().active_project.clone()
+    core.layouts().layout.locked().active_project.clone()
 }
 
 fn strip<'a>(
     layout: &'a mut Layout,
     project: &str,
-) -> CoreResult<&'a mut crate::protocol::ProjectLayout> {
+) -> CoreResult<&'a mut sikemux_view::layout::ProjectLayout> {
     layout
         .projects
         .get_mut(project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OpenTab {
-    #[serde(flatten)]
-    at: At,
-    kind: PaneKind,
-    target: String,
-    title: Option<String>,
-    /// Opens it to look at, in place of the strip's tab opened that way.
-    #[serde(default)]
-    preview: bool,
-    /// Leaves what the person sees as it is: the strip in front stays in front, and so does
-    /// its tab. In a strip out of sight the tab still comes first.
-    #[serde(default)]
-    behind: bool,
-}
-
 /// Brings the tab showing `target` to the front, opening one at the end of
 /// the strip when none does, or in place of the strip's preview when it
 /// opens to look at. A tab brought forward to keep is kept. Answers its id.
 pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
+    let at = params.at();
     edit(core, |layout| {
-        let in_sight = in_front(layout, &params.at);
-        let strip = strip_at(layout, &params.at)?;
+        let in_sight = in_front(layout, &at);
+        let strip = strip_at(layout, &at)?;
         let shown = strip
             .tabs
             .iter()
@@ -546,9 +673,6 @@ pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
                 tab.id.clone()
             }
             (None, _) => {
-                if strip.tabs.len() >= MAX_TABS {
-                    return Err("that strip already has as many tabs as the core keeps".into());
-                }
                 let mut opened = tab(
                     format!("tab-{}", uuid::Uuid::new_v4().simple()),
                     params.kind,
@@ -565,42 +689,16 @@ pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
             strip.active = Some(id.clone());
         }
         if !params.behind {
-            bring_forward(layout, &params.at);
+            bring_forward(layout, &at);
         }
         Ok(id)
     })
 }
 
-/// The strip a call names: the terminals of no project, an SSH host's, or a project's.
-#[derive(Clone, Default, Deserialize)]
-pub(crate) struct At {
-    #[serde(default)]
-    pub(crate) project: String,
-    pub(crate) host: Option<String>,
-    #[serde(default)]
-    pub(crate) terminals: bool,
-}
-
-impl At {
-    pub(crate) fn project(project: &str) -> Self {
-        Self {
-            project: project.to_owned(),
-            ..Self::default()
-        }
-    }
-
-    pub(crate) fn terminals() -> Self {
-        Self {
-            terminals: true,
-            ..Self::default()
-        }
-    }
-}
-
 fn strip_at<'a>(
     layout: &'a mut Layout,
     at: &At,
-) -> CoreResult<&'a mut crate::protocol::ProjectLayout> {
+) -> CoreResult<&'a mut sikemux_view::layout::ProjectLayout> {
     match (&at.host, at.terminals) {
         (_, true) => Ok(&mut layout.terminals),
         (Some(host), false) => layout
@@ -611,7 +709,6 @@ fn strip_at<'a>(
     }
 }
 
-/// Puts the strip `at` names in front.
 /// Whether the strip `at` names is the one the person has in front.
 fn in_front(layout: &Layout, at: &At) -> bool {
     if layout.chosen_host.is_some() {
@@ -640,7 +737,10 @@ fn bring_forward(layout: &mut Layout, at: &At) {
     }
 }
 
-fn tab_in<'a>(strip: &'a mut crate::protocol::ProjectLayout, tab: &str) -> CoreResult<&'a mut Tab> {
+fn tab_in<'a>(
+    strip: &'a mut sikemux_view::layout::ProjectLayout,
+    tab: &str,
+) -> CoreResult<&'a mut Tab> {
     strip
         .tabs
         .iter_mut()
@@ -653,9 +753,6 @@ fn tab_in<'a>(strip: &'a mut crate::protocol::ProjectLayout, tab: &str) -> CoreR
 pub(crate) fn show_ssh_terminal(core: &Core, host: String, id: SessionId) -> CoreResult<String> {
     edit(core, |layout| {
         let strip = layout.hosts.entry(host.clone()).or_default();
-        if strip.tabs.len() >= MAX_TABS {
-            return Err("that host already has as many tabs as the core keeps".into());
-        }
         let opened = tab(
             format!("tab-{}", uuid::Uuid::new_v4().simple()),
             PaneKind::Terminal,
@@ -693,7 +790,9 @@ pub(crate) fn show_terminal(
     open_tab(
         core,
         OpenTab {
-            at,
+            project: at.project,
+            host: at.host,
+            terminals: at.terminals,
             kind: PaneKind::Terminal,
             target: id.to_string(),
             title,
@@ -703,58 +802,42 @@ pub(crate) fn show_terminal(
     )
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TabParams {
-    #[serde(flatten)]
-    at: At,
-    tab: String,
-    /// Where `moveTab` puts it, counted in the strip as it is now.
-    to: Option<usize>,
-    /// The name `renameTab` gives it; an empty one gives back its own name.
-    title: Option<String>,
-}
-
 /// Closes a tab. Agents it shows close with it, since an agent always has a
 /// tab; terminals keep running until a client ends them.
-pub(crate) fn close_tab(core: &Core, params: TabParams) -> CoreResult<()> {
+pub(crate) fn close_tab(core: &Arc<Core>, params: TabParams) -> CoreResult<()> {
     close(core, &params.at, &[params.tab])
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TabsParams {
-    #[serde(flatten)]
-    at: At,
-    tabs: Vec<String>,
-}
-
 /// Closes several tabs of one strip at once, as `closeTab` closes one.
-pub(crate) fn close_tabs(core: &Core, params: TabsParams) -> CoreResult<()> {
+pub(crate) fn close_tabs(core: &Arc<Core>, params: TabsParams) -> CoreResult<()> {
     close(core, &params.at, &params.tabs)
 }
 
 /// A tab already gone, such as one closed twice before the window heard of the first, is
 /// closed already, so closing it does nothing.
-fn close(core: &Core, at: &At, tabs: &[String]) -> CoreResult<()> {
-    let agents = edit(core, |layout| {
+fn close(core: &Arc<Core>, at: &At, tabs: &[String]) -> CoreResult<()> {
+    let (agents, terminals) = edit(core, |layout| {
         let Ok(strip) = strip_at(layout, at) else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         };
         let closing = |tab: &Tab| tabs.contains(&tab.id);
         if !strip.tabs.iter().any(closing) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
+        let front = in_front(layout, at);
+        let strip = strip_at(layout, at)?;
         let active = strip
             .active
             .as_ref()
             .and_then(|active| strip.tabs.iter().position(|tab| &tab.id == active));
         let mut agents = Vec::new();
+        let mut terminals = Vec::new();
         let mut kept_before_active = 0;
         let mut active_closed = false;
         for (at, tab) in std::mem::take(&mut strip.tabs).into_iter().enumerate() {
             if closing(&tab) {
-                agents_in(&tab.pane, &mut agents);
+                targets_in(&tab.pane, PaneKind::Agent, &mut agents);
+                targets_in(&tab.pane, PaneKind::Terminal, &mut terminals);
                 active_closed |= Some(at) == active;
             } else {
                 kept_before_active += usize::from(active.is_some_and(|active| at < active));
@@ -766,9 +849,14 @@ fn close(core: &Core, at: &At, tabs: &[String]) -> CoreResult<()> {
                 .tabs
                 .get(kept_before_active.min(strip.tabs.len().saturating_sub(1)))
                 .map(|tab| tab.id.clone());
+            if front {
+                bring_back_latest(layout);
+            }
         }
-        Ok(agents)
+        terminals.retain(|target| !terminal_shown(layout, target));
+        Ok((agents, terminals))
     })?;
+    stop_shells(core, &terminals);
     if !agents.is_empty() {
         super::workspace::close(core, &agents)?;
     }
@@ -820,7 +908,7 @@ pub(crate) async fn duplicate_tab(core: &Arc<Core>, params: TabParams) -> CoreRe
         .cloned()
         .ok_or("that tab is not open")?;
     let mut agents = Vec::new();
-    agents_in(&source.pane, &mut agents);
+    targets_in(&source.pane, PaneKind::Agent, &mut agents);
     if !agents.is_empty() {
         return Err("an agent's tab is not copied".into());
     }
@@ -837,9 +925,6 @@ pub(crate) async fn duplicate_tab(core: &Arc<Core>, params: TabParams) -> CoreRe
     };
     edit(core, |layout| {
         let strip = strip(layout, project)?;
-        if strip.tabs.len() >= MAX_TABS {
-            return Err("that project already has as many tabs as the core keeps".into());
-        }
         let at = strip
             .tabs
             .iter()
@@ -856,17 +941,16 @@ pub(crate) async fn duplicate_tab(core: &Arc<Core>, params: TabParams) -> CoreRe
 /// Lays out at the end of `project`'s strip the tabs another host's project at `from` had,
 /// carried to this one: its agents swapped for the ones made here from theirs, paths moved
 /// under this project's folder, terminals opened afresh, and what holds nothing here left out.
-/// The tabs the new agents got of their own give way to these. Answers how many it laid out,
-/// and how many still held something here to lay out.
+/// The tabs the new agents got of their own give way to these. Answers how many it laid out.
 pub(crate) async fn lay_out_carried(
     core: &Arc<Core>,
     project: &str,
     from: &str,
     tabs: Vec<Tab>,
     agents: &HashMap<String, String>,
-) -> CoreResult<(usize, usize)> {
+) -> CoreResult<usize> {
     let to = core
-        .workspaces
+        .workspaces()
         .project_info(project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?
         .path
@@ -875,8 +959,17 @@ pub(crate) async fn lay_out_carried(
     let made: HashSet<&str> = agents.values().map(String::as_str).collect();
     let shown = |kind: PaneKind, target: &str| match kind {
         PaneKind::Agent => made.contains(target),
-        PaneKind::Desk | PaneKind::Browser | PaneKind::InstallSikemux | PaneKind::Unknown => false,
-        _ => true,
+        PaneKind::Desk | PaneKind::InstallSikemux | PaneKind::Unknown => false,
+        PaneKind::Terminal
+        | PaneKind::Files
+        | PaneKind::Git
+        | PaneKind::Search
+        | PaneKind::Board
+        | PaneKind::ProjectSettings
+        | PaneKind::Stash
+        | PaneKind::Asks
+        | PaneKind::Hosts
+        | PaneKind::Mod => true,
     };
     let mut carried = Vec::new();
     for mut tab in tabs {
@@ -894,7 +987,7 @@ pub(crate) async fn lay_out_carried(
         shells.push(super::spare::project_shell(core, project).await?);
     }
     let mut shells = shells.into_iter();
-    let wanted = carried.len();
+    let laid = carried.len();
     let carried: Vec<Tab> = carried
         .into_iter()
         .map(|tab| Tab {
@@ -909,10 +1002,8 @@ pub(crate) async fn lay_out_carried(
         strip.tabs.retain(|tab| {
             !matches!(&tab.pane, Pane::View { kind: PaneKind::Agent, target, .. } if made.contains(target.as_str()))
         });
-        let room = MAX_TABS.saturating_sub(strip.tabs.len());
-        let laid = wanted.min(room);
-        strip.tabs.extend(carried.into_iter().take(room));
-        Ok((laid, wanted))
+        strip.tabs.extend(carried);
+        Ok(laid)
     })
 }
 
@@ -1002,23 +1093,12 @@ pub(crate) fn move_tab(core: &Core, params: TabParams) -> CoreResult<()> {
     })
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ProjectParams {
-    project: String,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct HostParams {
-    /// "this", "host:<key>" for another host on the account, or "ssh:<alias>".
-    host: String,
-}
-
 /// Puts the asking client on a host: this one, another on the account, or an SSH host, whose
 /// strip comes forward, opening a terminal there when it has none.
 pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreResult<()> {
     if let Some(alias) = params.host.strip_prefix("ssh:") {
         let has_tabs = core
-            .layouts
+            .layouts()
             .layout
             .locked()
             .hosts
@@ -1036,7 +1116,7 @@ pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreRes
                 layout.active_host = None;
             }
             Some(("host", key)) => {
-                if !core.remote.links().iter().any(|link| link.id == key) {
+                if !core.remote().links().iter().any(|link| link.id == key) {
                     return Err("that host is not linked with this one".into());
                 }
                 layout.chosen_host = Some(key.to_owned());
@@ -1052,26 +1132,29 @@ pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreRes
     })
 }
 
-#[derive(Deserialize)]
-pub(crate) struct OpenPaths {
-    targets: Vec<CliOpenTarget>,
-    /// Opens the files without bringing their projects forward.
-    #[serde(default)]
-    behind: bool,
-}
-
 /// Opens what `sikemux open` or an agent's `ui_open` names: a folder's project, or a file
 /// in its project's editor, in the project holding it, else in the target's project root
 /// made a project. Answers each target's project and tab, or why it did not open.
-pub(crate) async fn open_paths(core: &Arc<Core>, params: OpenPaths) -> CoreResult<Value> {
+pub(crate) async fn open_paths(core: &Arc<Core>, params: OpenPaths) -> CoreResult<Vec<PathOpened>> {
     let mut answers = Vec::new();
     for target in params.targets {
+        let target_id = target.id.clone();
         answers.push(match open_path(core, &target, params.behind).await {
-            Ok((project, tab)) => json!({ "targetId": target.id, "project": project, "tab": tab }),
-            Err(error) => json!({ "targetId": target.id, "error": error.to_string() }),
+            Ok((project, tab)) => PathOpened {
+                target_id,
+                project: Some(project),
+                tab,
+                error: None,
+            },
+            Err(error) => PathOpened {
+                target_id,
+                project: None,
+                tab: None,
+                error: Some(error.to_string()),
+            },
         });
     }
-    Ok(Value::Array(answers))
+    Ok(answers)
 }
 
 async fn open_path(
@@ -1085,7 +1168,7 @@ async fn open_path(
             if !behind {
                 activate_project(
                     core,
-                    ProjectParams {
+                    ActivateProjectParams {
                         project: project.clone(),
                     },
                 )?;
@@ -1096,7 +1179,9 @@ async fn open_path(
             let tab = open_tab(
                 core,
                 OpenTab {
-                    at: At::project(&project),
+                    project: project.clone(),
+                    host: None,
+                    terminals: false,
                     kind: PaneKind::Files,
                     target: target.path.clone(),
                     title: None,
@@ -1116,7 +1201,8 @@ async fn owning_project(core: &Arc<Core>, path: &Path, root: &str) -> CoreResult
         .map(|project| project.path.clone())
         .collect();
     let owner = super::workspace::project_of(path, &paths);
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     if let Some(project) = projects
         .iter()
         .find(|project| canonical(&project.path).to_string_lossy() == owner)
@@ -1127,41 +1213,12 @@ async fn owning_project(core: &Arc<Core>, path: &Path, root: &str) -> CoreResult
     Ok(super::workspace::add_project(core, params).await?.id)
 }
 
-pub(crate) fn activate_project(core: &Core, params: ProjectParams) -> CoreResult<()> {
+pub(crate) fn activate_project(core: &Core, params: ActivateProjectParams) -> CoreResult<()> {
     edit(core, |layout| {
         strip(layout, &params.project)?;
         bring_forward(layout, &At::project(&params.project));
         Ok(())
     })
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum Side {
-    Left,
-    Right,
-    Top,
-    Bottom,
-    /// Behind the view, as one more tab of a stack.
-    Stack,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SplitPane {
-    #[serde(flatten)]
-    at: At,
-    tab: String,
-    /// The view the new one goes beside, by id.
-    pane: String,
-    side: Side,
-    kind: Option<PaneKind>,
-    target: Option<String>,
-    /// A tab of the same strip whose pane moves into the split, closing the tab.
-    from_tab: Option<String>,
-    /// Leaves the strip's tab in front where it is, for a split the person did not ask for.
-    #[serde(default)]
-    keep_front: bool,
 }
 
 /// Puts a view beside one of a tab's views: a new view of `kind` showing
@@ -1251,18 +1308,9 @@ fn first_view_id(pane: &Pane) -> String {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PaneParams {
-    #[serde(flatten)]
-    at: At,
-    tab: String,
-    pane: String,
-}
-
 /// Closes one view of a tab; a tab left with nothing closes as `closeTab` does.
 /// An agent shown in it closes with it. A view already gone is closed already.
-pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
+pub(crate) fn close_pane(core: &Arc<Core>, params: PaneParams) -> CoreResult<()> {
     let closed = edit(core, |layout| {
         let Some(tab) = strip_at(layout, &params.at)
             .ok()
@@ -1275,11 +1323,14 @@ pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
         };
         let keep = |pane: &Pane| !matches!(pane, Pane::View { id, .. } if id == &params.pane);
         let left = keep(&tab.pane) && prune(&mut tab.pane, &keep);
-        Ok(Some((view, left)))
+        let mut terminals = Vec::new();
+        targets_in(&view, PaneKind::Terminal, &mut terminals);
+        terminals.retain(|target| !terminal_shown(layout, target));
+        Ok(Some((view, left, terminals)))
     })?;
     match closed {
         None => Ok(()),
-        Some((_, false)) => close_tab(
+        Some((_, false, _)) => close_tab(
             core,
             TabParams {
                 at: params.at,
@@ -1288,9 +1339,10 @@ pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
                 title: None,
             },
         ),
-        Some((view, true)) => {
+        Some((view, true, terminals)) => {
+            stop_shells(core, &terminals);
             let mut agents = Vec::new();
-            agents_in(&view, &mut agents);
+            targets_in(&view, PaneKind::Agent, &mut agents);
             if !agents.is_empty() {
                 super::workspace::close(core, &agents)?;
             }
@@ -1304,9 +1356,6 @@ pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
 pub(crate) fn separate_pane(core: &Core, params: PaneParams) -> CoreResult<String> {
     edit(core, |layout| {
         let strip = strip_at(layout, &params.at)?;
-        if strip.tabs.len() >= MAX_TABS {
-            return Err("that strip already has as many tabs as the core keeps".into());
-        }
         let at = strip
             .tabs
             .iter()
@@ -1334,17 +1383,6 @@ pub(crate) fn separate_pane(core: &Core, params: PaneParams) -> CoreResult<Strin
         strip.active = Some(id.clone());
         Ok(id)
     })
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ResizeSplit {
-    #[serde(flatten)]
-    at: At,
-    tab: String,
-    split: String,
-    /// Each pane's share, in any unit; the core keeps them in thousandths.
-    sizes: Vec<u16>,
 }
 
 pub(crate) fn resize_split(core: &Core, params: ResizeSplit) -> CoreResult<()> {

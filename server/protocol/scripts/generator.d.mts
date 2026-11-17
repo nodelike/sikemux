@@ -24,7 +24,16 @@ export function rust(
   options?: {
     include?: (definition: Definition) => boolean;
     imports?: string;
+    omit?: Record<string, string[]>;
   },
+): string;
+export function reachable(
+  definitions: Definitions,
+  roots: string[],
+): Set<string>;
+export function swift(
+  definitions: Definitions,
+  options: { roots: string[]; renamed?: Set<string>; provided?: Set<string> },
 ): string;
 export function openapi(
   definitions: Definitions,

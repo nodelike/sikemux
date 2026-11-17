@@ -99,8 +99,9 @@ may or may not have.
   lacks takes its first bundle's time; a later worker for the same project sends only what is new.
 - A worker's checkout stays on its host after it closes, as a worktree beside the project or under
   the data folder.
-- Moving a running agent to another host, and picking the host with spare cores, are left for
-  later.
+- Moving a running agent to another host is left for later. Auto starts agents on the linked
+  hosts a project names once its own places are full, and keeps each card's worktree on its own
+  host, so its review and merge queue read a local checkout.
 - Only the Mac app asks the account for a host's ticket today, so a host without a window is
   linked by a host with one joining it; the link then works both ways.
 

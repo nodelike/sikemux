@@ -8,7 +8,7 @@ import {
   type PathRoots,
 } from "@shared/chat/filePath";
 
-export type PathKind = "file" | "dir";
+type PathKind = "file" | "dir";
 
 const PathRootsContext = createContext<PathRoots>({ cwd: "" });
 
@@ -26,7 +26,7 @@ export function PathRootsProvider({
   );
 }
 
-export function usePathRoots(): PathRoots {
+function usePathRoots(): PathRoots {
   return useContext(PathRootsContext);
 }
 
@@ -61,20 +61,16 @@ export function ChatFileRef({
   tile?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    <span
       className={className}
       data-kind={state}
+      role={tile ? "img" : undefined}
       aria-label={tile ? basename(refers.path) : undefined}
       title={
         refers.line === undefined
           ? refers.path
           : `${refers.path}:${refers.line}`
       }
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
     >
       {state === "dir" ? (
         <span className="file-glyph" aria-hidden="true">
@@ -86,6 +82,6 @@ export function ChatFileRef({
         <FileIcon name={basename(refers.path)} size={Math.round(size * 0.8)} />
       )}
       {!tile && <span className="chat-file-ref-name">{label}</span>}
-    </button>
+    </span>
   );
 }

@@ -1,0 +1,183 @@
+//! Starting the core for an app, and keeping it on the app's build: a core of
+//! another build is moved to this one in place, keeping every session and
+//! chat. Every app that talks to the core starts it here, then connects to it
+//! its own way.
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use sikemux_client::client::ClientError;
+use sikemux_corekit::build::older_version;
+use sikemux_corekit::client::await_deferred_upgrade;
+use sikemux_corekit::client::await_upgrade;
+use sikemux_corekit::client::frozen_request;
+use sikemux_corekit::client::probe;
+use sikemux_corekit::frozen::FrozenReply;
+use sikemux_corekit::frozen::FrozenRequest;
+use sikemux_wire::protocol::BuildIdentity;
+
+use crate::login_item::{start_core, CoreLaunch};
+
+#[cfg(unix)]
+#[path = "core_start/unix.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "core_start/windows.rs"]
+mod platform;
+
+/// The core first checks that the new binary starts, which can take a while
+/// the first time macOS sees it.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
+const RETURN_TIMEOUT: Duration = Duration::from_secs(20);
+/// A core with chat turns running updates once they end, which it gives two
+/// minutes.
+const DEFERRED_RETURN_TIMEOUT: Duration = Duration::from_secs(150);
+/// How long a core that holds its lock gets to answer before it counts as stuck.
+const STUCK_PROBE: Duration = Duration::from_secs(3);
+
+pub enum Upgrade {
+    Done,
+    /// The core goes on as it is until its chats can be carried over, then
+    /// updates and drops its connections, which come back to the updated core.
+    Deferred,
+}
+
+pub enum StartError {
+    Unreachable(ClientError),
+    /// A core of another protocol answers at the socket and could not be
+    /// moved to this build, so this app cannot talk to it.
+    Incompatible {
+        pid: u32,
+        reason: String,
+    },
+}
+
+/// Makes sure a core this app can talk to answers at the launch's socket:
+/// starts one, through the login item when it is installed, or moves the one
+/// running to `build`, unless it runs a newer release. A core with chats that cannot be carried over yet is
+/// left on its build until they can, unless `force`.
+pub async fn start(
+    identifier: &str,
+    launch: &CoreLaunch,
+    build: &BuildIdentity,
+    force: bool,
+) -> Result<(), StartError> {
+    let found = {
+        let (identifier, launch) = (identifier.to_owned(), launch.clone());
+        tokio::task::spawn_blocking(move || start_core(&identifier, &launch))
+            .await
+            .map_err(|error| StartError::Unreachable(ClientError::Core(error.to_string())))?
+    };
+    let binary = launch.binary.clone();
+    match found {
+        Ok(hello) if hello.build.same_build(build) && runs(hello.pid, &binary) => Ok(()),
+        Ok(hello) if older_version(&build.version, &hello.build.version) => {
+            eprintln!(
+                "Sikemux {} uses the newer core already running ({} {}) as it is",
+                build.version, hello.build.version, hello.build.commit
+            );
+            Ok(())
+        }
+        Ok(hello) => {
+            let old = (!hello.build.same_build(build)).then_some(hello.build);
+            match upgrade(&launch.socket, binary, hello.pid, old, force, false).await {
+                Ok(Upgrade::Done) => {}
+                Ok(Upgrade::Deferred) => eprintln!(
+                    "Sikemux's core updates once its chats can be carried over; using it as it is until then"
+                ),
+                Err(message) => eprintln!("Sikemux keeps its core as it is: {message}"),
+            }
+            Ok(())
+        }
+        Err(ClientError::VersionMismatch { pid, message, .. }) => {
+            upgrade(&launch.socket, binary, pid, None, force, true)
+                .await
+                .map(drop)
+                .map_err(|reason| StartError::Incompatible {
+                    pid,
+                    reason: format!("{message}, and it could not be updated: {reason}"),
+                })
+        }
+        Err(error) => Err(StartError::Unreachable(error)),
+    }
+}
+
+/// Whether the core `pid` runs from `binary`, such as the core the installer set up
+/// rather than one inside an AppImage. Where the system cannot tell, it counts as so.
+fn runs(pid: u32, binary: &Path) -> bool {
+    if cfg!(target_os = "linux") {
+        std::fs::read_link(format!("/proc/{pid}/exe")).map_or(true, |exe| exe == binary)
+    } else {
+        true
+    }
+}
+
+/// Asks the core at `socket` to replace itself with `binary`, and waits for
+/// it to answer from the same process again. Without `old`, the core speaks
+/// another protocol and could not say which build it runs. A core that defers
+/// is waited for only when `wait_if_deferred`.
+pub async fn upgrade(
+    socket: &Path,
+    binary: PathBuf,
+    pid: u32,
+    old: Option<BuildIdentity>,
+    force: bool,
+    wait_if_deferred: bool,
+) -> Result<Upgrade, String> {
+    let socket = socket.to_owned();
+    let upgraded = tokio::task::spawn_blocking(move || {
+        let request = FrozenRequest::Upgrade { binary, force };
+        match frozen_request(&socket, &request, ANSWER_TIMEOUT) {
+            Ok(FrozenReply::Accepted) => await_upgrade(&socket, pid, old.as_ref(), RETURN_TIMEOUT)
+                .map(Some)
+                .map_err(|error| error.to_string()),
+            Ok(FrozenReply::Deferred { .. }) if wait_if_deferred => {
+                await_deferred_upgrade(&socket, pid, old.as_ref(), DEFERRED_RETURN_TIMEOUT)
+                    .map(Some)
+                    .map_err(|error| error.to_string())
+            }
+            Ok(FrozenReply::Deferred { .. }) => Ok(None),
+            Ok(FrozenReply::Refused { message }) => Err(message),
+            Ok(FrozenReply::UpdateBlockers { .. }) => {
+                Err("the core answered another request".to_owned())
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let Some(upgraded) = upgraded else {
+        return Ok(Upgrade::Deferred);
+    };
+    eprintln!(
+        "Sikemux updated its core (pid {pid}) to {} {}",
+        upgraded.build.version, upgraded.build.commit
+    );
+    Ok(Upgrade::Done)
+}
+
+/// The core that holds the lock at `socket` but does not answer there, by its process id.
+pub fn stuck(socket: &Path) -> Option<u32> {
+    let pid = sikemux_corekit::lock::lock_holder(socket)?;
+    probe(socket, STUCK_PROBE).is_err().then_some(pid)
+}
+
+/// Ends core `pid` while it still holds the lock at `socket`: asks it to where the system can,
+/// then forces it, so a core that stopped answering cannot keep another from starting. Answers
+/// whether it is gone.
+pub fn end(socket: &Path, pid: u32) -> bool {
+    for (stop, grace) in platform::STOPS {
+        if sikemux_corekit::lock::lock_holder(socket) != Some(pid) {
+            return true;
+        }
+        stop(pid);
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline {
+            if sikemux_corekit::lock::lock_holder(socket) != Some(pid) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    sikemux_corekit::lock::lock_holder(socket) != Some(pid)
+}

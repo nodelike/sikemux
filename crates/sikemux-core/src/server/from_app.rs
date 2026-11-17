@@ -2,6 +2,8 @@
 //! the core took it over. The steps that finished are recorded in `FILE`; one
 //! that could not finish runs again when the core next starts.
 
+use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,20 +12,17 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 
 use super::kept::Kept;
-use super::{plugins, preferences, Core};
+use super::{plugins, Core};
 
 const FILE: &str = "carried-from-app.json";
+const PREFERENCES_STEP: &str = "preferences";
 const HOSTS_STEP: &str = "hosts.installedFrom";
 const AWS_STEP: &str = "aws.paneProfile";
 const AWS_PLUGIN: &str = "sikemux.aws";
 
 /// The app's data folder in this build, which is the core's when the app
 /// started it, and the only core that may read the app's files.
-const APP_DATA_DIR: &str = if cfg!(debug_assertions) {
-    "com.nodelike.sikemux.dev"
-} else {
-    "com.nodelike.sikemux"
-};
+const APP_DATA_DIR: &str = sikemux_process::names::APP_IDENTIFIER;
 
 pub(super) fn app_data_dir(data_dir: Option<&Path>) -> Option<&Path> {
     data_dir.filter(|dir| dir.file_name() == Some(APP_DATA_DIR.as_ref()))
@@ -54,16 +53,14 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
     };
     let record = Kept::new(Some(dir), FILE);
     let mut done: BTreeSet<String> = record.load();
-    let preference_steps: Vec<(String, String)> = preferences::keys()
-        .into_iter()
-        .map(|key| (format!("preferences.{key}"), key))
-        .collect();
-    let pending = preference_steps
-        .iter()
-        .map(|(step, _)| step.as_str())
-        .chain([HOSTS_STEP, AWS_STEP])
-        .any(|step| !done.contains(step));
-    if !pending {
+    // Earlier cores recorded a step per preference, each carried once as a core first ran.
+    let preferences_carried =
+        done.contains(PREFERENCES_STEP) || done.iter().any(|step| step.starts_with("preferences."));
+    if preferences_carried
+        && [HOSTS_STEP, AWS_STEP]
+            .iter()
+            .all(|step| done.contains(*step))
+    {
         return;
     }
     let app = match app_state(data_dir) {
@@ -72,17 +69,14 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
         None => Value::Null,
     };
     let prefs = &app["prefs"];
-    for (step, key) in preference_steps {
-        if done.contains(&step) {
-            continue;
+    if !preferences_carried {
+        for (key, value) in prefs.as_object().into_iter().flatten() {
+            let _ = core.preferences().carry(key, value.clone());
         }
-        if let Some(value) = prefs.get(&key) {
-            let _ = core.preferences.set(&key, value.clone());
-        }
-        done.insert(step);
     }
+    done.insert(PREFERENCES_STEP.to_owned());
     if !done.contains(HOSTS_STEP) {
-        core.hosts.carry_installed_from(installed_from(dir));
+        core.hosts().carry_installed_from(installed_from(dir));
         done.insert(HOSTS_STEP.to_owned());
     }
     let aws_profile = prefs["pluginSettings"][AWS_PLUGIN]["profile"]

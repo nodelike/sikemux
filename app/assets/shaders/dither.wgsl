@@ -1,6 +1,5 @@
-// What every dithered program shares: GPUI's bindings, the rectangle each instance
-// covers, and Paper Shaders' simplex noise and 8x8 Bayer grid. The build puts it in
-// front of each program in this folder.
+// What every program in this folder shares: GPUI's bindings and the rectangle each
+// instance covers. The build puts it in front of each, with the kinds in `kinds`.
 
 struct GlobalParams {
     viewport_size: vec2<f32>,
@@ -35,47 +34,44 @@ fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance
     return out;
 }
 
-fn permute(x: vec3<f32>) -> vec3<f32> {
-    return (((x * 34.0) + 1.0) * x) % vec3<f32>(289.0);
-}
-
-fn modulo(x: vec2<f32>, y: f32) -> vec2<f32> {
-    return x - y * floor(x / y);
-}
-
-fn snoise(v: vec2<f32>) -> f32 {
-    let c = vec4<f32>(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-    var i = floor(v + dot(v, c.yy));
-    let x0 = v - i + dot(i, c.xx);
-    let i1 = select(vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0), x0.x > x0.y);
-    var x12 = x0.xyxy + c.xxzz;
-    x12 = vec4<f32>(x12.xy - i1, x12.zw);
-    i = modulo(i, 289.0);
-    let p = permute(permute(i.y + vec3<f32>(0.0, i1.y, 1.0)) + i.x + vec3<f32>(0.0, i1.x, 1.0));
-    var m = max(vec3<f32>(0.5) - vec3<f32>(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), vec3<f32>(0.0));
-    m = m * m;
-    m = m * m;
-    let x = 2.0 * fract(p * c.www) - 1.0;
-    let h = abs(x) - 0.5;
-    let ox = floor(x + 0.5);
-    let a0 = x - ox;
-    m = m * (1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h));
-    let g = vec3<f32>(a0.x * x0.x + h.x * x0.y, a0.yz * x12.xz + h.yz * x12.yw);
-    return 130.0 * dot(m, g);
-}
-
-fn bayer8(cell: vec2<f32>) -> f32 {
-    let at = vec2<u32>(fract(cell / 8.0) * 8.0);
-    // The 8x8 Bayer matrix's entry, built from the bits of its column and row.
-    let a = at.x ^ at.y;
-    let b = at.y;
-    let value = ((a & 1u) << 5u) | ((b & 1u) << 4u) | ((a & 2u) << 2u) | ((b & 2u) << 1u)
-        | ((a & 4u) >> 1u) | ((b & 4u) >> 2u);
-    return f32(value) / 64.0;
-}
-
 // Whether `local`, in points from a rectangle's corner, falls outside its rounded corners.
 fn outside_corners(local: vec2<f32>, size: vec2<f32>, radius: f32) -> bool {
     let corner = abs(local - 0.5 * size) - (0.5 * size - radius);
     return length(max(corner, vec2<f32>(0.0))) > radius;
+}
+
+// A repeatable random value for a cell, for one seed.
+fn cell_hash(cell: vec2<f32>, seed: f32) -> f32 {
+    return fract(sin(cell.x * 127.1 + cell.y * 311.7 + seed * 74.7) * 43758.5453);
+}
+
+// Smooth value noise.
+fn value_noise(at: vec2<f32>, seed: f32) -> f32 {
+    let whole = floor(at);
+    let part = smoothstep(vec2<f32>(0.0), vec2<f32>(1.0), at - whole);
+    let p = cell_hash(whole, seed);
+    let q = cell_hash(whole + vec2<f32>(1.0, 0.0), seed);
+    let r = cell_hash(whole + vec2<f32>(0.0, 1.0), seed);
+    let s = cell_hash(whole + vec2<f32>(1.0, 1.0), seed);
+    return p + (q - p) * part.x + (r - p) * part.y + (p - q - r + s) * part.x * part.y;
+}
+
+// Three octaves of value noise.
+fn layered_noise(at: vec2<f32>, seed: f32) -> f32 {
+    return value_noise(at, seed) * 0.57
+        + value_noise(at * 2.03, seed + 1.0) * 0.29
+        + value_noise(at * 4.1, seed + 2.0) * 0.14;
+}
+
+// How far `at` is from `rect`, 0 inside it.
+fn rect_distance(at: vec2<f32>, rect: vec4<f32>) -> f32 {
+    let dx = max(max(rect.x - at.x, 0.0), at.x - rect.z);
+    let dy = max(max(rect.y - at.y, 0.0), at.y - rect.w);
+    return length(vec2<f32>(dx, dy));
+}
+
+// The nearer of two distances, rounding off the corner where the two shapes meet.
+fn blended_nearest(a: f32, b: f32, blend: f32) -> f32 {
+    let share = clamp(0.5 + 0.5 * (b - a) / blend, 0.0, 1.0);
+    return mix(b, a, share) - blend * share * (1.0 - share);
 }

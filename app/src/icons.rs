@@ -1,11 +1,16 @@
 use std::borrow::Cow;
+use std::future::Future;
+use std::sync::Arc;
 
-use gpui_kit::{AssetSource, Result, SharedString};
+use gpui_kit::{
+    size, App, Asset, AssetSource, DevicePixels, ImageCacheError, ImageSource, ImgResourceLoader,
+    RenderImage, Resource, Result, SharedString, SvgSize,
+};
 
 macro_rules! icons {
     ($($icon:ident => $file:literal),* $(,)?) => {
         /// Every icon the app draws, from icons.mjs's SVGs.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum Icon { $($icon),* }
 
         impl Icon {
@@ -36,6 +41,7 @@ icons!(
     Agent => "agent",
     Agents => "agents",
     ArrowDown => "arrow-down",
+    ArrowLeft => "arrow-left",
     ArrowUp => "arrow-up",
     Aws => "aws",
     BatteryBolt => "battery-bolt",
@@ -46,7 +52,6 @@ icons!(
     BoltFill => "bolt-fill",
     Book => "book",
     Briefcase => "briefcase",
-    Bruno => "bruno",
     Building => "building",
     Camera => "camera",
     Check => "check",
@@ -68,26 +73,35 @@ icons!(
     Dashboard => "dashboard",
     Database => "database",
     Discard => "discard",
+    Discord => "discord",
     Download => "download",
     Editor => "editor",
     ExpandAll => "expand-all",
+    ExternalLink => "external-link",
     Eye => "eye",
     Fetch => "fetch",
     File => "file",
     FilePlus => "file-plus",
     Flask => "flask",
     Focus => "focus",
+    Snip => "snip",
     Folder => "folder",
     FolderPlus => "folder-plus",
+    Forgejo => "forgejo",
     Git => "git",
+    Gitea => "gitea",
     Github => "github",
     Gitlab => "gitlab",
     Globe => "globe",
+    Googleplay => "googleplay",
+    Hand => "hand",
+    HandOff => "hand-off",
     Heart => "heart",
     Highlighter => "highlighter",
     Home => "home",
     HomeButton => "home-button",
     Hourglass => "hourglass",
+    Bell => "bell",
     Gauge => "gauge",
     Image => "image",
     Inbox => "inbox",
@@ -133,9 +147,13 @@ icons!(
     Push => "push",
     Record => "record",
     Refresh => "refresh",
+    Reply => "reply",
     Releases => "releases",
     Resize => "resize",
     Rocket => "rocket",
+    Replace => "replace",
+    Restore => "restore",
+    Resume => "resume",
     Rotate => "rotate",
     Run => "run",
     Rundeck => "rundeck",
@@ -147,7 +165,9 @@ icons!(
     ShieldBolt => "shield-bolt",
     Signoz => "signoz",
     Slack => "slack",
+    Sort => "sort",
     Sparkle => "sparkle",
+    SquareKanban => "square-kanban",
     SquarePlus => "square-plus",
     Stack => "stack",
     Star => "star",
@@ -157,6 +177,8 @@ icons!(
     Stop => "stop",
     Swipe => "swipe",
     Table => "table",
+    Tablet => "tablet",
+    Tag => "tag",
     Tabs => "tabs",
     Tap => "tap",
     Terminal => "terminal",
@@ -169,11 +191,16 @@ icons!(
     User => "user",
     Vercel => "vercel",
     PhoneQr => "phone-qr",
+    Viewport => "viewport",
+    Wand => "wand",
     Warning => "warning",
     InfoCircle => "info-circle",
+    CheckCircle => "check-circle",
+    AlertCircle => "alert-circle",
     Waterfall => "waterfall",
     Window => "window",
     Workflow => "workflow",
+    Wrap => "wrap",
     Wrench => "wrench",
     Grok => "grok",
     Hermes => "hermes",
@@ -181,9 +208,42 @@ icons!(
     Omp => "omp",
     OpenCode => "opencode",
     Pi => "pi",
+    Alibaba => "bailian",
+    Anthropic => "anthropic",
+    Baseten => "baseten",
+    Cerebras => "cerebras",
+    DeepSeek => "deepseek",
+    Fireworks => "fireworks",
+    Groq => "groq",
+    Hunyuan => "hunyuan",
+    Kimi => "kimi",
+    LmStudio => "lmstudio",
+    Meta => "meta",
+    MiniMax => "minimax",
+    Mistral => "mistral",
+    Moonshot => "moonshot",
+    NousResearch => "nousresearch",
+    Ollama => "ollama",
+    OpenAi => "openai",
+    OpenRouter => "openrouter",
+    StepFun => "stepfun",
+    Synthetic => "synthetic",
+    Together => "together",
+    Volcengine => "volcengine",
+    XAi => "xai",
+    Xiaomi => "xiaomimimo",
+    Zhipu => "zhipu",
     Postgresql => "postgresql",
     Mysql => "mysql",
     Sqlite => "sqlite",
+    Apple => "apple",
+    Hetzner => "hetzner",
+    DigitalOcean => "digitalocean",
+    Nvidia => "nvidia",
+    Ubuntu => "ubuntu",
+    Debian => "debian",
+    Omarchy => "omarchy",
+    Linux => "linux",
 );
 
 /// Whether an SVG draws in `currentColor`.
@@ -224,12 +284,15 @@ const KIT_ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/chevron.svg"),
     ),
     (
+        "icons/loader.svg",
+        include_bytes!("../assets/icons/loader.svg"),
+    ),
+    (
         "icons/chevron-down.svg",
         include_bytes!("../assets/icons/chevron-down.svg"),
     ),
 ];
 
-/// The icons, compiled in.
 pub struct Icons;
 
 impl AssetSource for Icons {
@@ -251,7 +314,43 @@ impl AssetSource for Icons {
     }
 }
 
-/// An agent's mark.
+enum SharpPicture {}
+
+impl Asset for SharpPicture {
+    type Source = (Icon, i32);
+    type Output = Result<Arc<RenderImage>, ImageCacheError>;
+
+    fn load(
+        (icon, side): Self::Source,
+        cx: &mut App,
+    ) -> impl Future<Output = Self::Output> + Send + 'static {
+        let renderer = cx.svg_renderer();
+        async move {
+            let bytes = FILES
+                .iter()
+                .find(|(name, _)| *name == icon.path())
+                .map_or(&[][..], |(_, bytes)| *bytes);
+            let svg = renderer.parse_svg(bytes)?;
+            let side = DevicePixels(side);
+            Ok(renderer.render_parsed(&svg, SvgSize::ExactSize(size(side, side)))?)
+        }
+    }
+}
+
+/// A coloured icon rendered at the pixels it covers, since GPUI's `svg()` can only tint a shape
+/// and its `img()` stretches one small bitmap to every size.
+pub fn sharp_picture(icon: Icon, points: f32) -> ImageSource {
+    ImageSource::Custom(Arc::new(move |window, cx| {
+        let side = (points * window.scale_factor()).ceil() as i32;
+        window
+            .use_asset::<SharpPicture>(&(icon, side), cx)
+            .or_else(|| {
+                let while_it_renders = Resource::Embedded(icon.path().into());
+                window.use_asset::<ImgResourceLoader>(&while_it_renders, cx)
+            })
+    }))
+}
+
 pub fn agent(provider: &str) -> Icon {
     match provider {
         "codex" => Icon::Codex,
@@ -263,6 +362,42 @@ pub fn agent(provider: &str) -> Icon {
         "opencode" => Icon::OpenCode,
         "pi" => Icon::Pi,
         "sikemux" => Icon::Logo,
+        _ => Icon::Agent,
+    }
+}
+
+/// The logo of who serves a model: a provider from `model-providers.json`, or an agent's maker
+/// by name, such as "Anthropic". A provider the person added has none, so it takes the agent glyph.
+pub fn model_provider(provider: &str) -> Icon {
+    let provider = provider.to_ascii_lowercase();
+    match provider.strip_suffix("-cn").unwrap_or(&provider) {
+        "anthropic" => Icon::Anthropic,
+        "openai" => Icon::OpenAi,
+        "xai" => Icon::XAi,
+        "meta" => Icon::Meta,
+        "nous research" => Icon::NousResearch,
+        "zai" => Icon::Zhipu,
+        "minimax" => Icon::MiniMax,
+        "kimi-code" => Icon::Kimi,
+        "moonshot" => Icon::Moonshot,
+        "alibaba" | "alibaba-coding-plan" | "alibaba-token-plan" => Icon::Alibaba,
+        "volcengine" | "volcengine-coding-plan" => Icon::Volcengine,
+        "xiaomi" | "xiaomi-token-plan" | "xiaomi-token-plan-eu" => Icon::Xiaomi,
+        "stepfun" | "stepfun-step-plan" => Icon::StepFun,
+        "tencent-tokenhub" | "tencent-coding-plan" => Icon::Hunyuan,
+        "opencode-go" => Icon::OpenCode,
+        "synthetic" => Icon::Synthetic,
+        "ollama" | "ollama-cloud" => Icon::Ollama,
+        "openrouter" => Icon::OpenRouter,
+        "baseten" => Icon::Baseten,
+        "together" => Icon::Together,
+        "fireworks" => Icon::Fireworks,
+        "groq" => Icon::Groq,
+        "cerebras" => Icon::Cerebras,
+        "deepseek" => Icon::DeepSeek,
+        "mistral" => Icon::Mistral,
+        "vercel" => Icon::Vercel,
+        "lmstudio" => Icon::LmStudio,
         _ => Icon::Agent,
     }
 }

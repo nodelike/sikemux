@@ -1,10 +1,11 @@
 import { createContext, useContext, useMemo, useState } from "react";
+import { english, type Say } from "../lib/say";
 import { revealBlocks, visibleLength } from "../markdown/visible";
 import type { MdElement } from "../markdown/types";
 
 const LONG_TEXT_LIMIT = 20_000;
 
-export interface TextCut {
+interface TextCut {
     head: string;
     hidden: number;
 }
@@ -18,8 +19,8 @@ function openFence(text: string): string | null {
     return open;
 }
 
-/** Prefers a paragraph break, then a line break, and cuts mid-line only when neither is near the limit. */
-export const showRestLabel = (hidden: number): string => `Show the rest · ${Math.round(hidden / 1000)}k more characters`;
+export const showRestLabel = (hidden: number, say: Say = english): string =>
+    say("Show the rest · {count}k more characters", { count: Math.round(hidden / 1000) });
 
 export function cutLongText(text: string, limit = LONG_TEXT_LIMIT): TextCut | null {
     if (text.length <= limit) return null;
@@ -39,7 +40,7 @@ export function cutLongText(text: string, limit = LONG_TEXT_LIMIT): TextCut | nu
     return { head, hidden };
 }
 
-export interface BlocksCut {
+interface BlocksCut {
     blocks: MdElement[];
     hidden: number;
 }

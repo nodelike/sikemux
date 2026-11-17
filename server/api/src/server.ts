@@ -5,6 +5,11 @@ import type { Server } from "node:http";
 import { appleSignIn } from "./account/apple.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
+import { makeDueCalls } from "./billing/calls.ts";
+import { sweepDeletedBilling } from "./billing/deleted.ts";
+import { PaddleProvider } from "./billing/paddle.ts";
+import { PaddleApi } from "./billing/paddle-api.ts";
+import { endSandboxPlans } from "./billing/sandbox.ts";
 import { createApp } from "./app.ts";
 import { clerkVerifier } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -20,14 +25,14 @@ import { FcmProvider } from "./push/fcm.ts";
 import { Pusher } from "./push/send.ts";
 import { RelayAccess } from "./relay/access.ts";
 import { attachShares } from "./share/server.ts";
-import { backfillLinks } from "./stash/backfill.ts";
 import { StashFiles } from "./stash/files.ts";
+import { StandInProvider } from "./billing/stand-in.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
 const DRAIN_MS = 25_000;
-const CLERK_SWEEP_MS = 60_000;
+const SWEEP_MS = 60_000;
 
-export function startServer(config: Config, log: Logger) {
+export async function startServer(config: Config, log: Logger) {
   const database = openDatabase(config.databaseUrl, log);
   const verifier = clerkVerifier({
     issuer: config.clerkIssuer,
@@ -36,7 +41,7 @@ export function startServer(config: Config, log: Logger) {
   });
   const limiter = new RateLimiter();
   const clerk = config.clerkSecretKey
-    ? clerkBackend(config.clerkSecretKey)
+    ? clerkBackend(config.clerkSecretKey, fetch, config.clerkApi)
     : null;
   if (!clerk)
     log.warn(
@@ -111,6 +116,26 @@ export function startServer(config: Config, log: Logger) {
     );
   const relayAccess = new RelayAccess(database.db);
   const hookHosts = new HookHosts();
+  const billing = config.billing;
+  const provider =
+    billing.provider === "stand-in"
+      ? new StandInProvider(config.apiOrigin)
+      : billing.provider === "paddle"
+        ? new PaddleProvider({
+            api: new PaddleApi(billing.paddleKey, log),
+            apiOrigin: config.apiOrigin,
+            log,
+          })
+        : null;
+  if (provider instanceof PaddleProvider)
+    log.info(
+      { sandbox: provider.sandbox },
+      provider.sandbox
+        ? "billing goes through Paddle's sandbox"
+        : "billing goes through Paddle's live account",
+    );
+  if (provider instanceof PaddleProvider && !provider.sandbox)
+    await endSandboxPlans(database.db, log);
   const app = createApp({
     database,
     log,
@@ -129,6 +154,7 @@ export function startServer(config: Config, log: Logger) {
     relayAccessToken: config.relayAccessToken,
     stash: config.stash ? new StashFiles(config.stash) : null,
     hookHosts,
+    billing: { provider, live: config.billing.live },
   });
   const server = serve(
     { fetch: app.fetch, hostname: config.host, port: config.port },
@@ -161,37 +187,47 @@ export function startServer(config: Config, log: Logger) {
     pusher,
     watchers: [shares, relayAccess, hooks],
   });
-  backfillLinks(database.db, log).catch((error: unknown) =>
-    log.error(
-      { err: error },
-      "keeping the links of earlier stashed items failed",
-    ),
-  );
   let sweeping = false;
-  const clerkSweep = setInterval(() => {
-    if (!clerk || sweeping) return;
+  const sweep = setInterval(() => {
+    if (sweeping) return;
     sweeping = true;
-    sweepClerk(database.db, clerk, log)
-      .catch((error: unknown) =>
-        log.error({ err: error }, "retrying calls to Clerk failed"),
-      )
-      .finally(() => {
-        sweeping = false;
-      });
-  }, CLERK_SWEEP_MS);
+    Promise.all([
+      clerk &&
+        sweepClerk(database.db, clerk, log).catch((error: unknown) =>
+          log.error({ err: error }, "retrying calls to Clerk failed"),
+        ),
+      provider &&
+        makeDueCalls(database.db, provider, log).catch((error: unknown) =>
+          log.error(
+            { err: error },
+            "making the calls billing owes the payment provider failed",
+          ),
+        ),
+      sweepDeletedBilling(database.db, provider, log).catch((error: unknown) =>
+        log.error(
+          { err: error },
+          "ending deleted accounts' billing with the payment provider failed",
+        ),
+      ),
+    ]).finally(() => {
+      sweeping = false;
+    });
+  }, SWEEP_MS);
 
   let stopping = false;
   const stop = (signal: NodeJS.Signals) => {
     if (stopping) return;
     stopping = true;
     log.info({ signal }, "stopping");
-    clearInterval(clerkSweep);
-    hooks.stop();
+    clearInterval(sweep);
     const force = setTimeout(() => server.closeAllConnections(), DRAIN_MS);
     force.unref();
-    const liveStopped = Promise.all([live.stop(), shares.stop()]).catch(
-      (error: unknown) =>
-        log.error({ err: error }, "closing live connections failed"),
+    const liveStopped = Promise.all([
+      live.stop(),
+      shares.stop(),
+      hooks.stop(),
+    ]).catch((error: unknown) =>
+      log.error({ err: error }, "closing live connections failed"),
     );
     server.close(() => {
       clearTimeout(force);

@@ -252,24 +252,6 @@ impl Session {
         DatabaseError::Query(describe(error))
     }
 
-    pub async fn version(&self) -> DatabaseResult<String> {
-        let mut connection = self.connection.lock().await;
-        let version: Option<String> = connection
-            .query_first("select version()")
-            .await
-            .map_err(|error| self.failed(&error))?;
-        let version = version.unwrap_or_default();
-        let engine = if version.to_lowercase().contains("mariadb") {
-            "MariaDB"
-        } else {
-            "MySQL"
-        };
-        Ok(format!(
-            "{engine} {}",
-            version.split('-').next().unwrap_or(&version)
-        ))
-    }
-
     /// Runs every statement in the text, keeping at most `limit` rows from each. The server is told to send
     /// no more than one row past the limit, so a huge select is not read to its end; a select with a `limit`
     /// of its own keeps that one.
@@ -592,14 +574,6 @@ pub mod tests {
     }
 
     #[test]
-    fn type_names_read_as_people_know_them() {
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_LONGLONG), "longlong");
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_NEWDECIMAL), "newdecimal");
-        assert!(is_numeric(ColumnType::MYSQL_TYPE_NEWDECIMAL));
-        assert!(!is_numeric(ColumnType::MYSQL_TYPE_VAR_STRING));
-    }
-
-    #[test]
     fn only_a_server_that_cannot_encrypt_is_reached_without_it() {
         assert!(lacks_tls(&mysql_async::Error::Driver(
             mysql_async::DriverError::NoClientSslFlagFromServer
@@ -624,14 +598,13 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn a_live_server_names_itself_and_refuses_a_wrong_password() {
+    async fn a_live_server_signs_in_and_refuses_a_wrong_password() {
         let Some((server, password)) = server() else {
             return;
         };
-        let session = Session::open(&server, Some(&password), false)
+        Session::open(&server, Some(&password), false)
             .await
             .unwrap();
-        assert!(session.version().await.unwrap().starts_with("MySQL 8"));
         let refused = Session::open(&server, Some("wrong"), false).await;
         let Err(DatabaseError::Connect(message)) = refused else {
             panic!("expected the sign-in to be refused")

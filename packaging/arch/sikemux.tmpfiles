@@ -1,0 +1,4 @@
+# pacman unpacks the core as root:root 0755 on every install and upgrade; this runs
+# right after and makes it setgid sikemux, so it can enter its secret store below.
+z /usr/lib/sikemux/sikemux-host 2755 root sikemux -
+d /var/lib/sikemux 0770 root sikemux -

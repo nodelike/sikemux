@@ -1,6 +1,7 @@
-import type { ProjectInfo, Snapshot } from '@/core/protocol';
+import type { ProjectInfo } from '@shared/wire.generated';
+import type { Snapshot } from '@/core/protocol';
 
-export function folder(path: string): string {
+function folder(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path;
 }
 
@@ -22,9 +23,4 @@ export function projectName(snapshot: Snapshot, where: string, path = where): st
 /** The id of the project the host says the open agent is in; none for one outside every project. */
 export function projectOf(snapshot: Snapshot, agentId: string): string | undefined {
   return snapshot.inbox.agents.find((agent) => agent.agentId === agentId)?.project;
-}
-
-/** How many things in `project` wait on the person, as the host counts them. */
-export function needsIn(snapshot: Snapshot, project: ProjectInfo): number {
-  return snapshot.inbox.needs[project.id] ?? 0;
 }

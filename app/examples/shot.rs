@@ -18,8 +18,8 @@
 //!                                 the window shows (Settings, any modal, the front view, the focus, the tabs,
 //!                                 the chosen host, a trust question, the front chat's tool details held and
 //!                                 open); "activate" brings the window forward, as switching to the app does;
-//!                                 "picker" prints the front chat's model menu, "choose-model <value>" picks a
-//!                                 model in it and "move-to <provider>" its agent, as their rows do;
+//!                                 "picker" prints the front chat's model menu and "efforts" its effort menu,
+//!                                 "choose-model <value>" and "choose-effort <value>" pick in them and "move-to <provider> [model provider] [model]" its agent, as their rows do;
 //!                                 "open-tool" opens the front chat's first tool call; "host this",
 //!                                 "host host:<key>" or "host ssh:<alias>" chooses the host in front, as a
 //!                                 click on its row does; "film N prefix" saves N frames at least 16 ms apart,
@@ -28,8 +28,15 @@
 //!                                 JSON after "menu name: ", each a list of its items in order with their label
 //!                                 and whether they are disabled or checked (null where the menu does not say,
 //!                                 as Kit's items do not), and separators as {"separator":true};
-//!                                 "toast success|info|error text" shows a toast saying the text;
-//!                                 "settings <page>" opens settings at the page of that name
+//!                                 "toast success|info|error|undo text" shows a toast saying the text;
+//!                                 "star" shows the ask for a GitHub star;
+//!                                 "settings <page>" opens settings at the page of that name;
+//!                                 "language es" draws the app in that language, as its picker does;
+//!                                 "update {json}" draws the window as if the core's update status were that;
+//!                                 "theme <id> [corners] [gap] [inset]" draws in that theme, with each of
+//!                                 its corners, gap and inset set if given,
+//!                                 and "scrollbars scrolling|hover|always" shows scroll bars so, without
+//!                                 changing the person's preferences
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -46,7 +53,7 @@ use gpui::{
 use gpui_kit::component::WindowExt;
 use serde_json::{json, Value};
 use sikemux_gpui::{core, icons, theme, toast, workbench, WINDOW_SIZE};
-use sikemux_wire::protocol::AccountInfo;
+use sikemux_view::device::AccountInfo;
 
 /// How often a wait lets the app run, moving its clock on as far, so its timers fire as they would.
 const STEP: Duration = Duration::from_millis(50);
@@ -86,7 +93,7 @@ fn main() -> anyhow::Result<()> {
         Arc::new(icons::Icons),
         gpui_platform::current_headless_renderer,
     );
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let window = cx.update(|cx| {
         gpui_kit::init(cx);
         theme::install(cx);
@@ -119,7 +126,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(bench) = bench.borrow().clone() {
             cx.update(|cx| {
                 bench.update(cx, |bench, cx| {
-                    bench.rails.page = workbench::RailPage::Files;
+                    bench.rails.page = sikemux_view::prefs::TabRailPage::Files;
                     cx.notify();
                 })
             });
@@ -140,10 +147,14 @@ fn main() -> anyhow::Result<()> {
             name: Some(name.into()),
             email: Some(email.into()),
             picture_hash: None,
+            staff: false,
+            flags: Vec::new(),
+            features: None,
+            pro_given: false,
         };
         cx.update(|cx| {
             bench.update(cx, |bench, cx| {
-                if let Some(view) = bench.view.as_mut() {
+                if let Some(view) = bench.feeds.this.view.as_mut() {
                     view.account = Some(Box::new(shown));
                 }
                 cx.notify();
@@ -286,11 +297,42 @@ fn main() -> anyhow::Result<()> {
                     let note = match kind {
                         "error" => toast::error(said),
                         "info" => toast::info(said),
+                        "undo" => toast::undoable(said, |_, _| {}),
                         _ => toast::success(said),
                     };
                     window.push_notification(note, cx);
                 }
+                "star" => window.push_notification(sikemux_gpui::star::note(|_| {}), cx),
                 "activate" => window.activate_window(),
+                "language" => {
+                    sikemux_gpui::i18n::speak(Some(rest.trim()).filter(|code| !code.is_empty()));
+                    cx.refresh_windows();
+                    window.draw(cx).clear(cx);
+                }
+                "theme" => {
+                    let mut words = rest.split_whitespace();
+                    let shelf = sikemux_corekit::themes::Shelf::default();
+                    let theme_id = words.next().unwrap_or_default();
+                    let mut worn = sikemux_corekit::themes::resolve(&shelf, theme_id);
+                    let style = &mut worn.style;
+                    for value in [&mut style.corners, &mut style.gap, &mut style.inset] {
+                        if let Some(given) = words.next().and_then(|word| word.parse().ok()) {
+                            *value = given;
+                        }
+                    }
+                    theme::apply(
+                        &sikemux_corekit::themes::palette_of(worn, Default::default()),
+                        cx,
+                    );
+                    cx.refresh_windows();
+                    window.draw(cx).clear(cx);
+                }
+                "scrollbars" => {
+                    let shown = serde_json::from_value(json!(rest.trim()))
+                        .map_err(|_| anyhow::anyhow!("scrollbars scrolling|hover|always"))?;
+                    theme::set_scrollbars(shown, cx);
+                    window.draw(cx).clear(cx);
+                }
                 "settings" => {
                     let page = sikemux_gpui::settings::Page::named(rest.trim())
                         .ok_or_else(|| anyhow::anyhow!("settings <page name>"))?;
@@ -301,29 +343,41 @@ fn main() -> anyhow::Result<()> {
                     }
                     window.draw(cx).clear(cx);
                 }
-                "picker" => {
+                "picker" | "efforts" => {
                     if let Some(bench) = bench.borrow().clone() {
-                        match bench.read(cx).front_models() {
+                        match bench.read(cx).front_picker(verb == "efforts") {
                             Some((current, offered)) => {
-                                println!("picker current={current} offered={}", offered.join(","))
+                                println!("{verb} current={current} offered={}", offered.join(","))
                             }
-                            None => println!("picker none"),
+                            None => println!("{verb} none"),
                         }
                     }
                 }
-                "choose-model" => {
+                "choose-model" | "choose-effort" => {
                     if let Some(bench) = bench.borrow().clone() {
-                        bench.read(cx).choose_front_model(rest);
+                        bench.read(cx).choose_front(verb == "choose-effort", rest);
                     }
                 }
                 "move-to" => {
                     if let Some(bench) = bench.borrow().clone() {
-                        bench.update(cx, |bench, _| bench.move_front_to(rest));
+                        let mut words = rest.split_whitespace();
+                        let provider = words.next().unwrap_or_default();
+                        let (via, model) = (words.next(), words.next());
+                        bench.update(cx, |bench, _| bench.move_front_to(provider, via, model));
                     }
                 }
                 "open-tool" => {
                     if let Some(bench) = bench.borrow().clone() {
                         bench.update(cx, |bench, cx| bench.open_first_tool(cx));
+                    }
+                }
+                "update" => {
+                    let status = serde_json::from_str(rest)?;
+                    if let Some(bench) = bench.borrow().clone() {
+                        bench.update(cx, |bench, cx| {
+                            bench.reads.update = Some(status);
+                            cx.notify();
+                        });
                     }
                 }
                 "host" => {
@@ -505,8 +559,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// One line of what the window shows, for a check to match without looking: its keys stay in
-/// this order, and new ones go at the end.
 /// The menus the last frame drew, each as its items in order. An item takes its own accessible label
 /// or, for an item drawn from its own element, the first label inside it; an item with no label
 /// anywhere is a separator when it is a thin line, as both Kit's menus and the app's draw them.
@@ -568,6 +620,8 @@ fn open_menus(window: &gpui::Window) -> Vec<Value> {
         .collect()
 }
 
+/// One line of what the window shows, for a check to match without looking: its keys stay in
+/// this order, and new ones go at the end.
 fn state(bench: &workbench::Workbench, stack: &[gpui::KeyContext], cx: &gpui::App) -> String {
     let names = |context: &gpui::KeyContext| -> Vec<String> {
         context
@@ -595,7 +649,9 @@ fn state(bench: &workbench::Workbench, stack: &[gpui::KeyContext], cx: &gpui::Ap
     };
     let shown = |name: Option<String>| name.map_or_else(|| "none".to_owned(), |name| kebab(&name));
     let host = bench.chosen_host().key();
-    let asking = !bench.reads.trust.is_empty() || !bench.reads.host_trust.is_empty();
+    let front = bench.feeds.front().and_then(|host| bench.feeds.host(host));
+    let asking =
+        !bench.feeds.this.trust.is_empty() || front.is_some_and(|feed| !feed.trust.is_empty());
     let trust = if asking { "asking" } else { "none" };
     format!(
         "state settings={settings} modal={} tab={} focus={} tabs={tabs} host={host} trust={trust}",

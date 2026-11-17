@@ -1,21 +1,3 @@
 .agent-glyph {
   display: flex;
 }
-.agent-glyph.files {
-  color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim));
-}
-.agent-glyph.git {
-  color: var(--acc);
-}
-.agent-glyph.board {
-  color: color-mix(in oklab, var(--git-renamed) 76%, var(--ink));
-}
-/* Title first, the agent's name dim after it: the same in tabs, rail rows and the header. */
-.agent-surface-title:has(> .agent-label-name) {
-  display: flex;
-  align-items: baseline;
-  min-width: 0;
-}
-.agent-glyph.dim {
-  color: var(--text-tertiary);
-}

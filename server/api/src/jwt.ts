@@ -1,6 +1,6 @@
 import { sign, type KeyObject } from "node:crypto";
 
-export interface JwtHeader {
+interface JwtHeader {
   alg: "ES256" | "RS256";
   kid?: string;
   typ?: "JWT";

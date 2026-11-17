@@ -1,5 +1,5 @@
 // Puts a signed app bundle on Google Play with the release notes for its version: a nightly on
-// the closed testing track, a stable release on production, where it starts with a share of phones
+// the closed test's alpha track, a stable release on production, where it starts with a share of phones
 // and widens once it holds up.
 //
 //   node scripts/play-release.mjs notes 0.1.0-nightly.5
@@ -43,10 +43,13 @@ export function track(version) {
 /** The share of production phones a stable release reaches first. */
 export const FIRST_ROLLOUT = 0.1;
 
-/** The release a new bundle makes on its track: testers get a nightly at once, production phones a stable one in stages. */
-export function trackRelease(version, versionCode, notes) {
+/**
+ * The release a new bundle makes on its track: testers get a nightly at once, production phones a stable one in stages.
+ * Google Play stages only updates, so the app's first production release reaches every phone.
+ */
+export function trackRelease(version, versionCode, notes, firstOnProduction = false) {
   const release = { name: version, versionCodes: [String(versionCode)], releaseNotes: [{ language: 'en-US', text: notes }] };
-  return track(version) === 'production'
+  return track(version) === 'production' && !firstOnProduction
     ? { ...release, status: 'inProgress', userFraction: FIRST_ROLLOUT }
     : { ...release, status: 'completed' };
 }
@@ -103,13 +106,17 @@ async function upload(version, bundle) {
     headers: { 'content-type': 'application/octet-stream' },
     body: readFileSync(bundle),
   });
+  const productionShipped = (await call(token, `${API}/edits/${edit.id}/tracks/production`)).releases?.some(
+    (release) => release.status !== 'draft',
+  );
+  const made = trackRelease(version, uploaded.versionCode, notes, name === 'production' && !productionShipped);
   await call(token, `${API}/edits/${edit.id}/tracks/${name}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ track: name, releases: [trackRelease(version, uploaded.versionCode, notes)] }),
+    body: JSON.stringify({ track: name, releases: [made] }),
   });
   await call(token, `${API}/edits/${edit.id}:commit`, { method: 'POST' });
-  const reach = name === 'production' ? ` to ${FIRST_ROLLOUT * 100}% of phones; widen it with \`rollout\`` : '';
+  const reach = made.status === 'inProgress' ? ` to ${FIRST_ROLLOUT * 100}% of phones; widen it with \`rollout\`` : '';
   console.log(`Google Play: ${version} (version code ${uploaded.versionCode}) is out on ${name}${reach}`);
 }
 

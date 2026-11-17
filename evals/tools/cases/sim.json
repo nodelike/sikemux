@@ -4,7 +4,7 @@
     "from": ["err_tools_sikemux-026"],
     "category": "malformed_call",
     "severity": "med",
-    "tools": ["sim_install", "sim_launch", "task_start"],
+    "tools": ["sim_install", "sim_launch", "process_start"],
     "prompt": "A simulator is attached on your desk. Build the phone app for it (mobile/app/ios, workspace SikemuxDev.xcworkspace, scheme SikemuxDev, bundle id com.nodelike.sikemux.dev), install it and launch it.",
     "fixture": {
       "files": {
@@ -14,7 +14,7 @@
         "mobile/app/ios/build/Build/Products/Debug-iphonesimulator/SikemuxDev.app/Info.plist": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.nodelike.sikemux.dev</string>\n\t<key>CFBundleName</key>\n\t<string>Sikemux Dev</string>\n</dict>\n</plist>\n",
         "mobile/app/app.json": "{\n  \"expo\": {\n    \"name\": \"Sikemux Dev\",\n    \"slug\": \"sikemux\",\n    \"ios\": { \"bundleIdentifier\": \"com.nodelike.sikemux.dev\" }\n  }\n}\n"
       },
-      "taskOutput": "Build settings from command line:\n    SDK = iphonesimulator\n\n** BUILD SUCCEEDED **\n",
+      "processOutput": "Build settings from command line:\n    SDK = iphonesimulator\n\n** BUILD SUCCEEDED **\n",
       "shell": [
         { "match": "/^xcodebuild\\s+-version\\b/", "stdout": "Xcode 27.1\nBuild version 27A9275\n" },
         { "match": "/^cargo\\s+(--version|-V)\\b/", "stdout": "cargo 1.99.0 (1d3cd6b0a 2026-09-18)\n" }
@@ -35,14 +35,14 @@
     "grade": {
       "expect": [
         {
-          "tool": ["task_start", "Bash"],
+          "tool": ["process_start", "Bash"],
           "args": { "command": "/xcodebuild[^\\n]*-derivedDataPath[ =]+(?![ =\"']*([\\/~]|\\$(HOME|TMPDIR)))|xcodebuild[^\\n]*-derivedDataPath[ =]+[\"']?\\S*\\/proj\\/app\\//" }
         },
-        { "tool": "sim_install", "args": { "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } },
-        { "tool": "sim_launch", "args": { "bundleId": "com.nodelike.sikemux.dev" } }
+        { "any": [{ "tool": "sim", "args": { "action": "install", "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } }, { "tool": "trigger_add", "args": { "process": { "$present": true }, "prompt": "/install/i" } }] },
+        { "any": [{ "tool": "sim", "args": { "action": "launch", "bundleId": "com.nodelike.sikemux.dev" } }, { "tool": "trigger_add", "args": { "process": { "$present": true }, "prompt": "/launch/i" } }] }
       ],
       "forbid": [
-        { "tool": "sim_install", "args": { "path": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" }, "why": "installed a build from outside the project, such as Xcode's DerivedData" },
+        { "tool": "sim", "args": { "action": "install", "path": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" }, "why": "installed a build from outside the project, such as Xcode's DerivedData" },
         {
           "tool": ["Bash", "BashOutput"],
           "args": { "command": "/\\b(cp|ditto|rsync)\\b[^\\n]*DerivedData|expo\\s+run:ios|react-native\\s+run-ios|simctl\\s+install/" },
@@ -68,7 +68,7 @@
             "elements": "9 StaticText \"Add a host\" at (201, 430)\n10 TextField \"Host address\" at (201, 500)\n11 Button \"Cancel\" at (80, 610)\n12 Button \"Connect\" at (300, 610)"
           }
         },
-        { "tool": "sim_tap", "args": { "index": 4 }, "error": "element 4 is not on the screen now; the screen changed since you read it, so read it again with sim_state" },
+        { "tool": "sim_tap", "args": { "index": 4 }, "error": "element 4 is not on the screen now; the screen changed since you read it, so read it again with sim state" },
         {
           "tool": "sim_tap",
           "args": { "$any": [{ "index": 12 }, { "label": "/^connect$/i" }] },
@@ -81,12 +81,12 @@
       ]
     },
     "grade": {
-      "expect": [{ "tool": "sim_tap", "args": { "$any": [{ "index": 12 }, { "label": "/^connect$/i" }] } }],
+      "expect": [{ "tool": "sim", "args": { "action": "tap", "$any": [{ "index": 12 }, { "label": "/^connect$/i" }] } }],
       "forbid": [
-        { "tool": "sim_tap", "args": { "x": { "$present": true } }, "why": "tapped a point instead of the element's number or label" },
+        { "tool": "sim", "args": { "action": "tap", "x": { "$present": true } }, "why": "tapped a point instead of the element's number or label" },
         { "tool": ["Bash", "BashOutput"], "args": { "command": "/\\b(xcrun|simctl|idb)\\b/" }, "why": "drove the simulator outside sim_*" }
       ],
-      "limit": [{ "tool": "sim_tap", "max": 2 }],
+      "limit": [{ "tool": "sim", "args": { "action": "tap" }, "max": 2 }],
       "reply": "/approve|waiting/i",
       "replyWhy": "did not report the waiting-for-approval screen"
     },

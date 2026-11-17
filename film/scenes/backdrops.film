@@ -1,0 +1,27 @@
+# The backdrop behind a pane: the default grain, then each kind picked in Settings ▸ Interface,
+# and the Backdrop row that picks them.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer paneBackdrop theme
+project storefront shop
+chat Flint
+title "Fix the rounding in cart totals"
+say "shell pnpm test"
+settle 6
+front Flint
+settle 2
+snap grain
+prefer paneBackdrop gradient
+settle 2
+snap gradient
+prefer paneBackdrop stars
+settle 2
+snap stars
+prefer paneBackdrop grid
+settle 2
+snap grid
+prefer paneBackdrop theme
+settings Interface
+settle 2
+snap settings

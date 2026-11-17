@@ -3,7 +3,12 @@
 - Status: Accepted
 - Decision date: 2026-10-16
 - Amended: 2026-10-19, to say which credentials are shared and how a per-host agent login stays
-  within the vendors' terms, and that agents from a linked host use none of them until allowed
+  within the vendors' terms, and that agents from a linked host use none of them until allowed;
+  2026-11-11, to say how sign-ins a host already has move in, and what the server sees, how a
+  host gets the key and how a shared sign-in is refreshed, and what holds against a server
+  that turns hostile; 2026-11-15, to say every host on the account uses every entry, with no
+  step to allow a host or narrow an entry to projects; a host an older entry's list left out
+  does not take it in, and the first host on the list to reach it writes it again without the list
 
 ## Context
 
@@ -31,10 +36,10 @@ when its home goes away.
 - **A new host gets the vault when it is allowed in.** When a device that acts as the person
   approves a host joining the account, a host that already holds the vault key wraps it for the
   new one. Removing a host from the account makes a new vault key and wraps it for those left.
-- **Each entry says who may use it.** Which hosts, and which agents or projects. Nothing is
-  allowed by default. An agent another host's agent started or messaged uses none of them on
-  this host until the person allows that host
-  ([ADR 0013](./0013-hosts-link-to-run-agents-for-each-other.md)).
+- **Every host on the account uses every entry.** The account is the trust
+  ([ADR 0018](./0018-the-account-is-the-trust.md)): a sign-in made on one host is taken in by
+  each of the others, for every agent on it, with no step to allow a host. Signing out of a
+  connector on any host removes its entry from the vault, and every host lets go of its copy.
 - **Agents never hold a secret.** The core makes plugin calls itself, as it does now, and adds
   tokens to a sandboxed agent's traffic on its way out, so an agent can use a service but never
   read or leak its token. A secret the person types goes through a masked question that never
@@ -58,11 +63,65 @@ when its home goes away.
   finishes it on the vendor's page and types any code into the agent's own prompt; Sikemux carries
   the keystrokes as a terminal does and never reads or keeps the result. A long-lived token from
   `claude setup-token` is the person's to set on a machine themselves; Sikemux does not hold it.
+- **Sign-ins a host already has move in when it joins.** The host that makes the vault, and each
+  host that joins later, puts its connector sign-ins and database logins into the vault once.
+  The host it came from refreshes it, and the others take it in. When two hosts hold the same identity
+  on the same service, the newest token is kept and its host refreshes it; different identities
+  become separate entries. AWS profiles stay in the AWS CLI's own files on each host.
+- **A host with no account keeps its sign-ins in its own secret store**, as before the vault.
+- **The server sees which plugin each entry is for, and nothing else of it.** An entry's label,
+  such as the account it signs in as, is sealed with its tokens, its plugin settings and who may
+  use it. The server keeps each entry's plugin, revision and the host that last wrote it, and the
+  use log keeps the entry, its plugin, the host, the agent and the time, so the web app can show
+  "GitHub, used by @Otter on mini" without the key.
+- **A host signed in to the account gets the key from any host that holds it.** Signing in is
+  the person letting it in ([ADR 0018](./0018-the-account-is-the-trust.md)), and it uses every
+  entry from then on. The vault key is wrapped with each host's Ed25519 key taken as its
+  X25519 key, and the recovery key is an X25519 key the hosts know only the public half of, so a
+  host that replaces the vault key wraps the new one for it as well.
+- **What holds against a server that turns hostile.** Someone who reads the server's data, or
+  takes a copy of it, gets nothing of the vault: it keeps only sealed entries and wrapped keys.
+  Each host keeps the recovery key it first saw the vault with and refuses a vault that names
+  another, so the server cannot swap in a recovery key of its own. A server that lies in what it
+  answers can still list a host key of its own among the hosts waiting to join: the hosts wrap the
+  vault key for every host the account lists, since nothing yet lets them tell a real one apart,
+  so such a server could read the vault from then on. Wrapping the key only for hosts whose join
+  another host saw would close that.
+- **Mods' data is kept the same way.** Each host keeps every mod's documents in its own store and
+  writes there first. The account holds the latest copy of each document, sealed under the vault
+  key with its collection and id inside. Its id on the server is an HMAC of the mod, collection and
+  id under a naming key of the mod's own, which is itself a sealed document of that mod, so ids
+  outlast a new vault key. The server sees each mod's id and its documents' sizes and times. Hosts
+  push changed documents compare-and-set, merge field by field by stamp when another host wrote
+  first, and pull what changed since a counter when the account says mods changed. After the vault
+  key is replaced, they reseal documents from their plain copies. The server cannot merge what it
+  cannot read, so every merge happens on hosts and gives the same answer on each. Each
+  account's copy is a file of its own on the host, so data that synced with one account is never
+  shown under or sent to another; data made while signed out goes to the next account signed in.
+  A server that answers with less than a host already read has lost its record, and hosts send
+  theirs back; only a host away longer than removals are kept drops what the server no longer
+  lists.
+- **A mod's folder follows the account beside its data.** A listing of the folder's files, each by
+  path and SHA-256, is one more of the mod's documents, with the listing it was made from; its
+  small text files are documents named by their hash, and its other files are sealed by the host
+  under a key derived from the mod's naming key and the file's hash, and kept by the server under
+  an id derived the same way, in the stash's encrypted file store apart from the stash's items and
+  room. A folder goes up only when it is whole and has stopped changing, and comes down into a
+  folder beside the mod that is then swapped in. The listing is one field, so the newest whole
+  folder wins; a host whose own copy lost, because it changed since it last matched the account
+  or published a copy the winner was not made from, moves that copy to the Trash rather than
+  deleting it. The mods folder is one per host, so the host keeps which account each folder
+  follows and never publishes it to another. Approvals, pins and turning a mod off stay per host: what a mod may do is decided
+  on the host it runs on, wherever it was written.
+- **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
+  token into the entry before the old one runs out, and the other hosts use that token rather than
+  refreshing. Whichever host writes a newer token for the same identity becomes the one that
+  refreshes it.
 
 ## Consequences
 
-- A host joined to the account can use the person's keys and plugin sign-ins at once, within what
-  each entry allows, with nothing to set up again.
+- A host joined to the account can use the person's keys and plugin sign-ins at once, with
+  nothing to set up again.
 - Losing every host that holds the vault key loses the vault. Recovery needs a key the
   person keeps, shown once when the vault is made.
 - A stolen device can ask a host to act with the vault's entries but never reads them, since it

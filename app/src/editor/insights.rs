@@ -1,6 +1,7 @@
 //! The bar under an editor: the project's problems as its language servers
 //! report them, and the outline of the file in front.
 
+use crate::ui::Clicks;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -10,11 +11,15 @@ use gpui_kit::{
     div, px, AnyElement, App, ClipboardItem, Context, Entity, Hsla, InteractiveElement,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
+use sikemux_calls::call;
+use sikemux_calls::lsp::LspDiagnostic;
+use sikemux_calls::lsp::LspDiagnosticSeverity;
+use sikemux_calls::lsp::LspDocumentSymbol;
+use sikemux_calls::lsp::LspPath;
 
 use super::{go, OpenAt};
-use crate::core;
-use crate::hosts::Place as Host;
+use crate::core::Target;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::send_to;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
@@ -80,21 +85,15 @@ pub(super) fn diagnostics_changed(
     for path in paths {
         let (asks, path, editors) = (bench.asks.clone(), path.clone(), bench.editors.downgrade());
         cx.spawn(async move |_, cx| {
-            let Ok(read) = core::request(&asks, "lsp.diagnostics", json!({ "path": path })).await
-            else {
+            let asked = Target::here(&asks)
+                .request_typed::<call::LspDiagnostics>(LspPath { path: path.clone() });
+            let Ok(read) = asked.await else {
                 return;
             };
             let problems: Vec<Problem> = read
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|payload| {
-                    payload["diagnostics"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default()
-                })
-                .map(|diagnostic| problem(&diagnostic))
+                .iter()
+                .flat_map(|payload| &payload.diagnostics)
+                .map(problem)
                 .collect();
             let _ = editors.update(cx, |editors, cx| {
                 let insights = &mut editors.insights;
@@ -109,32 +108,23 @@ pub(super) fn diagnostics_changed(
     }
 }
 
-fn problem(diagnostic: &Value) -> Problem {
-    let start = &diagnostic["range"]["start"];
-    let (severity, kind) = match diagnostic["severity"].as_str() {
-        Some("error") => (0, "error"),
-        Some("warning") => (1, "warning"),
-        Some("information") => (2, "information"),
-        Some("hint") => (3, "hint"),
-        _ => (3, "problem"),
-    };
-    let text = |value: &Value| match value {
-        Value::String(text) => Some(text.clone().into()),
-        Value::Number(number) => Some(number.to_string().into()),
-        _ => None,
+fn problem(diagnostic: &LspDiagnostic) -> Problem {
+    let start = &diagnostic.range.start;
+    let (severity, kind) = match diagnostic.severity {
+        Some(LspDiagnosticSeverity::Error) => (0, "error"),
+        Some(LspDiagnosticSeverity::Warning) => (1, "warning"),
+        Some(LspDiagnosticSeverity::Information) => (2, "information"),
+        Some(LspDiagnosticSeverity::Hint) => (3, "hint"),
+        None => (3, "problem"),
     };
     Problem {
-        line: start["line"].as_u64().unwrap_or(0) as u32,
-        character: start["character"].as_u64().unwrap_or(0) as u32,
+        line: start.line,
+        character: start.character,
         severity,
         kind,
-        message: diagnostic["message"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
-            .into(),
-        code: text(&diagnostic["code"]),
-        source: text(&diagnostic["source"]),
+        message: diagnostic.message.clone().into(),
+        code: diagnostic.code.clone().map(SharedString::from),
+        source: diagnostic.source.clone().map(SharedString::from),
     }
 }
 
@@ -144,7 +134,7 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
         .editors
         .read(cx)
         .open
-        .get(&super::FileKey::new(Host::This, path)))
+        .get(&super::FileKey::new(Place::This, path)))
     .and_then(|document| Some(document.served.as_ref()?.document()));
     let outline = match params {
         Some(_) => Outline::Loading(path.to_owned()),
@@ -163,7 +153,9 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
         bench.editors.downgrade(),
     );
     cx.spawn(async move |cx| {
-        let read = core::request(&asks, "lsp.symbols", params).await;
+        let read = Target::here(&asks)
+            .request_typed::<call::LspSymbols>(params)
+            .await;
         let _ = editors.update(cx, |editors, cx| {
             let outline = &mut editors.insights.outline;
             if !matches!(outline, Outline::Loading(asked) if *asked == path) {
@@ -183,57 +175,51 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
     .detach();
 }
 
-fn flatten(symbols: &Value, depth: usize, flat: &mut Vec<Symbol>) {
-    for symbol in symbols.as_array().into_iter().flatten() {
-        let start = &symbol["selectionRange"]["start"];
+fn flatten(symbols: &[LspDocumentSymbol], depth: usize, flat: &mut Vec<Symbol>) {
+    for symbol in symbols {
+        let start = &symbol.selection_range.start;
         flat.push(Symbol {
             depth: depth.min(MAX_DEPTH),
-            name: symbol["name"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-                .into(),
-            detail: symbol["detail"]
-                .as_str()
-                .map(|detail| detail.to_owned().into()),
-            kind: kind_word(symbol["kind"].as_u64().unwrap_or(0)),
-            line: start["line"].as_u64().unwrap_or(0) as u32,
-            character: start["character"].as_u64().unwrap_or(0) as u32,
+            name: symbol.name.clone().into(),
+            detail: symbol.detail.clone().map(SharedString::from),
+            kind: kind_word(symbol.kind),
+            line: start.line,
+            character: start.character,
         });
-        flatten(&symbol["children"], depth + 1, flat);
+        flatten(&symbol.children, depth + 1, flat);
     }
 }
 
 /// A symbol's kind as the protocol numbers them, in a word.
-fn kind_word(kind: u64) -> &'static str {
+fn kind_word(kind: u32) -> &'static str {
     match kind {
-        1 => "file",
-        2 => "module",
-        3 => "namespace",
-        4 => "package",
-        5 => "class",
-        6 => "method",
-        7 => "property",
-        8 => "field",
-        9 => "constructor",
-        10 => "enum",
-        11 => "interface",
-        12 => "function",
-        13 => "variable",
-        14 => "constant",
-        15 => "string",
-        16 => "number",
-        17 => "boolean",
-        18 => "array",
-        19 => "object",
-        20 => "key",
-        21 => "null",
-        22 => "member",
-        23 => "struct",
-        24 => "event",
-        25 => "operator",
-        26 => "type",
-        _ => "symbol",
+        1 => n!("file"),
+        2 => n!("module"),
+        3 => n!("namespace"),
+        4 => n!("package"),
+        5 => n!("class"),
+        6 => n!("method"),
+        7 => n!("property"),
+        8 => n!("field"),
+        9 => n!("constructor"),
+        10 => n!("enum"),
+        11 => n!("interface"),
+        12 => n!("function"),
+        13 => n!("variable"),
+        14 => n!("constant"),
+        15 => n!("string"),
+        16 => n!("number"),
+        17 => n!("boolean"),
+        18 => n!("array"),
+        19 => n!("object"),
+        20 => n!("key"),
+        21 => n!("null"),
+        22 => n!("member"),
+        23 => n!("struct"),
+        24 => n!("event"),
+        25 => n!("operator"),
+        26 => n!("type"),
+        _ => n!("symbol"),
     }
 }
 
@@ -276,7 +262,7 @@ pub(super) fn bar(
             .h(px(22.))
             .flex()
             .items_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_color(if chosen {
                 t.text_primary
@@ -284,7 +270,7 @@ pub(super) fn bar(
                 t.text_tertiary
             })
             .when(chosen, |tab| tab.bg(t.surface_chosen))
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
                     let outline = bench.editors.update(cx, |editors, cx| {
                         let insights = &mut editors.insights;
@@ -306,19 +292,19 @@ pub(super) fn bar(
         .gap(SPACE_1)
         .h(px(29.))
         .px(SPACE_2)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(tab(
             "insights-problems",
-            format!("Problems {}", problems.len()).into(),
+            t!("Problems {count}", count = problems.len()).into(),
             Tab::Problems,
         ))
-        .child(tab("insights-outline", "Outline".into(), Tab::Outline))
+        .child(tab("insights-outline", t!("Outline").into(), Tab::Outline))
         .child(div().flex_1())
         .when(insights.open && insights.tab == Tab::Outline, |header| {
             let (this, path) = (this.clone(), path.to_owned());
             header.child(
-                ui::IconButton::new("outline-refresh", Icon::Refresh, "Refresh the outline")
+                ui::IconButton::new("outline-refresh", Icon::Refresh, t!("Refresh the outline"))
                     .small()
                     .on_click(move |_, _, cx| {
                         this.update(cx, |bench, cx| read_outline(bench, &path, cx))
@@ -334,7 +320,11 @@ pub(super) fn bar(
                 } else {
                     Icon::ArrowUp
                 },
-                if insights.open { "Hide" } else { "Show" },
+                if insights.open {
+                    t!("Hide")
+                } else {
+                    t!("Show")
+                },
             )
             .small()
             .on_click(move |_, _, cx| {
@@ -404,7 +394,11 @@ pub(super) fn bar(
                         };
                         row(this, ("symbol", index), at, &t)
                             .pl(px(12. + 14. * symbol.depth as f32))
-                            .child(div().text_color(t.text_tertiary).child(symbol.kind))
+                            .child(
+                                div()
+                                    .text_color(t.text_tertiary)
+                                    .child(crate::i18n::tr(symbol.kind)),
+                            )
                             .child(div().text_color(t.text_primary).child(symbol.name.clone()))
                             .children(symbol.detail.clone().map(|detail| {
                                 div()
@@ -428,12 +422,14 @@ pub(super) fn bar(
                         .map(|name| name.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     let said = match outline {
-                        Outline::Loading(_) => "Loading outline…".to_owned(),
+                        Outline::Loading(_) => t!("Loading outline…").to_owned(),
                         Outline::Failed => {
-                            "The language server could not provide an outline".to_owned()
+                            t!("The language server could not provide an outline").to_owned()
                         }
-                        Outline::Symbols(..) => format!("No symbols in {name}"),
-                        Outline::Unavailable => "Outline is unavailable for this file".to_owned(),
+                        Outline::Symbols(..) => t!("No symbols in {name}", name = name),
+                        Outline::Unavailable => {
+                            t!("Outline is unavailable for this file").to_owned()
+                        }
                     };
                     vec![div()
                         .px(SPACE_3)
@@ -456,7 +452,7 @@ pub(super) fn bar(
     div()
         .flex()
         .flex_col()
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(header)
         .children(body)
@@ -483,7 +479,7 @@ fn problem_menu(
         let message = message.clone();
         let popup = popup
             .item(
-                PopupMenuItem::new("Go to Problem")
+                PopupMenuItem::new(t!("Go to Problem"))
                     .icon(Icon::Editor)
                     .on_click(move |_, _, cx| {
                         let at = at.clone();
@@ -491,7 +487,7 @@ fn problem_menu(
                     }),
             )
             .item(
-                PopupMenuItem::new("Copy Message")
+                PopupMenuItem::new(t!("Copy Message"))
                     .icon(Icon::Copy)
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(message.to_string()))
@@ -500,7 +496,7 @@ fn problem_menu(
             .separator();
         send_to::submenu_with_text(
             popup,
-            "Send to Agent…",
+            t!("Send to Agent…"),
             this.downgrade(),
             delivery.clone(),
             window,
@@ -556,9 +552,8 @@ fn row(
         .gap(SPACE_2H)
         .h(px(24.))
         .px(SPACE_3)
-        .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             let at = at.clone();
             this.update(cx, |bench, cx| go(bench, at, cx))
         })

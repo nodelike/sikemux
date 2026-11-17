@@ -1,0 +1,48 @@
+[package]
+name = "sikemux-agents"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sikemux-base = { path = "../sikemux-base" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-fold = { path = "../sikemux-fold" }
+sikemux-git = { path = "../sikemux-git" }
+sikemux-keychain = { path = "../sikemux-keychain" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
+hex = "0.4"
+notify = "8"
+rayon = "1"
+reqwest = { version = "0.13", default-features = false, features = ["form", "gzip", "json", "query", "rustls-no-provider", "stream"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
+tempfile = "3"
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+toml = "1"
+url = "2"
+uuid = { version = "1", features = ["v4", "v7"] }
+zstd = { version = "0.14.3", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
+
+[dev-dependencies]
+sikemux-git = { path = "../sikemux-git", features = ["testing"] }
+tempfile = "3"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

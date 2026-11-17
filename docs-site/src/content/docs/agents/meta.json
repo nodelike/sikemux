@@ -4,10 +4,15 @@
   "pages": [
     "supported",
     "chats",
+    "memory",
+    "playbook",
     "permissions",
     "accounts",
+    "connectors",
+    "outside-apps",
     "databases",
     "providers",
+    "secrets",
     "linked-hosts"
   ]
 }

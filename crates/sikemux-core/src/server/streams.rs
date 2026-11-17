@@ -4,6 +4,11 @@
 //! Parts go in batches, and a producer waits while its client is behind
 //! rather than anything piling up or being dropped.
 
+use super::Core;
+use crate::server::parts::Parts;
+use serde_json::json;
+pub use sikemux_calls::streams::SearchStreamParams;
+pub use sikemux_calls::streams::StreamParams;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,7 +20,7 @@ use tokio::runtime::RuntimeFlavor;
 
 use super::connection::{ClientConn, ClientId};
 use super::{CoreError, CoreResult};
-use crate::protocol::{Event, ServerMessage};
+use sikemux_wire::protocol::{Event, ServerMessage};
 
 const BATCH_ITEMS: usize = 200;
 const BATCH_AGE: Duration = Duration::from_millis(16);
@@ -29,7 +34,6 @@ pub(crate) struct Streams {
 }
 
 impl Streams {
-    /// Opens `stream` on `client`'s connection.
     pub(crate) fn open(&self, client: Arc<ClientConn>, stream: u64) -> CoreResult<Arc<Stream>> {
         let stop = Arc::new(AtomicBool::new(false));
         {
@@ -114,7 +118,6 @@ impl Stream {
         self.end(last, None);
     }
 
-    /// Sends what is left and ends the stream with `error`.
     pub(crate) fn fail(&self, error: Value) {
         self.end(None, Some(error));
     }
@@ -165,4 +168,28 @@ async fn flush_while_open(stream: Arc<Stream>) {
             stream.flush();
         }
     }
+}
+
+pub(crate) fn search_stream(
+    core: &Core,
+    client: &ClientConn,
+    params: SearchStreamParams,
+) -> CoreResult<Value> {
+    let stream = core.streams().open(
+        super::connection::connection_of(core, client)?,
+        params.stream,
+    )?;
+    let owner = client.id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let found = crate::server::search::search(params.search, &owner, &|file| {
+            stream.push(json!(crate::server::search::SearchFound::File(file)))
+        });
+        match found {
+            Ok(summary) => stream.finish(Some(json!(crate::server::search::SearchFound::Summary(
+                summary
+            )))),
+            Err(message) => stream.fail(json!({ "category": "search", "message": message })),
+        }
+    });
+    Ok(json!({ "stream": params.stream }))
 }

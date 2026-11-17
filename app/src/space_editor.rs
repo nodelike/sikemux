@@ -1,6 +1,7 @@
 //! The Mac's Edit Spaces…: each space as a row to drag into place, mark with an icon, rename
 //! or delete, with New and Done at its foot.
 
+use crate::ui::Clicks;
 use std::collections::HashMap;
 
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
@@ -13,32 +14,37 @@ use gpui_kit::{
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
     WeakEntity, Window,
 };
+use sikemux_view::workspace::{ProjectInfo, SpaceInfo};
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT_XS};
-use crate::ui::{self, IconButton};
-use crate::workbench::Workbench;
+use crate::theme::{radius_2, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT_XS};
+use crate::ui;
+use crate::ui::IconButton;
+use crate::workbench::{Workbench, MAX_SPACE_NAME};
+use sikemux_calls::call;
+use sikemux_calls::workspace::SpacesParams;
+use sikemux_calls::workspace::UpdateProjectParams;
 
 /// The icons a space can wear, as the Mac offers them.
 pub const SPACE_ICONS: [&str; 18] = [
-    "folder",
-    "user",
-    "globe",
-    "laptop",
-    "building",
-    "home",
-    "briefcase",
-    "code",
-    "flask",
-    "rocket",
-    "star",
-    "heart",
-    "book",
-    "bolt",
-    "leaf",
-    "cube",
-    "terminal",
-    "music",
+    n!("folder"),
+    n!("user"),
+    n!("globe"),
+    n!("laptop"),
+    n!("building"),
+    n!("home"),
+    n!("briefcase"),
+    n!("code"),
+    n!("flask"),
+    n!("rocket"),
+    n!("star"),
+    n!("heart"),
+    n!("book"),
+    n!("bolt"),
+    n!("leaf"),
+    n!("cube"),
+    n!("terminal"),
+    n!("music"),
 ];
 
 /// The icons `space` can wear, the one it wears ticked, then No icon.
@@ -61,9 +67,9 @@ pub fn icon_choices(
         }
     };
     for icon in SPACE_ICONS {
-        menu = menu.item(choice(icon, icon));
+        menu = menu.item(choice(crate::i18n::tr(icon), icon));
     }
-    menu.separator().item(choice("No icon", ""))
+    menu.separator().item(choice(t!("No icon"), ""))
 }
 
 pub struct SpaceEditor {
@@ -103,7 +109,6 @@ impl SpaceEditor {
     }
 }
 
-/// A space being dragged to another place in the list.
 #[derive(Clone)]
 struct DraggedSpace {
     id: String,
@@ -116,9 +121,9 @@ impl Render for DraggedSpace {
         div()
             .px(SPACE_2)
             .py(SPACE_1)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .bg(t.surface_raised)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_primary)
@@ -134,7 +139,7 @@ impl Render for SpaceEditor {
             .upgrade()
             .and_then(|bench| {
                 let bench = bench.read(cx);
-                Some(bench.view.as_ref()?.workspace.spaces.clone())
+                Some(bench.this_view()?.workspace.spaces.clone())
             })
             .unwrap_or_default();
         self.names
@@ -161,7 +166,7 @@ impl Render for SpaceEditor {
                     .items_center()
                     .gap(SPACE_1)
                     .px(SPACE_0)
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .hover(move |row| row.bg(t.surface_hover))
                     .drag_over::<DraggedSpace>(move |row, _, _, _| row.bg(t.surface_hover))
                     .on_drop({
@@ -189,8 +194,8 @@ impl Render for SpaceEditor {
                             .compact()
                             .w(px(26.))
                             .h(px(24.))
-                            .rounded(RADIUS_2)
-                            .border_1()
+                            .rounded(radius_2())
+                            .border(crate::theme::border())
                             .border_color(t.border)
                             .when(worn_glyph.is_none(), |button| button.border_dashed())
                             .child(match worn_glyph {
@@ -213,7 +218,7 @@ impl Render for SpaceEditor {
                                 IconButton::new(
                                     SharedString::from(format!("space-delete-{}", space.id)),
                                     Icon::Trash,
-                                    format!("Delete {}", space.name),
+                                    t!("Delete {name}", name = space.name),
                                 )
                                 .on_click(move |_, _, cx| {
                                     let _ = deleted.update(cx, |bench, cx| {
@@ -233,8 +238,8 @@ impl Render for SpaceEditor {
                 .flex()
                 .items_center()
                 .gap(px(5.))
-                .rounded(RADIUS_2)
-                .border_1()
+                .rounded(radius_2())
+                .border(crate::theme::border())
                 .text_size(crate::theme::ui_text(TEXT_3XS_H))
                 .map(|button| match done {
                     true => button
@@ -260,20 +265,22 @@ impl Render for SpaceEditor {
                     .mt(SPACE_1)
                     .pt(SPACE_1)
                     .px(SPACE_0)
-                    .border_t_1()
+                    .border_t(crate::theme::border())
                     .border_color(t.border)
                     .flex()
                     .justify_between()
-                    .child(foot("space-edit-new", Icon::Plus, "New", false).on_click(
+                    .child(foot("space-edit-new", Icon::Plus, t!("New"), false).clicks(
                         move |_, _, cx| {
                             let _ = made.update(cx, |bench, cx| bench.new_space(None, cx));
                         },
                     ))
-                    .child(foot("space-edit-done", Icon::Check, "Done", true).on_click(
-                        move |_, _, cx| {
-                            let _ = done.update(cx, |bench, cx| bench.close_space_editor(cx));
-                        },
-                    )),
+                    .child(
+                        foot("space-edit-done", Icon::Check, t!("Done"), true).clicks(
+                            move |_, _, cx| {
+                                let _ = done.update(cx, |bench, cx| bench.close_space_editor(cx));
+                            },
+                        ),
+                    ),
             )
     }
 }
@@ -310,7 +317,6 @@ impl Workbench {
         });
     }
 
-    /// Moves the space to `to` along the switch.
     pub fn move_space_to(&self, id: &str, to: usize) {
         self.edit_spaces(|spaces| {
             let Some(at) = spaces.iter().position(|space| space.id == id) else {
@@ -341,10 +347,150 @@ pub fn anchor(bench: &Workbench, width: f32, cx: &mut Context<Workbench>) -> imp
             div()
                 .w(px(width))
                 .mt(SPACE_1)
-                .rounded(RADIUS_2 + px(3.))
+                .rounded(radius_2() + px(3.))
                 .bg(t.surface_overlay)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
-                .when_some(editor.clone(), |pop, editor| pop.child(editor))
+                .when_some(editor, |pop, editor| pop.child(editor))
         })
+}
+
+impl Workbench {
+    /// The space the rail shows, while it still exists.
+    pub fn space(&self) -> Option<&SpaceInfo> {
+        let spaces = &self.this_view()?.workspace.spaces;
+        spaces
+            .iter()
+            .find(|space| Some(&space.id) == self.space.as_ref())
+    }
+
+    /// Asks for a name and makes a space with it, as the Mac does, then shows it, or moves the
+    /// project `into` it when one asked.
+    pub fn new_space(&mut self, into: Option<String>, cx: &mut Context<Self>) {
+        self.prompt(
+            t!("Create space"),
+            "",
+            move |bench, name, _, cx| {
+                let name: String = name.trim().chars().take(MAX_SPACE_NAME).collect();
+                if name.is_empty() {
+                    return;
+                }
+                let made = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |since| since.as_nanos());
+                let id = format!("space-{made:x}");
+                let mut spaces = bench
+                    .this_view()
+                    .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
+                spaces.push(SpaceInfo {
+                    id: id.clone(),
+                    name,
+                    icon: "folder".into(),
+                });
+                crate::core::Target::here(&bench.asks)
+                    .call_typed::<call::SetSpaces>(SpacesParams { spaces });
+                match &into {
+                    Some(project) => {
+                        crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
+                            UpdateProjectParams::space(project.clone(), Some(id)),
+                        )
+                    }
+                    None => bench.show_space(Some(id), cx),
+                }
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Sets the spaces of the host in front to what `edit` makes of them.
+    pub(crate) fn edit_spaces(&self, edit: impl FnOnce(&mut Vec<SpaceInfo>)) {
+        let mut spaces = self
+            .this_view()
+            .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
+        edit(&mut spaces);
+        crate::core::Target::here(&self.asks)
+            .call_typed::<call::SetSpaces>(SpacesParams { spaces });
+    }
+
+    /// Asks for the space's new name, as the Mac does.
+    pub fn rename_space(&mut self, id: String, cx: &mut Context<Self>) {
+        let current = self
+            .this_view()
+            .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
+            .map(|space| space.name.clone())
+            .unwrap_or_default();
+        self.prompt(
+            t!("Rename space"),
+            current,
+            move |bench, name, _, _| bench.name_space(&id, &name),
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Marks the space with `icon`, or with none when it is empty.
+    pub fn set_space_icon(&self, id: &str, icon: &str) {
+        self.edit_spaces(|spaces| {
+            if let Some(space) = spaces.iter_mut().find(|space| space.id == id) {
+                space.icon = icon.to_owned();
+            }
+        });
+    }
+
+    /// Deletes the space once the person agrees; its projects stay open and show under All.
+    pub fn delete_space(&mut self, id: String, cx: &mut Context<Self>) {
+        let name = self
+            .this_view()
+            .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
+            .map(|space| space.name.clone())
+            .unwrap_or_default();
+        self.confirm(
+            t!("Delete “{name}”?", name = name),
+            t!("Its projects stay open and show under All."),
+            t!("Delete"),
+            true,
+            move |bench, yes, _, cx| {
+                if !yes {
+                    return;
+                }
+                bench.edit_spaces(|spaces| spaces.retain(|space| space.id != id));
+                let held: Vec<String> = bench
+                    .this_view()
+                    .map(|view| {
+                        view.workspace
+                            .projects
+                            .iter()
+                            .filter(|project| project.space.as_ref() == Some(&id))
+                            .map(|project| project.id.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for project in held {
+                    crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
+                        UpdateProjectParams::space(project, None),
+                    );
+                }
+                if bench.space.as_ref() == Some(&id) {
+                    bench.show_space(None, cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Shows one space's projects, or every project, and leaves a project the space hides
+    /// for the first one it shows.
+    pub fn show_space(&mut self, space: Option<String>, cx: &mut Context<Self>) {
+        self.space = space;
+        let shown = |project: &ProjectInfo| {
+            self.space.is_none() || project.space.as_ref() == self.space.as_ref()
+        };
+        if !self.project().is_some_and(shown) {
+            if let Some(first) = self.projects().iter().find(|project| shown(project)) {
+                self.activate_project(&first.id);
+            }
+        }
+        cx.notify();
+    }
 }

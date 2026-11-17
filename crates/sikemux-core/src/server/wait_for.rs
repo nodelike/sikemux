@@ -13,8 +13,8 @@ use tokio::sync::Notify;
 
 use crate::cli::protocol::HarnessRequest;
 
-const DEFAULT_WAIT_MS: u64 = 30_000;
-const MAX_WAIT_MS: u64 = 30_000;
+const DEFAULT_WAIT_MS: u64 = 50_000;
+const MAX_WAIT_MS: u64 = 50_000;
 /// How long a file must stay unchanged to count as finished.
 const QUIET: Duration = Duration::from_secs(2);
 /// A file watch can miss a write, so the file is looked at this often too.
@@ -30,8 +30,11 @@ pub(crate) fn asked(params: &Value) -> bool {
 
 pub(crate) async fn call(request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
-    if params.get("cursor").is_some() {
-        return Err("pass a cursor for task or UI events, or a file or pid, not both".into());
+    let cursor = params.get("cursor").filter(|cursor| {
+        !cursor.is_null() && cursor.as_str().is_none_or(|text| !text.trim().is_empty())
+    });
+    if cursor.is_some() {
+        return Err("pass a cursor for process or UI events, or a file or pid, not both".into());
     }
     let file = params
         .get("file")
@@ -133,6 +136,12 @@ fn watch(file: &Path, changed: Arc<Notify>) -> Option<RecommendedWatcher> {
     Some(watcher)
 }
 
+#[cfg(windows)]
+fn running(pid: i32) -> bool {
+    u32::try_from(pid).is_ok_and(|pid| sikemux_process::procs::started(pid).is_some())
+}
+
+#[cfg(unix)]
 fn running(pid: i32) -> bool {
     // SAFETY: signal 0 only asks whether the process exists; nothing is sent.
     let alive = unsafe { libc::kill(pid, 0) } == 0;

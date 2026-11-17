@@ -1,12 +1,14 @@
 //! The phone's client against a real core on this machine, over loopback.
 
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use serde_json::json;
-use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::BuildIdentity;
+use sikemux_client::client::CoreClient;
+use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig};
+use sikemux_wire::protocol::BuildIdentity;
 
 use iroh::endpoint::presets;
 use iroh::Endpoint;
@@ -30,7 +32,7 @@ impl Drop for TestCore {
                 let deadline = Instant::now() + WAIT;
                 while Instant::now() < deadline {
                     if let Ok((client, _events)) = CoreClient::connect(&socket).await {
-                        if client.shutdown(true).await.is_ok() {
+                        if client.ask(ask::Shutdown { stop_all: true }).await.is_ok() {
                             return;
                         }
                     }
@@ -72,7 +74,7 @@ fn start_core(core_key: &SecretKey, phone: Option<&SecretKey>) -> TestCore {
         "devices": devices,
     });
     std::fs::write(remote_file(&socket), serde_json::to_vec(&stored).unwrap()).unwrap();
-    sikemux_core::server::trust_remote_file(&socket, core_key).unwrap();
+    sikemux_core::server::remote::trust_remote_file(&socket, core_key).unwrap();
     let config = ServerConfig {
         idle_exit: Duration::from_secs(600),
         build: BuildIdentity {
@@ -136,7 +138,7 @@ async fn loopback_device(key: SecretKey) -> Device {
 /// screen would.
 #[derive(Default)]
 struct Views {
-    views: Mutex<Vec<sikemux_wire::protocol::DeviceView>>,
+    views: Mutex<Vec<sikemux_view::device::DeviceView>>,
     closed: AtomicBool,
 }
 
@@ -207,7 +209,7 @@ fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
         ));
         assert!(matches!(
             connection.chat_history("nobody".into(), "a run".into(), 5, 10).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(connection.host().await.is_ok());
         assert!(matches!(
@@ -216,19 +218,19 @@ fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
         ));
         assert!(matches!(
             connection.attach_file("nobody".into(), "a.txt".into(), "text/plain".into(), b"a".to_vec()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(matches!(
             connection.steer("nobody".into(), "and the tests".into(), Vec::new()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(matches!(
             connection.stop_task("nobody".into(), "shell".into()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(matches!(
             connection.set_permission_mode("nobody".into(), "bypass".into()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(connection.stop_chat("nobody".into()).await.is_ok());
         assert!(matches!(
@@ -301,7 +303,7 @@ fn slow_agent(dir: &Path) -> PathBuf {
     let path = dir.join("slow-agent");
     std::fs::write(
         &path,
-        "#!/bin/sh\n[ \"$1\" = acp ] && exec sleep 600\nexit 0\n",
+        "#!/bin/sh\n[ \"$1\" = serve ] && exec sleep 600\nexit 0\n",
     )
     .expect("the slow agent");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("runnable");
@@ -315,7 +317,7 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
     let core = start_core(&core_key, Some(&phone_key));
     block_on(async {
         let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
-        app.register_window()
+        app.ask(ask::RegisterWindow)
             .await
             .expect("the app opens its window");
         let addr = core_addr(&app).await;
@@ -335,12 +337,13 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
             .expect("the accounts");
         let deadline = Instant::now() + WAIT;
         while !app
-            .workspace()
+            .call("workspace", serde_json::json!({}))
             .await
-            .expect("the workspace")
-            .launchers
+            .expect("the workspace")["launchers"]
+            .as_array()
+            .expect("the launchers")
             .iter()
-            .any(|launcher| launcher.id == "opencode:slow")
+            .any(|launcher| launcher["id"] == "opencode:slow")
         {
             assert!(Instant::now() < deadline, "the slow agent is never offered");
             tokio::time::sleep(Duration::from_millis(20)).await;

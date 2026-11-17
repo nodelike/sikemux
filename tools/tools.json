@@ -1,0 +1,2640 @@
+{
+  "comment": "Single source of truth for the agent tool surface. The core serves these to the tools MCP server, which keeps a compiled-in copy for when the core cannot be reached and serves them over MCP; scripts/generate-agent-tools.mjs emits the Rust method lists, and pnpm agent-tools:check proves every method still has a handler. Edit here, then run pnpm agent-tools:generate.",
+  "guide": {
+    "file": "SIKEMUX_GUIDE.md",
+    "name": "guide",
+    "row": {"verb": "guide", "kind": "read", "icon": "book", "target": ["{topic}", "the index"]},
+    "description": "Read before your first process or browser click. Topics go deeper.",
+    "comment": "The tools MCP server answers it from the guide the core serves with this manifest, so it has no harness method."
+  },
+  "families": [
+    {
+      "name": "sim",
+      "description": "The simulator or Android device you attach, live on your desk."
+    }
+  ],
+  "tools": [
+    {
+      "name": "browser_navigate",
+      "row": {"verb": "open", "kind": "fetch", "icon": "globe", "target": ["{url}", "{go}"]},
+      "method": "browser.navigate",
+      "description": "Go to a URL, back, forward or reload; waits for the page.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "newTab": {
+          "description": "Open in a new tab, or your tab already on that site",
+          "type": "boolean"
+        },
+        "go": {
+          "description": "Instead of url",
+          "enum": [
+            "back",
+            "forward",
+            "reload"
+          ]
+        },
+        "hard": {
+          "description": "With go reload: skip the cache",
+          "type": "boolean"
+        },
+        "waitFor": {
+          "description": "Condition to wait for after the load",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "textGone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "selector": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "selectorGone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "networkIdle": {
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 60000
+            }
+          }
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_state",
+      "row": {"verb": "look", "kind": "read", "icon": "eye", "target": ["{selector}", "the page"]},
+      "method": "browser.state",
+      "description": "Read the tab: url, title, numbered elements, text, tabs, downloads.",
+      "properties": {
+        "fullText": {
+          "description": "Up to 40 KB of text",
+          "type": "boolean"
+        },
+        "selector": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "around": {
+          "description": "Read text around this phrase, not from the top",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "chars": {
+          "description": "With around: how much, default 2000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40000
+        },
+        "tail": {
+          "description": "Read only the last this many characters",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40000
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_find",
+      "row": {"verb": "find", "kind": "search", "icon": "search", "target": ["“{query}”"], "detail": ["{role}"]},
+      "method": "browser.find",
+      "description": "Find elements by visible text or accessible name.",
+      "properties": {
+        "query": {
+          "description": "Visible text or accessible name",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    {
+      "name": "browser_click",
+      "row": {"verb": "click", "kind": "edit", "icon": "click", "target": ["“{text}”", "{selector}", "element {index}", "{x}, {y}"], "detail": ["{role}"]},
+      "method": "browser.click",
+      "description": "Click an element by number, text, selector or point.",
+      "properties": {
+        "index": {
+          "description": "Element number from state or find",
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "description": "Visible text or name, headings too",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "expectLabel": {
+          "description": "Refuse unless the target's label contains this",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "double": {
+          "type": "boolean"
+        },
+        "hover": {
+          "type": "boolean"
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_type",
+      "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {field}", "into {selector}", "into element {index}", "into the focused field"]},
+      "method": "browser.type",
+      "description": "Type into a field, replacing it or at the caret.",
+      "properties": {
+        "index": {
+          "description": "Field number; omit to type at the caret",
+          "type": "integer",
+          "minimum": 0
+        },
+        "field": {
+          "description": "Instead of index: the field's label, placeholder or name",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "replace": {
+          "description": "Select the focused field's text first",
+          "type": "boolean"
+        },
+        "submit": {
+          "type": "boolean"
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    {
+      "name": "browser_press",
+      "row": {"verb": "press", "kind": "edit", "icon": "keyboard", "target": ["{key}"]},
+      "method": "browser.press",
+      "description": "Press a key or chord, such as Meta+a.",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    {
+      "name": "browser_act",
+      "row": {"verb": "act", "kind": "edit", "icon": "steps", "target": ["{steps}-step sequence"]},
+      "method": "browser.act",
+      "description": "Batch navigate, click, type, wait, read.",
+      "properties": {
+        "steps": {
+          "description": "Up to 20, run in order until one fails; add a wait after a step that loads a page",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": ["navigate", "click", "type", "press", "wait", "find", "read"]
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 8192
+              },
+              "go": {
+                "enum": ["back", "forward", "reload"]
+              },
+              "field": {
+                "description": "type: a field's label, placeholder or name",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "textGone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "selectorGone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "urlGone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "networkIdle": {
+                "type": "boolean"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "selector": {
+                "description": "read: whose text to return; default the page",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "replace": {
+                "type": "boolean"
+              },
+              "expectLabel": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
+              },
+              "submit": {
+                "type": "boolean"
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              }
+            },
+            "required": ["action"]
+          }
+        },
+        "report": {
+          "enum": ["outcome", "changes", "full"]
+        }
+      },
+      "required": ["steps"]
+    },
+    {
+      "name": "browser_drag",
+      "row": {"verb": "drag", "kind": "edit", "icon": "pointer", "target": ["element {fromIndex} → element {toIndex}", "{fromX}, {fromY} → {toX}, {toY}"]},
+      "method": "browser.drag",
+      "description": "Drag from one element or point to another.",
+      "properties": {
+        "fromIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fromX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fromY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_upload",
+      "row": {"verb": "upload", "kind": "edit", "icon": "upload", "target": ["{paths}"], "detail": ["into element {index}", "into {selector}"]},
+      "method": "browser.upload",
+      "description": "Give files to a file input.",
+      "properties": {
+        "paths": {
+          "description": "Absolute file paths",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "index": {
+          "description": "The file input, or the button opening a chooser",
+          "type": "integer",
+          "minimum": 0
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "x": {
+          "description": "Point of that button, with y",
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "paths"
+      ]
+    },
+    {
+      "name": "browser_dialog",
+      "row": {"verb": "answer", "kind": "edit", "icon": "message", "target": ["“{text}”", "the dialog"]},
+      "method": "browser.dialog",
+      "description": "Answer an alert, confirm or prompt.",
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "accept"
+      ]
+    },
+    {
+      "name": "browser_viewport",
+      "row": {"verb": "resize", "kind": "edit", "icon": "resize", "target": ["{width}×{height}", "{preset}"]},
+      "method": "browser.viewport",
+      "description": "Set this tab's viewport size or preset.",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 4000
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 4000
+        },
+        "preset": {
+          "type": "string",
+          "enum": ["desktop", "tablet", "mobile", "fit"]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_scroll",
+      "row": {"verb": "scroll", "kind": "read", "icon": "mouse", "target": ["to “{text}”", "to {selector}", "to element {index}", "to the {to}", "{deltaY}px"]},
+      "method": "browser.scroll",
+      "description": "Scroll to an element, by deltaY, or to an end.",
+      "properties": {
+        "deltaY": {
+          "description": "Pixels; negative scrolls up",
+          "type": "number"
+        },
+        "to": {
+          "enum": [
+            "top",
+            "bottom"
+          ]
+        },
+        "index": {
+          "description": "Element to bring into view, or whose container deltaY and to scroll",
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "description": "Words of the element to scroll to",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_evaluate",
+      "row": {"verb": "eval", "kind": "execute", "icon": "code", "target": ["{script}"]},
+      "method": "browser.evaluate",
+      "description": "Run a script in the page; returns JSON.",
+      "properties": {
+        "script": {
+          "description": "An expression, or statements ending in return; may await",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "script"
+      ]
+    },
+    {
+      "name": "browser_network",
+      "row": {"verb": "network", "kind": "read", "icon": "network", "target": ["“{filter}”", "request {id}", "recent requests"], "detail": ["{method}"]},
+      "method": "browser.network",
+      "description": "List page requests with status and body.",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "filter": {
+          "description": "URL contains",
+          "type": "string",
+          "maxLength": 200
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10
+        },
+        "status": {
+          "description": "e.g. 404, 4xx, failed or pending",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8
+        },
+        "id": {
+          "description": "One request, with its bodies",
+          "type": "integer",
+          "minimum": 1
+        },
+        "since": {
+          "description": "Only since the last page load",
+          "type": "string",
+          "enum": [
+            "navigation"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_console",
+      "row": {"verb": "read", "kind": "read", "icon": "terminal", "target": ["the page console"]},
+      "method": "browser.console",
+      "description": "List page console messages and errors.",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "errors": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_screenshot",
+      "row": {"verb": "shot", "kind": "read", "icon": "camera", "target": ["{selector}", "“{text}”", "element {index}"]},
+      "method": "browser.screenshot",
+      "answer": "screenshot",
+      "description": "Capture the tab or the whole page.",
+      "properties": {
+        "fullPage": {
+          "description": "Whole page, up to 14,400 px and 30 s",
+          "type": "boolean"
+        },
+        "annotate": {
+          "description": "Box and number the elements",
+          "type": "boolean"
+        },
+        "index": {
+          "description": "Capture only this element; or text, role or selector",
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_annotate",
+      "row": {"verb": "mark", "kind": "edit", "icon": "highlighter", "target": ["element {index}", "{x}, {y}", "clear"], "detail": ["{text}"]},
+      "method": "browser.annotate",
+      "description": "Box an element or caption the page.",
+      "properties": {
+        "index": {
+          "description": "Element to box; or x and y",
+          "type": "integer",
+          "minimum": 0
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 600000
+        },
+        "clear": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_record",
+      "row": {"verb": "record", "kind": "execute", "icon": "record", "target": ["this tab"], "detail": ["{path}"]},
+      "method": "browser.record",
+      "description": "Record this tab to MP4, or stop.",
+      "properties": {
+        "stop": {
+          "type": "boolean"
+        },
+        "path": {
+          "description": "Absolute .mp4 path; default Movies/Sikemux",
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_wait",
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for “{text}”", "for “{textGone}” to go", "for {selector}", "for {selectorGone} to go", "for {url}", "for {urlGone} to go", "for {stable} to settle", "{ms}"]},
+      "method": "browser.wait",
+      "description": "Wait for text, a selector, a URL or quiet network.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "textGone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "selectorGone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "url": {
+          "description": "Until the URL contains this",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "urlGone": {
+          "description": "Until the URL no longer contains this",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "networkIdle": {
+          "description": "Until no request for 500 ms",
+          "type": "boolean"
+        },
+        "script": {
+          "description": "A page expression; until it is truthy",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "stable": {
+          "description": "A selector; until its text holds for quietMs",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "quietMs": {
+          "description": "With stable; default 1000",
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "timeoutMs": {
+          "description": "Default 10000",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 180000
+        },
+        "ms": {
+          "description": "Fixed pause; prefer a condition",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_switch_tab",
+      "row": {"verb": "switch", "kind": "move", "icon": "tabs", "target": ["tab {tabId}"]},
+      "method": "browser.tab.switch",
+      "description": "Switch to one of your tabs.",
+      "properties": {
+        "tabId": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "tabId"
+      ]
+    },
+    {
+      "name": "browser_close_tab",
+      "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["tab {tabId}"]},
+      "method": "browser.tab.close",
+      "description": "Close one of your tabs.",
+      "properties": {
+        "tabId": {
+          "description": "Default the tab in front",
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_devices",
+      "row": {"verb": "list", "kind": "read", "icon": "phone", "target": ["simulators"]},
+      "method": "sim.devices",
+      "offered": "simulator",
+      "description": "List the simulators, the one you hold, and which other agents hold.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "sim_attach",
+      "row": {"verb": "attach", "kind": "move", "icon": "link", "target": ["{device}", "a simulator"]},
+      "method": "sim.attach",
+      "offered": "simulator",
+      "description": "Attach a simulator by name, else the warmest free one, and read its screen.",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "fresh": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_state",
+      "row": {"verb": "read", "kind": "read", "icon": "eye", "target": ["the simulator screen"]},
+      "method": "sim.state",
+      "offered": "simulator",
+      "description": "Read the attached simulator's screen: the frontmost app and numbered elements with their centre points.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "sim_tap",
+      "row": {"verb": "tap", "kind": "edit", "icon": "tap", "target": ["“{label}”", "element {index}", "{x}, {y}"]},
+      "method": "sim.tap",
+      "offered": "simulator",
+      "description": "Tap an element by number or label, or a point in device points. A duration makes it a long press.",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_swipe",
+      "row": {"verb": "swipe", "kind": "edit", "icon": "swipe", "target": ["{fromX}, {fromY} → {toX}, {toY}"]},
+      "method": "sim.swipe",
+      "offered": "simulator",
+      "description": "Swipe between two points in device points. Starting at a screen edge makes a system gesture.",
+      "properties": {
+        "fromX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fromY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 5
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "fromX",
+        "fromY",
+        "toX",
+        "toY"
+      ]
+    },
+    {
+      "name": "sim_type",
+      "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into the focused field"]},
+      "method": "sim.type",
+      "offered": "simulator",
+      "description": "Type text into the focused field on the attached simulator.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    {
+      "name": "sim_button",
+      "row": {"verb": "press", "kind": "edit", "icon": "home-button", "target": ["{button}"]},
+      "method": "sim.button",
+      "offered": "simulator",
+      "description": "Press a hardware button on the attached simulator.",
+      "properties": {
+        "button": {
+          "enum": [
+            "home",
+            "lock",
+            "side",
+            "siri",
+            "volumeUp",
+            "volumeDown",
+            "back"
+          ]
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "button"
+      ]
+    },
+    {
+      "name": "sim_rotate",
+      "row": {"verb": "rotate", "kind": "edit", "icon": "rotate", "target": ["to {orientation}"]},
+      "method": "sim.rotate",
+      "offered": "simulator",
+      "description": "Turn the attached simulator to an orientation and read its screen.",
+      "properties": {
+        "orientation": {
+          "enum": [
+            "portrait",
+            "landscapeLeft",
+            "landscapeRight"
+          ]
+        }
+      },
+      "required": [
+        "orientation"
+      ]
+    },
+    {
+      "name": "sim_screenshot",
+      "row": {"verb": "shot", "kind": "read", "icon": "camera", "target": ["the simulator"]},
+      "method": "sim.screenshot",
+      "answer": "screenshot",
+      "offered": "simulator",
+      "description": "Capture the attached simulator's screen at its size in points.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "sim_launch",
+      "row": {"verb": "launch", "kind": "execute", "icon": "rocket", "target": ["{bundleId}"]},
+      "method": "sim.launch",
+      "offered": "simulator",
+      "description": "Launch an installed app by bundle id, relaunching it if it runs, and read the screen.",
+      "properties": {
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "maxItems": 50
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "bundleId"
+      ]
+    },
+    {
+      "name": "sim_terminate",
+      "row": {"verb": "quit", "kind": "execute", "icon": "stop", "target": ["{bundleId}"]},
+      "method": "sim.terminate",
+      "offered": "simulator",
+      "description": "Quit an app on the attached simulator by bundle id.",
+      "properties": {
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "bundleId"
+      ]
+    },
+    {
+      "name": "sim_install",
+      "row": {"verb": "install", "kind": "execute", "icon": "download", "target": ["{path}"]},
+      "method": "sim.install",
+      "offered": "simulator",
+      "description": "Install a built .app from inside the project on the attached simulator.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "sim_open_url",
+      "row": {"verb": "open", "kind": "fetch", "icon": "globe", "target": ["{url}"]},
+      "method": "sim.openUrl",
+      "offered": "simulator",
+      "description": "Open a URL or deep link on the attached simulator.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    {
+      "name": "sim_touch_path",
+      "row": {"verb": "drag", "kind": "edit", "icon": "touch-path", "target": ["a touch path"]},
+      "method": "sim.touchPath",
+      "offered": "simulator",
+      "description": "Drag one finger through points over a duration, as a long-press drag or drawing.",
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          }
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 10
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "points"
+      ]
+    },
+    {
+      "name": "sim_touch2_path",
+      "row": {"verb": "pinch", "kind": "edit", "icon": "pinch", "target": ["a two-finger path"]},
+      "method": "sim.touch2Path",
+      "offered": "simulator",
+      "description": "Move two fingers through points together, to pinch, spread or turn.",
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x1": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y1": {
+                "type": "number",
+                "minimum": 0
+              },
+              "x2": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y2": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "x1",
+              "y1",
+              "x2",
+              "y2"
+            ]
+          }
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 10
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "points"
+      ]
+    },
+    {
+      "name": "sim_logs",
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{process} logs", "the simulator log"]},
+      "method": "sim.logs",
+      "offered": "simulator",
+      "description": "Read the attached simulator's log by cursor and generation, all of it or one process's.",
+      "properties": {
+        "process": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generation": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_detach",
+      "row": {"verb": "detach", "kind": "move", "icon": "unlink", "target": ["the simulator"]},
+      "method": "sim.detach",
+      "offered": "simulator",
+      "description": "Let go of the attached simulator, for another agent to use.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "workspace_inspect",
+      "row": {"verb": "inspect", "kind": "read", "icon": "server", "target": ["the workspace"]},
+      "method": "workspace.inspect",
+      "description": "The open project: processes, runs and ports.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "setup_check",
+      "offered": "setup",
+      "row": {"verb": "check", "kind": "execute", "icon": "check", "target": ["the setup on fresh checkouts"]},
+      "method": "setup.check",
+      "description": "Prove sikemux.json's setup on two fresh checkouts: steps, processes' ports, check, removal.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "process_start",
+      "row": {"verb": "start", "kind": "execute", "icon": "run", "target": ["{processId}", "{label}", "{command}"], "detail": ["{command}"]},
+      "method": "process.start",
+      "description": "Start a sikemux.json process or a command.",
+      "properties": {
+        "processId": {
+          "description": "From workspace_inspect or an earlier result",
+          "type": "string"
+        },
+        "command": {
+          "description": "Shell command, when no processId; never cd out of the project",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "cwd": {
+          "description": "Directory inside the project",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "idempotencyKey": {
+          "description": "Yours, one per attempt; reuse it to retry",
+          "type": "string",
+          "maxLength": 128
+        },
+        "readyWhen": {
+          "description": "Output text meaning ready, e.g. Ready in",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "needs": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "idempotencyKey"
+      ]
+    },
+    {
+      "name": "process_restart",
+      "row": {"verb": "restart", "kind": "execute", "icon": "refresh", "target": ["{processId}"]},
+      "method": "process.restart",
+      "description": "Restart a process's latest run.",
+      "properties": {
+        "processId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "processId"
+      ]
+    },
+    {
+      "name": "process_read",
+      "row": {"verb": "tail", "kind": "read", "icon": "log-lines", "target": ["{processId}", "{executionId}"], "detail": ["“{search}”", "last {tail} lines"]},
+      "method": "process.read",
+      "description": "Read process output by cursor, tail or search.",
+      "properties": {
+        "executionId": {
+          "description": "A run; else processId's latest",
+          "type": "string"
+        },
+        "processId": {
+          "type": "string"
+        },
+        "cursor": {
+          "description": "Byte cursor: 0, then the one returned",
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 8192
+        },
+        "tail": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "search": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "context": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "process_stop",
+      "row": {"verb": "stop", "kind": "execute", "icon": "stop", "target": ["{processId}", "{executionId}"]},
+      "method": "process.stop",
+      "description": "Stop a run and everything it started.",
+      "properties": {
+        "executionId": {
+          "description": "A run; else processId's latest",
+          "type": "string"
+        },
+        "processId": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "hold",
+      "row": {"verb": "hold", "kind": "move", "icon": "link", "target": ["{name}"]},
+      "method": "line.hold",
+      "offered": "resources",
+      "description": "Hold a resource from sikemux.json for your turn.",
+      "properties": {
+        "name": {
+          "description": "A resources name from sikemux.json",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    {
+      "name": "ui_open",
+      "row": {"verb": "show", "kind": "read", "icon": "window", "target": ["{path}:{line}", "{path}", "{mod}", "{kind}"]},
+      "method": "ui.open",
+      "description": "Open a file, diff, terminal, preview or mod.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "diff",
+            "terminal",
+            "preview",
+            "mod"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "mod": {
+          "type": "string",
+          "description": "With kind mod: its id, its folder's name"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "executionId": {
+          "type": "string"
+        },
+        "focus": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    {
+      "name": "mod_read",
+      "row": {"verb": "read", "kind": "read", "icon": "dashboard", "target": ["{mod}/{collection}/{id}", "{mod}/{collection}", "{mod}"]},
+      "method": "mod.read",
+      "description": "Read a mod's collections, or their documents.",
+      "properties": {
+        "mod": {
+          "type": "string"
+        },
+        "collection": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "after": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mod"
+      ]
+    },
+    {
+      "name": "mod_write",
+      "row": {"verb": "change", "kind": "edit", "icon": "dashboard", "target": ["{mod}"]},
+      "method": "mod.write",
+      "description": "Write a mod's data, all or none.",
+      "properties": {
+        "mod": {
+          "type": "string"
+        },
+        "writes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "collection": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "set": {
+                "type": "object"
+              },
+              "patch": {
+                "type": "object"
+              },
+              "remove": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "collection",
+              "id"
+            ]
+          }
+        }
+      },
+      "required": [
+        "mod",
+        "writes"
+      ]
+    },
+    {
+      "name": "page_preview",
+      "row": {"verb": "preview", "kind": "read", "icon": "eye", "target": ["{path}"]},
+      "method": "browser.page",
+      "answer": "image",
+      "description": "Check a page before you show it.",
+      "properties": {
+        "path": {
+          "description": "Absolute path of your HTML",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 1600
+        },
+        "script": {
+          "description": "Runs in the page with its theme, as browser_evaluate; returns its result",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "picture": {
+          "description": "false leaves the picture out",
+          "type": "boolean"
+        },
+        "selector": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "page_show",
+      "row": {"verb": "show", "kind": "read", "icon": "image", "target": ["{title}"]},
+      "method": "page.show",
+      "description": "Open a page in a desk tab.",
+      "properties": {
+        "path": {
+          "description": "Absolute path of your HTML; with title",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "id": {
+          "description": "A kept page's id from page_list, instead of path and title",
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "page_list",
+      "row": {"verb": "list", "kind": "read", "icon": "image", "target": ["pages with {words}", "pages"]},
+      "method": "page.list",
+      "description": "Find pages shown before, by title words.",
+      "properties": {
+        "words": {
+          "description": "Words the title holds",
+          "type": "string",
+          "maxLength": 200
+        },
+        "allProjects": {
+          "description": "true lists every project's, not just this one's",
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "events_wait",
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for process or page events"], "detail": ["until {until}"]},
+      "method": "events.wait",
+      "description": "Wait for process or UI events, a file or a pid.",
+      "properties": {
+        "cursor": {
+          "description": "Event cursor from the last wait; else from now",
+          "type": "string"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50000
+        },
+        "executionId": {
+          "description": "Only this run's events",
+          "type": "string"
+        },
+        "until": {
+          "description": "With executionId: exit, ready (its readyWhen) or text it prints",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "file": {
+          "description": "Wait on this absolute path; with no text, until it stops changing",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "text": {
+          "description": "Until the file holds this",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "pid": {
+          "description": "Until this process exits",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "agent_list",
+      "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["agents"]},
+      "method": "agent.list",
+      "description": "List Sikemux agents.",
+      "properties": {
+        "allProjects": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "agent_send",
+      "row": {"verb": "message", "kind": "edit", "icon": "message", "target": ["{to}"], "detail": ["{text}"]},
+      "method": "agent.send",
+      "description": "Message a Sikemux agent.",
+      "properties": {
+        "task": {
+          "description": "Number of what the person asked for that this hands on",
+          "type": "integer",
+          "minimum": 1
+        },
+        "to": {
+          "description": "Name or id, comma-separated, or team",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "answers": {
+          "description": "Id of the question this answers",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "why": {
+          "description": "With answers: why, for the decision log",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        }
+      },
+      "required": [
+        "to",
+        "text"
+      ]
+    },
+    {
+      "name": "agent_spawn",
+      "row": {"verb": "start", "kind": "execute", "icon": "square-plus", "target": ["session {resume}", "{cli} agent", "a helper"], "detail": ["{title}"]},
+      "method": "agent.spawn",
+      "description": "Start a Sikemux agent.",
+      "properties": {
+        "task": {
+          "description": "Number of what the person asked for that this hands on",
+          "type": "integer",
+          "minimum": 1
+        },
+        "cli": {
+          "description": "e.g. claude, codex; omit for a helper",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "title": {
+          "description": "The task in a few words, e.g. Fix the cart total",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "provider": {
+          "description": "A connected model provider to pay for it",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "report": {
+          "description": "false: it does not report back",
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "terminal"
+          ]
+        },
+        "checkout": {
+          "description": "own: a git worktree of its own",
+          "type": "string",
+          "enum": [
+            "own",
+            "shared"
+          ]
+        },
+        "branch": {
+          "description": "Own checkout's branch, e.g. fix/board-drag",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "repo": {
+          "description": "Repository to cut it from",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "resume": {
+          "description": "sessionId, or a closed linked-host worker",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "host": {
+          "description": "Linked host to run it on",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "uncommitted": {
+          "description": "With host: carry uncommitted changes too",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title",
+        "prompt"
+      ]
+    },
+    {
+      "name": "who_wrote",
+      "row": {"verb": "who wrote", "kind": "search", "icon": "user", "target": ["{target}"]},
+      "method": "agent.wrote",
+      "description": "Who broke CI, a test or a commit; how to reach them.",
+      "properties": {
+        "target": {
+          "description": "Commit, path or path:line, test name, CI run URL or id, or ci",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "target"
+      ]
+    },
+    {
+      "name": "why",
+      "row": {"verb": "asked why", "kind": "search", "icon": "search", "target": ["{about}", "“{words}”"]},
+      "method": "agent.why",
+      "description": "Why something here is as it is.",
+      "properties": {
+        "about": {
+          "description": "Path, path:line, commit, call id or rule N",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "words": {
+          "description": "Words the person used about it",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "agent_sessions",
+      "row": {"verb": "find", "kind": "search", "icon": "search", "target": ["sessions “{query}”"]},
+      "method": "agent.sessions",
+      "description": "Search past agent sessions.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "allProjects": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    {
+      "name": "agent_read",
+      "row": {"verb": "read", "kind": "read", "icon": "message", "target": ["{agent}"]},
+      "method": "agent.read",
+      "description": "Read what an agent said.",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "agent"
+      ]
+    },
+    {
+      "name": "agent_wait",
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for {agents}"], "detail": ["{until}"]},
+      "method": "agent.wait",
+      "description": "Wait until agents stop.",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "until": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "done",
+            "needs_you",
+            "any"
+          ]
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000
+        }
+      },
+      "required": [
+        "agents"
+      ]
+    },
+    {
+      "name": "agent_close",
+      "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["{agents}"]},
+      "method": "agent.close",
+      "description": "Close agents; lists refusals.",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "agents"
+      ]
+    },
+    {
+      "name": "agent_account",
+      "row": {"verb": "move", "kind": "edit", "icon": "user", "target": ["{agents}"], "detail": ["to {account}"]},
+      "method": "agent.account",
+      "description": "Move agents' chats to another account.",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "agents",
+        "account"
+      ]
+    },
+    {
+      "name": "agent_hire",
+      "row": {"verb": "hire", "kind": "edit", "icon": "user", "target": ["{agent}", "as @{name}"], "detail": ["{role}"]},
+      "method": "agent.hire",
+      "description": "@Chief only: hire for a standing role.",
+      "properties": {
+        "agent": {
+          "description": "Name or id",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "name": {
+          "description": "The role's name, one word",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "role": {
+          "description": "What it covers, one line",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "agent",
+        "name",
+        "role"
+      ]
+    },
+    {
+      "name": "ask",
+      "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["{question}"]},
+      "method": "agent.ask",
+      "description": "Ask your lead, else the person.",
+      "properties": {
+        "question": {"type": "string", "minLength": 1, "maxLength": 8192},
+        "choices": {
+          "type": "array",
+          "maxItems": 9,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "label": {"type": "string", "minLength": 1, "maxLength": 200},
+              "picture": {"description": "For a choice of look: its screenshot or mockup", "type": "string", "minLength": 1, "maxLength": 4096}
+            },
+            "required": ["label"]
+          }
+        },
+        "blocked": {"description": "Default true: end your turn and wait", "type": "boolean"},
+        "secret": {"description": "The answer is a password or token", "type": "boolean"},
+        "kind": {"description": "Why it is the person's; do: a task for them; look: finished work to see (leads)", "type": "string", "enum": ["production", "money", "taste", "access", "do", "look"]},
+        "title": {"description": "2-4 words naming it", "type": "string", "minLength": 1, "maxLength": 30},
+        "link": {"type": "object", "additionalProperties": false, "properties": {"label": {"type": "string", "maxLength": 80}, "url": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["url"]},
+        "pick": {"description": "The choice you recommend", "type": "string", "minLength": 1, "maxLength": 200},
+        "about": {"description": "Agent whose work it is, when not yours", "type": "string", "minLength": 1, "maxLength": 200},
+        "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32}
+      },
+      "required": ["question"]
+    },
+    {
+      "name": "task_add",
+      "row": {"verb": "add", "kind": "edit", "icon": "board", "target": ["task {title}"]},
+      "method": "task.add",
+      "description": "Add a task.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "parent": {
+          "description": "Task it goes under",
+          "type": "integer",
+          "minimum": 1
+        },
+        "dependsOn": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "claim": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    {
+      "name": "task_list",
+      "row": {"verb": "list", "kind": "read", "icon": "board", "target": ["task #{task}", "tasks"]},
+      "method": "task.list",
+      "description": "List tasks.",
+      "properties": {
+        "task": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "done": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "task_claim",
+      "row": {"verb": "claim", "kind": "edit", "icon": "board", "target": ["task #{task}"]},
+      "method": "task.claim",
+      "description": "Claim a task.",
+      "properties": {
+        "task": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "task"
+      ]
+    },
+    {
+      "name": "task_update",
+      "row": {"verb": "update", "kind": "edit", "icon": "board", "target": ["task #{task}", "asked #{asked}"], "detail": ["to {status}", "{result}", "{commit}"]},
+      "method": "task.update",
+      "description": "Change a task.",
+      "properties": {
+        "task": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "done"
+          ]
+        },
+        "result": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "dependsOn": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "parent": {
+          "description": "0 takes it out from under one",
+          "type": "integer",
+          "minimum": 0
+        },
+        "asked": {
+          "description": "Instead of task: close what the person asked for, the number agent_send's task takes",
+          "type": "integer",
+          "minimum": 1
+        },
+        "commit": {
+          "description": "With asked: the commit that did it; omit if it needed no change",
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "decide",
+      "row": {"verb": "decide", "kind": "edit", "icon": "board", "target": ["decision #{decision}", "{text}"]},
+      "method": "decision.keep",
+      "description": "Keep project decisions.",
+      "properties": {
+        "environments": { "type": "array", "items": { "type": "object" }, "description": "Instead: propose the project's, in order, with why; see the guide" },
+        "decision": {
+          "description": "The one to correct or retire; omit to record one",
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "retire": {
+          "type": "boolean"
+        },
+        "person": {
+          "description": "The person chose it, in their answer that started this turn",
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "memory_add",
+      "row": {"verb": "remember", "kind": "edit", "icon": "book", "target": ["{text}"], "detail": ["{kind}"]},
+      "method": "memory.add",
+      "description": "Keep a rule or knowledge.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "knowledge"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "about": {
+          "description": "Paths and services it is about",
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "goal": {
+          "description": "Kept on your goal's card",
+          "type": "boolean"
+        },
+        "person": {
+          "type": "boolean"
+        },
+        "sensitive": {
+          "description": "Never goes into the repository",
+          "type": "boolean"
+        },
+        "check": {
+          "description": "How Sikemux tests knowledge still holds",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "pathExists",
+                "hostAnswers"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "host": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "yours": {
+          "description": "Kept for the person on every project",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    {
+      "name": "memory_update",
+      "row": {"verb": "update", "kind": "edit", "icon": "book", "target": ["memory #{id}"], "detail": ["{text}", "{wrong}"]},
+      "method": "memory.update",
+      "description": "Mend what is kept.",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "goal": {
+          "description": "The id is a rule of your card's goal",
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "What is so instead"
+        },
+        "wrong": {
+          "description": "Why it no longer holds",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "retire": {
+          "type": "boolean"
+        },
+        "about": {
+          "description": "Paths and services it is about",
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "check": {
+          "description": "How Sikemux tests knowledge from now on",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "pathExists",
+                "hostAnswers"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "host": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "dropCheck": {
+          "description": "Stop testing knowledge",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "memory_list",
+      "row": {"verb": "list", "kind": "read", "icon": "book", "target": ["what Sikemux keeps"]},
+      "method": "memory.list",
+      "description": "List what is kept.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "trigger_add",
+      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["{title}"], "detail": ["after CI on {ci}", "after Rundeck run {rundeck}", "for {process}", "for {agent}", "daily at {daily}"]},
+      "method": "trigger.add",
+      "description": "Prompt this chat later.",
+      "properties": {
+        "title": {
+          "description": "What it is for, shown to the person",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "prompt": {
+          "description": "What this chat is sent when it fires",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "in": {
+          "description": "Seconds from now, once",
+          "type": "integer",
+          "minimum": 60
+        },
+        "at": {
+          "description": "Once, at a time with offset: 2026-10-28T09:30:00+05:30",
+          "type": "string",
+          "maxLength": 64
+        },
+        "every": {
+          "description": "Seconds between firings",
+          "type": "integer",
+          "minimum": 60
+        },
+        "daily": {
+          "description": "HH:MM on this host's clock, each day",
+          "type": "string",
+          "maxLength": 5
+        },
+        "board": {
+          "description": "Add a board card instead of prompting this chat",
+          "type": "boolean"
+        },
+        "webhook": {
+          "description": "Fire on each request to an address it returns",
+          "type": "boolean"
+        },
+        "check": {
+          "description": "With every or daily: fire only when this command's output changed",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "ci": {
+          "description": "Fire once CI ends on this commit, branch or run",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "rundeck": {
+          "description": "Fire once this Rundeck run ends: its execution id or address",
+          "type": "string"
+        },
+        "process": {
+          "description": "Fire once this executionId ends",
+          "type": "string"
+        },
+        "agent": {
+          "description": "Fire once this agent gets to until",
+          "type": "string"
+        },
+        "mod": {
+          "description": "Fire when others add or change documents in this mod/collection",
+          "type": "string"
+        },
+        "where": {
+          "description": "With mod: top-level fields a document must equal",
+          "type": "object"
+        },
+        "until": {
+          "description": "process: text it prints, or ready. agent: done, needs_you, idle or any",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Seconds to wait before firing anyway",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "weekdays": {
+          "description": "With daily; default every day",
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "type": "string",
+            "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+          }
+        }
+      },
+      "required": [
+        "title",
+        "prompt"
+      ]
+    },
+    {
+      "name": "trigger_list",
+      "row": {"verb": "list", "kind": "read", "icon": "bolt", "target": ["triggers"]},
+      "method": "trigger.list",
+      "description": "List your triggers.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "trigger_remove",
+      "row": {"verb": "trigger", "kind": "edit", "icon": "bolt", "target": ["remove #{trigger}"]},
+      "method": "trigger.remove",
+      "description": "Stop a trigger.",
+      "properties": {
+        "trigger": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "trigger"
+      ]
+    },
+    {
+      "name": "git_commit",
+      "row": {"verb": "commit", "kind": "edit", "icon": "commit", "target": ["{message}"]},
+      "method": "git.commit",
+      "description": "Commit only the lines you wrote.",
+      "properties": {
+        "message": {
+          "description": "Omit to only sync, land or push; no Co-Authored-By trailer naming yourself",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "paths": {
+          "description": "Files or folders; default every line of yours",
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "sync": {
+          "description": "Own checkout: bring it up to the branch it was cut from",
+          "type": "boolean"
+        },
+        "land": {
+          "description": "Own checkout: queue your commits for the branch it was cut from; a message says how the land ended",
+          "type": "boolean"
+        },
+        "push": {
+          "description": "Push your commits, when the person or the project's rules say to; from your own checkout without land, to its own branch",
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "skills",
+      "row": {"verb": "skills", "kind": "edit", "icon": "book", "target": ["{action} {name}", "{action} from {source}", "{action}"]},
+      "method": "skills.manage",
+      "description": "Manage the skills every agent gets.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["list", "create", "install", "remove"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "body": {
+          "type": "string"
+        },
+        "source": {
+          "description": "Folder path or git URL to install from",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "subfolder": {
+          "description": "The skill's folder in that repository",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": ["action"]
+    },
+    {
+      "name": "app_console",
+      "row": {"verb": "console", "kind": "read", "icon": "terminal", "target": ["the app"]},
+      "method": "app.console",
+      "description": "Read Sikemux's console and errors.",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "errors": {
+          "type": "boolean"
+        },
+        "previous": {
+          "description": "The errors of the app's last run, kept after it ended",
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "theme_read",
+      "row": {"verb": "read", "kind": "read", "icon": "highlighter", "target": ["{theme}", "the themes"]},
+      "method": "theme.read",
+      "description": "Sikemux's themes.",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "theme_set",
+      "row": {"verb": "restyle", "kind": "edit", "icon": "highlighter", "target": ["{theme}", "Sikemux"]},
+      "method": "theme.set",
+      "answer": "image",
+      "description": "Restyle Sikemux when the person asks.",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "save": {
+          "description": "New theme: changes to a base",
+          "type": "object"
+        },
+        "adjust": {
+          "description": "Person's own, kept across themes",
+          "type": "object"
+        }
+      },
+      "required": []
+    }
+  ]
+}

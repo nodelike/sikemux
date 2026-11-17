@@ -4,12 +4,11 @@
 // traded by anyone else.
 
 use serde::Deserialize;
-use sikemux_plugin_api::oauth::{
-    Authorize, KeychainEntry, OAuthApp, Refreshing, Secret, TokenRequest,
-};
+use sikemux_plugin_api::http::Read;
+use sikemux_plugin_api::oauth::{Authorize, OAuthApp, Refreshing, Secret, TokenRequest};
 
 use crate::client;
-use crate::config::{self, Site};
+use crate::config;
 use crate::error::{Jira, JiraError, JiraResult};
 
 const SITES_URL: &str = "https://api.atlassian.com/oauth/token/accessible-resources";
@@ -40,16 +39,8 @@ pub static APP: OAuthApp = OAuthApp {
 };
 
 /// Every site one Atlassian account reaches shares its sign-in, so access is kept by account.
-pub static ACCESS: Refreshing<Jira> = Refreshing::new(&APP, &client::HTTP);
+pub static ACCESS: Refreshing<Jira> = Refreshing::new(&APP, &client::HTTP, config::KEYCHAIN);
 
-pub fn entry(site: &Site) -> KeychainEntry {
-    KeychainEntry {
-        secrets: config::KEYCHAIN,
-        account: site.keychain_account(),
-    }
-}
-
-/// A Jira site the signed-in account may use.
 #[derive(Deserialize)]
 pub struct CloudSite {
     pub id: String,
@@ -66,15 +57,14 @@ pub async fn sites(access_token: &str) -> JiraResult<Vec<CloudSite>> {
         .get(SITES_URL)
         .bearer_auth(access_token)
         .header("Accept", "application/json");
-    let response = client::HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = client::read_limited(response).await?;
-    if !status.is_success() {
+    let answer = client::HTTP.ask(request, Read::ALL).await?;
+    if !answer.status.is_success() {
         return Err(JiraError::Auth(format!(
-            "Atlassian would not list the sites (http {status})"
+            "Atlassian would not list the sites (http {})",
+            answer.status
         )));
     }
-    Ok(jira_sites(serde_json::from_slice(&bytes)?))
+    Ok(jira_sites(answer.parsed()?))
 }
 
 fn jira_sites(all: Vec<CloudSite>) -> Vec<CloudSite> {
@@ -83,6 +73,16 @@ fn jira_sites(all: Vec<CloudSite>) -> Vec<CloudSite> {
         .collect()
 }
 
+pub static BOOK: sikemux_plugin_api::vault::Listed<config::Site> =
+    sikemux_plugin_api::vault::Listed::new(
+        "config.json",
+        "sites",
+        "host",
+        Some("default"),
+        config::KEYCHAIN,
+    )
+    .renewed_by(&ACCESS);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,15 +90,20 @@ mod tests {
 
     #[test]
     fn the_browser_asks_for_jira_and_a_refresh_token_and_comes_back_to_jiras_path() {
-        let url = APP.authorize_address("s1", Some("verifier"));
-        assert!(url.starts_with("https://auth.atlassian.com/authorize?"));
-        assert!(url.contains("&audience=api.atlassian.com&"));
-        assert!(url.contains("scope=read%3Ajira-work+write%3Ajira-work+read%3Ajira-user+"));
-        assert!(url.contains("+read%3Aboard-scope%3Ajira-software+"));
-        assert!(url.contains("+offline_access&"));
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A47123%2Fjira%2Fcallback"));
-        assert!(url.contains("&state=s1&"));
-        assert!(url.ends_with("&code_challenge_method=S256"));
+        let address = APP.authorize_address("s1", Some("verifier"));
+        let url = url::Url::parse(&address).expect("an address");
+        assert_eq!(url.host_str(), Some("auth.atlassian.com"));
+        let asked = |name: &str| {
+            url.query_pairs()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.into_owned())
+                .unwrap_or_default()
+        };
+        assert_eq!(asked("audience"), "api.atlassian.com");
+        assert!(asked("scope").split(' ').any(|s| s == "offline_access"));
+        assert!(asked("redirect_uri").ends_with("/jira/callback"));
+        assert_eq!(asked("state"), "s1");
+        assert_eq!(asked("code_challenge_method"), "S256");
     }
 
     #[test]

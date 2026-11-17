@@ -3,6 +3,10 @@
 //! is journaled beside the project's task events, so a wait from a cursor
 //! misses nothing that happened between two waits.
 
+use crate::server::chat_state::ChatParts;
+use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,14 +15,18 @@ use serde_json::{json, Value};
 use tokio::time::Instant;
 
 use crate::cli::protocol::HarnessRequest;
-use crate::protocol::AgentStatus;
+use sikemux_wire::protocol::AgentStatus;
 
-use super::chat::feed::Said;
+use super::chat::feed::Feed;
 use super::connection::blocking;
-use super::messages::{self, Listed, Reach};
-use super::transcript;
+use super::messages;
+use super::roster::{self, Listed, Reach};
 use super::Core;
+use crate::acp::failure::{out_of_usage, PAUSED_FOR_AGENTS};
 use crate::agent_catalog::AgentKind;
+use crate::sessions::roots::account_root;
+use crate::sessions::transcript::{self, Said};
+use std::collections::BTreeMap;
 
 const MAX_WAIT_MS: u64 = 30_000;
 const MAX_AGENTS: usize = 8;
@@ -28,13 +36,14 @@ const RECENT_TURNS: usize = 3;
 const MAX_READ_BYTES: usize = 16 * 1024;
 const MAX_ASKED_CHARS: usize = 600;
 const MAX_SAID_BYTES: usize = 2 * 1024;
+const TURN_ASKED: usize = 6;
+const TURN_SAID: usize = 4;
 const MAX_ANSWER_BYTES: usize = 8 * 1024;
 const TOOL_TITLES: usize = 6;
 const MAX_TITLE_CHARS: usize = 80;
 const SCREEN_LINES: usize = 40;
 const REPORT_SCREEN_LINES: usize = 30;
 
-/// Something that happened to an agent.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Happened {
     Working,
@@ -72,7 +81,7 @@ impl Happened {
             .find(|happened| happened.kind() == kind)
     }
 
-    fn words(self) -> &'static str {
+    pub(crate) fn words(self) -> &'static str {
         match self {
             Happened::Working => "started working",
             Happened::Done => "finished its turn",
@@ -85,7 +94,7 @@ impl Happened {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Until {
+pub(crate) enum Until {
     /// No longer at work, for any reason.
     Idle,
     /// Its turn ended, or it stopped running.
@@ -98,20 +107,24 @@ impl Until {
     fn of(params: &Value) -> Result<Self, String> {
         match params.get("until") {
             None | Some(Value::Null) => Ok(Until::Idle),
-            Some(Value::String(until)) => match until.as_str() {
-                "idle" => Ok(Until::Idle),
-                "done" => Ok(Until::Done),
-                "needs_you" => Ok(Until::NeedsYou),
-                "any" => Ok(Until::Any),
-                other => Err(format!(
-                    "until must be idle, done, needs_you or any, not {other}"
-                )),
-            },
+            Some(Value::String(until)) => Self::named(until),
             Some(_) => Err("until must be idle, done, needs_you or any".into()),
         }
     }
 
-    fn heard(self, happened: Happened) -> bool {
+    pub(crate) fn named(until: &str) -> Result<Self, String> {
+        match until {
+            "idle" => Ok(Until::Idle),
+            "done" => Ok(Until::Done),
+            "needs_you" => Ok(Until::NeedsYou),
+            "any" => Ok(Until::Any),
+            other => Err(format!(
+                "until must be idle, done, needs_you or any, not {other}"
+            )),
+        }
+    }
+
+    pub(crate) fn heard(self, happened: Happened) -> bool {
         match self {
             Until::Any => true,
             Until::NeedsYou => happened == Happened::NeedsYou,
@@ -125,7 +138,7 @@ impl Until {
 
     /// Whether an agent standing at `status` already is where the wait would
     /// take it. `None` is an agent that is gone.
-    fn already(self, status: Option<AgentStatus>) -> bool {
+    pub(crate) fn already(self, status: Option<AgentStatus>) -> bool {
         let Some(status) = status else {
             return self != Until::NeedsYou && self != Until::Any;
         };
@@ -160,7 +173,7 @@ fn cursor_param(params: &Value) -> Result<Option<&str>, String> {
     }
 }
 
-fn cut_bytes(text: &str, max: usize) -> String {
+pub(crate) fn cut_bytes(text: &str, max: usize) -> String {
     let text = text.trim();
     if text.len() <= max {
         return text.to_owned();
@@ -279,16 +292,28 @@ impl Turn {
             "state": self.ended.take().unwrap_or_else(|| "working".into()),
         });
         let fields = turn.as_object_mut().expect("a turn is an object");
+        let mut omitted = Vec::new();
+        let earlier_asked = self.asked.len().saturating_sub(TURN_ASKED);
+        if earlier_asked > 0 {
+            omitted.push(format!("{earlier_asked} earlier messages to it"));
+        }
+        let earlier_said = self.said.len().saturating_sub(TURN_SAID);
+        if earlier_said > 0 {
+            omitted.push(format!("{earlier_said} earlier things it said"));
+        }
         if !self.asked.is_empty() {
-            fields.insert("asked".into(), self.asked.into());
+            let asked: Vec<Value> = self.asked.drain(earlier_asked..).collect();
+            fields.insert("asked".into(), asked.into());
         }
         if !self.said.is_empty() {
-            let said: Vec<String> = self
-                .said
+            let said: Vec<String> = self.said[earlier_said..]
                 .iter()
                 .map(|text| cut_bytes(text, MAX_SAID_BYTES))
                 .collect();
             fields.insert("said".into(), said.into());
+        }
+        if !omitted.is_empty() {
+            fields.insert("omitted".into(), omitted.into());
         }
         if let Some(tools) = tools {
             fields.insert("tools".into(), tools.into());
@@ -303,6 +328,10 @@ impl Turn {
 fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
     let mut turns: Vec<Turn> = Vec::new();
     for (index, starts, said) in said {
+        let said = match said {
+            Said::Message(text) if out_of_usage(&text) => Said::Failed(PAUSED_FOR_AGENTS.into()),
+            said => said,
+        };
         let ended = turns.last().is_none_or(|turn| turn.ended.is_some());
         if starts || ended {
             turns.push(Turn::new(index));
@@ -336,14 +365,13 @@ fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
             Said::TurnEnded { cancelled } => {
                 turn.ended = Some(if cancelled { "stopped" } else { "finished" }.into());
             }
+            Said::Failed(message) if message == PAUSED_FOR_AGENTS => {
+                turn.ended = Some(format!("paused: {message}").into());
+            }
             Said::Failed(message) => {
                 turn.ended = Some(format!("failed: {}", cut_chars(&message, 400)).into());
             }
         }
-    }
-    for turn in &mut turns {
-        turn.tools
-            .retain(|(_, title, _)| !title.as_deref().is_some_and(sikemux_fold::is_gesture));
     }
     turns
 }
@@ -372,12 +400,9 @@ fn read_cursor(feed: &str, index: u64) -> String {
     format!("{feed}:{index}")
 }
 
-/// The agent's last turns, or what it said since `cursor`.
-fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value, String> {
-    let chat = core
-        .chats
-        .get(&target.agent_id)
-        .ok_or("that agent is not running")?;
+/// The chat's last turns, or what it said since `cursor`, from the feed it runs on or the one
+/// it kept when it went to sleep or closed, which reads only the tail of its history on disk.
+fn read_chat(target: &Listed, feed: &Feed, cursor: Option<&str>) -> Result<Value, String> {
     let name = target.name.as_deref().unwrap_or(&target.agent_id);
     let from = cursor
         .map(|cursor| {
@@ -389,7 +414,7 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
         .transpose()?;
     let mut notes = Vec::new();
     let index = match from {
-        Some((feed, index)) if feed == chat.feed.id() => Some(index),
+        Some((id, index)) if id == feed.id() => Some(index),
         Some(_) => {
             notes.push(format!(
                 "{name} started again since that cursor, so this begins at its last turns."
@@ -398,7 +423,7 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
         }
         None => None,
     };
-    let excerpt = chat.feed.excerpt(index, RECENT_TURNS, MAX_READ_BYTES * 4);
+    let excerpt = feed.excerpt(index, RECENT_TURNS, MAX_READ_BYTES * 4);
     if excerpt.skipped {
         notes.push("Some of what it said after your cursor is no longer kept.".to_owned());
     }
@@ -420,7 +445,6 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
     Ok(answer)
 }
 
-/// The last lines of a terminal agent's screen.
 fn screen_tail(core: &Core, agent_id: &str, lines: usize) -> Option<String> {
     let session = core.agent_session(agent_id)?;
     let (screen, _) = super::agent::screen_text(&session);
@@ -436,13 +460,32 @@ fn screen_tail(core: &Core, agent_id: &str, lines: usize) -> Option<String> {
 }
 
 /// The session file a terminal agent's CLI writes, once the app has said
-/// which session it runs.
+/// which session it runs, or the one an asleep terminal agent resumes.
 fn session_file(core: &Core, agent_id: &str) -> Option<(AgentKind, String, std::path::PathBuf)> {
-    let terminal = core.agent_session(agent_id)?;
+    let Some(terminal) = core.agent_session(agent_id) else {
+        return asleep_session_file(core, agent_id);
+    };
     let owner = terminal.owner();
     let cli = AgentKind::from_name(owner.agent_type.as_deref()?)?;
-    let session = core.names.session_of(agent_id)?;
+    let session = core.names().session_of(agent_id)?;
     let path = transcript::locate(cli, owner.account_home.as_deref(), &session)?;
+    Some((cli, session, path))
+}
+
+fn asleep_session_file(
+    core: &Core,
+    agent_id: &str,
+) -> Option<(AgentKind, String, std::path::PathBuf)> {
+    let agent =
+        (core.workspaces().agent(agent_id)).or_else(|| core.workspaces().closed_agent(agent_id))?;
+    let cli = AgentKind::from_name(&agent.provider)?;
+    let session = agent.resume_id?;
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let config_path = (agent.profile_id.as_deref())
+        .and_then(|id| book.profile(id))
+        .and_then(|profile| profile.config_path.clone());
+    let home = account_root(cli, config_path.as_deref(), &BTreeMap::new());
+    let path = transcript::locate(cli, home.as_deref(), &session)?;
     Some((cli, session, path))
 }
 
@@ -560,6 +603,29 @@ pub(crate) fn terminal_answer(core: &Core, agent_id: &str) -> TerminalTurn {
     }
 }
 
+/// What an agent at rest said last, when its last turn ended on words: from the feed its chat
+/// kept, else its CLI's session file. Reads only their tails and wakes nothing.
+pub(crate) fn last_answer(core: &Core, agent_id: &str) -> Option<String> {
+    if let Some(feed) = core.chats().heard(agent_id) {
+        return feed.last_answer();
+    }
+    let (cli, path) = match core.chats().shelf.get(agent_id) {
+        Some(shelved) => (
+            AgentKind::from_name(&shelved.provider)?,
+            shelved.transcript?,
+        ),
+        None => {
+            let (cli, _, path) = session_file(core, agent_id)?;
+            (cli, path)
+        }
+    };
+    let excerpt = transcript::read(cli, &path, None, 1).ok()?;
+    let mut turn = build(ended(excerpt.said, excerpt.next)).pop()?;
+    (turn.last == Last::Message)
+        .then(|| turn.said.pop())
+        .flatten()
+}
+
 pub(crate) struct TerminalTurn {
     /// Where the turn starts in the session file, when there is one.
     pub start: Option<u64>,
@@ -578,12 +644,19 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .ok_or("agent_read needs the calling agent's id")?;
     let agent = agent_param(&request.params)?;
     let cursor = cursor_param(&request.params)?.map(str::to_owned);
+    let question = super::ask_aside::question_param(&request.params)?;
+    if question.is_some() && cursor.is_some() {
+        return Err("Pass a question or a cursor, not both".into());
+    }
     let target = {
         let (core, request, caller) = (core.clone(), request.clone(), caller.clone());
         blocking(move || {
-            let project = messages::caller_project(&core, &request);
+            let project = super::caller::project_of(&core, &request);
             let target =
-                messages::resolve(&core, &messages::listed(&core), &agent, &project, &caller)?;
+                match roster::resolve(&core, &roster::listed(&core), &agent, &project, &caller) {
+                    Ok(target) => target,
+                    Err(why) => closed_worker(&core, &caller, &agent).ok_or(why)?,
+                };
             if target.agent_id == caller {
                 return Err("That agent is you".into());
             }
@@ -598,12 +671,40 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .map_err(|error| error.to_string())?
     };
     if target.reach == Reach::Remote {
+        if question.is_some() {
+            return Err("An agent on another host can't be asked a question yet. Call agent_read without one to read its turns.".into());
+        }
         return super::hosts::route::read(core, &caller, &target.agent_id, cursor).await;
     }
+    take_up_kept(core, &target).await;
     let core = core.clone();
-    blocking(move || read_target(&core, &target, cursor.as_deref()).map_err(Into::into))
-        .await
-        .map_err(|error| error.to_string())
+    blocking(move || match question {
+        Some(question) => {
+            super::ask_aside::answer(&core, &caller, &target, &question).map_err(Into::into)
+        }
+        None => read_target(&core, &target, cursor.as_deref()).map_err(Into::into),
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// A worker `lead` started that has closed, read where it stopped rather than reopened.
+fn closed_worker(core: &Core, lead: &str, wanted: &str) -> Option<Listed> {
+    let wanted = wanted.trim().trim_start_matches('@');
+    let (agent_id, ran) = core.names().closed_worker(lead, wanted)?;
+    Some(Listed {
+        agent_id,
+        name: Some(wanted.to_owned()),
+        project: ran.project,
+        cli: ran.provider,
+        title: ran.title,
+        model: None,
+        status: AgentStatus::Stopped,
+        parent: Some(lead.to_owned()),
+        active_at: None,
+        rank: 0,
+        reach: Reach::Stopped,
+    })
 }
 
 /// What an agent of a team on a linked host reads of `agent_id`, an agent here.
@@ -612,42 +713,59 @@ pub(crate) async fn read_here(
     agent_id: String,
     cursor: Option<String>,
 ) -> Result<Value, String> {
+    let target = {
+        let core = core.clone();
+        blocking(move || {
+            let target = roster::listed(&core)
+                .into_iter()
+                .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
+                .ok_or("that agent is not on this host")?;
+            if core.names().is_blind(&target.agent_id) {
+                return Err(
+                    "that agent reviews a card blind for Auto, so no agent may reach it".into(),
+                );
+            }
+            Ok(target)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    take_up_kept(core, &target).await;
     let core = core.clone();
-    blocking(move || {
-        let target = messages::listed(&core)
-            .into_iter()
-            .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
-            .ok_or("that agent is not on this host")?;
-        if core.names.is_blind(&target.agent_id) {
-            return Err(
-                "that agent reviews a card blind for Auto, so no agent may reach it".into(),
-            );
-        }
-        read_target(&core, &target, cursor.as_deref()).map_err(Into::into)
-    })
-    .await
-    .map_err(|error| error.to_string())
+    blocking(move || read_target(&core, &target, cursor.as_deref()).map_err(Into::into))
+        .await
+        .map_err(|error| error.to_string())
 }
 
-fn read_target(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value, String> {
+/// Takes up the history an earlier core kept of an asleep or closed chat, so it reads
+/// without waking anything.
+async fn take_up_kept(core: &Arc<Core>, target: &Listed) {
+    if matches!(target.reach, Reach::Asleep | Reach::Stopped) {
+        super::chat::unshelve(core, &target.agent_id, None).await;
+    }
+}
+
+pub(crate) fn read_target(
+    core: &Core,
+    target: &Listed,
+    cursor: Option<&str>,
+) -> Result<Value, String> {
     let name = target
         .name
         .clone()
         .unwrap_or_else(|| target.agent_id.clone());
-    let mut answer = if core.chats.get(&target.agent_id).is_some() {
-        read_chat(core, target, cursor)?
-    } else {
-        match target.reach {
-            Reach::Terminal => read_terminal(core, target, cursor)?,
-            Reach::Asleep => json!({
-                "turns": [],
-                "note": format!("{name} is asleep, so Sikemux has nothing of it to read until it runs again. A message with agent_send wakes it."),
-            }),
-            Reach::Chat | Reach::Stopped | Reach::Remote => json!({
-                "turns": [],
-                "note": format!("{name} has stopped, so Sikemux has nothing of it to read."),
-            }),
+    let mut answer = match core.chats().readable(&target.agent_id) {
+        Ok(feed) => read_chat(target, &feed, cursor)?,
+        Err(_)
+            if target.reach == Reach::Terminal
+                || session_file(core, &target.agent_id).is_some() =>
+        {
+            read_terminal(core, target, cursor)?
         }
+        Err(_) => json!({
+            "turns": [],
+            "note": format!("{name} kept no record Sikemux can read."),
+        }),
     };
     let fields = answer.as_object_mut().expect("an answer is an object");
     fields.insert("name".into(), name.into());
@@ -655,18 +773,18 @@ fn read_target(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Val
     fields.insert("cli".into(), target.cli.clone().into());
     fields.insert(
         "status".into(),
-        messages::status_word(target.standing(core)).into(),
+        roster::status_word(crate::server::roster::standing(target, core)).into(),
     );
     Ok(answer)
 }
 
 /// An agent a wait is on. `status` is `None` once it is gone.
 #[derive(Clone)]
-struct Waited {
-    agent_id: String,
-    name: String,
-    project: String,
-    status: Option<AgentStatus>,
+pub(crate) struct Waited {
+    pub(crate) agent_id: String,
+    pub(crate) name: String,
+    pub(crate) project: String,
+    pub(crate) status: Option<AgentStatus>,
 }
 
 fn agents_param(params: &Value) -> Result<Vec<String>, String> {
@@ -690,26 +808,26 @@ fn agents_param(params: &Value) -> Result<Vec<String>, String> {
 
 /// The agents `wanted` names, as they stand now. An agent id Sikemux named
 /// once but no longer runs is an agent that is gone.
-fn waited(
+pub(crate) fn waited(
     core: &Core,
     request: &HarnessRequest,
     wanted: &[String],
     caller: &str,
 ) -> Result<Vec<Waited>, String> {
-    let project = messages::caller_project(core, request);
-    let agents = messages::listed(core);
+    let project = super::caller::project_of(core, request);
+    let agents = roster::listed(core);
     let mut found: Vec<Waited> = Vec::new();
     for agent in wanted {
-        let waited = match messages::resolve(core, &agents, agent, &project, caller) {
+        let waited = match roster::resolve(core, &agents, agent, &project, caller) {
             Ok(target) => Waited {
-                status: Some(target.standing(core)),
+                status: Some(crate::server::roster::standing(&target, core)),
                 name: target.name.unwrap_or_else(|| target.agent_id.clone()),
                 project: target.project,
                 agent_id: target.agent_id,
             },
             Err(error) => {
                 let named = core
-                    .names
+                    .names()
                     .get(agent.trim())
                     .filter(|named| named.agent_id != caller)
                     .ok_or(error)?;
@@ -744,14 +862,14 @@ fn waited(
 /// The agents a wait is on as they stand now, found again by id, as a name
 /// no longer finds an agent that has gone.
 fn refreshed(core: &Core, waited: &[Waited]) -> Vec<Waited> {
-    let agents = messages::listed(core);
+    let agents = roster::listed(core);
     waited
         .iter()
         .map(
             |known| match agents.iter().find(|agent| agent.agent_id == known.agent_id) {
                 Some(agent) => Waited {
                     name: agent.name.clone().unwrap_or_else(|| known.name.clone()),
-                    status: Some(agent.standing(core)),
+                    status: Some(crate::server::roster::standing(agent, core)),
                     ..known.clone()
                 },
                 None => Waited {
@@ -767,7 +885,7 @@ fn standing(waited: &Waited) -> Value {
     json!({
         "name": waited.name,
         "agentId": waited.agent_id,
-        "status": waited.status.map_or("gone", messages::status_word),
+        "status": waited.status.map_or("gone", roster::status_word),
     })
 }
 
@@ -795,8 +913,7 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 "timeoutMs must be an integer between 0 and {MAX_WAIT_MS}"
             ))?,
     };
-    let harness = &core.harness;
-    let _slot = harness.wait_slot()?;
+    let harness = core.harness();
     let deadline = Instant::now() + Duration::from_millis(timeout);
     let first = {
         let (core, request) = (core.clone(), request.clone());
@@ -817,7 +934,7 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     json!({
                         "agent": waited.name,
                         "agentId": waited.agent_id,
-                        "what": format!("is {} now", waited.status.map_or("gone", messages::status_word)),
+                        "what": format!("is {} now", waited.status.map_or("gone", roster::status_word)),
                     })
                 })
                 .collect();

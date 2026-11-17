@@ -1,4 +1,3 @@
-/** What the registry needs of a host's webhook connection. */
 export interface HookHost {
   readonly userId: string;
   readonly key: string;

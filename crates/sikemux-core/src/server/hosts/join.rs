@@ -4,6 +4,8 @@
 //! while they asked to approve each new host. From then on both keep the other
 //! as linked.
 
+use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,13 +15,13 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use tokio::sync::Semaphore;
 
-use crate::accounts::protocol::JoinTicket;
-use crate::join::APPROVAL_TIMEOUT;
-use crate::protocol::PendingDevice;
+use sikemux_client::join::APPROVAL_TIMEOUT;
+use sikemux_wire::accounts::protocol::JoinTicket;
+use sikemux_wire::protocol::PendingDevice;
 
 use super::super::join::{clean, NAME_LIMIT, PLATFORM_LIMIT};
 use super::super::notify::Signal;
-use super::super::remote::{self, LinkedHost, Pairing};
+use super::super::remote::{self, RemotePairing, StoredLink};
 use super::super::{Core, CoreError, CoreResult};
 use super::{addresses_of, adopt, dial, introduction, link};
 
@@ -45,9 +47,20 @@ pub(crate) struct LinkParams {
 
 /// Links this host with the one `params` names, and answers with this host's
 /// devices and links.
-pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<Pairing> {
-    link_with(core, params).await?;
+pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<RemotePairing> {
+    let name = clean(&params.name, NAME_LIMIT);
+    core.remote().undecline_link(&params.ticket.host);
+    if let Linking::Declined = link_with(core, params).await? {
+        return Err(format!("{name} did not allow the link").into());
+    }
     Ok(remote::pairing(core))
+}
+
+/// How asking another host to link ended, short of failing.
+pub(super) enum Linking {
+    Linked,
+    /// The person there turned it down.
+    Declined,
 }
 
 #[derive(Deserialize)]
@@ -62,10 +75,9 @@ struct Hello {
     addresses: Value,
 }
 
-/// Links this host with the one `params` names.
-pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResult<()> {
+pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResult<Linking> {
     let own = core
-        .remote
+        .remote()
         .core_id()
         .ok_or_else(|| CoreError::from("this host's key has not loaded"))?;
     let ticket = params.ticket;
@@ -82,11 +94,21 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         .map_err(|error| CoreError::from(format!("{name} is out of reach: {error}")))?;
     let mut hello = introduction(core);
     hello["ticket"] = serde_json::to_value(&ticket)?;
-    let reply = link::ask(&connection, "join", hello, None, APPROVAL_TIMEOUT + STEP)
-        .await
-        .map_err(|error| CoreError::from(format!("{name} did not link: {error}")))?;
+    let reply = link::ask(
+        &connection,
+        "join",
+        hello,
+        None,
+        APPROVAL_TIMEOUT + STEP,
+        None,
+    )
+    .await
+    .map_err(|error| CoreError::from(format!("{name} did not link: {error}")))?;
     match reply["result"].as_str() {
         Some("allowed") => {}
+        Some("denied") if reply["declined"].as_bool() == Some(true) => {
+            return Ok(Linking::Declined)
+        }
         Some("denied") => return Err(format!("{name} did not allow the link").into()),
         _ => {
             return Err(format!(
@@ -106,7 +128,7 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         ),
         platform => platform,
     };
-    core.remote.add_link(LinkedHost {
+    core.remote().add_link(StoredLink {
         id: ticket.host.clone(),
         name: if name.is_empty() {
             clean(reply["name"].as_str().unwrap_or("Host"), NAME_LIMIT)
@@ -120,7 +142,7 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
     })?;
     adopt(core, &ticket.host, connection);
     remote::announce(core);
-    Ok(())
+    Ok(Linking::Linked)
 }
 
 async fn finish(incoming: link::Incoming, connection: &Connection, answer: Value) {
@@ -143,7 +165,9 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     };
     if incoming.method != "join" {
         incoming
-            .reply(Err("this host is not linked with yours".into()))
+            .reply(Err(link::Refusal::not_linked(
+                "this host is not linked with yours",
+            )))
             .await;
         connection.close(link::NOT_LINKED.into(), b"not linked");
         return;
@@ -153,7 +177,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
         finish(incoming, &connection, refused).await;
         return;
     };
-    if let Err(refusal) = core.remote.check_join(&hello.ticket, &host) {
+    if let Err(refusal) = core.remote().check_join(&hello.ticket, &host) {
         eprintln!(
             "sikemux core: refused a link from {}: {}",
             host.get(..8).unwrap_or(&host),
@@ -166,8 +190,8 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     let name = clean(&hello.name, NAME_LIMIT);
     let platform = clean(&hello.platform, PLATFORM_LIMIT);
     let addresses = addresses_of(&hello.addresses);
-    if core.remote.requires_approval() {
-        core.remote.forget_device_requests(&host);
+    if core.remote().requires_approval_of(&host) {
+        core.remote().forget_device_requests(&host);
         let request = PendingDevice {
             id: uuid::Uuid::new_v4().to_string(),
             device_id: host.clone(),
@@ -176,30 +200,35 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             from_account: true,
             expires_at: epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
         };
-        let answered = core.remote.ask(
+        let answered = core.remote().ask(
             request.clone(),
             hello.ticket.account.clone(),
             Some(addresses),
+            None,
         );
         remote::announce(&core);
-        core.notify.send(Signal::Pairing(request.clone()));
+        core.notify().send(Signal::Pairing(request.clone()));
         // The person may answer after the other host gave up waiting; the
         // link is kept, and either host uses it the next time.
-        let allowed = tokio::time::timeout(APPROVAL_TIMEOUT, answered)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .flatten()
-            .is_some();
-        core.remote.forget_pending(&request.id);
+        let answer = tokio::time::timeout(APPROVAL_TIMEOUT, answered).await;
+        core.remote().forget_pending(&request.id);
         remote::announce(&core);
-        core.notify.send(Signal::PairingSettled { id: request.id });
-        if !allowed {
-            finish(incoming, &connection, json!({ "result": "denied" })).await;
-            return;
+        core.notify()
+            .send(Signal::PairingSettled { id: request.id });
+        match answer {
+            Ok(Ok(Some(_))) => {}
+            Ok(Ok(None)) => {
+                let declined = json!({ "result": "denied", "declined": true });
+                finish(incoming, &connection, declined).await;
+                return;
+            }
+            _ => {
+                finish(incoming, &connection, json!({ "result": "denied" })).await;
+                return;
+            }
         }
     } else {
-        let linked = core.remote.add_link(LinkedHost {
+        let linked = core.remote().add_link(StoredLink {
             id: host.clone(),
             name: if name.is_empty() { "Host".into() } else { name },
             platform,
@@ -219,5 +248,5 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     incoming.reply(Ok(reply)).await;
     adopt(&core, &host, connection);
     // The account's name for the new host replaces the one it gave itself.
-    core.hosts.relink.now();
+    core.hosts().relink.now();
 }

@@ -69,7 +69,6 @@ impl Claims {
         Some(claim)
     }
 
-    /// Every live claim, by device.
     pub fn all(&self) -> HashMap<String, Claim> {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return HashMap::new();
@@ -156,16 +155,26 @@ fn process_name(pid: u32) -> String {
 }
 
 fn running(pid: u32, process: &str) -> bool {
-    let Ok(pid_t) = libc::pid_t::try_from(pid) else {
+    alive(pid) && (process.is_empty() || process_name(pid) == process)
+}
+
+#[cfg(unix)]
+pub(crate) fn alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
         return false;
     };
     // SAFETY: signal 0 only asks whether the process exists.
-    let exists = unsafe { libc::kill(pid_t, 0) } == 0
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-    exists && (process.is_empty() || process_name(pid) == process)
+    let answer = unsafe { libc::kill(pid, 0) };
+    answer == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-#[cfg(test)]
+/// Windows runs no devices yet, so it never takes a holder for gone.
+#[cfg(not(unix))]
+pub(crate) fn alive(_: u32) -> bool {
+    true
+}
+
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

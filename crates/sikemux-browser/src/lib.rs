@@ -20,14 +20,22 @@ pub mod local_files;
 #[cfg(target_os = "macos")]
 pub mod macos;
 mod manager;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod native;
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+mod no_engine;
 pub mod page_view;
 mod person;
+pub mod pins;
 mod preview;
 mod recording;
+pub mod snip;
+mod strip;
 mod tab;
+mod tab_events;
 pub mod tools;
 pub mod viewport;
+#[cfg(windows)]
+mod windows;
 
 use std::path::{Path, PathBuf};
 
@@ -40,15 +48,22 @@ pub use host::{BrowserResult, Error, Host};
 pub use linux::choose_page_rendering;
 #[cfg(target_os = "linux")]
 pub use linux::page::give_keyboard_back;
-pub use manager::{BrowserManager, TabPage};
+pub use manager::BrowserManager;
+pub use strip::TabPage;
 pub use tab::{Opener, ParentView, Tab, TabSpec};
+#[cfg(windows)]
+pub use windows::{run_pages_on_this_thread, runtime_version};
 
 pub(crate) use sikemux_base::runtime::spawn;
 
 pub const BLANK_URL: &str = "about:blank";
+/// The width of a chat's reply column, also the width `page_preview` lays a page out at by default.
+pub const REPLY_COLUMN_WIDTH: f32 = 756.0;
 /// Past this many dialogs in `DIALOG_WINDOW`, a page's dialogs are answered
 /// with Cancel unseen, the way browsers offer to stop a page's dialogs.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const DIALOG_LIMIT: usize = 3;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const DIALOG_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 /// Parked pages sit outside the window, since a hidden view still takes file
 /// drops over the spot it last covered. They are hidden too once they are idle.
@@ -62,9 +77,38 @@ pub const RECORDS_SCRIPT: &str = include_str!("records.js");
 
 /// WebKit's own agent string names no browser at all, and sites answer that
 /// with an "unsupported browser" page, so tabs — and the fetch that goes after
-/// their icons — introduce themselves as Safari.
-pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15";
-pub const MOBILE_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1";
+/// their icons — introduce themselves as the Safari installed beside them. An
+/// older Safari than the engine underneath makes sign-in pages ask again.
+pub fn user_agent() -> &'static str {
+    &AGENTS.0
+}
+
+pub fn mobile_user_agent() -> &'static str {
+    &AGENTS.1
+}
+
+static AGENTS: std::sync::LazyLock<(String, String)> = std::sync::LazyLock::new(|| {
+    let version = safari_version().unwrap_or_else(|| "26.0".to_owned());
+    (
+        format!("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15"),
+        format!("Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Mobile/15E148 Safari/604.1"),
+    )
+});
+
+fn safari_version() -> Option<String> {
+    let plist = std::fs::read_to_string("/Applications/Safari.app/Contents/Info.plist").ok()?;
+    let after_key = plist
+        .split("<key>CFBundleShortVersionString</key>")
+        .nth(1)?;
+    let value = after_key
+        .split("<string>")
+        .nth(1)?
+        .split("</string>")
+        .next()?;
+    let version = value.trim();
+    (!version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .then(|| version.to_owned())
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -207,7 +251,6 @@ pub struct PageLoad {
 /// What a tab's page tells whoever holds the tab. Every call comes on the main
 /// thread, while WebKit waits for the answer where there is one.
 pub trait TabEvents: Send + Sync + 'static {
-    /// Whether the page may go to `url`.
     fn may_load(&self, url: &str) -> bool;
     fn loaded(&self, load: PageLoad);
     fn titled(&self, title: String);
@@ -216,7 +259,6 @@ pub trait TabEvents: Send + Sync + 'static {
     /// The page opened a window at `url`. It becomes a new tab, made from `opener` where
     /// the engine gives one, and that tab is handed back; None blocks the window.
     fn new_window(&self, url: String, opener: Option<Opener>) -> Option<Tab>;
-    /// The page closed its own window.
     fn closed(&self);
     /// Where a file the page saves goes, or None to refuse it. `suggested` is
     /// the name the page or the server gave it.

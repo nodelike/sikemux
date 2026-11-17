@@ -2,16 +2,20 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import {
+  readFileSync,
   constants,
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
+  readlinkSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,25 +24,25 @@ import {
   signalProcessTree,
   stopProcessTree,
   withoutTerminalSession,
+  coreSocket,
 } from "./dev-process.mjs";
 
+const onMac = process.platform === "darwin";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const debug = join(root, "target", "debug");
 const appBinary = join(debug, "sikemux");
 const bundle = join(debug, "Sikemux Dev.app");
 const contents = join(bundle, "Contents");
 const macos = join(contents, "MacOS");
+const launchedApp = onMac ? join(macos, "sikemux") : appBinary;
 const coreApp = join(contents, "Helpers", "Sikemux Core.app");
-const ownCore = join(coreApp, "Contents", "MacOS", "sikemux-host");
-// Where a release links its core beside the app, and where an older make dev ran it from.
+const ownCore = onMac
+  ? join(coreApp, "Contents", "MacOS", "sikemux-host")
+  : join(debug, "sikemux-host");
+// Where a release links its core beside the app.
 const coreLink = join(macos, "sikemux-host");
 const notchApp = join(contents, "Helpers", "Sikemux Notch.app");
-const socket = join(
-  process.env.HOME ?? homedir(),
-  ".config",
-  "sikemux",
-  "core.dev.sock",
-);
+const socket = coreSocket("core.dev.sock");
 const appHelpers = ["sikemux-voice", "sikemux-sim"];
 
 function fail(message) {
@@ -93,8 +97,16 @@ function icon(resources) {
 
 function built(name) {
   const path = join(debug, name);
-  if (!existsSync(path)) fail(`${path} is missing; run pnpm sidecar:dev`);
+  if (!existsSync(path)) fail(`${path} is missing; run pnpm core:dev`);
   return path;
+}
+
+// A binary written over in place while it runs, such as a dev core that outlives the
+// window, is killed by macOS when it next starts, so each lands as a new file instead.
+function put(from, to) {
+  const fresh = `${to}.${process.pid}.new`;
+  copyFileSync(from, fresh, constants.COPYFILE_FICLONE);
+  renameSync(fresh, to);
 }
 
 // Laid out as a release is, with the core and the notch each in an app of its own under
@@ -110,14 +122,9 @@ function assemble() {
   mkdirSync(macos, { recursive: true });
   mkdirSync(resources, { recursive: true });
   mkdirSync(dirname(ownCore), { recursive: true });
-  copyFileSync(appBinary, join(macos, "sikemux"), constants.COPYFILE_FICLONE);
-  for (const helper of appHelpers)
-    copyFileSync(
-      built(helper),
-      join(macos, helper),
-      constants.COPYFILE_FICLONE,
-    );
-  copyFileSync(built("sikemux-host"), ownCore, constants.COPYFILE_FICLONE);
+  put(appBinary, join(macos, "sikemux"));
+  for (const helper of appHelpers) put(built(helper), join(macos, helper));
+  put(built("sikemux-host"), ownCore);
   writeFileSync(
     join(coreApp, "Contents", "Info.plist"),
     `<?xml version="1.0" encoding="UTF-8"?>
@@ -132,14 +139,7 @@ function assemble() {
 `,
   );
   rmSync(coreLink, { force: true });
-  symlinkSync(
-    "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host",
-    coreLink,
-  );
-  rmSync(join(macos, "Sikemux Notch Dev.app"), {
-    recursive: true,
-    force: true,
-  });
+  symlinkSync(appMetadata()["core-link"], coreLink);
   rmSync(notchApp, { recursive: true, force: true });
   run("cp", ["-cR", built("Sikemux Notch Dev.app"), notchApp]);
   icon(resources);
@@ -154,7 +154,7 @@ function assemble() {
   <key>CFBundleExecutable</key><string>sikemux</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>${app["minimum-macos"]}</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 `,
@@ -162,19 +162,51 @@ function assemble() {
 }
 
 function executable(pid) {
+  if (!onMac) {
+    try {
+      return readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, "");
+    } catch {
+      return "";
+    }
+  }
   const result = spawnSync("ps", ["-p", String(pid), "-o", "comm="], {
     encoding: "utf8",
   });
   return result.stdout.trim();
 }
 
+function holdsAny(pid, links) {
+  try {
+    return readdirSync(`/proc/${pid}/fd`).some((fd) =>
+      links.has(readlinkSync(`/proc/${pid}/fd/${fd}`)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function socketHolders() {
+  if (onMac) {
+    const holders = spawnSync("/usr/sbin/lsof", ["-t", socket], {
+      encoding: "utf8",
+    });
+    return (holders.stdout ?? "").split("\n").filter(Boolean);
+  }
+  const links = new Set(
+    readFileSync("/proc/net/unix", "utf8")
+      .split("\n")
+      .filter((line) => line.endsWith(` ${socket}`))
+      .map((line) => `socket:[${line.trim().split(/\s+/)[6]}]`),
+  );
+  return readdirSync("/proc").filter(
+    (name) => /^\d+$/.test(name) && holdsAny(name, links),
+  );
+}
+
 // Another build's core on the dev socket would be asked to replace itself with this one.
 function otherCore() {
   if (!existsSync(socket)) return null;
-  const holders = spawnSync("/usr/sbin/lsof", ["-t", socket], {
-    encoding: "utf8",
-  });
-  for (const pid of (holders.stdout ?? "").split("\n").filter(Boolean)) {
+  for (const pid of socketHolders()) {
     const path = executable(pid);
     if (path.endsWith("/sikemux-host") && path !== ownCore && path !== coreLink)
       return { pid, path };
@@ -183,8 +215,33 @@ function otherCore() {
 }
 
 // Kept from the caller: SIKEMUX_LAUNCH_BEHIND opens the window behind the app in use, and
-// SIKEMUX_AGENT_SEARCH=path keeps a sandboxed run's core to the agent CLIs on its PATH.
-const CALLER_OPTIONS = ["SIKEMUX_LAUNCH_BEHIND", "SIKEMUX_AGENT_SEARCH"];
+// SIKEMUX_AGENT_SEARCH=path keeps a sandboxed run's core to the agent CLIs on its PATH, and
+// SIKEMUX_GPUI_DRIVE* let a window built with the drive feature be driven over a socket.
+const CALLER_OPTIONS = [
+  "SIKEMUX_LAUNCH_BEHIND",
+  "SIKEMUX_AGENT_SEARCH",
+  "SIKEMUX_GPUI_DRIVE",
+  "SIKEMUX_GPUI_DRIVE_BEHIND",
+  "SIKEMUX_GPUI_DRIVE_MOTION",
+];
+
+// What the build compiles in when it is given them, which a checkout keeps in .env.
+const COMPILED_SECRETS = [
+  "BITBUCKET_OAUTH_SECRET",
+  "JIRA_OAUTH_SECRET",
+  "VERCEL_OAUTH_SECRET",
+  "KLIPY_API_KEY",
+];
+
+function loadCompiledSecrets() {
+  const kept = existsSync(join(root, ".env"))
+    ? readFileSync(join(root, ".env"), "utf8")
+    : "";
+  for (const key of COMPILED_SECRETS) {
+    const line = kept.match(new RegExp(`^${key}=(.*)$`, "m"));
+    if (line && !process.env[key]) process.env[key] = line[1];
+  }
+}
 
 function appEnvironment() {
   const env = withoutTerminalSession(process.env);
@@ -194,7 +251,7 @@ function appEnvironment() {
 }
 
 function runningApp() {
-  const listing = spawnSync("pgrep", ["-f", `^${join(macos, "sikemux")}$`], {
+  const listing = spawnSync("pgrep", ["-f", `^${launchedApp}$`], {
     encoding: "utf8",
   });
   return listing.stdout.trim().split("\n").filter(Boolean)[0] ?? null;
@@ -210,24 +267,23 @@ function refusal() {
   return null;
 }
 
-export async function runDevGpui({ build }) {
-  if (build) {
-    const before = refusal();
-    if (before) {
-      console.error(before);
-      return 1;
-    }
-    run("pnpm", ["sidecar:dev"]);
-    buildApp();
+async function runDevGpui() {
+  const before = refusal();
+  if (before) {
+    console.error(before);
+    return 1;
   }
+  loadCompiledSecrets();
+  run("pnpm", ["core:dev"]);
+  buildApp();
   const refused = refusal();
   if (refused) {
     console.error(refused);
     return 1;
   }
-  assemble();
+  if (onMac) assemble();
 
-  const child = spawn(join(macos, "sikemux"), [], {
+  const child = spawn(launchedApp, [], {
     cwd: root,
     detached: true,
     env: appEnvironment(),
@@ -259,11 +315,4 @@ export async function runDevGpui({ build }) {
   return outcome.signal ? 1 : 0;
 }
 
-const isMain = process.argv[1]
-  ? resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-  : false;
-
-if (isMain)
-  process.exitCode = await runDevGpui({
-    build: !process.argv.includes("--no-build"),
-  });
+process.exitCode = await runDevGpui();

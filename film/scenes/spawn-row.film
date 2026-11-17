@@ -1,0 +1,22 @@
+# A lead starts workers: the row names each one, its task and model from the moment of the
+# call, and the other agent tools draw the agents they reach as pills.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer paneImage null
+replies spawn-row.json
+project storefront shop
+chat Mira
+title "Order emails"
+say "Hand the receipt template to a worker."
+settle 2
+chat Wren
+title "Cart total bug"
+say "Get a worker on the cart total bug and tell Mira it's covered."
+settle 12
+front Mira
+settle 1
+snap spawn-starting
+front Wren
+settle 2
+snap spawn-started

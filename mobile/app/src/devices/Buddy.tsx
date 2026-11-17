@@ -2,10 +2,10 @@ import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, us
 import { Animated, Easing } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
-import { buddyStateOfGroup, type BuddyState } from '@shared/buddies/catalogue';
+import { buddyStateOfTurn, type BuddyState } from '@shared/buddies/catalogue';
 import { drawnFace, type DrawnFace } from '@shared/buddies/faces';
 import { buddyMarkup, FULL_BOX } from '@shared/buddies/render';
-import type { AgentFace as Face, AgentGroup, FaceStyle } from '@/core/protocol';
+import type { AgentFace as Face, FaceStyle, TurnState } from '@shared/wire.generated';
 import { AgentIcon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
 
@@ -17,7 +17,7 @@ export interface Faces {
 
 export const FacesContext = createContext<Faces | undefined>(undefined);
 
-export const useFaces = () => useContext(FacesContext);
+const useFaces = () => useContext(FacesContext);
 
 type Motion = { axis: 'translateX' | 'translateY'; ms: number; at: number[]; by: number[]; bounce?: boolean };
 
@@ -85,15 +85,22 @@ export const Buddy = memo(function Buddy({
 export function AgentFace({
   agentId,
   provider,
-  group,
+  turn,
+  asking,
   size,
   logoSize = size,
+  still,
 }: {
   agentId?: string | null;
   provider: string;
-  group?: AgentGroup;
+  /** How its turn stands, which the face wears. */
+  turn?: TurnState;
+  /** It waits on the person to answer its call, whatever its turn says. */
+  asking?: boolean;
   size: number;
   logoSize?: number;
+  /** It keeps still, as a mark inside a line of words does. */
+  still?: boolean;
 }) {
   const faces = useFaces();
   const face = agentId ? faces?.faces[agentId] : undefined;
@@ -103,7 +110,12 @@ export function AgentFace({
     [faces, agentId, wears, face],
   );
   return look && faces ? (
-    <Buddy look={look} moves={faces.style.motion} state={buddyStateOfGroup(group)} size={size} />
+    <Buddy
+      look={look}
+      moves={faces.style.motion && !still}
+      state={asking ? 'waiting' : turn ? buddyStateOfTurn(turn) : 'idle'}
+      size={size}
+    />
   ) : (
     <AgentIcon provider={provider} size={logoSize} />
   );

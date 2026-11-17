@@ -9,10 +9,11 @@ use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::ImageRef;
 use sikemux_plugin_api::images;
 use sikemux_plugin_api::store::Accounts;
+use sikemux_plugin_api::Service;
 
 use crate::client::{self, Session};
 use crate::config::{self, Account};
-use crate::error::{GitlabError, GitlabResult};
+use crate::error::{Gitlab, GitlabError, GitlabResult};
 
 /// Whether an image may be fetched, and if so with which account's token: only
 /// an account on the image's own server sends one. Gravatar and GitLab's own
@@ -48,12 +49,12 @@ pub async fn image(data_dir: &Path, input: ImageRef) -> GitlabResult<String> {
             return Ok(request);
         };
         let session = as_account(Some(owner.id.clone()), Session::current(data_dir)).await?;
-        Ok(client::authorize(request, &session.token))
+        Ok(request.bearer_auth(&session.token))
     })
     .await?;
     let status = response.status();
     if !status.is_success() {
-        return Err(client::classify(status, &[]));
+        return Err(Gitlab::refused(status, &[], None));
     }
     images::read_image(response).await
 }

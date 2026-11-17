@@ -1,6 +1,10 @@
 //! What an agent row stands for, in a card beside it once the pointer rests on the row:
-//! its project, its worktree's branch and folder, and that branch's pull requests.
+//! its project, its worktree's branch and folder, and that branch's pull requests. A closed
+//! chat in Recent whose triggers wait for it shows them in the same card.
 
+use crate::ui::Clicks;
+use sikemux_calls::call;
+use sikemux_calls::codehost::PullsParams;
 use std::time::Duration;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -9,14 +13,16 @@ use gpui_kit::{
     Entity, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
     SharedString, StatefulInteractiveElement, Styled, Task,
 };
-use serde_json::json;
+use sikemux_calls::triggers::TriggerParams;
 use sikemux_plugin_api::codehost::PullList;
-use sikemux_wire::protocol::WorkspaceAgent;
+use sikemux_view::device::RecentInfo;
+use sikemux_view::workspace::WorkspaceAgent;
 
+use crate::agents::rows::AgentRow;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_SM, TEXT_XS};
 use crate::ui;
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 const OPEN_AFTER: Duration = Duration::from_millis(450);
 const CLOSE_AFTER: Duration = Duration::from_millis(140);
@@ -118,16 +124,17 @@ impl Workbench {
         }) else {
             return;
         };
-        let asked = crate::core::request(
-            &self.asks,
-            "codeHostPulls",
-            json!({ "project": folder, "state": "all" }),
+        let asked = crate::core::Target::here(&self.asks).request_typed::<call::CodeHostPulls>(
+            PullsParams {
+                project: folder,
+                state: Some("all".to_owned()),
+            },
         );
         cx.spawn(async move |bench, cx| {
             let Some(list) = asked
                 .await
                 .ok()
-                .and_then(|answer| crate::codehost::answer::<PullList>(&answer).ok())
+                .and_then(|answer| answer.read::<PullList>().ok())
             else {
                 return;
             };
@@ -154,8 +161,7 @@ impl Workbench {
 
 fn known<'a>(bench: &'a Workbench, id: &str) -> Option<&'a WorkspaceAgent> {
     bench
-        .view
-        .as_ref()?
+        .this_view()?
         .workspace
         .agents
         .iter()
@@ -214,7 +220,7 @@ pub fn view(
             )
         });
     let who: Vec<String> = agent
-        .name
+        .handle()
         .iter()
         .map(|name| format!("@{name}"))
         .chain(Some(bench.agent_name(&agent.provider).to_owned()))
@@ -236,6 +242,47 @@ pub fn view(
             .child(div().min_w_0().truncate().child(body))
     };
     let mut facts: Vec<AnyElement> = Vec::new();
+    if let Some(turn) = agent.turn.as_ref() {
+        let now = ui::time::now_ms();
+        let said = crate::turn_line::said(turn, crate::turn_line::maker(&agent.provider), now);
+        let timed = crate::turn_line::short(turn, now).is_some();
+        let brief = (crate::turn_line::brief(turn, now).filter(|_| timed)).map(|brief| {
+            div()
+                .text_color(crate::turn_line::tint(turn.state, cx).unwrap_or(t.text_secondary))
+                .child(brief)
+        });
+        let line = said.map(|said| {
+            crate::turn_line::words(
+                &said,
+                SharedString::from(format!("card-turn:{}", agent.id)),
+                TEXT_2XS,
+                2,
+                None,
+                cx,
+            )
+        });
+        if brief.is_some() || line.is_some() {
+            facts.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .min_w_0()
+                    .children(brief)
+                    .children(line)
+                    .into_any_element(),
+            );
+        }
+    }
+    if let Some(at) = agent.next_trigger {
+        facts.push(
+            fact(
+                Some(Icon::Timer),
+                t!("A trigger wakes it in {time}", time = ui::time::until(at)).into_any_element(),
+            )
+            .into_any_element(),
+        );
+    }
     if let Some(project) = project {
         facts.push(
             fact(Some(Icon::Folder), project.to_owned().into_any_element()).into_any_element(),
@@ -249,10 +296,9 @@ pub fn view(
                 ui::mono(branch, TEXT_2XS, cx)
                     .id("card-branch")
                     .text_color(t.text_primary)
-                    .cursor_pointer()
                     .hover(|link| link.underline())
-                    .tooltip(ui::tooltip("Review its work"))
-                    .on_click(cx.listener(move |bench, _, _, cx| {
+                    .tooltip(ui::tooltip(t!("Review its work")))
+                    .clicks(cx.listener(move |bench, _, _, cx| {
                         bench.close_card(cx);
                         crate::agents::review::open(bench, &reviewed, cx);
                     }))
@@ -281,17 +327,108 @@ pub fn view(
                 ui::mono(format!("#{}", pull.number), TEXT_2XS, cx)
                     .id(SharedString::from(format!("card-pull-{}", pull.number)))
                     .text_color(t.text_primary)
-                    .cursor_pointer()
                     .hover(|link| link.underline())
                     .tooltip(ui::tooltip(pull.title.clone()))
-                    .on_click(cx.listener(move |bench, _, _, cx| {
+                    .clicks(cx.listener(move |bench, _, _, cx| {
                         bench.open_on_desk(&agent, &url, cx);
                         bench.close_card(cx);
                     }))
             }));
         facts.push(fact(Some(Icon::PullRequest), pulls.into_any_element()).into_any_element());
     }
-    let id = agent.id.clone();
+    let header = header(
+        agent.mark(22., cx),
+        agent.title.clone(),
+        who.join(" · "),
+        &t,
+    );
+    Some(frame(agent.id.clone(), header, facts, &t, cx))
+}
+
+/// What names a closed chat's card, beside the agents' own.
+pub fn paused_key(recent: &str) -> String {
+    format!("recent:{recent}")
+}
+
+/// The card for the closed chat `recent` when it is the one showing: the triggers paused until
+/// it is taken up again, each with a button that removes it for good.
+pub fn paused(
+    bench: &Workbench,
+    recent: &RecentInfo,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let key = paused_key(&recent.id);
+    if recent.triggers.is_empty() || bench.agent_card.agent.as_deref() != Some(key.as_str()) {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let count = recent.triggers.len();
+    let header = header(
+        ui::mark(&recent.provider, 20.).into_any_element(),
+        recent.title.clone(),
+        match count {
+            1 => t!("1 trigger paused until it is opened again").to_owned(),
+            count => t!(
+                "{count} triggers paused until it is opened again",
+                count = count
+            ),
+        },
+        &t,
+    );
+    let rows = recent
+        .triggers
+        .iter()
+        .map(|trigger| {
+            let id = trigger.id;
+            crate::chat::live::trigger_row(
+                trigger,
+                &t,
+                cx.listener(move |bench, _, _, _| {
+                    bench
+                        .target()
+                        .call_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
+                }),
+            )
+        })
+        .collect();
+    Some(frame(key, header, rows, &t, cx))
+}
+
+/// A card's top line: its mark, its title and a line under the title.
+fn header(mark: AnyElement, title: String, under: String, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .min_w_0()
+        .child(mark)
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(crate::theme::ui_text(TEXT_SM))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.text_primary)
+                        .child(title),
+                )
+                .child(div().truncate().text_color(t.text_tertiary).child(under)),
+        )
+        .into_any_element()
+}
+
+/// The card named `key`: `header`, then `facts` under a hairline, beside its row.
+fn frame(
+    key: String,
+    header: AnyElement,
+    facts: Vec<AnyElement>,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
     let card = div()
         .id("agent-card")
         .occlude()
@@ -303,9 +440,9 @@ pub fn view(
         .flex_col()
         .gap(SPACE_2H)
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .rounded(crate::theme::RADIUS_3)
+        .rounded(crate::theme::radius_3())
         .shadow(t.shadow_float())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
@@ -313,43 +450,15 @@ pub fn view(
             if *inside {
                 bench.stay_on_card();
             } else {
-                bench.rest_on_agent(&id, false, cx);
+                bench.rest_on_agent(&key, false, cx);
             }
         }))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_2H)
-                .min_w_0()
-                .child(agent.mark(22., cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .truncate()
-                                .text_size(crate::theme::ui_text(TEXT_SM))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(t.text_primary)
-                                .child(agent.title.clone()),
-                        )
-                        .child(
-                            div()
-                                .truncate()
-                                .text_color(t.text_tertiary)
-                                .child(who.join(" · ")),
-                        ),
-                ),
-        )
+        .child(header)
         .when(!facts.is_empty(), |card| {
             card.child(
                 div()
                     .pt(SPACE_2H)
-                    .border_t_1()
+                    .border_t(crate::theme::border())
                     .border_color(t.border)
                     .flex()
                     .flex_col()
@@ -357,16 +466,14 @@ pub fn view(
                     .children(facts),
             )
         });
-    Some(
-        deferred(
-            anchored()
-                .position_mode(AnchoredPositionMode::Local)
-                .position(point(px(-8.), px(-6.)))
-                .anchor(Anchor::TopRight)
-                .snap_to_window()
-                .child(card),
-        )
-        .with_priority(1)
-        .into_any_element(),
+    deferred(
+        anchored()
+            .position_mode(AnchoredPositionMode::Local)
+            .position(point(px(-8.), px(-6.)))
+            .anchor(Anchor::TopRight)
+            .snap_to_window()
+            .child(card),
     )
+    .with_priority(1)
+    .into_any_element()
 }

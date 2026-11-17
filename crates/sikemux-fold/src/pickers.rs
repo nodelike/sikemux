@@ -1,64 +1,131 @@
-//! The model and effort pickers a chat head shows, read from the select
+//! The model, effort and speed pickers a chat head shows, read from the select
 //! options in a session's `configOptions`.
 
 use serde_json::Value;
-use sikemux_wire::protocol::{ConfigChoice, ConfigPicker};
+use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
-/// The model and effort pickers among a session's `configOptions`.
+/// The category of the option that picks how fast the model answers, which Sikemux's own
+/// drivers send for the agents that offer a faster tier of a model.
+pub const SPEED: &str = "_speed";
+
 pub fn pickers(options: &Value) -> (Option<ConfigPicker>, Option<ConfigPicker>) {
-    let selects: Vec<(&Value, ConfigPicker)> = options
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|row| row["type"] == "select")
-        .filter_map(|row| {
-            Some((
-                row,
-                ConfigPicker {
-                    id: row["id"].as_str()?.to_owned(),
-                    current: row["currentValue"].as_str()?.to_owned(),
-                    choices: choices(&row["options"], None),
-                },
-            ))
-        })
-        .collect();
-    let find = |matches: &dyn Fn(&Value) -> bool| {
-        selects
-            .iter()
-            .find(|(row, _)| matches(row))
-            .map(|(_, picker)| picker.clone())
-    };
     (
-        find(&|row| row["id"] == "model"),
-        find(&|row| row["category"] == "thought_level"),
+        select(options, &|row| row["id"] == "model"),
+        select(options, &is_effort),
     )
 }
 
-fn choices(options: &Value, group: Option<&str>) -> Vec<ConfigChoice> {
+pub fn speed(options: &Value) -> Option<ConfigPicker> {
+    select(options, &|row| row["category"] == SPEED)
+}
+
+/// The agent's own ways of working, such as OpenCode's build and plan agents.
+pub fn session_mode(options: &Value) -> Option<ConfigPicker> {
+    select(options, &|row| row["category"] == "mode")
+}
+
+fn select(options: &Value, matches: &dyn Fn(&Value) -> bool) -> Option<ConfigPicker> {
     options
         .as_array()
         .into_iter()
         .flatten()
-        .flat_map(|row| {
-            if row["options"].is_array() {
-                return choices(&row["options"], row["name"].as_str());
-            }
-            let (Some(value), Some(name)) = (row["value"].as_str(), row["name"].as_str()) else {
-                return Vec::new();
-            };
-            let description = row["description"].as_str().or(group);
-            let label = match provided_model(value) {
-                Some(model) => model.to_owned(),
-                None => versioned(name, description),
-            };
-            vec![ConfigChoice {
+        .filter(|row| row["type"] == "select" && matches(row))
+        .find_map(|row| {
+            Some(ConfigPicker {
+                id: row["id"].as_str()?.to_owned(),
+                current: row["currentValue"].as_str()?.to_owned(),
+                choices: choices(&row["options"]),
+            })
+        })
+}
+
+/// Whether a session's option row sets how hard the model thinks. Agents name
+/// it differently (`effort`, `thinking`, `reasoning_effort`) but tag it alike.
+pub fn is_effort(row: &Value) -> bool {
+    row["category"] == "thought_level"
+}
+
+fn choices(options: &Value) -> Vec<ConfigChoice> {
+    let mut found = Vec::new();
+    collect(options, None, &mut found);
+    mark_superseded(&mut found);
+    found.into_iter().map(|(_, choice)| choice).collect()
+}
+
+fn collect<'a>(
+    options: &'a Value,
+    group: Option<&'a str>,
+    found: &mut Vec<(Option<&'a str>, ConfigChoice)>,
+) {
+    for row in options.as_array().into_iter().flatten() {
+        if row["options"].is_array() {
+            collect(&row["options"], row["name"].as_str(), found);
+            continue;
+        }
+        let (Some(value), Some(name)) = (row["value"].as_str(), row["name"].as_str()) else {
+            continue;
+        };
+        let description = row["description"].as_str().or(group);
+        let label = match provided_model(value) {
+            Some(model) => model.to_owned(),
+            None => versioned(name, description),
+        };
+        found.push((
+            group,
+            ConfigChoice {
                 value: value.to_owned(),
                 label,
                 description: description.map(str::to_owned),
                 is_default: row["isDefault"] == true,
-            }]
+                superseded: false,
+            },
+        ));
+    }
+}
+
+/// A model's group, family and release number, as `release` reads them.
+type Release<'a> = (Option<&'a str>, String, Vec<u64>);
+
+/// Marks each model the same group also offers a newer release of, read from their names
+/// alone ("Opus 5" under "Opus 5.5"), so a model released later folds its elders away
+/// without Sikemux knowing it.
+fn mark_superseded(found: &mut [(Option<&str>, ConfigChoice)]) {
+    let releases: Vec<Option<Release>> = found
+        .iter()
+        .map(|(group, choice)| {
+            let (family, version) = release(&choice.label)?;
+            Some((*group, family, version))
         })
-        .collect()
+        .collect();
+    for (at, (_, choice)) in found.iter_mut().enumerate() {
+        let Some((group, family, version)) = &releases[at] else {
+            continue;
+        };
+        choice.superseded = !choice.is_default
+            && releases
+                .iter()
+                .flatten()
+                .any(|(other_group, other_family, other)| {
+                    other_group == group && other_family == family && other > version
+                });
+    }
+}
+
+/// A model's name split into its family, with the release number blanked out, and that
+/// number: "Opus 5.5" is ("Opus #", [5, 5]), "gpt-5.4-mini" is ("gpt-#-mini", [5, 4]).
+fn release(label: &str) -> Option<(String, Vec<u64>)> {
+    let start = label.find(|c: char| c.is_ascii_digit())?;
+    let rest = &label[start..];
+    let mut end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(rest.len());
+    end = rest[..end].trim_end_matches('.').len();
+    let version = rest[..end]
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<Vec<u64>, _>>()
+        .ok()?;
+    Some((format!("{}#{}", &label[..start], &rest[end..]), version))
 }
 
 /// The model a provider Sikemux handed the agent serves, by the name its API gives it:
@@ -164,6 +231,7 @@ mod tests {
                 label: "My model".into(),
                 description: Some("Custom provider".into()),
                 is_default: false,
+                superseded: false,
             }]
         );
     }

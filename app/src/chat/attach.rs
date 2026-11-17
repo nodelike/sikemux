@@ -1,6 +1,8 @@
 //! The files a message carries: picked, dropped on the chat or pasted, shown as tiles over
 //! the draft, each picture also named in the draft where it belongs, as `[Image #n]`.
 
+use crate::ui::Clicks;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -11,35 +13,38 @@ use gpui_kit::component::attachment::{
 use gpui_kit::component::{Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, App, AppContext, Axis, ClipboardEntry, ClipboardItem, Context, Div, ExternalPaths,
-    FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    div, px, AnimationExt, App, AppContext, Axis, ClipboardEntry, ClipboardItem, Context, Div,
+    ExternalPaths, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
     PathPromptOptions, SharedString, Styled, StyledImage, WeakEntity, Window,
 };
 use gpui_transcript::FilePress;
-use sikemux_core::protocol::MAX_ATTACHMENT_BYTES;
-use sikemux_core::server::chat::prompt::MAX_ATTACHMENTS;
-use sikemux_wire::chat::{ChatMessage, SentContext};
+use sikemux_calls::chat::MAX_ATTACHMENTS;
+use sikemux_view::chat::{
+    tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
+    EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
+};
+use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
+use sikemux_wire::protocol::{FOR_AGENT_URI, MAX_ATTACHMENT_BYTES};
 use tokio::sync::oneshot;
 
+use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
 use super::Composing;
+use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
-use crate::drag::DraggedPath;
+use crate::drag::{DraggedChat, DraggedPath};
 use crate::hosts::Place;
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, TEXT_SM};
+use crate::send_to::Recipient;
+use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XS};
 use crate::ui;
-use crate::workbench::{AgentRow, Workbench};
-
-const IMAGE_EXTENSIONS: [&str; 13] = [
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif",
-];
+use crate::workbench::Workbench;
 
 pub fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
-            IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+            crate::ui::path::IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
         })
 }
 
@@ -80,7 +85,7 @@ const MAX_KEPT: u64 = MAX_ATTACHMENT_BYTES as u64;
 /// file's or folder's.
 fn mark(id: &str, tint: Hsla, bench: &WeakEntity<Workbench>, cx: &App) -> gpui_kit::AnyElement {
     let named =
-        (id.strip_prefix("agent:")).and_then(|agent| bench.upgrade()?.read(cx).agent_by_id(agent));
+        (id.strip_prefix(AGENT)).and_then(|agent| bench.upgrade()?.read(cx).agent_by_id(agent));
     mark_of(id, tint, named, cx)
 }
 
@@ -99,22 +104,22 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
     if let Some(agent) = named {
         return agent.mark(14., cx);
     }
-    if id.starts_with("agent:") {
+    if id.starts_with(AGENT) {
         return ui::icon(Icon::Agent, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    if id.starts_with("command:") {
+    if id.starts_with(COMMAND) {
         return ui::icon(Icon::Bolt, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    if id.starts_with("earlier:") {
+    if id.starts_with(EARLIER) {
         return ui::icon(Icon::Message, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    if let Some(kind) = id.strip_prefix("tracked:") {
+    if let Some(kind) = id.strip_prefix(TRACKED) {
         let icon = if kind.starts_with("pull") {
             Icon::PullRequest
         } else {
@@ -122,12 +127,12 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
         };
         return ui::icon(icon, 13.).text_color(tint).into_any_element();
     }
-    if id.starts_with("folder:") {
+    if id.starts_with(FOLDER) {
         return ui::icon(Icon::Folder, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    let path = Path::new(id.strip_prefix("file:").unwrap_or(id));
+    let path = Path::new(id.strip_prefix(FILE).unwrap_or(id));
     let name = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
@@ -141,12 +146,47 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
     )
 }
 
+/// A picture made in the app, such as a snip of a page or a SnapShot of a window, on its way to
+/// a chat. `about` writes, from where the picture was kept, a title and text the agent alone is
+/// told with it.
+pub struct Made {
+    pub name: String,
+    pub mime: &'static str,
+    pub bytes: Vec<u8>,
+    pub about: About,
+}
+
+/// Writes, from where a picture was kept, its title and the text the agent alone is told.
+pub type About = Box<dyn FnOnce(&Path) -> (String, String)>;
+
+/// Where the note the agent alone gets about picture `path` is filed, so it goes with the picture.
+fn about_uri(path: &Path) -> String {
+    format!("{FOR_AGENT_URI}picture{}", path.to_string_lossy())
+}
+
+/// How the name of a picture snipped from a page starts, which the draft calls a selection.
+pub const SNIP_NAME: &str = "snip-";
+
+fn is_snip(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with(SNIP_NAME))
+}
+
+/// What the draft calls picture `number`. The message itself still says `[Image #n]`, which is
+/// where the core puts the picture.
+fn picture_label(number: usize, path: &Path) -> String {
+    match is_snip(path) {
+        true => t!("Selection {number}", number = number),
+        false => t!("Image {number}", number = number),
+    }
+}
+
 fn image_tag(number: usize, path: &Path) -> InlineToken {
     InlineToken::new(
         format!("{IMAGE}{}", path.to_string_lossy()),
         format!("[Image #{number}]"),
     )
-    .with_label(format!("Image {number}"))
+    .with_label(picture_label(number, path))
 }
 
 impl Composing {
@@ -166,6 +206,7 @@ impl Composing {
             if self.attachments.len() == MAX_ATTACHMENTS {
                 break;
             }
+            self.fresh = Some((path.clone(), std::time::Instant::now()));
             self.attachments.push(path);
             let path = &self.attachments[self.attachments.len() - 1];
             if is_image(path) {
@@ -229,6 +270,8 @@ impl Composing {
             .remove(index)
             .to_string_lossy()
             .into_owned();
+        let note = about_uri(Path::new(&gone));
+        self.context.retain(|item| item.uri != note);
         let attachments = &self.attachments;
         self.draft.update(cx, |draft, cx| {
             let spans = draft.tokens().to_vec();
@@ -282,31 +325,122 @@ impl Workbench {
         if !keep.is_empty() {
             self.keep_files(agent, keep, window, cx);
         }
-        self.attach_there(agent, paths, window, cx);
+        self.attach_there(agent, paths, Vec::new(), window, cx);
     }
 
-    /// Hands the next message of `agent`'s chat files that are already where the agent runs.
-    fn attach_there(
+    /// Hands the next message of `agent`'s chat files that are already where the agent runs,
+    /// with notes about them for the agent alone. They wait for a composer the chat has not
+    /// made yet.
+    pub(crate) fn attach_there(
         &mut self,
         agent: &str,
         paths: Vec<PathBuf>,
+        notes: Vec<ChatContext>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if paths.is_empty() {
             return;
         }
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
+            let held = self.chats.held_files.entry(agent.to_owned()).or_default();
+            held.0.extend(paths);
+            held.1.extend(notes);
             return;
         };
         composing.attach(paths, window, cx);
+        let attached: Vec<String> = composing
+            .attachments
+            .iter()
+            .map(|path| about_uri(path))
+            .collect();
+        composing.context.extend(
+            notes
+                .into_iter()
+                .filter(|note| attached.contains(&note.uri)),
+        );
         self.typed_draft(agent, cx);
         cx.notify();
+    }
+
+    /// Hands `agent`'s next message a picture made in the app, named at its draft's caret, with
+    /// what `about` says of it for the agent alone; an agent in a terminal is typed its path and
+    /// that text.
+    pub(crate) fn attach_picture(
+        &mut self,
+        agent: &str,
+        made: Made,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Made {
+            name,
+            mime,
+            bytes,
+            about,
+        } = made;
+        let owner = agent.to_owned();
+        let kept =
+            move |bench: &mut Self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>| {
+                let (title, text) = about(&path);
+                if bench.in_terminal(&owner) {
+                    let typed = format!("{}\n{text}", path.to_string_lossy());
+                    return bench.deliver(&owner, typed, window, cx);
+                }
+                let note = ChatContext {
+                    uri: about_uri(&path),
+                    title,
+                    text,
+                };
+                bench.attach_there(&owner, vec![path], vec![note], window, cx);
+            };
+        self.keep(agent, name, mime, bytes, kept, window, cx);
+    }
+
+    /// Hands a picture made in the app to the project's front chat, starting one when none is
+    /// open. `kind` names such pictures in what the person is told when no agent can take it.
+    /// Says which chat it went to, if it went to one.
+    pub(crate) fn hand_to_front_chat(
+        &mut self,
+        made: Made,
+        kind: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<SharedString> {
+        if let Some(waiting) = &mut self.chats.pictures_for_new_chat {
+            waiting.push(made);
+            return Some(t!("the new chat").into());
+        }
+        let Some(choice) = crate::send_to::choices(self).into_iter().next() else {
+            let note = t!("Start an agent first — {kind} go to its chat", kind = kind);
+            self.notify(crate::toast::info(note), cx);
+            return None;
+        };
+        let (launcher, project) = match choice.to {
+            Recipient::Agent(agent) => {
+                self.attach_picture(&agent, made, window, cx);
+                return Some(choice.label);
+            }
+            Recipient::NewChat { launcher, project } => (launcher, project),
+        };
+        self.chats.pictures_for_new_chat = Some(vec![made]);
+        let (started, agent) = oneshot::channel();
+        self.target()
+            .start_chat(launcher, project, None, Some(started));
+        cx.spawn_in(window, async move |bench, cx| {
+            let agent = agent.await.ok();
+            let _ = bench.update_in(cx, |bench, window, cx| {
+                let waiting = bench.chats.pictures_for_new_chat.take();
+                let Some(agent) = agent else {
+                    return;
+                };
+                for made in waiting.into_iter().flatten() {
+                    bench.attach_picture(&agent, made, window, cx);
+                }
+            });
+        })
+        .detach();
+        Some(choice.label)
     }
 
     /// Reads files off the window's thread and has the chat's core keep each, attaching it
@@ -343,7 +477,7 @@ impl Workbench {
                             "application/octet-stream"
                         };
                         this.update_in(cx, |bench, window, cx| {
-                            bench.keep(&agent, name, mime, bytes, window, cx)
+                            bench.keep(&agent, name, mime, bytes, attach_kept(&agent), window, cx)
                         })
                         .ok();
                     }
@@ -351,9 +485,10 @@ impl Workbench {
                         eprintln!("sikemux: {} does not read: {error}", path.display())
                     }
                     None => {
-                        let note = format!(
-                            "{name} is over {} MB, too large to send to the chat",
-                            MAX_KEPT / (1024 * 1024)
+                        let note = t!(
+                            "{name} is over {megabytes} MB, too large to send to the chat",
+                            name = name,
+                            megabytes = MAX_KEPT / (1024 * 1024)
                         );
                         cx.update(|window, cx| window.push_notification(note, cx))
                             .ok();
@@ -364,36 +499,41 @@ impl Workbench {
         .detach();
     }
 
-    /// Asks the core to keep a file that lives nowhere the agent can read, and attaches it
-    /// once the core says where it went.
+    /// Asks the core to keep a file that lives nowhere the agent can read, and hands where it
+    /// went to `kept`. A file for a call's reply is kept for the agent that asked.
+    #[allow(clippy::too_many_arguments)]
     fn keep(
         &self,
         agent: &str,
         name: String,
         mime: &str,
         bytes: Vec<u8>,
+        kept: impl FnOnce(&mut Self, PathBuf, &mut Window, &mut Context<Self>) + 'static,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (kept, answer) = oneshot::channel();
+        let (stored, answer) = oneshot::channel();
+        let keeper = (crate::calls::reply::call_of(agent))
+            .and_then(|call| self.call_at(call))
+            .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
         let ask = ChatAsk::Keep {
-            agent: agent.to_owned(),
+            agent: keeper.to_owned(),
             name,
             mime: mime.to_owned(),
             bytes,
-            kept,
+            kept: stored,
         };
-        self.ask_chat(ask);
-        let agent = agent.to_owned();
+        self.chat_target(agent).ask(crate::core::Ask::Chat(ask));
         cx.spawn_in(window, async move |this, cx| match answer.await {
             Ok(Ok(path)) => {
-                this.update_in(cx, |bench, window, cx| {
-                    bench.attach_there(&agent, vec![path], window, cx)
-                })
-                .ok();
+                this.update_in(cx, |bench, window, cx| kept(bench, path, window, cx))
+                    .ok();
             }
             Ok(Err(error)) => {
-                let note = format!("The picture or file could not be attached: {error}");
+                let note = t!(
+                    "The picture or file could not be attached: {error}",
+                    error = error
+                );
                 cx.update(|window, cx| window.push_notification(note, cx))
                     .ok();
             }
@@ -404,12 +544,7 @@ impl Workbench {
 
     /// Takes context item `index`, an earlier chat or an issue, off the message.
     pub fn forget(&mut self, agent: &str, index: usize, cx: &mut Context<Self>) {
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             if index < composing.context.len() {
                 composing.context.remove(index);
                 self.typed_draft(agent, cx);
@@ -425,12 +560,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             composing.detach(index, window, cx);
             self.typed_draft(agent, cx);
             cx.notify();
@@ -459,7 +589,8 @@ impl Workbench {
                         let name = format!("{stamp}.{}", image.format.extension());
                         this.update_in(cx, |bench, window, cx| {
                             let mime = image.format.mime_type();
-                            bench.keep(&agent, name, mime, image.bytes, window, cx)
+                            let kept = attach_kept(&agent);
+                            bench.keep(&agent, name, mime, image.bytes, kept, window, cx)
                         })
                         .ok();
                     })
@@ -497,6 +628,14 @@ impl Workbench {
     }
 }
 
+/// Attaches a file the core kept to `agent`'s next message.
+fn attach_kept(
+    agent: &str,
+) -> impl FnOnce(&mut Workbench, PathBuf, &mut Window, &mut Context<Workbench>) + 'static {
+    let agent = agent.to_owned();
+    move |bench, path, window, cx| bench.attach_there(&agent, vec![path], Vec::new(), window, cx)
+}
+
 /// What the draft takes in place of its paste, for pictures and files on the clipboard.
 pub fn on_paste(
     agent: &str,
@@ -509,11 +648,26 @@ pub fn on_paste(
     }
 }
 
-/// Files dropped on a chat, from Finder or from the file tree, go with the next message.
-pub fn takes_drops(pane: Div, agent: &str, cx: &mut Context<Workbench>) -> Div {
-    let (agent, this) = (agent.to_owned(), cx.weak_entity());
+/// Files dropped on a composer's pane, from Finder or from the file tree, go with its next
+/// message, and a chat dragged from the agent rail goes in it as context.
+pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
+    let agent = agent.to_owned();
     let (from_tree, from_tree_agent) = (this.clone(), agent.clone());
-    pane.on_drop(move |dropped: &ExternalPaths, window, cx| {
+    let (from_rail, from_rail_agent) = (this.clone(), agent.clone());
+    let own = agent.clone();
+    pane.can_drop(move |value, _, _| {
+        value
+            .downcast_ref::<DraggedChat>()
+            .is_none_or(|chat| takes_chat(chat, &own))
+    })
+    .on_drop(move |dropped: &DraggedChat, window, cx| {
+        from_rail
+            .update(cx, |bench, cx| {
+                bench.mention_chat(&from_rail_agent, dropped, window, cx)
+            })
+            .ok();
+    })
+    .on_drop(move |dropped: &ExternalPaths, window, cx| {
         this.update(cx, |bench, cx| {
             bench.attach(&agent, dropped.paths().to_vec(), window, cx)
         })
@@ -528,37 +682,63 @@ pub fn takes_drops(pane: Div, agent: &str, cx: &mut Context<Workbench>) -> Div {
     })
 }
 
-/// What shows over a chat while files are dragged over it.
-pub fn drop_hint(cx: &App) -> Div {
+/// Whether `agent`'s composer takes `chat` as context: any chat but its own that names an
+/// agent or a saved chat. A call's reply takes none, since its answer carries no context.
+fn takes_chat(chat: &DraggedChat, agent: &str) -> bool {
+    crate::calls::reply::call_of(agent).is_none()
+        && (chat.agent.is_some() || chat.recent.is_some())
+        && chat.agent.as_ref().is_none_or(|(id, _)| id != agent)
+}
+
+/// What shows over a composer's pane while files or a chat are dragged over it, saying where
+/// they go: `words` for files, and whose chat goes in as context for a chat.
+pub fn drop_hint(words: &'static str, agent: &str, bench: &Workbench, cx: &App) -> Div {
     let t = Tokens::get(cx).clone();
+    let dragged = crate::drag::dragged_chat(bench);
+    let takes = dragged.is_some_and(|chat| takes_chat(chat, agent));
+    let chat = dragged.filter(|_| takes).map(|chat| {
+        let named = chat.agent.as_ref().map(|(_, name)| format!("@{name}"));
+        let title = chat.label.clone();
+        match named {
+            Some(named) => (t!("Add {named} as context", named = named), Some(title)),
+            None => (t!("Add \"{title}\" as context", title = title), None),
+        }
+    });
+    let (words, under) = match chat {
+        Some((words, under)) => (SharedString::from(words), under),
+        None => (SharedString::from(words), None),
+    };
     div()
         .absolute()
         .inset(px(10.))
         .flex()
         .items_center()
         .justify_center()
-        .border_1()
+        .border(crate::theme::border())
         .border_dashed()
         .border_color(t.border_selected)
-        .rounded(theme::RADIUS_4)
+        .rounded(theme::radius_4())
         .bg(Hsla {
             a: 0.86,
             ..t.surface_sunken
         })
         .invisible()
+        .flex_col()
+        .gap(SPACE_1)
         .drag_over::<ExternalPaths>(|style, _, _, _| style.visible())
         .drag_over::<DraggedPath>(|style, _, _, _| style.visible())
-        .child(
-            ui::text(
-                "Drop files or folders into this session",
-                TEXT_SM,
-                FontWeight::MEDIUM,
-            )
-            .text_color(t.text_primary),
-        )
+        .when(takes, |hint| {
+            hint.drag_over::<DraggedChat>(|style, _, _, _| style.visible())
+        })
+        .child(ui::text(words, TEXT_SM, FontWeight::MEDIUM).text_color(t.text_primary))
+        .children(under.map(|under| {
+            ui::text(under, TEXT_XS, FontWeight::NORMAL)
+                .max_w(px(320.))
+                .truncate()
+                .text_color(t.text_tertiary)
+        }))
 }
 
-/// A tag in the draft, set on the line like a word of it.
 /// A tag in the draft as a chip, with the glyph `mark` gives it.
 pub fn chip(
     bench: WeakEntity<Workbench>,
@@ -594,7 +774,7 @@ const CHIP_FRAME: f32 = 4. + CHIP_MARK + 5. + 6.;
 const CHIP_TITLE_GAP: f32 = 5.;
 
 /// A chip as the draft and a sent message both draw it: its mark, its handle, and the title
-/// after it a step quieter, on a slightly rounded grey lift.
+/// after it a step quieter, on a slightly rounded opaque lift, so a backdrop never shows through.
 fn chip_face(
     key: SharedString,
     title: Option<SharedString>,
@@ -609,14 +789,17 @@ fn chip_face(
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(if selected {
-            Hsla {
-                a: 0.2,
-                ..t.text_primary
-            }
+            theme::over(
+                Hsla {
+                    a: 0.2,
+                    ..t.text_primary
+                },
+                t.surface_raised,
+            )
         } else {
-            t.surface_chosen
+            t.surface_raised
         })
         .text_color(t.text_primary)
         .whitespace_nowrap()
@@ -652,42 +835,222 @@ pub(crate) fn pill(
 ) -> Div {
     let (key, title) = chip_words(id, &label.to_owned().into());
     let mark = mark.unwrap_or_else(|| {
-        let named = (id.strip_prefix("agent:")).and_then(|agent| bench.agent_by_id(agent));
+        let named = (id.strip_prefix(AGENT)).and_then(|agent| bench.agent_by_id(agent));
         mark_of(id, Tokens::get(cx).text_tertiary, named, cx)
     });
     chip_face(key, title, false, mark, cx)
+}
+
+/// An agent's chip as the transcript draws it in prose, set in a line of `size` text, which
+/// opens the agent's chat.
+pub(crate) fn agent_pill(
+    agent: &AgentRow,
+    size: f32,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    let label = match (agent.chief, agent.name.as_ref()) {
+        (false, Some(name)) => format!("@{name}"),
+        _ => agent.title.clone(),
+    };
+    let (key, title) = chip_words(&format!("{AGENT}{}", agent.id), &label.into());
+    let face = chip_face(key, title, false, agent.mark(size + 1., cx), cx)
+        .flex_none()
+        .text_size(theme::ui_text(size));
+    opens_agent(face, &agent.id, None, bench, cx)
+}
+
+/// The chip of the agent `id` named `name`: [`agent_pill`] while the window knows the agent,
+/// else the same chip wearing `mark`, which opens the agent's chat again through `from`.
+pub(crate) fn agent_pill_of(
+    id: &str,
+    name: &str,
+    mark: gpui_kit::AnyElement,
+    size: f32,
+    from: crate::core::Target,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let known = (bench.upgrade()).and_then(|strong| strong.read(cx).agent_by_id(id));
+    if let Some(agent) = known {
+        return agent_pill(&agent, size, bench, cx).into_any_element();
+    }
+    let face = chip_face(format!("@{name}").into(), None, false, mark, cx)
+        .flex_none()
+        .text_size(theme::ui_text(size));
+    opens_agent(face, id, Some(from), bench, cx).into_any_element()
+}
+
+/// A chip that opens `agent`'s chat, through `from` when given, lifting a step on hover.
+fn opens_agent(
+    face: Div,
+    agent: &str,
+    from: Option<crate::core::Target>,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    let (agent, bench) = (agent.to_owned(), bench.clone());
+    let t = Tokens::get(cx);
+    let hover = theme::over(t.surface_active, t.surface_raised);
+    face.id(SharedString::from(format!("mention:{agent}")))
+        .hover(move |chip| chip.bg(hover))
+        .clicks(move |_, _, cx| {
+            cx.stop_propagation();
+            bench
+                .update(cx, |bench, cx| match from.clone() {
+                    Some(from) => bench.open_agent_from(&agent, from, cx),
+                    None => bench.open_agent(&agent, cx),
+                })
+                .ok();
+        })
 }
 
 /// A sent message's look with the chips it wrote drawn in its text as the draft drew them.
 pub fn with_chips(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
-    agent: &str,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+) -> Rc<gpui_transcript::Style> {
+    let mentions = mentions(message);
+    if mentions.is_empty() {
+        return look;
+    }
+    let chips = (mentions.into_iter())
+        .map(|mention| {
+            mention_chip(
+                mention.written,
+                mention.id,
+                mention.label,
+                &look,
+                bench,
+                window,
+            )
+        })
+        .collect::<Vec<_>>();
+    Rc::new(gpui_transcript::Style {
+        chips: chips.into(),
+        ..(*look).clone()
+    })
+}
+
+/// An agent's answer with each `@name` of an agent the app knows drawn as the chip the draft
+/// draws for it.
+fn with_named_agents(
+    look: Rc<gpui_transcript::Style>,
+    message: &ChatMessage,
+    writer: &str,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
     cx: &App,
 ) -> Rc<gpui_transcript::Style> {
-    let (agents, commands) = bench
-        .upgrade()
-        .map(|bench| {
-            let bench = bench.read(cx);
-            let commands: Vec<String> = bench
-                .chats
-                .open
-                .get(agent)
-                .and_then(|chat| chat.state.as_ref())
-                .map(|head| {
-                    head.commands
-                        .iter()
-                        .map(|command| command.name.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            (named_agents(bench), commands)
+    let texts: Vec<&str> = (message.parts.iter())
+        .filter_map(|part| match part {
+            sikemux_view::chat::ChatPart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
         })
-        .unwrap_or_default();
-    let mentions = mentions(message, &agents, &commands);
-    if mentions.is_empty() {
+        .filter(|text| text.contains('@'))
+        .collect();
+    let Some(strong) = bench.upgrade().filter(|_| !texts.is_empty()) else {
+        return look;
+    };
+    let chips: Vec<gpui_transcript::Chip> = named_agents(strong.read(cx), writer)
+        .into_iter()
+        .map(|(name, id)| (format!("@{name}"), id))
+        .filter(|(written, _)| texts.iter().any(|text| text.contains(written.as_str())))
+        .map(|(written, id)| {
+            mention_chip(
+                written.clone(),
+                format!("{AGENT}{id}"),
+                written,
+                &look,
+                bench,
+                window,
+            )
+        })
+        .collect();
+    if chips.is_empty() {
+        return look;
+    }
+    Rc::new(gpui_transcript::Style {
+        chips: chips.into(),
+        ..(*look).clone()
+    })
+}
+
+/// The chip drawn in a message's text in place of `written`, as the draft drew it; an agent's
+/// chip opens its chat.
+fn mention_chip(
+    written: String,
+    id: String,
+    label: String,
+    look: &gpui_transcript::Style,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+) -> gpui_transcript::Chip {
+    let (size, font) = (look.text_size, look.font.clone());
+    let height = (size * look.line_height).floor() - px(4.);
+    let measure = |text: &str| {
+        let mut style = window.text_style();
+        style.font_family = font.clone();
+        let run = style.to_run(text.len());
+        window
+            .text_system()
+            .shape_line(text.to_owned().into(), size, &[run], None)
+            .width
+    };
+    let (key, title) = chip_words(&id, &label.into());
+    let words = measure(&key)
+        + title
+            .as_ref()
+            .map_or(px(0.), |title| px(CHIP_TITLE_GAP) + measure(title));
+    let width = (words + px(CHIP_FRAME + 1.)).min(px(CHIP_WIDEST)).ceil();
+    let bench = bench.clone();
+    gpui_transcript::Chip {
+        written: written.into(),
+        width,
+        draw: Rc::new(move |_, cx| {
+            let face = chip_face(
+                key.clone(),
+                title.clone(),
+                false,
+                mark(&id, Tokens::get(cx).text_tertiary, &bench, cx),
+                cx,
+            )
+            .w_full()
+            .h(height);
+            let face = match id.strip_prefix(AGENT) {
+                Some(agent) => opens_agent(face, agent, None, &bench, cx).into_any_element(),
+                None => face.into_any_element(),
+            };
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .text_size(size)
+                .font_family(font.clone())
+                .child(face)
+                .into_any_element()
+        }),
+    }
+}
+
+/// An answer's look with each `why` link drawn as the chip the core checked it to be, which opens
+/// what it names; a link the core did not check draws nothing.
+pub fn with_why(
+    look: Rc<gpui_transcript::Style>,
+    message: &ChatMessage,
+    writer: &str,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+    cx: &App,
+) -> Rc<gpui_transcript::Style> {
+    let look = with_named_agents(look, message, writer, bench, window, cx);
+    let links = (message.parts.iter()).any(|part| match part {
+        sikemux_view::chat::ChatPart::Text { text, .. } => text.contains(WHY_URI),
+        _ => false,
+    });
+    if !links && message.chips.is_empty() {
         return look;
     }
     let (size, font) = (look.text_size, look.font.clone());
@@ -701,20 +1064,21 @@ pub fn with_chips(
             .shape_line(text.to_owned().into(), size, &[run], None)
             .width
     };
-    let chips: Vec<gpui_transcript::Chip> = mentions
-        .into_iter()
-        .map(|mention| {
-            let (key, title) = chip_words(&mention.id, &mention.label.into());
-            let words = measure(&key)
-                + title
-                    .as_ref()
-                    .map_or(px(0.), |title| px(CHIP_TITLE_GAP) + measure(title));
+    let chips: Vec<(String, gpui_transcript::Chip)> = (message.chips.iter())
+        .map(|chip| {
+            let (icon, key, title) = why_words(chip);
+            let words = measure(&key) + px(CHIP_TITLE_GAP) + measure(&title);
             let width = (words + px(CHIP_FRAME + 1.)).min(px(CHIP_WIDEST)).ceil();
-            let (bench, font) = (bench.clone(), font.clone());
-            gpui_transcript::Chip {
-                written: mention.written.into(),
+            let (bench, font, open) = (bench.clone(), font.clone(), chip.open.clone());
+            let id = SharedString::from(format!("why:{}", chip.href));
+            let drawn = gpui_transcript::Chip {
+                written: SharedString::default(),
                 width,
                 draw: Rc::new(move |_, cx| {
+                    let mark = ui::icon(icon, CHIP_MARK - 3.)
+                        .text_color(Tokens::get(cx).text_tertiary)
+                        .into_any_element();
+                    let (bench, open) = (bench.clone(), open.clone());
                     div()
                         .size_full()
                         .flex()
@@ -723,24 +1087,103 @@ pub fn with_chips(
                         .font_family(font.clone())
                         .child(
                             chip_face(
-                                key.clone(),
-                                title.clone(),
+                                key.clone().into(),
+                                Some(title.clone().into()),
                                 false,
-                                mark(&mention.id, Tokens::get(cx).text_tertiary, &bench, cx),
+                                mark,
                                 cx,
                             )
+                            .id(id.clone())
+                            .clicks(move |_, _, cx| {
+                                let open = open.clone();
+                                bench.update(cx, |bench, cx| open_why(bench, open, cx)).ok();
+                            })
                             .w_full()
                             .h(height),
                         )
                         .into_any_element()
                 }),
-            }
+            };
+            (chip.href.clone(), drawn)
         })
         .collect();
+    let hidden = gpui_transcript::Chip {
+        written: SharedString::default(),
+        width: px(0.),
+        draw: Rc::new(|_, _| div().into_any_element()),
+    };
     Rc::new(gpui_transcript::Style {
-        chips: chips.into(),
+        link_chip: Some(Rc::new(move |href: &str| {
+            if !href.starts_with(WHY_URI) {
+                return None;
+            }
+            let known = chips.iter().find(|(known, _)| known == href);
+            Some(known.map_or_else(|| hidden.clone(), |(_, chip)| chip.clone()))
+        })),
         ..(*look).clone()
     })
+}
+
+/// A `why` chip's icon and words: what it is, then when.
+fn why_words(chip: &WhyChip) -> (Icon, String, String) {
+    let day = |time: bool| chip.at.map(|at| said_at(at, time)).unwrap_or_default();
+    match chip.kind {
+        WhyKind::Said => (Icon::Message, t!("your message").into(), day(true)),
+        WhyKind::Change if chip.landed => (
+            Icon::Commit,
+            t!("the change").into(),
+            t!("landed {day}", day = day(false)),
+        ),
+        WhyKind::Change => (Icon::Commit, t!("the change").into(), day(false)),
+        WhyKind::Call => (Icon::Check, t!("your answer").into(), day(false)),
+        WhyKind::Rule => (
+            Icon::Book,
+            t!("your rule").into(),
+            t!("said {day}", day = day(false)),
+        ),
+        WhyKind::Decision => (Icon::Merge, t!("decided").into(), day(false)),
+        WhyKind::Unknown => (Icon::Message, t!("source").into(), day(false)),
+    }
+}
+
+/// When something happened, as a person says it looking back: the time today, the weekday this
+/// week, else the date.
+fn said_at(at: u64, time: bool) -> String {
+    let Some(at) = chrono::DateTime::from_timestamp_millis(at as i64) else {
+        return String::new();
+    };
+    let at = at.with_timezone(&chrono::Local);
+    let days = (chrono::Local::now().date_naive() - at.date_naive()).num_days();
+    use crate::ui::time::{month_day, time_of_day, weekday};
+    match (days, time) {
+        (..=0, true) => time_of_day(at),
+        (..=0, false) => t!("today").into(),
+        (1..=6, true) => format!("{} {}", weekday(at), time_of_day(at)),
+        (1..=6, false) => weekday(at),
+        _ => month_day(at),
+    }
+}
+
+/// Opens what a `why` chip names: the chat at the moment, the commit in Git, the Playbook's
+/// rules, or the chat of the agent that asked the call.
+fn open_why(bench: &mut Workbench, open: WhyOpen, cx: &mut Context<Workbench>) {
+    match open {
+        WhyOpen::Chat { agent, feed, index } => {
+            let moment = crate::playbook::said::Moment::new(agent, feed, index);
+            crate::playbook::said::open_moment(bench, moment, cx);
+        }
+        WhyOpen::Commit { sha } => bench.open_commit(sha, cx),
+        WhyOpen::Rule { .. } => bench.open_rules(),
+        WhyOpen::Call { id } => {
+            let asker = bench
+                .call_at(&id)
+                .map(|(_, call)| call.asker.agent_id.clone());
+            if let Some(asker) = asker {
+                bench.bring_agent(&asker, cx).detach();
+            }
+        }
+        WhyOpen::Unknown => {}
+    }
 }
 
 /// Something a sent message names in its text: the words it wrote, the chip they stood for
@@ -752,122 +1195,90 @@ pub(crate) struct Mention {
     pub carried: String,
 }
 
-/// Every named agent the app knows, by name and id, for the `@` mentions sent messages wrote.
-pub(crate) fn named_agents(bench: &Workbench) -> Vec<(String, String)> {
-    bench
-        .projects()
-        .iter()
-        .flat_map(|project| bench.agents_of(&project.id))
+/// The agents a text by `writer` may name, `(name, id)`, its own project's first, so a name two
+/// projects share is the writer's own.
+pub(crate) fn named_agents(bench: &Workbench, writer: &str) -> Vec<(String, String)> {
+    let own = bench.agent_by_id(writer).map(|row| row.project);
+    let mut projects: Vec<&str> = (bench.projects().iter())
+        .map(|project| project.id.as_str())
+        .collect();
+    projects.sort_by_key(|project| Some(*project) != own.as_deref());
+    (projects.into_iter())
+        .flat_map(|project| bench.agents_of(project))
         .filter_map(|row| Some((row.name?, row.id)))
         .collect()
 }
 
-/// What a sent message's text names, as the draft's chips wrote it. Agents and commands
-/// are named only in the text, so `agents` and `commands` say which words they are.
-fn mentions(
-    message: &ChatMessage,
-    agents: &[(String, String)],
-    commands: &[String],
-) -> Vec<Mention> {
-    let written = super::edit::written(message);
-    named(
-        &written,
-        &message.attachments,
-        &message.context,
-        agents,
-        commands,
-    )
+/// What a sent message's text names, as the core read it.
+fn mentions(message: &ChatMessage) -> Vec<Mention> {
+    mentions_in(&message.spans)
 }
 
-/// What `written` names, as a draft's chips wrote it, of the files and context it went with.
+/// What `written` names of the files and context it went with, and of `agents`. A stash item is
+/// read here as the core reads a sent message.
 pub(crate) fn named(
     written: &str,
     attachments: &[String],
     context: &[SentContext],
     agents: &[(String, String)],
-    commands: &[String],
 ) -> Vec<Mention> {
-    let mut found: Vec<Mention> = agents
-        .iter()
-        .map(|(name, id)| Mention {
-            written: format!("@{name}"),
-            id: format!("agent:{id}"),
-            label: format!("@{name}"),
-            carried: format!("sikemux://agent/{id}"),
-        })
-        .chain(commands.iter().map(|name| Mention {
-            written: format!("/{name}"),
-            id: format!("command:{name}"),
-            label: format!("/{name}"),
-            carried: String::new(),
-        }))
-        .collect();
-    for (index, path) in attachments.iter().enumerate() {
-        let number = index + 1;
-        if is_image(Path::new(path)) {
-            found.push(Mention {
-                written: format!("[Image #{number}]"),
-                id: format!("{IMAGE}{path}"),
-                label: format!("Image {number}"),
-                carried: path.clone(),
-            });
-            continue;
-        }
-        let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-        let tag = (1..=parts.len())
-            .rev()
-            .map(|from| format!("+{}", parts[parts.len() - from..].join("/")))
-            .find(|tag| written.contains(tag.as_str()));
-        if let Some(tag) = tag {
-            let kind = if Path::new(path).is_dir() {
-                "folder"
-            } else {
-                "file"
-            };
-            found.push(Mention {
-                written: tag.clone(),
-                id: format!("{kind}:{path}"),
-                label: tag,
-                carried: path.clone(),
-            });
-        }
-    }
-    for item in context {
-        let named = item.title.starts_with('@');
-        let mention = item
-            .uri
-            .strip_prefix("sikemux://earlier/")
-            .filter(|_| named)
-            .map(|chat| format!("earlier:{chat}"));
-        if let Some(id) = mention {
-            found.push(Mention {
-                written: item.title.clone(),
-                id,
-                label: item.title.clone(),
-                carried: item.uri.clone(),
-            });
-        } else if let Some((icon, number)) = tracked(&item.uri) {
-            let (sign, kind) = if matches!(icon, Icon::PullRequest) {
-                ('!', "pull")
-            } else {
-                ('#', "issue")
-            };
-            found.push(Mention {
-                written: format!("{sign}{number}"),
-                id: format!("tracked:{kind}:{number}:{}", item.uri),
-                label: format!("#{number} {}", tracked_title(&item.title, number)),
-                carried: item.uri.clone(),
-            });
-        }
-    }
-    found.retain(|mention| written.contains(mention.written.as_str()));
-    found
+    mentions_in(&sikemux_fold::sent_spans(
+        written,
+        sikemux_fold::SentNames {
+            attachments,
+            context,
+            agents,
+            ..Default::default()
+        },
+    ))
+}
+
+fn mentions_in(spans: &[SentSpan]) -> Vec<Mention> {
+    let mut seen = HashSet::new();
+    (spans.iter())
+        .filter_map(|span| Some((span.text.as_str(), span.chip.as_ref()?)))
+        .filter(|(written, _)| seen.insert(*written))
+        .filter_map(|(written, chip)| mention_of(written, chip))
+        .collect()
+}
+
+fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
+    let carried = chip.carried.clone().unwrap_or_default();
+    let agent = || {
+        (carried.strip_prefix(AGENT_URI))
+            .or_else(|| carried.strip_prefix(WOKEN_URI))
+            .unwrap_or(&carried)
+    };
+    let id = match chip.kind {
+        SentChipKind::Agent => format!("{AGENT}{}", agent()),
+        SentChipKind::Chat => format!(
+            "{EARLIER}{}",
+            carried.strip_prefix(EARLIER_URI).unwrap_or(&carried)
+        ),
+        SentChipKind::Command => format!("{COMMAND}{}", written.trim_start_matches('/')),
+        SentChipKind::File => format!("{FILE}{carried}"),
+        SentChipKind::Folder => format!("{FOLDER}{carried}"),
+        SentChipKind::Image => format!("{IMAGE}{carried}"),
+        SentChipKind::Issue => format!("{TRACKED}issue:{}:{carried}", &written[1..]),
+        SentChipKind::Pull => format!("{TRACKED}pull:{}:{carried}", &written[1..]),
+        SentChipKind::Other => return None,
+    };
+    let label = match chip.kind {
+        SentChipKind::Image => chip.label.replace('#', ""),
+        _ => chip.label.clone(),
+    };
+    Some(Mention {
+        written: written.to_owned(),
+        id,
+        label,
+        carried,
+    })
 }
 
 /// What a chip says: its handle without the sign typed to make it, and for an issue or pull
 /// request its title after the number, without a `feat(scope):` kind of prefix.
 fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedString>) {
-    if id.starts_with("tracked:") {
+    if id.starts_with(TRACKED) {
         if let Some((number, title)) = label.split_once(' ') {
             let title = title
                 .split_once(": ")
@@ -877,6 +1288,9 @@ fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedStr
             return (number.to_owned().into(), title);
         }
     }
+    if id.starts_with(AGENT) {
+        return (label.clone(), None);
+    }
     let bare = label
         .strip_prefix(['@', '+', '/'])
         .map_or_else(|| label.clone(), |bare| bare.to_owned().into());
@@ -885,8 +1299,9 @@ fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedStr
 
 /// The files going with the message, as tiles: a picture's preview or a file's icon, its
 /// number, and a way to take it off; then the chats and issues it carries, as chips.
+/// `attachments` are the files going, with the one just attached, whose tile flashes.
 pub fn tiles(
-    attachments: &[PathBuf],
+    (attachments, fresh): (&[PathBuf], Option<&Path>),
     context: &[ChatContext],
     remove: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
     forget: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
@@ -906,24 +1321,36 @@ pub fn tiles(
                 open(path.clone(), window, cx)
             }
         });
-        let name = match is_image(path) {
-            true => format!("#{} {}", index + 1, file_name(path)),
-            false => file_name(path).to_string(),
+        let number = is_image(path).then_some(index + 1);
+        let name = match is_snip(path) {
+            true => picture_label(index + 1, path),
+            false => crate::ui::path::file_name(path),
         };
-        Attachment::new()
-            .id(SharedString::from(format!("attachment-{index}")))
+        let tile = framed(format!("attachment-{index}"), path, number, name, &t, cx)
             .when_some(opens, |tile, opens| tile.on_click(opens))
-            .with_size(gpui_kit::component::Size::Small)
-            .tooltip(path.to_string_lossy().into_owned())
-            .media(chip_media(path, &t, cx))
-            .content(AttachmentContent::new().title(AttachmentTitle::new(name)))
-            .on_remove(move |_, window, cx| remove(index, window, cx))
+            .on_remove(move |_, window, cx| remove(index, window, cx));
+        match fresh == Some(path.as_path()) {
+            true => flashed(tile, path, t.accent).into_any_element(),
+            false => tile.into_any_element(),
+        }
     });
-    let chips = context.iter().enumerate().map(|(index, item)| {
-        let forget = forget.clone();
-        context_chip(format!("context-{index}"), &item.uri, &item.title, asks, &t)
-            .on_remove(move |_, window, cx| forget(index, window, cx))
-    });
+    let quotes = context.iter().enumerate();
+    let quotes: Vec<_> = quotes
+        .filter(|(_, item)| item.uri.starts_with(REPLY_URI))
+        .map(|(index, item)| {
+            let forget = forget.clone();
+            let remove: Remove = Box::new(move |window, cx| forget(index, window, cx));
+            quote_card(format!("quote-{index}"), &item.text, remove, cx)
+        })
+        .collect();
+    let shown = context.iter().enumerate();
+    let chips = shown
+        .filter(|(_, item)| !item.for_agent_only() && !item.uri.starts_with(REPLY_URI))
+        .map(|(index, item)| {
+            let forget = forget.clone();
+            context_chip(format!("context-{index}"), &item.uri, &item.title, asks, &t)
+                .on_remove(move |_, window, cx| forget(index, window, cx))
+        });
     Some(
         div()
             .flex()
@@ -931,33 +1358,68 @@ pub fn tiles(
             .items_center()
             .gap(px(7.))
             .px(SPACE_2H)
-            .pt(SPACE_2H)
+            .pt(SPACE_1)
+            .children(quotes)
             .children(tiles)
             .children(chips),
     )
 }
 
-fn file_name(path: &Path) -> SharedString {
-    path.file_name()
-        .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
-        .into_owned()
-        .into()
+/// How long after a file is attached its tile still flashes when it first draws.
+pub const FRESH: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// A tile just attached, its edge lit in `accent` and fading out.
+fn flashed(tile: Attachment, path: &Path, accent: Hsla) -> impl IntoElement {
+    let id = SharedString::from(format!("attachment-flash-{}", path.to_string_lossy()));
+    tile.with_animation(
+        id,
+        crate::motion::entrance(crate::motion::ATTACHED),
+        move |tile, shown| tile.border_color(accent.opacity(1. - shown)),
+    )
 }
 
-/// A picture's preview, or the icon of a file's kind.
-/// A file's mark in a draft's chip: a picture's own thumbnail, else its kind's icon.
-fn chip_media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
-    if is_image(path) {
-        return AttachmentMedia::new()
-            .src(crate::picture::Picture::File(path.to_path_buf()).source_at(px(48.)));
-    }
-    let icon = crate::file_icons::icon(&file_name(path), cx)
-        .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element());
-    AttachmentMedia::new().child(icon.unwrap_or_else(|| {
-        ui::icon(Icon::File, 13.)
-            .text_color(t.text_tertiary)
-            .into_any_element()
-    }))
+/// A file as a draft and a sent message both show it: a small framed card with its preview, or its
+/// kind's icon, over a picture's `#n` and the file's name.
+fn framed(
+    id: impl Into<SharedString>,
+    path: &Path,
+    number: Option<usize>,
+    name: String,
+    t: &Tokens,
+    cx: &App,
+) -> Attachment {
+    Attachment::new()
+        .id(id.into())
+        .axis(Axis::Vertical)
+        .with_size(gpui_kit::component::Size::XSmall)
+        .w(px(FRAMED_WIDTH))
+        .p(px(3.))
+        .gap(px(3.))
+        .bg(t.surface_chosen)
+        .border_color(gpui_kit::transparent_black())
+        .tooltip(path.to_string_lossy().into_owned())
+        .media(media(path, t, cx).h(px(FRAMED_PREVIEW)))
+        .content(AttachmentContent::new().child(caption(number, name, t, cx)))
+}
+
+const FRAMED_WIDTH: f32 = 64.;
+const FRAMED_PREVIEW: f32 = 40.;
+
+/// The line under a draft's framed card: a picture's `#n`, then the file's name.
+fn caption(number: Option<usize>, name: String, t: &Tokens, cx: &App) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .min_w_0()
+        .text_size(px(theme::TEXT_3XS))
+        .text_color(t.text_secondary)
+        .children(number.map(|number| {
+            ui::mono(format!("#{number}"), 9., cx)
+                .flex_none()
+                .text_color(t.text_tertiary)
+        }))
+        .child(div().min_w_0().truncate().child(name))
 }
 
 fn media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
@@ -965,8 +1427,9 @@ fn media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
         AttachmentMedia::new()
             .src(crate::picture::Picture::File(path.to_path_buf()).source_at(px(96.)))
     } else {
-        let icon = crate::file_icons::icon(&file_name(path), cx)
-            .map(|icon| gpui_kit::img(icon).size(px(28.)).into_any_element());
+        let icon =
+            crate::file_icons::icon(&SharedString::from(crate::ui::path::file_name(path)), cx)
+                .map(|icon| gpui_kit::img(icon).size(px(28.)).into_any_element());
         AttachmentMedia::new().child(icon.unwrap_or_else(|| {
             ui::icon(Icon::File, 26.)
                 .text_color(t.text_tertiary)
@@ -979,53 +1442,20 @@ fn media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
     })
 }
 
-/// The number a picture goes by in the text, `#n`, over the corner of its tile.
-fn badge(number: usize, t: &Tokens, cx: &App) -> Div {
-    div().size_full().relative().child(
-        div()
-            .absolute()
-            .left(px(3.))
-            .bottom(px(3.))
-            .px(SPACE_1)
-            .py(SPACE_0)
-            .rounded(theme::RADIUS_1)
-            .bg(Hsla {
-                a: 0.72,
-                ..t.surface_sunken
-            })
-            .child(ui::mono(format!("#{number}"), 9.5, cx).text_color(t.text_primary)),
-    )
-}
-
-/// An issue's or pull request's number in its link, when the link is to one.
-/// An issue's or pull request's title without the kind and number its context names it by.
-fn tracked_title<'a>(title: &'a str, number: &str) -> &'a str {
-    let bare = title.trim_start_matches("Issue ");
-    let bare = bare.trim_start_matches("Pull request ");
-    bare.strip_prefix(&format!("#{number}"))
-        .map_or(title, |rest| rest.trim_start_matches(':').trim_start())
-}
-
+/// The mark and number of the issue or pull request at `uri`, when it names one.
 fn tracked(uri: &str) -> Option<(Icon, &str)> {
-    let kinds = [
-        ("/issues/", Icon::Issue),
-        ("/pull/", Icon::PullRequest),
-        ("/pulls/", Icon::PullRequest),
-        ("/pull-requests/", Icon::PullRequest),
-        ("/merge_requests/", Icon::PullRequest),
-    ];
-    kinds.into_iter().find_map(|(kind, icon)| {
-        let (_, after) = uri.split_once(kind)?;
-        let end = after.find(['/', '?', '#']).unwrap_or(after.len());
-        let number = &after[..end];
-        (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
-            .then_some((icon, number))
+    tracked_at(uri).map(|(kind, number)| {
+        let icon = match kind {
+            TrackedKind::Issue => Icon::Issue,
+            TrackedKind::Pull => Icon::PullRequest,
+        };
+        (icon, number)
     })
 }
 
 /// A context item's chip: `#12 Title` for an issue or pull request, its title for an
 /// earlier chat or anything else.
-fn context_chip(
+pub(crate) fn context_chip(
     id: String,
     uri: &str,
     title: &str,
@@ -1040,8 +1470,10 @@ fn context_chip(
                 .trim_end()
                 .to_owned(),
         ),
-        None if uri.starts_with("sikemux://earlier/") => (Icon::Message, title.to_owned()),
-        None if uri.starts_with("sikemux://stash/") => (Icon::Text, title.to_owned()),
+        None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
+        None if uri.starts_with(SIDE_URI) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(REPLY_URI) => (Icon::Reply, title.to_owned()),
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),
@@ -1052,7 +1484,10 @@ fn context_chip(
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(uri.to_owned())
+        .tooltip(match uri.starts_with(REPLY_URI) {
+            true => title.clone(),
+            false => uri.to_owned(),
+        })
         .media(AttachmentMedia::new().child(site_icon(uri, web, icon, asks, t)))
         .content(AttachmentContent::new().title(AttachmentTitle::new(title)))
 }
@@ -1109,7 +1544,7 @@ pub fn sent(
     }
     let t = Tokens::get(cx).clone();
     let written = super::edit::written(message);
-    let inline = mentions(message, &[], &[]);
+    let inline = mentions(message);
     let in_text = |carried: &str| {
         inline
             .iter()
@@ -1121,62 +1556,29 @@ pub fn sent(
         .enumerate()
         .filter(|(_, path)| !in_text(path));
     let files = files.map(|(index, path)| {
-        let path = PathBuf::from(path);
-        let id = SharedString::from(format!("sent-{}-{index}", message.id));
-        if !is_image(&path) {
-            let (name, menu_name) = (
-                path.to_string_lossy().into_owned(),
-                path.to_string_lossy().into_owned(),
-            );
-            let (file, menu_file) = (file.clone(), file.clone());
-            return div()
-                .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    let press = if event.click_count > 1 {
-                        FilePress::OpenTwice
-                    } else {
-                        FilePress::Open
-                    };
-                    file(&name, press, window, cx);
-                })
-                .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                    menu_file(&menu_name, FilePress::Menu(event.position), window, cx);
-                })
-                .child(
-                    Attachment::new()
-                        .id(id)
-                        .with_size(gpui_kit::component::Size::Small)
-                        .tooltip(path.to_string_lossy().into_owned())
-                        .media(media(&path, &t, cx))
-                        .content(
-                            AttachmentContent::new().title(AttachmentTitle::new(file_name(&path))),
-                        ),
-                )
-                .into_any_element();
-        }
         let number = index + 1;
-        let tagged = written.contains(&format!("[Image #{number}]"));
-        let open = open.clone();
-        let mut tile = media(&path, &t, cx);
-        if tagged {
-            tile = tile.overlay(badge(number, &t, cx));
-        }
-        Attachment::new()
-            .id(id)
-            .axis(Axis::Vertical)
-            .with_size(gpui_kit::component::Size::Size(px(16.6)))
-            .tooltip(path.to_string_lossy().into_owned())
-            .media(tile)
-            .on_click(move |_, window, cx| open(path.clone(), window, cx))
-            .into_any_element()
+        carried(
+            format!("sent-{}-{index}", message.id),
+            PathBuf::from(path),
+            written
+                .contains(&format!("[Image #{number}]"))
+                .then_some(number),
+            open.clone(),
+            file.clone(),
+            &t,
+            cx,
+        )
     });
     let context = message.context.iter().enumerate();
     let context: Vec<_> = context
         .filter(|(_, item)| !in_text(&item.uri))
         .map(|(index, item)| {
+            let quote = (item.quote.as_deref())
+                .map(|quote| quote.split_whitespace().collect::<Vec<_>>().join(" "));
             context_chip(
                 format!("sent-context-{}-{index}", message.id),
                 &item.uri,
-                &item.title,
+                quote.as_deref().unwrap_or(&item.title),
                 None,
                 &t,
             )
@@ -1197,4 +1599,189 @@ pub fn sent(
             .children(files)
             .children(context),
     )
+}
+
+/// What takes a quote off a draft.
+type Remove = Box<dyn Fn(&mut Window, &mut App)>;
+
+/// The answer a draft replies to: the reply mark beside two lines of its words, on a sunken
+/// card, with a way to take it off.
+fn quote_card(
+    id: impl Into<SharedString>,
+    quote: &str,
+    remove: Remove,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    let t = Tokens::get(cx);
+    let quote: String = quote.split_whitespace().collect::<Vec<_>>().join(" ");
+    div()
+        .id(id.into())
+        .w_full()
+        .flex()
+        .items_start()
+        .gap(SPACE_1H)
+        .px(SPACE_2)
+        .py(SPACE_1H)
+        .rounded(theme::radius_3())
+        .bg(Hsla {
+            a: 0.6,
+            ..t.surface_sunken
+        })
+        .child(
+            ui::icon(Icon::Reply, 12.)
+                .flex_none()
+                .mt(px(2.))
+                .text_color(t.text_tertiary),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_secondary)
+                .line_clamp(2)
+                .child(quote),
+        )
+        .child(
+            ui::IconButton::new("quote-remove", Icon::Close, t!("Remove quote"))
+                .glyph(11.)
+                .width(18.)
+                .on_click(move |_, window, cx| remove(window, cx)),
+        )
+}
+
+/// One file a message carried: a picture as a tile that opens over the window, with the number its
+/// `[Image #n]` tag in the text names when it has one, or any other file by name.
+fn carried(
+    id: String,
+    path: PathBuf,
+    tag: Option<usize>,
+    open: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+    file: super::files::FilePressed,
+    t: &Tokens,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let name = crate::ui::path::file_name(&path);
+    if !is_image(&path) {
+        let (full, menu_full) = (
+            path.to_string_lossy().into_owned(),
+            path.to_string_lossy().into_owned(),
+        );
+        let menu_file = file.clone();
+        return div()
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                let press = if event.click_count > 1 {
+                    FilePress::OpenTwice
+                } else {
+                    FilePress::Open
+                };
+                file(&full, press, window, cx);
+            })
+            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+                menu_file(&menu_full, FilePress::Menu(event.position), window, cx);
+            })
+            .child(framed(id, &path, None, name, t, cx))
+            .into_any_element();
+    }
+    framed(id, &path, tag, name, t, cx)
+        .on_click(move |_, window, cx| open(path.clone(), window, cx))
+        .into_any_element()
+}
+
+/// A picture sent with an answer, as a square thumbnail that opens over the window.
+pub fn thumbnail(
+    id: String,
+    path: PathBuf,
+    open: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+    t: &Tokens,
+) -> gpui_kit::AnyElement {
+    let picture = crate::picture::Picture::File(path.clone()).source_at(px(128.));
+    div()
+        .id(SharedString::from(id))
+        .size(px(64.))
+        .flex_none()
+        .rounded(px(7.))
+        .overflow_hidden()
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .bg(t.surface_sunken)
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            open(path.clone(), window, cx)
+        })
+        .child(
+            gpui_kit::img(picture)
+                .size_full()
+                .object_fit(gpui_kit::ObjectFit::Cover),
+        )
+        .into_any_element()
+}
+
+/// The icon of a file named `name`'s kind.
+fn file_icon(name: &str, t: &Tokens, cx: &App) -> gpui_kit::AnyElement {
+    crate::file_icons::icon(&SharedString::from(name.to_owned()), cx)
+        .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element())
+        .unwrap_or_else(|| {
+            ui::icon(Icon::File, 13.)
+                .text_color(t.text_tertiary)
+                .into_any_element()
+        })
+}
+
+/// A file as a small chip like a context item's: its kind's icon and its name.
+pub(crate) fn file_chip(id: String, path: &Path, t: &Tokens, cx: &App) -> Attachment {
+    let name = crate::ui::path::file_name(path);
+    let icon = file_icon(&name, t, cx);
+    Attachment::new()
+        .id(SharedString::from(id))
+        .with_size(gpui_kit::component::Size::Small)
+        .tooltip(path.to_string_lossy().into_owned())
+        .media(AttachmentMedia::new().child(icon))
+        .content(AttachmentContent::new().title(AttachmentTitle::new(name)))
+}
+
+/// A file sent with an answer, as a slim pill with its icon and name that opens it.
+pub fn file_pill(
+    id: String,
+    path: PathBuf,
+    file: super::files::FilePressed,
+    t: &Tokens,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let name = crate::ui::path::file_name(&path);
+    let icon = file_icon(&name, t, cx);
+    let (full, menu_full, menu_file) = (
+        path.to_string_lossy().into_owned(),
+        path.to_string_lossy().into_owned(),
+        file.clone(),
+    );
+    div()
+        .id(SharedString::from(id))
+        .h(px(30.))
+        .pl(SPACE_2)
+        .pr(SPACE_2H)
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .rounded(px(7.))
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .text_color(t.text_secondary)
+        .cursor_pointer()
+        .hover(|pill| pill.bg(t.surface_hover))
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+            let press = match event.click_count > 1 {
+                true => FilePress::OpenTwice,
+                false => FilePress::Open,
+            };
+            file(&full, press, window, cx);
+        })
+        .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            menu_file(&menu_full, FilePress::Menu(event.position), window, cx);
+        })
+        .child(icon)
+        .child(name)
+        .into_any_element()
 }

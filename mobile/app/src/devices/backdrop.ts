@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { File, Paths } from 'expo-file-system';
 
+import type { BackdropLook } from '@shared/wire.generated';
+
 import { connectionOf, reloadDevices, useDevices, useLive } from './hub';
 import { updateDevice, type PairedDevice } from './paired';
 import { failures, hostFolder, pathOf } from './savedFiles';
 
-export type DeviceBackdrop = { texture: boolean; image?: string };
+export type DeviceBackdrop = { texture: boolean; image?: string; look?: BackdropLook };
 
 /** A host hands over whichever picture it has now, so each host has one fetch at a time. */
 const fetching = new Set<string>();
@@ -42,6 +44,8 @@ export function useDeviceBackdrop(core: string): DeviceBackdrop {
   const published = live.snapshot?.workspace.backdrop;
   const texture = published?.texture;
   const wanted = published ? (published.image ?? null) : undefined;
+  const look = published?.look ?? undefined;
+  const lookKey = JSON.stringify(look);
   const connection = connectionOf(live);
 
   const [fetches, setFetches] = useState(0);
@@ -70,7 +74,7 @@ export function useDeviceBackdrop(core: string): DeviceBackdrop {
           }
           failed.clear(key);
           forgetBackdrop(core, remembered);
-          return updateDevice(core, { backdrop: { texture, image: { id: wanted, uri: saved.uri } } }).then(reloadDevices);
+          return updateDevice(core, { backdrop: { texture, image: { id: wanted, uri: saved.uri }, look } }).then(reloadDevices);
         })
         .catch(() => failed.record(key))
         .finally(() => {
@@ -80,13 +84,13 @@ export function useDeviceBackdrop(core: string): DeviceBackdrop {
       return;
     }
     if (!wanted && remembered?.image) forgetBackdrop(core, remembered);
-    if (texture !== remembered?.texture || (!wanted && remembered?.image)) {
-      updateDevice(core, { backdrop: { texture, image: wanted ? remembered?.image : undefined } }).then(reloadDevices, () => {});
+    if (texture !== remembered?.texture || lookKey !== JSON.stringify(remembered?.look) || (!wanted && remembered?.image)) {
+      updateDevice(core, { backdrop: { texture, image: wanted ? remembered?.image : undefined, look } }).then(reloadDevices, () => {});
     }
-  }, [core, connection, texture, wanted, remembered, fetches]);
+  }, [core, connection, texture, wanted, look, lookKey, remembered, fetches]);
 
   const shown = texture ?? remembered?.texture ?? false;
   const current = wanted === undefined ? remembered?.image?.id : wanted;
   const image = current && remembered?.image?.id === current ? savedPicture(core, remembered.image).uri : undefined;
-  return { texture: shown, image };
+  return { texture: shown, image, look: look ?? remembered?.look };
 }

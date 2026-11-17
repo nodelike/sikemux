@@ -14,6 +14,10 @@ final class NotchStore {
     private(set) var devices: [PendingDevice] = []
     /// When each waiting device's request reached the island, for the time left to answer it.
     private(set) var deviceAsked: [String: Date] = [:]
+    /// The calls waiting on the person from every project, newest first.
+    private(set) var calls: [PersonCall] = []
+    /// What the person has done on each waiting call's card.
+    private(set) var drafts: [String: CallDraft] = [:]
 
     @ObservationIgnored let options: Options
     @ObservationIgnored private var link: CoreLink?
@@ -25,11 +29,14 @@ final class NotchStore {
     @ObservationIgnored private var questions: [AgentQuestion] = []
     @ObservationIgnored private var heard = false
     @ObservationIgnored private var errorTimer: DispatchWorkItem?
+    /// The calls this island told the core it drew.
+    @ObservationIgnored private var seen: Set<String> = []
     @ObservationIgnored var onPeek: ((Peek) -> Void)?
     @ObservationIgnored var onSettings: (() -> Void)?
 
     enum Peek {
         case ask(String)
+        case call(String)
         case done(String)
         case connect(String)
     }
@@ -110,18 +117,41 @@ final class NotchStore {
     }
 
     func apply(_ view: DeviceView) {
-        let before = Dictionary(entries.map { ($0.id, $0.item.kind) }, uniquingKeysWith: { first, _ in first })
+        let before = Dictionary(self.view.inbox.items.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        let waited = Set(calls.map(\.id))
         self.view = view
-        withAnimation(Motion.open) { entries = view.entries(questions) }
+        Theme.worn.wear(view.workspace.palette)
+        withAnimation(Motion.open) {
+            entries = view.entries(questions)
+            keepCalls(view)
+        }
         if !Set(view.inbox.items.compactMap(\.questionId)).isSubset(of: questions.map(\.id)) { readQuestions() }
         defer { heard = true }
         guard heard else { return }
         let items = view.inbox.items
-        if let ask = items.last(where: { $0.tier == .needs && before[$0.id] == nil }) {
+        let asks = Set(calls.map(\.id))
+        if let call = calls.first(where: { !waited.contains($0.id) }) {
+            onPeek?(.call(call.id))
+        } else if let ask = items.last(where: {
+            $0.tier == .needs && before[$0.id] == nil && !asks.contains($0.questionId ?? $0.hold?.id ?? "")
+        }) {
             onPeek?(.ask(ask.id))
         } else if let done = items.last(where: { before[$0.id] == .working && $0.kind != .working }) {
             onPeek?(.done(done.id))
         }
+    }
+
+    /// The open calls, newest first, each with its card's draft; what was done on a card goes
+    /// once its call does.
+    private func keepCalls(_ view: DeviceView) {
+        calls = (view.calls ?? []).filter { $0.state == .open }.sorted { $0.raisedAt > $1.raisedAt }
+        drafts = Dictionary(uniqueKeysWithValues: calls.map { ($0.id, drafts[$0.id] ?? CallDraft()) })
+        seen.formIntersection(calls.map(\.id))
+    }
+
+    /// A project's name, from the folder a call names it by.
+    func projectName(_ path: String) -> String? {
+        view.workspace.projects.first { $0.path == path }?.name
     }
 
     private func readQuestions() {
@@ -151,12 +181,16 @@ final class NotchStore {
         heard = false
         view = .empty
         questions = []
-        withAnimation(Motion.open) { entries = [] }
+        withAnimation(Motion.open) {
+            entries = []
+            calls = []
+        }
+        drafts = [:]
+        seen = []
         devices = []
         deviceAsked = [:]
     }
 
-    /// Shows what went wrong for a few seconds.
     func fail(_ message: String) {
         error = message
         errorTimer?.cancel()
@@ -175,9 +209,25 @@ final class NotchStore {
         }
     }
 
-    /// Answers an agent's question with one of the answers it offered. The first answer anywhere wins.
-    func answer(_ question: AgentQuestion, choice: Int) {
-        link?.request(CoreCall.AnswerQuestion(params: AnswerParams(id: question.id, choice: choice))) {
+    /// Tells the core once that this island drew the call, which a production call needs before
+    /// its answer counts.
+    func saw(_ call: PersonCall) {
+        guard seen.insert(call.id).inserted else { return }
+        link?.request(CoreCall.CallSeen(params: CallParams(id: call.id)))
+    }
+
+    /// Answers a call with what its card holds. The first answer anywhere wins.
+    func answer(_ call: PersonCall, _ params: AnswerCallParams, draft: CallDraft) {
+        draft.sending = true
+        link?.request(CoreCall.AnswerCall(params: params)) { [weak self] result in
+            draft.sending = false
+            if case .failure(let error) = result { self?.fail(error.message) }
+        }
+    }
+
+    /// Answers an agent's question with files, which reach it as the composer's do.
+    func answer(_ question: AgentQuestion, paths: [String]) {
+        link?.request(CoreCall.AnswerQuestion(params: AnswerParams(id: question.id, paths: paths))) {
             [weak self] result in
             if case .failure(let error) = result { self?.fail(error.message) }
         }
@@ -195,11 +245,14 @@ final class NotchStore {
         }
     }
 
-    /// Shows what the entry is about: its agent in Sikemux, or else its pull request.
+    /// Shows what the entry is about: its agent in Sikemux, a host's alert on Sikemux's Hosts page, or else its pull
+    /// request.
     func open(_ entry: Entry) {
-        if let agentId = entry.item.agentId {
+        if let item = entry.item, item.kind == .hostAlert {
+            openHosts(item.host ?? "this")
+        } else if let agentId = entry.agentId {
             focus(agentId)
-        } else if let url = entry.item.url.flatMap(URL.init(string:)) {
+        } else if let url = entry.item?.url.flatMap(URL.init(string:)) {
             NSWorkspace.shared.open(url)
         } else {
             openApp()
@@ -227,6 +280,15 @@ final class NotchStore {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.yieldActivation(to: running)
         running.activate()
+    }
+
+    /// Opens Sikemux's Hosts page on `host` with a link only this helper's own app follows, since Sikemux and Sikemux
+    /// Dev both answer `sikemux://`.
+    func openHosts(_ host: String) {
+        guard let app = options.app, app.hasSuffix(".app"),
+              let key = host.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "sikemux://hosts/\(key)") else { return openApp() }
+        NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: app), configuration: NSWorkspace.OpenConfiguration())
     }
 
     func openApp() {
@@ -286,9 +348,9 @@ final class NotchStore {
 
     /// Hands files to an agent: into the turn it is running, or as its next prompt.
     func send(_ paths: [String], to entry: Entry) {
-        guard let agentId = entry.item.agentId else { return }
+        guard let agentId = entry.agentId else { return }
         let text = paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
-        if entry.item.kind == .working {
+        if entry.item?.kind == .working {
             link?.request(CoreRequest.AcpSteer(agentId: agentId, text: text, paths: paths, context: [])) {
                 [weak self] result in
                 if case .success(let answer) = result, answer.outcome == "promptRequired" {
@@ -310,18 +372,18 @@ final class NotchStore {
     /// The project shown first when starting an agent: the one most of the inbox is in.
     var defaultProject: ProjectInfo? {
         let projects = view.workspace.projects
-        let counts = Dictionary(grouping: entries, by: \.project).mapValues(\.count)
-        return projects.max { (counts[$0.name] ?? 0) < (counts[$1.name] ?? 0) } ?? projects.first
+        let counts = Dictionary(grouping: entries, by: \.projectId).mapValues(\.count)
+        return projects.max { (counts[$0.id] ?? 0) < (counts[$1.id] ?? 0) } ?? projects.first
     }
 
-    /// How many items need you, how many agents work, how many subagents and shells run across every agent, and
+    /// How many calls wait on you, or with none how many items need you, how many agents work, how many subagents run across every agent, and
     /// how many items are done, leaving out what is none.
     var rollups: [(mark: Rollup, count: Int)] {
+        let waiting = view.workspace.projects.reduce(0) { $0 + ($1.calls ?? 0) }
         let counts: [(Rollup, Int)] = [
-            (.mark(.needs), entries.filter { $0.mark == .needs }.count),
+            waiting == 0 ? (.mark(.needs), entries.filter { $0.mark == .needs }.count) : (.calls, waiting),
             (.mark(.working), view.inbox.working),
             (.subagents, view.inbox.rollup?.subagents ?? 0),
-            (.shells, view.inbox.rollup?.tasks ?? 0),
             (.mark(.done), entries.filter { $0.mark == .done || $0.mark == .failed }.count),
         ]
         return counts.filter { $0.1 > 0 }.map { (mark: $0.0, count: $0.1) }

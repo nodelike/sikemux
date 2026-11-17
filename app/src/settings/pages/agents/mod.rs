@@ -7,13 +7,13 @@ use crate::settings::Page;
 use crate::settings::Settings;
 use crate::workbench::Workbench;
 
-mod accounts;
-mod device;
+pub(in crate::settings) mod accounts;
+pub(in crate::settings) mod device;
 mod profiles;
-mod providers;
-mod sessions;
-mod setup;
-mod skills;
+pub(in crate::settings) mod providers;
+pub(in crate::settings) mod sessions;
+pub(in crate::settings) mod setup;
+pub(in crate::settings) mod skills;
 
 /// What the page keeps between frames, made the first time it shows.
 pub struct Fields {
@@ -39,6 +39,10 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     device::read_simulator(bench, cx);
     providers::read(bench, cx);
     skills::read(bench, cx);
+}
+
+pub fn read_devices(bench: &Workbench, cx: &mut Context<Workbench>) {
+    device::read_simulator(bench, cx);
 }
 
 pub fn read_providers(bench: &Workbench, cx: &mut Context<Workbench>) {
@@ -77,10 +81,11 @@ pub fn render(
         Page::Chats => vec![sessions::render(&fields.sessions, lit, this, cx)],
         Page::Skills => vec![skills::render(&fields.skills, lit, this, cx)],
         Page::Accounts => {
-            let mut sections: Vec<AnyElement> = signs_in(bench)
-                .into_iter()
-                .map(|provider| accounts::render(bench, &provider, lit, this, cx))
-                .collect();
+            let mut sections = vec![accounts::smart(bench, lit, this, cx)];
+            sections.extend(
+                (signs_in(bench).into_iter())
+                    .map(|provider| accounts::render(bench, &provider, lit, this, cx)),
+            );
             sections.push(profiles::render(bench, &fields.profiles, lit, this, cx));
             sections
         }

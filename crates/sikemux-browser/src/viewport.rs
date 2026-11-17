@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 
-use crate::{BrowserBounds, BrowserHole, MOBILE_USER_AGENT};
+use crate::{mobile_user_agent, BrowserBounds, BrowserHole};
 
 const MIN_SIZE: u32 = 200;
 const MAX_SIZE: u32 = 4000;
@@ -37,7 +37,7 @@ impl Viewport {
 
     pub fn preset(name: &str) -> Option<Self> {
         let (preset, width, height) = match name {
-            "desktop" => ("desktop", 1280, 800),
+            "desktop" => ("desktop", 1440, 900),
             "tablet" => ("tablet", 820, 1180),
             "mobile" => ("mobile", 390, 844),
             _ => return None,
@@ -52,7 +52,7 @@ impl Viewport {
     /// Sites pick their phone layout by the agent string, so the mobile preset
     /// introduces itself as an iPhone. An iPad's Safari already claims to be a Mac.
     pub fn user_agent(&self) -> Option<&'static str> {
-        (self.preset == Some("mobile")).then_some(MOBILE_USER_AGENT)
+        (self.preset == Some("mobile")).then(mobile_user_agent)
     }
 
     fn size(&self) -> (f64, f64) {
@@ -189,7 +189,7 @@ mod tests {
         else {
             panic!("the shown tab was parked");
         };
-        assert_eq!(page, Some((1280.0, 800.0)));
+        assert_eq!(page, Some((1440.0, 900.0)));
         assert_eq!((frame.width, frame.height), (640.0, 400.0));
         assert_eq!((frame.x, frame.y), (100.0, 50.0));
     }

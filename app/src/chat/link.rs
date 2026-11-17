@@ -1,9 +1,10 @@
-//! A link in a message: a file the agent named shows in Finder, or in the editor when the
-//! agent runs on another host; a web page opens on the agent's desk, a pull request there as
-//! the Git tab shows one, or with ⌘ held where the system opens it; Sikemux's own links are followed here. Any other link, or a web
+//! A link in a message: an HTML file the agent named opens as a page on its desk, another
+//! file shows in Finder, or in the editor when the agent runs on another host; a web page
+//! opens on the agent's desk, a pull request there as the Git tab shows one, or with ⌘ held
+//! where the system opens it; Sikemux's own links are followed here. Any other link, or a web
 //! address carrying a password, goes nowhere, so a link an agent wrote cannot start another app.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::{App, WeakEntity, Window};
 use url::Url;
@@ -25,9 +26,35 @@ pub fn service_mark(href: &str) -> Option<Icon> {
         Icon::Bitbucket
     } else if on("atlassian.net") {
         Icon::Jira
+    } else if on("gitlab.com") {
+        Icon::Gitlab
+    } else if on("codeberg.org") {
+        Icon::Forgejo
+    } else if on("gitea.com") {
+        Icon::Gitea
+    } else if on("linear.app") {
+        Icon::Linear
+    } else if on("vercel.com") || on("vercel.app") {
+        Icon::Vercel
+    } else if on("slack.com") {
+        Icon::Slack
+    } else if on("aws.amazon.com") || on("amazonaws.com") {
+        Icon::Aws
+    } else if on("grok.com") {
+        Icon::Grok
+    } else if on("apple.com") {
+        Icon::Apple
+    } else if on("play.google.com") {
+        Icon::Googleplay
     } else {
         return None;
     })
+}
+
+/// Whether the file is an HTML page, which opens in a desk tab rather than as source.
+pub fn is_page(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm"))
 }
 
 /// The file a link names, when it names one on this host.
@@ -54,6 +81,10 @@ pub fn open(href: &str, agent: &str, bench: &WeakEntity<Workbench>, window: &Win
             bench
                 .update(cx, |bench, cx| bench.open_file(&path, cx))
                 .ok();
+        } else if is_page(&path) {
+            bench
+                .update(cx, |bench, cx| bench.open_html_in_tab(agent, path, cx))
+                .ok();
         } else {
             cx.reveal_path(&path);
         }
@@ -69,7 +100,7 @@ pub fn open(href: &str, agent: &str, bench: &WeakEntity<Workbench>, window: &Win
     }
     if !window.modifiers().platform {
         let shown = bench
-            .update(cx, |bench, cx| bench.open_link_on_desk(agent, href, cx))
+            .update(cx, |bench, cx| bench.open_on_desk(agent, href, cx))
             .unwrap_or(false);
         if shown {
             return;

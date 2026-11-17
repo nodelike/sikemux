@@ -1,7 +1,7 @@
 # The DBML viewer in one take: Claude answers with a ```dbml block that draws itself as a
 # diagram in the chat, then the schema file opens full size to be pinched, dragged and panned.
 replies replies.json
-project shop shop
+project storefront shop
 chat Wren
 settle 6
 cursor 1200,700

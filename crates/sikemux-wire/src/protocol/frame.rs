@@ -15,7 +15,7 @@ use super::{RequestId, SessionId, StreamId, MAX_FRAME_BYTES};
 pub enum FrameKind {
     Control = 0,
     /// Core to client, a terminal's cells changing: stream id (u32 BE), then
-    /// a frame as [`crate::grid`] lays it out.
+    /// a frame as `sikemux-grid` lays it out.
     Grid = 1,
     /// Core to client, answering an attach: request id (u64 BE), session id
     /// (u64 BE), stream id (u32 BE), header length (u32 BE), [`AttachHeader`]
@@ -25,7 +25,7 @@ pub enum FrameKind {
     /// the bytes for the terminal. Answered like any other request.
     Input = 3,
     /// Core to client, answering [`Request::TerminalLines`]: request id
-    /// (u64 BE), then the lines as [`crate::grid`] lays them out.
+    /// (u64 BE), then the lines as `sikemux-grid` lays them out.
     Lines = 4,
     /// A request every core answers, whatever protocol version it speaks:
     /// sent instead of a hello, and answered once.
@@ -84,6 +84,31 @@ pub fn encode_control<T: Serialize>(message: &T) -> serde_json::Result<Vec<u8>> 
         FrameKind::Control,
         &[&serde_json::to_vec(message)?],
     ))
+}
+
+/// How [`encode_device_view`] opens and closes a device view's control frame. Clients and the
+/// core build on this one layout, so a view costs neither side a decoded tree.
+const DEVICE_VIEW_OPENS: &[u8] = br#"{"type":"event","event":{"kind":"deviceView","view":"#;
+const DEVICE_VIEW_CLOSES: &[u8] = b"}}";
+
+/// A control frame holding [`super::Event::DeviceView`], from the view's own type.
+pub fn encode_device_view<T: Serialize>(view: &T) -> serde_json::Result<Vec<u8>> {
+    Ok(encode_frame(
+        FrameKind::Control,
+        &[
+            DEVICE_VIEW_OPENS,
+            &serde_json::to_vec(view)?,
+            DEVICE_VIEW_CLOSES,
+        ],
+    ))
+}
+
+/// The view a control frame from [`encode_device_view`] holds, as the core's JSON.
+pub fn device_view_json(payload: &[u8]) -> Option<&str> {
+    let view = payload
+        .strip_prefix(DEVICE_VIEW_OPENS)?
+        .strip_suffix(DEVICE_VIEW_CLOSES)?;
+    std::str::from_utf8(view).ok()
 }
 
 pub fn encode_grid(stream: StreamId, frame: &[u8]) -> Vec<u8> {
@@ -235,7 +260,6 @@ pub fn read_frame_sync<R: Read>(reader: &mut R) -> io::Result<Option<Frame>> {
     split_frame(body).map(Some)
 }
 
-#[cfg(unix)]
 pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut R,
 ) -> io::Result<Option<Frame>> {
@@ -243,7 +267,6 @@ pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
 }
 
 /// Refuses a frame longer than `max_payload` before reading it.
-#[cfg(unix)]
 pub async fn read_frame_within<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut R,
     max_payload: usize,

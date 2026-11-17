@@ -1,3 +1,6 @@
+use sikemux_calls::call;
+use sikemux_git::files::FileListParams;
+use sikemux_view::layout::OpenTab;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -16,9 +19,10 @@ use gpui_kit::{
     PlatformInput, ScrollStrategy, SharedString, Styled, Subscription, UniformListScrollHandle,
     WeakEntity, Window,
 };
-use serde_json::{json, Value};
-use sikemux_core::git::log::GitOverview;
-use sikemux_wire::protocol::PaneKind;
+#[cfg(feature = "drive")]
+use serde_json::json;
+use sikemux_agents::git::log::GitOverview;
+use sikemux_view::layout::PaneKind;
 
 use crate::core::Target;
 use crate::hosts::Place;
@@ -30,6 +34,15 @@ use crate::theme::{
 use crate::toast;
 use crate::ui::{self, IconButton};
 use crate::workbench::{Strip, Workbench};
+use sikemux_agents::git::status::GitChange;
+use sikemux_calls::layout::TabParams;
+use sikemux_git::files::FileCopyIntoParams;
+use sikemux_git::files::FileCreateParams;
+use sikemux_git::files::FileListing;
+use sikemux_git::files::FilePathParams;
+use sikemux_git::files::FileRenameParams;
+use std::future::Future;
+use std::pin::Pin;
 
 /// One thing in a folder, as the core listed it: folders first, then by name.
 #[derive(Clone, PartialEq)]
@@ -65,7 +78,6 @@ pub struct FileTree {
     pub marks: HashMap<PathBuf, (Option<char>, Mark)>,
     /// The rows as last laid out, until a listing or an opened folder changes them.
     rows: RefCell<Option<Rc<Vec<Row>>>>,
-    /// The name being typed for a new file or folder.
     pub naming: Option<Naming>,
     /// The row a right click last landed on, which the tree's one menu is about; none when
     /// it landed on the tree's empty space.
@@ -165,30 +177,23 @@ impl FileTree {
     }
 
     /// Takes in a `files.list` answer, asking for the next page of any folder it left short.
-    pub fn listed(&mut self, answer: &Value, core: &Target) {
-        for folder in answer.as_array().into_iter().flatten() {
-            let Some(dir) = folder["dir"].as_str().map(PathBuf::from) else {
-                continue;
-            };
-            if folder["error"].is_string() {
+    pub fn listed(&mut self, answer: Vec<FileListing>, core: &Target) {
+        for folder in answer {
+            let dir = PathBuf::from(folder.dir);
+            if folder.error.is_some() {
                 self.asked.remove(&dir);
                 self.again.remove(&dir);
                 self.incoming.remove(&dir);
                 continue;
             }
-            let entries: Vec<Entry> = folder["entries"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|entry| {
-                    Some(Entry {
-                        name: entry["name"].as_str()?.to_owned(),
-                        dir: entry["dir"].as_bool().unwrap_or(false),
-                        ignored: entry["ignored"].as_bool().unwrap_or(false),
-                    })
+            let entries: Vec<Entry> = (folder.entries.into_iter())
+                .map(|entry| Entry {
+                    name: entry.name,
+                    dir: entry.dir,
+                    ignored: entry.ignored,
                 })
                 .collect();
-            let total = folder["total"].as_u64().unwrap_or(0) as usize;
+            let total = folder.total;
             let got = entries.len();
             let incoming = self.incoming.entry(dir.clone()).or_default();
             incoming.extend(entries);
@@ -329,7 +334,7 @@ impl FileTree {
 
     /// The row the keys are on and what is being renamed, for the test bundle's driver to check.
     #[cfg(feature = "drive")]
-    pub fn drive_state(&self) -> Value {
+    pub fn drive_state(&self) -> serde_json::Value {
         json!({
             "keyed": self.keyed,
             "renaming": self.naming.as_ref().and_then(|naming| naming.from.clone()),
@@ -398,18 +403,17 @@ pub enum Mark {
 }
 
 impl Mark {
-    fn of(code: &str) -> Option<(char, Mark)> {
-        Some(match code {
-            "?" => ('U', Mark::Untracked),
-            "U" => ('U', Mark::Conflicted),
-            "A" => ('A', Mark::Added),
-            "D" => ('D', Mark::Deleted),
-            "R" => ('R', Mark::Renamed),
-            "C" => ('C', Mark::Renamed),
-            "T" => ('T', Mark::Modified),
-            "M" => ('M', Mark::Modified),
-            " " | "" => return None,
-            _ => (code.chars().next()?, Mark::Modified),
+    fn of(change: GitChange) -> Option<(char, Mark)> {
+        Some(match change {
+            GitChange::Untracked => ('U', Mark::Untracked),
+            GitChange::Unmerged => ('U', Mark::Conflicted),
+            GitChange::Added => ('A', Mark::Added),
+            GitChange::Deleted => ('D', Mark::Deleted),
+            GitChange::Renamed => ('R', Mark::Renamed),
+            GitChange::Copied => ('C', Mark::Renamed),
+            GitChange::TypeChanged => ('T', Mark::Modified),
+            GitChange::Modified => ('M', Mark::Modified),
+            GitChange::Unchanged => return None,
         })
     }
 
@@ -431,7 +435,7 @@ fn git_marks(root: &Path, overview: &GitOverview) -> HashMap<PathBuf, (Option<ch
     let mut marks: HashMap<PathBuf, (Option<char>, Mark)> = HashMap::new();
     for file in &overview.status.files {
         let path = file.path.as_str();
-        let sides = [file.index.as_str(), file.worktree.as_str()];
+        let sides = [file.index, file.worktree];
         let Some((letter, mark)) = sides
             .into_iter()
             .filter_map(Mark::of)
@@ -459,11 +463,13 @@ fn list(core: &Target, dirs: &[PathBuf], from: Option<usize>) {
         .map(|dir| dir.to_string_lossy().into_owned())
         .collect();
     for batch in dirs.chunks(512) {
-        let params = match from {
-            Some(from) => json!({ "dirs": batch, "from": from }),
-            None => json!({ "dirs": batch }),
-        };
-        core.answer("files.list", "files.list", params);
+        core.answer::<call::FilesList>(
+            crate::reads::Read::FilesList,
+            FileListParams {
+                dirs: batch.to_vec(),
+                from: from.unwrap_or(0),
+            },
+        );
     }
 }
 
@@ -489,7 +495,7 @@ pub fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
         .as_ref()
         .and_then(|root| root.file_name())
         .map_or_else(
-            || "files".to_owned(),
+            || t!("files").to_owned(),
             |name| name.to_string_lossy().into_owned(),
         );
     let rows = bench.files.rows();
@@ -525,26 +531,32 @@ pub fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .flex()
                         .gap(SPACE_0)
                         .opacity(0.6)
-                        .child(action("files-find", Icon::Search, "Find a file").on_click(
-                            cx.listener(|bench, _, window, cx| {
-                                bench.toggle_finder(window, cx);
-                                cx.notify();
-                            }),
-                        ))
-                        .child(action("files-new", Icon::FilePlus, "New file").on_click(
-                            cx.listener(|bench, _, window, cx| {
-                                bench.name_new_entry(false, window, cx)
-                            }),
-                        ))
                         .child(
-                            action("files-new-folder", Icon::FolderPlus, "New folder").on_click(
+                            action("files-find", Icon::Search, t!("Find a file")).on_click(
+                                |_, window, cx| {
+                                    crate::keymap::dispatch(
+                                        crate::workbench::actions::OpenFile::ID,
+                                        window,
+                                        cx,
+                                    )
+                                },
+                            ),
+                        )
+                        .child(
+                            action("files-new", Icon::FilePlus, t!("New file")).on_click(
                                 cx.listener(|bench, _, window, cx| {
-                                    bench.name_new_entry(true, window, cx)
+                                    bench.name_new_entry(false, window, cx)
                                 }),
                             ),
                         )
                         .child(
-                            action("files-collapse", Icon::CollapseAll, "Collapse folders")
+                            action("files-new-folder", Icon::FolderPlus, t!("New folder"))
+                                .on_click(cx.listener(|bench, _, window, cx| {
+                                    bench.name_new_entry(true, window, cx)
+                                })),
+                        )
+                        .child(
+                            action("files-collapse", Icon::CollapseAll, t!("Collapse folders"))
                                 .on_click(cx.listener(|bench, _, _, cx| {
                                     bench.files.collapse_all();
                                     cx.notify();
@@ -648,7 +660,7 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
             (PaneKind::Files, target) => Some((
                 tab.id.clone(),
                 PathBuf::from(target),
-                crate::tabs::tab_menu(bench, &strip, tab, cx),
+                crate::tabs::tab_menu(&strip, tab, cx),
             )),
             _ => None,
         })
@@ -676,14 +688,14 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
         let row = BaseButton::new(SharedString::from(format!("open-file-{tab}")))
             .accessibility_label(SharedString::from(name.clone()))
             .w_full()
-            .h(px(ROW_HEIGHT))
+            .h(px(crate::theme::dense(ROW_HEIGHT)))
             .pl(SPACE_1)
             .pr(SPACE_2)
             .flex()
             .items_center()
             .justify_start()
             .gap(px(5.))
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .font_weight(FontWeight::MEDIUM)
             .text_color(if active {
@@ -720,7 +732,7 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
             .pb(SPACE_1)
             .flex()
             .flex_col()
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.border)
             .children(rows)
             .into_any_element(),
@@ -783,14 +795,14 @@ fn row_view(
     let drawn = BaseButton::new(SharedString::from(format!("file-{}", row.path.display())))
         .accessibility_label(SharedString::from(row.entry.name.clone()))
         .w_full()
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .pl(px(if row.entry.dir { pad } else { pad + 13. }))
         .pr(SPACE_2)
         .flex()
         .items_center()
         .justify_start()
         .gap(px(5.))
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .font_weight(FontWeight::MEDIUM)
         .text_color(ink)
@@ -955,7 +967,7 @@ fn naming_row(naming: &Naming, depth: usize, cx: &mut Context<Workbench>) -> Any
     let t = Tokens::get(cx).clone();
     div()
         .w_full()
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .pl(px(4.
             + depth as f32 * 13.
             + if naming.dir { 0. } else { 13. }))
@@ -1046,7 +1058,11 @@ impl Workbench {
         };
         let input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(if dir { "folder name" } else { "file name" })
+                .placeholder(if dir {
+                    t!("folder name")
+                } else {
+                    t!("file name")
+                })
                 .default_value(name.clone())
         });
         input.update(cx, |input, cx| {
@@ -1089,12 +1105,20 @@ impl Workbench {
         let path = naming.parent.join(name);
         let made = match &naming.from {
             Some(from) if *from == path => return cx.notify(),
-            Some(from) => self
-                .target()
-                .request("files.rename", json!({ "from": from, "to": path })),
-            None => self
-                .target()
-                .request("files.create", json!({ "path": path, "dir": naming.dir })),
+            Some(from) => Box::pin(self.target().request_typed::<call::FilesRename>(
+                FileRenameParams {
+                    from: from.to_string_lossy().into_owned(),
+                    to: path.to_string_lossy().into_owned(),
+                },
+            ))
+                as Pin<Box<dyn Future<Output = Result<(), String>> + Send>>,
+            None => Box::pin(
+                self.target()
+                    .request_typed::<call::FilesCreate>(FileCreateParams {
+                        path: path.to_string_lossy().into_owned(),
+                        dir: naming.dir,
+                    }),
+            ),
         };
         let (parent, dir, from) = (
             naming.parent,
@@ -1149,25 +1173,23 @@ impl Workbench {
         let core = self.target();
         cx.spawn(async move |_, _| {
             for (at, old, path) in moved {
-                let opened = core
-                    .request(
-                        "openTab",
-                        strip.with(json!({ "kind": "files", "target": path.to_string_lossy() })),
-                    )
-                    .await;
-                let Ok(Value::String(tab)) = opened else {
+                let tab = OpenTab::new(strip.at(), PaneKind::Files, path.to_string_lossy());
+                let Ok(tab) = core.request_typed::<call::OpenTab>(tab).await else {
                     continue;
                 };
                 let _ = core
-                    .request("moveTab", strip.with(json!({ "tab": tab, "to": at })))
+                    .request_typed::<call::MoveTab>(TabParams {
+                        to: Some(at),
+                        ..TabParams::new(strip.at(), tab)
+                    })
                     .await;
                 let _ = core
-                    .request("closeTab", strip.with(json!({ "tab": old })))
+                    .request_typed::<call::CloseTab>(TabParams::new(strip.at(), old))
                     .await;
             }
             if let Some(front) = front {
                 let _ = core
-                    .request("activateTab", strip.with(json!({ "tab": front })))
+                    .request_typed::<call::ActivateTab>(TabParams::new(strip.at(), front))
                     .await;
             }
         })
@@ -1180,9 +1202,9 @@ impl Workbench {
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
         self.confirm(
-            format!("Move \"{name}\" to the Trash?"),
+            t!("Move \"{name}\" to the Trash?", name = name),
             path.to_string_lossy().into_owned(),
-            "Move to Trash",
+            t!("Move to Trash"),
             true,
             move |bench, yes, _, cx| {
                 if !yes {
@@ -1190,7 +1212,9 @@ impl Workbench {
                 }
                 let deleted = bench
                     .target()
-                    .request("files.delete", json!({ "path": path }));
+                    .request_typed::<call::FilesDelete>(FilePathParams {
+                        path: path.to_string_lossy().into_owned(),
+                    });
                 let parent = path.parent().map(Path::to_path_buf);
                 cx.spawn(async move |bench, cx| {
                     let deleted = deleted.await;
@@ -1221,7 +1245,12 @@ impl Workbench {
             return;
         };
         let to = into.join(name);
-        let moved = (self.target()).request("files.rename", json!({ "from": from, "to": to }));
+        let moved = self
+            .target()
+            .request_typed::<call::FilesRename>(FileRenameParams {
+                from: from.to_string_lossy().into_owned(),
+                to: to.to_string_lossy().into_owned(),
+            });
         cx.spawn(async move |bench, cx| {
             let moved = moved.await;
             bench
@@ -1250,15 +1279,20 @@ impl Workbench {
     pub fn copy_in(&mut self, from: Vec<PathBuf>, into: PathBuf, cx: &mut Context<Self>) {
         if self.place() != crate::hosts::Place::This {
             return self.notify(
-                toast::error(
-                    "Files from this device can't be dropped into another host's project.",
-                ),
+                toast::error(t!(
+                    "Files from this device can't be dropped into another host's project."
+                )),
                 cx,
             );
         }
         let core = self.target();
         let copies: Vec<_> = (from.iter())
-            .map(|from| core.request("files.copyInto", json!({ "from": from, "dir": into })))
+            .map(|from| {
+                core.request_typed::<call::FilesCopyInto>(FileCopyIntoParams {
+                    from: from.to_string_lossy().into_owned(),
+                    dir: into.to_string_lossy().into_owned(),
+                })
+            })
             .collect();
         cx.spawn(async move |bench, cx| {
             let mut failed = None;
@@ -1303,7 +1337,7 @@ fn row_menu(
     let mut popup = if dir {
         popup
             .item(
-                PopupMenuItem::new("New File")
+                PopupMenuItem::new(t!("New File"))
                     .icon(Icon::FilePlus)
                     .on_click(on(|bench, path, _, window, cx| {
                         bench.files.selected_dir = Some(path.to_owned());
@@ -1311,7 +1345,7 @@ fn row_menu(
                     })),
             )
             .item(
-                PopupMenuItem::new("New Folder")
+                PopupMenuItem::new(t!("New Folder"))
                     .icon(Icon::FolderPlus)
                     .on_click(on(|bench, path, _, window, cx| {
                         bench.files.selected_dir = Some(path.to_owned());
@@ -1320,7 +1354,7 @@ fn row_menu(
             )
     } else {
         popup.item(
-            PopupMenuItem::new("Open")
+            PopupMenuItem::new(t!("Open"))
                 .icon(Icon::File)
                 .on_click(on(|bench, path, _, _, cx| bench.open_file(path, cx))),
         )
@@ -1329,14 +1363,14 @@ fn row_menu(
         popup = popup
             .separator()
             .item(
-                PopupMenuItem::new("Rename…")
+                PopupMenuItem::new(t!("Rename…"))
                     .icon(Icon::Pencil)
                     .on_click(on(|bench, path, dir, window, cx| {
                         bench.rename_entry(path, dir, window, cx)
                     })),
             )
             .item(
-                ui::MenuRow::new("Delete")
+                ui::MenuRow::new(t!("Delete"))
                     .icon(Icon::Trash)
                     .danger(true)
                     .item(cx)
@@ -1349,7 +1383,7 @@ fn row_menu(
     if here {
         let revealed = path.to_owned();
         popup = popup.item(
-            PopupMenuItem::new(ui::REVEAL)
+            PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                 .icon(Icon::Folder)
                 .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
         );
@@ -1358,12 +1392,16 @@ fn row_menu(
         .and_then(|root| path.strip_prefix(root).ok())
         .map(|relative| relative.to_string_lossy().into_owned());
     let mut copies = vec![(
-        "Copy Path",
+        t!("Copy Path"),
         path.to_string_lossy().into_owned(),
-        "Copied path",
+        t!("Copied path"),
     )];
     if let Some(relative) = relative.filter(|_| !whole) {
-        copies.push(("Copy Relative Path", relative, "Copied relative path"));
+        copies.push((
+            t!("Copy Relative Path"),
+            relative,
+            t!("Copied relative path"),
+        ));
     }
     for (label, copied, said) in copies {
         popup = popup.item(PopupMenuItem::new(label).icon(Icon::Copy).on_click(

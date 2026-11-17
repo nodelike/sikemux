@@ -1,28 +1,35 @@
 //! The Branches page: the local branches, then each remote with its branches while open,
 //! what can be done with each, and the card that heads a branch's review.
 
+use super::Said;
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, list, px, Anchor, AnyElement, App, Context, Div, Entity, FontWeight, HoverListenerMode,
     Hsla, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled,
 };
+use sikemux_calls::call;
+use sikemux_calls::codehost::PullsParams;
 use std::collections::HashMap;
 
-use serde_json::{json, Value};
-use sikemux_core::git::branches::GitBranch;
-use sikemux_core::git::remote::{GitRemote, GitRemoteBranch};
+use sikemux_agents::git::branches::GitBranch;
+use sikemux_agents::git::remote::GitRemote;
+use sikemux_agents::git::remote::GitRemoteBranch;
 use sikemux_plugin_api::codehost::{PullList, PullState};
 
 use super::{row_button, GitPane, Pick, ROW_HEIGHT};
-use crate::codehost::Area;
+use crate::code_host_marks::pull_look;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, SPACE_4,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, SPACE_4,
     SPACE_5, TEXT_2XS, TEXT_3XS, TEXT_LG, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
+use serde::Serialize;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::Call;
 
 #[derive(Clone, PartialEq)]
 pub(super) enum BranchEntry {
@@ -68,12 +75,13 @@ pub(super) struct Branches {
     pub(super) pulls: HashMap<String, Opened>,
 }
 
-/// A branch's open pull request: its number, title and whether it is a draft.
+/// A branch's open pull request: its number, title, address and how it stands.
 #[derive(Clone, PartialEq)]
 pub(super) struct Opened {
     number: u64,
     title: String,
-    draft: bool,
+    url: String,
+    state: PullState,
 }
 
 impl GitPane {
@@ -134,7 +142,7 @@ impl GitPane {
                 );
             }
         }
-        super::super::relist(&self.branch_rows, &self.branches.entries, &entries);
+        crate::ui::relist(&self.branch_rows, &self.branches.entries, &entries);
         self.branches.entries = entries;
         self.branches.chosen = self
             .branches
@@ -150,13 +158,13 @@ impl GitPane {
 
     /// Reads the remotes, and the open remote's branches, again.
     pub(super) fn read_remotes(&mut self, cx: &mut Context<Self>) {
-        let answer = self.core.request("git.remotes", self.repo_call(json!({})));
+        let answer = self
+            .core
+            .request_typed::<git_call::Remotes>(git_call::Remotes {
+                repo: self.repo.clone(),
+            });
         cx.spawn(async move |pane, cx| {
-            let remotes: Vec<GitRemote> = answer
-                .await
-                .ok()
-                .and_then(|remotes| serde_json::from_value(remotes).ok())
-                .unwrap_or_default();
+            let remotes: Vec<GitRemote> = answer.await.unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 pane.branches.remotes = remotes;
                 pane.branches.remotes_read = true;
@@ -177,13 +185,12 @@ impl GitPane {
         if self.host_of().is_none() {
             return;
         }
-        let params = json!({ "project": self.repo, "state": "open" });
-        let answer = self.core.request("codeHostPulls", params);
+        let answer = self.core.request_typed::<call::CodeHostPulls>(PullsParams {
+            project: self.repo.clone(),
+            state: Some("open".to_owned()),
+        });
         cx.spawn(async move |pane, cx| {
-            let list: Option<PullList> = answer
-                .await
-                .ok()
-                .and_then(|answer| crate::codehost::answer(&answer).ok());
+            let list: Option<PullList> = answer.await.ok().and_then(|answer| answer.read().ok());
             let pulls = list
                 .into_iter()
                 .flat_map(|list| list.pulls)
@@ -192,7 +199,8 @@ impl GitPane {
                     let opened = Opened {
                         number: listed.pull.number,
                         title: listed.pull.title,
-                        draft: listed.state == PullState::Draft,
+                        url: listed.pull.url,
+                        state: listed.state,
                     };
                     Some((listed.pull.head?, opened))
                 })
@@ -207,14 +215,14 @@ impl GitPane {
     }
 
     fn read_remote_branches(&mut self, remote: String, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({ "remote": remote }));
-        let answer = self.core.request("git.remoteBranches", params);
+        let answer =
+            self.core
+                .request_typed::<git_call::RemoteBranches>(git_call::RemoteBranches {
+                    repo: self.repo.clone(),
+                    remote: remote.clone(),
+                });
         cx.spawn(async move |pane, cx| {
-            let branches: Vec<GitRemoteBranch> = answer
-                .await
-                .ok()
-                .and_then(|branches| serde_json::from_value(branches).ok())
-                .unwrap_or_default();
+            let branches: Vec<GitRemoteBranch> = answer.await.unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 if pane.branches.open.as_deref() == Some(remote.as_str()) {
                     pane.branches.remote_branches = branches;
@@ -250,7 +258,7 @@ impl GitPane {
         self.branches.entries.get(self.branches.chosen).cloned()
     }
 
-    fn step_branch(&mut self, step: isize, cx: &mut Context<Self>) {
+    pub(super) fn step_branch(&mut self, step: isize, cx: &mut Context<Self>) {
         let count = self.branches.entries.len() as isize;
         if count == 0 {
             return;
@@ -265,9 +273,12 @@ impl GitPane {
         self.choose_branch(next, cx);
     }
 
-    fn git(&mut self, label: String, method: &'static str, extra: Value, cx: &mut Context<Self>) {
-        let params = self.repo_call(extra);
-        self.run(label, method, params, cx, |pane, answer, cx| {
+    fn git<C>(&mut self, label: String, call: C, cx: &mut Context<Self>)
+    where
+        C: Call<Params = C> + Serialize + 'static,
+        C::Answer: serde::de::DeserializeOwned + Said + 'static,
+    {
+        self.run(label, call, cx, |pane, answer, cx| {
             if answer.is_ok() {
                 pane.read_remotes(cx);
             }
@@ -276,35 +287,40 @@ impl GitPane {
 
     pub(super) fn checkout(&mut self, name: String, cx: &mut Context<Self>) {
         self.git(
-            format!("checking out {name}"),
-            "git.checkout",
-            json!({ "branch": name }),
+            t!("checking out {name}", name = name),
+            git_call::Checkout {
+                repo: self.repo.clone(),
+                branch: name.clone(),
+            },
             cx,
         );
     }
 
     fn merge(&mut self, reference: String, squash: bool, cx: &mut Context<Self>) {
-        let (label, method) = if squash {
-            (format!("squash merging {reference}…"), "git.mergeSquash")
+        let (repo, branch) = (self.repo.clone(), reference.clone());
+        if squash {
+            let label = t!("squash merging {reference}…", reference = reference);
+            self.git(label, git_call::MergeSquash { repo, branch }, cx);
         } else {
-            (format!("merging {reference}…"), "git.merge")
-        };
-        self.git(label, method, json!({ "branch": reference }), cx);
+            let label = t!("merging {reference}…", reference = reference);
+            self.git(label, git_call::Merge { repo, branch }, cx);
+        }
     }
 
-    fn merge_menu(&mut self, reference: String, cx: &mut Context<Self>) {
+    pub(super) fn merge_menu(&mut self, reference: String, cx: &mut Context<Self>) {
         let into = self.current_branch();
         let (regular, squash) = (reference.clone(), reference.clone());
         self.menu(
-            format!(
-                "Merge {reference} into {}",
-                if into.is_empty() { "HEAD" } else { &into }
+            t!(
+                "Merge {reference} into {into}",
+                reference = reference,
+                into = if into.is_empty() { "HEAD" } else { &into }
             ),
             vec![
-                Pick::new('m', "regular merge", move |pane, cx| {
+                Pick::new('m', t!("regular merge"), move |pane, cx| {
                     pane.merge(regular.clone(), false, cx)
                 }),
-                Pick::new('s', "squash merge", move |pane, cx| {
+                Pick::new('s', t!("squash merge"), move |pane, cx| {
                     pane.merge(squash.clone(), true, cx)
                 }),
             ],
@@ -314,19 +330,22 @@ impl GitPane {
 
     pub(super) fn new_branch(&mut self, start: Option<String>, cx: &mut Context<Self>) {
         let title = match &start {
-            Some(start) => format!("New branch from {start}"),
-            None => "New branch".to_owned(),
+            Some(start) => t!("New branch from {start}", start = start),
+            None => t!("New branch").to_owned(),
         };
         self.prompt(
             title,
-            "branch name",
+            t!("branch name"),
             "",
             move |pane, name, cx| {
                 if !name.is_empty() {
                     pane.git(
-                        "creating branch…".into(),
-                        "git.branchCreate",
-                        json!({ "name": name, "startPoint": start }),
+                        t!("creating branch…").into(),
+                        git_call::BranchCreate {
+                            repo: pane.repo.clone(),
+                            name,
+                            start_point: start.clone(),
+                        },
                         cx,
                     );
                 }
@@ -337,8 +356,8 @@ impl GitPane {
 
     pub(super) fn checkout_by_name(&mut self, cx: &mut Context<Self>) {
         self.prompt(
-            "Checkout branch",
-            "branch name (- for previous)",
+            t!("Checkout branch"),
+            t!("branch name (- for previous)"),
             "",
             |pane, name, cx| {
                 if !name.is_empty() {
@@ -349,18 +368,21 @@ impl GitPane {
         );
     }
 
-    fn rename_branch(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
+    pub(super) fn rename_branch(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
         let old = branch.name.clone();
         self.prompt(
-            format!("Rename branch · {old}"),
+            t!("Rename branch · {old}", old = old),
             "",
             old.clone(),
             move |pane, name, cx| {
                 if !name.is_empty() && name != old {
                     pane.git(
-                        format!("renaming branch {old} → {name}"),
-                        "git.branchRename",
-                        json!({ "oldName": old, "newName": name }),
+                        t!("renaming branch {old} → {name}", old = old, name = name),
+                        git_call::BranchRename {
+                            repo: pane.repo.clone(),
+                            old_name: old.clone(),
+                            new_name: name.clone(),
+                        },
                         cx,
                     );
                 }
@@ -369,22 +391,22 @@ impl GitPane {
         );
     }
 
-    fn delete_menu(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
+    pub(super) fn delete_menu(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
         let delete = |force: bool| {
             let name = branch.name.clone();
             move |pane: &mut GitPane, cx: &mut Context<GitPane>| {
                 let name = name.clone();
                 let (title, body, yes) = if force {
                     (
-                        format!("Force delete {name}?"),
-                        "This deletes the local branch even if it has commits that are not merged anywhere else.",
-                        "force delete",
+                        t!("Force delete {name}?", name = name),
+                        t!("This deletes the local branch even if it has commits that are not merged anywhere else."),
+                        t!("force delete"),
                     )
                 } else {
                     (
-                        format!("Delete {name}?"),
-                        "Deletes the local branch only. Use force delete if Git refuses because the branch is not merged.",
-                        "delete",
+                        t!("Delete {name}?", name = name),
+                        t!("Deletes the local branch only. Use force delete if Git refuses because the branch is not merged."),
+                        t!("delete"),
                     )
                 };
                 pane.ask(
@@ -393,12 +415,16 @@ impl GitPane {
                     yes,
                     move |pane, cx| {
                         pane.git(
-                            format!(
-                                "{}deleting branch {name}",
-                                if force { "force " } else { "" }
-                            ),
-                            "git.branchDelete",
-                            json!({ "name": name, "force": force }),
+                            if force {
+                                t!("force deleting branch {name}", name = name)
+                            } else {
+                                t!("deleting branch {name}", name = name)
+                            },
+                            git_call::BranchDelete {
+                                repo: pane.repo.clone(),
+                                name: name.clone(),
+                                force,
+                            },
                             cx,
                         )
                     },
@@ -407,42 +433,53 @@ impl GitPane {
             }
         };
         let current = branch.current;
-        let mut keep = Pick::new('d', "delete local branch", delete(false)).destructive();
-        let mut force = Pick::new('D', "force delete local branch", delete(true)).destructive();
+        let mut keep = Pick::new('d', t!("delete local branch"), delete(false)).destructive();
+        let mut force = Pick::new('D', t!("force delete local branch"), delete(true)).destructive();
         if current {
-            keep = keep.hint("(can't delete current branch)");
-            force = force.hint("(can't delete current branch)");
+            keep = keep.hint(t!("(can't delete current branch)"));
+            force = force.hint(t!("(can't delete current branch)"));
             keep.disabled = true;
             force.disabled = true;
         } else {
             force = force.hint("git branch -D");
         }
-        self.menu(format!("Delete {}", branch.name), vec![keep, force], cx);
-    }
-
-    fn checkout_remote(&mut self, remote: String, branch: GitRemoteBranch, cx: &mut Context<Self>) {
-        self.git(
-            format!("checking out {}", branch.full_ref),
-            "git.checkoutRemoteBranch",
-            json!({ "remote": remote, "branch": branch.name, "localName": branch.tracked_by }),
+        self.menu(
+            t!("Delete {name}", name = branch.name),
+            vec![keep, force],
             cx,
         );
     }
 
-    fn set_upstream(&mut self, branch: &GitRemoteBranch, cx: &mut Context<Self>) {
+    fn checkout_remote(&mut self, remote: String, branch: GitRemoteBranch, cx: &mut Context<Self>) {
+        self.git(
+            t!("checking out {name}", name = branch.full_ref),
+            git_call::CheckoutRemoteBranch {
+                repo: self.repo.clone(),
+                remote,
+                branch: branch.name.clone(),
+                local_name: branch.tracked_by.clone(),
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn set_upstream(&mut self, branch: &GitRemoteBranch, cx: &mut Context<Self>) {
         let current = self.current_branch();
         if current.is_empty() {
             return;
         }
         self.git(
-            format!("setting upstream of {current}"),
-            "git.setUpstream",
-            json!({ "branch": current, "upstream": branch.full_ref }),
+            t!("setting upstream of {current}", current = current),
+            git_call::SetUpstream {
+                repo: self.repo.clone(),
+                branch: current.clone(),
+                upstream: Some(branch.full_ref.clone()),
+            },
             cx,
         );
     }
 
-    fn delete_remote_branch(
+    pub(super) fn delete_remote_branch(
         &mut self,
         remote: String,
         branch: &GitRemoteBranch,
@@ -450,14 +487,20 @@ impl GitPane {
     ) {
         let (full, name) = (branch.full_ref.clone(), branch.name.clone());
         self.ask(
-            format!("Delete {full}?"),
-            format!("Pushes a delete to {remote}. The branch will be gone for everyone."),
-            "delete on remote",
+            t!("Delete {name}?", name = full),
+            t!(
+                "Pushes a delete to {remote}. The branch will be gone for everyone.",
+                remote = remote
+            ),
+            t!("delete on remote"),
             move |pane, cx| {
                 pane.git(
-                    format!("deleting {full}"),
-                    "git.deleteRemoteBranch",
-                    json!({ "remote": remote, "branch": name }),
+                    t!("deleting {full}", full = full),
+                    git_call::DeleteRemoteBranch {
+                        repo: pane.repo.clone(),
+                        remote: remote.clone(),
+                        branch: name.clone(),
+                    },
                     cx,
                 )
             },
@@ -468,18 +511,20 @@ impl GitPane {
     fn edit_remote_url(&mut self, remote: &GitRemote, cx: &mut Context<Self>) {
         let (name, was) = (remote.name.clone(), remote.url.clone());
         self.prompt(
-            format!("Edit url · {name}"),
+            t!("Edit url · {name}", name = name),
             "",
             was.clone(),
             move |pane, url, cx| {
                 if url.is_empty() || url == was {
                     return;
                 }
-                let params = pane.repo_call(json!({ "name": name, "url": url }));
                 pane.run(
-                    format!("setting url for {name}"),
-                    "git.remoteSetUrl",
-                    params,
+                    t!("setting url for {name}", name = name),
+                    git_call::RemoteSetUrl {
+                        repo: pane.repo.clone(),
+                        name: name.clone(),
+                        url,
+                    },
                     cx,
                     |pane, _, cx| pane.read_remotes(cx),
                 );
@@ -491,23 +536,25 @@ impl GitPane {
     fn rename_remote(&mut self, remote: &GitRemote, cx: &mut Context<Self>) {
         let was = remote.name.clone();
         self.prompt(
-            format!("Rename remote · {was}"),
+            t!("Rename remote · {was}", was = was),
             "",
             was.clone(),
             move |pane, name, cx| {
                 if name.is_empty() || name == was {
                     return;
                 }
-                let params = pane.repo_call(json!({ "oldName": was, "newName": name }));
                 let (old, new) = (was.clone(), name.clone());
                 pane.run(
-                    format!("renaming {was} → {name}"),
-                    "git.remoteRename",
-                    params,
+                    t!("renaming {was} → {name}", was = was, name = name),
+                    git_call::RemoteRename {
+                        repo: pane.repo.clone(),
+                        old_name: was.clone(),
+                        new_name: name.clone(),
+                    },
                     cx,
                     move |pane, _, cx| {
                         if pane.branches.open.as_deref() == Some(old.as_str()) {
-                            pane.branches.open = Some(new.clone());
+                            pane.branches.open = Some(new);
                         }
                         pane.read_remotes(cx)
                     },
@@ -520,15 +567,16 @@ impl GitPane {
     fn remove_remote(&mut self, remote: &GitRemote, cx: &mut Context<Self>) {
         let name = remote.name.clone();
         self.ask(
-            format!("Remove remote {name}?"),
-            "Removes the local remote configuration. Won't touch the upstream repo.",
-            "remove",
+            t!("Remove remote {name}?", name = name),
+            t!("Removes the local remote configuration. Won't touch the upstream repo."),
+            t!("remove"),
             move |pane, cx| {
-                let params = pane.repo_call(json!({ "name": name }));
                 pane.run(
-                    format!("removing remote {name}"),
-                    "git.remoteRemove",
-                    params,
+                    t!("removing remote {name}", name = name),
+                    git_call::RemoteRemove {
+                        repo: pane.repo.clone(),
+                        name: name.clone(),
+                    },
                     cx,
                     |pane, _, cx| pane.read_remotes(cx),
                 );
@@ -537,16 +585,23 @@ impl GitPane {
         );
     }
 
-    fn fetch_remote(&mut self, remote: Option<String>, cx: &mut Context<Self>) {
+    pub(super) fn fetch_remote(&mut self, remote: Option<String>, cx: &mut Context<Self>) {
         let label = match &remote {
-            Some(remote) => format!("fetching {remote}…"),
-            None => "fetching all remotes…".to_owned(),
+            Some(remote) => t!("fetching {remote}…", remote = remote),
+            None => t!("fetching all remotes…").to_owned(),
         };
-        self.git(label, "git.fetch", json!({ "remote": remote }), cx);
+        self.git(
+            label,
+            git_call::Fetch {
+                repo: self.repo.clone(),
+                remote,
+            },
+            cx,
+        );
     }
 
     /// Does what Enter does on the entry: checks a branch out, or opens a remote.
-    fn activate_branch(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn activate_branch(&mut self, cx: &mut Context<Self>) {
         match self.chosen_branch() {
             Some(BranchEntry::Branch(branch)) if !branch.current => self.checkout(branch.name, cx),
             Some(BranchEntry::Remote { remote, .. }) => self.toggle_remote(&remote.name, cx),
@@ -560,41 +615,6 @@ impl GitPane {
             }
             _ => {}
         }
-    }
-
-    /// The Branches page's keys; false for one it leaves to the pane.
-    pub(super) fn branch_key(&mut self, typed: &str, cx: &mut Context<Self>) -> bool {
-        let chosen = self.chosen_branch();
-        match (typed, chosen) {
-            ("j" | "down", _) => self.step_branch(1, cx),
-            ("k" | "up", _) => self.step_branch(-1, cx),
-            ("enter" | "space" | " ", _) => self.activate_branch(cx),
-            ("n", entry) => {
-                let start = entry.as_ref().and_then(BranchEntry::rev).map(str::to_owned);
-                self.new_branch(start, cx)
-            }
-            ("N", _) => self.new_branch(None, cx),
-            ("c", _) => self.checkout_by_name(cx),
-            ("M", Some(entry)) if entry.rev().is_some() => {
-                let reference = entry.rev().unwrap_or_default().to_owned();
-                self.merge_menu(reference, cx)
-            }
-            ("d", Some(BranchEntry::Branch(branch))) => self.delete_menu(&branch, cx),
-            ("d", Some(BranchEntry::RemoteBranch { remote, branch })) => {
-                self.delete_remote_branch(remote, &branch, cx)
-            }
-            ("R", Some(BranchEntry::Branch(branch))) => self.rename_branch(&branch, cx),
-            ("u", Some(BranchEntry::RemoteBranch { branch, .. })) => self.set_upstream(&branch, cx),
-            ("f", Some(BranchEntry::Remote { remote, .. })) => {
-                self.fetch_remote(Some(remote.name), cx)
-            }
-            ("f", Some(BranchEntry::RemoteBranch { remote, .. })) => {
-                self.fetch_remote(Some(remote), cx)
-            }
-            ("f", _) => self.fetch_remote(None, cx),
-            _ => return false,
-        }
-        true
     }
 }
 
@@ -654,8 +674,12 @@ fn more(id: SharedString, view: &Entity<GitPane>, items: Vec<MoreItem>) -> impl 
     ui::menu_button(
         id.clone(),
         Anchor::TopRight,
-        ui::IconButton::new(SharedString::from(format!("{id}-more")), Icon::More, "More")
-            .glyph(13.),
+        ui::IconButton::new(
+            SharedString::from(format!("{id}-more")),
+            Icon::More,
+            t!("More"),
+        )
+        .glyph(13.),
         move |mut popup, _, cx| {
             for line in &items {
                 if line.separated {
@@ -677,7 +701,6 @@ fn more(id: SharedString, view: &Entity<GitPane>, items: Vec<MoreItem>) -> impl 
     )
 }
 
-/// The Branches page: its list, then the button that makes a branch.
 pub(super) fn branches_page(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let view = cx.entity();
@@ -692,7 +715,7 @@ pub(super) fn branches_page(pane: &mut GitPane, cx: &mut Context<GitPane>) -> im
                     .p(SPACE_5)
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.text_tertiary)
-                    .child("This repository has no branches yet."),
+                    .child(t!("This repository has no branches yet.")),
             )
         })
         .child(
@@ -733,7 +756,7 @@ fn branch_row(
         .h(px(ROW_HEIGHT))
         .flex()
         .items_center()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .cursor_pointer()
         .map(|row| {
             if chosen {
@@ -744,7 +767,7 @@ fn branch_row(
         })
         .on_hover(super::hover(view, key))
         .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             choosing.update(cx, |pane, cx| {
                 window.focus(&pane.focus, cx);
                 pane.choose_branch(index, cx);
@@ -835,7 +858,7 @@ fn branch_row(
     let age = |date: &str| {
         div()
             .flex_none()
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(t.text_tertiary)
             .child(date.to_owned())
@@ -846,12 +869,12 @@ fn branch_row(
             group(
                 base,
                 Icon::Laptop,
-                "Local".into(),
+                t!("Local").into(),
                 Some(*count),
                 !pane.branches.local_folded,
             )
             .child(
-                row_button("git-new-branch", Icon::Plus, 12., "New branch", cx).on_click(
+                row_button("git-new-branch", Icon::Plus, 12., t!("New branch"), cx).on_click(
                     move |_, _, cx| {
                         cx.stop_propagation();
                         starting.update(cx, |pane, cx| pane.new_branch(None, cx));
@@ -872,7 +895,7 @@ fn branch_row(
                             format!("fetch:{name}"),
                             Icon::Fetch,
                             12.,
-                            format!("Fetch {name}"),
+                            t!("Fetch {name}", name = name),
                             cx,
                         )
                         .on_click(move |_, _, cx| {
@@ -897,7 +920,7 @@ fn branch_row(
                 .pr(SPACE_1H)
                 .text_size(crate::theme::ui_text(TEXT_XS_H))
                 .whitespace_nowrap()
-                .child(pane.author_face(&branch.author, &branch.author_email, 15., cx))
+                .child(ui::initials(&branch.author, &branch.author_email, 15., cx))
                 .children(name_and_tip(
                     &branch.name,
                     if branch.current {
@@ -912,7 +935,11 @@ fn branch_row(
                 .children(pull_chip(pane, &branch.name, index, cx));
             if branch.current && ahead > 0 {
                 let pushing = view.clone();
-                let label = format!("Push {ahead} commit{}", if ahead > 1 { "s" } else { "" });
+                let label = if ahead == 1 {
+                    t!("Push 1 commit").to_owned()
+                } else {
+                    t!("Push {count} commits", count = ahead)
+                };
                 row = row.child(
                     gpui_kit::base::Button::new("git-sync-chip")
                         .accessibility_label(SharedString::from(label.clone()))
@@ -923,8 +950,8 @@ fn branch_row(
                         .flex_none()
                         .items_center()
                         .gap(SPACE_0)
-                        .rounded(RADIUS_2)
-                        .font_family(theme::MONO)
+                        .rounded(radius_2())
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.warn)
                         .hover(move |style| style.bg(t.surface_hover))
@@ -939,7 +966,7 @@ fn branch_row(
                 row = row.child(
                     div()
                         .flex_none()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.git_renamed)
                         .child(format!("↓{behind}")),
@@ -964,7 +991,7 @@ fn branch_row(
                                 format!("checkout:{}", branch.name),
                                 Icon::Checkout,
                                 12.,
-                                "Check out",
+                                t!("Check out"),
                                 cx,
                             )
                             .on_click(move |_, _, cx| {
@@ -978,7 +1005,7 @@ fn branch_row(
                                 format!("merge:{}", branch.name),
                                 Icon::Merge,
                                 12.,
-                                format!("Merge into {into}"),
+                                t!("Merge into {into}", into = into),
                                 cx,
                             )
                             .on_click(move |_, _, cx| {
@@ -1018,18 +1045,18 @@ fn branch_row(
                 row = row.child(
                     div()
                         .flex_none()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.text_tertiary)
-                        .child("tracked"),
+                        .child(t!("tracked")),
                 );
             }
             if hovered {
                 let checking = view.clone();
                 let (remote_name, checked) = (remote.clone(), branch.clone());
                 let label = match &branch.tracked_by {
-                    Some(local) => format!("Check out {local}"),
-                    None => "Check out as a local branch".to_owned(),
+                    Some(local) => t!("Check out {local}", local = local),
+                    None => t!("Check out as a local branch").to_owned(),
                 };
                 row = row
                     .child(
@@ -1060,21 +1087,19 @@ fn branch_row(
     }
 }
 
-/// A branch's open pull request beside it, which opens it in the Git tab's pull requests.
+/// A branch's open pull request beside it, which opens its page on the code host.
 fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
     let opened = pane.branches.pulls.get(branch)?;
     let number = opened.number;
-    let ink = if opened.draft {
-        t.text_tertiary
-    } else {
-        t.live
-    };
-    let bench = pane.bench.clone();
-    let repo = pane.host_of()?.0.repo;
+    let (_, ink, _) = pull_look(opened.state, &t);
+    let url = opened.url.clone();
     Some(
         gpui_kit::base::Button::new(("branch-pull", index))
-            .accessibility_label(SharedString::from(format!("Open pull request #{number}")))
+            .accessibility_label(SharedString::from(t!(
+                "Open pull request #{number}",
+                number = number
+            )))
             .tooltip(ui::tooltip(format!("#{number} {}", opened.title)))
             .h(px(20.))
             .px(SPACE_1H)
@@ -1082,20 +1107,16 @@ fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<Any
             .flex_none()
             .items_center()
             .gap(px(3.))
-            .rounded(RADIUS_2)
-            .border_1()
+            .rounded(radius_2())
+            .border(crate::theme::border())
             .border_color(ink.opacity(0.32))
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(ink)
             .hover(move |style| style.bg(ink.opacity(0.12)))
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
-                bench
-                    .update(cx, |bench, cx| {
-                        bench.open_host_item(Area::Pulls, number, repo.clone(), cx)
-                    })
-                    .ok();
+                cx.open_url(&url);
             })
             .child(ui::icon(Icon::PullRequest, 10.).text_color(ink))
             .child(format!("#{number}"))
@@ -1109,21 +1130,21 @@ fn branch_more(view: &Entity<GitPane>, branch: &GitBranch, into: &str) -> impl I
     if !branch.current {
         let (checked, merged, squashed) = (name.clone(), name.clone(), name.clone());
         items.push(
-            MoreItem::new("Check out", Icon::Checkout, move |pane, cx| {
+            MoreItem::new(t!("Check out"), Icon::Checkout, move |pane, cx| {
                 pane.checkout(checked.clone(), cx)
             })
             .hint("↵"),
         );
         items.push(
             MoreItem::new(
-                format!("Merge into {into}"),
+                t!("Merge into {into}", into = into),
                 Icon::Merge,
                 move |pane, cx| pane.merge(merged.clone(), false, cx),
             )
             .hint("M"),
         );
         items.push(MoreItem::new(
-            format!("Squash merge into {into}"),
+            t!("Squash merge into {into}", into = into),
             Icon::Merge,
             move |pane, cx| pane.merge(squashed.clone(), true, cx),
         ));
@@ -1131,24 +1152,26 @@ fn branch_more(view: &Entity<GitPane>, branch: &GitBranch, into: &str) -> impl I
     let (started, renamed, copied, deleted) =
         (name.clone(), branch.clone(), name.clone(), branch.clone());
     items.push(
-        MoreItem::new("New branch from here", Icon::Plus, move |pane, cx| {
+        MoreItem::new(t!("New branch from here"), Icon::Plus, move |pane, cx| {
             pane.new_branch(Some(started.clone()), cx)
         })
         .hint("n")
         .separated(!branch.current),
     );
     items.push(
-        MoreItem::new("Rename…", Icon::Pencil, move |pane, cx| {
+        MoreItem::new(t!("Rename…"), Icon::Pencil, move |pane, cx| {
             pane.rename_branch(&renamed, cx)
         })
         .hint("R"),
     );
-    items.push(MoreItem::new("Copy name", Icon::Copy, move |pane, cx| {
-        pane.copy(copied.clone(), copied.clone(), cx)
-    }));
+    items.push(MoreItem::new(
+        t!("Copy name"),
+        Icon::Copy,
+        move |pane, cx| pane.copy(copied.clone(), copied.clone(), cx),
+    ));
     if !branch.current {
         items.push(
-            MoreItem::new("Delete…", Icon::Trash, move |pane, cx| {
+            MoreItem::new(t!("Delete…"), Icon::Trash, move |pane, cx| {
                 pane.delete_menu(&deleted, cx)
             })
             .hint("d")
@@ -1171,24 +1194,24 @@ fn remote_more(view: &Entity<GitPane>, remote: &GitRemote) -> impl IntoElement {
         remote.url.clone(),
         remote.clone(),
     );
-    let what = format!("{} URL", remote.name);
+    let what = t!("{name} URL", name = remote.name);
     let items: Vec<MoreItem> = vec![
         MoreItem::new(
-            format!("Fetch {}", remote.name),
+            t!("Fetch {name}", name = remote.name),
             Icon::Fetch,
             move |pane, cx| pane.fetch_remote(Some(fetched.clone()), cx),
         )
         .hint("f"),
-        MoreItem::new("Edit URL…", Icon::Pencil, move |pane, cx| {
+        MoreItem::new(t!("Edit URL…"), Icon::Pencil, move |pane, cx| {
             pane.edit_remote_url(&edited, cx)
         }),
-        MoreItem::new("Rename…", Icon::Pencil, move |pane, cx| {
+        MoreItem::new(t!("Rename…"), Icon::Pencil, move |pane, cx| {
             pane.rename_remote(&renamed, cx)
         }),
-        MoreItem::new("Copy URL", Icon::Copy, move |pane, cx| {
+        MoreItem::new(t!("Copy URL"), Icon::Copy, move |pane, cx| {
             pane.copy(copied.clone(), what.clone(), cx)
         }),
-        MoreItem::new("Remove remote…", Icon::Trash, move |pane, cx| {
+        MoreItem::new(t!("Remove remote…"), Icon::Trash, move |pane, cx| {
             pane.remove_remote(&removed, cx)
         })
         .separated(true)
@@ -1216,8 +1239,8 @@ fn remote_branch_more(
     );
     let (deleted_remote, deleted) = (remote.to_owned(), branch.clone());
     let check_out = match &branch.tracked_by {
-        Some(local) => format!("Check out {local}"),
-        None => "Check out as a local branch".to_owned(),
+        Some(local) => t!("Check out {local}", local = local),
+        None => t!("Check out as a local branch").to_owned(),
     };
     let items: Vec<MoreItem> = vec![
         MoreItem::new(check_out, Icon::Checkout, move |pane, cx| {
@@ -1225,23 +1248,23 @@ fn remote_branch_more(
         })
         .hint("↵"),
         MoreItem::new(
-            format!("Merge into {into}"),
+            t!("Merge into {into}", into = into),
             Icon::Merge,
             move |pane, cx| pane.merge(merged.clone(), false, cx),
         )
         .hint("M"),
         MoreItem::new(
-            format!("Set as upstream of {into}"),
+            t!("Set as upstream of {into}", into = into),
             Icon::Link,
             move |pane, cx| pane.set_upstream(&upstream, cx),
         )
         .hint("u")
         .disabled(current.is_empty()),
-        MoreItem::new("Copy name", Icon::Copy, move |pane, cx| {
+        MoreItem::new(t!("Copy name"), Icon::Copy, move |pane, cx| {
             pane.copy(copied.clone(), copied.clone(), cx)
         }),
         MoreItem::new(
-            format!("Delete on {remote}…"),
+            t!("Delete on {remote}…", remote = remote),
             Icon::Trash,
             move |pane, cx| pane.delete_remote_branch(deleted_remote.clone(), &deleted, cx),
         )
@@ -1281,8 +1304,8 @@ pub(super) fn branch_card(
     let (title, facts): (String, Vec<Div>) = match entry {
         BranchEntry::Branch(branch) => {
             let mut facts = vec![fact(
-                "Upstream",
-                branch.upstream.clone().unwrap_or_else(|| "none".into()),
+                t!("Upstream"),
+                branch.upstream.clone().unwrap_or_else(|| t!("none").into()),
                 t.text_secondary,
             )];
             if branch.current {
@@ -1290,24 +1313,27 @@ pub(super) fn branch_card(
                     Some(Ok(overview)) => (overview.status.ahead, overview.status.behind),
                     _ => (0, 0),
                 };
-                let plural = |count: i32| if count == 1 { "" } else { "s" };
+                let commits = |count: i32| match count {
+                    1 => t!("1 commit").to_owned(),
+                    count => t!("{count} commits", count = count),
+                };
                 facts.push(fact(
-                    "To push",
-                    format!("{ahead} commit{}", plural(ahead)),
+                    t!("To push"),
+                    commits(ahead),
                     if ahead > 0 { t.live } else { t.text_secondary },
                 ));
                 facts.push(fact(
-                    "To pull",
-                    format!("{behind} commit{}", plural(behind)),
+                    t!("To pull"),
+                    commits(behind),
                     if behind > 0 { t.warn } else { t.text_secondary },
                 ));
                 let changed = pane.files().len();
                 facts.push(fact(
-                    "Changes",
-                    format!(
-                        "{changed} uncommitted file{}",
-                        if changed == 1 { "" } else { "s" }
-                    ),
+                    t!("Changes"),
+                    match changed {
+                        1 => t!("1 uncommitted file").to_owned(),
+                        changed => t!("{count} uncommitted files", count = changed),
+                    },
                     t.text_secondary,
                 ));
             }
@@ -1315,16 +1341,16 @@ pub(super) fn branch_card(
         }
         BranchEntry::Remote { remote, .. } => (
             remote.name.clone(),
-            vec![fact("URL", remote.url.clone(), t.text_secondary)],
+            vec![fact(t!("URL"), remote.url.clone(), t.text_secondary)],
         ),
         BranchEntry::RemoteBranch { branch, .. } => (
             branch.full_ref.clone(),
             vec![fact(
-                "Local",
+                t!("Local"),
                 branch
                     .tracked_by
                     .clone()
-                    .unwrap_or_else(|| "no local branch".into()),
+                    .unwrap_or_else(|| t!("no local branch").into()),
                 t.text_secondary,
             )],
         ),
@@ -1344,7 +1370,7 @@ pub(super) fn branch_card(
                             .flex()
                             .items_center()
                             .gap(SPACE_2)
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(crate::theme::ui_text(TEXT_LG))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(t.text_primary)
@@ -1356,13 +1382,13 @@ pub(super) fn branch_card(
                                         .px(SPACE_1H)
                                         .flex()
                                         .items_center()
-                                        .border_1()
+                                        .border(crate::theme::border())
                                         .border_color(t.live.opacity(0.35))
                                         .rounded(px(4.))
                                         .text_size(crate::theme::ui_text(TEXT_3XS))
                                         .font_weight(FontWeight::NORMAL)
                                         .text_color(t.live)
-                                        .child("checked out"),
+                                        .child(t!("checked out")),
                                 )
                             }),
                     )
@@ -1380,7 +1406,6 @@ pub(super) fn branch_card(
     )
 }
 
-/// The buttons along the foot of a branch's card.
 fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> Div {
     let t = Tokens::get(cx).clone();
     let into = pane.current_branch();
@@ -1403,7 +1428,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .map(|button| {
                 if primary {
@@ -1441,7 +1466,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
         .justify_between()
         .px(SPACE_2)
         .py(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border);
     match entry {
         BranchEntry::Branch(branch) if branch.current => {
@@ -1456,7 +1481,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-new".into(),
                         Icon::Plus,
-                        "New branch from here".into(),
+                        t!("New branch from here").into(),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| {
@@ -1467,7 +1492,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-rename".into(),
                         Icon::Pencil,
-                        "Rename".into(),
+                        t!("Rename").into(),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| pane.rename_branch(&renamed, cx)),
@@ -1479,7 +1504,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-pull".into(),
                         Icon::Pull,
-                        "Pull".into(),
+                        t!("Pull").into(),
                         None,
                         false,
                         std::rc::Rc::new(|pane, cx| pane.pull(cx)),
@@ -1488,7 +1513,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-push".into(),
                         Icon::Push,
-                        if upstream { "Push" } else { "Publish" }.into(),
+                        if upstream { t!("Push") } else { t!("Publish") }.into(),
                         None,
                         ahead > 0 || !upstream,
                         std::rc::Rc::new(|pane, cx| pane.push(cx)),
@@ -1508,7 +1533,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-merge".into(),
                         Icon::Merge,
-                        format!("Merge into {into}"),
+                        t!("Merge into {into}", into = into),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| pane.merge(merged.clone(), false, cx)),
@@ -1517,7 +1542,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-squash".into(),
                         Icon::Merge,
-                        "Squash merge".into(),
+                        t!("Squash merge").into(),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| pane.merge(squashed.clone(), true, cx)),
@@ -1526,7 +1551,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-delete".into(),
                         Icon::Trash,
-                        "Delete".into(),
+                        t!("Delete").into(),
                         Some(t.danger),
                         false,
                         std::rc::Rc::new(move |pane, cx| pane.delete_menu(&deleted, cx)),
@@ -1536,7 +1561,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
             .child(button(
                 "card-checkout".into(),
                 Icon::Checkout,
-                "Check out".into(),
+                t!("Check out").into(),
                 None,
                 true,
                 std::rc::Rc::new(move |pane, cx| pane.checkout(checked.clone(), cx)),
@@ -1553,15 +1578,15 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                 branch.clone(),
             );
             let label = match &branch.tracked_by {
-                Some(local) => format!("Check out {local}"),
-                None => "Check out".to_owned(),
+                Some(local) => t!("Check out {local}", local = local),
+                None => t!("Check out").to_owned(),
             };
             foot.child(
                 group()
                     .child(button(
                         "card-merge".into(),
                         Icon::Merge,
-                        format!("Merge into {into}"),
+                        t!("Merge into {into}", into = into),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| pane.merge_menu(merged.clone(), cx)),
@@ -1570,7 +1595,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-upstream".into(),
                         Icon::Link,
-                        "Set as upstream".into(),
+                        t!("Set as upstream").into(),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| pane.set_upstream(&upstream, cx)),
@@ -1579,7 +1604,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-delete".into(),
                         Icon::Trash,
-                        format!("Delete on {remote}"),
+                        t!("Delete on {remote}", remote = remote),
                         Some(t.danger),
                         false,
                         std::rc::Rc::new(move |pane, cx| {
@@ -1602,13 +1627,13 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
         }
         BranchEntry::Remote { remote, .. } => {
             let (fetched, copied) = (remote.name.clone(), remote.url.clone());
-            let what = format!("{} URL", remote.name);
+            let what = t!("{name} URL", name = remote.name);
             foot.child(
                 group()
                     .child(button(
                         "card-fetch".into(),
                         Icon::Fetch,
-                        format!("Fetch {}", remote.name),
+                        t!("Fetch {name}", name = remote.name),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| {
@@ -1619,7 +1644,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
                     .child(button(
                         "card-copy".into(),
                         Icon::Copy,
-                        "Copy URL".into(),
+                        t!("Copy URL").into(),
                         None,
                         false,
                         std::rc::Rc::new(move |pane, cx| {

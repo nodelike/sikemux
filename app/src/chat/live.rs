@@ -1,64 +1,36 @@
 //! What is still going on under a chat's rows, stacked on its composer: the
 //! questions the agent waits on, its subagents at work, its background tasks,
-//! and the messages waiting their turn.
+//! the messages waiting their turn, and those share viewers wrote.
 
+use crate::ui::Clicks;
 use gpui_kit::base::Button as BaseButton;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled,
+    div, linear_color_stop, linear_gradient, px, AnyElement, Context, Div, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
 };
-use serde_json::json;
-use sikemux_core::server::{call, QueuedParams};
-use sikemux_wire::chat::{
+use sikemux_calls::call;
+use sikemux_calls::chat::QueuedParams;
+use sikemux_calls::share::GuestMessageParams;
+use sikemux_calls::triggers::TriggerParams;
+use sikemux_view::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
     WorkflowAgentState,
 };
 
 use super::tools::word;
 use super::Chat;
+use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_3XS, TEXT_3XS_H, TEXT_XS,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
+    TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
 use crate::ui::shimmer::shimmer;
-use crate::workbench::{AgentRow, Workbench};
-
-/// The groups, one above another, ending on the composer's top border in its fill.
-pub fn stack(groups: Vec<AnyElement>, t: &Tokens) -> Option<AnyElement> {
-    if groups.is_empty() {
-        return None;
-    }
-    let ruled = groups.into_iter().enumerate().map(|(ix, group)| {
-        div()
-            .when(ix > 0, |group| group.border_t_1().border_color(t.border))
-            .child(group)
-    });
-    let docked = div()
-        .w_full()
-        .max_w(px(780.))
-        .flex()
-        .flex_col()
-        .border_t_1()
-        .border_l_1()
-        .border_r_1()
-        .border_color(t.border)
-        .rounded_t(theme::RADIUS_3)
-        .bg(t.surface_composer)
-        .children(ruled);
-    Some(
-        div()
-            .w_full()
-            .px(px(36.))
-            .flex()
-            .justify_center()
-            .child(docked)
-            .into_any_element(),
-    )
-}
+use crate::workbench::Workbench;
 
 /// The line that says what kind of work a group is and how much of it, which
 /// folds the group away; folded, it peeks at what the group holds.
@@ -106,20 +78,18 @@ impl Label {
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .text_color(t.text_disabled)
             .when(self.folds, |label| {
-                label
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        if let Some(chat) = bench.chats.open.get_mut(&agent) {
-                            chat.toggle_group(&key);
-                        }
-                        cx.notify();
-                    }))
+                label.clicks(cx.listener(move |bench, _, _, cx| {
+                    if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                        chat.toggle_group(&key);
+                    }
+                    cx.notify();
+                }))
             })
             .when(self.folded, |label| label.child(self.icon))
             .child(div().child(self.word.to_uppercase()))
             .child(
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_color(t.text_tertiary)
                     .child(self.count.to_string()),
             )
@@ -130,7 +100,7 @@ impl Label {
                         .min_w_0()
                         .ml(SPACE_0)
                         .truncate()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_3XS_H))
                         .text_color(t.text_tertiary)
                         .child(self.peek.join(" · ")),
@@ -167,14 +137,6 @@ fn folding(key: &str, folded: bool, rows: Vec<AnyElement>) -> AnyElement {
     .into_any_element()
 }
 
-fn plural(word: &str, count: usize) -> String {
-    if count == 1 {
-        word.to_owned()
-    } else {
-        format!("{word}s")
-    }
-}
-
 /// The colours of work going on: an agent's in the accent its card wears, a task's in green.
 struct Tints {
     agent: Hsla,
@@ -190,68 +152,13 @@ impl Tints {
     }
 }
 
-/// A row of running work: its mark, name and what it is doing, then what it cost and how it stands.
-fn task_row(
-    t: &Tokens,
-    tint: Hsla,
-    mark: AnyElement,
-    name: String,
-    detail: Option<AnyElement>,
-    cost: Option<String>,
-    end: Option<AnyElement>,
-) -> Div {
-    div()
-        .min_w_0()
-        .pt(SPACE_1)
-        .pb(SPACE_1)
-        .pl(px(11.))
-        .pr(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(px(7.))
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .text_color(tint)
-        .child(div().flex_none().child(mark))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .font_family(theme::MONO)
-                .text_size(crate::theme::ui_text(TEXT_3XS_H))
-                .text_color(t.text_primary)
-                .child(name),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(crate::theme::ui_text(TEXT_3XS_H))
-                .text_color(t.text_disabled)
-                .children(detail),
-        )
-        .children(cost.map(|cost| {
-            div()
-                .flex_none()
-                .font_family(theme::MONO)
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(t.text_disabled)
-                .child(cost)
-        }))
-        .child(
-            div()
-                .w(px(18.))
-                .flex_none()
-                .flex()
-                .justify_center()
-                .children(end),
-        )
-}
-
 fn tokens(tokens: Option<u64>) -> Option<String> {
-    tokens
-        .filter(|tokens| *tokens > 0)
-        .map(|tokens| format!("{} tokens", crate::home::compact(tokens as f64)))
+    tokens.filter(|tokens| *tokens > 0).map(|tokens| {
+        t!(
+            "{tokens} tokens",
+            tokens = crate::ui::numbers::compact(tokens as f64)
+        )
+    })
 }
 
 fn cost(parts: [Option<String>; 2]) -> Option<String> {
@@ -259,98 +166,33 @@ fn cost(parts: [Option<String>; 2]) -> Option<String> {
     (!cost.is_empty()).then(|| cost.join(" · "))
 }
 
-/// The chat's subagents still at work, where the reader looks for live work.
-pub fn subagents(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let running: &[SubagentCard] = chat
-        .state
-        .as_ref()
-        .map_or(&[], |head| head.running_subagents.as_slice());
-    if running.is_empty() {
-        return None;
-    }
-    let t = Tokens::get(cx).clone();
-    let tint = Tints::new(&t).agent;
-    let key = "subagent".to_owned();
-    let folded = chat.groups_folded.contains(&key);
-    let label = Label {
-        word: plural("subagent", running.len()),
-        count: running.len(),
-        folds: true,
-        folded,
-        icon: ui::mark(&agent.provider, 16.),
-        peek: running.iter().map(|card| card.name.clone()).collect(),
-        action: None,
-        key,
-    }
-    .draw(&agent.id, cx);
-    let rows = running.iter().map(|card| {
-        let activity = match &card.last_tool {
-            Some(tool) => format!("{} {}", word(&tool.row), tool.row.target)
-                .trim()
-                .to_owned(),
-            None => card
-                .task
-                .split('\n')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_owned(),
-        };
-        let calls = (card.calls > 0).then(|| {
-            format!(
-                "{} {}",
-                card.calls,
-                if card.calls == 1 { "call" } else { "calls" }
-            )
-        });
-        let working = ui::icon(Icon::Hourglass, 11.)
-            .text_color(tint)
-            .into_any_element();
-        task_row(
-            &t,
-            tint,
-            ui::mark(&agent.provider, 16.),
-            card.name.clone(),
-            Some(shimmer(
-                SharedString::from(format!("subagent-{}", card.session_id)),
-                activity,
-            )),
-            cost([tokens(card.tokens), calls]),
-            Some(working),
-        )
-        .into_any_element()
-    });
-    Some(
-        div()
-            .pb(px(7.))
-            .flex()
-            .flex_col()
-            .child(label)
-            .child(folding("subagent", folded, rows.collect()))
-            .into_any_element(),
-    )
-}
-
+/// The kinds of running work, each with the mark the dock's header and rows show it by.
 fn task_icon(kind: &str) -> Icon {
     match kind {
-        "shell" => Icon::Command,
+        "shell" => Icon::Terminal,
         "workflow" => Icon::Workflow,
         _ => Icon::Timer,
     }
 }
 
+fn task_kind(task: &AsyncTask) -> &str {
+    if task.task_type.is_empty() {
+        "task"
+    } else {
+        task.task_type.as_str()
+    }
+}
+
 /// What a task row says beside its name: who started it, and the first thing that says more than the name.
 fn task_detail(task: &AsyncTask) -> Option<String> {
-    let said = [
-        task.summary.as_deref(),
-        Some(task.description.as_str()),
-        task.last_tool_name.as_deref(),
-        Some(task.task_type.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .find(|text| !text.is_empty() && *text != task.name);
-    let owner = task.owner.as_ref().map(|owner| format!("from {owner}"));
+    let said = [task.summary.as_deref(), Some(task.description.as_str())]
+        .into_iter()
+        .flatten()
+        .find(|text| !text.is_empty() && *text != task.name);
+    let owner = task
+        .owner
+        .as_ref()
+        .map(|owner| t!("from {owner}", owner = owner));
     let detail: Vec<String> = owner.into_iter().chain(said.map(str::to_owned)).collect();
     (!detail.is_empty()).then(|| one_line(&detail.join(" · ")))
 }
@@ -364,130 +206,561 @@ fn one_line(text: &str) -> String {
         .to_owned()
 }
 
-/// The background tasks, a group for each kind the agent named them by.
-pub fn tasks(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let tasks: &[AsyncTask] = chat
-        .state
-        .as_ref()
-        .map_or(&[], |head| head.tasks.as_slice());
+/// How long a task has run, as a clock reads it.
+fn elapsed(task: &AsyncTask) -> Option<String> {
+    let seconds = task.usage.as_ref()?.duration_ms / 1000;
+    (seconds > 0).then(|| match seconds {
+        s if s >= 3600 => format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60),
+        s => format!("{}:{:02}", s / 60, s % 60),
+    })
+}
+
+const RUNNING: &str = "dock";
+const QUEUED: &str = "queued";
+const GUESTS: &str = "guests";
+const TRIGGERS: &str = "triggers";
+const HANDOFF: &str = "handoff";
+
+/// A group of the dock: what its header says, on its own or within the line the folded dock
+/// draws, the button it offers, and its rows.
+struct Group {
+    key: &'static str,
+    words: Vec<AnyElement>,
+    action: Option<AnyElement>,
+    rows: Vec<AnyElement>,
+}
+
+/// The sheet tucked under the composer's top edge, holding all that sits on the composer, a
+/// hairline between each part: what the agent asks of the person, the messages waiting their
+/// turn, what is running for it, and its triggers. Each group folds on its own; once all are
+/// folded they share one line.
+pub fn dock(
+    agent: &AgentRow,
+    chat: &Chat,
+    asks: Vec<AnyElement>,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let handoff = handoff(agent, chat, cx);
+    let guests = guests(&agent.id, chat, cx);
+    let queued = queued(&agent.id, chat, cx);
+    let running = running(agent, chat, cx);
+    let triggers = triggers(&agent.id, chat, cx);
+    let groups: Vec<Group> = [handoff, guests, queued, running, triggers]
+        .into_iter()
+        .flatten()
+        .collect();
+    if asks.is_empty() && groups.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let folded = |group: &Group| chat.groups_folded.contains(group.key);
+    let all_folded = !groups.is_empty() && groups.iter().all(folded);
+    let mut parts: Vec<AnyElement> = asks;
+    if all_folded {
+        let keys: Vec<&'static str> = groups.iter().map(|group| group.key).collect();
+        let mut words: Vec<AnyElement> = Vec::new();
+        let mut action = None;
+        let mut groups = groups;
+        groups.sort_by_key(|group| group.key != RUNNING);
+        for (at, group) in groups.into_iter().enumerate() {
+            if at > 0 {
+                words.push(
+                    div()
+                        .text_color(t.text_disabled)
+                        .child("·")
+                        .into_any_element(),
+                );
+            }
+            words.extend(group.words);
+            action = match group.key {
+                QUEUED => group.action.or(action),
+                _ => action.or(group.action),
+            };
+        }
+        parts.push(header(
+            &agent.id,
+            "dock-folded",
+            Fold::Open(keys),
+            words,
+            action,
+            true,
+            &t,
+            cx,
+        ));
+    } else {
+        let mut groups = groups.into_iter().peekable();
+        if let Some(group) = groups.next_if(|group| group.key == QUEUED) {
+            parts.push(draw_group(&agent.id, group, chat, &t, cx));
+        }
+        parts.extend(groups.map(|group| draw_group(&agent.id, group, chat, &t, cx)));
+    }
+    let ruled = parts.into_iter().enumerate().map(|(at, part)| {
+        div()
+            .when(at > 0, |part| {
+                part.child(div().h(px(1.)).mx(SPACE_2).my(SPACE_0).bg(t.line))
+            })
+            .child(part)
+    });
+    let sheet = div()
+        .w_full()
+        .pt(SPACE_1H)
+        .px(SPACE_1H)
+        .pb(DOCK_TUCK + SPACE_1H)
+        .flex()
+        .flex_col()
+        .rounded_t(theme::radius_3())
+        .border_t(crate::theme::border())
+        .border_l(crate::theme::border())
+        .border_r(crate::theme::border())
+        .border_color(t.line)
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(t.surface_composer, 0.),
+            linear_color_stop(t.surface_sunken, 1.),
+        ))
+        .children(ruled);
+    Some(
+        div()
+            .w_full()
+            .px(SPACE_4)
+            .mb(-DOCK_TUCK)
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .w_full()
+                    .max_w(super::column::composer(cx))
+                    .px(SPACE_4)
+                    .child(sheet),
+            )
+            .into_any_element(),
+    )
+}
+
+fn draw_group(
+    agent: &str,
+    group: Group,
+    chat: &Chat,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let folded = chat.groups_folded.contains(group.key);
+    let id = format!("dock-{}", group.key);
+    let head = header(
+        agent,
+        &id,
+        Fold::One(group.key),
+        group.words,
+        group.action,
+        folded,
+        t,
+        cx,
+    );
+    div()
+        .flex()
+        .flex_col()
+        .child(head)
+        .child(folding(group.key, folded, group.rows))
+        .into_any_element()
+}
+
+/// What pressing a header does: fold or unfold its own group, or open every group at once.
+enum Fold {
+    One(&'static str),
+    Open(Vec<&'static str>),
+}
+
+/// A group's header, or the folded dock's one line: its words, its button, and the chevron.
+#[allow(clippy::too_many_arguments)]
+fn header(
+    agent: &str,
+    id: &str,
+    fold: Fold,
+    words: Vec<AnyElement>,
+    action: Option<AnyElement>,
+    folded: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let agent = agent.to_owned();
+    let chevron = motion::turn(
+        SharedString::from(format!("{id}-chevron")),
+        motion::fold_angle(true) * if folded { -1. } else { 1. },
+        motion::DETAIL_FOLD,
+        ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary),
+    );
+    div()
+        .id(SharedString::from(id.to_owned()))
+        .h(px(30.))
+        .pl(SPACE_2H)
+        .pr(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(theme::radius_2())
+        .text_size(theme::ui_text(TEXT_XS))
+        .text_color(t.text_tertiary)
+        .clicks(cx.listener(move |bench, _, _, cx| {
+            if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                match &fold {
+                    Fold::One(key) => chat.toggle_group(key),
+                    Fold::Open(keys) => keys.iter().for_each(|key| {
+                        chat.groups_folded.remove(*key);
+                    }),
+                }
+            }
+            cx.notify();
+        }))
+        .children(words)
+        .child(div().flex_1())
+        .children(action)
+        .child(
+            div()
+                .w(px(18.))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .child(chevron),
+        )
+        .into_any_element()
+}
+
+/// A group's count beside its icon, as its header says it.
+fn counted(icon: AnyElement, words: String, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(icon)
+        .child(ui::text(words, TEXT_XS, FontWeight::MEDIUM).text_color(t.text_secondary))
+        .into_any_element()
+}
+
+/// The subagents and background tasks running for the chat, which fold down to a count of
+/// each kind.
+fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+    let head = chat.state.as_ref()?;
+    let subagents: &[SubagentCard] = &head.running_subagents;
+    let tasks: &[AsyncTask] = &head.tasks;
+    let count = subagents.len() + tasks.len();
+    if count == 0 {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let tints = Tints::new(&t);
     let mut kinds: Vec<(&str, Vec<&AsyncTask>)> = Vec::new();
     for task in tasks {
-        let kind = if task.task_type.is_empty() {
-            "task"
-        } else {
-            task.task_type.as_str()
-        };
+        let kind = task_kind(task);
         match kinds.iter_mut().find(|(held, _)| *held == kind) {
             Some((_, group)) => group.push(task),
             None => kinds.push((kind, vec![task])),
         }
     }
-    let t = Tokens::get(cx).clone();
-    let tints = Tints::new(&t);
-    kinds
-        .into_iter()
-        .map(|(kind, group)| {
-            let key = format!("task:{kind}");
-            let folded = chat.groups_folded.contains(&key);
-            let fold_key = key.clone();
-            let label = Label {
-                word: plural(kind, group.len()),
-                count: group.len(),
-                folds: true,
-                folded,
-                icon: ui::icon(task_icon(kind), 12.)
-                    .text_color(tints.task)
-                    .into_any_element(),
-                peek: group.iter().map(|task| one_line(&task.name)).collect(),
-                action: None,
-                key,
-            }
-            .draw(&agent.id, cx);
-            let mut rows: Vec<AnyElement> = Vec::new();
-            for task in group {
-                let tint = if task.state == TaskState::Paused {
-                    t.text_disabled
-                } else {
-                    tints.task
-                };
-                let stopping = chat.stopping.contains(&task.async_task_id);
-                let stop = task
-                    .can_stop
-                    .then(|| stop(&agent.id, task, stopping, &t, cx));
-                let finished = task
-                    .agents
-                    .iter()
-                    .filter(|agent| {
-                        matches!(
-                            agent.state,
-                            WorkflowAgentState::Completed | WorkflowAgentState::Failed
-                        )
-                    })
-                    .count();
-                let agents = (!task.agents.is_empty()).then(|| {
-                    format!(
-                        "{finished}/{} {}",
-                        task.agents.len(),
-                        if task.agents.len() == 1 {
-                            "agent"
-                        } else {
-                            "agents"
-                        }
-                    )
-                });
-                let mark = ui::icon(task_icon(kind), 12.)
-                    .text_color(tint)
-                    .into_any_element();
-                rows.push(
-                    task_row(
-                        &t,
-                        tint,
-                        mark,
-                        one_line(&task.name),
-                        task_detail(task).map(|detail| match task.state {
-                            TaskState::Running => shimmer(
-                                SharedString::from(format!("task-{}", task.async_task_id)),
-                                detail,
-                            ),
-                            _ => detail.into_any_element(),
-                        }),
-                        agents,
-                        stop,
-                    )
-                    .into_any_element(),
-                );
-                rows.extend(
-                    task.agents
-                        .iter()
-                        .map(|worker| workflow_agent(agent, worker, &t, &tints)),
-                );
-            }
+    let live = div().size(px(6.)).flex_none().rounded_full().bg(t.live);
+    let mut words = vec![counted(
+        live.into_any_element(),
+        t!("{count} running", count = count),
+        &t,
+    )];
+    if chat.groups_folded.contains(RUNNING) {
+        let subagent = (!subagents.is_empty())
+            .then(|| kind_count(ui::mark(&agent.provider, 13.), subagents.len(), &t));
+        let tasks = kinds.iter().map(|(kind, group)| {
+            let icon = ui::icon(task_icon(kind), 12.)
+                .text_color(tints.task)
+                .into_any_element();
+            kind_count(icon, group.len(), &t)
+        });
+        words.push(
             div()
-                .pb(px(7.))
+                .ml(SPACE_1)
                 .flex()
-                .flex_col()
-                .child(label)
-                .child(folding(&fold_key, folded, rows))
-                .into_any_element()
+                .items_center()
+                .gap(SPACE_3)
+                .children(subagent.into_iter().chain(tasks))
+                .into_any_element(),
+        );
+    }
+    let stoppable: Vec<&AsyncTask> = (tasks.iter())
+        .filter(|task| task.can_stop && !chat.stopping.contains(&task.async_task_id))
+        .collect();
+    let action = (stoppable.len() > 1).then(|| stop_all(&agent.id, &stoppable, &t, cx));
+    let mut rows: Vec<AnyElement> = Vec::new();
+    rows.extend(
+        subagents
+            .iter()
+            .map(|card| subagent_row(agent, card, chat, &t, &tints, cx)),
+    );
+    for (kind, group) in &kinds {
+        for task in group {
+            rows.push(task_row_of(agent, kind, task, chat, &t, &tints, cx));
+            rows.extend(
+                task.agents
+                    .iter()
+                    .map(|worker| workflow_agent(agent, worker, &t, &tints)),
+            );
+        }
+    }
+    Some(Group {
+        key: RUNNING,
+        words,
+        action,
+        rows,
+    })
+}
+
+/// How far the dock runs on under the composer's top edge.
+const DOCK_TUCK: gpui_kit::Pixels = SPACE_3H;
+
+/// A kind of running work in the folded header: its mark and how many.
+fn kind_count(mark: AnyElement, count: usize, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .child(mark)
+        .child(
+            div()
+                .font_features(theme::tabular())
+                .text_color(t.text_tertiary)
+                .child(count.to_string()),
+        )
+        .into_any_element()
+}
+
+/// Stops every task that can be stopped, as each row's own stop does.
+fn stop_all(
+    agent: &str,
+    tasks: &[&AsyncTask],
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let agent = agent.to_owned();
+    let ids: Vec<String> = tasks
+        .iter()
+        .map(|task| task.async_task_id.clone())
+        .collect();
+    let (ink, hover) = (t.text_tertiary, t.text_primary);
+    BaseButton::new("dock-stop-all")
+        .accessibility_label(t!("Stop all background tasks"))
+        .h(px(22.))
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .rounded(theme::radius_1())
+        .text_size(theme::ui_text(TEXT_2XS_H))
+        .text_color(ink)
+        .hover(move |button| button.text_color(hover))
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                chat.stopping.extend(ids.iter().cloned());
+            }
+            bench.parts.redraw_stage(cx);
+            for id in &ids {
+                bench.ask_chat(ChatAsk::StopTask {
+                    agent: agent.clone(),
+                    task: id.clone(),
+                });
+            }
+        }))
+        .child(t!("Stop all"))
+        .into_any_element()
+}
+
+/// A row of running work: its mark, its name, what it is doing, then what it has cost and its end.
+fn work_row(
+    t: &Tokens,
+    mark: AnyElement,
+    name: String,
+    detail: Option<(AnyElement, bool)>,
+    meta: Option<String>,
+    end: Option<AnyElement>,
+) -> Div {
+    div()
+        .min_w_0()
+        .h(px(30.))
+        .pl(SPACE_2H)
+        .pr(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .rounded(theme::radius_2())
+        .hover(|row| row.bg(t.surface_hover))
+        .child(div().flex_none().flex().child(mark))
+        .child(
+            ui::text(name, TEXT_XS_H, FontWeight::MEDIUM)
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_primary)
+                .map(|name| match detail.is_some() {
+                    true => name.flex_shrink_0().max_w(gpui_kit::relative(0.5)),
+                    false => name.flex_1(),
+                }),
+        )
+        .children(detail.is_some().then(|| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(theme::ui_text(TEXT_2XS))
+                .text_color(t.text_tertiary)
+                .children(detail.map(|(detail, command)| {
+                    div()
+                        .truncate()
+                        .when(command, |detail| detail.font_family(theme::mono_font()))
+                        .child(detail)
+                }))
+        }))
+        .children(meta.map(|meta| {
+            div()
+                .flex_none()
+                .font_features(theme::tabular())
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.text_tertiary)
+                .child(meta)
+        }))
+        .child(
+            div()
+                .min_w(px(18.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(SPACE_1H)
+                .children(end),
+        )
+}
+
+fn subagent_row(
+    agent: &AgentRow,
+    card: &SubagentCard,
+    chat: &Chat,
+    t: &Tokens,
+    tints: &Tints,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let activity = match &card.last_tool {
+        Some(tool) => format!("{} {}", word(&tool.row), tool.row.target)
+            .trim()
+            .to_owned(),
+        None => one_line(&card.task),
+    };
+    let calls = (card.calls > 0).then(|| match card.calls {
+        1 => t!("1 call").to_owned(),
+        calls => t!("{calls} calls", calls = calls),
+    });
+    let end = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(ui::working(11., tints.agent))
+        .when(card.can_stop, |end| {
+            let stopping = chat.stopping.contains(&card.session_id);
+            end.child(stop(
+                &agent.id,
+                &card.session_id,
+                &card.name,
+                stopping,
+                t,
+                cx,
+            ))
         })
-        .collect()
+        .into_any_element();
+    let activity = shimmer(
+        SharedString::from(format!("subagent-{}", card.session_id)),
+        activity,
+    );
+    work_row(
+        t,
+        ui::mark(&agent.provider, 13.),
+        card.name.clone(),
+        Some((activity, false)),
+        cost([tokens(card.tokens), calls]),
+        Some(end),
+    )
+    .into_any_element()
+}
+
+fn task_row_of(
+    agent: &AgentRow,
+    kind: &str,
+    task: &AsyncTask,
+    chat: &Chat,
+    t: &Tokens,
+    tints: &Tints,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let tint = if task.state == TaskState::Paused {
+        t.text_disabled
+    } else {
+        tints.task
+    };
+    let stopping = chat.stopping.contains(&task.async_task_id);
+    let stop = task
+        .can_stop
+        .then(|| stop(&agent.id, &task.async_task_id, &task.name, stopping, t, cx));
+    let finished = task
+        .agents
+        .iter()
+        .filter(|agent| {
+            matches!(
+                agent.state,
+                WorkflowAgentState::Completed | WorkflowAgentState::Failed
+            )
+        })
+        .count();
+    let agents = (!task.agents.is_empty()).then(|| match task.agents.len() {
+        1 => t!("{finished}/1 agent", finished = finished),
+        total => t!(
+            "{finished}/{total} agents",
+            finished = finished,
+            total = total
+        ),
+    });
+    let used = task
+        .usage
+        .as_ref()
+        .and_then(|usage| tokens(Some(usage.total_tokens)));
+    let mark = ui::icon(task_icon(kind), 12.)
+        .text_color(tint)
+        .into_any_element();
+    let detail = task_detail(task).map(|detail| {
+        let detail = match task.state {
+            TaskState::Running => shimmer(
+                SharedString::from(format!("task-{}", task.async_task_id)),
+                detail,
+            ),
+            _ => detail.into_any_element(),
+        };
+        (detail, matches!(kind, "shell" | "monitor"))
+    });
+    work_row(
+        t,
+        mark,
+        one_line(&task.name),
+        detail,
+        cost([agents.or(used), elapsed(task)]),
+        stop,
+    )
+    .into_any_element()
 }
 
 fn stop(
     agent: &str,
-    task: &AsyncTask,
+    id: &str,
+    name: &str,
     stopping: bool,
     t: &Tokens,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let (agent, id, danger) = (agent.to_owned(), task.async_task_id.clone(), t.danger);
+    let (agent, id, danger) = (agent.to_owned(), id.to_owned(), t.danger);
     BaseButton::new(SharedString::from(format!("stop:{id}")))
-        .accessibility_label(format!("Stop {}", task.name))
+        .accessibility_label(t!("Stop {name}", name = name))
         .size(px(18.))
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .text_color(t.text_disabled)
         .when(!stopping, |stop| {
             stop.hover(move |stop| stop.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
@@ -522,11 +795,19 @@ fn workflow_agent(
     let calls = worker
         .tool_calls
         .filter(|calls| *calls > 0)
-        .map(|calls| format!("{calls} tools"));
+        .map(|calls| t!("{calls} tools", calls = calls));
     let end = match worker.state {
-        WorkflowAgentState::Running => Some(ui::icon(Icon::Hourglass, 11.).text_color(tints.agent)),
-        WorkflowAgentState::Completed => Some(ui::icon(Icon::Check, 10.).text_color(tints.task)),
-        WorkflowAgentState::Failed => Some(ui::icon(Icon::Close, 10.).text_color(t.danger)),
+        WorkflowAgentState::Running => Some(ui::working(11., tints.agent)),
+        WorkflowAgentState::Completed => Some(
+            ui::icon(Icon::Check, 10.)
+                .text_color(tints.task)
+                .into_any_element(),
+        ),
+        WorkflowAgentState::Failed => Some(
+            ui::icon(Icon::Close, 10.)
+                .text_color(t.danger)
+                .into_any_element(),
+        ),
         WorkflowAgentState::Queued => None,
     };
     let quiet = matches!(
@@ -535,18 +816,17 @@ fn workflow_agent(
     );
     let mark = div()
         .when(quiet, |mark| mark.opacity(0.6))
-        .child(ui::mark(&agent.provider, 16.))
+        .child(ui::mark(&agent.provider, 13.))
         .into_any_element();
-    task_row(
+    work_row(
         t,
-        tints.agent,
         mark,
         worker.label.clone(),
-        detail.map(IntoElement::into_any_element),
+        detail.map(|detail| (detail.into_any_element(), false)),
         cost([tokens(worker.tokens), calls]),
-        end.map(IntoElement::into_any_element),
+        end,
     )
-    .pl(px(26.))
+    .pl(px(33.))
     .into_any_element()
 }
 
@@ -565,9 +845,89 @@ fn queued_label(message: &QueuedMessage) -> String {
         .join(", ")
 }
 
+fn agent_label(provider: &str) -> &str {
+    sikemux_agents::agent_catalog::agent(provider).map_or(provider, |agent| agent.label)
+}
+
+/// What the chat's next message hands to the agent that took it over, or that starts it as a
+/// fork, with a button to send it without.
+fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+    let handoff = chat.state.as_ref()?.handoff.as_ref()?;
+    let t = Tokens::get(cx).clone();
+    let mut said = Vec::new();
+    if handoff.request {
+        said.push(t!("first request").to_owned());
+    }
+    said.push(match handoff.exchanges {
+        1 => t!("the latest exchange").to_owned(),
+        count => t!("{count} latest exchanges", count = count),
+    });
+    match handoff.commands {
+        0 => {}
+        1 => said.push(t!("1 command").to_owned()),
+        count => said.push(t!("{count} commands", count = count)),
+    }
+    said.push(t!(
+        "~{thousands}k tokens",
+        thousands = handoff.tokens.div_ceil(1000)
+    ));
+    let lead = match handoff.forked_from {
+        Some(_) => t!(
+            "Forked from a {agent} chat",
+            agent = agent_label(&handoff.from)
+        ),
+        None => t!(
+            "Hands over to {agent}",
+            agent = agent_label(&agent.provider)
+        ),
+    };
+    let marks = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .child(ui::mark(&handoff.from, 12.))
+        .when(handoff.forked_from.is_none(), |marks| {
+            marks
+                .child(div().text_color(t.text_disabled).child("→"))
+                .child(ui::mark(&agent.provider, 12.))
+        })
+        .into_any_element();
+    let words = vec![
+        counted(marks, lead, &t),
+        div()
+            .text_color(t.text_tertiary)
+            .child(said.join(" · "))
+            .into_any_element(),
+    ];
+    let id = agent.id.clone();
+    let leave_out = BaseButton::new(SharedString::from(format!("handoff-leave:{id}")))
+        .h(px(20.))
+        .px(px(7.))
+        .flex()
+        .items_center()
+        .border(crate::theme::border())
+        .border_color(t.line)
+        .rounded(theme::radius_1())
+        .hover(|button| button.bg(t.surface_hover))
+        .text_size(crate::theme::ui_text(TEXT_3XS_H))
+        .text_color(t.text_secondary)
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            bench.drop_handoff(&id);
+            cx.stop_propagation();
+        }))
+        .child(t!("Leave out"))
+        .into_any_element();
+    Some(Group {
+        key: HANDOFF,
+        words,
+        action: Some(leave_out),
+        rows: Vec::new(),
+    })
+}
+
 /// Messages the person sent while a turn runs, waiting for it to end; while it
 /// takes words mid-turn, each can go into it now, or all at once.
-pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
     let head = chat.state.as_ref()?;
     let waiting = &head.queued;
     if waiting.is_empty() {
@@ -579,19 +939,7 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
     let steer = |ids: Vec<String>, label: &str, keys: bool, cx: &mut Context<Workbench>| {
         let agent = agent.to_owned();
         let id = SharedString::from(format!("steer:{}", ids.join(",")));
-        BaseButton::new(id)
-            .h(px(20.))
-            .px(px(7.))
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .border_1()
-            .border_color(t.line)
-            .rounded(theme::RADIUS_1)
-            .bg(Hsla { a: 0.08, ..live })
-            .hover(move |button| button.bg(Hsla { a: 0.18, ..live }))
-            .text_size(crate::theme::ui_text(TEXT_3XS_H))
-            .text_color(t.text_primary)
+        tinted_button(id, label, live, &t)
             .on_click(cx.listener(move |bench, _, _, _| {
                 bench
                     .chat_target(&agent)
@@ -601,7 +949,6 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
                         message: None,
                     });
             }))
-            .child(label.to_owned())
             .when(keys, |button| {
                 button.child(
                     div()
@@ -613,38 +960,32 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
             .into_any_element()
     };
     let all = waiting.iter().map(|message| message.id.clone()).collect();
-    let action = (steerable && waiting.len() > 1).then(|| {
-        div()
-            .ml_auto()
-            .child(steer(all, "Steer all", true, cx))
-            .into_any_element()
-    });
-    let label = Label {
-        key: "queued".into(),
-        word: "queued".into(),
-        count: waiting.len(),
-        folds: false,
-        folded: false,
-        icon: div().into_any_element(),
-        peek: Vec::new(),
-        action,
-    };
-    let label = label.draw(agent, cx);
+    let action = (steerable && waiting.len() > 1).then(|| steer(all, t!("Steer all"), true, cx));
+    let arrow = ui::icon(Icon::ArrowUp, 11.)
+        .text_color(t.text_tertiary)
+        .into_any_element();
+    let words = vec![counted(
+        arrow,
+        t!("{count} queued", count = waiting.len()),
+        &t,
+    )];
     let rows: Vec<AnyElement> = waiting
         .iter()
         .map(|message| {
-            let steer_one =
-                steerable.then(|| steer(vec![message.id.clone()], "Steer", waiting.len() == 1, cx));
-            let (agent, id, danger) = (agent.to_owned(), message.id.clone(), t.danger);
-            let drop = BaseButton::new(SharedString::from(format!("drop:{id}")))
-                .accessibility_label(format!("Drop {} from the queue", queued_label(message)))
-                .size(px(18.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme::RADIUS_1)
-                .text_color(t.text_disabled)
-                .hover(move |drop| drop.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
+            let steer_one = steerable.then(|| {
+                steer(
+                    vec![message.id.clone()],
+                    t!("Steer"),
+                    waiting.len() == 1,
+                    cx,
+                )
+            });
+            let (agent, id) = (agent.to_owned(), message.id.clone());
+            let label = t!(
+                "Drop {message} from the queue",
+                message = queued_label(message)
+            );
+            let drop = remove_button(SharedString::from(format!("drop:{id}")), label, &t)
                 .on_click(cx.listener(move |bench, _, _, _| {
                     bench
                         .chat_target(&agent)
@@ -654,68 +995,176 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
                             message: None,
                         });
                 }))
-                .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled));
-            div()
-                .min_w_0()
-                .py(SPACE_1)
-                .pl(px(11.))
-                .pr(SPACE_2)
+                .into_any_element();
+            let icon = match message.text.is_empty() && !message.paths.is_empty() {
+                true => Icon::Image,
+                false => Icon::Message,
+            };
+            let mark = ui::icon(icon, 12.)
+                .text_color(t.text_tertiary)
+                .into_any_element();
+            let end = div()
                 .flex()
                 .items_center()
-                .gap(px(7.))
-                .text_color(t.text_tertiary)
-                .child(
-                    ui::icon(Icon::Clock, 12.)
-                        .flex_none()
-                        .text_color(t.text_tertiary),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(crate::theme::ui_text(TEXT_XS))
-                        .text_color(t.text_secondary)
-                        .child(queued_label(message)),
-                )
+                .gap(SPACE_1H)
                 .children(steer_one)
                 .child(drop)
-                .into_any_element()
+                .into_any_element();
+            work_row(
+                &t,
+                mark,
+                one_line(&queued_label(message)),
+                None,
+                None,
+                Some(end),
+            )
+            .into_any_element()
         })
         .collect();
-    Some(
-        div()
-            .pb(px(7.))
-            .flex()
-            .flex_col()
-            .child(label)
-            .children(rows)
-            .into_any_element(),
-    )
+    Some(Group {
+        key: QUEUED,
+        words,
+        action,
+        rows,
+    })
 }
 
-const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/// A small button of the dock, washed in `tint`.
+fn tinted_button(id: SharedString, label: &str, tint: Hsla, t: &Tokens) -> BaseButton {
+    BaseButton::new(id)
+        .h(px(20.))
+        .px(px(7.))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .border(crate::theme::border())
+        .border_color(t.line)
+        .rounded(theme::radius_1())
+        .bg(Hsla { a: 0.08, ..tint })
+        .hover(move |button| button.bg(Hsla { a: 0.18, ..tint }))
+        .text_size(crate::theme::ui_text(TEXT_3XS_H))
+        .text_color(t.text_primary)
+        .child(label.to_owned())
+}
+
+/// The cross that takes a row out of the dock.
+fn remove_button(id: SharedString, label: String, t: &Tokens) -> BaseButton {
+    let danger = t.danger;
+    BaseButton::new(id)
+        .accessibility_label(label)
+        .size(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme::radius_1())
+        .text_color(t.text_disabled)
+        .hover(move |remove| remove.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
+        .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled))
+}
+
+/// What viewers of the chat's share link wrote, waiting for the person to send each to the
+/// agent or dismiss it.
+fn guests(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+    let waiting = &chat.state.as_ref()?.guests;
+    if waiting.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let accent = t.accent;
+    let icon = ui::icon(Icon::Link, 11.)
+        .text_color(t.text_tertiary)
+        .into_any_element();
+    let words = vec![counted(
+        icon,
+        t!("{count} from guests", count = waiting.len()),
+        &t,
+    )];
+    let rows = waiting
+        .iter()
+        .map(|message| {
+            let params = GuestMessageParams {
+                agent_id: agent.to_owned(),
+                id: message.id.clone(),
+            };
+            let (agent, sending) = (agent.to_owned(), params.clone());
+            let send = tinted_button(
+                SharedString::from(format!("guest-send:{}", message.id)),
+                t!("Send"),
+                accent,
+                &t,
+            )
+            .on_click(cx.listener(move |bench, _, _, _| {
+                bench
+                    .chat_target(&agent)
+                    .call_typed::<call::SendGuestMessage>(sending.clone());
+            }));
+            let (agent, dismissing) = (params.agent_id.clone(), params);
+            let dismiss = remove_button(
+                SharedString::from(format!("guest-dismiss:{}", message.id)),
+                t!("Dismiss the guest's message").to_owned(),
+                &t,
+            )
+            .on_click(cx.listener(move |bench, _, _, _| {
+                bench
+                    .chat_target(&agent)
+                    .call_typed::<call::DismissGuestMessage>(dismissing.clone());
+            }));
+            let mark = ui::icon(Icon::Message, 12.)
+                .text_color(t.text_tertiary)
+                .into_any_element();
+            let end = div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .child(send)
+                .child(dismiss)
+                .into_any_element();
+            let who = match &message.name {
+                Some(name) => t!("{name} · guest", name = name),
+                None => t!("Guest").to_owned(),
+            };
+            let text = div().child(one_line(&message.text)).into_any_element();
+            work_row(&t, mark, who, Some((text, false)), None, Some(end)).into_any_element()
+        })
+        .collect();
+    Some(Group {
+        key: GUESTS,
+        words,
+        action: None,
+        rows,
+    })
+}
+
+const WEEKDAYS: [&str; 7] = [
+    n!("Sun"),
+    n!("Mon"),
+    n!("Tue"),
+    n!("Wed"),
+    n!("Thu"),
+    n!("Fri"),
+    n!("Sat"),
+];
 
 /// How often a trigger fires, in a few words; none for one that fires once.
 fn repeats(when: &TriggerWhen) -> Option<String> {
     match when {
-        TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } => None,
+        TriggerWhen::Once { .. }
+        | TriggerWhen::Webhook { .. }
+        | TriggerWhen::Ci { .. }
+        | TriggerWhen::Mod { .. } => None,
         TriggerWhen::Every { seconds } => Some(match seconds {
-            s if s % 86_400 == 0 => format!(
-                "every {} {}",
-                s / 86_400,
-                plural("day", (s / 86_400) as usize)
-            ),
-            s if s % 3_600 == 0 => format!("every {} h", s / 3_600),
-            s => format!("every {} min", s.div_ceil(60)),
+            86_400 => t!("every 1 day").to_owned(),
+            s if s % 86_400 == 0 => t!("every {days} days", days = s / 86_400),
+            s if s % 3_600 == 0 => t!("every {hours} h", hours = s / 3_600),
+            s => t!("every {minutes} min", minutes = s.div_ceil(60)),
         }),
         TriggerWhen::Daily { weekdays, .. } => Some(match weekdays.as_slice() {
-            [] => "daily".to_owned(),
-            [1, 2, 3, 4, 5] => "weekdays".to_owned(),
+            [] => t!("daily").to_owned(),
+            [1, 2, 3, 4, 5] => t!("weekdays").to_owned(),
             days => days
                 .iter()
                 .filter_map(|day| WEEKDAYS.get(usize::from(*day)))
-                .copied()
+                .map(|day| crate::i18n::tr(day))
                 .collect::<Vec<_>>()
                 .join(" "),
         }),
@@ -723,84 +1172,99 @@ fn repeats(when: &TriggerWhen) -> Option<String> {
 }
 
 /// When the trigger fires: on each request for a webhook, else how often and when next.
-fn fires(trigger: &ChatTrigger) -> String {
-    if let TriggerWhen::Webhook { .. } = trigger.when {
-        return "on each request".to_owned();
+pub(crate) fn fires(trigger: &ChatTrigger) -> String {
+    match &trigger.when {
+        TriggerWhen::Webhook { .. } => return t!("on each request").to_owned(),
+        TriggerWhen::Ci { on } => return t!("when CI on {on} ends", on = on),
+        TriggerWhen::Mod { on } => return t!("when {on} changes", on = on),
+        _ => {}
     }
     let next = trigger
         .next_at
         .and_then(|at| i64::try_from(at).ok())
         .and_then(chrono::DateTime::from_timestamp_millis)
-        .map(crate::agents::day_and_time)
+        .map(crate::agents::limits::day_and_time)
         .unwrap_or_default();
     match repeats(&trigger.when) {
-        Some(repeats) => format!("{repeats} · next {next}"),
+        Some(repeats) => t!("{repeats} · next {next}", repeats = repeats, next = next),
         None => next,
     }
 }
 
 /// The triggers the agent set on its chat, each with when it next sends the chat its
 /// prompt, which the person can remove.
-pub fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
     let set = &chat.state.as_ref()?.triggers;
     if set.is_empty() {
         return None;
     }
     let t = Tokens::get(cx).clone();
-    let folded = chat.groups_folded.contains("triggers");
-    let label = Label {
-        key: "triggers".into(),
-        word: plural("trigger", set.len()),
-        count: set.len(),
-        folds: true,
-        folded,
-        icon: ui::icon(Icon::Timer, 11.)
-            .text_color(t.cmd)
-            .into_any_element(),
-        peek: set.iter().map(fires).take(1).collect(),
-        action: None,
-    }
-    .draw(agent, cx);
+    let clock = |size: f32| {
+        ui::icon(Icon::Timer, size)
+            .text_color(t.warn)
+            .into_any_element()
+    };
+    let words = vec![counted(
+        clock(11.),
+        match set.len() {
+            1 => t!("1 trigger").to_owned(),
+            count => t!("{count} triggers", count = count),
+        },
+        &t,
+    )];
     let rows: Vec<AnyElement> = set
         .iter()
         .map(|trigger| {
             let (agent, id) = (agent.to_owned(), trigger.id);
-            trigger_row(
+            let (copy, remove) = trigger_buttons(
                 trigger,
                 &t,
                 cx.listener(move |bench, _, _, _| {
                     bench
                         .chat_target(&agent)
-                        .call("removeTrigger", json!({ "trigger": id }));
+                        .call_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
                 }),
+            );
+            let end = div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .children(copy)
+                .child(remove)
+                .into_any_element();
+            work_row(
+                &t,
+                clock(12.),
+                trigger.title.clone(),
+                None,
+                Some(fires(trigger)),
+                Some(end),
             )
+            .into_any_element()
         })
         .collect();
-    Some(
-        div()
-            .pb(px(7.))
-            .flex()
-            .flex_col()
-            .child(label)
-            .child(folding("triggers", folded, rows))
-            .into_any_element(),
-    )
+    Some(Group {
+        key: TRIGGERS,
+        words,
+        action: None,
+        rows,
+    })
 }
 
-/// One trigger: what it is for, when it next fires, and a button that removes it.
-pub fn trigger_row(
+/// A trigger's buttons: one that copies a webhook's address, and one that removes it.
+fn trigger_buttons(
     trigger: &ChatTrigger,
     t: &Tokens,
     remove: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
-) -> AnyElement {
+) -> (Option<BaseButton>, BaseButton) {
     let danger = t.danger;
     let remove = BaseButton::new(SharedString::from(format!("trigger-remove:{}", trigger.id)))
-        .accessibility_label(format!("Remove trigger {}", trigger.title))
+        .accessibility_label(t!("Remove trigger {title}", title = trigger.title))
         .size(px(18.))
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .text_color(t.text_disabled)
         .hover(move |remove| remove.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
         .on_click(remove)
@@ -810,12 +1274,15 @@ pub fn trigger_row(
             let url = url.clone();
             Some(
                 BaseButton::new(SharedString::from(format!("trigger-copy:{}", trigger.id)))
-                    .accessibility_label(format!("Copy the address of trigger {}", trigger.title))
+                    .accessibility_label(t!(
+                        "Copy the address of trigger {title}",
+                        title = trigger.title
+                    ))
                     .size(px(18.))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(theme::RADIUS_1)
+                    .rounded(theme::radius_1())
                     .hover(|copy| copy.bg(t.surface_hover))
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(url.clone()))
@@ -825,6 +1292,16 @@ pub fn trigger_row(
         }
         _ => None,
     };
+    (copy, remove)
+}
+
+/// One trigger: what it is for, when it next fires, and a button that removes it.
+pub fn trigger_row(
+    trigger: &ChatTrigger,
+    t: &Tokens,
+    remove: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+) -> AnyElement {
+    let (copy, remove) = trigger_buttons(trigger, t, remove);
     div()
         .min_w_0()
         .py(SPACE_1)
@@ -836,21 +1313,24 @@ pub fn trigger_row(
         .child(ui::icon(Icon::Timer, 12.).flex_none().text_color(t.cmd))
         .child(
             div()
-                .flex_1()
+                .flex_auto()
                 .min_w_0()
                 .truncate()
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_secondary)
                 .child(trigger.title.clone()),
         )
-        .child(
-            div()
-                .flex_none()
-                .font_family(theme::MONO)
+        .child({
+            let mut when = div()
+                .min_w_0()
+                .truncate()
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_3XS))
                 .text_color(t.text_disabled)
-                .child(fires(trigger)),
-        )
+                .child(fires(trigger));
+            when.style().flex_shrink = Some(4.);
+            when
+        })
         .children(copy)
         .child(remove)
         .into_any_element()

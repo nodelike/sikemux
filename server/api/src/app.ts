@@ -8,9 +8,12 @@ import type { ClerkBackend } from "./account/clerk.ts";
 import { accountRoutes } from "./account/routes.ts";
 import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
+import { allowanceRoutes } from "./billing/host.ts";
+import { billingProviderRoutes, billingRoutes } from "./billing/routes.ts";
+import type { BillingProvider } from "./billing/provider.ts";
 import { deviceRoutes } from "./devices/routes.ts";
 import { healthRoutes } from "./health/routes.ts";
-import { HookHosts } from "./hooks/hosts.ts";
+import type { HookHosts } from "./hooks/hosts.ts";
 import { hookReceiveRoutes, hookRoutes } from "./hooks/routes.ts";
 import { hostSignInRoutes } from "./host/routes.ts";
 import {
@@ -21,15 +24,18 @@ import {
   type Env,
 } from "./http.ts";
 import type { JoinSigner } from "./join/signer.ts";
-import { clientAddress, limit, RateLimiter } from "./limits.ts";
+import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
+import { orgRoutes } from "./orgs/routes.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
-import { RelayAccess, relayAccessRoutes } from "./relay/access.ts";
+import { relayAccessRoutes, type RelayAccess } from "./relay/access.ts";
 import type { StashFiles } from "./stash/files.ts";
 import { stashRoutes } from "./stash/routes.ts";
 import { updateRoutes } from "./updates/routes.ts";
+import { vaultRoutes } from "./vault/routes.ts";
+import { modRoutes } from "./mods/routes.ts";
 import { clerkWebhookRoutes } from "./webhooks/clerk.ts";
 
 export interface Services {
@@ -39,8 +45,8 @@ export interface Services {
   /** The API's own public origin, which webhook addresses start with. */
   apiOrigin: string;
   verifier: Verifier;
-  limiter?: RateLimiter;
-  relayAccess?: RelayAccess;
+  limiter: RateLimiter;
+  relayAccess: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
   clerk: ClerkBackend | null;
   /** Apple's token endpoints, or null when APPLE_SIGNIN_KEY_FILE is not set. */
@@ -55,71 +61,78 @@ export interface Services {
   /** What the relay sends to ask whether a device may use it, or null when it is not set up. */
   relayAccessToken: string | null;
   /** Where stashed files are kept, or null when the stash is not set up. */
-  stash?: StashFiles | null;
+  stash: StashFiles | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
-  hookHosts?: HookHosts;
+  hookHosts: HookHosts;
+  billing: {
+    /** Null when BILLING_PROVIDER is not set, and buying or changing anything answers unavailable. */
+    provider: BillingProvider | null;
+    live: boolean;
+  };
 }
 
-export function createApp({
-  database,
-  log,
-  appOrigin,
-  apiOrigin,
-  verifier,
-  limiter = new RateLimiter(),
-  relayAccess = new RelayAccess(database.db),
-  clerk,
-  appleSignIn,
-  webhookSecret,
-  network,
-  push,
-  join,
-  places,
-  relayAccessToken,
-  stash = null,
-  hookHosts = new HookHosts(),
-}: Services) {
+export function createApp(services: Services) {
+  const {
+    log,
+    appOrigin,
+    limiter,
+    relayAccess,
+    relayAccessToken,
+    network,
+    database,
+    webhookSecret,
+  } = services;
   const app = new Hono<Env>();
 
   app.use(requestContext(log));
   app.route("/internal", relayAccessRoutes(relayAccess, relayAccessToken));
   // Senders such as GitHub post every account's webhooks from a few addresses, so each webhook
   // has its own limit instead of the address's.
-  app.route("/v1/hooks", hookReceiveRoutes(database, limiter, hookHosts));
+  app.route("/v1/hooks", hookReceiveRoutes(services));
+  app.route("/v1/billing/provider", billingProviderRoutes(services));
   app.use(limit<Env>(limiter, "address", 600, clientAddress));
   app.use(
     cors({
       origin: appOrigin,
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-      allowHeaders: ["authorization", "content-type"],
+      // The web app sends Sentry's trace headers, so its requests and the API's spans join up.
+      allowHeaders: [
+        "authorization",
+        "content-type",
+        "sentry-trace",
+        "baggage",
+      ],
       exposeHeaders: ["x-request-id"],
       maxAge: 600,
     }),
   );
   // The stash takes files, so it limits its own bodies.
-  app.route("/v1/stash", stashRoutes(database, verifier, limiter, stash, log));
+  app.route("/v1/stash", stashRoutes(services));
+  // A vault rotation carries every entry sealed again, so the vault limits its own bodies too.
+  app.route("/v1/vault", vaultRoutes(services));
+  // A push carries many sealed documents and a mod's files are uploaded, so mods limit their own bodies too.
+  app.route("/v1/mods", modRoutes(services));
   app.use(limitBody());
 
   app.route("/v1/health", healthRoutes(database));
   app.route("/v1/network", networkRoutes(network, limiter));
+  app.route("/v1/devices", deviceRoutes(services));
+  app.route("/v1/host-sign-ins", hostSignInRoutes(services));
+  app.route("/v1/account/profile", profileRoutes(services));
+  app.route("/v1/account/allowance", allowanceRoutes(services));
+  app.route("/v1/account", accountRoutes(services));
+  app.route("/v1/orgs", orgRoutes(services));
   app.route(
-    "/v1/devices",
-    deviceRoutes(database, verifier, limiter, clerk, push, join),
+    "/v1/webhooks",
+    clerkWebhookRoutes(
+      database,
+      webhookSecret,
+      services.billing.provider,
+      services.clerk,
+    ),
   );
-  app.route(
-    "/v1/host-sign-ins",
-    hostSignInRoutes(database, verifier, limiter, appOrigin, places),
-  );
-  app.route(
-    "/v1/account/profile",
-    profileRoutes(database, verifier, limiter, clerk),
-  );
-  app.route(
-    "/v1/account",
-    accountRoutes(database, verifier, limiter, clerk, appleSignIn, push.app),
-  );
-  app.route("/v1/webhooks", clerkWebhookRoutes(database, webhookSecret));
-  app.route("/v1/hooks", hookRoutes(database, verifier, hookHosts, apiOrigin));
+  app.route("/v1/hooks", hookRoutes(services));
+  app.route("/v1/billing", billingRoutes(services));
   app.route("/updates", updateRoutes(database, limiter));
 
   app.notFound((c) =>

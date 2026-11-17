@@ -127,7 +127,6 @@ pub fn blob(bytes: &[u8]) -> Value {
     }
 }
 
-/// Whether a type name, as an engine spells it, holds numbers.
 pub fn is_numeric_type(type_name: &str) -> bool {
     let upper = type_name.to_ascii_uppercase();
     [

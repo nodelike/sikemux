@@ -12,10 +12,9 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, ClipboardItem, Entity, Focusable, Pixels, Point, WeakEntity, Window};
 use gpui_transcript::{FileKind, FilePress};
-use serde_json::{json, Value};
 
-use sikemux_core::cli::protocol::{CliOpenTarget, CliTargetKind};
-use sikemux_markdown::paths::{has_scheme, is_file_name, is_windows_drive};
+use sikemux_corekit::cli::protocol::CliOpenTarget;
+use sikemux_corekit::cli::protocol::CliTargetKind;
 
 use super::Reading;
 use crate::core::Target;
@@ -25,6 +24,10 @@ use crate::retry::Backoff;
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_git::files::FileKind as CoreFileKind;
+use sikemux_git::files::FileKindsParams;
+use sikemux_markdown::paths::{normalized, parse, PathRef};
 
 /// How long the names a screenful asks about are gathered before they go out as one ask.
 const GATHER: Duration = Duration::from_millis(16);
@@ -36,149 +39,6 @@ const MISS_TRUSTED: Duration = Duration::from_secs(5);
 const MOST_KNOWN: usize = 2_000;
 /// The longest a chat waits to ask again after its host failed to answer.
 const LONGEST_REST: Duration = Duration::from_secs(60);
-/// A reference longer than this is prose that happens to hold slashes.
-const LONGEST: usize = 512;
-
-/// A reference to a file, resolved far enough to open it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PathRef {
-    /// Absolute, with `/` between its parts.
-    pub path: String,
-    /// Counted from 1, as a reader counts, when the reference named one.
-    pub line: Option<u32>,
-    pub column: Option<u32>,
-}
-
-/// `path:12`, `path:12:5` and `path#L12C5`, as a tool, a compiler and a code host each write
-/// the same place.
-fn split_place(raw: &str) -> (&str, Option<u32>, Option<u32>) {
-    if let Some(at) = raw.rfind("#L").or_else(|| raw.rfind("#l")) {
-        let place = &raw[at + 2..];
-        let (line, column) = match place.find(['C', 'c']) {
-            Some(c) => (&place[..c], Some(&place[c + 1..])),
-            None => (place, None),
-        };
-        let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
-        if digits(line) && column.is_none_or(digits) {
-            return (
-                &raw[..at],
-                line.parse().ok(),
-                column.and_then(|column| column.parse().ok()),
-            );
-        }
-    }
-    let number = |text: &str| -> Option<u32> {
-        (!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| text.parse().ok())
-            .flatten()
-    };
-    if let Some((rest, last)) = raw.rsplit_once(':') {
-        if let Some(last) = number(last) {
-            if let Some((body, line)) = rest.rsplit_once(':') {
-                if let Some(line) = number(line) {
-                    return (body, Some(line), Some(last));
-                }
-            }
-            return (rest, Some(last), None);
-        }
-    }
-    (raw, None, None)
-}
-
-fn normalized(path: &str) -> String {
-    path.replace('\\', "/").trim_end_matches('/').to_owned()
-}
-
-/// A bare name only refers to a file when it carries an extension or is one a project
-/// spells out in full; anything else needs a separator.
-fn looks_relative(body: &str) -> bool {
-    body.contains('/') || body.contains('\\') || body.starts_with('.') || is_file_name(body)
-}
-
-fn file_uri_path(uri: &str) -> Option<String> {
-    let url = url::Url::parse(uri)
-        .ok()
-        .filter(|url| url.scheme() == "file")?;
-    let path = percent_decoded(url.path())?;
-    match url
-        .host_str()
-        .filter(|host| !host.eq_ignore_ascii_case("localhost"))
-    {
-        Some(host) => Some(format!("//{host}{path}")),
-        None => match path.strip_prefix('/').filter(|rest| is_windows_drive(rest)) {
-            Some(drive) => Some(drive.to_owned()),
-            None => Some(path),
-        },
-    }
-}
-
-fn percent_decoded(text: &str) -> Option<String> {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(at + 1..at + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            at += 3;
-        } else {
-            out.push(bytes[at]);
-            at += 1;
-        }
-    }
-    String::from_utf8(out).ok()
-}
-
-/// Reads what an agent wrote as a file reference, or none when it is not shaped like one.
-/// Whether it is there is a separate question.
-pub fn parse(raw: &str, cwd: &str, home: Option<&str>) -> Option<PathRef> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.len() > LONGEST {
-        return None;
-    }
-    let (body, line, column) = split_place(trimmed);
-    if trimmed
-        .get(..7)
-        .is_some_and(|start| start.eq_ignore_ascii_case("file://"))
-    {
-        let path = file_uri_path(body)?;
-        return Some(PathRef {
-            path: normalized(&path),
-            line,
-            column,
-        });
-    }
-    if body.is_empty() || (has_scheme(body) && !is_windows_drive(body)) {
-        return None;
-    }
-    let expanded = match home {
-        Some(home) if body == "~" => home.to_owned(),
-        Some(home) if body.starts_with("~/") || body.starts_with("~\\") => {
-            format!("{home}{}", &body[1..])
-        }
-        _ => body.to_owned(),
-    };
-    let absolute = expanded.starts_with('/') || is_windows_drive(&expanded);
-    if !absolute && (body.contains(char::is_whitespace) || !looks_relative(&expanded)) {
-        return None;
-    }
-    if !absolute && cwd.is_empty() {
-        return None;
-    }
-    let path = if absolute {
-        normalized(&expanded)
-    } else {
-        let rest = expanded.strip_prefix("./").unwrap_or(&expanded);
-        let rest = rest.replace('\\', "/");
-        [normalized(cwd), rest.trim_matches('/').to_owned()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("/")
-    };
-    (!path.is_empty()).then_some(PathRef { path, line, column })
-}
-
 /// What a chat knows of the names its messages hold, shared by the drawing of its rows.
 #[derive(Default)]
 pub struct Files {
@@ -223,16 +83,6 @@ impl Files {
 
     fn home(&self) -> Option<&str> {
         self.home.as_deref()
-    }
-
-    /// `path` as the chat would write it: within its folder from there, else from home.
-    pub fn shown(&self, path: &str) -> String {
-        let within = |root: &str| {
-            path.strip_prefix(root)
-                .and_then(|rest| rest.strip_prefix('/'))
-                .map(str::to_owned)
-        };
-        within(&self.cwd).unwrap_or_else(|| crate::ui::path::tilde(path, self.home()))
     }
 
     /// Where `name` points, given the chat's folder.
@@ -290,7 +140,9 @@ async fn ask(files: Rc<RefCell<Files>>, cx: &mut gpui_kit::AsyncApp) {
             return;
         };
         let Ok(kinds) = target
-            .request("files.kinds", json!({ "paths": asked }))
+            .request_typed::<call::FilesKinds>(FileKindsParams {
+                paths: asked.clone(),
+            })
             .await
         else {
             let mut held = files.borrow_mut();
@@ -308,9 +160,9 @@ async fn ask(files: Rc<RefCell<Files>>, cx: &mut gpui_kit::AsyncApp) {
             let mut held = files.borrow_mut();
             held.failing = None;
             for (ix, path) in asked.into_iter().enumerate() {
-                let kind = match kinds.get(ix).and_then(Value::as_str) {
-                    Some("dir") => Some(FileKind::Folder),
-                    Some("file") => Some(FileKind::File),
+                let kind = match kinds.get(ix) {
+                    Some(Some(CoreFileKind::Dir)) => Some(FileKind::Folder),
+                    Some(Some(CoreFileKind::File)) => Some(FileKind::File),
                     _ => None,
                 };
                 held.known.insert(path, (kind, Instant::now()));
@@ -364,7 +216,14 @@ pub fn pressed(
     };
     match press {
         FilePress::Open if kind == FileKind::File && on.here => {
-            open_on_desk(agent, &found, bench, cx)
+            let path = std::path::PathBuf::from(&found.path);
+            if super::link::is_page(&path) {
+                bench
+                    .update(cx, |bench, cx| bench.open_html_in_tab(agent, path, cx))
+                    .ok();
+            } else {
+                open_on_desk(agent, &found, bench, cx)
+            }
         }
         FilePress::Open | FilePress::OpenTwice => open(&found, kind, &on, bench, cx),
         FilePress::Menu(at) => {
@@ -423,11 +282,11 @@ fn open_on_desk(agent: &str, found: &PathRef, bench: &WeakEntity<Workbench>, cx:
                     let core = bench.target();
                     bench.files.open_down_to(folder, &core);
                 }
-                bench.show_rail_page(crate::workbench::RailPage::Files, cx);
+                bench.show_rail_page(sikemux_view::prefs::TabRailPage::Files, cx);
             }
             bench.open_file_on_desk(agent, path, found.line, found.column, cx);
             bench.parts.redraw_stage(cx);
-            bench.parts.redraw(&bench.parts.tabs, cx);
+            bench.parts.redraw(&bench.parts.agents, cx);
         })
         .ok();
 }
@@ -458,9 +317,13 @@ fn menu(
         .strip_prefix(&format!("{}/", normalized(&on.cwd)))
         .map_or_else(|| name.clone(), str::to_owned);
     let copies = [
-        ("Copy Path", found.path.clone(), "Copied path"),
-        ("Copy Relative Path", relative, "Copied relative path"),
-        ("Copy Name", name, "Copied name"),
+        (t!("Copy Path"), found.path.clone(), t!("Copied path")),
+        (
+            t!("Copy Relative Path"),
+            relative,
+            t!("Copied relative path"),
+        ),
+        (t!("Copy Name"), name, t!("Copied name")),
     ];
     let agent = agent.to_owned();
     PopupMenu::build(
@@ -471,7 +334,7 @@ fn menu(
             if file && on.here {
                 let (found, bench, agent) = (found.clone(), bench.clone(), agent.clone());
                 popup = popup.item(
-                    PopupMenuItem::new("Open on Desk")
+                    PopupMenuItem::new(t!("Open on Desk"))
                         .icon(Icon::PanelRight)
                         .on_click(move |_, _, cx| open_on_desk(&agent, &found, &bench, cx)),
                 );
@@ -479,8 +342,8 @@ fn menu(
             if file {
                 let (found, bench, on) = (found.clone(), bench.clone(), on.clone());
                 let (label, glyph) = match on.here {
-                    true => ("Open in Editor", Icon::Editor),
-                    false => ("Open", Icon::File),
+                    true => (t!("Open in Editor"), Icon::Editor),
+                    false => (t!("Open"), Icon::File),
                 };
                 popup = popup
                     .item(
@@ -493,7 +356,7 @@ fn menu(
             if on.here {
                 let revealed = found.path.clone();
                 popup = popup.item(
-                    PopupMenuItem::new(ui::REVEAL)
+                    PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                         .icon(Icon::Folder)
                         .on_click(move |_, _, cx| cx.reveal_path(Path::new(&revealed))),
                 );
@@ -503,7 +366,7 @@ fn menu(
                         .map(Path::to_path_buf)
                         .unwrap_or_default();
                     popup = popup.item(
-                        PopupMenuItem::new("Open Containing Folder")
+                        PopupMenuItem::new(t!("Open Containing Folder"))
                             .icon(Icon::Folder)
                             .on_click(move |_, _, cx| cx.reveal_path(&folder)),
                     );
@@ -528,88 +391,4 @@ pub struct FileMenu {
     pub at: Point<Pixels>,
     pub menu: Entity<PopupMenu>,
     pub _dismissed: gpui_kit::Subscription,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn at(raw: &str) -> Option<String> {
-        parse(raw, "/work/demo", Some("/Users/pat")).map(|found| found.path)
-    }
-
-    fn place(raw: &str) -> Option<(String, Option<u32>, Option<u32>)> {
-        parse(raw, "/work/demo", Some("/Users/pat"))
-            .map(|found| (found.path, found.line, found.column))
-    }
-
-    #[test]
-    fn reads_references_as_the_mac_app_does() {
-        assert_eq!(
-            at("src/chat/AgentChatPane.tsx").as_deref(),
-            Some("/work/demo/src/chat/AgentChatPane.tsx")
-        );
-        assert_eq!(at("/etc/hosts").as_deref(), Some("/etc/hosts"));
-        assert_eq!(
-            place("src/a.ts:42:7"),
-            Some(("/work/demo/src/a.ts".into(), Some(42), Some(7)))
-        );
-        assert_eq!(place("src/a.ts:42").and_then(|found| found.1), Some(42));
-        assert_eq!(
-            place("file:///work/demo/src/a.ts#L9"),
-            Some(("/work/demo/src/a.ts".into(), Some(9), None))
-        );
-        assert_eq!(
-            at("file:///work/demo/my%20notes.md").as_deref(),
-            Some("/work/demo/my notes.md")
-        );
-        assert_eq!(
-            at("~/notes/todo.md").as_deref(),
-            Some("/Users/pat/notes/todo.md")
-        );
-        assert_eq!(at("./src/a.ts").as_deref(), Some("/work/demo/src/a.ts"));
-        assert_eq!(at("https://example.com/a/b.ts"), None);
-        assert_eq!(at("mailto:pat@example.com"), None);
-        assert_eq!(at("finally"), None);
-        assert_eq!(at("run the build"), None);
-        assert_eq!(
-            at("package.json").as_deref(),
-            Some("/work/demo/package.json")
-        );
-        assert_eq!(at("Makefile").as_deref(), Some("/work/demo/Makefile"));
-        assert_eq!(
-            at("/work/demo/Shipped Mon 5 + Wed 7.mp4").as_deref(),
-            Some("/work/demo/Shipped Mon 5 + Wed 7.mp4")
-        );
-        assert_eq!(
-            at("~/Movies/demo cut.mp4").as_deref(),
-            Some("/Users/pat/Movies/demo cut.mp4")
-        );
-        assert_eq!(at("demo cut.mp4"), None);
-        assert_eq!(
-            at("C:\\work\\demo\\a.ts").as_deref(),
-            Some("C:/work/demo/a.ts")
-        );
-        assert_eq!(
-            place("src/a.ts#L9C4"),
-            Some(("/work/demo/src/a.ts".into(), Some(9), Some(4)))
-        );
-        assert_eq!(
-            place("file:///C:/work/a.ts:3"),
-            Some(("C:/work/a.ts".into(), Some(3), None))
-        );
-        assert_eq!(at("file:///work/%E0%A4%A.ts"), None);
-        assert_eq!(at("   "), None);
-        assert_eq!(at(&format!("src/{}.ts", "a".repeat(600))), None);
-        assert_eq!(at(":12"), None);
-        assert_eq!(at(".env").as_deref(), Some("/work/demo/.env"));
-        assert_eq!(at(".gitignore").as_deref(), Some("/work/demo/.gitignore"));
-        assert_eq!(parse("src/a.ts", "", None), None);
-        assert_eq!(
-            parse("/etc/hosts", "", None)
-                .map(|found| found.path)
-                .as_deref(),
-            Some("/etc/hosts")
-        );
-    }
 }

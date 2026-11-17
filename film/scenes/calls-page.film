@@ -1,0 +1,22 @@
+# The desk's Calls page: a call's question, its options and what led to it, opened from the
+# chat's folded row.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies call-follow-up.json
+project storefront shop
+chat Wren
+title "Cache the product pages"
+say "question {\"questions\":[{\"question\":\"Which store should the product page cache use?\",\"header\":\"Cache store\",\"options\":[{\"label\":\"Redis (recommended)\",\"description\":\"Fast, shared by every app server, already running in staging\"},{\"label\":\"SQLite\",\"description\":\"No server to keep up, one file per app server\"}]}]}"
+settle 6
+say "Would SQLite hold up with three app servers reading the cache at once?"
+settle 8
+front Wren
+settle 2
+click 709,612
+settle 2
+snap calls-page
+key cmd-k
+settle 2
+snap calls-page-alone

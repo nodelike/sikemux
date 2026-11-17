@@ -1,21 +1,103 @@
 {
   "version": 1,
+  "check": { "ci": ["CI"] },
+  "landChecks": [
+    {
+      "label": "rustfmt",
+      "command": "scripts/check-rustfmt.sh --files \"$@\"",
+      "fix": "scripts/check-rustfmt.sh --files --write \"$@\"",
+      "format": "scripts/check-rustfmt.sh --stdin \"$1\"",
+      "when": ["**/*.rs"]
+    },
+    {
+      "label": "the phone's Rust never links the core",
+      "command": "PATH=\"$PWD/scripts/bin:$PATH\" node scripts/check-phone-deps.mjs",
+      "when": ["Cargo.lock", "**/Cargo.toml", "scripts/check-phone-deps.mjs"]
+    },
+    {
+      "label": "no new sleeps in the app",
+      "command": "node scripts/check-app-sleeps.mjs",
+      "when": ["app/src/**/*.rs", "scripts/app-sleeps.json", "scripts/check-app-sleeps.mjs"]
+    },
+    {
+      "label": "pnpm agent-catalog:check",
+      "command": "node scripts/generate-agent-catalog.mjs --check",
+      "fix": "node scripts/generate-agent-catalog.mjs",
+      "when": [
+        "crates/sikemux-core/src/assets/agent-catalog.json",
+        "crates/sikemux-agents/src/agent_catalog.rs",
+        "crates/sikemux-pty/src/agent_detection/agent_kind.rs",
+        "crates/sikemux-pty/src/agent_detection/bundled.rs",
+        "shared/agents/catalog.generated.json",
+        "server/app/src/chat/styles/generated/agent-brands.css",
+        "scripts/generate-agent-catalog.mjs",
+        "scripts/lib/generated.mjs"
+      ]
+    },
+    {
+      "label": "pnpm notch-sources:check",
+      "command": "node scripts/generate-notch-sources.mjs --check",
+      "fix": "node scripts/generate-notch-sources.mjs",
+      "when": [
+        "helpers/notch/settings.json",
+        "crates/sikemux-view/src/notch.rs",
+        "scripts/generate-notch-sources.mjs",
+        "scripts/lib/generated.mjs"
+      ]
+    },
+    {
+      "label": "Prettier",
+      "command": "node_modules/.bin/prettier --check \"$@\"",
+      "fix": "node_modules/.bin/prettier --write \"$@\"",
+      "when": [
+        "shared/**/*.{ts,tsx}",
+        "scripts/*.mjs",
+        "eslint.config.js",
+        "package.json",
+        "README.md",
+        "CONTRIBUTING.md",
+        ".github/workflows/*.{yml,yaml}"
+      ]
+    },
+    {
+      "label": "the phone's eslint",
+      "command": "cd mobile/app && for f; do set -- \"$@\" \"${f#mobile/app/}\"; shift; done && node_modules/.bin/eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-land/ \"$@\"",
+      "when": ["mobile/app/**/*.{ts,tsx,js,mjs,cjs}"]
+    },
+    {
+      "label": "the phone's Prettier",
+      "command": "cd mobile/app && for f; do set -- \"$@\" \"${f#mobile/app/}\"; shift; done && node_modules/.bin/prettier --check \"$@\"",
+      "fix": "cd mobile/app && for f; do set -- \"$@\" \"${f#mobile/app/}\"; shift; done && node_modules/.bin/prettier --write \"$@\"",
+      "when": ["mobile/app/**/*.{ts,tsx,mts,js,mjs}"]
+    },
+    {
+      "label": "ESLint",
+      "command": "node_modules/.bin/eslint --max-warnings=0 --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-land/ \"$@\"",
+      "when": ["shared/**/*.{ts,tsx}", "scripts/**/*.mjs"]
+    },
+    {
+      "label": "the phones in the stores still fit the core",
+      "command": "node scripts/check-phone-compat.mjs",
+      "when": [
+        "crates/**/*.rs",
+        "mobile/store-versions.json",
+        "scripts/check-phone-compat.mjs",
+        "scripts/generate-wire-types.mjs"
+      ]
+    },
+    {
+      "label": "the Swift the wire types generate parses",
+      "command": "command -v swiftc >/dev/null || exit 0; node scripts/generate-wire-types.mjs && for f in helpers/notch/Sources/NotchKit/Wire.generated.swift mobile/ios/Sikemux/Core/Wire.generated.swift mobile/ios/Shared/Notify/Card.generated.swift mobile/ios/Shared/Glance/Glance.generated.swift; do swiftc -parse \"$f\" || exit 1; done",
+      "when": ["crates/**/*.rs", "scripts/generate-wire-types.mjs"]
+    }
+  ],
   "worktree": {
     "onCreate": [
       {
         "id": "link-build-outputs",
         "label": "Link the app's build outputs",
-        "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; for built in packaging/binaries packaging/icons/build; do if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi; done"
+        "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; built=packaging/binaries; if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi"
       }
-    ]
-  },
-  "generate": {
-    "command": "pnpm -s wire:generate",
-    "outputs": [
-      "shared/wire.generated.ts",
-      "helpers/notch/Sources/NotchKit/Wire.generated.swift",
-      "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
-      "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt"
     ]
   }
 }

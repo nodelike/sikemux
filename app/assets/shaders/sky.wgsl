@@ -1,4 +1,4 @@
-// The sky over the welcome screen and the release notes: the pane grain squeezed into
+// The sky over the release notes: the pane grain squeezed into
 // a band, so it neither fills solid nor empties out, with each dot's colour taken from
 // a gradient running across the sky, and fading out down it.
 //

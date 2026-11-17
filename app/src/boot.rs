@@ -116,7 +116,7 @@ fn mark_with(
 
 /// Covers the window until the core's first view arrives.
 pub fn opening(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    if bench.view.is_some() {
+    if bench.this_view().is_some() {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -124,9 +124,9 @@ pub fn opening(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
         .connection
         .slow_start
         .then_some(if bench.connection.version.is_empty() {
-            "Waiting for Sikemux to start"
+            t!("Waiting for Sikemux to start")
         } else {
-            "Opening your workspace"
+            t!("Opening your workspace")
         });
     let why = bench
         .connection
@@ -187,7 +187,7 @@ pub fn reconnecting(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<An
         .connection
         .lost
         .clone()
-        .filter(|_| bench.view.is_some())?;
+        .filter(|_| bench.this_view().is_some())?;
     let t = Tokens::get(cx).clone();
     Some(
         div()
@@ -203,7 +203,7 @@ pub fn reconnecting(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<An
             })
             .occlude()
             .child(mark_with(
-                Some("Lost Sikemux, reconnecting".to_owned()),
+                Some(t!("Lost Sikemux, reconnecting").to_owned()),
                 Some(reason),
                 cx,
             ))
@@ -213,7 +213,7 @@ pub fn reconnecting(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<An
 
 /// Covers the workspace while the core is stopped on purpose, with the one way back: starting it.
 pub fn stopped(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    if !bench.connection.stopped || bench.view.is_none() {
+    if !bench.connection.stopped || bench.this_view().is_none() {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -233,12 +233,12 @@ pub fn stopped(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
             })
             .occlude()
             .child(mark_with(
-                Some("Sikemux is stopped".to_owned()),
-                Some("Its terminals and agents stopped with it.".to_owned()),
+                Some(t!("Sikemux is stopped").to_owned()),
+                Some(t!("Its terminals and agents stopped with it.").to_owned()),
                 cx,
             ))
             .child(
-                ui::Button::new("start-core", "Start Sikemux", ui::Variant::Primary).on_click(
+                ui::Button::new("start-core", t!("Start Sikemux"), ui::Variant::Primary).on_click(
                     cx.listener(|bench, _, _, _| {
                         let _ = bench.asks.send(crate::core::Ask::StartCore);
                     }),
@@ -266,16 +266,17 @@ pub fn stuck(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElemen
             .bg(t.surface_sunken)
             .occlude()
             .child(mark_with(
-                Some("Sikemux is not answering".to_owned()),
-                Some(format!(
-                    "Its core (pid {pid}) is still running but stopped responding. Restarting it ends its terminals; chats pick up where they were."
+                Some(t!("Sikemux is not answering").to_owned()),
+                Some(t!(
+                    "Its core (pid {pid}) is still running but stopped responding. Restarting it ends its terminals; chats pick up where they were.",
+                    pid = pid
                 )),
                 cx,
             ))
             .child(
                 ui::Button::new(
                     "restart-core",
-                    if restarting { "Restarting…" } else { "Restart Sikemux" },
+                    if restarting { t!("Restarting…") } else { t!("Restart Sikemux") },
                     ui::Variant::Primary,
                 )
                 .disabled(restarting)

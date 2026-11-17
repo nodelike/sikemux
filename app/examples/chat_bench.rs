@@ -1,15 +1,17 @@
-//! Times the app's own chat pane the way `pnpm perf chat` times today's, so the
-//! two compare: opening 2,000 rows, scrolling them to the top, scrolling up
+//! Times the app's own chat pane: opening 2,000 rows, scrolling them to the top, scrolling up
 //! from the last 200 while earlier pages arrive, and a 4,000-token answer
 //! streaming in at 32 characters every 16 ms. The rows and every change to
-//! them are the fold's own, made from the same words `showcase/perf/chat.ts`
-//! uses, and reach the window the way the core's do. Only the window's layout
+//! them are the fold's own and reach the window the way the core's do. Only the window's layout
 //! comes from a core, which must have a chat in its tab in front:
 //!   SIKEMUX_CORE_SOCKET=/tmp/sx/core.sock cargo run --release --example chat_bench
-//! Without a core it lays out one project with the chat in front itself.
+//! Without a core it lays out one project with the chat in front itself, and with
+//! `CHAT_BENCH_CALL=1` a call from its agent waits at the chat's end, under the stream.
 //! It draws offscreen on a simulated clock at 120 Hz and prints, for each phase,
 //! the CPU each frame's draw of the whole window took.
 
+mod common;
+
+use sikemux_wire::protocol::ask;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -17,6 +19,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::usage::{peak_resident_mb, thread_cpu_ms};
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, HeadlessAppContext, Modifiers,
     PlatformInput, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
@@ -28,8 +31,9 @@ use sikemux_fold::{ChatEvent, Fold, PageOf, PAGE_BYTES};
 use sikemux_gpui::core::{Ask, ChatAsk, ChatNews, Link, Update};
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{icons, theme, WINDOW_SIZE};
-use sikemux_wire::chat::{ChatChange, ChatHead, ChatMessage, ChatPage, ChatView};
-use sikemux_wire::protocol::{ChatAttachment, ChatMark, DeviceView, Event, PermissionMode};
+use sikemux_view::chat::{ChatChange, ChatHead, ChatMessage, ChatPage, ChatView};
+use sikemux_view::device::DeviceView;
+use sikemux_wire::protocol::{ChatAttachment, ChatMark, PermissionMode};
 use tokio::sync::mpsc;
 
 const ROWS: usize = 2_000;
@@ -51,7 +55,7 @@ const WORDS: [&str; 24] = [
     "here",
 ];
 
-/// `showcase/perf/chat.ts`'s generator, so both runs read the same words.
+/// A small generator, so every run reads the same words.
 struct Words(u64);
 
 impl Words {
@@ -197,6 +201,39 @@ fn said(kind: &str, message: &str, text: &str) -> ChatEvent {
     )
 }
 
+/// What an agent does before it answers, with `CHAT_BENCH_WORK` set: a thought, then a run
+/// of commands that read, search, test and fail, as a long working chat holds.
+fn work(ix: usize) -> Vec<ChatEvent> {
+    let update = |update: Value| {
+        event(
+            "session_update",
+            json!({ "sessionId": format!("session-{FEED}"), "update": update }),
+        )
+    };
+    let mut events = vec![update(json!({
+        "sessionUpdate": "agent_thought_chunk",
+        "messageId": format!("{FEED}-think-{ix}"),
+        "content": { "type": "text", "text": "Reading the fold before changing where a run is counted, then the tests." },
+    }))];
+    let commands = [
+        "sed -n 1,80p crates/sikemux-fold/src/lib.rs",
+        "rg -n times crates/sikemux-fold/src",
+        "ls crates/sikemux-fold/src",
+        "cat crates/sikemux-fold/src/row.rs",
+        "cargo test -p sikemux-fold",
+        "git status --short",
+    ];
+    for (at, command) in commands.iter().enumerate() {
+        let id = format!("{FEED}-tool-{ix}-{at}");
+        events.push(update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": id, "title": command, "kind": "execute",
+            "status": if at == 4 { "failed" } else { "completed" },
+            "rawInput": { "command": command },
+        })));
+    }
+    events
+}
+
 /// The chat folded as the core folds it: every event with its index, its head,
 /// all its rows, and the answer's changes, one list for each flush.
 struct Folded {
@@ -216,13 +253,24 @@ impl Folded {
             json!({ "sessionId": format!("session-{FEED}"), "capabilities": {}, "setup": { "configOptions": [] } }),
         );
         let mut events = vec![(0, ready)];
+        let worked = std::env::var_os("CHAT_BENCH_WORK").is_some();
         for (ix, text) in Words(7).rows(ROWS).iter().enumerate() {
             let kind = if ix % 2 == 0 {
                 "user_message_chunk"
             } else {
                 "agent_message_chunk"
             };
-            events.push((ix as u64 + 1, said(kind, &format!("{FEED}-{ix}"), text)));
+            if worked && ix % 2 == 1 {
+                let at = events.len() as u64;
+                events.extend(
+                    work(ix)
+                        .into_iter()
+                        .zip(at..)
+                        .map(|(event, at)| (at, event)),
+                );
+            }
+            let at = events.len() as u64;
+            events.push((at, said(kind, &format!("{FEED}-{ix}"), text)));
         }
         for (index, event) in &events {
             fold.apply(*index, event.kind, &event.payload, 0);
@@ -230,9 +278,16 @@ impl Folded {
         fold.flush();
         let head = fold.view(false).head;
         let rows = fold
-            .page_of(&events, PageOf::Before(u64::MAX), usize::MAX, None, None)
+            .page_of(
+                &events,
+                PageOf::Before(u64::MAX),
+                usize::MAX,
+                None,
+                None,
+                None,
+            )
             .rows;
-        assert_eq!(rows.len(), ROWS, "the fold made {} rows", rows.len());
+        assert!(rows.len() >= ROWS, "the fold made {} rows", rows.len());
         let answer = Words(11).answer(TOKENS);
         let mut folded = Folded {
             fold,
@@ -306,28 +361,9 @@ impl Folded {
             PAGE_BYTES,
             older_before,
             None,
+            None,
         )
     }
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime only writes the struct it is handed.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
-}
-
-fn peak_resident_mb() -> f64 {
-    // SAFETY: getrusage only writes the struct it is handed.
-    let usage = unsafe {
-        let mut usage = std::mem::zeroed::<libc::rusage>();
-        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
-        usage
-    };
-    usage.ru_maxrss as f64 / 1024. / 1024.
 }
 
 #[derive(Default)]
@@ -507,9 +543,44 @@ impl Bench {
     }
 }
 
+/// A call from the bench's agent, as a core's view lists one.
+fn call() -> Value {
+    json!({
+        "id": "bench-call", "project": "/tmp/chat-bench", "kind": "taste",
+        "asker": { "agentId": "bench-agent", "name": "Bench", "cli": "claude" },
+        "question": "What do we call the new way to pay?",
+        "context": "It sits beside Card on every invoice. Testers asked when the money arrives.",
+        "options": [
+            { "id": "1", "label": "Bank transfer (2–3 days)" },
+            { "id": "2", "label": "Pay by bank" },
+            { "id": "3", "label": "Bank transfer" }
+        ],
+        "pick": "1", "against": "it is the longest, and on a phone it takes two lines beside Card.",
+        "canHandBack": true, "raisedAt": 0, "state": "open"
+    })
+}
+
 /// The layout of a core with one project and one chat in front, for a run with no core.
 fn standalone() -> anyhow::Result<DeviceView> {
+    let calls = match std::env::var_os("CHAT_BENCH_CALL") {
+        Some(_) => vec![call()],
+        None => Vec::new(),
+    };
     Ok(serde_json::from_value(json!({
+        "calls": calls,
+        "recent": [],
+        "inbox": {
+            "items": [], "working": 0, "away": false, "agentMessages": {}, "remoteAgents": [],
+            "agents": [{
+                "agentId": "bench-agent", "name": "Bench", "cli": "claude", "title": "Bench",
+                "status": "idle", "group": "idle", "label": "", "unread": false,
+                "subagents": 0, "tasks": 0, "busy": false, "failed": false,
+                "background": false, "activeAt": null, "face": null, "project": "bench"
+            }],
+            "projects": {}, "needs": {}, "rollup": null
+        },
+        "account": null,
+        "faceStyle": sikemux_view::device::FaceStyle::default(),
         "workspace": {
             "projects": [{ "id": "bench", "name": "bench", "path": "/tmp/chat-bench" }],
             "launchers": [],
@@ -546,10 +617,10 @@ fn layout() -> anyhow::Result<DeviceView> {
     let socket = PathBuf::from(socket);
     tokio::runtime::Runtime::new()?.block_on(async {
         let (client, mut events) = CoreClient::connect(&socket).await?;
-        client.watch_view().await?;
+        client.ask(ask::WatchView).await?;
         while let Some(event) = events.recv().await {
-            if let ClientEvent::Event(Event::DeviceView { view }) = event {
-                return Ok(*view);
+            if let ClientEvent::DeviceView(view) = event {
+                return Ok(serde_json::from_str(&view)?);
             }
         }
         Err(anyhow::anyhow!("the core sent no view"))
@@ -622,7 +693,10 @@ fn main() -> anyhow::Result<()> {
         frame_ix: 0,
     };
     run.shown = run.folded.view(ROWS);
-    let _ = run.updates.send(Update::View(Box::new(view)));
+    let _ = run.updates.send(Update::View(
+        sikemux_gpui::hosts::Place::This,
+        Box::new(view),
+    ));
     for _ in 0..30 {
         run.frame();
     }

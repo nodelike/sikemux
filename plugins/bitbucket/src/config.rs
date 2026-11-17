@@ -64,3 +64,13 @@ accounts!(BitbucketConfig, Account, accounts, default);
 pub fn load(data_dir: &Path) -> BitbucketResult<BitbucketConfig> {
     Ok(store::load(data_dir)?)
 }
+
+impl sikemux_plugin_api::vault::Listing for Account {
+    fn secret_account(&self) -> Option<String> {
+        Some(self.keychain_account())
+    }
+
+    fn label(&self) -> String {
+        self.login.clone()
+    }
+}

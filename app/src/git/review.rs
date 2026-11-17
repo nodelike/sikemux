@@ -1,6 +1,9 @@
 //! Changed files reviewed in one stream: a card per file with its header, and its diff
 //! under it while open, every card's rows in one virtualised list.
 
+use crate::git::WhoWrote;
+use crate::ui::Clicks;
+use sikemux_calls::git::call as git_call;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -10,16 +13,15 @@ use gpui_kit::{
     ListAlignment, ListOffset, ListState, ParentElement, Pixels, ScrollEvent, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::{json, Value};
-use sikemux_core::git::diff::DiffRow;
-use sikemux_core::git::status::GitFile;
+use sikemux_agents::git::status::GitChange;
+use sikemux_agents::git::status::GitFile;
 
-use super::pane::{has_unstaged, is_staged, status_mark, GitPane, Side};
+use super::pane::{status_mark, GitPane, Side};
 use super::{row, Colours, Compared, Diff, Notes, RowLook};
 use crate::core::Target;
 use crate::editor::OpenAt;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XS,
+    radius_2, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
 use crate::ui;
 
@@ -108,7 +110,7 @@ impl Review {
             .iter()
             .map(|file| {
                 let path = file.path.as_str();
-                let sections = match (is_staged(file), has_unstaged(file)) {
+                let sections = match (file.is_staged(), file.has_unstaged()) {
                     (true, true) => vec![
                         (Some(Side::Staged), compared(path, "HEAD", Some(":index"))),
                         (Some(Side::Unstaged), compared(path, ":index", None)),
@@ -129,6 +131,7 @@ impl Review {
     /// Lists what commit `rev` changed in `paths`, every file folded at first.
     pub fn show_commit(&mut self, repo: &str, rev: &str, paths: &[String]) {
         let fresh = self.commit.as_deref() != Some(rev);
+        let base = format!("{rev}~1");
         let wanted = paths
             .iter()
             .map(|path| Wanted {
@@ -139,7 +142,7 @@ impl Review {
                     Compared {
                         repo: repo.to_owned(),
                         path: path.clone(),
-                        base: format!("{rev}~1"),
+                        base: base.clone(),
                         head: Some(rev.to_owned()),
                     },
                 )],
@@ -288,7 +291,7 @@ impl Review {
             }
             items.push(Item::End(index));
         }
-        super::relist(&self.list(), &self.items, &items);
+        crate::ui::relist(&self.list(), &self.items, &items);
         self.items = items;
     }
 
@@ -313,16 +316,18 @@ impl Review {
                     base,
                     head,
                 } = &section.compared;
-                let params = json!({ "repo": repo, "path": path, "baseRev": base, "headRev": head, "full": section.whole });
-                let answer = core.request("git.fileDiff", params);
+                let answer = core.request_typed::<git_call::FileDiff>(git_call::FileDiff {
+                    repo: repo.clone(),
+                    path: path.clone(),
+                    base_rev: base.clone(),
+                    head_rev: head.clone(),
+                    full: section.whole,
+                });
                 let (path, side) = (path.clone(), section.side);
                 cx.spawn(async move |pane, cx| {
-                    let diff = answer.await.and_then(|rows| {
-                        serde_json::from_value::<Vec<DiffRow>>(rows)
-                            .map_err(|error| error.to_string())
-                    });
+                    let diff = answer.await;
                     pane.update(cx, |pane, cx| {
-                        let notes = Notes::of(pane.owners_of(side), &path);
+                        let notes = Notes::of(&pane.owners_of(side), &path);
                         pane.review
                             .read_as(&path, side, diff.map(Diff::new), &notes);
                         cx.notify();
@@ -363,7 +368,7 @@ impl Review {
 
     /// Notes beside each diff's lines who wrote them, as `owners` says, or `staged` for
     /// the staged half of a file with unstaged changes too.
-    pub fn annotate(&mut self, owners: &Value, staged: &Value) {
+    pub fn annotate(&mut self, owners: &WhoWrote<'_>, staged: &WhoWrote<'_>) {
         for card in &mut self.cards {
             for section in &mut card.sections {
                 let owners = if section.side == Some(Side::Staged) {
@@ -402,7 +407,7 @@ pub fn review(pane: &mut GitPane, window: &mut Window, cx: &mut Context<GitPane>
             .justify_center()
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_secondary)
-            .child("Nothing to review.")
+            .child(t!("Nothing to review."))
             .into_any_element();
     }
     let core = pane.core.clone();
@@ -444,7 +449,7 @@ pub fn review(pane: &mut GitPane, window: &mut Window, cx: &mut Context<GitPane>
     div()
         .size_full()
         .relative()
-        .font_family(crate::theme::MONO)
+        .font_family(crate::theme::mono_font())
         .child(rows)
         .children(pinned)
         .into_any_element()
@@ -484,8 +489,8 @@ fn draw(
     let body = |inner: Div| {
         div().child(
             inner
-                .border_l_1()
-                .border_r_1()
+                .border_l(crate::theme::border())
+                .border_r(crate::theme::border())
                 .border_color(t.border)
                 .bg(t.surface),
         )
@@ -497,20 +502,26 @@ fn draw(
             .child(
                 div()
                     .h(px(1.))
-                    .border_b_1()
-                    .border_l_1()
-                    .border_r_1()
+                    .border_b(crate::theme::border())
+                    .border_l(crate::theme::border())
+                    .border_r(crate::theme::border())
                     .border_color(t.border)
-                    .rounded_b(RADIUS_2)
+                    .rounded_b(radius_2())
                     .bg(t.surface),
             )
             .into_any_element(),
         Item::Title(card, at) => {
             let section = &review.cards[card].sections[at];
             let file = review.cards[card].file.as_ref();
-            let (code, word) = match section.side {
-                Some(Side::Staged) => (file.map_or("", |file| file.index.as_str()), "STAGED"),
-                _ => (file.map_or("", |file| file.worktree.as_str()), "UNSTAGED"),
+            let (change, word) = match section.side {
+                Some(Side::Staged) => (
+                    file.map_or(GitChange::Unchanged, |file| file.index),
+                    t!("STAGED"),
+                ),
+                _ => (
+                    file.map_or(GitChange::Unchanged, |file| file.worktree),
+                    t!("UNSTAGED"),
+                ),
             };
             body(
                 div()
@@ -519,12 +530,12 @@ fn draw(
                     .flex()
                     .items_center()
                     .gap(px(7.))
-                    .when(at > 0, |title| title.border_t_1())
+                    .when(at > 0, |title| title.border_t(crate::theme::border()))
                     .bg(t.surface.opacity(0.55))
-                    .font_family(crate::theme::UI)
+                    .font_family(crate::theme::ui_font())
                     .text_size(crate::theme::ui_text(TEXT_3XS))
                     .text_color(t.text_tertiary)
-                    .children(status_mark(code, cx))
+                    .children(status_mark(change, cx))
                     .child(div().child(word)),
             )
             .into_any_element()
@@ -532,14 +543,14 @@ fn draw(
         Item::Note(card, at) => {
             let section = &review.cards[card].sections[at];
             let (text, colour) = match &section.diff {
-                None => ("loading diff...".to_owned(), t.text_tertiary),
+                None => (t!("loading diff...").to_owned(), t.text_tertiary),
                 Some(Err(error)) => (format!("x {error}"), t.danger),
-                Some(Ok(_)) => ("No changes.".to_owned(), t.text_tertiary),
+                Some(Ok(_)) => (t!("No changes.").to_owned(), t.text_tertiary),
             };
             body(
                 div()
                     .p(SPACE_3)
-                    .font_family(crate::theme::UI)
+                    .font_family(crate::theme::ui_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(colour)
                     .child(text),
@@ -620,7 +631,7 @@ fn header(view: &Entity<GitPane>, pane: &GitPane, card: usize, cx: &App) -> AnyE
         .child(
             ui::file_head(format!("card-{path}"), path, open, Some(opens), cx)
                 .on_hover(super::pane::hover(view, key.clone()))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     toggling.update(cx, |pane, cx| {
                         pane.review.toggle(card);
                         cx.notify();
@@ -650,17 +661,14 @@ fn header(view: &Entity<GitPane>, pane: &GitPane, card: usize, cx: &App) -> AnyE
 /// A file's status letters: one for each side that changed, or one for an untracked or
 /// conflicted file, whose sides say the same.
 fn badges(file: &GitFile, cx: &App) -> Vec<Div> {
-    if file.index == "U" || file.worktree == "U" {
-        return status_mark("U", cx).into_iter().collect();
+    if file.index == GitChange::Unmerged || file.worktree == GitChange::Unmerged {
+        return status_mark(GitChange::Unmerged, cx).into_iter().collect();
     }
-    if file.index == "?" && file.worktree == "?" {
-        return status_mark("?", cx).into_iter().collect();
+    if file.index == GitChange::Untracked && file.worktree == GitChange::Untracked {
+        return status_mark(GitChange::Untracked, cx).into_iter().collect();
     }
-    [
-        status_mark(&file.index, cx),
-        status_mark(&file.worktree, cx),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    [status_mark(file.index, cx), status_mark(file.worktree, cx)]
+        .into_iter()
+        .flatten()
+        .collect()
 }

@@ -9,7 +9,7 @@ const MAX_SHELL_PATH_BYTES: usize = 4 * 1024;
 const MAX_SHELL_EXIT_CODE_BYTES: usize = 11;
 const SHELL_EVENT_MIN_INTERVAL: Duration = Duration::from_millis(100);
 /// Sikemux's own OSC, which the SSH startup loop prints its state under.
-const SSH_LINK_OSC: &[u8] = b"6973;ssh;";
+pub const SSH_LINK_OSC: &str = "6973;ssh;";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellProtocolUpdate {
@@ -303,7 +303,7 @@ fn parse_shell_signal(payload: &[u8]) -> Option<ShellSignal> {
     if let Some(uri) = payload.strip_prefix(b"7;") {
         return parse_shell_cwd(uri).map(ShellSignal::Cwd);
     }
-    if let Some(link) = payload.strip_prefix(SSH_LINK_OSC) {
+    if let Some(link) = payload.strip_prefix(SSH_LINK_OSC.as_bytes()) {
         return parse_ssh_link(link).map(ShellSignal::Ssh);
     }
     let payload = payload.strip_prefix(b"133;")?;
@@ -337,13 +337,23 @@ fn parse_shell_signal(payload: &[u8]) -> Option<ShellSignal> {
     }
 }
 
-fn parse_ssh_link(value: &[u8]) -> Option<SshLink> {
-    match value {
-        b"connecting" => Some(SshLink::Connecting),
-        b"connected" => Some(SshLink::Connected),
-        b"disconnected" => Some(SshLink::Disconnected),
-        _ => None,
+/// What the SSH startup loop prints after [`SSH_LINK_OSC`] to say `link`.
+pub fn ssh_link_word(link: SshLink) -> &'static str {
+    match link {
+        SshLink::Connecting => "connecting",
+        SshLink::Connected => "connected",
+        SshLink::Disconnected => "disconnected",
     }
+}
+
+fn parse_ssh_link(value: &[u8]) -> Option<SshLink> {
+    [
+        SshLink::Connecting,
+        SshLink::Connected,
+        SshLink::Disconnected,
+    ]
+    .into_iter()
+    .find(|link| ssh_link_word(*link).as_bytes() == value)
 }
 
 fn parse_shell_exit_code(value: &[u8]) -> Option<i32> {
@@ -395,7 +405,7 @@ mod tests {
         MAX_SHELL_PATH_BYTES, SHELL_EVENT_MIN_INTERVAL,
     };
     use crate::screen::Screen;
-    use sikemux_wire::grid::TerminalColors;
+    use sikemux_grid::TerminalColors;
     use std::path::PathBuf;
 
     #[cfg(target_os = "macos")]
@@ -583,5 +593,59 @@ mod tests {
         assert_eq!(value["cwd"], cwd.to_string_lossy().as_ref());
         assert_eq!(value["phase"], "unknown");
         assert!(value.get("exitCode").is_none());
+    }
+
+    /// The prompt Sikemux gives PowerShell must reach the parser through a pseudoconsole,
+    /// which drops escape sequences it does not pass on.
+    #[cfg(windows)]
+    #[test]
+    fn powershell_reports_its_folder_and_prompt_through_the_pseudoconsole() {
+        use portable_pty::{CommandBuilder, PtySize};
+        use std::time::{Duration, Instant};
+
+        let root = tempfile::tempdir().expect("shell root");
+        let cwd = root.path().join("repo root");
+        std::fs::create_dir(&cwd).expect("shell cwd");
+        let pair = crate::master::open_pty(PtySize {
+            rows: 24,
+            cols: 200,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open pty");
+        let mut command = CommandBuilder::new("powershell.exe");
+        command.arg("-NoProfile");
+        command.cwd(&cwd);
+        let _integration =
+            crate::shell::configure_shell_integration(&mut command, "powershell.exe")
+                .expect("configure PowerShell")
+                .expect("PowerShell is supported");
+        let arrivals = crate::pseudoconsole_output::pseudoconsole_output(&*pair.master);
+        let mut child = pair.slave.spawn_command(command).expect("spawn PowerShell");
+        drop(pair.slave);
+
+        let mut parser = ShellProtocolParser::default();
+        let mut seen = Vec::new();
+        let mut reported = None;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while reported.is_none() && Instant::now() < deadline {
+            let Ok(chunk) = arrivals.recv_timeout(Duration::from_millis(200)) else {
+                continue;
+            };
+            seen.extend_from_slice(&chunk);
+            reported = parser
+                .process(&chunk)
+                .latest
+                .and_then(|update| update.metadata.cwd);
+        }
+        let _ = crate::process::kill_and_reap_child(&mut child, None);
+        drop(pair.master);
+        let reported = reported
+            .unwrap_or_else(|| panic!("no folder reported: {:?}", String::from_utf8_lossy(&seen)));
+        // The temporary folder may be named by its short 8.3 form, which the shell spells out.
+        assert_eq!(
+            sikemux_process::files::real_path(&reported).expect("reported folder exists"),
+            sikemux_process::files::real_path(&cwd).expect("shell cwd exists"),
+        );
     }
 }

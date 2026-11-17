@@ -1,0 +1,150 @@
+{
+  "products": [
+    {
+      "id": "pro",
+      "name": "Pro",
+      "kind": "plan",
+      "plan": "pro",
+      "unit": "account",
+      "payer": "person",
+      "maxQuantity": 1,
+      "prices": [
+        {
+          "interval": "month",
+          "unit": {
+            "amount": 800,
+            "currency": "usd"
+          }
+        },
+        {
+          "interval": "year",
+          "unit": {
+            "amount": 8000,
+            "currency": "usd"
+          }
+        }
+      ]
+    },
+    {
+      "id": "team",
+      "name": "Team",
+      "kind": "plan",
+      "plan": "team",
+      "unit": "seat",
+      "payer": "org",
+      "maxQuantity": 1000,
+      "prices": [
+        {
+          "interval": "month",
+          "unit": {
+            "amount": 2000,
+            "currency": "usd"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shed",
+      "name": "Shed",
+      "kind": "shed",
+      "unit": "box",
+      "payer": "either",
+      "maxQuantity": 20,
+      "prices": [
+        {
+          "interval": "month",
+          "unit": {
+            "amount": 1900,
+            "currency": "usd"
+          }
+        },
+        {
+          "interval": "year",
+          "unit": {
+            "amount": 19000,
+            "currency": "usd"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shed_always_on",
+      "name": "Shed Always-on",
+      "kind": "shed",
+      "unit": "box",
+      "payer": "either",
+      "maxQuantity": 20,
+      "prices": [
+        {
+          "interval": "month",
+          "unit": {
+            "amount": 2900,
+            "currency": "usd"
+          }
+        },
+        {
+          "interval": "year",
+          "unit": {
+            "amount": 29000,
+            "currency": "usd"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shed_large",
+      "name": "Shed Always-on, large",
+      "kind": "shed",
+      "unit": "box",
+      "payer": "either",
+      "maxQuantity": 20,
+      "prices": [
+        {
+          "interval": "month",
+          "unit": {
+            "amount": 4900,
+            "currency": "usd"
+          }
+        },
+        {
+          "interval": "year",
+          "unit": {
+            "amount": 49000,
+            "currency": "usd"
+          }
+        }
+      ]
+    }
+  ],
+  "plans": [
+    {
+      "id": "free",
+      "name": "Free",
+      "features": []
+    },
+    {
+      "id": "pro",
+      "name": "Pro",
+      "features": ["sync", "move_work", "history_search", "own_triggers"]
+    },
+    {
+      "id": "team",
+      "name": "Team",
+      "features": [
+        "sync",
+        "move_work",
+        "history_search",
+        "own_triggers",
+        "org_hosts",
+        "org_shared_setup",
+        "org_model_keys",
+        "org_github",
+        "org_bot_triggers",
+        "chat_handover",
+        "org_roles",
+        "org_policy"
+      ]
+    }
+  ],
+  "refundDays": 7
+}

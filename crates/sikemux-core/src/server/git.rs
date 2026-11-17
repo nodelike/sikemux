@@ -1,6 +1,12 @@
 //! The git panel's methods, `git.*`, for every client, and the watch on each
 //! project that tells them all when to read again.
 
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
+use crate::server::workspace_state::WorkspaceParts;
+pub use sikemux_calls::git::PullRequestUrlParams;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -8,69 +14,53 @@ use std::time::Duration;
 
 use super::codehost::repo as codehost;
 use super::connection::blocking;
-use crate::protocol::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
-use serde::Deserialize;
 use serde_json::Value;
 use sikemux_process::sync::Locked;
+use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::workspace::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
 
 use super::changed::Topic;
 use crate::git::{
     ai, blame, branches, changes, commit, log, remote, revisions, stash, status, watch, worktree,
 };
 
-use super::access::{Needs, Peer};
-use super::{Core, CoreError, CoreResult};
+use super::access::{Needs, Peer, Program};
+use super::calls::Row;
+use super::{Core, CoreResult};
 
-/// Answered by the code host layer, which needs the core, rather than by the table below.
-const PULL_REQUEST_URL: &str = "git.pullRequestUrl";
-
-/// What a client must be allowed to call `method`.
-pub(crate) fn needs(method: &str) -> Needs {
-    if reads(method) || method == PULL_REQUEST_URL {
-        Needs::Watch
-    } else if matches!(method, "git.push") {
-        Needs::Person
-    } else {
-        Needs::Full
-    }
-}
-
-/// Whether only Sikemux's own window or notch may call `method` from this
-/// host; another program here may only read.
-pub(crate) fn for_person(method: &str) -> bool {
-    !reads(method) && method != PULL_REQUEST_URL
-}
-
-/// Each method's parameters by the names clients send them under, the first of
-/// them the repository it works in, the git function it runs, `read` for one
-/// that only reads, and `core` for one that runs with the core as well.
+/// Each method's [`Row`], its parameters by name as `sikemux_calls::git` declares them, the
+/// first of them the repository it works in, and the git function it runs, `core` before it
+/// for one that runs with the core as well.
 macro_rules! methods {
-    ($($name:literal $($read:ident)? $(, $with:ident)? => $run:path { $repo:ident: String $(, $arg:ident: $ty:ty)* $(,)? }),* $(,)?) => {
-        fn reads(method: &str) -> bool {
+    ($($name:literal $marker:ident, $needs:ident $(, $flag:ident)* $(; $with:ident)? => $run:path { $repo:ident $(, $arg:ident)* $(,)? }),* $(,)?) => {
+        pub use sikemux_calls::git::call;
+
+        pub(super) fn row(method: &str) -> Option<Row> {
             match method {
-                $($name => methods!(@read $($read)?),)*
-                _ => false,
+                $($name => Some(Row::of(Needs::$needs) $(.$flag())*),)*
+                _ => None,
             }
         }
 
-        async fn run(core: &Core, peer: &Peer, method: &str, params: Value) -> CoreResult<Value> {
+        pub(crate) async fn call(core: &Core, peer: &Peer, method: &str, params: Value) -> CoreResult<Value> {
             match method {
                 $($name => {
-                    #[derive(Deserialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct Params { $repo: String $(, $arg: $ty)* }
-                    let Params { $repo $(, $arg)* } = serde_json::from_value(params).map_err(unfit)?;
+                    let call::$marker { $repo $(, $arg)* } = super::calls::parse(params)?;
                     confine(core, peer, &$repo).await?;
-                    Ok(serde_json::to_value(methods!(@call $run, core, ($($with)?), $repo $(, $arg)*).await?)?)
+                    let answer: <call::$marker as sikemux_calls::Call>::Answer = methods!(@call $run, core, ($($with)?), $repo $(, $arg)*).await?;
+                    Ok(serde_json::to_value(answer)?)
                 })*
-                _ => Err(format!("this host does not know {method}").into()),
+                _ => Err(crate::server::CoreError::unknown_method(method)),
             }
         }
     };
-    (@read read) => { true };
-    (@read) => { false };
     (@call $run:path, $core:ident, (core), $($arg:ident),*) => { $run($core, $($arg),*) };
     (@call $run:path, $core:ident, (), $($arg:ident),*) => { $run($($arg),*) };
+}
+
+/// Whether `method` only reads, which any program, a mod among them, may do.
+pub(super) fn reads(method: &str) -> bool {
+    row(method).is_some_and(|row| matches!(row.program, Program::Anyone))
 }
 
 /// Refuses a device a repository outside the workspace's projects.
@@ -78,7 +68,7 @@ async fn confine(core: &Core, peer: &Peer, repo: &str) -> CoreResult<()> {
     if !matches!(peer, Peer::Device { .. }) {
         return Ok(());
     }
-    let (asked, projects) = (PathBuf::from(repo), core.workspaces.project_paths());
+    let (asked, projects) = (PathBuf::from(repo), core.workspaces().project_paths());
     if !blocking(move || Ok(of_a_project(&asked, &projects))).await? {
         return Err("a device may only look at the workspace's projects".into());
     }
@@ -87,40 +77,37 @@ async fn confine(core: &Core, peer: &Peer, repo: &str) -> CoreResult<()> {
 
 /// Whether a project or an agent here works inside `path`.
 fn lived_in(core: &Core, path: &Path) -> bool {
-    let projects = core.workspaces.project_paths();
+    let projects = core.workspaces().project_paths();
     projects.iter().any(|project| project.starts_with(path))
         || core
-            .workspaces
+            .workspaces()
             .agent_ids()
             .into_iter()
-            .filter_map(|id| core.workspaces.agent(&id))
+            .filter_map(|id| core.workspaces().agent(&id))
             .any(|agent| agent.cwd.starts_with(path))
 }
 
-pub(crate) async fn call(
+/// Where to open a pull request for the repository's branch, which the code host layer says.
+pub(super) async fn pull_request_url(
     core: &Core,
     peer: &Peer,
-    method: &str,
-    params: Value,
-) -> CoreResult<Value> {
-    if method == PULL_REQUEST_URL {
-        #[derive(Deserialize)]
-        struct Asked {
-            repo: String,
-        }
-        let Asked { repo } = serde_json::from_value(params).map_err(unfit)?;
-        confine(core, peer, &repo).await?;
-        let (origin, branch) = remote::origin_and_branch(repo).await?;
-        let url = codehost::compare_url(core, &origin, &branch).await?;
-        return Ok(Value::String(url));
-    }
-    run(core, peer, method, params).await
+    params: PullRequestUrlParams,
+) -> CoreResult<String> {
+    confine(core, peer, &params.repo).await?;
+    let (origin, branch) = remote::origin_and_branch(params.repo).await?;
+    Ok(codehost::compare_url(core, &origin, &branch).await?)
 }
 
 /// The repository of `project`, preferring the one the person picked for it.
 async fn project_repo(core: &Core, project: String) -> Result<status::ProjectRepo, String> {
+    if core.clones().holds(Path::new(&project)) {
+        return Ok(status::ProjectRepo {
+            repo: None,
+            repos: Some(Vec::new()),
+        });
+    }
     let chosen = core
-        .preferences
+        .preferences()
         .get()
         .default_git_repos
         .get(&project)
@@ -142,72 +129,72 @@ async fn remove_worktree(
 }
 
 methods!(
-    "git.status" read => status::git_status { repo: String },
-    "git.discoverRepos" read => status::git_discover_repos { root: String },
-    "git.projectRepo" read, core => project_repo { project: String },
-    "git.overview" read => log::git_overview { repo: String },
-    "git.log" read => log::git_log { repo: String },
-    "git.commitsNaming" read => log::git_commits_naming { repo: String, key: String },
-    "git.diff" read => changes::git_diff { repo: String, path: String, staged: bool },
-    "git.stage" => changes::git_stage { repo: String, path: String },
-    "git.unstage" => changes::git_unstage { repo: String, path: String },
-    "git.stagePaths" => changes::git_stage_paths { repo: String, paths: Vec<String> },
-    "git.unstagePaths" => changes::git_unstage_paths { repo: String, paths: Vec<String> },
-    "git.stageAll" => changes::git_stage_all { repo: String },
-    "git.unstageAll" => changes::git_unstage_all { repo: String },
-    "git.discardFiles" => changes::git_discard_files { repo: String, paths: Vec<String>, mode: String },
-    "git.branches" read => branches::git_branches { repo: String },
-    "git.checkout" => branches::git_checkout { repo: String, branch: String },
-    "git.checkoutSmart" => branches::git_checkout_smart { repo: String, branch: String },
-    "git.branchCreate" => branches::git_branch_create { repo: String, name: String, start_point: Option<String> },
-    "git.branchDelete" => branches::git_branch_delete { repo: String, name: String, force: bool },
-    "git.branchRename" => branches::git_branch_rename { repo: String, old_name: String, new_name: String },
-    "git.merge" => branches::git_merge { repo: String, branch: String },
-    "git.mergeSquash" => branches::git_merge_squash { repo: String, branch: String },
-    "git.reset" => branches::git_reset { repo: String, rev: String, mode: String },
-    "git.revert" => branches::git_revert { repo: String, rev: String },
-    "git.worktrees" read => worktree::git_worktree_list { repo: String },
-    "git.worktreeCreate" => worktree::git_worktree_create { repo: String, path: String, branch: String, create_branch: bool, start_point: Option<String> },
-    "git.worktreeRemove", core => remove_worktree { repo: String, path: String, force: bool },
-    "git.show" read => revisions::git_show { repo: String, rev: String },
-    "git.fileAt" read => revisions::git_file_at { repo: String, rev: String, path: String },
-    "git.fileDiff" read => revisions::git_file_diff { repo: String, path: String, base_rev: String, head_rev: Option<String>, full: bool },
-    "git.commitFiles" read => revisions::git_commit_files { repo: String, rev: String },
-    "git.compare" read => revisions::git_compare { repo: String, base: String, head: String },
-    "git.blame" read => blame::git_blame { repo: String, path: String, contents: Option<String> },
-    "git.push" => commit::git_push { repo: String },
-    "git.pull" => commit::git_pull { repo: String },
-    "git.aiMessage" => ai::git_ai_message { repo: String, provider: Option<String>, model: Option<String> },
-    "git.stashList" read => stash::git_stash_list { repo: String },
-    "git.stashPush" => stash::git_stash_push { repo: String, message: Option<String>, mode: String },
-    "git.stashApply" => stash::git_stash_apply { repo: String, refname: String, sha: String },
-    "git.stashPop" => stash::git_stash_pop { repo: String, refname: String, sha: String },
-    "git.stashDrop" => stash::git_stash_drop { repo: String, refname: String, sha: String },
-    "git.stashBranch" => stash::git_stash_branch { repo: String, refname: String, sha: String, name: String },
-    "git.stashRename" => stash::git_stash_rename { repo: String, refname: String, sha: String, new_message: String },
-    "git.remotes" read => remote::git_remotes { repo: String },
-    "git.remoteAdd" => remote::git_remote_add { repo: String, name: String, url: String },
-    "git.remoteRemove" => remote::git_remote_remove { repo: String, name: String },
-    "git.remoteRename" => remote::git_remote_rename { repo: String, old_name: String, new_name: String },
-    "git.remoteSetUrl" => remote::git_remote_set_url { repo: String, name: String, url: String },
-    "git.fetch" => remote::git_fetch { repo: String, remote: Option<String> },
-    "git.fetchRef" => remote::git_fetch_ref { repo: String, remote: String, source: String, branch: String },
-    "git.remoteBranches" read => remote::git_remote_branches { repo: String, remote: String },
-    "git.checkoutRemoteBranch" => remote::git_checkout_remote_branch { repo: String, remote: String, branch: String, local_name: Option<String> },
-    "git.deleteRemoteBranch" => remote::git_delete_remote_branch { repo: String, remote: String, branch: String },
-    "git.setUpstream" => remote::git_set_upstream { repo: String, branch: String, upstream: Option<String> },
+    "git.status" Status, Watch, any_program => status::git_status { repo },
+    "git.discoverRepos" DiscoverRepos, Watch, any_program => status::git_discover_repos { root },
+    "git.projectRepo" ProjectRepo, Watch, any_program; core => project_repo { project },
+    "git.overview" Overview, Watch, any_program => log::git_overview { repo },
+    "git.log" Log, Watch, any_program => log::git_log { repo },
+    "git.commitsNaming" CommitsNaming, Watch, any_program => log::git_commits_naming { repo, key },
+    "git.diff" Diff, Watch, any_program => changes::git_diff { repo, path, staged },
+    "git.stage" Stage, Full => changes::git_stage { repo, path },
+    "git.unstage" Unstage, Full => changes::git_unstage { repo, path },
+    "git.stagePaths" StagePaths, Full, counted => changes::git_stage_paths { repo, paths },
+    "git.unstagePaths" UnstagePaths, Full => changes::git_unstage_paths { repo, paths },
+    "git.stageAll" StageAll, Full => changes::git_stage_all { repo },
+    "git.unstageAll" UnstageAll, Full => changes::git_unstage_all { repo },
+    "git.discardFiles" DiscardFiles, Full, counted => changes::git_discard_files { repo, paths, mode },
+    "git.branches" Branches, Watch, any_program => branches::git_branches { repo },
+    "git.checkout" Checkout, Full => branches::git_checkout { repo, branch },
+    "git.checkoutSmart" CheckoutSmart, Full, counted => branches::git_checkout_smart { repo, branch },
+    "git.branchCreate" BranchCreate, Full, counted => branches::git_branch_create { repo, name, start_point },
+    "git.branchDelete" BranchDelete, Full => branches::git_branch_delete { repo, name, force },
+    "git.branchRename" BranchRename, Full => branches::git_branch_rename { repo, old_name, new_name },
+    "git.merge" Merge, Full, counted => branches::git_merge { repo, branch },
+    "git.mergeSquash" MergeSquash, Full => branches::git_merge_squash { repo, branch },
+    "git.reset" Reset, Full => branches::git_reset { repo, rev, mode },
+    "git.revert" Revert, Full => branches::git_revert { repo, rev },
+    "git.worktrees" Worktrees, Watch, any_program => worktree::git_worktree_list { repo },
+    "git.worktreeCreate" WorktreeCreate, Full => worktree::git_worktree_create { repo, path, branch, create_branch, start_point },
+    "git.worktreeRemove" WorktreeRemove, Full; core => remove_worktree { repo, path, force },
+    "git.show" Show, Watch, any_program => revisions::git_show { repo, rev },
+    "git.fileAt" FileAt, Watch, any_program => revisions::git_file_at { repo, rev, path },
+    "git.fileDiff" FileDiff, Watch, any_program => revisions::git_file_diff { repo, path, base_rev, head_rev, full },
+    "git.commitFiles" CommitFiles, Watch, any_program => revisions::git_commit_files { repo, rev },
+    "git.compare" Compare, Watch, any_program, counted => revisions::git_compare { repo, base, head },
+    "git.blame" Blame, Watch, any_program, counted => blame::git_blame { repo, path, contents },
+    "git.push" Push, Owner, counted => commit::git_push { repo },
+    "git.pull" Pull, Full, counted => commit::git_pull { repo },
+    "git.aiMessage" AiMessage, Full, counted => ai::git_ai_message { repo, provider, model },
+    "git.stashList" StashList, Watch, any_program => stash::git_stash_list { repo },
+    "git.stashPush" StashPush, Full, counted => stash::git_stash_push { repo, message, mode },
+    "git.stashApply" StashApply, Full => stash::git_stash_apply { repo, refname, sha },
+    "git.stashPop" StashPop, Full => stash::git_stash_pop { repo, refname, sha },
+    "git.stashDrop" StashDrop, Full => stash::git_stash_drop { repo, refname, sha },
+    "git.stashBranch" StashBranch, Full => stash::git_stash_branch { repo, refname, sha, name },
+    "git.stashRename" StashRename, Full => stash::git_stash_rename { repo, refname, sha, new_message },
+    "git.remotes" Remotes, Watch, any_program => remote::git_remotes { repo },
+    "git.remoteAdd" RemoteAdd, Full => remote::git_remote_add { repo, name, url },
+    "git.remoteRemove" RemoteRemove, Full => remote::git_remote_remove { repo, name },
+    "git.remoteRename" RemoteRename, Full => remote::git_remote_rename { repo, old_name, new_name },
+    "git.remoteSetUrl" RemoteSetUrl, Full => remote::git_remote_set_url { repo, name, url },
+    "git.fetch" Fetch, Full => remote::git_fetch { repo, remote },
+    "git.fetchRef" FetchRef, Full => remote::git_fetch_ref { repo, remote, source, branch },
+    "git.remoteBranches" RemoteBranches, Watch, any_program => remote::git_remote_branches { repo, remote },
+    "git.checkoutRemoteBranch" CheckoutRemoteBranch, Full => remote::git_checkout_remote_branch { repo, remote, branch, local_name },
+    "git.deleteRemoteBranch" DeleteRemoteBranch, Full => remote::git_delete_remote_branch { repo, remote, branch },
+    "git.setUpstream" SetUpstream, Full => remote::git_set_upstream { repo, branch, upstream },
 );
 
 /// Whether `asked` lies inside one of the projects, or is a worktree of one
 /// of their repositories.
 fn of_a_project(asked: &Path, projects: &[PathBuf]) -> bool {
-    let Ok(asked) = asked.canonicalize() else {
+    let Ok(asked) = sikemux_process::files::real_path(asked) else {
         return false;
     };
     let shared = |path: &Path| crate::git::main_checkout(path);
     let asked_shared = shared(&asked);
     projects.iter().any(|project| {
-        let Ok(project) = project.canonicalize() else {
+        let Ok(project) = sikemux_process::files::real_path(project) else {
             return false;
         };
         asked.starts_with(&project)
@@ -215,10 +202,6 @@ fn of_a_project(asked: &Path, projects: &[PathBuf]) -> bool {
                 .as_ref()
                 .is_some_and(|common| shared(&project).as_ref() == Some(common))
     })
-}
-
-fn unfit(error: serde_json::Error) -> CoreError {
-    format!("the call's params do not fit: {error}").into()
 }
 
 /// Reads the branch chips of the projects at `folders` again, forgetting
@@ -233,13 +216,13 @@ fn read_chips(core: &Arc<Core>, folders: Vec<String>) {
             read.push((folder, chip));
         }
         let projects: HashSet<String> = core
-            .workspaces
+            .workspaces()
             .project_paths()
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
             .collect();
         let changed = {
-            let mut chips = core.git.chips.locked();
+            let mut chips = core.git().chips.locked();
             let before = chips.len();
             chips.retain(|folder, _| projects.contains(folder));
             let mut changed = chips.len() != before;
@@ -252,7 +235,7 @@ fn read_chips(core: &Arc<Core>, folders: Vec<String>) {
             changed
         };
         if changed {
-            core.view_changed();
+            core.changed(What::View);
         }
     });
 }
@@ -368,13 +351,13 @@ pub(crate) fn read_hosts(core: &Arc<Core>, folders: Vec<String>) {
             read.push((folder, Some(hosted)));
         }
         let projects: HashSet<String> = core
-            .workspaces
+            .workspaces()
             .project_paths()
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
             .collect();
         let changed = {
-            let mut hosts = core.git.hosted.locked();
+            let mut hosts = core.git().hosted.locked();
             let before = hosts.len();
             hosts.retain(|folder, _| projects.contains(folder));
             let mut changed = hosts.len() != before;
@@ -387,7 +370,7 @@ pub(crate) fn read_hosts(core: &Arc<Core>, folders: Vec<String>) {
             changed
         };
         if changed {
-            core.view_changed();
+            core.changed(What::View);
         }
     });
 }
@@ -395,7 +378,7 @@ pub(crate) fn read_hosts(core: &Arc<Core>, folders: Vec<String>) {
 /// The repositories whose pull request checks are still running, which the
 /// CI watch keeps checking until they settle.
 pub(crate) fn pending_pulls(core: &Core) -> Vec<super::codehost::ci::Shown> {
-    core.git
+    core.git()
         .hosted
         .locked()
         .values()
@@ -413,7 +396,7 @@ pub(crate) fn pending_pulls(core: &Core) -> Vec<super::codehost::ci::Shown> {
 /// read again.
 pub(crate) fn ci_moved(core: &Arc<Core>, repo: &super::codehost::ci::Shown) {
     let folders: Vec<String> = core
-        .git
+        .git()
         .hosted
         .locked()
         .iter()
@@ -433,7 +416,7 @@ const HOST_REFRESH_GAP: Duration = Duration::from_secs(5);
 /// refs moved meanwhile.
 fn refresh_hosts(core: &Arc<Core>, projects: &[String]) {
     let fresh: Vec<String> = {
-        let mut refreshes = core.git.refreshes.locked();
+        let mut refreshes = core.git().refreshes.locked();
         projects
             .iter()
             .filter(|project| match refreshes.get_mut(*project) {
@@ -457,12 +440,14 @@ fn refresh_hosts(core: &Arc<Core>, projects: &[String]) {
 fn refresh_host_now(core: &Arc<Core>, project: String) {
     read_hosts(core, vec![project.clone()]);
     super::codehost::refs_moved(core, std::slice::from_ref(&project));
+    core.checks().refs_moved(&project);
+    super::now::refs_moved(core, &project);
     let weak = Arc::downgrade(core);
     tokio::spawn(async move {
         tokio::time::sleep(HOST_REFRESH_GAP).await;
         let Some(core) = weak.upgrade() else { return };
         let again = {
-            let mut refreshes = core.git.refreshes.locked();
+            let mut refreshes = core.git().refreshes.locked();
             match refreshes.get_mut(&project) {
                 Some(again) if *again => {
                     *again = false;
@@ -483,10 +468,10 @@ fn refresh_host_now(core: &Arc<Core>, project: String) {
 /// Watches the workspace's projects as they are now, telling every client
 /// when one moves.
 pub(crate) fn follow_projects(core: &Core) {
-    let Some(core) = core.me.upgrade() else {
+    let Some(core) = core.arc() else {
         return;
     };
-    let weak: Weak<Core> = core.me.clone();
+    let weak: Weak<Core> = core.weak();
     let changed: watch::Changed = Arc::new(move |projects, paths| {
         let Some(core) = weak.upgrade() else { return };
         let state_moved = paths
@@ -496,28 +481,88 @@ pub(crate) fn follow_projects(core: &Core) {
         if state_moved {
             refresh_hosts(&core, projects);
         }
+        if (paths.as_ref()).is_some_and(|paths| paths.iter().any(|path| path == watch::GIT_CONFIG))
+        {
+            refresh_identities(&core, projects.iter().map(PathBuf::from).collect());
+        }
         for project in projects {
             super::project_files::moved(project, paths.as_deref());
-            core.changes
-                .changed(Topic::Git, Some(project), paths.clone());
+            core.changed(What::ReadIn(Topic::Git, Some(project), paths.clone()));
             if state_moved {
-                core.collisions.head_moved(&core, project);
+                core.collisions().head_moved(&core, project);
             }
         }
     });
     tokio::task::spawn_blocking(move || {
-        core.git
+        core.git()
             .watches
-            .follow(|| core.workspaces.project_paths(), &changed);
-        let identities = core
-            .workspaces
-            .project_paths()
+            .follow(|| core.workspaces().project_paths(), &changed);
+        set_identities(&core, identities_of(core.workspaces().project_paths()));
+    });
+}
+
+/// Keeps what each project is known by, and moves what the person keeps by a project's identity
+/// (the copy in front, the space of a project held elsewhere, the order) to its new identity.
+fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
+    let renamed: Vec<(String, String)> = (core.workspaces().projects().into_iter())
+        .filter_map(|project| {
+            let old = project.identity?;
+            let (_, new) = identities.iter().find(|(path, _)| *path == project.path)?;
+            let new = new.clone()?;
+            (old != new).then_some((old, new))
+        })
+        .collect();
+    core.workspaces().set_identities(identities);
+    super::board::rekey(core);
+    super::memory::rekey(core, &renamed);
+    if renamed.is_empty() {
+        return;
+    }
+    let preferences = core.preferences().get();
+    let moved = |keyed: &std::collections::BTreeMap<String, String>| {
+        let mut keyed = keyed.clone();
+        for (old, new) in &renamed {
+            if let Some(value) = keyed.remove(old) {
+                keyed.entry(new.clone()).or_insert(value);
+            }
+        }
+        keyed
+    };
+    let order = (preferences.project_order.iter())
+        .map(|key| match renamed.iter().find(|(old, _)| old == key) {
+            Some((_, new)) => new.clone(),
+            None => key.clone(),
+        })
+        .collect();
+    for change in [
+        PreferenceChange::FrontCopies(moved(&preferences.front_copies)),
+        PreferenceChange::ElsewhereSpaces(moved(&preferences.elsewhere_spaces)),
+        PreferenceChange::ProjectOrder(order),
+    ] {
+        let _ = super::preferences::set(core, change);
+    }
+}
+
+/// What each of `paths` is known by on every host (ADR 0023).
+fn identities_of(paths: Vec<PathBuf>) -> Vec<(PathBuf, Option<String>)> {
+    (paths.into_iter())
+        .map(|path| {
+            let identity = crate::git::remote::project_identity(&path.to_string_lossy());
+            (path, identity)
+        })
+        .collect()
+}
+
+/// Works out again what the projects at `paths` are known by, as a remote added, renamed or
+/// pointed elsewhere changes it.
+fn refresh_identities(core: &Arc<Core>, paths: Vec<PathBuf>) {
+    let core = core.clone();
+    tokio::task::spawn_blocking(move || {
+        let known = core.workspaces().project_paths();
+        let paths = paths
             .into_iter()
-            .map(|path| {
-                let identity = crate::git::remote::project_identity(&path.to_string_lossy());
-                (path, identity)
-            })
+            .filter(|path| known.contains(path))
             .collect();
-        core.workspaces.set_identities(identities);
+        set_identities(&core, identities_of(paths));
     });
 }

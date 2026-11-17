@@ -1,4 +1,3 @@
-/** Whether `value` is a TCP or UDP port number. */
 export function isPort(value: number): boolean {
   return Number.isInteger(value) && value >= 1 && value <= 65535;
 }

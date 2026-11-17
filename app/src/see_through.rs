@@ -7,7 +7,7 @@
 use std::cell::Cell;
 
 use gpui::{App, Global, Hsla, Window, WindowBackgroundAppearance};
-use sikemux_wire::protocol::Preferences;
+use sikemux_view::prefs::Preferences;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct SeeThrough {

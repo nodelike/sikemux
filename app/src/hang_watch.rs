@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::{App, Window};
 use serde_json::json;
-use sikemux_host::hang_reports::{autopsy_dir, is_bundle, DIRECTORY_PREFIX, REPORT_FILE};
+use sikemux_hostkit::hang_reports::{autopsy_dir, is_bundle, DIRECTORY_PREFIX, REPORT_FILE};
 
 const BEAT_EVERY: Duration = Duration::from_millis(500);
 /// A window that has not answered for this long is stuck, not busy.
@@ -104,9 +104,9 @@ fn report(directory: &Path, silent: Duration) -> std::io::Result<()> {
         .arg(SAMPLE_SECONDS.to_string())
         .arg("-file")
         .arg(folder.join(file))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status();
     let (file, error) = match sampled {
         Ok(status) if status.success() => (Some(file), None),

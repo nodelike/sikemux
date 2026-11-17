@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="${1:-}"
 NOTARIZED="${RELEASE_NOTARIZED:-0}"
-TAURI_CLI_VERSION=2.12.0
+# shellcheck source=scripts/release-shape.sh
+source "$ROOT/scripts/release-shape.sh"
 
 fail() {
   echo "Release signing failed: $*" >&2
@@ -34,14 +35,13 @@ if [[ "$NOTARIZED" == "1" ]]; then
   fi
   TIMESTAMP=(--timestamp)
 else
-  IDENTITY=-
+  IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
   TIMESTAMP=()
 fi
 # Each tool below gets only the secret it needs.
 UPDATER_KEY="$TAURI_SIGNING_PRIVATE_KEY"
 UPDATER_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
-unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
-unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+unset "${SIGNING_SECRETS[@]}"
 
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
@@ -52,7 +52,7 @@ SIG="$TAR.sig"
 NOTCH_APP="$APP/Contents/Helpers/Sikemux Notch.app"
 CORE_APP="$APP/Contents/Helpers/Sikemux Core.app"
 CORE_LINK="$APP/Contents/MacOS/sikemux-host"
-CORE_LINK_TARGET="../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host"
+CORE_LINK_TARGET="$(node scripts/app-metadata.mjs core-link)"
 
 WORK="$(mktemp -d)"
 MOUNT=""
@@ -89,11 +89,9 @@ shopt -u nullglob
 DMG="${DMGS[0]}"
 
 echo "→ Fetching Tauri CLI $TAURI_CLI_VERSION"
-case "$(uname -m)" in
-  arm64) TRIPLE=aarch64-apple-darwin TAURI_CLI_SHA256=c0d45bb76b9501ee8871a1712bc8e45d0b6a97d0695e0de85b4477794f07682a ;;
-  x86_64) TRIPLE=x86_64-apple-darwin TAURI_CLI_SHA256=157b919fa24c6c14ff34f5ae4046b8df59c894d1955b845f01a9a30d07abe8b9 ;;
-  *) fail "no pinned Tauri CLI for $(uname -m)" ;;
-esac
+[[ "$(uname -m)" == arm64 ]] || fail "no pinned Tauri CLI for $(uname -m)"
+TRIPLE=aarch64-apple-darwin
+TAURI_CLI_SHA256=c0d45bb76b9501ee8871a1712bc8e45d0b6a97d0695e0de85b4477794f07682a
 /usr/bin/curl -fsSL --retry 3 -o "$WORK/tauri-cli.zip" \
   "https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v$TAURI_CLI_VERSION/cargo-tauri-$TRIPLE.zip"
 [[ "$(/usr/bin/shasum -a 256 "$WORK/tauri-cli.zip" | cut -d ' ' -f 1)" == "$TAURI_CLI_SHA256" ]] ||
@@ -111,11 +109,18 @@ notarize() {
 }
 
 echo "→ Signing $APP_NAME.app as $IDENTITY"
-# The profiles let the app and its core claim the keychain group they share.
-/usr/bin/ditto "$ROOT/packaging/macos/sikemux-developer-id.provisionprofile" "$APP/Contents/embedded.provisionprofile"
-/usr/bin/ditto "$ROOT/packaging/macos/sikemux-core-developer-id.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
-"$ROOT/scripts/mac-entitlements.sh" app >"$WORK/app.entitlements"
-"$ROOT/scripts/mac-entitlements.sh" core >"$WORK/core.entitlements"
+if [[ "$IDENTITY" == "-" ]]; then
+  # macOS refuses to launch an ad hoc signature that claims a team's keychain group.
+  rm -f "$APP/Contents/embedded.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
+  cp "$ROOT/packaging/Entitlements.plist" "$WORK/app.entitlements"
+  cp "$ROOT/packaging/Entitlements.plist" "$WORK/core.entitlements"
+else
+  # The profiles let the app and its core claim the keychain group they share.
+  /usr/bin/ditto "$ROOT/packaging/macos/sikemux-developer-id.provisionprofile" "$APP/Contents/embedded.provisionprofile"
+  /usr/bin/ditto "$ROOT/packaging/macos/sikemux-core-developer-id.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
+  "$ROOT/scripts/mac-entitlements.sh" app >"$WORK/app.entitlements"
+  "$ROOT/scripts/mac-entitlements.sh" core >"$WORK/core.entitlements"
+fi
 /usr/bin/codesign --force --options runtime ${TIMESTAMP[@]+"${TIMESTAMP[@]}"} --sign "$IDENTITY" "$NOTCH_APP"
 /usr/bin/codesign --force --options runtime ${TIMESTAMP[@]+"${TIMESTAMP[@]}"} \
   --entitlements "$WORK/core.entitlements" --sign "$IDENTITY" "$CORE_APP"

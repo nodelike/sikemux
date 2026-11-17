@@ -1,64 +1,87 @@
 name: Mobile release
-run-name: Mobile release ${{ github.ref_name }}
+run-name: Mobile release ${{ github.event_name == 'push' && github.ref_name || format('nightly from {0}', github.event.workflow_run.head_sha || github.sha) }}
 
-# A phone release starts from a mobile-v* tag, separate from the Mac's v* tags. A stable one waits
-# for the owner's approval on the approval environment; a nightly publishes once its checks pass.
+# A phone nightly is cut from each push to main that CI passed and that changed what the phones build
+# from, and goes to testers: Play's closed test and TestFlight's internal group. A stable release starts from a mobile-v* tag on a nightly's
+# phone code: the iPhone build that nightly sent to TestFlight goes up for App Store review, and
+# Android is rebuilt from it for stable's update channel.
 on:
   push:
     tags: ["mobile-v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# One nightly builds at a time, and of the pushes waiting only the newest gets the next run.
 concurrency:
-  group: mobile-release
+  group: mobile-release-${{ github.event_name == 'push' && github.ref_name || 'nightly' }}
   cancel-in-progress: false
 
 jobs:
-  approve:
-    name: Approve the stable release
-    if: ${{ !contains(github.ref_name, '-nightly.') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: approval
-    steps:
-      - name: Approved
-        run: echo "Approved ${GITHUB_REF_NAME}" >>"$GITHUB_STEP_SUMMARY"
-
   plan:
     name: Plan the release
+    # A nightly needs a green CI run from a push to main, and nightlies not held by `scripts/nightly.sh hold`.
+    if: >-
+      github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.NIGHTLY_HOLD == '')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
       commit: ${{ steps.plan.outputs.commit }}
+      sha: ${{ steps.plan.outputs.sha }}
+      tag: ${{ steps.plan.outputs.tag }}
+      build: ${{ steps.plan.outputs.build }}
+      promoted_build: ${{ steps.plan.outputs.promoted_build }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
-      - name: Resolve version and channel
+      - name: Resolve version, channel and notes
         id: plan
         run: |
-          version="${GITHUB_REF_NAME#mobile-v}"
-          base="$(node -p "require('./mobile/app/app.json').expo.version")"
-          if [[ "${version%%-*}" != "$base" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME is not a release of $base, the version in mobile/app/app.json"
-            exit 1
+          plan="$(mobile/scripts/plan-release.sh "$([[ "$GITHUB_EVENT_NAME" == push ]] && echo "$GITHUB_REF_NAME" || echo nightly)")"
+          echo "$plan" >>"$GITHUB_OUTPUT"
+          version="$(sed -n 's/^version=//p' <<<"$plan")"
+          if [[ -z "$version" ]]; then
+            echo "Nothing the phones build from changed since the last phone release" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
-          if [[ "$version" == *-* ]]; then channel=nightly; else channel=stable; fi
           {
-            echo "version=$version"
-            echo "channel=$channel"
+            echo "sha=$(git rev-parse HEAD)"
             echo "commit=$(git rev-parse --short=7 HEAD)"
+            echo "tag=mobile-v$version"
           } >>"$GITHUB_OUTPUT"
-          echo "Releasing $channel $version from $(git rev-parse HEAD)" >>"$GITHUB_STEP_SUMMARY"
+          echo "Releasing $version from $(git rev-parse HEAD)" >>"$GITHUB_STEP_SUMMARY"
+
+      # A nightly's version and notes are written in this run, never on main, so every job takes them from here.
+      - name: Keep the planned version and notes
+        if: steps.plan.outputs.version != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: phone-plan
+          path: |
+            mobile/app/app.json
+            mobile/ios/project.yml
+            mobile/RELEASE_NOTES.md
+          if-no-files-found: error
 
       # Google Play takes the notes with the bundle at the end of the run; a stale or overlong file
       # would only fail there, after the build.
       - name: Check the release notes
+        if: steps.plan.outputs.version != ''
         env:
           VERSION: ${{ steps.plan.outputs.version }}
         run: node mobile/app/scripts/play-release.mjs notes "$VERSION"
@@ -70,19 +93,30 @@ jobs:
     name: Build Android
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
+    if: needs.plan.outputs.version != ''
     env:
       APP_VARIANT: production
       SIKEMUX_MOBILE_VERSION: ${{ needs.plan.outputs.version }}
       SIKEMUX_MOBILE_CHANNEL: ${{ needs.plan.outputs.channel }}
       # The account sheet shows which commit the build's own code came from.
       EXPO_PUBLIC_COMMIT: ${{ needs.plan.outputs.commit }}
+      # Published builds report crashes, under the release the app names itself.
+      EXPO_PUBLIC_SENTRY: "1"
+      SENTRY_RELEASE: sikemux-mobile@${{ needs.plan.outputs.version }}+${{ needs.plan.outputs.build }}
+      SENTRY_DIST: ${{ needs.plan.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
+
+      - name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phone-plan
+          path: mobile
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -95,17 +129,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Use the runner's Java 17 and Android NDK
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >>"$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >>"$GITHUB_ENV"
-
-      - name: Setup Rust
-        run: |
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-linux-android --target x86_64-linux-android
-          cargo install cargo-ndk --locked
+      - name: Setup Android
+        uses: ./.github/actions/setup-android
 
       - name: Install phone dependencies
         working-directory: mobile
@@ -134,15 +159,20 @@ jobs:
         working-directory: mobile/app
         run: node scripts/run.mjs prebuild android production
 
-      # Without the upload keystore, plugins/release-signing.js leaves both unsigned.
+      # Without the upload keystore, plugins/release-signing.js leaves both unsigned. Each build
+      # sends Sentry its source maps, ProGuard mapping and native symbols.
       - name: Build the unsigned APK and app bundle
         working-directory: mobile/app/android
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           # The generated project gives Gradle 512 MB of metaspace, which a release build outgrows.
           # The file has no newline at its end, so the setting starts on a line of its own.
           sed -i '/^org.gradle.jvmargs=/d' gradle.properties
           printf '\norg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g\n' >>gradle.properties
           grep -x 'org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g' gradle.properties
+          # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
           # The Rust client is built for arm64-v8a and x86_64 only. The APK people sideload is for
           # phones, so arm64 alone; Play hands each device its own part of the bundle.
           ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
@@ -256,7 +286,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
+
+      - name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phone-plan
+          path: mobile
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -274,18 +311,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          SHA: ${{ needs.plan.outputs.sha }}
         run: |
           # Never the latest release: sikemux.com takes its Mac download from that one.
-          flags=(--latest=false --verify-tag)
+          flags=(--latest=false)
+          # A pushed tag is already there; a nightly from main gets its tag made here.
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then flags+=(--verify-tag); else flags+=(--target "$SHA"); fi
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--prerelease)
           notes="$(node mobile/app/scripts/play-release.mjs notes "$VERSION")
 
           Built from $(git rev-parse --short HEAD). Install the APK on your Android phone. A copy installed from Google Play cannot update this one, or the other way round: to switch, uninstall first."
           # A re-run after a later step failed finds the release already made.
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt \
+            gh release create "$TAG" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt \
               --title "Sikemux for Android $VERSION" --notes "$notes" "${flags[@]}"
           fi
 
@@ -295,9 +336,10 @@ jobs:
         if: needs.plan.outputs.channel == 'nightly'
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
         run: |
           main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          if [[ "$main" == "$GITHUB_SHA" ]]; then
+          if [[ "$main" == "$SHA" ]]; then
             echo "main is this release's own commit, so there is no update to publish" >>"$GITHUB_STEP_SUMMARY"
           else
             gh workflow run mobile-update.yml --ref main
@@ -314,86 +356,72 @@ jobs:
   ios-build:
     name: Build iOS
     runs-on: macos-26
-    timeout-minutes: 120
-    needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
-    env:
-      APP_VARIANT: production
-      SIKEMUX_MOBILE_VERSION: ${{ needs.plan.outputs.version }}
-      SIKEMUX_MOBILE_CHANNEL: ${{ needs.plan.outputs.channel }}
-      # The account sheet shows which commit the build's own code came from.
-      EXPO_PUBLIC_COMMIT: ${{ needs.plan.outputs.commit }}
+    timeout-minutes: 90
+    needs: plan
+    if: needs.plan.outputs.channel == 'nightly'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
 
-      # The newest Xcode on the image, leaving betas out.
+      - name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phone-plan
+          path: mobile
+
       - name: Choose Xcode
-        run: |
-          xcode="$(printf '%s\n' /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -n 1)"
-          sudo xcode-select -s "$xcode"
-          xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
+        uses: ./.github/actions/setup-xcode-ios
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: aarch64-apple-ios
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
-          package_json_file: mobile/package.json
           run_install: false
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          cache: pnpm
 
-      # The phone build takes rustup only from ~/.cargo/bin, and the macOS runner's rustup now comes from Homebrew.
-      - name: Setup Rust
-        run: |
-          [ -x "$HOME/.cargo/bin/rustup" ] || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
-          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          "$HOME/.cargo/bin/rustup" toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-apple-ios --target aarch64-apple-ios-sim
-
-      - name: Install phone dependencies
-        working-directory: mobile
+      - name: Install the icon generators' dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build the Rust client
-        working-directory: mobile
-        run: pnpm native:ios:release
+      - name: Install XcodeGen
+        run: scripts/install-xcodegen.sh
 
-      - name: Generate the iOS project
-        working-directory: mobile/app
-        run: node scripts/run.mjs prebuild ios production
+      - name: Build the Rust client
+        run: mobile/ios/scripts/build-core.sh --profile mobile --device-only
+
+      - name: Generate the Xcode project
+        working-directory: mobile/ios
+        run: xcodegen generate --quiet
 
       # Export takes each bundle's entitlements from the archive's signatures, so the archive is
       # signed ad hoc with them; export then signs it for the App Store.
       - name: Archive, signed ad hoc
-        working-directory: mobile/app/ios
+        working-directory: mobile/ios
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          BUILD: ${{ needs.plan.outputs.build }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          SENTRY_DSN: https://76804485378be914417f459fe482c276@o4512409824919552.ingest.de.sentry.io/4512409866076240
         run: |
           archive="$RUNNER_TEMP/Sikemux.xcarchive"
-          build=(-workspace Sikemux.xcworkspace -scheme Sikemux -configuration Release -destination generic/platform=iOS)
-          xcodebuild "${build[@]}" -archivePath "$archive" CODE_SIGNING_ALLOWED=NO archive
+          settings=(CURRENT_PROJECT_VERSION="$BUILD" SIKEMUX_COMMIT="$COMMIT" SIKEMUX_SENTRY_DSN="$SENTRY_DSN")
+          xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -configuration Release -destination generic/platform=iOS \
+            -archivePath "$archive" "${settings[@]}" CODE_SIGNING_ALLOWED=NO archive
           entitlements="$RUNNER_TEMP/entitlements"
           xcodebuild -project Sikemux.xcodeproj -alltargets -configuration Release -sdk iphoneos \
-            -showBuildSettings -json >"$RUNNER_TEMP/settings.json"
-          node - "$RUNNER_TEMP/settings.json" "$entitlements" <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const [settingsPath, out] = process.argv.slice(2);
-          fs.mkdirSync(out, { recursive: true });
-          for (const { buildSettings: s } of JSON.parse(fs.readFileSync(settingsPath, 'utf8'))) {
-            if (!s.CODE_SIGN_ENTITLEMENTS) continue;
-            const text = fs
-              .readFileSync(path.resolve(s.SRCROOT, s.CODE_SIGN_ENTITLEMENTS), 'utf8')
-              .replaceAll('$(AppIdentifierPrefix)', 'D577WD6Z5U.')
-              .replaceAll('$(TeamIdentifierPrefix)', 'D577WD6Z5U.');
-            if (text.includes('$(')) throw new Error(`${s.CODE_SIGN_ENTITLEMENTS} uses a setting this step does not fill in`);
-            fs.writeFileSync(path.join(out, `${s.FULL_PRODUCT_NAME}.plist`), text);
-          }
-          NODE
+            "${settings[@]}" -showBuildSettings -json >"$RUNNER_TEMP/settings.json"
+          node scripts/entitlements.mjs "$RUNNER_TEMP/settings.json" "$entitlements"
           app="$archive/Products/Applications/Sikemux.app"
           [[ -f "$entitlements/Sikemux.app.plist" ]] || { echo "::error::The app has no entitlements"; exit 1; }
           find "$app" -depth -mindepth 1 \( -name '*.framework' -o -name '*.dylib' -o -name '*.appex' \) -print0 |
@@ -404,6 +432,9 @@ jobs:
             done
           codesign --force --sign - --generate-entitlement-der --entitlements "$entitlements/Sikemux.app.plist" "$app"
           codesign --verify --deep --strict "$app"
+          shipped="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist"))"
+          [[ "$shipped" == "${VERSION%%-*} ($BUILD)" ]] || { echo "::error::The app says it is $shipped"; exit 1; }
+          echo "Archived $shipped, $(du -sh "$app" | cut -f1) on disk" >>"$GITHUB_STEP_SUMMARY"
           COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/archive.tar" -C "$RUNNER_TEMP" Sikemux.xcarchive
 
       - name: Keep the archive
@@ -424,14 +455,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
 
-      # The newest Xcode on the image, leaving betas out.
+      - name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phone-plan
+          path: mobile
+
       - name: Choose Xcode
-        run: |
-          xcode="$(printf '%s\n' /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -n 1)"
-          sudo xcode-select -s "$xcode"
-          xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
+        uses: ./.github/actions/setup-xcode-ios
+        with:
+          metal: "false"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -463,9 +499,9 @@ jobs:
           codesign --verify --deep --strict "$archive/Products/Applications/Sikemux.app"
 
       # Xcode makes or fetches the distribution certificate and the profiles for the app and its
-      # notification extension with the App Store Connect API key, and sends the build to TestFlight.
+      # extensions with the App Store Connect API key, and sends the build to TestFlight.
       - name: Revoke the development certificates earlier runs made
-        working-directory: mobile/app
+        working-directory: mobile/ios
         env:
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -505,12 +541,58 @@ jobs:
           echo "build=$build" >>"$GITHUB_OUTPUT"
           echo "Sent build $build to TestFlight" >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Send the build to the external testers through beta review
-        working-directory: mobile/app
+      - name: Hand the build to internal testers
+        working-directory: mobile/ios
         env:
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           VERSION: ${{ needs.plan.outputs.version }}
           BUILD: ${{ steps.upload.outputs.build }}
-        run: node scripts/testflight-release.mjs submit "$VERSION" "$BUILD"
+        run: node scripts/testflight-release.mjs internal "$VERSION" "$BUILD"
+
+      # The dSYMs hold the Swift's and the Rust client's debug info, so crash reports read as source lines.
+      - name: Send the debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          cli="$RUNNER_TEMP/sentry-cli"
+          curl -fsSL --retry 3 -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.8.1/sentry-cli-Darwin-universal
+          echo "fb8413278fc45bb0e149db0cb201d6e1a2f20883fde4dc96b45961ab22946c3e  $cli" | shasum -a 256 -c -
+          chmod +x "$cli"
+          "$cli" --url https://de.sentry.io debug-files upload --org nodelike --project sikemux-mobile "$RUNNER_TEMP/Sikemux.xcarchive/dSYMs"
+
+  ios-promote:
+    name: Send the nightly's iPhone build to App Store review
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    needs: plan
+    if: needs.plan.outputs.channel == 'stable'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: phone-plan
+          path: mobile
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Submit it for App Store review, released once Apple approves
+        working-directory: mobile/ios
+        env:
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          BUILD: ${{ needs.plan.outputs.promoted_build }}
+        run: node scripts/testflight-release.mjs app-store "$VERSION" "$BUILD"

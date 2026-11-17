@@ -7,21 +7,24 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, px, relative, AnyElement, App, AppContext, Bounds, Context, CursorStyle,
-    DragMoveEvent, EmptyView, Focusable, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
+    canvas, div, px, relative, AnyElement, App, AppContext, Bounds, Context, CursorStyle, Div,
+    DragMoveEvent, EmptyView, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Pixels, Point, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::json;
-use sikemux_wire::protocol::{Pane, PaneKind, SessionId, SplitDir, Tab};
+use sikemux_view::layout::{Pane, PaneKind, SplitDir, Tab};
 
+use crate::core::Target;
 use crate::drag::DraggedTab;
 use crate::pane_kind::Separable;
-use crate::theme::{SPACE_1, TEXT_XS};
-use crate::workbench::{Strip, TakesKeys, Workbench};
-use crate::{desk, home, motion, terminal, ui};
+use crate::text_size::Surface;
+use crate::theme::SPACE_1;
+use crate::workbench::{Strip, Workbench};
+use crate::{motion, theme, ui};
+use sikemux_calls::call;
+use sikemux_calls::layout;
 
-/// The room between two panes, which is also where a divider is dragged.
-pub const GAP: f32 = 10.;
+/// The least width a divider can be grabbed across, however small the theme's gap.
+const LEAST_GRAB: f32 = 6.;
 /// How tall the strip of tabs over a stack is.
 const STACK_STRIP: f32 = 32.;
 /// The least a pane is squeezed to by a divider.
@@ -50,10 +53,12 @@ pub struct Panes {
     aimed: Option<Aimed>,
     /// The view that fills its tab for now, by id.
     pub zoomed: Option<String>,
+    /// The desk on its way to filling its tab while the agent beside it slides shut.
+    pub widening: Option<String>,
     /// Where each view of the tab in front was last drawn, by id.
     drawn: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
-    /// Desks sliding open or shut, by view id.
-    desk_slides: RefCell<HashMap<String, DeskSlide>>,
+    /// Views sliding open or shut, by id: a desk, or the agent beside a desk filling its tab.
+    slides: RefCell<HashMap<String, DeskSlide>>,
     /// The desks each tab held when last drawn, so a desk new to its tab slides open.
     desks_seen: RefCell<HashMap<String, Vec<String>>>,
     /// The tab drawn last, so only a desk opening on the tab already in sight slides open.
@@ -109,12 +114,12 @@ enum Side {
 }
 
 impl Side {
-    fn word(self) -> &'static str {
+    fn in_core(self) -> layout::Side {
         match self {
-            Side::Left => "left",
-            Side::Right => "right",
-            Side::Top => "top",
-            Side::Bottom => "bottom",
+            Side::Left => layout::Side::Left,
+            Side::Right => layout::Side::Right,
+            Side::Top => layout::Side::Top,
+            Side::Bottom => layout::Side::Bottom,
         }
     }
 }
@@ -156,11 +161,10 @@ struct Divider {
 }
 
 impl Panes {
-    /// Slides the desk `view` open or shut from wherever it shows now, answering how long that
-    /// takes.
-    pub(crate) fn slide_desk(&self, view: &str, open: bool) -> Duration {
+    /// Slides `view` open or shut from wherever it shows now, answering how long that takes.
+    pub(crate) fn slide_view(&self, view: &str, open: bool) -> Duration {
         let now = Instant::now();
-        let mut slides = self.desk_slides.borrow_mut();
+        let mut slides = self.slides.borrow_mut();
         let from = match slides.get(view) {
             Some(slide) => slide.at(now),
             None if open => 0.,
@@ -183,18 +187,17 @@ impl Panes {
         over
     }
 
-    /// Whether the desk `view` is on its way shut.
-    pub(crate) fn desk_shutting(&self, view: &str) -> bool {
-        self.desk_slides
+    pub(crate) fn shutting(&self, view: &str) -> bool {
+        self.slides
             .borrow()
             .get(view)
             .is_some_and(|slide| !slide.open)
     }
 
     /// How far out the view `id` is drawn: below 1 only for a desk sliding open or shut.
-    fn desk_shown(&self, id: &str, window: &Window) -> f32 {
+    fn shown(&self, id: &str, window: &Window) -> f32 {
         let now = Instant::now();
-        let mut slides = self.desk_slides.borrow_mut();
+        let mut slides = self.slides.borrow_mut();
         let Some(slide) = slides.get(id).copied() else {
             return 1.;
         };
@@ -221,13 +224,27 @@ impl Panes {
             .insert(tab.id.clone(), desks.clone());
         if let Some(before) = before.filter(|_| !still) {
             for desk in desks.iter().filter(|desk| !before.contains(desk)) {
-                self.slide_desk(desk, true);
+                self.slide_view(desk, true);
             }
         }
         let now = Instant::now();
-        self.desk_slides
+        let held: Vec<&str> = views(&tab.pane).map(|view| view.id.as_str()).collect();
+        self.slides
             .borrow_mut()
-            .retain(|id, slide| desks.contains(id) || !slide.done(now));
+            .retain(|id, slide| held.contains(&id.as_str()) || !slide.done(now));
+    }
+
+    /// Turns `view` back open if it is sliding, answering how long that takes.
+    pub(crate) fn reopen(&self, view: &str) -> Duration {
+        let sliding = self.slides.borrow().contains_key(view);
+        match sliding {
+            true => self.slide_view(view, true),
+            false => Duration::ZERO,
+        }
+    }
+
+    pub(crate) fn forget_slide(&self, view: &str) {
+        self.slides.borrow_mut().remove(view);
     }
 
     /// The sizes to draw `split` at: the core's, or a drag's while the core has not answered it.
@@ -287,7 +304,6 @@ pub fn views(pane: &Pane) -> impl Iterator<Item = View<'_>> {
     })
 }
 
-/// The view `id` in a pane tree.
 pub fn find_view<'a>(pane: &'a Pane, id: &str) -> Option<View<'a>> {
     views(pane).find(|view| view.id == id)
 }
@@ -394,7 +410,9 @@ fn pane(
                 .on_drop(cx.listener(move |bench, dropped: &DraggedTab, _, cx| {
                     bench.drop_split(&dropping, dropped, cx);
                 }))
-                .child(view(bench, tab, id, *kind, target, window, cx))
+                .child(crate::pane_kind::draw(
+                    *kind, bench, tab, id, target, window, cx,
+                ))
                 .child({
                     let (drawn, view) = (Rc::clone(&bench.panes.drawn), id.clone());
                     canvas(
@@ -440,14 +458,11 @@ fn stack(
         .unwrap_or(0);
     let pills = panes.iter().enumerate().filter_map(|(at, child)| {
         let first = views(child).next()?;
-        let (lead, kind, target) = (first.id.clone(), first.kind, first.target);
+        let (lead, kind) = (first.id.clone(), first.kind);
         let mark = ui::picture(
-            crate::tabs::view_icon(kind, target),
+            crate::pane_kind::of(kind).icon,
             13.,
-            match kind {
-                PaneKind::Terminal => t.live,
-                _ => t.text_tertiary,
-            },
+            crate::pane_kind::tint(kind, &t),
         );
         Some(
             ui::Tab::new(
@@ -466,7 +481,7 @@ fn stack(
     div()
         .flex()
         .flex_col()
-        .gap(px(GAP))
+        .gap(px(theme::gap()))
         .size_full()
         .min_w_0()
         .min_h_0()
@@ -504,7 +519,7 @@ fn preview(side: Side, cx: &App) -> impl IntoElement {
         .when(side == Side::Bottom, |half| half.bottom_0())
         .when(across, |half| half.w(gpui_kit::relative(0.5)).h_full())
         .when(!across, |half| half.h(gpui_kit::relative(0.5)).w_full())
-        .rounded(crate::theme::RADIUS_3)
+        .rounded(crate::theme::radius_3())
         .bg(Hsla {
             a: 0.14,
             ..t.accent
@@ -514,104 +529,6 @@ fn preview(side: Side, cx: &App) -> impl IntoElement {
             a: 0.55,
             ..t.accent
         })
-}
-
-/// A desk of another host, which this app does not show yet.
-fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyElement {
-    let name = bench.host_name(host);
-    ui::pane(cx)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(ui::meta(format!("This runs on {name}"), cx))
-        .into_any_element()
-}
-
-fn view(
-    bench: &Workbench,
-    tab: &str,
-    id: &str,
-    kind: PaneKind,
-    target: &str,
-    window: &Window,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    if let (crate::hosts::Place::Account(host), PaneKind::Desk) = (bench.place(), kind) {
-        return elsewhere(bench, &host, cx);
-    }
-    match kind {
-        PaneKind::Terminal => ui::pane(cx)
-            .child(terminal::pane(
-                bench,
-                &cx.entity(),
-                &bench.place(),
-                target,
-                cx,
-            ))
-            .into_any_element(),
-        PaneKind::Files => ui::pane(cx)
-            .child(crate::editor::pane(bench, &cx.entity(), target, window, cx))
-            .into_any_element(),
-        PaneKind::Git
-            if bench.git.area != crate::codehost::Area::Local && bench.git.host.is_some() =>
-        {
-            match &bench.git.host {
-                Some(host) => ui::plain_pane(cx).child(host.clone()).into_any_element(),
-                None => ui::plain_pane(cx).into_any_element(),
-            }
-        }
-        PaneKind::Git if bench.git_repo().is_none() && bench.git_repos().is_some() => ui::pane(cx)
-            .child(crate::git::repos::picker(bench, cx))
-            .into_any_element(),
-        PaneKind::Git => match &bench.git.pane {
-            Some(pane) => {
-                if bench.claims_keys(TakesKeys::Git) {
-                    let focused = pane.clone();
-                    cx.defer_in(window, move |_, window, cx| {
-                        focused.update(cx, |pane, cx| pane.take_keys(window, cx));
-                    });
-                }
-                pane.clone().into_any_element()
-            }
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Search => match &bench.search {
-            Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Board => match &bench.board {
-            Some(pane) => {
-                if bench.claims_keys(TakesKeys::Board) {
-                    let focus = pane.read(cx).focus_handle(cx);
-                    cx.defer_in(window, move |_, window, cx| window.focus(&focus, cx));
-                }
-                ui::pane(cx).child(pane.clone()).into_any_element()
-            }
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Plugin => match bench.plugin_panes.get(id) {
-            Some(pane) => ui::plain_pane(cx).child(pane.clone()).into_any_element(),
-            None => ui::plain_pane(cx).into_any_element(),
-        },
-        PaneKind::Agent => home::agent_view(bench, tab, id, target, cx),
-        PaneKind::Desk => desk::pane(bench, target, window, cx),
-        PaneKind::ProjectSettings => crate::project_settings::pane(bench, target, window, cx),
-        PaneKind::InstallSikemux => crate::install_pane::pane(bench, target, cx),
-        PaneKind::Stash => crate::stash::pane(bench, cx),
-        PaneKind::Unknown => ui::pane(cx)
-            .child(
-                div()
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(crate::theme::ui_text(TEXT_XS))
-                    .text_color(crate::theme::Tokens::get(cx).text_tertiary)
-                    .child("This tab needs a newer Sikemux."),
-            )
-            .into_any_element(),
-        _ => home::agent_view(bench, tab, id, "", cx),
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -662,7 +579,7 @@ fn split(
     let shown: Vec<f32> = panes
         .iter()
         .map(|child| match child {
-            Pane::View { id, .. } => bench.panes.desk_shown(id, window),
+            Pane::View { id, .. } => bench.panes.shown(id, window),
             Pane::Split { .. } => 1.,
         })
         .collect();
@@ -680,7 +597,7 @@ fn split(
         let beside = if at > 0 { at - 1 } else { at + 1 };
         if beside < panes.len() {
             grows[beside] += grows[at] * (1. - out);
-            reach[beside] = (GAP * (1. - out), beside < at);
+            reach[beside] = (theme::gap() * (1. - out), beside < at);
         }
         grows[at] *= out;
     }
@@ -747,19 +664,24 @@ pub(crate) fn handle<T: Clone + 'static>(
     id: impl Into<SharedString>,
     value: T,
     across: bool,
-) -> impl IntoElement {
+) -> Stateful<Div> {
+    let gap = theme::gap();
+    let grab = gap.max(LEAST_GRAB);
+    let overhang = px((gap - grab) / 2.);
     div()
         .id(id.into())
         .flex_none()
         .when(across, |divider| {
             divider
-                .w(px(GAP))
+                .w(px(grab))
+                .mx(overhang)
                 .h_full()
                 .cursor(CursorStyle::ResizeLeftRight)
         })
         .when(!across, |divider| {
             divider
-                .h(px(GAP))
+                .h(px(grab))
+                .my(overhang)
                 .w_full()
                 .cursor(CursorStyle::ResizeUpDown)
         })
@@ -803,7 +725,7 @@ impl Panes {
         } else {
             (bounds.top(), bounds.size.height, at.y)
         };
-        let room = f32::from(length) - GAP * (sizes.len() - 1) as f32;
+        let room = f32::from(length) - theme::gap() * (sizes.len() - 1) as f32;
         if room <= 0. {
             return;
         }
@@ -812,7 +734,7 @@ impl Panes {
             .iter()
             .map(|&size| f32::from(size))
             .sum();
-        let offset = f32::from(pointer - start) - GAP * (divider.at as f32 + 0.5);
+        let offset = f32::from(pointer - start) - theme::gap() * (divider.at as f32 + 0.5);
         let pair = f32::from(before) + f32::from(after);
         let least = (MIN_PANE / room * total).min(pair / 2.);
         let wanted = (offset / room * total - ahead).clamp(least, pair - least);
@@ -836,15 +758,21 @@ impl Workbench {
             self.panes.resizing = None;
             return;
         }
-        let params = json!({
-            "tab": resizing.tab,
-            "split": resizing.split,
-            "sizes": resizing.sizes,
-        });
+        let (tab, split, sizes) = (
+            resizing.tab.clone(),
+            resizing.split.clone(),
+            resizing.sizes.clone(),
+        );
         let Some(strip) = self.strip() else {
             return;
         };
-        self.call("resizeSplit", strip.with(params));
+        self.target()
+            .call_typed::<call::ResizeSplit>(layout::ResizeSplit {
+                at: strip.at(),
+                tab,
+                split,
+                sizes,
+            });
     }
 
     /// The view in focus in the tab in front, else its first.
@@ -870,9 +798,9 @@ impl Workbench {
     /// view in front, as on the Mac, and the terminals' when that is neither a chat nor an editor.
     pub(crate) fn resize_front_text(&self, grow: Option<bool>) {
         match self.focused_kind() {
-            Some(PaneKind::Agent) => crate::chat::resize_text(self, grow),
-            Some(PaneKind::Files) => crate::editor::resize_text(self, grow),
-            _ => crate::terminal::resize_text(self, grow),
+            Some(PaneKind::Agent) => Surface::Chat.step(self, grow),
+            Some(PaneKind::Files) => Surface::Editor.step(self, grow),
+            _ => Surface::Terminal.step(self, grow),
         }
     }
 
@@ -888,36 +816,89 @@ impl Workbench {
             return;
         };
         let side = match dir {
-            SplitDir::Row => "right",
-            SplitDir::Column => "bottom",
-            SplitDir::Stack => "stack",
+            SplitDir::Row => layout::Side::Right,
+            SplitDir::Column => layout::Side::Bottom,
+            SplitDir::Stack => layout::Side::Stack,
         };
-        let asks = self.asks.clone();
-        let shell = crate::core::request(&self.asks, "stripShell", strip.with(json!({})));
+        let core = self.target();
         cx.spawn(async move |bench, cx| {
-            let session = match shell.await.and_then(|shell| {
-                serde_json::from_value::<SessionId>(shell).map_err(|error| error.to_string())
-            }) {
+            let session = match core.request_typed::<call::StripShell>(strip.at()).await {
                 Ok(session) => session,
                 Err(error) => {
                     eprintln!("sikemux: no shell for the split: {error}");
                     return;
                 }
             };
-            let params = json!({
-                "tab": tab,
-                "pane": pane,
-                "side": side,
-                "kind": PaneKind::Terminal,
-                "target": session.to_string(),
-            });
-            let added = crate::core::request(&asks, "splitPane", strip.with(params)).await;
+            let added = core
+                .request_typed::<call::SplitPane>(layout::SplitPane {
+                    at: strip.at(),
+                    tab,
+                    pane,
+                    side,
+                    kind: Some(PaneKind::Terminal),
+                    target: Some(session.to_string()),
+                    from_tab: None,
+                    keep_front: false,
+                })
+                .await;
             let _ = bench.update(cx, |bench, cx| {
                 bench.panes.zoomed = None;
-                if let Some(added) = added
-                    .ok()
-                    .and_then(|added| added.as_str().map(str::to_owned))
-                {
+                if let Ok(added) = added {
+                    bench.focus_pane(added, cx);
+                }
+                bench.parts.redraw_stage(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Opens a side chat of `agent` to the right of its view, which takes the focus, with
+    /// `text` as its first message when there is any.
+    pub fn side_chat(&mut self, agent: &str, text: String, cx: &mut Context<Self>) {
+        let (Some(strip), Some(tab)) = (self.strip(), self.tab()) else {
+            return;
+        };
+        let shown =
+            views(&tab.pane).find(|view| view.kind == PaneKind::Agent && view.target == agent);
+        let Some(pane) = shown
+            .map(|view| view.id.clone())
+            .or_else(|| self.focused_view())
+        else {
+            return;
+        };
+        let tab = tab.id.clone();
+        let core = self.target();
+        let params = sikemux_calls::chat::SideChatParams {
+            agent_id: agent.to_owned(),
+            text: Some(text).filter(|text| !text.trim().is_empty()),
+        };
+        cx.spawn(async move |bench, cx| {
+            let side = match core.request_typed::<call::StartSideChat>(params).await {
+                Ok(side) => side,
+                Err(error) => {
+                    let note = crate::toast::error(t!(
+                        "The side chat did not open: {error}",
+                        error = error
+                    ));
+                    let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                    return;
+                }
+            };
+            let added = core
+                .request_typed::<call::SplitPane>(layout::SplitPane {
+                    at: strip.at(),
+                    tab,
+                    pane,
+                    side: layout::Side::Right,
+                    kind: Some(PaneKind::Agent),
+                    target: Some(side.agent_id),
+                    from_tab: None,
+                    keep_front: false,
+                })
+                .await;
+            let _ = bench.update(cx, |bench, cx| {
+                bench.panes.zoomed = None;
+                if let Ok(added) = added {
                     bench.focus_pane(added, cx);
                 }
                 bench.parts.redraw_stage(cx);
@@ -941,11 +922,11 @@ impl Workbench {
 
     /// Puts the focus on the view `id`, drawing the file tree again when that moves the desk
     /// whose file it lights.
-    fn focus_pane(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn focus_pane(&mut self, id: String, cx: &mut Context<Self>) {
         let was = self.desk_file(cx);
         self.panes.focused = Some(id);
         if self.desk_file(cx) != was {
-            self.parts.redraw(&self.parts.tabs, cx);
+            self.parts.redraw(&self.parts.agents, cx);
         }
     }
 
@@ -959,28 +940,7 @@ impl Workbench {
         else {
             return;
         };
-        match kind {
-            PaneKind::Terminal => {
-                let focus = target.parse::<SessionId>().ok().and_then(|session| {
-                    let key = self.terminals.key(&self.place(), session);
-                    self.terminals.focus(key)
-                });
-                if let Some(focus) = focus {
-                    window.focus(focus, cx);
-                }
-            }
-            PaneKind::Agent => {
-                if let Some(composing) = self
-                    .chats
-                    .open
-                    .get(target)
-                    .and_then(|chat| chat.composer.as_ref())
-                {
-                    composing.draft.read(cx).focus_handle(cx).focus(window, cx);
-                }
-            }
-            _ => self.keys.focus.focus(window, cx),
-        }
+        crate::pane_kind::focus(*kind, self, target, window, cx);
     }
 
     /// Moves the divider beside the view in focus `towards`, growing the view: along the
@@ -1022,8 +982,13 @@ impl Workbench {
         }
         sizes[at] += give;
         sizes[beyond] -= give;
-        let params = json!({ "tab": tab.id, "split": split, "sizes": sizes });
-        self.call("resizeSplit", strip.with(params));
+        self.target()
+            .call_typed::<call::ResizeSplit>(layout::ResizeSplit {
+                at: strip.at(),
+                tab: tab.id.clone(),
+                split,
+                sizes,
+            });
     }
 
     /// Lets the view in focus fill its tab, or puts the tab's other views back.
@@ -1038,25 +1003,17 @@ impl Workbench {
         self.parts.redraw_stage(cx);
     }
 
-    /// Puts a view of `kind` showing `target` to the right of the view `pane` of `tab`.
-    pub fn split_pane(
+    /// Puts `agent`'s desk to the right of the view `pane` of `tab`.
+    pub fn split_desk(
         &self,
+        to: &Target,
         strip: &Strip,
         tab: &str,
         pane: &str,
-        kind: PaneKind,
-        target: &str,
+        agent: &str,
         keep_front: bool,
     ) {
-        let params = json!({
-            "tab": tab,
-            "pane": pane,
-            "side": "right",
-            "kind": kind,
-            "target": target,
-            "keepFront": keep_front,
-        });
-        self.call("splitPane", strip.with(params));
+        to.call_typed::<call::SplitPane>(desk_split(strip, tab, pane, agent, keep_front));
     }
 
     /// Notes the side of the view `pane` of `tab` that a tab dragged over it would take: the
@@ -1121,18 +1078,26 @@ impl Workbench {
         else {
             return;
         };
-        let params = json!({
-            "tab": aimed.tab,
-            "pane": aimed.pane,
-            "side": aimed.side.word(),
-            "fromTab": aimed.from,
-        });
-        self.call("splitPane", dropped.strip.with(params));
+        self.target()
+            .call_typed::<call::SplitPane>(layout::SplitPane {
+                at: dropped.strip.at(),
+                tab: aimed.tab,
+                pane: aimed.pane,
+                side: aimed.side.in_core(),
+                kind: None,
+                target: None,
+                from_tab: Some(aimed.from),
+                keep_front: false,
+            });
         self.parts.redraw_stage(cx);
     }
 
-    pub fn close_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.call("closePane", strip.with(json!({ "tab": tab, "pane": pane })));
+    pub fn close_pane(&self, to: &Target, strip: &Strip, tab: &str, pane: &str) {
+        to.call_typed::<call::ClosePane>(layout::PaneParams {
+            at: strip.at(),
+            tab: tab.to_owned(),
+            pane: pane.to_owned(),
+        });
     }
 
     /// The view of a split `tab` its menu can move out into a tab of its own, as the Mac's
@@ -1165,9 +1130,30 @@ impl Workbench {
     }
 
     pub fn separate_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.call(
-            "separatePane",
-            strip.with(json!({ "tab": tab, "pane": pane })),
-        );
+        self.target()
+            .call_typed::<call::SeparatePane>(layout::PaneParams {
+                at: strip.at(),
+                tab: tab.to_owned(),
+                pane: pane.to_owned(),
+            });
+    }
+}
+
+fn desk_split(
+    strip: &Strip,
+    tab: &str,
+    pane: &str,
+    agent: &str,
+    keep_front: bool,
+) -> layout::SplitPane {
+    layout::SplitPane {
+        at: strip.at(),
+        tab: tab.to_owned(),
+        pane: pane.to_owned(),
+        side: layout::Side::Right,
+        kind: Some(PaneKind::Desk),
+        target: Some(agent.to_owned()),
+        from_tab: None,
+        keep_front,
     }
 }

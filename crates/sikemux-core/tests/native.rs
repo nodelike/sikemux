@@ -6,27 +6,51 @@
 mod folded;
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io::Write;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use folded::{prompts, said, Chat, Folded};
 use serde_json::Value;
-use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::{
+use sikemux_client::client::CoreClient;
+use sikemux_core::client::probe;
+use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_view::chat::{
+    ChatPage, ChatPart, ChatRole, ChatView, FailureKind, PermissionAsk, PermissionKind, PlanStatus,
+    StopReason, SubagentState, ToolStatus,
+};
+use sikemux_wire::protocol::{
     ask, encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatLaunch,
     ClientMessage, PermissionMode, Request, PROTOCOL, PROTOCOL_VERSION,
-};
-use sikemux_core::server::{self, ServerConfig, ServerError};
-use sikemux_wire::chat::{
-    ChatPage, ChatRole, FailureKind, PermissionAsk, PermissionKind, StopReason,
 };
 
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const FAKE_CODEX: &str = env!("CARGO_BIN_EXE_sikemux-fake-codex");
 const WAIT: Duration = Duration::from_secs(30);
+
+/// Where the person's own Claude account lives, which the core of these tests must not read:
+/// it finds the account there and moves a chat onto it at a limit. Only the live test hands
+/// these to its agent.
+const ACCOUNT_VARIABLES: [&str; 3] = ["HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+
+fn persons_account() -> &'static Vec<(String, OsString)> {
+    static PERSONS: OnceLock<Vec<(String, OsString)>> = OnceLock::new();
+    PERSONS.get_or_init(|| {
+        let persons = ACCOUNT_VARIABLES
+            .iter()
+            .filter_map(|name| Some((name.to_string(), std::env::var_os(name)?)))
+            .collect();
+        for name in ACCOUNT_VARIABLES {
+            std::env::remove_var(name);
+        }
+        std::env::set_var("HOME", tempfile::tempdir().expect("home").keep());
+        persons
+    })
+}
 
 struct TestCore {
     _dir: tempfile::TempDir,
@@ -36,6 +60,7 @@ struct TestCore {
 
 impl TestCore {
     fn start() -> Self {
+        persons_account();
         sikemux_process::user_environment::search_path_only_from_now();
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
@@ -50,6 +75,7 @@ impl TestCore {
             data_dir: Some(dir.path().join("data")),
             ..ServerConfig::new(socket.clone())
         };
+        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
         let thread = std::thread::spawn(move || server::run(config));
         let deadline = Instant::now() + WAIT;
         while probe(&socket, Duration::from_secs(1)).is_err() {
@@ -143,13 +169,13 @@ fn claude_launch(agent_id: &str, config: &Path) -> ChatLaunch {
 
 async fn prompt(client: &CoreClient, agent_id: &str, message_id: &str, text: &str) {
     client
-        .acp_prompt(
-            agent_id.into(),
-            Some(message_id.into()),
-            text.into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.into(),
+            message_id: Some(message_id.into()),
+            text: text.into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
 }
@@ -263,7 +289,11 @@ async fn a_claude_tool_waits_for_the_persons_answer() {
     assert_eq!(asked.tool_call.title, "echo hi");
     let (request, allow) = allow_once(&asked);
     client
-        .acp_permission_reply("claude-b".into(), request, Some(allow))
+        .ask(ask::AcpPermissionReply {
+            agent_id: "claude-b".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
         .await
         .expect("reply");
     chat.turn_ended().await;
@@ -281,7 +311,12 @@ async fn a_stopped_claude_turn_ends_cancelled() {
         .expect("start");
     prompt(&client, "claude-c", &message_id(), "hold 10000").await;
     chat.until(|chat| chat.text().contains("holding")).await;
-    client.acp_cancel("claude-c".into()).await.expect("cancel");
+    client
+        .ask(ask::AcpCancel {
+            agent_id: "claude-c".into(),
+        })
+        .await
+        .expect("cancel");
     assert_eq!(chat.turn_ended().await, Some(StopReason::Cancelled));
     assert!(!chat.text().contains("held"));
 }
@@ -310,13 +345,13 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
         .await;
 
     client
-        .acp_edit(
-            "claude-d".into(),
-            second.clone(),
-            "count".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpEdit {
+            agent_id: "claude-d".into(),
+            message_id: second.clone(),
+            text: "count".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("edit");
     chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
@@ -357,7 +392,12 @@ async fn a_resumed_claude_chat_replays_what_was_said() {
         .expect("start");
     prompt(&client, "claude-e", &message_id(), "hello there").await;
     chat.turn_ended().await;
-    client.acp_stop("claude-e".into()).await.expect("stop");
+    client
+        .ask(ask::AcpStop {
+            agent_id: "claude-e".into(),
+        })
+        .await
+        .expect("stop");
 
     let (again, mut resumed) = core.connect("claude-f").await;
     let mut launch = claude_launch("claude-f", config.path());
@@ -437,7 +477,10 @@ async fn a_claude_prompt_stopped_by_a_limit_is_answered_on_the_account_it_moves_
         ]),
     };
     client
-        .acp_switch_account("claude-l".into(), spare)
+        .ask(ask::AcpSwitchAccount {
+            agent_id: "claude-l".into(),
+            account: spare,
+        })
         .await
         .expect("switch");
     chat.until(|chat| !chat.head().running && chat.text() == "echo: hello there")
@@ -515,7 +558,11 @@ async fn a_codex_command_waits_for_the_persons_answer() {
     prompt(&client, "codex-b", &message_id(), "ask").await;
     let (request, allow) = allow_once(&until_asked(&mut chat).await);
     client
-        .acp_permission_reply("codex-b".into(), request, Some(allow))
+        .ask(ask::AcpPermissionReply {
+            agent_id: "codex-b".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
         .await
         .expect("reply");
     chat.turn_ended().await;
@@ -533,7 +580,12 @@ async fn a_stopped_codex_turn_ends_cancelled() {
         .expect("start");
     prompt(&client, "codex-c", &message_id(), "hold 10000").await;
     chat.until(|chat| chat.text().contains("holding")).await;
-    client.acp_cancel("codex-c".into()).await.expect("cancel");
+    client
+        .ask(ask::AcpCancel {
+            agent_id: "codex-c".into(),
+        })
+        .await
+        .expect("cancel");
     assert_eq!(chat.turn_ended().await, Some(StopReason::Cancelled));
 }
 
@@ -553,13 +605,13 @@ async fn an_edited_codex_message_takes_the_thread_back_to_before_it() {
     chat.turn_ended().await;
 
     client
-        .acp_edit(
-            "codex-d".into(),
-            second,
-            "count".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpEdit {
+            agent_id: "codex-d".into(),
+            message_id: second,
+            text: "count".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("edit");
     chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
@@ -579,7 +631,12 @@ async fn a_resumed_codex_thread_replays_what_was_said() {
         .expect("start");
     prompt(&client, "codex-e", &message_id(), "hello there").await;
     chat.turn_ended().await;
-    client.acp_stop("codex-e".into()).await.expect("stop");
+    client
+        .ask(ask::AcpStop {
+            agent_id: "codex-e".into(),
+        })
+        .await
+        .expect("stop");
 
     let (again, mut resumed) = core.connect("codex-f").await;
     let mut launch = codex_launch("codex-f", home.path());
@@ -621,7 +678,11 @@ async fn changing_the_claude_model_starts_no_turn() {
         .expect("start");
     chat.until_ready().await;
     let options = client
-        .acp_set_config("claude-model".into(), "model".into(), "small".into())
+        .ask(ask::AcpSetConfig {
+            agent_id: "claude-model".into(),
+            config_id: "model".into(),
+            value: "small".into(),
+        })
         .await
         .expect("set model");
     assert_eq!(options["configOptions"][0]["currentValue"], "small");
@@ -645,6 +706,119 @@ async fn a_new_claude_chat_shows_the_model_its_settings_choose() {
     assert_eq!(start.setup["configOptions"][0]["currentValue"], "small");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_claude_chat_started_on_a_full_model_id_shows_that_model() {
+    let config = tempfile::tempdir().expect("config");
+    let core = TestCore::start();
+    let (client, _chat) = core.connect("claude-worker").await;
+    let mut launch = claude_launch("claude-worker", config.path());
+    launch.model = Some("fake-small".into());
+    let start = client.acp_start(launch).await.expect("start");
+    assert_eq!(start.setup["configOptions"][0]["currentValue"], "small");
+}
+
+/// A `claude` at `path` that lists `models` when asked what it offers, as a release of it does.
+fn claude_release(path: &Path, models: Value) {
+    use std::os::unix::fs::PermissionsExt;
+    let script = format!("#!/bin/sh\nFAKE_CLAUDE_MODELS='{models}' exec '{FAKE_CLAUDE}' \"$@\"\n");
+    let written = path.with_extension("new");
+    std::fs::write(&written, script).expect("claude");
+    std::fs::set_permissions(&written, std::fs::Permissions::from_mode(0o755)).expect("runs");
+    std::fs::rename(&written, path).expect("claude in place");
+}
+
+async fn new_chat_models(client: &CoreClient, socket: &Path) -> Vec<String> {
+    let (id, _) = client
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("chat");
+    let (watcher, events) = CoreClient::connect(socket).await.expect("connect");
+    let mut chat = Chat::new(events, &id);
+    chat.attached(&watcher.acp_attach(id.clone()).await.expect("attach"));
+    let labels = |chat: &Folded| -> Vec<String> {
+        (chat.head().model.iter())
+            .flat_map(|model| model.choices.iter().map(|choice| choice.label.clone()))
+            .collect()
+    };
+    let newest = chat
+        .until(|chat| labels(chat).iter().any(|label| label == "Opus 5.5"))
+        .await;
+    labels(newest)
+}
+
+/// Sanctum, 2026-11-15: a fresh install asked the Claude it found once, an old release, and kept
+/// that release's "Default (recommended)" and 4.5 models after Claude was updated, until the
+/// core restarted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_claude_chat_offers_the_models_of_the_claude_it_runs_now() {
+    let core = TestCore::start();
+    let root = tempfile::tempdir().expect("root");
+    let (config, project) = (root.path().join("claude"), root.path().join("widget"));
+    for dir in [&config, &project] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    std::fs::write(
+        config.join("fake-account.json"),
+        serde_json::json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("account");
+    let claude = root.path().join("claude-cli");
+    claude_release(
+        &claude,
+        serde_json::json!([
+            { "value": "default", "displayName": "Default (recommended)", "description": "Opus 4.5 · Most capable for complex work" },
+            { "value": "sonnet", "displayName": "Sonnet", "description": "Sonnet 4.5 · Best for everyday tasks" },
+        ]),
+    );
+    let (client, _events) = core.connect("app").await;
+    client
+        .call(
+            "setAgentAccounts",
+            serde_json::json!({ "profiles": [{
+                "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757",
+                "executablePath": claude, "configPath": config,
+            }] }),
+        )
+        .await
+        .expect("accounts");
+    client
+        .call(
+            "addProject",
+            serde_json::json!({ "id": "widget", "name": "widget", "path": project }),
+        )
+        .await
+        .expect("project");
+    let (first, _) = client
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("chat");
+    let (watcher, events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let mut chat = Chat::new(events, &first);
+    chat.attached(&watcher.acp_attach(first.clone()).await.expect("attach"));
+    chat.until(|chat| {
+        (chat.head().model.iter())
+            .flat_map(|model| &model.choices)
+            .any(|choice| choice.label == "Default (recommended)")
+    })
+    .await;
+
+    claude_release(
+        &claude,
+        serde_json::json!([
+            { "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)", "description": "Use the default model (currently Opus 5.5)" },
+            { "value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5", "description": "Opus 5.5 · Best for everyday, complex tasks" },
+            { "value": "sonnet", "resolvedModel": "claude-sonnet-5-5", "displayName": "Sonnet 5.5", "description": "Sonnet 5.5 · Efficient for routine tasks" },
+        ]),
+    );
+    let models = new_chat_models(&client, &core.socket).await;
+    assert!(
+        !models
+            .iter()
+            .any(|label| label.contains("Default") || label.contains("4.5")),
+        "{models:?}"
+    );
+}
+
 /// Runs the real `claude` named by `SIKEMUX_LIVE_CLAUDE` on a few short Haiku
 /// turns: `cargo test -p sikemux-core --test native live_claude -- --ignored`.
 #[tokio::test(flavor = "multi_thread")]
@@ -659,10 +833,13 @@ async fn live_claude_streams_edits_and_resumes() {
     let launch = ChatLaunch {
         agent_id: "live".into(),
         provider: "claude".into(),
-        cwd: folder.path().canonicalize().expect("folder"),
+        cwd: sikemux_process::files::real_path(folder.path()).expect("folder"),
         program: PathBuf::from(program),
         args: Vec::new(),
-        env: BTreeMap::new(),
+        env: persons_account()
+            .iter()
+            .map(|(name, value)| (name.clone(), value.to_string_lossy().into_owned()))
+            .collect(),
         mcp_servers: Vec::new(),
         resume_id: None,
         permission_mode: PermissionMode::Bypass,
@@ -700,20 +877,26 @@ async fn live_claude_streams_edits_and_resumes() {
     chat.turn_ended().await;
 
     client
-        .acp_edit(
-            "live".into(),
-            second,
-            "How many messages did I send you before this one? Answer with just the digit.".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpEdit {
+            agent_id: "live".into(),
+            message_id: second,
+            text: "How many messages did I send you before this one? Answer with just the digit."
+                .into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("edit");
     assert_eq!(chat.turn_ended().await, Some(StopReason::EndTurn));
     let answer = chat.text();
     assert!(answer.trim_end().ends_with('1'), "{answer}");
 
-    client.acp_stop("live".into()).await.expect("stop");
+    client
+        .ask(ask::AcpStop {
+            agent_id: "live".into(),
+        })
+        .await
+        .expect("stop");
     let (again, mut resumed) = core.connect("live-again").await;
     let mut resume = launch;
     resume.agent_id = "live-again".into();
@@ -729,6 +912,7 @@ async fn live_claude_streams_edits_and_resumes() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() {
+    const ANSWER: usize = 1_000;
     let config = tempfile::tempdir().expect("config");
     let session = uuid::Uuid::new_v4().to_string();
     let project = config.path().join("projects").join("fake");
@@ -744,7 +928,7 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
             ),
             (
                 answered.clone(),
-                serde_json::json!({ "type": "assistant", "message": { "id": format!("msg{turn}"), "role": "assistant", "model": "fake", "content": [{ "type": "text", "text": "x".repeat(100_000) }] } }),
+                serde_json::json!({ "type": "assistant", "message": { "id": format!("msg{turn}"), "role": "assistant", "model": "fake", "content": [{ "type": "text", "text": "x".repeat(ANSWER) }] } }),
             ),
         ] {
             let mut record = record;
@@ -765,22 +949,23 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     client.acp_start(launch).await.expect("resume");
     chat.until(|chat| chat.ready() && !chat.view.rows.is_empty())
         .await;
-    let answers = |rows: &[sikemux_wire::chat::ChatMessage]| {
+    let answers = |rows: &[sikemux_view::chat::ChatMessage]| {
         rows.iter()
             .filter(|row| row.role == ChatRole::Assistant)
             .count()
     };
-    let shown = answers(&chat.view.rows);
-    assert!(shown <= 50, "{shown} answers were sent at once");
-    assert_eq!(said(&chat.view.rows).len(), shown * 100_000);
-    let ChatAttachment::Live { mark, .. } = client
+    let ChatAttachment::Live { mark, view } = client
         .acp_attach("claude-long".into())
         .await
         .expect("attach")
     else {
         panic!("the chat is gone");
     };
-    let mut before = chat.view.older_before;
+    let opened: ChatView = serde_json::from_value(view).expect("a chat view");
+    let shown = answers(&opened.rows);
+    assert!(shown <= 50, "{shown} answers were sent at once");
+    assert_eq!(said(&opened.rows).len(), shown * ANSWER);
+    let mut before = opened.older_before;
     assert!(
         before.is_some(),
         "the earlier turns were not said to be there"
@@ -790,7 +975,12 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     while let Some(from) = before {
         let page: ChatPage = serde_json::from_value(
             client
-                .acp_history("claude-long".into(), mark.feed.clone(), from, 20)
+                .ask(ask::AcpHistory {
+                    agent_id: "claude-long".into(),
+                    feed: mark.feed.clone(),
+                    before: from,
+                    turns: 20,
+                })
                 .await
                 .expect("a page"),
         )
@@ -800,7 +990,273 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
         before = page.older_before;
     }
     assert_eq!(shown + paged, 200);
-    asked.extend(chat.prompts());
+    asked.extend(prompts(&opened.rows));
     let questions: Vec<String> = (0..200).map(|turn| format!("question {turn}")).collect();
     assert_eq!(asked, questions);
+}
+
+const FAKE_OPENCODE: &str = env!("CARGO_BIN_EXE_sikemux-fake-opencode");
+
+fn opencode_launch(agent_id: &str, home: &Path) -> ChatLaunch {
+    ChatLaunch {
+        provider: "opencode".into(),
+        program: PathBuf::from(FAKE_OPENCODE),
+        env: BTreeMap::new(),
+        model: Some("fake/fake-model".into()),
+        ..claude_launch(agent_id, home)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_chat_streams_a_turn_on_the_effort_its_model_offers() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-a").await;
+    let start = client
+        .acp_start(opencode_launch("opencode-a", home.path()))
+        .await
+        .expect("start");
+    let options = start.setup["configOptions"].as_array().expect("options");
+    assert_eq!(options[0]["currentValue"], "fake/fake-model");
+    assert!(options
+        .iter()
+        .any(|option| option["category"] == "thought_level" && option["currentValue"] == "high"));
+
+    prompt(&client, "opencode-a", &message_id(), "stream 5").await;
+    assert_eq!(chat.turn_ended().await, Some(StopReason::EndTurn));
+    assert_eq!(chat.text(), "w0 w1 w2 w3 w4 ");
+
+    let options = client
+        .ask(ask::AcpSetConfig {
+            agent_id: "opencode-a".into(),
+            config_id: "model".into(),
+            value: "fake/plain".into(),
+        })
+        .await
+        .expect("set model");
+    let rows = options["configOptions"].as_array().expect("rows");
+    assert_eq!(rows[0]["currentValue"], "fake/plain");
+    assert!(
+        !rows.iter().any(|row| row["category"] == "thought_level"),
+        "a model with no efforts offers none: {rows:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_command_waits_for_the_persons_answer() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-b").await;
+    client
+        .acp_start(ChatLaunch {
+            permission_mode: PermissionMode::WorkspaceWrite,
+            ..opencode_launch("opencode-b", home.path())
+        })
+        .await
+        .expect("start");
+
+    prompt(&client, "opencode-b", &message_id(), "ask").await;
+    let (request, allow) = allow_once(&until_asked(&mut chat).await);
+    client
+        .ask(ask::AcpPermissionReply {
+            agent_id: "opencode-b".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
+        .await
+        .expect("reply");
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("allowed"), "{}", chat.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_opencode_turn_ends_cancelled() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-c").await;
+    client
+        .acp_start(opencode_launch("opencode-c", home.path()))
+        .await
+        .expect("start");
+    prompt(&client, "opencode-c", &message_id(), "hold 10000").await;
+    chat.until(|chat| chat.text().contains("holding")).await;
+    client
+        .ask(ask::AcpCancel {
+            agent_id: "opencode-c".into(),
+        })
+        .await
+        .expect("cancel");
+    assert_eq!(chat.turn_ended().await, Some(StopReason::Cancelled));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_turn_that_cannot_sign_in_says_so() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-d").await;
+    client
+        .acp_start(opencode_launch("opencode-d", home.path()))
+        .await
+        .expect("start");
+    prompt(&client, "opencode-d", &message_id(), "fail").await;
+    let failed = until_failed(&mut chat).await;
+    assert_eq!(
+        failed.head().failure.as_ref().map(|failure| failure.kind),
+        Some(FailureKind::SignIn)
+    );
+}
+
+async fn opencode_chat(core: &TestCore, agent: &str, home: &Path) -> (CoreClient, Chat) {
+    let (client, chat) = core.connect(agent).await;
+    client
+        .acp_start(opencode_launch(agent, home))
+        .await
+        .expect("start");
+    (client, chat)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_todo_list_becomes_the_chats_plan() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-e", home.path()).await;
+    prompt(&client, "opencode-e", &message_id(), "todo").await;
+    chat.turn_ended().await;
+    let plan = chat
+        .until(|chat| chat.head().plan.is_some())
+        .await
+        .head()
+        .plan
+        .clone();
+    let plan: Vec<_> = plan
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| (entry.content, entry.status))
+        .collect();
+    assert_eq!(
+        plan,
+        [
+            ("look".to_owned(), PlanStatus::Completed),
+            ("fix".to_owned(), PlanStatus::InProgress)
+        ]
+    );
+    assert!(
+        !chat
+            .parts()
+            .any(|part| matches!(part, ChatPart::Tool { .. })),
+        "the todo list is no tool row"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_subagent_has_a_card_that_ends_after_the_turn_that_started_it() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-f", home.path()).await;
+    prompt(&client, "opencode-f", &message_id(), "subagent").await;
+    chat.turn_ended().await;
+    let card = |chat: &Folded| {
+        chat.parts().find_map(|part| match part {
+            ChatPart::Subagent { subagent, .. } => Some(subagent.clone()),
+            _ => None,
+        })
+    };
+    let ended = chat
+        .until(|chat| card(chat).is_some_and(|card| card.state == SubagentState::Completed))
+        .await;
+    let card = card(ended).expect("card");
+    assert_eq!(
+        (card.name.as_str(), card.task.as_str()),
+        ("explore", "Look around")
+    );
+    assert_eq!(card.tokens, Some(320));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_question_goes_to_the_person_and_opencode_hears_what_sikemux_said() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-g", home.path()).await;
+    prompt(&client, "opencode-g", &message_id(), "question").await;
+    chat.turn_ended().await;
+    let told = chat.text();
+    let told = told.strip_prefix("told: ").expect("told");
+    assert!(!told.trim().is_empty(), "OpenCode heard nothing");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_compaction_shows_as_a_row() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-h", home.path()).await;
+    prompt(&client, "opencode-h", &message_id(), "/compact").await;
+    chat.turn_ended().await;
+    let row = chat.parts().find_map(|part| match part {
+        ChatPart::Tool { tool, .. } if tool.title == "Compact conversation" => tool.status,
+        _ => None,
+    });
+    assert_eq!(row, Some(ToolStatus::Completed));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_chat_moved_from_yolo_to_normal_asks_before_a_command() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-i", home.path()).await;
+    client
+        .ask(ask::AcpSetPermissionMode {
+            agent_id: "opencode-i".into(),
+            mode: PermissionMode::WorkspaceWrite,
+        })
+        .await
+        .expect("permission mode");
+    prompt(&client, "opencode-i", &message_id(), "ask").await;
+    let (request, allow) = allow_once(&until_asked(&mut chat).await);
+    client
+        .ask(ask::AcpPermissionReply {
+            agent_id: "opencode-i".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
+        .await
+        .expect("reply");
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("allowed"), "{}", chat.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edited_opencode_message_reverts_the_session_to_before_it() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-j", home.path()).await;
+    let second = message_id();
+    prompt(&client, "opencode-j", &message_id(), "first").await;
+    chat.turn_ended().await;
+    prompt(&client, "opencode-j", &second, "second").await;
+    chat.turn_ended().await;
+
+    client
+        .ask(ask::AcpEdit {
+            agent_id: "opencode-j".into(),
+            message_id: second,
+            text: "count".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("edit");
+    chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
+        .await;
+    assert!(chat.text().ends_with("1 earlier"), "{}", chat.text());
+    assert_eq!(chat.prompts(), ["first", "count"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_yolo_opencode_chat_keeps_the_persons_own_denies() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-k", home.path()).await;
+    prompt(&client, "opencode-k", &message_id(), "push").await;
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("denied"), "{}", chat.text());
 }

@@ -10,10 +10,10 @@
     "tools": [
       "git_commit"
     ],
-    "prompt": "You already raised the list row height from 26 to 28 in src-tauri/crates/sikemux-gpui/src/ui/lists.rs. Commit that change.",
+    "prompt": "You already raised the list row height from 26 to 28 in app/src/ui/lists.rs. Commit that change.",
     "fixture": {
       "dirty": {
-        "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 28.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x2a2a33))\n    } else {\n        base\n    }\n}\n"
+        "app/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 28.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x2a2a33))\n    } else {\n        base\n    }\n}\n"
       },
       "instructions": "- Never add a Co-Authored-By trailer naming Claude, or any other mention of yourself, to a commit message."
     },
@@ -214,13 +214,13 @@
         {
           "message": "fix(gpui): a tab drags by its whole width",
           "files": {
-            "src-tauri/crates/sikemux-gpui/src/desk/tabs.rs": "pub const DRAG_SLOP: f32 = 4.0;\n"
+            "app/src/desk/tabs.rs": "pub const DRAG_SLOP: f32 = 4.0;\n"
           }
         },
         {
           "message": "fix(gpui): a dragged tab drops where the pointer is",
           "files": {
-            "src-tauri/crates/sikemux-gpui/src/desk/tabs.rs": "pub const DRAG_SLOP: f32 = 4.0;\npub const DROP_AT_POINTER: bool = true;\n"
+            "app/src/desk/tabs.rs": "pub const DRAG_SLOP: f32 = 4.0;\npub const DROP_AT_POINTER: bool = true;\n"
           }
         }
       ],
@@ -536,10 +536,10 @@
     "tools": [
       "git_commit"
     ],
-    "prompt": "Your row height fix in src-tauri/crates/sikemux-gpui/src/ui/lists.rs is done. Commit it and land it on main.",
+    "prompt": "Your row height fix in app/src/ui/lists.rs is done. Commit it and land it on main.",
     "fixture": {
       "dirty": {
-        "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 28.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x2a2a33))\n    } else {\n        base\n    }\n}\n"
+        "app/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 28.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x2a2a33))\n    } else {\n        base\n    }\n}\n"
       },
       "answers": [
         {
@@ -590,8 +590,8 @@
     "prompt": "In the limits popover I like the usage progress-bar rows exactly as they are; only the multi-account part is broken, it only ever shows the first account. Build the option we picked: a dropdown in the popover header to switch between accounts.",
     "fixture": {
       "files": {
-        "src-tauri/crates/sikemux-gpui/src/limits/rows.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub struct Usage {\n    pub label: String,\n    pub used: f32,\n}\n\npub fn usage_row(usage: &Usage) -> impl IntoElement {\n    let filled = px(160.0 * usage.used.clamp(0.0, 1.0));\n    div()\n        .flex()\n        .gap(px(8.0))\n        .child(div().w(px(96.0)).child(usage.label.clone()))\n        .child(div().w(px(160.0)).h(px(6.0)).rounded(px(3.0)).bg(gpui::rgb(0x2a2a33)).child(div().w(filled).h(px(6.0)).rounded(px(3.0)).bg(gpui::rgb(0x61ffca))))\n}\n",
-        "src-tauri/crates/sikemux-gpui/src/limits/accounts.rs": "use gpui::{div, IntoElement, ParentElement};\n\npub struct Account {\n    pub email: String,\n}\n\npub fn account_header(accounts: &[Account]) -> impl IntoElement {\n    let first = accounts.first().map(|account| account.email.clone()).unwrap_or_default();\n    div().child(first)\n}\n"
+        "app/src/limits/rows.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub struct Usage {\n    pub label: String,\n    pub used: f32,\n}\n\npub fn usage_row(usage: &Usage) -> impl IntoElement {\n    let filled = px(160.0 * usage.used.clamp(0.0, 1.0));\n    div()\n        .flex()\n        .gap(px(8.0))\n        .child(div().w(px(96.0)).child(usage.label.clone()))\n        .child(div().w(px(160.0)).h(px(6.0)).rounded(px(3.0)).bg(gpui::rgb(0x2a2a33)).child(div().w(filled).h(px(6.0)).rounded(px(3.0)).bg(gpui::rgb(0x61ffca))))\n}\n",
+        "app/src/limits/accounts.rs": "use gpui::{div, IntoElement, ParentElement};\n\npub struct Account {\n    pub email: String,\n}\n\npub fn account_header(accounts: &[Account]) -> impl IntoElement {\n    let first = accounts.first().map(|account| account.email.clone()).unwrap_or_default();\n    div().child(first)\n}\n"
       },
       "instructions": "- Show before and after captures of any look change and wait for my approval before committing it."
     },
@@ -615,12 +615,12 @@
       ],
       "files": [
         {
-          "path": "src-tauri/crates/sikemux-gpui/src/limits/accounts.rs",
+          "path": "app/src/limits/accounts.rs",
           "match": "/^(?![\\s\\S]*let first = accounts\\.first\\(\\)[^\\n]*\\n\\s*div\\(\\)\\.child\\(first\\))/",
           "why": "left the header showing only the first account"
         },
         {
-          "path": "src-tauri/crates/sikemux-gpui/src/limits/rows.rs",
+          "path": "app/src/limits/rows.rs",
           "match": "/\\.w\\(px\\(160\\.0\\)\\)\\.h\\(px\\(6\\.0\\)\\)\\.rounded\\(px\\(3\\.0\\)\\)\\.bg\\(gpui::rgb\\(0x2a2a33\\)\\)/",
           "why": "changed the progress-bar rows the person said to keep as they are"
         }

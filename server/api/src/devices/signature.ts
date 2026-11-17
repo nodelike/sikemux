@@ -50,24 +50,6 @@ export function bodySha256(body: Uint8Array): string {
   return createHash("sha256").update(body).digest("hex");
 }
 
-export function hostRequestMessage(
-  method: string,
-  pathAndQuery: string,
-  time: string,
-  body: Uint8Array,
-): string {
-  return requestMessage("host", method, pathAndQuery, time, bodySha256(body));
-}
-
-export function deviceRequestMessage(
-  method: string,
-  pathAndQuery: string,
-  time: string,
-  body: Uint8Array,
-): string {
-  return requestMessage("device", method, pathAndQuery, time, bodySha256(body));
-}
-
 /** What a phone signs to send its notifications to a token. The token goes in as its SHA-256, in hex. */
 export function pushTokenMessage(
   nonce: string,

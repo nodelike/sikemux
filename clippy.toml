@@ -1,4 +1,16 @@
-disallowed-methods = [
-    { path = "std::process::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
-    { path = "tokio::process::Command::new", reason = "wrap sikemux_process::user_environment::command, so the child gets the user's PATH" },
+disallowed-types = [
+    { path = "portable_pty::NativePtySystem", reason = "use sikemux_pty::master::open_pty, whose Windows terminals start through the core's own command" },
 ]
+disallowed-methods = [
+    { path = "portable_pty::native_pty_system", reason = "use sikemux_pty::master::open_pty, whose Windows terminals start through the core's own command" },
+    { path = "std::process::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
+    { path = "tokio::process::Command::new", reason = "use sikemux_process::user_environment::command(..).into_async(), so the child gets the user's PATH" },
+    { path = "sikemux_process::command::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
+    { path = "gpui::StatefulInteractiveElement::on_click", reason = "use gpui_clicks::Clicks (crate::ui::Clicks): `clicks` shows the pointing hand, `clicks_keep_cursor` keeps the arrow" },
+    { path = "std::fs::canonicalize", reason = "use sikemux_process::files::real_path, which leaves off Windows' \\\\?\\ prefix" },
+    { path = "std::path::Path::canonicalize", reason = "use sikemux_process::files::real_path, which leaves off Windows' \\\\?\\ prefix" },
+]
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

@@ -1,23 +1,24 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { getDefaultConfig } = require('expo/metro-config');
+const { getSentryExpoConfig } = require('@sentry/react-native/metro');
 
-const config = getDefaultConfig(__dirname);
+// Sentry's config stamps each bundle with an id its uploaded source map carries too, and leaves out
+// its session replay and feedback form, which the app does not use.
+const config = getSentryExpoConfig(__dirname, { includeWebReplay: false, includeWebFeedback: false });
 
 // The chat transcript, the agent catalog and the share format come from shared/, which the share page uses too.
 config.watchFolders = [...config.watchFolders, path.resolve(__dirname, '../../shared')];
-// The accounts API's types, client and close codes come from the server's protocol (@protocol).
+// The accounts API's types, client and close codes come from the server's protocol (@sikemux/protocol).
 config.watchFolders.push(path.resolve(__dirname, '../../server/protocol/generated'), path.resolve(__dirname, '../../server/protocol/src'));
 
-// The pretend Mac's answers are read by the core's Rust parser, as a real host reads them.
+// The pretend Mac's answers are read by the core's Rust parser, as a real host reads them; the
+// showcase builds it before starting this server and names it in SIKEMUX_SHOWCASE_MARKDOWN.
 let parser;
 function readMarkdown(texts) {
   if (!parser) {
-    const child = require('node:child_process').spawn(
-      'cargo',
-      ['run', '--quiet', '--manifest-path', path.resolve(__dirname, '../../Cargo.toml'), '-p', 'sikemux-markdown', '--example', 'stdio'],
-      { stdio: ['pipe', 'pipe', 'inherit'] },
-    );
+    const child = require('node:child_process').spawn(process.env.SIKEMUX_SHOWCASE_MARKDOWN, [], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    });
     const waiting = [];
     require('node:readline')
       .createInterface({ input: child.stdout })
@@ -44,11 +45,9 @@ if (process.env.SIKEMUX_SHOWCASE) {
     'expo-file-system': path.join(mocks, 'expo-file-system.ts'),
     'expo-secure-store': path.join(mocks, 'expo-secure-store.ts'),
     'expo-device': path.join(showcase, 'expo-device.ts'),
-    'expo-media-library': path.join(showcase, 'expo-media-library.ts'),
     'expo-notifications': path.join(mocks, 'expo-notifications.ts'),
     '@react-native-masked-view/masked-view': path.join(showcase, 'masked-view.tsx'),
     '@clerk/expo': path.join(showcase, 'clerk.ts'),
-    '@clerk/expo/apple': path.join(showcase, 'clerk.ts'),
     '@clerk/expo/google': path.join(showcase, 'clerk.ts'),
     '@clerk/expo/resource-cache': path.join(showcase, 'clerk.ts'),
   };

@@ -1,6 +1,6 @@
 # ADR 0008: The phone app is Expo, calling the core's own Rust client
 
-- Status: Accepted
+- Status: Accepted for Android. Superseded on iPhone on 2026-11-11 by the native SwiftUI app in `mobile/ios`, which links the same Rust client through UniFFI's Swift bindings.
 - Decision date: 2026-10-02
 
 ## Context

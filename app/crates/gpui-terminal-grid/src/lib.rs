@@ -141,6 +141,8 @@ pub struct Marked<'a> {
 pub struct Metrics {
     fonts: [Font; 4],
     pub font_size: Pixels,
+    /// The window scale the cell was snapped to whole device pixels at.
+    pub scale: f32,
     pub cell: Size<Pixels>,
     /// From the top of a cell to the text's baseline.
     baseline: Pixels,
@@ -149,6 +151,11 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    /// The family the cells are measured in.
+    pub fn family(&self) -> &SharedString {
+        &self.fonts[0].family
+    }
+
     /// Measures `font` at `font_size`, spacing its letters a whole cell apart.
     /// Rows are `line_height` times the size tall, or the font's own height
     /// when that is taller.
@@ -186,6 +193,7 @@ impl Metrics {
         Self {
             fonts: [font, bold, italic, bold_italic],
             font_size,
+            scale,
             cell: size(width, px(height)),
             baseline: snap((height - ascent - descent) / 2. + ascent),
             stroke: snap(f32::from(font_size) / 12.),

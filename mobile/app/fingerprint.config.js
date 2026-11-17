@@ -18,7 +18,7 @@ const NATIVE_FILES = [
     .sort()
     .map((name) => `scripts/${name}`),
 ];
-const LINKED_MODULES = ['rncoreAutolinkingConfig:android', 'rncoreAutolinkingConfig:ios'];
+const LINKED_MODULES = ['rncoreAutolinkingConfig:android'];
 
 /** @type {import('expo/fingerprint').Config} */
 module.exports = {
@@ -35,7 +35,7 @@ module.exports = {
       reasons: ['rustClient'],
     })),
   ],
-  ignorePaths: ['**/target/**/*', '../native/**/*'],
+  ignorePaths: ['**/target/**/*', '../native/**/*', '../../crates/sikemux-mobile/src/loopback_tests.rs'],
   fileHookTransform(source, chunk) {
     if (source.type !== 'contents' || chunk == null) return chunk;
     // Nightly and stable builds of the same code share a runtime version, so an update promoted to stable still fits.

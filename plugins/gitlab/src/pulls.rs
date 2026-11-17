@@ -1,4 +1,4 @@
-// Merge requests, in the words the Git pane uses for every host's pull
+// Merge requests, in the words used for every host's pull
 // requests: their changes, commits, approvals and history, and merging,
 // opening, closing and approving one.
 
@@ -8,10 +8,11 @@ use std::path::Path;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
-    CommitRef, FilesQuery, Merge, NewPull, NewReview, PatchQuery, PullQuery, PullRef, SetPullState,
+    CommitRef, FilesQuery, Merge, NewPull, NewReview, PullEdit, PullQuery, PullRef, SetPullState,
 };
-use sikemux_plugin_api::codehost::{ChangedFile, Label, Pull, PullCommit, Review};
+use sikemux_plugin_api::codehost::{ChangedFile, Label, Pull, PullCommit, PullStage, Review};
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -67,13 +68,12 @@ pub struct MergeRequestRow {
     web_url: String,
 }
 
-fn state_of(raw: &str) -> String {
+fn state_of(raw: &str) -> PullStage {
     match raw {
-        "opened" | "locked" => "open",
-        "merged" => "merged",
-        _ => "closed",
+        "opened" | "locked" => PullStage::Open,
+        "merged" => PullStage::Merged,
+        _ => PullStage::Closed,
     }
-    .into()
 }
 
 /// GitLab's reasons a merge request can or cannot merge, in GitHub's merge-state words.
@@ -197,28 +197,24 @@ pub async fn list(data_dir: &Path, input: PullQuery) -> GitlabResult<Vec<Pull>> 
 
 /// The merge requests that hold the commit `sha`, the merged one first.
 pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GitlabResult<Vec<Pull>> {
-    if input.sha.len() < 7 || !input.sha.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(GitlabError::BadArg(format!(
-            "`{}` is not a commit hash",
-            input.sha
-        )));
-    }
-    let path = input
-        .repo
-        .path(&format!("/repository/commits/{}/merge_requests", input.sha))?;
+    let path = input.repo.path(&format!(
+        "/repository/commits/{}/merge_requests",
+        answers::commit_hash(&input.sha)?
+    ))?;
     let rows: Vec<MergeRequestRow> = client::get_all(data_dir, &path, &[], 1).await?;
-    let mut pulls: Vec<Pull> = rows.into_iter().map(pull_of).collect();
-    pulls.sort_by_key(|pull| pull.state != "merged");
-    Ok(pulls)
+    Ok(answers::merged_first(
+        rows.into_iter().map(pull_of).collect(),
+    ))
 }
 
 pub async fn get(data_dir: &Path, input: PullRef) -> GitlabResult<Pull> {
-    let row: MergeRequestRow = client::get(
-        data_dir,
-        &input.path("")?,
-        &[("with_labels_details", "true".into())],
-    )
-    .await?;
+    let row: MergeRequestRow = client::API
+        .get(
+            data_dir,
+            &input.path("")?,
+            &[("with_labels_details", "true".into())],
+        )
+        .await?;
     Ok(pull_of(row))
 }
 
@@ -271,113 +267,14 @@ pub fn changed_file(row: DiffRow) -> ChangedFile {
     }
 }
 
-const PATCH_LINES: usize = 400;
-const MAX_PATCH_LINES: usize = 1000;
-const PATCH_BYTES: usize = 32 * 1024;
-
-fn cut_at_char(text: &str, most: usize) -> &str {
-    text.get(..text.floor_char_boundary(most))
-        .unwrap_or_default()
-}
-
-/// Up to `lines` lines of `patch` from `offset`, and at most `PATCH_BYTES` of
-/// them, with a note whenever any of the patch is left out.
-pub fn window(patch: &str, offset: usize, lines: Option<usize>) -> (String, Option<String>) {
-    let all: Vec<&str> = patch.split('\n').collect();
-    let total = all.len();
-    if offset >= total {
-        return (
-            String::new(),
-            Some(format!(
-                "The patch has {total} lines; offset {offset} is past its end."
-            )),
-        );
-    }
-    let most = lines.unwrap_or(PATCH_LINES).clamp(1, MAX_PATCH_LINES);
-    let mut shown = String::new();
-    let mut end = offset;
-    let mut line_cut = false;
-    for line in all.iter().skip(offset).take(most) {
-        let room = PATCH_BYTES.saturating_sub(shown.len() + 1);
-        if line.len() > room {
-            if end == offset {
-                shown.push_str(cut_at_char(line, room));
-                line_cut = true;
-                end += 1;
-            }
-            break;
-        }
-        if end > offset {
-            shown.push('\n');
-        }
-        shown.push_str(line);
-        end += 1;
-    }
-    if offset == 0 && end == total && !line_cut {
-        return (shown, None);
-    }
-    let mut note = format!("Lines {}-{end} of {total}.", offset + 1);
-    if line_cut {
-        note.push_str(&format!(
-            " Line {end} was cut at {} KB.",
-            PATCH_BYTES / 1024
-        ));
-    }
-    if end < total {
-        note.push_str(&format!(" {} more lines left out: pass offset {end} for the next part, or run git diff locally.", total - end));
-    }
-    (shown, Some(note))
-}
-
-fn is_named(file: &ChangedFile, path: &str) -> bool {
-    file.path == path || file.previous_path.as_deref() == Some(path)
-}
-
-/// The files to answer with, carrying the patches `query` asks for. Agents get
-/// the file list alone unless they name `paths`, and then a window of each
-/// patch. The merge request view asks for `fullPatches`.
-pub fn pick(files: Vec<ChangedFile>, query: &PatchQuery) -> GitlabResult<Vec<ChangedFile>> {
-    if query.full_patches {
-        return Ok(files);
-    }
-    if let Some(unknown) = query
-        .paths
-        .iter()
-        .find(|path| !files.iter().any(|file| is_named(file, path)))
-    {
-        return Err(GitlabError::BadArg(format!(
-            "`{unknown}` is not among the files this merge request changes"
-        )));
-    }
-    Ok(files
-        .into_iter()
-        .filter_map(|mut file| {
-            if query.paths.is_empty() {
-                file.patch = None;
-                return Some(file);
-            }
-            if !query.paths.iter().any(|path| is_named(&file, path)) {
-                return None;
-            }
-            match file.patch.take() {
-                Some(patch) => {
-                    let (shown, note) = window(&patch, query.offset, query.lines);
-                    file.patch = Some(shown);
-                    file.note = note;
-                }
-                None => {
-                    file.note = Some("GitLab shows no patch for this file: it is binary, too large, or only renamed. Run git diff locally.".into());
-                }
-            }
-            Some(file)
-        })
-        .collect())
-}
-
 pub async fn files(data_dir: &Path, input: FilesQuery) -> GitlabResult<Vec<ChangedFile>> {
     let rows: Vec<DiffRow> =
         client::get_all(data_dir, &input.pull.path("/diffs")?, &[], 10).await?;
-    pick(rows.into_iter().map(changed_file).collect(), &input.patches)
+    answers::pick_patches(
+        rows.into_iter().map(changed_file).collect(),
+        &input.patches,
+        "merge request",
+    )
 }
 
 #[derive(Deserialize)]
@@ -417,7 +314,9 @@ struct Approvals {
 }
 
 pub async fn reviews(data_dir: &Path, input: PullRef) -> GitlabResult<Vec<Review>> {
-    let approvals: Approvals = client::get(data_dir, &input.path("/approvals")?, &[]).await?;
+    let approvals: Approvals = client::API
+        .get(data_dir, &input.path("/approvals")?, &[])
+        .await?;
     Ok(approvals
         .approved_by
         .into_iter()
@@ -449,18 +348,15 @@ pub fn merge_body(method: &str, sha: Option<&str>) -> GitlabResult<Value> {
     Ok(body)
 }
 
-pub async fn merge(data_dir: &Path, input: Merge) -> GitlabResult<()> {
+pub async fn merge(data_dir: &Path, input: Merge) -> GitlabResult<Pull> {
     let method = input
         .method
         .ok_or_else(|| GitlabError::BadArg("missing field `method`".into()))?;
     let body = merge_body(&method, input.sha.as_deref())?;
-    client::write(
-        data_dir,
-        Method::PUT,
-        &input.pull.path("/merge")?,
-        Some(&body),
-    )
-    .await
+    let row: MergeRequestRow = client::API
+        .send_json(data_dir, Method::PUT, &input.pull.path("/merge")?, &body)
+        .await?;
+    Ok(pull_of(row))
 }
 
 /// GitLab marks a draft by its title.
@@ -483,13 +379,36 @@ pub async fn create(data_dir: &Path, input: NewPull) -> GitlabResult<Pull> {
         "title": titled(&input.title, input.draft),
         "description": input.body,
     });
-    let row: MergeRequestRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/merge_requests")?,
-        &body,
-    )
-    .await?;
+    let row: MergeRequestRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/merge_requests")?,
+            &body,
+        )
+        .await?;
+    Ok(pull_of(row))
+}
+
+pub async fn edit(data_dir: &Path, input: PullEdit) -> GitlabResult<Pull> {
+    let mut body = serde_json::Map::new();
+    if let Some(title) = input.title.filter(|title| !title.trim().is_empty()) {
+        body.insert("title".into(), title.trim().into());
+    }
+    if let Some(text) = input.body {
+        body.insert("description".into(), text.into());
+    }
+    if let Some(base) = input.base {
+        body.insert("target_branch".into(), base.into());
+    }
+    let row: MergeRequestRow = client::API
+        .send_json(
+            data_dir,
+            Method::PUT,
+            &input.pull.path("")?,
+            &Value::Object(body),
+        )
+        .await?;
     Ok(pull_of(row))
 }
 
@@ -499,13 +418,14 @@ pub async fn set_state(data_dir: &Path, input: SetPullState) -> GitlabResult<()>
     } else {
         "close"
     };
-    client::write(
-        data_dir,
-        Method::PUT,
-        &input.pull.path("")?,
-        Some(&json!({ "state_event": event })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::PUT,
+            &input.pull.path("")?,
+            Some(&json!({ "state_event": event })),
+        )
+        .await
 }
 
 /// Approving is GitLab's approval; a written verdict goes on as a comment
@@ -514,7 +434,9 @@ pub async fn review(data_dir: &Path, input: NewReview) -> GitlabResult<()> {
     let body = input.body.trim();
     match input.event.as_str() {
         "APPROVE" => {
-            client::write(data_dir, Method::POST, &input.pull.path("/approve")?, None).await?
+            client::API
+                .write(data_dir, Method::POST, &input.pull.path("/approve")?, None)
+                .await?
         }
         "COMMENT" if !body.is_empty() => {}
         "COMMENT" => return Err(GitlabError::BadArg("a comment needs some text".into())),
@@ -527,13 +449,14 @@ pub async fn review(data_dir: &Path, input: NewReview) -> GitlabResult<()> {
     if body.is_empty() {
         return Ok(());
     }
-    client::write(
-        data_dir,
-        Method::POST,
-        &input.pull.path("/notes")?,
-        Some(&json!({ "body": body })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::POST,
+            &input.pull.path("/notes")?,
+            Some(&json!({ "body": body })),
+        )
+        .await
 }
 
 #[cfg(test)]
@@ -562,11 +485,11 @@ mod tests {
         assert_eq!(
             (
                 pull.number,
-                pull.state.as_str(),
+                pull.state,
                 pull.head.as_deref(),
                 pull.base.as_deref()
             ),
-            (42, "open", Some("fix/vat"), Some("main"))
+            (42, PullStage::Open, Some("fix/vat"), Some("main"))
         );
         assert_eq!(
             (pull.mergeable, pull.merge_state.as_deref()),
@@ -596,7 +519,7 @@ mod tests {
             "merge_user": { "username": "irwan" }, "squash_commit_sha": "abc", "changes_count": "1000+",
             "labels": ["plain"], "web_url": "u"
         })));
-        assert_eq!(pull.state, "merged");
+        assert_eq!(pull.state, PullStage::Merged);
         assert_eq!(pull.merged_by.as_deref(), Some("irwan"));
         assert_eq!(pull.merge_commit_sha.as_deref(), Some("abc"));
         assert_eq!(pull.head_label.as_deref(), Some("project 8:patch-1"));
@@ -641,51 +564,6 @@ mod tests {
             (gone.path.as_str(), gone.status.as_str(), gone.patch),
             ("old.md", "removed", None)
         );
-    }
-
-    #[test]
-    fn an_agent_gets_a_window_of_a_patch_and_is_told_the_rest() -> GitlabResult<()> {
-        let patch = (1..=10)
-            .map(|n| format!("+line {n}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let file = ChangedFile {
-            path: "a.ts".into(),
-            status: "modified".into(),
-            additions: 10,
-            deletions: 0,
-            previous_path: None,
-            patch: Some(patch),
-            note: None,
-        };
-        let listed = pick(vec![file.clone()], &PatchQuery::default())?;
-        assert_eq!(listed[0].patch, None);
-        let windowed = pick(
-            vec![file.clone()],
-            &PatchQuery {
-                paths: vec!["a.ts".into()],
-                offset: 2,
-                lines: Some(3),
-                full_patches: false,
-            },
-        )?;
-        assert_eq!(
-            windowed[0].patch.as_deref(),
-            Some("+line 3\n+line 4\n+line 5")
-        );
-        assert!(windowed[0]
-            .note
-            .as_deref()
-            .is_some_and(|note| note.contains("pass offset 5")));
-        assert!(pick(
-            vec![file],
-            &PatchQuery {
-                paths: vec!["b.ts".into()],
-                ..PatchQuery::default()
-            }
-        )
-        .is_err());
-        Ok(())
     }
 
     #[test]

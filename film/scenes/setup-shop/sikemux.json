@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "ports": { "db": 5432 },
+  "env": { "DATABASE_URL": "postgres://localhost:{port.db}/shop_{checkout}" },
+  "tasks": [
+    { "id": "web", "label": "Web", "command": "python3 -m http.server $PORT", "port": 5173 },
+    { "id": "api", "label": "API", "command": "python3 -m http.server $PORT", "port": 8000 }
+  ],
+  "worktree": {
+    "onCreate": [
+      { "id": "env", "label": "Env", "command": "cp .env.example .env" },
+      { "id": "data", "label": "Data", "command": "mkdir -p .data/$SIKEMUX_CHECKOUT" },
+      { "id": "seed", "label": "Seed", "command": "node scripts/seed.mjs" }
+    ],
+    "onRemove": [{ "id": "data", "label": "Data", "command": "rm -rf .data/$SIKEMUX_CHECKOUT" }]
+  },
+  "check": "node --test",
+  "heavy": [{ "command": "node scripts/build.mjs" }, { "command": "node --test", "final": true }]
+}

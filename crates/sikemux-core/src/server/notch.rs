@@ -4,19 +4,17 @@
 //! closes, as the core does.
 
 use super::Core;
+#[cfg(target_os = "macos")]
+use crate::server::parts::Parts;
+#[cfg(target_os = "macos")]
+use crate::server::workspace_state::WorkspaceParts;
 
 /// Starts or stops the helper, as the person's Notch preferences say.
 pub(crate) fn follow(core: &Core) {
     #[cfg(target_os = "macos")]
     {
-        let Some(socket) = core
-            .listening
-            .get()
-            .map(|listening| listening.config.socket.clone())
-        else {
-            return;
-        };
-        let enabled = core.preferences.get().notch.enabled;
+        let socket = core.config().socket.clone();
+        let enabled = core.preferences().get().notch.enabled;
         tokio::task::spawn_blocking(move || {
             if let Err(error) = mac::configure(&socket, enabled) {
                 eprintln!("sikemux core: the notch did not start: {error}");
@@ -29,11 +27,10 @@ pub(crate) fn follow(core: &Core) {
 
 #[cfg(target_os = "macos")]
 mod mac {
+    use sikemux_process::command::Stdio;
     use std::fs::OpenOptions;
     use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::process::CommandExt;
     use std::path::{Path, PathBuf};
-    use std::process::Stdio;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use crate::server::local_peer::{BUNDLED_NOTCH, NOTCH_EXECUTABLE};
@@ -44,10 +41,6 @@ mod mac {
     /// an earlier core left behind.
     static STARTED: AtomicBool = AtomicBool::new(false);
 
-    fn dev() -> bool {
-        cfg!(debug_assertions)
-    }
-
     fn state_dir(socket: &Path) -> PathBuf {
         socket
             .parent()
@@ -56,7 +49,7 @@ mod mac {
     }
 
     fn state_file(state_dir: &Path, extension: &str) -> PathBuf {
-        state_dir.join(if dev() {
+        state_dir.join(if cfg!(debug_assertions) {
             format!("notch.dev.{extension}")
         } else {
             format!("notch.{extension}")
@@ -73,7 +66,7 @@ mod mac {
         }
         let path = match sikemux_process::paths::app_bundle_of_core(core) {
             Some(bundle) => bundle.join(BUNDLED_NOTCH).join(NOTCH_EXECUTABLE),
-            None if dev() => core.parent()?.join(DEV_HELPER),
+            None if cfg!(debug_assertions) => core.parent()?.join(DEV_HELPER),
             None => return None,
         };
         path.is_file().then_some(path)
@@ -127,7 +120,7 @@ mod mac {
         if let Some(bundle) = sikemux_process::paths::app_bundle_of_core(&core) {
             command.arg("--app").arg(bundle);
         }
-        if dev() {
+        if cfg!(debug_assertions) {
             command
                 .arg("--dev")
                 .arg("--app-pid")
@@ -159,7 +152,7 @@ mod mac {
 
     /// The helper is SwiftUI for macOS 14, while the core runs on older systems.
     fn supported() -> bool {
-        crate::usage::os_version()
+        crate::server::host::os_version()
             .and_then(|version| version.split('.').next()?.parse::<u32>().ok())
             .is_some_and(|major| major >= 14)
     }

@@ -1,30 +1,127 @@
-import type { ChatRows } from "./types";
+import type { ToolAction, ToolRow } from "../wire.generated";
+import type { ChatRows } from "./rows";
+import { english, type Say } from "../lib/say";
 
-export function connectingLabel(connection: ChatRows["connection"]): string | null {
-    if (connection === "starting") return "Starting agent…";
-    if (connection === "connecting" || connection === "initializing") return "Connecting to agent session…";
-    return null;
+/**
+ * What the agent is doing, as a verb and what it is on: the command it runs, the agent it waits for, why it retries.
+ * A language puts the verb before or after what it is on, so the words come from a whole sentence with `{what}` in it.
+ */
+export interface Doing {
+    verb: string;
+    what?: string;
+    /** The words after `what`, in a language that says them there. */
+    after?: string;
+    /** `what` is a command, set as typed. */
+    typed?: boolean;
 }
 
-function retryingText({ attempt, connection }: NonNullable<ChatRows["retrying"]>): string {
-    return `${connection ? "Reconnecting…" : "Retrying…"}${attempt ? ` (attempt ${attempt})` : ""}`;
+function on(sentence: string, what: string, typed = false): Doing {
+    const [before, after = ""] = sentence.split("{what}");
+    return { verb: before.trim(), what, ...(after.trim() ? { after: after.trim() } : {}), typed };
 }
 
-/* A permission card already says what the turn is waiting on, so a spinner
-   beside it would only compete with it. */
-export function activityText(
-    state: Pick<ChatRows, "permissions" | "running" | "messages" | "connection" | "retrying">,
-    activeTool: string | null,
-): string | null {
-    return state.permissions.length > 0
-        ? null
-        : state.running
-          ? state.retrying
-              ? retryingText(state.retrying)
-              : (activeTool ?? "Thinking…")
-          : state.messages.length > 0
-            ? connectingLabel(state.connection)
-            : null;
+/** What the line under the last row says the chat is doing, from what the core says it is doing. */
+export function activityDoing(activity: ChatRows["activity"], say: Say = english): Doing | null {
+    switch (activity?.kind) {
+        case "retrying": {
+            const why = activity.reason?.trim();
+            if (!why) {
+                const verb = activity.connection
+                    ? say("Reconnecting")
+                    : activity.attempt
+                      ? say("Retrying, attempt {attempt}", { attempt: activity.attempt })
+                      : say("Retrying");
+                return { verb };
+            }
+            const sentence = activity.connection
+                ? say("Reconnecting: {what}")
+                : activity.attempt
+                  ? say("Retrying, attempt {attempt}: {what}", { attempt: activity.attempt })
+                  : say("Retrying: {what}");
+            return on(sentence, why);
+        }
+        case "call":
+            return callDoing(activity.row, say);
+        case "thinking":
+            return { verb: say("Thinking") };
+        case "starting":
+            return { verb: say("Starting agent") };
+        case "connecting":
+            return { verb: say("Connecting to agent session") };
+        default:
+            return null;
+    }
+}
+
+/** The same, as one line of text, for a client that sets the verb and what it is on alike. */
+export function activityText(activity: ChatRows["activity"], say: Say = english): string | null {
+    const doing = activityDoing(activity, say);
+    return doing && [doing.verb, doing.what, doing.after].filter(Boolean).join(" ");
+}
+
+const ACTION_DOING: Record<ToolAction, string> = {
+    read: "Reading",
+    edit: "Editing",
+    delete: "Deleting",
+    move: "Moving",
+    search: "Searching",
+    execute: "Running a command",
+    think: "Thinking",
+    fetch: "Fetching",
+    switch_mode: "Switching mode",
+    mcp: "Working",
+    other: "Working",
+};
+
+/** What a running call is doing: its verb, and what it is on in its row's words. */
+function callDoing(row: ToolRow, say: Say): Doing {
+    const target = row.target;
+    const subject = row.subject ?? target;
+    if (!subject.trim()) return { verb: row.activity ?? say(ACTION_DOING[row.action]) };
+    const agent = (name: string) => (!name || name.startsWith("@") ? name : `@${name}`);
+    const { intent, family } = row;
+    switch (intent) {
+        case "run":
+        case "test":
+        case "build":
+        case "git":
+        case "commit":
+            if (family === "shell") return on(say("Running {what}"), target, true);
+            if (intent === "commit") return on(say("Committing {what}"), target);
+            break;
+        case "wait":
+            return family === "waiting" && row.subject !== undefined
+                ? on(say("Waiting for {what}"), agent(subject))
+                : on(say("Waiting {what}"), target);
+        case "message":
+            return on(say("Messaging {what}"), agent(subject));
+        case "start":
+            return family === "agents" ? on(say("Starting {what}"), agent(subject)) : on(say("Starting {what}"), subject);
+        case "read":
+            if (family === "files" || family === "shell") return on(say("Reading {what}"), subject);
+            break;
+        case "view":
+            return on(say("Reading {what}"), subject);
+        case "search":
+            return family === "web" ? on(say("Searching the web for {what}"), subject) : on(say("Searching for {what}"), subject, true);
+        case "list":
+            return on(say("Listing {what}"), subject);
+        case "edit":
+            return on(say("Editing {what}"), target);
+        case "write":
+            return on(say("Writing {what}"), target);
+        case "open":
+            return on(say("Opening {what}"), target);
+        case "click":
+            return on(say(family === "simulator" ? "Tapping {what}" : "Clicking {what}"), target);
+        case "type":
+            return on(say("Typing {what}"), target);
+        case "look":
+            return { verb: say("Taking a screenshot") };
+        case "fetch":
+            return on(say("Reading {what}"), target);
+    }
+    return { verb: row.activity ?? say(ACTION_DOING[row.action]) };
 }
 
 /** `commands` says whether the agent offers slash commands; a chat not started yet is taken to.
@@ -33,17 +130,35 @@ export function activityText(
     composer reads the same then as once it is ready. */
 export function composerPlaceholder(
     state: Pick<ChatRows, "connection" | "running">,
-    { resuming, disconnected, commands = true, steers = false }: { resuming: boolean; disconnected: boolean; commands?: boolean; steers?: boolean },
+    {
+        resuming,
+        disconnected,
+        commands = true,
+        steers = false,
+        to,
+    }: {
+        resuming: boolean;
+        disconnected: boolean;
+        commands?: boolean;
+        steers?: boolean;
+        /** Who an idle chat's words go to, as the Mac says it in a project with a chief; `commands` adds the slash hint. */
+        to?: { words: string; commands: boolean };
+    },
+    say: Say = english,
 ): string {
     return resuming
-        ? "Resuming — this message sends as soon as the session is back"
+        ? say("Resuming — this message sends as soon as the session is back")
         : disconnected
-          ? "Reconnect to continue this conversation"
+          ? say("Reconnect to continue this conversation")
           : state.running
             ? steers
-                ? "Send to steer this turn"
-                : "Send to queue behind the running turn"
-            : commands
-              ? "Ask about this project, or type / for commands"
-              : "Ask about this project";
+                ? say("Send to steer this turn")
+                : say("Send to queue behind the running turn")
+            : to
+              ? to.commands && commands
+                  ? say("{words}, or type / for commands", { words: to.words })
+                  : to.words
+              : commands
+                ? say("Ask about this project, or type / for commands")
+                : say("Ask about this project");
 }

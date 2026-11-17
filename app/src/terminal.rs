@@ -1,5 +1,8 @@
 //! A terminal pane: the screen the core sends, drawn by gpui-terminal-grid.
 
+use crate::workbench::Strip;
+use sikemux_calls::spare::NewTerminal;
+use sikemux_calls::spare::SshParams;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -12,45 +15,42 @@ use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, canvas, div, font, px, AnyElement, AnyView, App, AppContext, Bounds, ClickEvent,
-    ClipboardEntry, ClipboardItem, Context, CursorStyle, Entity, ExternalPaths, FocusHandle,
-    FontFallbacks, Hsla, Image, InputHandler, InteractiveElement, IntoElement, KeyBinding,
-    KeyDownEvent, Keystroke, Modifiers, MouseButton as Button, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Point, Render, Rgba, ScrollEvent, SharedString,
-    StyleRefinement, Styled, Subscription, Task, UTF16Selection, WeakEntity, Window,
+    actions, canvas, div, px, AnyElement, AnyView, App, AppContext, Bounds, ClickEvent,
+    ClipboardEntry, ClipboardItem, Context, CursorStyle, Entity, ExternalPaths, FocusHandle, Hsla,
+    Image, InputHandler, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, Keystroke,
+    Modifiers, MouseButton as Button, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
+    Pixels, Point, Render, Rgba, ScrollEvent, SharedString, StyleRefinement, Styled, Subscription,
+    Task, UTF16Selection, WeakEntity, Window,
 };
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
 };
-use sikemux_wire::grid::{
-    self as wire, Color, FindOptions, FindResult, GridPoint, Mods, MouseAction, MouseButton, Row,
-    Screen, TerminalInput,
-};
-use sikemux_wire::protocol::{
-    SessionId, SessionInfo, DEFAULT_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE,
-    MIN_TERMINAL_FONT_SIZE,
-};
+use sikemux_calls::attachments::KeepPastedParams;
+use sikemux_calls::call;
+use sikemux_calls::session::SessionParams;
+
+use sikemux_grid::{Color, Row, Screen};
+use sikemux_wire::protocol::{SessionId, SessionInfo};
 use sikemux_wire::pty::shell_protocol::{ShellBoundary, ShellMetadataSnapshot, ShellPhase};
+use sikemux_wire::terminal::{
+    FindOptions, FindResult, GridPoint, Mods, MouseAction, MouseButton, TerminalInput,
+};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::core::{Ask, Screenful, TerminalAsk};
+use crate::core::{Ask, Screenful, Target, TerminalAsk};
 use crate::hosts::Place;
 use crate::icons::Icon;
-use crate::keymap::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
+use crate::keyboard::TakesKeys;
 use crate::send_to::{self, Recipient};
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1H, SPACE_2};
 use crate::ui;
-use crate::workbench::{TakesKeys, Workbench};
+use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
+use crate::workbench::Workbench;
 
 const PAGE: u64 = 256;
 /// History lines kept around the ones in view.
 const HISTORY_KEPT: usize = 4_000;
 const LINE_HEIGHT: f32 = 1.32;
-/// Named by today's command id, so a shortcut the person set for it still finds it.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "terminal.new")]
-pub struct NewTerminal;
-
 /// The key context a terminal's keys are bound in.
 const CONTEXT: &str = "Terminal";
 
@@ -103,29 +103,6 @@ fn routed(places: &RefCell<Vec<Place>>, key: TermKey, ask: TerminalAsk) -> Ask {
     }
 }
 
-/// A call to the core of the host terminal `key` runs on, answered on `reply`.
-fn requested(
-    places: &RefCell<Vec<Place>>,
-    key: TermKey,
-    method: &'static str,
-    params: serde_json::Value,
-    reply: oneshot::Sender<Result<serde_json::Value, String>>,
-) -> Ask {
-    match places.borrow().get(usize::from(key.place)) {
-        Some(Place::Account(host)) => Ask::HostRequest {
-            host: host.clone(),
-            method,
-            params,
-            reply,
-        },
-        _ => Ask::Request {
-            method,
-            params,
-            reply,
-        },
-    }
-}
-
 /// Every terminal this window has attached, by host and session.
 #[derive(Default)]
 pub struct Terminals {
@@ -171,7 +148,6 @@ struct Terminal {
     anchor: Option<GridPoint>,
     /// The mouse moved since the button went down, so letting go opens no link.
     dragged: bool,
-    /// The link under the mouse.
     link: Option<Link>,
     /// What an input method is composing.
     marked: Option<String>,
@@ -408,7 +384,12 @@ impl Terminal {
 }
 
 impl Terminals {
-    /// How many terminals this window shows.
+    /// Where calls about the terminal `key` go: the core of the host it runs on.
+    fn target(&self, key: TermKey, asks: &mpsc::UnboundedSender<Ask>) -> Target {
+        let place = self.places.borrow().get(usize::from(key.place)).cloned();
+        Target::new(asks, place.unwrap_or_default())
+    }
+
     pub fn open_count(&self) -> usize {
         self.open.len()
     }
@@ -517,7 +498,6 @@ impl Terminals {
         }
     }
 
-    /// The key of `session` on `place`.
     pub fn key(&self, place: &Place, session: SessionId) -> TermKey {
         let mut places = self.places.borrow_mut();
         let at = places
@@ -533,13 +513,18 @@ impl Terminals {
         }
     }
 
-    /// The host the terminal `key` runs on.
     pub fn place(&self, key: TermKey) -> Place {
         self.places
             .borrow()
             .get(usize::from(key.place))
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// What takes the keys for `session`, once its terminal has been drawn.
+    pub fn focus_of(&self, place: &Place, session: SessionId) -> Option<FocusHandle> {
+        let key = self.key(place, session);
+        self.open.get(&key).map(|terminal| terminal.focus.clone())
     }
 
     /// Attaches again after the connection came back, from a blank screen.
@@ -621,7 +606,7 @@ fn draw(
         .p(SPACE_2)
         .on_pinch(
             window.listener_for(&this, |bench, event: &gpui::PinchEvent, _, _| {
-                crate::pinch::resize(bench, crate::pinch::Surface::Terminal, event)
+                crate::text_size::resize(bench, crate::text_size::Surface::Terminal, event)
             }),
         )
         .on_action(window.listener_for(&this, move |bench, _: &Copy, _, _| copy(bench, id)))
@@ -656,17 +641,17 @@ fn draw(
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeIncrease, _, _| {
-                resize_text(bench, Some(true))
+                crate::text_size::Surface::Terminal.step(bench, Some(true))
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeDecrease, _, _| {
-                resize_text(bench, Some(false))
+                crate::text_size::Surface::Terminal.step(bench, Some(false))
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeReset, _, _| {
-                resize_text(bench, None)
+                crate::text_size::Surface::Terminal.step(bench, None)
             }),
         )
         .on_action(
@@ -782,8 +767,8 @@ fn draw(
 /// The terminal's session as its host's view lists it.
 fn session_info(bench: &Workbench, id: TermKey) -> Option<&SessionInfo> {
     let view = match bench.terminals.place(id) {
-        Place::This => bench.view.as_ref()?,
-        Place::Account(host) => bench.hosts.views.get(&host)?,
+        Place::This => bench.this_view()?,
+        Place::Account(host) => bench.feeds.host(&host)?.view.as_ref()?,
     };
     view.sessions
         .iter()
@@ -801,13 +786,13 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
         )
     });
     let phase = match (shell.phase, shell.last_exit_code) {
-        (ShellPhase::Finished, Some(0)) => Some("done".to_owned()),
-        (ShellPhase::Finished, Some(code)) => Some(format!("exit {code}")),
+        (ShellPhase::Finished, Some(0)) => Some(t!("done").to_owned()),
+        (ShellPhase::Finished, Some(code)) => Some(t!("exit {code}", code = code)),
         (ShellPhase::Unknown, _) => None,
-        (ShellPhase::Prompt, _) => Some("prompt".to_owned()),
-        (ShellPhase::Input, _) => Some("input".to_owned()),
-        (ShellPhase::Running, _) => Some("running".to_owned()),
-        (ShellPhase::Finished, None) => Some("finished".to_owned()),
+        (ShellPhase::Prompt, _) => Some(t!("prompt").to_owned()),
+        (ShellPhase::Input, _) => Some(t!("input").to_owned()),
+        (ShellPhase::Running, _) => Some(t!("running").to_owned()),
+        (ShellPhase::Finished, None) => Some(t!("finished").to_owned()),
     };
     let dot = match shell.phase {
         ShellPhase::Running | ShellPhase::Input => t.live,
@@ -825,10 +810,10 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
         .px(SPACE_1H)
         .py(SPACE_0)
         .rounded_full()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .bg(t.surface)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(px(9.))
         .text_color(t.text_secondary)
         .opacity(0.58)
@@ -861,20 +846,18 @@ fn layout(
     cx: &mut Context<Workbench>,
 ) -> (Layout, FocusHandle) {
     let size = px(font_size(bench) as f32);
-    if bench
-        .terminals
-        .metrics
-        .as_ref()
-        .is_some_and(|metrics| metrics.font_size != size)
-    {
+    if bench.terminals.metrics.as_ref().is_some_and(|metrics| {
+        metrics.font_size != size
+            || metrics.scale != window.scale_factor()
+            || *metrics.family() != theme::mono_font()
+    }) {
         bench.terminals.metrics = None;
     }
     let metrics = bench
         .terminals
         .metrics
         .get_or_insert_with(|| {
-            let mut mono = font(theme::MONO);
-            mono.fallbacks = Some(FontFallbacks::from_fonts(vec![theme::MONO_ICONS.into()]));
+            let mono = theme::mono();
             Metrics::new(mono, size, LINE_HEIGHT, window)
         })
         .clone();
@@ -928,11 +911,14 @@ fn layout(
     let size = metrics.fit(bounds.size);
     if size != terminal.asked_size {
         terminal.asked_size = size;
-        let _ = asks.send(routed(
-            &bench.terminals.places,
-            id,
-            TerminalAsk::Resize(size.0, size.1),
-        ));
+        // A pane with no room yet, such as a desk starting to slide open, keeps its last size.
+        if size.0 >= sikemux_grid::MIN_TERMINAL_COLUMNS {
+            let _ = asks.send(routed(
+                &bench.terminals.places,
+                id,
+                TerminalAsk::Resize(size.0, size.1),
+            ));
+        }
     }
     let header = &terminal.screen.header;
     if header.frame != terminal.acked && header.rows > 0 {
@@ -1042,39 +1028,39 @@ impl View<'_> {
             )
     }
 
-    fn look(&self, style: &wire::Style) -> Look {
+    fn look(&self, style: &sikemux_grid::Style) -> Look {
         let flags = style.flags;
-        let default_bg = style.bg == Color::Named(wire::NAMED_BACKGROUND);
+        let default_bg = style.bg == Color::Named(sikemux_grid::NAMED_BACKGROUND);
         let (mut fg, mut bg) = (
             self.rgb(style.fg),
             (!default_bg).then(|| self.rgb(style.bg)),
         );
-        if flags & wire::STYLE_INVERSE != 0 {
+        if flags & sikemux_grid::STYLE_INVERSE != 0 {
             (fg, bg) = (bg.unwrap_or_else(|| self.rgb(style.bg)), Some(fg));
         }
-        if flags & wire::STYLE_DIM != 0 {
+        if flags & sikemux_grid::STYLE_DIM != 0 {
             fg.a *= 0.6;
         }
-        if flags & wire::STYLE_HIDDEN != 0 {
+        if flags & sikemux_grid::STYLE_HIDDEN != 0 {
             fg.a = 0.;
         }
         let underline = [
-            (wire::STYLE_UNDERLINE, Underline::Single),
-            (wire::STYLE_DOUBLE_UNDERLINE, Underline::Double),
-            (wire::STYLE_CURLY_UNDERLINE, Underline::Curly),
-            (wire::STYLE_DOTTED_UNDERLINE, Underline::Dotted),
-            (wire::STYLE_DASHED_UNDERLINE, Underline::Dashed),
+            (sikemux_grid::STYLE_UNDERLINE, Underline::Single),
+            (sikemux_grid::STYLE_DOUBLE_UNDERLINE, Underline::Double),
+            (sikemux_grid::STYLE_CURLY_UNDERLINE, Underline::Curly),
+            (sikemux_grid::STYLE_DOTTED_UNDERLINE, Underline::Dotted),
+            (sikemux_grid::STYLE_DASHED_UNDERLINE, Underline::Dashed),
         ]
         .into_iter()
         .find_map(|(flag, underline)| (flags & flag != 0).then_some(underline));
         Look {
             fg,
             bg,
-            bold: flags & wire::STYLE_BOLD != 0,
-            italic: flags & wire::STYLE_ITALIC != 0,
+            bold: flags & sikemux_grid::STYLE_BOLD != 0,
+            italic: flags & sikemux_grid::STYLE_ITALIC != 0,
             underline,
             underline_color: style.underline_color.map(|color| self.rgb(color)),
-            strike: flags & wire::STYLE_STRIKE != 0,
+            strike: flags & sikemux_grid::STYLE_STRIKE != 0,
         }
     }
 }
@@ -1110,17 +1096,17 @@ impl Grid for View<'_> {
             .filter(|row| *row < header.rows)?;
         if self.focused
             && self.in_front
-            && header.cursor.shape & wire::CURSOR_BLINKS != 0
+            && header.cursor.shape & sikemux_grid::CURSOR_BLINKS != 0
             && blinked_off(self.terminal.blink_from)
         {
             return None;
         }
-        let shape = match header.cursor.shape & !wire::CURSOR_BLINKS {
-            wire::CURSOR_HIDDEN => return None,
+        let shape = match header.cursor.shape & !sikemux_grid::CURSOR_BLINKS {
+            sikemux_grid::CURSOR_HIDDEN => return None,
             _ if !self.focused => CursorShape::Hollow,
-            wire::CURSOR_UNDERLINE => CursorShape::Underline,
-            wire::CURSOR_BEAM => CursorShape::Beam,
-            wire::CURSOR_HOLLOW => CursorShape::Hollow,
+            sikemux_grid::CURSOR_UNDERLINE => CursorShape::Underline,
+            sikemux_grid::CURSOR_BEAM => CursorShape::Beam,
+            sikemux_grid::CURSOR_HOLLOW => CursorShape::Hollow,
             _ => CursorShape::Block,
         };
         let color = self.rgb(Color::Named(258));
@@ -1140,7 +1126,7 @@ impl Grid for View<'_> {
                 .checked_sub(self.top)
                 .and_then(|row| u16::try_from(row).ok())
             {
-                let color = self.rgb(Color::Named(wire::NAMED_FOREGROUND));
+                let color = self.rgb(Color::Named(sikemux_grid::NAMED_FOREGROUND));
                 each(Highlight {
                     row,
                     columns: link.columns.clone(),
@@ -1175,13 +1161,12 @@ impl Grid for View<'_> {
             row,
             column: header.cursor.col,
             text,
-            fg: self.rgb(Color::Named(wire::NAMED_FOREGROUND)),
-            bg: self.rgb(Color::Named(wire::NAMED_BACKGROUND)),
+            fg: self.rgb(Color::Named(sikemux_grid::NAMED_FOREGROUND)),
+            bg: self.rgb(Color::Named(sikemux_grid::NAMED_BACKGROUND)),
         })
     }
 }
 
-/// The terminal holding the keyboard, if one does.
 pub fn focused(bench: &Workbench) -> Option<TermKey> {
     bench.terminals.focused
 }
@@ -1225,7 +1210,7 @@ pub fn type_text(bench: &mut Workbench, id: TermKey, text: String, cx: &mut App)
         .chars()
         .filter(|char| matches!(char, '\n' | '\t') || !char.is_control())
         .collect();
-    let input = if terminal.screen.header.modes & wire::MODE_BRACKETED_PASTE != 0 {
+    let input = if terminal.screen.header.modes & sikemux_grid::MODE_BRACKETED_PASTE != 0 {
         TerminalInput::Paste { text }
     } else {
         TerminalInput::Text {
@@ -1462,7 +1447,9 @@ fn point_at(terminal: &Terminal, metrics: &Metrics, position: Point<Pixels>) -> 
 }
 
 fn reports_mouse(terminal: &Terminal, modifiers: &Modifiers) -> bool {
-    terminal.screen.header.modes & wire::MODE_MOUSE_ANY != 0 && !modifiers.shift && !modifiers.alt
+    terminal.screen.header.modes & sikemux_grid::MODE_MOUSE_ANY != 0
+        && !modifiers.shift
+        && !modifiers.alt
 }
 
 fn mouse_down(
@@ -1515,7 +1502,9 @@ fn mouse_move(bench: &mut Workbench, id: TermKey, event: &MouseMoveEvent) -> boo
     let modes = terminal.screen.header.modes;
     if reports_mouse(terminal, &event.modifiers) {
         let pressed = event.pressed_button == Some(Button::Left);
-        if modes & wire::MODE_MOUSE_MOTION != 0 || (pressed && modes & wire::MODE_MOUSE_DRAG != 0) {
+        if modes & sikemux_grid::MODE_MOUSE_MOTION != 0
+            || (pressed && modes & sikemux_grid::MODE_MOUSE_DRAG != 0)
+        {
             let button = if pressed {
                 MouseButton::Left
             } else {
@@ -1607,7 +1596,8 @@ fn wheel(bench: &mut Workbench, id: TermKey, event: &ScrollEvent) -> bool {
         return false;
     }
     let modes = terminal.screen.header.modes;
-    let alternate = modes & wire::MODE_ALT_SCREEN != 0 && modes & wire::MODE_ALTERNATE_SCROLL != 0;
+    let alternate = modes & sikemux_grid::MODE_ALT_SCREEN != 0
+        && modes & sikemux_grid::MODE_ALTERNATE_SCROLL != 0;
     if reports_mouse(terminal, &event.modifiers) || alternate {
         let (point, row) = point_at(terminal, &metrics, event.position);
         let input = TerminalInput::Wheel {
@@ -1666,7 +1656,8 @@ fn open_find(bench: &mut Workbench, id: TermKey, window: &mut Window, cx: &mut C
     let input = match &terminal.find {
         Some(find) => find.input.clone(),
         None => {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in terminal"));
+            let input =
+                cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find in terminal")));
             let typing = cx.subscribe(&input, move |bench, _, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     find_in(bench, id, Step::Typed, cx);
@@ -1749,7 +1740,7 @@ fn page(bench: &mut Workbench, id: TermKey, up: bool) {
         return;
     };
     let header = &terminal.screen.header;
-    if header.modes & wire::MODE_ALT_SCREEN != 0 {
+    if header.modes & sikemux_grid::MODE_ALT_SCREEN != 0 {
         let key = if up { "PageUp" } else { "PageDown" };
         let mods = Mods {
             shift: true,
@@ -1772,20 +1763,6 @@ fn page(bench: &mut Workbench, id: TermKey, up: bool) {
 /// The terminals' font size the person chose.
 fn font_size(bench: &Workbench) -> u32 {
     bench.preferences().terminal_font_size
-}
-
-/// Makes the terminals' text bigger or smaller a step, or back to the default size without
-/// either.
-pub(crate) fn resize_text(bench: &Workbench, grow: Option<bool>) {
-    let size = grow.map_or(DEFAULT_TERMINAL_FONT_SIZE, |grow| {
-        font_size(bench)
-            .saturating_add_signed(if grow { 1 } else { -1 })
-            .clamp(MIN_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE)
-    });
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: serde_json::json!({ "key": "terminalFontSize", "value": size }),
-    });
 }
 
 fn paste(bench: &mut Workbench, id: TermKey, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -1814,35 +1791,34 @@ fn paste_picture(id: TermKey, image: Image, window: &mut Window, cx: &mut Contex
     cx.spawn_in(window, async move |this, cx| {
         use base64::Engine;
         let image = readable.await;
-        let params = serde_json::json!({
-            "name": format!("{stamp}.{}", image.format.extension()),
-            "mime": image.format.mime_type(),
-            "data": base64::engine::general_purpose::STANDARD.encode(&image.bytes),
-        });
-        let (reply, answer) = oneshot::channel();
-        this.update(cx, |bench, _| {
-            let ask = requested(&bench.terminals.places, id, "keepPasted", params, reply);
-            let _ = bench.asks.send(ask);
-        })
-        .ok();
-        let kept = match answer.await {
-            Ok(Ok(kept)) => kept,
-            Ok(Err(error)) => {
-                let note = format!("The pasted picture was not kept: {error}");
+        let params = KeepPastedParams {
+            name: format!("{stamp}.{}", image.format.extension()),
+            mime: image.format.mime_type().to_owned(),
+            data: base64::engine::general_purpose::STANDARD.encode(&image.bytes),
+        };
+        let Ok(asked) = this.update(cx, |bench, _| {
+            bench
+                .terminals
+                .target(id, &bench.asks)
+                .request_typed::<call::KeepPasted>(params)
+        }) else {
+            return;
+        };
+        let kept = match asked.await {
+            Ok(kept) => kept,
+            Err(error) => {
+                let note = t!("The pasted picture was not kept: {error}", error = error);
                 cx.update(|window, cx| window.push_notification(note, cx))
                     .ok();
                 return;
             }
-            Err(_) => return,
         };
-        if let Some(path) = kept["path"].as_str() {
-            let paths = vec![path.to_owned()];
-            this.update(cx, |bench, cx| {
-                send(bench, id, TerminalInput::Paths { paths });
-                bench.terminals.redraw(id, cx);
-            })
-            .ok();
-        }
+        let paths = vec![kept.path.to_string_lossy().into_owned()];
+        this.update(cx, |bench, cx| {
+            send(bench, id, TerminalInput::Paths { paths });
+            bench.terminals.redraw(id, cx);
+        })
+        .ok();
     })
     .detach();
 }
@@ -1978,18 +1954,18 @@ fn terminal_menu(
         let mut popup = popup
             .when_some(focus, PopupMenu::action_context)
             .item(
-                PopupMenuItem::new("Copy")
+                PopupMenuItem::new(t!("Copy"))
                     .icon(Icon::Copy)
                     .action(Box::new(Copy))
                     .disabled(!selected),
             )
             .item(
-                PopupMenuItem::new("Paste")
+                PopupMenuItem::new(t!("Paste"))
                     .icon(Icon::Text)
                     .action(Box::new(Paste)),
             )
             .item(
-                PopupMenuItem::new("Select All")
+                PopupMenuItem::new(t!("Select All"))
                     .icon(Icon::Text)
                     .action(Box::new(SelectAll)),
             );
@@ -2002,7 +1978,7 @@ fn terminal_menu(
             };
             popup = send_to::submenu(
                 popup,
-                "Send Selection to Agent…",
+                t!("Send Selection to Agent…"),
                 bench.clone(),
                 chosen,
                 window,
@@ -2012,18 +1988,18 @@ fn terminal_menu(
         popup
             .separator()
             .item(
-                PopupMenuItem::new("Find")
+                PopupMenuItem::new(t!("Find"))
                     .icon(Icon::Search)
                     .action(Box::new(OpenFind)),
             )
             .item(
-                PopupMenuItem::new("Copy Scrollback")
+                PopupMenuItem::new(t!("Copy Scrollback"))
                     .icon(Icon::Copy)
                     .on_click(ask(|| TerminalAsk::Copy(None))),
             )
             .separator()
             .item(
-                PopupMenuItem::new("Clear Terminal")
+                PopupMenuItem::new(t!("Clear Terminal"))
                     .icon(Icon::Discard)
                     .on_click(ask(|| TerminalAsk::Clear)),
             )
@@ -2055,7 +2031,7 @@ fn focus_changed(bench: &mut Workbench, id: TermKey, focused: bool, cx: &mut Con
         return;
     };
     terminal.blink_from = Instant::now();
-    if terminal.screen.header.modes & wire::MODE_FOCUS_REPORTS != 0 {
+    if terminal.screen.header.modes & sikemux_grid::MODE_FOCUS_REPORTS != 0 {
         let _ = bench.asks.send(routed(
             &bench.terminals.places,
             id,
@@ -2066,10 +2042,8 @@ fn focus_changed(bench: &mut Workbench, id: TermKey, focused: bool, cx: &mut Con
         .session(&id.session.to_string())
         .is_some_and(|session| session.ssh_alias.is_some());
     if focused && ssh {
-        let _ = bench.asks.send(Ask::Call {
-            method: "reconnectSsh",
-            params: serde_json::json!({ "id": id.session }),
-        });
+        (bench.terminals.target(id, &bench.asks))
+            .call_typed::<call::ReconnectSsh>(SessionParams { id: id.session });
     }
     if focused {
         bench.terminals.focused = Some(id);
@@ -2095,9 +2069,12 @@ pub fn keep_blinking(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             .unwrap_or(false);
         let Ok(wait) = this.update(cx, |bench, cx| {
             let focused = bench.terminals.focused;
-            let blinking = focused
-                .and_then(|id| bench.terminals.open.get(&id))
-                .filter(|terminal| terminal.screen.header.cursor.shape & wire::CURSOR_BLINKS != 0);
+            let blinking =
+                focused
+                    .and_then(|id| bench.terminals.open.get(&id))
+                    .filter(|terminal| {
+                        terminal.screen.header.cursor.shape & sikemux_grid::CURSOR_BLINKS != 0
+                    });
             let wait = blinking
                 .filter(|_| in_front)
                 .map(|terminal| BLINK - phase(terminal) + BLINK_MARGIN);
@@ -2116,4 +2093,73 @@ pub fn keep_blinking(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             None => return,
         }
     }));
+}
+
+impl Workbench {
+    /// Opens a terminal in the project in front, or among the terminals of no project while
+    /// those are in front.
+    pub fn new_terminal(&self, cx: &mut App) {
+        match (self.strip(), self.project()) {
+            (Some(Strip::Terminals), _) => self.new_loose_terminal(cx),
+            (Some(Strip::Host(alias)), _) => self.open_ssh_terminal(&alias, cx),
+            (_, Some(project)) => {
+                self.take_keys_when_shown(TakesKeys::Terminal, cx);
+                self.target().call_typed::<call::NewTerminal>(NewTerminal {
+                    project: project.id.clone(),
+                    terminals: false,
+                })
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens a terminal among those of no project running `sikemux triage`, which hands
+    /// Sikemux's logs to the person's own agent.
+    pub fn triage(&self, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Terminal, cx);
+        let opened = self
+            .target()
+            .request_typed::<call::NewTerminal>(NewTerminal::loose());
+        let asks = self.asks.clone();
+        cx.spawn(async move |_| {
+            let Ok(Ok(session)) = opened.await.map(|id| id.parse::<SessionId>()) else {
+                return;
+            };
+            let text = "sikemux triage\r".to_owned();
+            let input = TerminalAsk::Input(TerminalInput::Text { text });
+            let _ = asks.send(Ask::Terminal(session, input));
+        })
+        .detach();
+    }
+
+    pub fn new_loose_terminal(&self, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Terminal, cx);
+        self.target()
+            .call_typed::<call::NewTerminal>(NewTerminal::loose());
+    }
+
+    /// SSH hosts are this host's, read from its own ~/.ssh/config, whichever host is chosen.
+    pub fn open_ssh_terminal(&self, alias: &str, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Terminal, cx);
+        crate::core::Target::here(&self.asks).call_typed::<call::OpenSshTerminal>(SshParams {
+            host: alias.to_owned(),
+        });
+    }
+
+    pub fn session(&self, id: &str) -> Option<&SessionInfo> {
+        self.this_view()?
+            .sessions
+            .iter()
+            .find(|session| session.id.to_string() == id)
+    }
+
+    /// Terminals started outside every project, which the core numbers.
+    pub fn loose_terminals(&self) -> Vec<&SessionInfo> {
+        self.shown().map_or(Vec::new(), |view| {
+            view.sessions
+                .iter()
+                .filter(|session| session.rail_name.is_some() && session.exit.is_none())
+                .collect()
+        })
+    }
 }

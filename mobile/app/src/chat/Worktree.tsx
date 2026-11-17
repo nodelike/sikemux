@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
@@ -15,6 +16,7 @@ export function worktreeOf(value: unknown): { branch: string; path: string } | u
 export function WorktreeSwitch({ on, disabled, onFlip }: { on: boolean; disabled: boolean; onFlip: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <Pressable
       onPress={() => {
@@ -25,11 +27,11 @@ export function WorktreeSwitch({ on, disabled, onFlip }: { on: boolean; disabled
       hitSlop={6}
       style={({ pressed }) => [styles.switch, pressed && { backgroundColor: colors.active }, disabled && { opacity: 0.55 }]}
       accessibilityRole="switch"
-      accessibilityLabel="Worktree"
-      accessibilityHint="Starts this chat in a new git worktree on its own branch"
+      accessibilityLabel={t('Worktree')}
+      accessibilityHint={t('Starts this chat in a new git worktree on its own branch')}
       accessibilityState={{ checked: on, disabled }}>
       <Icon name="IconGit" size={12} color={on ? colors.accent : colors.tertiary} />
-      <Text style={[styles.switchText, on && { color: colors.ink }]}>worktree</Text>
+      <Text style={[styles.switchText, on && { color: colors.ink }]}>{t('worktree')}</Text>
     </Pressable>
   );
 }
@@ -38,14 +40,18 @@ export function WorktreeSwitch({ on, disabled, onFlip }: { on: boolean; disabled
 export function WorktreeNote({ branch, path }: { branch: string; path: string }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
+  const [before, after = ''] = t('Working in a worktree on {branch}').split('{branch}');
   return (
-    <View style={styles.note} accessible accessibilityLabel={`Working in a worktree on ${branch}, at ${path}`}>
+    <View style={styles.note} accessible accessibilityLabel={t('Working in a worktree on {branch}, at {path}', { branch, path })}>
       <View style={styles.tile}>
         <Icon name="IconGit" size={14} color={colors.accent} />
       </View>
       <View style={styles.lines}>
         <Text style={styles.line} numberOfLines={1}>
-          Working in a worktree on <Text style={styles.branch}>{branch}</Text>
+          {before}
+          <Text style={styles.branch}>{branch}</Text>
+          {after}
         </Text>
         <Text style={styles.path} numberOfLines={1} ellipsizeMode="head">
           {path}

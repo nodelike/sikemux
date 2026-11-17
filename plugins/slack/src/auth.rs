@@ -3,16 +3,32 @@
 
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sikemux_plugin_api::store::{self, Accounts};
-use sikemux_plugin_api::SignInStatus;
-use sikemux_plugin_slack_views::{Listed, Signed};
+use sikemux_plugin_api::{signin, SignInStatus, SignedInAs};
 
 use crate::client::{self, Session};
 use crate::config::{self, SlackConfig, Workspace};
 use crate::error::{SlackError, SlackResult};
+
+/// The workspaces signed in, as the plugin's `status` says.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+pub struct Signed {
+    pub workspaces: Vec<Listed>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Listed {
+    pub id: String,
+    pub name: String,
+    pub domain: String,
+    pub user: String,
+    pub user_id: String,
+    pub is_default: bool,
+}
 
 /// Who a token belongs to, as `auth.test` says.
 pub fn workspace_of(answer: &Value) -> SlackResult<Workspace> {
@@ -35,6 +51,16 @@ pub fn workspace_of(answer: &Value) -> SlackResult<Workspace> {
 }
 
 pub type Status = SignInStatus<Signed>;
+
+impl SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        signin::people_in(
+            self.workspaces
+                .iter()
+                .map(|workspace| (workspace.user.as_str(), workspace.name.as_str())),
+        )
+    }
+}
 
 /// Every workspace signed in, and whether the default one's token still works.
 pub async fn status(data_dir: &Path) -> Status {
@@ -71,7 +97,6 @@ pub fn token_kind_ok(token: &str) -> bool {
     token.starts_with("xoxp-") || token.starts_with("xoxb-") || token.starts_with("xoxe.xoxp-")
 }
 
-/// Adds the workspace the token belongs to, and says which one it is.
 pub async fn sign_in(data_dir: &Path, input: TokenSignIn) -> SlackResult<String> {
     let token = input.token.trim().to_string();
     if token.is_empty() {
@@ -100,38 +125,15 @@ pub struct WorkspaceRef {
     pub workspace: Option<String>,
 }
 
-/// Signs out the workspace named, or the default one.
 pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> SlackResult<()> {
-    let removed = store::update(data_dir, move |config: &mut SlackConfig| {
-        let Some(id) = config
-            .account(input.workspace.as_deref())
-            .map(|workspace| workspace.id.clone())
-        else {
-            return Ok(None);
-        };
-        let removed = config.remove(&id);
-        if let Some(workspace) = &removed {
-            config::KEYCHAIN.delete(&workspace.id)?;
-        }
-        Ok(removed)
+    let removed = store::sign_out::<SlackConfig, _, _>(data_dir, input.workspace, |workspace| {
+        Ok(config::KEYCHAIN.delete(&workspace.id)?)
     })
     .await?;
-    if let Some(workspace) = removed {
+    if let Some((workspace, ())) = removed {
         client::forget(&workspace.id);
     }
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> SlackResult<()> {
-    store::update(data_dir, move |config: &mut SlackConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 #[cfg(test)]

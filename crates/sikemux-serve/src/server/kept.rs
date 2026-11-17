@@ -1,0 +1,256 @@
+//! A small record the core keeps in one file of the data folder, written
+//! whole each time it changes, so it outlives a crash and a restart.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::time::Duration;
+
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use sikemux_process::sync::Locked;
+
+/// How long [`Kept::save_soon`] waits for more changes before writing.
+const SETTLE: Duration = Duration::from_millis(250);
+/// How many times a write that failed is tried again, a settle apart.
+const RETRIES: usize = 5;
+
+pub struct Kept {
+    path: Option<PathBuf>,
+    queue: Arc<Queue>,
+}
+
+#[derive(Default)]
+struct Queue {
+    state: Mutex<Pending>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct Pending {
+    /// What was last handed to be saved.
+    last: Vec<u8>,
+    next: Option<Vec<u8>>,
+    writing: bool,
+    hurry: bool,
+    /// Why the latest change handed to be saved did not reach the disk.
+    unsaved: Option<String>,
+}
+
+impl Kept {
+    /// Without a data folder nothing is kept.
+    pub fn new(data_dir: Option<&Path>, file: &str) -> Self {
+        Self {
+            path: data_dir.map(|dir| dir.join(file)),
+            queue: Arc::default(),
+        }
+    }
+
+    /// What the file holds, or the default when there is none yet. A file
+    /// that cannot be read is moved aside first, so the next save does not
+    /// overwrite what it held.
+    pub fn load<T: DeserializeOwned + Default>(&self) -> T {
+        let Some(path) = &self.path else {
+            return T::default();
+        };
+        let read = match std::fs::read(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return T::default(),
+            read => read.map_err(|error| error.to_string()),
+        };
+        read.and_then(|bytes| serde_json::from_slice(&bytes).map_err(|error| error.to_string()))
+            .unwrap_or_else(|error| {
+                self.set_aside(&error);
+                T::default()
+            })
+    }
+
+    /// Moves a file that cannot be used to `<file>.unreadable-<when>`.
+    pub fn set_aside(&self, why: &str) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let mut aside = path.clone().into_os_string();
+        aside.push(format!(
+            ".unreadable-{}",
+            sikemux_process::clock::epoch_ms()
+        ));
+        let moved = std::fs::rename(path, &aside);
+        eprintln!(
+            "sikemux core: {} could not be read ({why}); {}",
+            path.display(),
+            match moved {
+                Ok(()) => format!("it was kept as {}", Path::new(&aside).display()),
+                Err(error) => format!("it could not be moved aside either: {error}"),
+            }
+        );
+    }
+
+    /// Copies the file as it is to `<file>.<suffix>`, unless that copy is already there.
+    pub fn copy_once(&self, suffix: &str) -> std::io::Result<()> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let mut copy = path.clone().into_os_string();
+        copy.push(format!(".{suffix}"));
+        if Path::new(&copy).exists() {
+            return Ok(());
+        }
+        std::fs::copy(path, &copy).map(|_| ())
+    }
+
+    pub fn save<T: Serialize>(&self, value: &T) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        match serde_json::to_vec(value) {
+            Ok(bytes) => {
+                let _ = write(path, &bytes);
+            }
+            Err(error) => eprintln!("sikemux core: {} was not saved: {error}", path.display()),
+        }
+    }
+
+    /// Saves on a thread of its own, so whoever changed the value never waits
+    /// on the disk. Changes made while one is being written are saved together
+    /// after it, only the latest of them. Answers false when `value` is what
+    /// was last saved, which is then not written again.
+    pub fn save_soon<T: Serialize>(&self, value: &T) -> bool {
+        let Some(path) = &self.path else {
+            return true;
+        };
+        let bytes = match serde_json::to_vec(value) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                eprintln!("sikemux core: {} was not saved: {error}", path.display());
+                return true;
+            }
+        };
+        let mut pending = self.queue.state.locked();
+        if pending.last == bytes {
+            return false;
+        }
+        pending.last.clone_from(&bytes);
+        pending.next = Some(bytes);
+        if pending.writing {
+            return true;
+        }
+        pending.writing = true;
+        drop(pending);
+        let (target, queue) = (path.clone(), self.queue.clone());
+        let spawned = std::thread::Builder::new()
+            .name("sikemux-save".into())
+            .spawn(move || queue.write_all(&target));
+        if spawned.is_err() {
+            self.queue.write_all(path);
+        }
+        true
+    }
+
+    /// Waits until every [`Kept::save_soon`] so far is on disk.
+    pub fn flush(&self) {
+        let mut pending = self.queue.state.locked();
+        if !pending.writing {
+            return;
+        }
+        pending.hurry = true;
+        self.queue.changed.notify_all();
+        drop(
+            self.queue
+                .changed
+                .wait_while(pending, |pending| pending.writing)
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+    }
+
+    /// Why the latest change handed to [`Kept::save_soon`] is not on disk,
+    /// once its writes, tries again included, are over.
+    pub fn unsaved(&self) -> Option<String> {
+        self.queue.state.locked().unsaved.clone()
+    }
+}
+
+impl Queue {
+    fn write_all(&self, path: &Path) {
+        let mut pending = self.state.locked();
+        let mut failed = 0;
+        loop {
+            if !pending.hurry {
+                pending = self
+                    .changed
+                    .wait_timeout_while(pending, SETTLE, |pending| !pending.hurry)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
+            }
+            let Some(bytes) = pending.next.take() else {
+                break;
+            };
+            drop(pending);
+            let written = write(path, &bytes);
+            if written.is_err() && failed < RETRIES {
+                std::thread::sleep(SETTLE);
+            }
+            pending = self.state.locked();
+            match written {
+                Ok(()) => {
+                    failed = 0;
+                    pending.unsaved = None;
+                }
+                Err(_) if pending.next.is_none() && failed < RETRIES => {
+                    failed += 1;
+                    pending.next = Some(bytes);
+                }
+                Err(error) => {
+                    pending.last.clear();
+                    pending.unsaved = Some(error);
+                }
+            }
+        }
+        pending.writing = false;
+        pending.hurry = false;
+        self.changed.notify_all();
+    }
+}
+
+/// The file a record keyed by `key`, such as a project's path, is kept in
+/// among others of its kind in one folder.
+pub fn file_for(key: &str) -> String {
+    let digest = hex::encode(Sha256::digest(key.as_bytes()));
+    format!("{}.json", digest.get(..16).unwrap_or(&digest))
+}
+
+/// Every record kept in `folder`, one file each; a file that cannot be read
+/// is moved aside.
+pub fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
+    load_all_upgraded(folder, |value| value)
+}
+
+/// Every record kept in `folder`, each carried over by `upgrade` from how an
+/// earlier core wrote it before it is read; a file that cannot be read is
+/// moved aside.
+pub fn load_all_upgraded<T: DeserializeOwned>(
+    folder: Option<&Path>,
+    upgrade: impl Fn(serde_json::Value) -> serde_json::Value,
+) -> Vec<T> {
+    let Some(entries) = folder.and_then(|dir| std::fs::read_dir(dir).ok()) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .filter_map(|entry| {
+            let kept = Kept::new(folder, &entry.file_name().to_string_lossy());
+            let value = kept.load::<Option<serde_json::Value>>()?;
+            serde_json::from_value::<T>(upgrade(value))
+                .map_err(|error| kept.set_aside(&error.to_string()))
+                .ok()
+        })
+        .collect()
+}
+
+fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    sikemux_process::files::write_atomic(path, bytes, true).map_err(|error| {
+        let error = format!("{} was not saved: {error}", path.display());
+        eprintln!("sikemux core: {error}");
+        error
+    })
+}

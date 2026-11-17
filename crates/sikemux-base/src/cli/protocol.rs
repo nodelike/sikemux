@@ -21,6 +21,8 @@ pub const MAX_CLI_TARGETS: usize = 64;
 pub const PAGE_REPLY_TIMEOUT: Duration = Duration::from_secs(65);
 pub const CORE_REPLY_TIMEOUT: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() + 1);
 pub const TOOLS_REPLY_TIMEOUT: Duration = Duration::from_secs(CORE_REPLY_TIMEOUT.as_secs() + 4);
+/// What a call's answer says when the core was replaced, such as by an update, while answering it.
+pub const CUT_BY_UPDATE: &str = "Sikemux started updating its background process while answering this call, so it may already have happened; check before trying it again";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -140,6 +142,67 @@ pub enum CliClientCommand {
         token: String,
         request: CliOpenRequest,
     },
+    /// Waits for a turn to build. The turn lasts until the connection closes.
+    Build {
+        protocol: u16,
+        token: String,
+        request: BuildRequest,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildRequest {
+    pub agent_id: Option<String>,
+    /// The command, as the person would read it, such as `cargo check -p core`.
+    pub command: String,
+    /// The process asking, which the person can stop.
+    #[serde(default)]
+    pub pid: Option<u32>,
+    /// Where it runs, which tells its project.
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// The heavy command it matched, such as `cargo test`, which the core measures it by.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// A check before a commit, which goes ahead of other waiting runs.
+    #[serde(default)]
+    pub before_commit: bool,
+    /// Runs at once while it is measured, unless it was seen to take a lot of memory before.
+    #[serde(default)]
+    pub watched: bool,
+    /// It runs for an agent outside any task, so it may be told to come back when its turn
+    /// comes rather than wait where it is, when the agent typed it itself.
+    #[serde(default)]
+    pub may_come_back: bool,
+    /// The process that started it, past the shell that ran it if one did, and when that
+    /// process started: the agent's own program when the agent typed the command itself.
+    #[serde(default)]
+    pub started_by: Option<(u32, u64)>,
+    /// Its output is not a terminal, so it can be copied for another caller of the same command.
+    #[serde(default)]
+    pub copies_output: bool,
+    /// When it first asked, in Unix milliseconds, which keeps its place when it asks again
+    /// after the core restarted.
+    #[serde(default)]
+    pub asked_at: Option<u64>,
+    /// The `process_start` run it belongs to.
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    /// The things only so many use at once that it holds while it runs, by the names its
+    /// project's `sikemux.json` gives them.
+    #[serde(default)]
+    pub needs: Vec<String>,
+}
+
+/// What a heavy command tells the core once it has its turn.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BuildNote {
+    /// What it built now runs, which needs no turn: a test binary, say.
+    Released,
+    /// It ended with this exit code.
+    Exited { code: i32 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -174,12 +237,39 @@ pub enum CliServerResponse {
         request_id: String,
         reason: CliCloseReason,
     },
+    /// The heavy command waits behind `ahead` others while `building` run, for the reason
+    /// `why` gives, such as "free memory would not hold it".
+    Queued {
+        ahead: usize,
+        building: usize,
+        why: String,
+    },
+    /// The heavy command may run now, copying its output to `log` when one is given.
+    Building {
+        #[serde(default)]
+        log: Option<String>,
+    },
+    /// It does not run now: `said` tells the agent when it will be woken to run it again.
+    Parked {
+        said: String,
+    },
+    /// The same command already runs for another caller: its output is at `log`.
+    Joined {
+        log: String,
+    },
+    /// The run a joined caller follows ended, with its exit code when it said one.
+    Ended {
+        code: Option<i32>,
+    },
+    /// The core stopped the command, for the reason `why` gives.
+    Stopped {
+        why: String,
+    },
     Error {
         message: String,
     },
 }
 
-/// What the window opened of a CLI `open`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CliOpenOutcome {
@@ -202,18 +292,46 @@ pub const PLUGINS_CHANGED_METHOD: &str = "plugins.changed";
 pub const TOOLS_MANIFEST_METHOD: &str = "tools.manifest";
 /// What the git shim asks for to end an agent's commit, not a tool.
 pub const COMMIT_FOOTER_METHOD: &str = "git.footer";
+/// What an agent's own commit tells the core once git has made it, not a tool.
+pub const COMMIT_MADE_METHOD: &str = "git.made";
 /// What the git shim asks before a command that could take in or throw away
 /// other agents' work, not a tool.
 pub const GIT_GUARD_METHOD: &str = "git.guard";
+/// What the shim and the hook ask before an action that leaves this machine,
+/// such as a push or a deploy, not a tool.
+pub const SHIP_CHECK_METHOD: &str = "ship.check";
+/// What git and gh, on a remote with an identity of the agents' own, ask for a credential that
+/// lasts one command, not a tool.
+pub const GIT_CREDENTIAL_METHOD: &str = "git.credential";
+/// What a push to a remote with an identity of the agents' own asks the core: for a place to
+/// push to, to forward what was pushed there, and to take that place away. Not a tool.
+pub const GIT_OUTBOX_METHOD: &str = "git.outbox";
+/// What `gh pr merge` on a remote with an identity of the agents' own hands the core, which
+/// merges as that identity. Not a tool.
+pub const GH_MERGE_METHOD: &str = "gh.merge";
+/// What an agent's `gh run list`, `view` or `watch` hands the core, which answers from the CI it
+/// holds for everyone. Not a tool.
+pub const GH_RUN_METHOD: &str = "gh.run";
+/// How a deploy the core let go ended, from the shim that ran it.
+pub const SHIP_RAN_METHOD: &str = "ship.ran";
+/// `sikemux chat` outside every agent asks the person to let it in, and waits for the answer.
+pub const OUTSIDE_SIGN_IN_METHOD: &str = "outside.signIn";
+pub const OUTSIDE_SIGN_IN_WAIT_METHOD: &str = "outside.signInWait";
+/// `sikemux chat` outside every agent calls a chat tool with the token it was let in with.
+pub const OUTSIDE_CALL_METHOD: &str = "outside.call";
+
+/// What the core asks the window for: a page taken at a width off screen, not a tool.
+pub const BROWSER_PICTURE_METHOD: &str = "browser.picture";
 
 pub fn is_browser_method(method: &str) -> bool {
-    BROWSER_METHODS.contains(&method)
+    BROWSER_METHODS.contains(&method) || method == BROWSER_PICTURE_METHOD
 }
 
-/// Set on a reviewer Auto starts, and on its tools server, to `reviewer`, which
-/// offers it the tools only a reviewer gets.
-pub const TOOLS_OFFER_ENV: &str = "SIKEMUX_TOOLS_OFFER";
-pub const REVIEWER_OFFER: &str = "reviewer";
+/// A tool listed for an agent only once it has read the guide's setup topic.
+pub const SETUP_OFFER: &str = "setup";
+/// What a tool is offered for that acts on things only one agent uses at a time, such as `hold`:
+/// only agents whose project's `sikemux.json` names some.
+pub const RESOURCES_OFFER: &str = "resources";
 
 /// The tools server asks this as it starts: whether its agent gets the simulator tools.
 pub const SIM_OFFERED_METHOD: &str = "sim.offered";
@@ -251,6 +369,9 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
     {
         return Err("invalid agent ID".into());
     }
+    if request.method == BROWSER_PICTURE_METHOD {
+        return Err("browser.picture is the core's own, not a tool".into());
+    }
     if !HARNESS_METHODS.contains(&request.method.as_str())
         && !is_browser_method(&request.method)
         && !is_sim_method(&request.method)
@@ -258,7 +379,17 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
         && request.method != PLUGINS_CHANGED_METHOD
         && request.method != TOOLS_MANIFEST_METHOD
         && request.method != COMMIT_FOOTER_METHOD
+        && request.method != COMMIT_MADE_METHOD
         && request.method != GIT_GUARD_METHOD
+        && request.method != GIT_CREDENTIAL_METHOD
+        && request.method != GIT_OUTBOX_METHOD
+        && request.method != GH_MERGE_METHOD
+        && request.method != GH_RUN_METHOD
+        && request.method != SHIP_CHECK_METHOD
+        && request.method != SHIP_RAN_METHOD
+        && request.method != OUTSIDE_SIGN_IN_METHOD
+        && request.method != OUTSIDE_SIGN_IN_WAIT_METHOD
+        && request.method != OUTSIDE_CALL_METHOD
     {
         return Err("unknown harness method".into());
     }
@@ -268,7 +399,7 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -301,7 +432,7 @@ mod tests {
         let mut relative = request.clone();
         relative.targets[0].path = "file.rs".into();
         assert!(relative.validate().is_err());
-        let mut directory = request.clone();
+        let mut directory = request;
         directory.targets[0].kind = CliTargetKind::Directory;
         assert!(directory.validate().is_err());
     }
@@ -312,10 +443,10 @@ mod tests {
         assert!(validate_harness(&request("browser.click")).is_ok());
         assert!(validate_harness(&request("plugins.call")).is_ok());
         assert!(validate_harness(&request("pty_kill")).is_err());
-        let mut relative = request("task.read");
+        let mut relative = request("process.read");
         relative.project = "project".into();
         assert!(validate_harness(&relative).is_err());
-        let mut list = request("task.read");
+        let mut list = request("process.read");
         list.params = serde_json::json!([]);
         assert!(validate_harness(&list).is_err());
     }

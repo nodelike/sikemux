@@ -13,7 +13,7 @@ import { APNS_TOPICS } from "../push/apns.ts";
 import type { ClerkBackend } from "./clerk.ts";
 
 /** The Services ID the web app signs in with Apple as, through Clerk. Only production has one. */
-export const APPLE_WEB_CLIENT_ID = "com.nodelike.sikemux.signin";
+const APPLE_WEB_CLIENT_ID = "com.nodelike.sikemux.signin";
 
 const APPLE = "https://appleid.apple.com";
 const TIMEOUT_MS = 10_000;
@@ -126,7 +126,7 @@ export function appleSignIn(
   };
 }
 
-export interface AppleRevocation {
+interface AppleRevocation {
   userId: string;
   /** A Sign in with Apple authorization code the phone sent with the deletion. */
   code: string | undefined;

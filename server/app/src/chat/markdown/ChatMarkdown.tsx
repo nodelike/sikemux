@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { FileIcon } from "../files/FileIcon";
 import { Markdown, MarkdownBlocks, type MarkdownComponents } from "./Markdown";
@@ -22,9 +22,15 @@ import {
   useLongTextFold,
 } from "@shared/chat/longText";
 import { openLink } from "../transcript/chatAgent";
+import { WHY_URI, whyChip } from "@shared/chat/why";
+import type { WhyChip } from "@shared/wire.generated";
+import { WhyChipLabel } from "../transcript/WhyChip";
 import { ChatImage } from "../files/ChatImage";
 import { DiffText } from "../tools/DiffView";
 import { decodedFenceName } from "@shared/chat/transcript";
+
+/** A link made from a name the message only mentioned: written plainly, or between backticks. */
+type PathGuess = "text" | "code";
 
 /* An agent writes an attached file back as a link to it. A picture beats its
    percent-encoded name, so show the picture whenever we can read it.
@@ -32,9 +38,6 @@ import { decodedFenceName } from "@shared/chat/transcript";
    A name the message only mentioned in passing arrives here too, marked as a
    guess. It is a file when the project has one by that name, and the words the
    agent wrote when it has not. */
-/** A link made from a name the message only mentioned: written plainly, or between backticks. */
-type PathGuess = "text" | "code";
-
 function ChatLink({
   href,
   guess,
@@ -44,9 +47,14 @@ function ChatLink({
   guess?: PathGuess;
   children?: ReactNode;
 }) {
+  const whyChips = useContext(WhyChipsContext);
   const imagePath = localImagePath(href);
   const preview = useImagePreview(guess ? null : imagePath);
   const file = useFileRef(href);
+  if (href.startsWith(WHY_URI)) {
+    const chip = whyChip(whyChips, href);
+    return chip ? <WhyChipLabel chip={chip} /> : null;
+  }
   if (preview && imagePath) return <ChatImage src={preview} path={imagePath} />;
   if (file)
     return (
@@ -188,6 +196,49 @@ const markdownComponents: MarkdownComponents = {
   table: ChatTable,
   path: ChatPath,
 };
+
+/** The `why` links the core checked in the answer being drawn. */
+export const WhyChipsContext = createContext<WhyChip[]>([]);
+
+/** What each chip a sent message's draft wrote says, by the words it stands for in the text. */
+export const SentChipsContext = createContext<ReadonlyMap<string, string>>(
+  new Map(),
+);
+
+/* A run of a person's text, with the chips their draft wrote in it drawn over those words. */
+function SentText({ text }: { text: string }) {
+  const chips = useContext(SentChipsContext);
+  const pieces: ReactNode[] = [];
+  let rest = text;
+  for (;;) {
+    let next: { at: number; written: string } | undefined;
+    for (const written of chips.keys()) {
+      const at = rest.indexOf(written);
+      if (at < 0) continue;
+      if (
+        !next ||
+        at < next.at ||
+        (at === next.at && written.length > next.written.length)
+      )
+        next = { at, written };
+    }
+    if (!next) break;
+    if (next.at) pieces.push(rest.slice(0, next.at));
+    pieces.push(
+      <span key={pieces.length} className="chat-sent-chip">
+        {chips.get(next.written)}
+      </span>,
+    );
+    rest = rest.slice(next.at + next.written.length);
+  }
+  pieces.push(rest);
+  return <>{pieces}</>;
+}
+
+const typedComponents: MarkdownComponents = {
+  ...markdownComponents,
+  text: SentText,
+};
 const AGENT_MARKDOWN: MarkdownOptions = {
   gfm: true,
   htmlAsText: false,
@@ -230,7 +281,7 @@ function LiveMarkdown({
       text={text}
       options={typed ? TYPED_MARKDOWN : AGENT_MARKDOWN}
       live={live}
-      components={markdownComponents}
+      components={typed ? typedComponents : markdownComponents}
     />
   );
 }

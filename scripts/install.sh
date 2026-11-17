@@ -4,11 +4,15 @@
 # the latest stable one; a nightly install hands over to that nightly's own.
 # On Linux it asks whether to install the desktop app or just the core, which
 # runs agents on a server; `| sh -s -- --host` or `--app` picks without asking,
-# and `--yes` takes every default. Set SIKEMUX_CHANNEL=nightly for the nightly build.
+# and `--yes` takes every default. Set SIKEMUX_CHANNEL=nightly for the nightly build, and
+# SIKEMUX_SIGN_IN=later to leave signing in to whoever runs it, as Sikemux does over SSH.
 set -eu
 
 REPO="https://github.com/nodelike/sikemux"
+OLDEST_GLIBC=2.34
+OLDEST_APP_GLIBC=2.39
 CHANNEL="${SIKEMUX_CHANNEL:-stable}"
+SIGN_IN="${SIKEMUX_SIGN_IN:-now}"
 MODE=ask
 YES=false
 for arg in "$@"; do
@@ -37,7 +41,6 @@ fi
 
 say() { printf '%s\n' "$*"; }
 note() { printf '  %s%s%s\n' "$DIM" "$*" "$RESET"; }
-# A finished step: what happened, then where or how in grey.
 done_step() { printf '%s  %s✓%s %-32s %s%s%s\n' "$CLEAR" "$ACCENT" "$RESET" "$1" "$DIM" "${2:-}" "$RESET"; }
 fail() {
   printf '%s\n  %s✗%s %s\n\n' "$CLEAR" "$RED" "$RESET" "$*" >&2
@@ -103,13 +106,16 @@ looks_like_server() {
 }
 
 choose_linux_mode() {
-  [ "$MODE" = ask ] || return 0
-  if [ "$(uname -m)" != x86_64 ] && [ "$(uname -m)" != amd64 ]; then
-    note "The desktop app is x86_64 only, so this installs the core."
+  [ "$MODE" != host ] || return 0
+  unavailable=$(app_unavailable)
+  if [ -n "$unavailable" ]; then
+    [ "$MODE" = ask ] || fail "the desktop app cannot go on this machine: $unavailable; add --host for the core"
+    note "No desktop app here: $unavailable, so this installs the core."
     say ""
     MODE=host
     return 0
   fi
+  [ "$MODE" = ask ] || return 0
   if looks_like_server; then guess=host; else guess=app; fi
   if ! interactive; then
     MODE=$guess
@@ -150,27 +156,6 @@ latest_version() {
   esac
 }
 
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
-VERSION=$(latest_version)
-[ -n "$VERSION" ] || fail "could not find the latest $CHANNEL version"
-
-if [ "$CHANNEL" = nightly ] && [ "${SIKEMUX_INSTALLER:-}" != "$VERSION" ]; then
-  curl -fsSL -o "$TMP/install.sh" "$REPO/releases/download/v$VERSION/install.sh" ||
-    fail "v$VERSION has no installer"
-  SIKEMUX_INSTALLER=$VERSION sh "$TMP/install.sh" "$@" </dev/null
-  exit $?
-fi
-
-case "$(uname -s)" in
-  Darwin) platform="macOS" ;;
-  Linux) platform="Linux" ;;
-  *) fail "Sikemux runs on macOS and Linux" ;;
-esac
-say ""
-say "  ${ACCENT}${BOLD}sikemux${RESET}  ${DIM}$VERSION · $platform $(uname -m)${RESET}"
-say ""
-
 size_of() {
   awk -v bytes="$(wc -c <"$1" | tr -d ' ')" 'BEGIN { printf "%.1f MB", bytes / 1048576 }'
 }
@@ -187,13 +172,36 @@ as_root() {
   fi
 }
 
+confirm_leaving_nightly() {
+  [ "$CHANNEL" = stable ] || return 0
+  installed=$(plutil -extract CFBundleShortVersionString raw "$1/Contents/Info.plist" 2>/dev/null) || return 0
+  case "$installed" in
+    *-nightly.*) ;;
+    *) return 0 ;;
+  esac
+  say "  This replaces nightly $installed with stable $VERSION."
+  note "To stay on nightly, run this with SIKEMUX_CHANNEL=nightly."
+  interactive || { say ""; return 0; }
+  case "$(ask "Replace it? [y/N]" n)" in
+    [Yy]*) say "" ;;
+    *)
+      say ""
+      note "Left nightly $installed in place."
+      say ""
+      exit 0
+      ;;
+  esac
+}
+
 install_mac() {
-  [ "$(uname -m)" = arm64 ] || fail "Sikemux needs a Mac with Apple Silicon"
+  # Under Rosetta, uname reports x86_64 even on Apple Silicon.
+  [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] || fail "Sikemux needs a Mac with Apple Silicon"
   if pgrep -xq Sikemux; then fail "quit Sikemux first, then run this again"; fi
-  download Sikemux.app.tar.gz "the app"
-  tar -xzf "$TMP/Sikemux.app.tar.gz" -C "$TMP"
   dest=/Applications
   [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
+  confirm_leaving_nightly "$dest/Sikemux.app"
+  download Sikemux.app.tar.gz "the app"
+  tar -xzf "$TMP/Sikemux.app.tar.gz" -C "$TMP"
   rm -rf "$dest/Sikemux.app"
   mv "$TMP/Sikemux.app" "$dest/Sikemux.app"
   done_step "Installed Sikemux" "$(home_path "$dest")"
@@ -201,33 +209,77 @@ install_mac() {
   open "$dest/Sikemux.app"
 }
 
+# An AppImage runs from a mount any program can make, so the core could not tell its
+# window from an agent's program. Unpacked where only root writes, beside the core, it can.
+install_appimage() {
+  file=$1
+  download "$file" "the app"
+  chmod +x "$TMP/$file"
+  # shellcheck disable=SC2016
+  step "Unpacking the app" sh -c 'cd "$1" && "$2" --appimage-extract' sh "$TMP" "$TMP/$file"
+  # shellcheck disable=SC2016
+  step "Installing the app" as_root sh -c '
+    set -e
+    rm -rf /usr/local/lib/sikemux/.app.new /usr/local/lib/sikemux/.app.old
+    cp -R "$1" /usr/local/lib/sikemux/.app.new
+    chown -R root:root /usr/local/lib/sikemux/.app.new
+    chmod -R go-w /usr/local/lib/sikemux/.app.new
+    chmod 755 /usr/local/lib/sikemux/.app.new
+    if [ -e /usr/local/lib/sikemux/app ]; then mv /usr/local/lib/sikemux/app /usr/local/lib/sikemux/.app.old; fi
+    mv /usr/local/lib/sikemux/.app.new /usr/local/lib/sikemux/app
+    rm -rf /usr/local/lib/sikemux/.app.old
+  ' sh "$TMP/squashfs-root"
+  done_step "Installed Sikemux" "/usr/local/lib/sikemux/app"
+  add_to_launcher /usr/local/lib/sikemux/app
+}
+
+# App launchers list only apps with a .desktop entry, and an unpacked AppImage installs none.
+add_to_launcher() {
+  app=$1
+  data="${XDG_DATA_HOME:-$HOME/.local/share}"
+  mkdir -p "$data/applications" "$data/icons"
+  [ -d "$app/usr/share/icons" ] && cp -R "$app/usr/share/icons/." "$data/icons/"
+  for entry in "$app"/*.desktop; do
+    [ -f "$entry" ] || continue
+    sed "s|^Exec=[^ ]*|Exec=\"$app/AppRun\"|" "$entry" >"$data/applications/${entry##*/}"
+    command -v xdg-mime >/dev/null 2>&1 && xdg-mime default "${entry##*/}" x-scheme-handler/sikemux 2>/dev/null || true
+  done
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$data/applications" 2>/dev/null || true
+  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q "$data/icons/hicolor" 2>/dev/null || true
+  done_step "Added to the app launcher"
+}
+
 install_linux() {
-  [ "$(uname -m)" = x86_64 ] || fail "the desktop app needs an x86_64 machine; add --host for the core"
+  file=$(app_file)
   # sudo asks for a password here, if it needs one, before a spinner holds the line.
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n true 2>/dev/null || sudo -v; fi
-  if command -v apt-get >/dev/null 2>&1; then
-    download "Sikemux_${VERSION}_amd64.deb" "the app"
-    step "Installing with apt" as_root apt-get install -y "$TMP/Sikemux_${VERSION}_amd64.deb"
-    done_step "Installed Sikemux" "with apt"
-  elif command -v dnf >/dev/null 2>&1; then
-    download "Sikemux-${VERSION}-1.x86_64.rpm" "the app"
-    step "Installing with dnf" as_root dnf install -y "$TMP/Sikemux-${VERSION}-1.x86_64.rpm"
-    done_step "Installed Sikemux" "with dnf"
-  elif command -v zypper >/dev/null 2>&1; then
-    download "Sikemux-${VERSION}-1.x86_64.rpm" "the app"
-    step "Installing with zypper" as_root zypper --non-interactive install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.x86_64.rpm"
-    done_step "Installed Sikemux" "with zypper"
-  else
-    download "Sikemux_${VERSION}_amd64.AppImage" "the app"
-    mkdir -p "$HOME/Applications"
-    mv "$TMP/Sikemux_${VERSION}_amd64.AppImage" "$HOME/Applications/Sikemux.AppImage"
-    chmod +x "$HOME/Applications/Sikemux.AppImage"
-    done_step "Installed Sikemux" "$(home_path "$HOME/Applications/Sikemux.AppImage")"
-  fi
+  case "$file" in
+    *.deb)
+      download "$file" "the app"
+      step "Installing with apt" as_root apt-get install -y "$TMP/$file"
+      done_step "Installed Sikemux" "with apt"
+      ;;
+    *.pkg.tar.zst)
+      download "$file" "the app"
+      # The other channel's package, or the Omarchy repo's, holds the same files.
+      owner=$(pacman -Qqo /usr/lib/sikemux/sikemux-host 2>/dev/null || true)
+      if [ -n "$owner" ] && [ "$owner" != "${file%%-[0-9]*}" ]; then
+        step "Removing $owner" as_root pacman -Rdd --noconfirm "$owner"
+      fi
+      step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$file"
+      done_step "Installed Sikemux" "with pacman"
+      ;;
+    *)
+      # Without apt, and on arm64 Arch, which has no pacman package, the app is the AppImage.
+      install_guarded_core "$ARCH"
+      install_appimage "$file"
+      link_cli
+      ;;
+  esac
   say ""
 }
 
-# Root replaces the core when the person's core asks over this socket. It
+# Root replaces the core, and the app unpacked beside it, when the person's core asks over this socket. It
 # takes nothing from the caller but who they are and the channel they follow,
 # and installs only a release signed with Sikemux's updater key.
 UPDATE_UNITS='
@@ -254,7 +306,7 @@ ExecStart=/usr/local/lib/sikemux/sikemux-host update --install
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
-RuntimeMaxSec=20min
+RuntimeMaxSec=60min
 MemoryMax=512M
 ProtectSystem=strict
 ReadWritePaths=/usr/local/lib/sikemux
@@ -262,7 +314,7 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_CHOWN CAP_FSETID CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_CHOWN CAP_FSETID CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_FOWNER
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=yes
 ProtectKernelTunables=yes
@@ -275,27 +327,20 @@ systemctl daemon-reload
 systemctl enable --now sikemux-update.socket >/dev/null 2>&1
 '
 
-install_host() {
-  case "$(uname -m)" in
-    x86_64 | amd64) arch=x86_64 ;;
-    aarch64 | arm64) arch=aarch64 ;;
-    *) fail "a Sikemux host needs an x86_64 or arm64 machine" ;;
-  esac
+# The core keeps its secrets in a folder only the group sikemux may enter,
+# and runs setgid to it; you stay out of the group, so your agents do too.
+# A package sets this up itself; an AppImage cannot, since it runs from a mount
+# that ignores setgid, so the installed app starts this core instead of its own.
+install_guarded_core() {
   user=$(id -un)
   if id -nG "$user" | tr ' ' '\n' | grep -qx sikemux; then
     fail "$user is in the sikemux group, which would let your agents read the core's secrets; remove it with: sudo gpasswd -d $user sikemux"
   fi
   # sudo asks for a password here, if it needs one, before a spinner holds the line.
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n true 2>/dev/null || sudo -v; fi
-  asset="sikemux-host-${VERSION}-linux-${arch}.tar.gz"
+  asset="sikemux-host-${VERSION}-linux-$1.tar.gz"
   download "$asset" "the core"
   tar -xzf "$TMP/$asset" -C "$TMP"
-  if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
-  mkdir -p "$bin"
-  previous=""
-  [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')
-  # The core keeps its secrets in a folder only the group sikemux may enter,
-  # and runs setgid to it; you stay out of the group, so your agents do too.
   # shellcheck disable=SC2016
   step "Setting up the core's secret store" as_root sh -c '
     set -e
@@ -307,11 +352,85 @@ install_host() {
     mv -f /usr/local/lib/sikemux/.sikemux-host.new /usr/local/lib/sikemux/sikemux-host
     install -d -o root -g sikemux -m 770 /var/lib/sikemux
   ' sh "$TMP/sikemux-host"
-  ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
   if [ -d /run/systemd/system ]; then
     step "Setting up updates" as_root sh -c "$UPDATE_UNITS"
     done_step "Updates itself" "signed releases"
   fi
+}
+
+# Puts `sikemux` on PATH, run as the core, for a person and for Sikemux over SSH alike.
+link_cli() {
+  if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
+  mkdir -p "$bin"
+  ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
+}
+
+# Says so plainly, instead of leaving the loader's or the package manager's error.
+# Prints nothing when glibc is new enough, "musl", or the version it found.
+glibc_short_of() {
+  have=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc //p')
+  if [ -z "$have" ]; then
+    if ldd --version 2>&1 | grep -qi musl; then echo musl; fi
+    return 0
+  fi
+  [ "$(printf '%s\n%s\n' "$1" "$have" | sort -V | head -n 1)" = "$1" ] || echo "$have"
+}
+
+need_glibc() {
+  have=$(glibc_short_of "$OLDEST_GLIBC")
+  case "$have" in
+    "") ;;
+    musl) fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system uses musl" ;;
+    *) fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system has $have; Ubuntu 22.04, Debian 12, RHEL 9 and Amazon Linux 2023 or newer have it" ;;
+  esac
+}
+
+# The package the desktop app comes in on this machine.
+app_file() {
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Sikemux_${VERSION}_${DEB_ARCH}.deb"
+  elif [ "$ARCH" = x86_64 ] && command -v pacman >/dev/null 2>&1; then
+    # packaging/arch/PKGBUILD names it: pacman sorts 0.6.1nightly.6 below 0.6.1.
+    case "$VERSION" in
+      *-*) name=sikemux-nightly-bin ;;
+      *) name=sikemux-bin ;;
+    esac
+    echo "$name-$(printf '%s' "$VERSION" | tr -d -)-1-x86_64.pkg.tar.zst"
+  else
+    echo "Sikemux_${VERSION}_${DEB_ARCH}.AppImage"
+  fi
+}
+
+# Why this machine cannot take the desktop app from this release; nothing when it can.
+app_unavailable() {
+  if [ -z "$ARCH" ]; then
+    echo "it runs on x86_64 and arm64 only"
+    return 0
+  fi
+  have=$(glibc_short_of "$OLDEST_APP_GLIBC")
+  case "$have" in
+    "") ;;
+    musl) echo "it needs glibc $OLDEST_APP_GLIBC or later, and this system uses musl"; return 0 ;;
+    *) echo "it needs glibc $OLDEST_APP_GLIBC or later (Ubuntu 24.04, Debian 13 or newer), and this system has $have"; return 0 ;;
+  esac
+  file=$(app_file)
+  found=0
+  curl -fsLI -o /dev/null "$REPO/releases/download/v$VERSION/$file" || found=$?
+  # 22 is an HTTP error such as 404, 37 a missing file:// path; anything else is left to the download.
+  case $found in
+    22 | 37) echo "$VERSION has no $file" ;;
+  esac
+}
+
+install_host() {
+  [ -n "$ARCH" ] || fail "a Sikemux host needs an x86_64 or arm64 machine"
+  need_glibc
+  if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
+  previous=""
+  [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')
+  install_guarded_core "$ARCH"
+  link_cli
+  user=$(id -un)
   if [ "$(id -u)" -eq 0 ]; then
     note "Running as root, agents run as root too and can read anything; use your own account to keep them out of the core's secrets."
   fi
@@ -351,6 +470,10 @@ install_host() {
     say ""
     return 0
   fi
+  if [ "$SIGN_IN" = later ]; then
+    say ""
+    return 0
+  fi
   say ""
   say "  Next, sign this host in to your Sikemux account. Your Mac and phone"
   say "  reach it from Sikemux as soon as it is."
@@ -372,6 +495,39 @@ install_host() {
   fi
   "$bin/sikemux" login </dev/tty >/dev/tty 2>&1 || true
 }
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+VERSION=$(latest_version)
+[ -n "$VERSION" ] || fail "could not find the latest $CHANNEL version"
+
+case "$(uname -s)" in
+  Darwin) platform="macOS" ;;
+  Linux) platform="Linux" ;;
+  *) fail "Sikemux runs on macOS and Linux" ;;
+esac
+case "$(uname -m)" in
+  x86_64 | amd64) ARCH=x86_64 DEB_ARCH=amd64 ;;
+  aarch64 | arm64) ARCH=aarch64 DEB_ARCH=arm64 ;;
+  *) ARCH="" DEB_ARCH="" ;;
+esac
+handed_over=false
+[ "${SIKEMUX_INSTALLER:-}" = "$VERSION" ] && handed_over=true
+if ! $handed_over; then
+  say ""
+  say "  ${ACCENT}${BOLD}sikemux${RESET}  ${DIM}$VERSION · $platform $(uname -m)${RESET}"
+  say ""
+fi
+[ "$platform" = Linux ] && choose_linux_mode
+
+# The nightly's own installer takes over, told what was chosen here.
+if [ "$CHANNEL" = nightly ] && ! $handed_over; then
+  curl -fsSL -o "$TMP/install.sh" "$REPO/releases/download/v$VERSION/install.sh" ||
+    fail "v$VERSION has no installer"
+  [ "$platform" = Linux ] && set -- "$@" "--$MODE"
+  SIKEMUX_INSTALLER=$VERSION sh "$TMP/install.sh" "$@" </dev/null
+  exit $?
+fi
 
 case "$(uname -s)" in
   Darwin)

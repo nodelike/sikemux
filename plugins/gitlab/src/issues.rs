@@ -7,7 +7,7 @@ use reqwest::Method;
 use serde::Deserialize;
 use serde_json::json;
 use sikemux_plugin_api::codehost::asks::{
-    InboxQuery, IssueQuery, IssueRef, NewIssue, NotificationRef, RepoRef, SetIssueState,
+    InboxQuery, IssueQuery, IssueRef, NewIssue, RepoRef, SetIssueState,
 };
 use sikemux_plugin_api::codehost::{Issue, IssuePage, Notification, Release};
 
@@ -88,12 +88,13 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> GitlabResult<IssuePage>
 }
 
 pub async fn get(data_dir: &Path, input: IssueRef) -> GitlabResult<Issue> {
-    let row: IssueRow = client::get(
-        data_dir,
-        &input.path("")?,
-        &[("with_labels_details", "true".into())],
-    )
-    .await?;
+    let row: IssueRow = client::API
+        .get(
+            data_dir,
+            &input.path("")?,
+            &[("with_labels_details", "true".into())],
+        )
+        .await?;
     Ok(issue_of(row))
 }
 
@@ -101,13 +102,14 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> GitlabResult<Issue> {
     if input.title.trim().is_empty() {
         return Err(GitlabError::BadArg("an issue needs a title".into()));
     }
-    let row: IssueRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/issues")?,
-        &json!({ "title": input.title.trim(), "description": input.body }),
-    )
-    .await?;
+    let row: IssueRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/issues")?,
+            &json!({ "title": input.title.trim(), "description": input.body }),
+        )
+        .await?;
     Ok(issue_of(row))
 }
 
@@ -117,13 +119,14 @@ pub async fn set_state(data_dir: &Path, input: SetIssueState) -> GitlabResult<()
     } else {
         "close"
     };
-    client::write(
-        data_dir,
-        Method::PUT,
-        &input.issue.path("")?,
-        Some(&json!({ "state_event": event })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::PUT,
+            &input.issue.path("")?,
+            Some(&json!({ "state_event": event })),
+        )
+        .await
 }
 
 #[derive(Deserialize)]
@@ -246,24 +249,6 @@ pub async fn inbox(data_dir: &Path, input: InboxQuery) -> GitlabResult<Vec<Notif
     Ok(notes)
 }
 
-pub async fn mark_read(data_dir: &Path, input: NotificationRef) -> GitlabResult<()> {
-    let id: u64 = input
-        .id
-        .parse()
-        .map_err(|_| GitlabError::BadArg(format!("`{}` is not a To-Do item", input.id)))?;
-    client::write(
-        data_dir,
-        Method::POST,
-        &format!("/todos/{id}/mark_as_done"),
-        None,
-    )
-    .await
-}
-
-pub async fn mark_all_read(data_dir: &Path) -> GitlabResult<()> {
-    client::write(data_dir, Method::POST, "/todos/mark_as_done", None).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,12 +283,6 @@ mod tests {
                 color: "d9534f".into()
             }]
         );
-    }
-
-    #[test]
-    fn the_whole_inbox_asks_for_each_state_gitlab_knows() {
-        assert_eq!(todo_states(false), ["pending"]);
-        assert_eq!(todo_states(true), ["pending", "done"]);
     }
 
     #[test]

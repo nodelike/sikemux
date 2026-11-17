@@ -14,6 +14,8 @@ export interface PushMessage {
   ttlSeconds: number;
   /** Which of Apple's push servers issued an iOS token. */
   apnsEnvironment?: ApnsEnvironment;
+  /** Sent the time the host pushed it, so a Live Activity keeps the newest of two that cross. */
+  sentAt?: number;
 }
 
 /** What a push service did with one attempt. */

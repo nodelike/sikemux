@@ -1,5 +1,5 @@
-//! A web page in a view of its own, placed where its element is laid out: an agent's page in
-//! its reply, or an HTML file as it reads.
+//! A web page in a view of its own, placed where its element is laid out: an MCP app in a
+//! reply, a mod's panel, or an HTML file as it reads.
 
 use gpui_kit::{App, Window};
 use gpui_native_view::NativeSurface;
@@ -11,17 +11,33 @@ pub(crate) type Events = tokio::sync::mpsc::UnboundedSender<PageEvent>;
 #[derive(Clone)]
 pub(crate) struct View {
     pub(crate) surface: NativeSurface,
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     page: std::rc::Rc<sikemux_browser::page_view::PageView>,
 }
 
 impl View {
-    /// Shows `html` in place of what the page showed.
     pub(crate) fn show(&self, html: &str) {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.page.show(html);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        let _ = html;
+    }
+
+    /// A still of what the page shows now, as a JPEG; none where WebKit cannot make one.
+    pub(crate) fn still(&self, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
+        #[cfg(target_os = "macos")]
+        self.page.still(done);
+        #[cfg(not(target_os = "macos"))]
+        done(None);
+    }
+
+    /// Lets the page fill its room and scroll itself, or puts it back to scrolling with its reply.
+    pub(crate) fn fill(&self, fills: bool) {
+        #[cfg(target_os = "macos")]
+        self.page.fill(fills);
+        #[cfg(not(target_os = "macos"))]
+        let _ = fills;
+    }
+
+    /// Runs `script` in the page, with no answer waited for.
+    pub(crate) fn run(&self, script: &str) {
+        self.page.run_script(script);
     }
 }
 
@@ -39,10 +55,15 @@ pub(crate) fn open(
         let _ = events.send(event);
     }));
     let view = gpui_native_view::OwnedView::new(page.view(), window)?;
+    let parks = matches!(room, Room::App);
+    if parks {
+        gpui_native_view::Surface::place(&view, Some(parked()));
+    }
     Some(View {
         surface: NativeSurface::new(Shows {
             _page: page.clone(),
             view,
+            parks,
         }),
         page,
     })
@@ -58,7 +79,7 @@ pub(crate) fn open(
 ) -> Option<View> {
     let parent = gpui_native_view::window_x11(window)?;
     let ground = match room {
-        Room::Grows => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
+        Room::App | Room::Panel => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
         Room::Fills(_) => [255; 3],
     };
     let page =
@@ -85,17 +106,30 @@ pub(crate) fn open(_: &str, _: Room, _: Events, _: &Window, _: &App) -> Option<V
     None
 }
 
+/// Where a view that parks sits out of sight: in the window, shown, at no size.
+#[cfg(target_os = "macos")]
+fn parked() -> gpui_native_view::Frame {
+    gpui_native_view::Frame {
+        bounds: gpui_kit::Bounds::default(),
+        visible: gpui_kit::Bounds::default(),
+    }
+}
+
 /// The page's view placed in its element, kept with the page that fills it.
 #[cfg(target_os = "macos")]
 struct Shows {
     _page: std::rc::Rc<sikemux_browser::page_view::PageView>,
     view: gpui_native_view::OwnedView,
+    /// Out of sight it shrinks to nothing rather than hiding, from the moment it is made: WebKit
+    /// holds the main thread for up to a quarter second when a hidden view shows while its page
+    /// is busy, as an app's view is each time it is lent to another app.
+    parks: bool,
 }
 
 #[cfg(target_os = "macos")]
 impl gpui_native_view::Surface for Shows {
     fn place(&self, frame: Option<gpui_native_view::Frame>) {
-        self.view.place(frame);
+        self.view.place(frame.or_else(|| self.parks.then(parked)));
     }
 
     fn responder(&self) -> Option<gpui_native_view::Retained<gpui_native_view::NSView>> {

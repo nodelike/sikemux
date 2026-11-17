@@ -10,7 +10,7 @@ use gpui::{App, Bounds, FocusHandle, Pixels, Subscription, WeakFocusHandle, Wind
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{define_class, DefinedClass, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSEvent, NSEventMask, NSView, NSWindow, NSWindowOrderingMode};
+use objc2_app_kit::{NSEvent, NSEventMask, NSEventType, NSView, NSWindow, NSWindowOrderingMode};
 use objc2_foundation::{
     ns_string, NSDictionary, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSObject,
     NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
@@ -99,19 +99,35 @@ fn rect_in(parent: &NSView, bounds: Bounds<Pixels>) -> NSRect {
     )
 }
 
-/// The view GPUI draws the window into, which native views are added to.
-pub fn window_view(window: &Window) -> Option<Retained<NSView>> {
-    let handle = HasWindowHandle::window_handle(window).ok()?;
-    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
-        return None;
-    };
-    // SAFETY: GPUI hands out its own live NSView, and this runs on the main thread.
-    unsafe { Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>()) }
+thread_local! {
+    static STAND_IN: RefCell<Option<Retained<NSView>>> = const { RefCell::new(None) };
 }
 
-/// Gives GPUI the keyboard back whenever the person clicks something GPUI draws.
-/// AppKit hands it to a clicked native view, but never back on a click elsewhere,
-/// so after clicking into a page every key would go to the page.
+/// Gives windows drawn offscreen, which have no view of their own, `view` to hold their native
+/// views, so a tool that pictures such a window can lay those views over it. A window on screen
+/// never uses it.
+pub fn stand_in_for_offscreen(view: Retained<NSView>) {
+    STAND_IN.with(|stand_in| *stand_in.borrow_mut() = Some(view));
+}
+
+/// The view GPUI draws the window into, which native views are added to.
+pub fn window_view(window: &Window) -> Option<Retained<NSView>> {
+    let own = HasWindowHandle::window_handle(window)
+        .ok()
+        .and_then(|handle| match handle.as_raw() {
+            // SAFETY: GPUI hands out its own live NSView, and this runs on the main thread.
+            RawWindowHandle::AppKit(appkit) => unsafe {
+                Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>())
+            },
+            _ => None,
+        });
+    own.or_else(|| STAND_IN.with(|stand_in| stand_in.borrow().clone()))
+}
+
+/// Gives GPUI the keyboard back when the person clicks something GPUI draws, or
+/// types while no view they can see holds it. AppKit hands the keyboard to a
+/// clicked native view and, once that view is hidden or removed, to the window
+/// itself, and never back to GPUI, so every key after that would beep.
 pub(crate) fn reclaim_keyboard_on_click() {
     if CLICK_MONITOR.with(|monitor| monitor.borrow().is_some()) {
         return;
@@ -121,7 +137,7 @@ pub(crate) fn reclaim_keyboard_on_click() {
         reclaim_keyboard(unsafe { event.as_ref() });
         event.as_ptr()
     });
-    let mask = NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown;
+    let mask = NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::KeyDown;
     // SAFETY: main thread, as every element's prepaint is. AppKit copies the block, and
     // the monitor it returns is kept in CLICK_MONITOR so it stays installed.
     let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &block) };
@@ -132,13 +148,20 @@ fn reclaim_keyboard(event: &NSEvent) {
     let Some(window) = MainThreadMarker::new().and_then(|mtm| event.window(mtm)) else {
         return;
     };
-    let Some(clicked) = window
-        .contentView()
-        .and_then(|content| content.hitTest(event.locationInWindow()))
-    else {
+    let Some(content) = window.contentView() else {
         return;
     };
-    let Some(gpui_view) = drawn_by_gpui(clicked) else {
+    let gpui_view = if event.r#type() == NSEventType::KeyDown {
+        if keyboard_is_seen(&window) {
+            return;
+        }
+        gpui_view_in(content)
+    } else {
+        content
+            .hitTest(event.locationInWindow())
+            .and_then(drawn_by_gpui)
+    };
+    let Some(gpui_view) = gpui_view else {
         return;
     };
     let holds_keyboard = window
@@ -147,6 +170,25 @@ fn reclaim_keyboard(event: &NSEvent) {
     if !holds_keyboard {
         window.makeFirstResponder(Some(&gpui_view));
     }
+}
+
+/// Whether the window's keyboard is with a view of this window that is on show.
+fn keyboard_is_seen(window: &NSWindow) -> bool {
+    first_responder_view(window).is_some_and(|view| {
+        view.window().as_deref() == Some(window) && !view.isHiddenOrHasHiddenAncestor()
+    })
+}
+
+fn first_responder_view(window: &NSWindow) -> Option<Retained<NSView>> {
+    window.firstResponder()?.downcast::<NSView>().ok()
+}
+
+fn gpui_view_in(content: Retained<NSView>) -> Option<Retained<NSView>> {
+    let class = AnyClass::get(c"GPUIView")?;
+    let inside = content.subviews();
+    std::iter::once(content)
+        .chain(inside.to_vec())
+        .find(|view| view.isKindOfClass(class))
 }
 
 /// The GPUI view `view` belongs to, when it is that view or the overlay GPUI
@@ -160,6 +202,126 @@ fn drawn_by_gpui(view: Retained<NSView>) -> Option<Retained<NSView>> {
         unsafe { view.superview() }
     } else {
         None
+    }
+}
+
+/// GPUI lays one cursor rect over its whole view, and WebKit sets no cursor of its own while a
+/// cursor rect is in force, so a page's cursors never showed. GPUI's rects now leave out the native
+/// views on show, worked out again whenever the pointer crosses between GPUI and one of them.
+pub(crate) fn keep_cursor_rects_off_native_views() {
+    if POINTER_MONITOR.with(|monitor| monitor.borrow().is_some()) {
+        return;
+    }
+    let (Some(gpui_class), Some(view_class)) =
+        (AnyClass::get(c"GPUIView"), AnyClass::get(c"NSView"))
+    else {
+        return;
+    };
+    let selector = objc2::sel!(addCursorRect:cursor:);
+    let Some(inherited) = view_class.instance_method(selector) else {
+        return;
+    };
+    let _ = ADD_CURSOR_RECT.set(inherited.implementation());
+    let replacement: AddCursorRect = add_cursor_rect_around_native_views;
+    // SAFETY: `replacement` has `addCursorRect:cursor:`'s signature and types, which are copied from
+    // NSView's own method, and it calls NSView's implementation, stored above.
+    unsafe {
+        let types = objc2::ffi::method_getTypeEncoding(inherited);
+        objc2::ffi::class_addMethod(
+            (gpui_class as *const AnyClass).cast_mut(),
+            selector,
+            std::mem::transmute::<AddCursorRect, objc2::runtime::Imp>(replacement),
+            types,
+        );
+    }
+    let block = RcBlock::new(|event: NonNull<NSEvent>| -> *mut NSEvent {
+        // SAFETY: AppKit hands the monitor a live event for the length of the call.
+        pointer_moved(unsafe { event.as_ref() });
+        event.as_ptr()
+    });
+    // SAFETY: main thread, as every element's prepaint is. AppKit copies the block, and the
+    // monitor it returns is kept in POINTER_MONITOR so it stays installed.
+    let monitor = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::MouseMoved, &block)
+    };
+    POINTER_MONITOR.with(|slot| *slot.borrow_mut() = monitor);
+}
+
+type AddCursorRect =
+    unsafe extern "C-unwind" fn(&NSView, objc2::runtime::Sel, NSRect, *mut AnyObject);
+
+static ADD_CURSOR_RECT: std::sync::OnceLock<objc2::runtime::Imp> = std::sync::OnceLock::new();
+
+unsafe extern "C-unwind" fn add_cursor_rect_around_native_views(
+    view: &NSView,
+    selector: objc2::runtime::Sel,
+    rect: NSRect,
+    cursor: *mut AnyObject,
+) {
+    let Some(inherited) = ADD_CURSOR_RECT.get() else {
+        return;
+    };
+    // SAFETY: `inherited` is NSView's `addCursorRect:cursor:`, which takes these arguments.
+    let add = unsafe { std::mem::transmute::<objc2::runtime::Imp, AddCursorRect>(*inherited) };
+    let overlay = AnyClass::get(c"GPUIOverlayView");
+    let mut pieces = vec![rect];
+    for native in view.subviews().iter() {
+        if native.isHidden() || overlay.is_some_and(|class| native.isKindOfClass(class)) {
+            continue;
+        }
+        let hole = native.frame();
+        pieces = pieces
+            .into_iter()
+            .flat_map(|piece| outside(piece, hole))
+            .collect();
+    }
+    for piece in pieces {
+        // SAFETY: AppKit's own arguments, with the rect cut smaller.
+        unsafe { add(view, selector, piece, cursor) };
+    }
+}
+
+/// The parts of `rect` that `hole` does not cover.
+fn outside(rect: NSRect, hole: NSRect) -> Vec<NSRect> {
+    let (left, right) = (rect.origin.x, rect.origin.x + rect.size.width);
+    let (low, high) = (rect.origin.y, rect.origin.y + rect.size.height);
+    let cut_left = hole.origin.x.max(left);
+    let cut_right = (hole.origin.x + hole.size.width).min(right);
+    let cut_low = hole.origin.y.max(low);
+    let cut_high = (hole.origin.y + hole.size.height).min(high);
+    if cut_left >= cut_right || cut_low >= cut_high {
+        return vec![rect];
+    }
+    let part = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        (x1 > x0 && y1 > y0)
+            .then(|| NSRect::new(NSPoint::new(x0, y0), NSSize::new(x1 - x0, y1 - y0)))
+    };
+    [
+        part(left, low, cut_left, high),
+        part(cut_right, low, right, high),
+        part(cut_left, low, cut_right, cut_low),
+        part(cut_left, cut_high, cut_right, high),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn pointer_moved(event: &NSEvent) {
+    let Some(window) = MainThreadMarker::new().and_then(|mtm| event.window(mtm)) else {
+        return;
+    };
+    let Some(content) = window.contentView() else {
+        return;
+    };
+    let over_native = content
+        .hitTest(event.locationInWindow())
+        .is_some_and(|view| drawn_by_gpui(view).is_none());
+    if OVER_NATIVE.with(|over| over.replace(over_native)) == over_native {
+        return;
+    }
+    if let Some(gpui_view) = gpui_view_in(content) {
+        window.invalidateCursorRectsForView(&gpui_view);
     }
 }
 
@@ -183,6 +345,8 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
     static MARKS: Cell<u64> = const { Cell::new(0) };
     static CLICK_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    static POINTER_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    static OVER_NATIVE: Cell<bool> = const { Cell::new(false) };
 }
 
 impl Keyboard {

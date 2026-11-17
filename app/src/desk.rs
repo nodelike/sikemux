@@ -1,15 +1,21 @@
 //! An agent's desk, beside it in its tab: the pages its browser holds, one in front.
 
 mod address;
+mod downloads;
+mod pins;
+mod snip;
+mod width;
 
+use crate::desk::downloads::downloaded;
+use crate::ui::Clicks;
+use gpui_kit::Task;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
-use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
-use gpui_kit::component::notification::Notification;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
@@ -19,71 +25,50 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_native_view::{native_view, Frame, NativeSurface, Surface};
-use serde_json::{json, Value};
+use sikemux_agents::harness::runs::RunStatus;
 use sikemux_browser::{
-    BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot,
-    DownloadState, Host, ParentView,
+    BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot, Host,
+    ParentView,
 };
-use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
-use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
-use sikemux_wire::protocol::{CallId, Pane, PaneKind, WindowAnswer, WindowCall};
+use sikemux_view::device::DeviceView;
+use sikemux_view::goals::{AgentDesk, DeskTerminal};
+use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_wire::protocol::AgentStatus;
 use tokio::sync::mpsc;
 
-use crate::codehost::HostArea;
-use crate::core::Ask;
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
+use crate::tabs::shows;
 use crate::theme::{
-    Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_6, TEXT_XS, TEXT_XS_H,
+    radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_6, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
 use crate::ui::{self, IconButton};
-use crate::workbench::{shows, Strip, Workbench};
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "desk.toggle")]
-pub struct ToggleDesk;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.tabNew")]
-pub struct NewPage;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "simulator.new")]
-pub struct NewSimulator;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.address")]
-pub struct FocusAddress;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.reload")]
-pub struct ReloadPage;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.back")]
-pub struct PageBack;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.forward")]
-pub struct PageForward;
+use crate::workbench::{Strip, Workbench};
 
 /// The browser engine and what the desks show of it.
 pub struct Desks {
-    engine: Option<Arc<BrowserManager>>,
-    strips: HashMap<String, Arc<BrowserSnapshot>>,
-    pages: HashMap<String, Page>,
+    pub(crate) engine: Option<Arc<BrowserManager>>,
+    pub(crate) strips: HashMap<String, Arc<BrowserSnapshot>>,
+    pub(crate) pages: HashMap<String, Page>,
     /// Each agent's tabs as last heard, so only a tab it newly opened brings its desk out.
     known: HashMap<String, HashSet<String>>,
-    /// What each agent's desk shows: its pages, or its simulator.
-    kinds: HashMap<String, DeskKind>,
+    /// What each agent's desk shows: its pages, its simulator or its calls.
+    pub(crate) kinds: HashMap<String, DeskKind>,
+    /// Each desk's calls page, made the first time the desk shows its calls.
+    call_pages: HashMap<String, Entity<crate::calls::Page>>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
-    page_files: Arc<PageFiles>,
+    /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
+    working: HashSet<String>,
+    /// The terminals of runs that finished, which leave their desk once its agent's turn ends.
+    finished_runs: HashSet<u64>,
+    pub(crate) page_files: Arc<PageFiles>,
     /// The files and task terminals on each agent's desk, beside its pages, in the order they came.
-    items: HashMap<String, Vec<DeskItem>>,
+    pub(crate) items: HashMap<String, Vec<DeskItem>>,
     /// The item each desk shows in front of its pages, while it shows one.
-    front: HashMap<String, DeskItem>,
+    pub(crate) front: HashMap<String, DeskItem>,
     /// The file and the terminal each desk last showed, which its switch brings back.
     last_front: HashMap<(String, DeskKind), DeskItem>,
     /// Pages' site icons, decoded once from the inline image each page sends.
@@ -92,13 +77,26 @@ pub struct Desks {
     placed_runs: HashSet<String>,
     /// Whether the runs have been read once; runs going by then join their desks behind.
     runs_read: bool,
+    /// The agents whose desks the layout held when the app started, each shut once looked at
+    /// if it came back with nothing on it.
+    restored: Option<HashSet<String>>,
     /// The agent whose address ⌘L asked for, floated once its desk has drawn it.
     address_wanted: Option<String>,
-    floating: Option<address::Floating>,
+    /// The agent whose page the person's Open asked to focus, and when, focused once its
+    /// desk is in the tab in front.
+    page_wanted: Option<(String, Instant)>,
+    pub(crate) floating: Option<address::Floating>,
     /// Each desk's tab strip, and the tab it last scrolled into view.
     tab_scrolls: std::cell::RefCell<HashMap<String, (gpui_kit::ScrollHandle, Option<usize>)>>,
     /// What the engine tells the window, until the window listens.
     hearing: Option<mpsc::UnboundedReceiver<Heard>>,
+    told: mpsc::UnboundedSender<Heard>,
+    /// The desks in snip mode.
+    snips: HashMap<String, snip::Snipper>,
+    /// Pictures of pages at other widths, which All shows beside the live page.
+    pictures: width::Pictures,
+    /// What the pages were last told of their pins.
+    pins_shown: pins::PinsShown,
     _theming: Subscription,
 }
 
@@ -106,6 +104,7 @@ pub struct Desks {
 pub struct DeskEars {
     _hearing: Option<gpui_kit::Task<()>>,
     _activation: Subscription,
+    _visibility: Subscription,
 }
 
 /// Hears what the desks' engine tells the window, and registers the window with the core
@@ -122,15 +121,33 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
             }
         })
     });
-    let activation = cx.observe_window_activation(window, |bench, window, _| {
+    let activation = cx.observe_window_activation(window, |bench, window, cx| {
         if window.is_window_active() {
             let _ = bench.asks.send(Ask::RegisterWindow);
+            crate::agents::limits::window_came_forward(bench, cx);
+        }
+    });
+    let engine = desks.read(cx).engine.clone();
+    if let Some(engine) = &engine {
+        engine.set_window_draws(window.is_visible());
+    }
+    let visibility = window.observe_window_visibility(move |visibility, _, _| {
+        if let Some(engine) = &engine {
+            engine.set_window_draws(visibility.is_visible());
         }
     });
     DeskEars {
         _hearing: task,
         _activation: activation,
+        _visibility: visibility,
     }
+}
+
+/// The tab on a desk that shows `url`, which Open on its page brings forward.
+fn tab_showing<'a>(strip: &'a BrowserSnapshot, url: &str) -> Option<&'a str> {
+    (strip.tabs.iter())
+        .find(|tab| tab.url == url)
+        .map(|tab| tab.id.as_str())
 }
 
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
@@ -139,20 +156,7 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
 #[derive(Clone, PartialEq)]
 pub enum DeskItem {
     File(PathBuf),
-    Terminal {
-        session: u64,
-        title: String,
-    },
-    /// A pull request, issue or run, as the Git tab shows one.
-    Hosted {
-        url: String,
-        shown: Entity<HostArea>,
-    },
-    /// What a plugin's own view shows of a link, such as a Jira issue.
-    Plugin {
-        url: String,
-        shown: Entity<crate::plugin_pane::PluginPane>,
-    },
+    Terminal { session: u64, title: String },
 }
 
 impl DeskItem {
@@ -160,7 +164,6 @@ impl DeskItem {
         match self {
             DeskItem::File(_) => DeskKind::Files,
             DeskItem::Terminal { .. } => DeskKind::Terminals,
-            DeskItem::Hosted { .. } | DeskItem::Plugin { .. } => DeskKind::Pages,
         }
     }
 
@@ -171,18 +174,11 @@ impl DeskItem {
                 DeskItem::Terminal { session: one, .. },
                 DeskItem::Terminal { session: other, .. },
             ) => one == other,
-            (DeskItem::Hosted { url: one, .. }, DeskItem::Hosted { url: other, .. })
-            | (DeskItem::Plugin { url: one, .. }, DeskItem::Plugin { url: other, .. }) => {
-                one == other
-            }
             _ => false,
         }
     }
 }
 
-/// What a desk shows, as its switch names it: its pages, its files, its task terminals, or its
-/// simulator. Only the pages and the simulator are kept; files and terminals are shown by
-/// bringing one to the front.
 impl Desks {
     /// A page's site icon from the `data:` image it sends, decoded the first time it is drawn.
     fn favicon(&self, data: &str) -> Option<Arc<gpui_kit::Image>> {
@@ -203,20 +199,30 @@ impl Desks {
 /// How many site icons the desks keep decoded.
 const MAX_FAVICONS: usize = 64;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+/// How long the desks are left to settle before the core hears what they hold.
+const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// How long Open waits for its desk to come out before giving up on focusing the page.
+const PAGE_WANTED_FOR: Duration = Duration::from_secs(3);
+
+/// What a desk shows, as its switch names it: its pages, its files, its task terminals, its
+/// simulator, or the calls of its project. Only the pages, the simulator and the calls are kept;
+/// files and terminals are shown by bringing one to the front.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DeskKind {
     #[default]
     Pages,
     Files,
     Terminals,
     Simulator,
+    Calls,
 }
 
 /// One desk's page area and address bar.
-struct Page {
-    surface: NativeSurface,
-    focus: FocusHandle,
-    address: Entity<InputState>,
+pub(crate) struct Page {
+    pub(crate) surface: NativeSurface,
+    pub(crate) focus: FocusHandle,
+    pub(crate) address: Entity<InputState>,
     _typing: Subscription,
 }
 
@@ -226,17 +232,22 @@ enum Heard {
     Downloaded(BrowserDownload),
     Shortcut(BrowserShortcut),
     Acting(String),
+    Snipped(sikemux_browser::snip::Snip),
+    SnipEnded(String),
+    /// A click in snip mode on `agent`'s page, with the note written on it.
+    Pinned(String, String, serde_json::Value),
+    PinAnswered(sikemux_browser::pins::PinAnswer),
 }
 
 impl Desks {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (heard, hearing) = mpsc::unbounded_channel();
-        sikemux_core::runtime::set(runtime().handle().clone());
+        sikemux_base::runtime::set(runtime().handle().clone());
         let home = sikemux_process::paths::config_dir();
         let page_files = Arc::new(PageFiles {
             folder: home
                 .as_ref()
-                .map(|home| home.join(sikemux_core::pages::FOLDER).join("tabs")),
+                .map(|home| home.join(sikemux_base::pages::FOLDER).join("tabs")),
             theme: Mutex::new(
                 cx.try_global::<Tokens>()
                     .map(desk_theme)
@@ -252,7 +263,7 @@ impl Desks {
         let engine = window_pointer(window).map(|view| {
             BrowserManager::new(Arc::new(DeskHost {
                 view,
-                heard,
+                heard: heard.clone(),
                 home,
                 pages: page_files.clone(),
             }))
@@ -274,7 +285,10 @@ impl Desks {
             pages: HashMap::new(),
             known: HashMap::new(),
             kinds: HashMap::new(),
+            call_pages: HashMap::new(),
             present: HashSet::new(),
+            working: HashSet::new(),
+            finished_runs: HashSet::new(),
             page_files,
             items: HashMap::new(),
             front: HashMap::new(),
@@ -282,10 +296,16 @@ impl Desks {
             favicons: Default::default(),
             placed_runs: HashSet::new(),
             runs_read: false,
+            restored: None,
             address_wanted: None,
+            page_wanted: None,
             floating: None,
             tab_scrolls: Default::default(),
             hearing,
+            told: heard,
+            snips: HashMap::new(),
+            pictures: width::Pictures::default(),
+            pins_shown: pins::PinsShown::default(),
             _theming: theming,
         }
     }
@@ -294,8 +314,8 @@ impl Desks {
         self.engine.as_ref()
     }
 
-    /// Agents whose pages or device came back from before an update's restart, let go on the
-    /// first view if they are no longer in it.
+    /// Agents whose pages or device came back from the last run, let go on the first view if
+    /// they are no longer in it.
     pub fn expect(&mut self, agents: impl IntoIterator<Item = String>) {
         self.present.extend(agents);
     }
@@ -305,10 +325,12 @@ impl Desks {
         self.pages.remove(agent);
         self.known.remove(agent);
         self.kinds.remove(agent);
+        self.call_pages.remove(agent);
         self.items.remove(agent);
         self.front.remove(agent);
         self.last_front.retain(|(held, _), _| held != agent);
         self.tab_scrolls.borrow_mut().remove(agent);
+        self.snips.remove(agent);
     }
 
     fn show_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
@@ -316,10 +338,11 @@ impl Desks {
         cx.notify();
     }
 
-    /// What the desk shows now: its simulator, else whatever is in front of its pages.
+    /// What the desk shows now: its simulator or its calls, else whatever is in front of its
+    /// pages.
     fn kind_of(&self, agent: &str) -> DeskKind {
-        if self.kinds.get(agent) == Some(&DeskKind::Simulator) {
-            return DeskKind::Simulator;
+        if let Some(kind @ (DeskKind::Simulator | DeskKind::Calls)) = self.kinds.get(agent) {
+            return *kind;
         }
         self.front
             .get(agent)
@@ -330,10 +353,9 @@ impl Desks {
     /// were asked for with none to show, so a blank one opens.
     fn pick_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) -> bool {
         match kind {
-            DeskKind::Simulator => self.show_kind(agent, DeskKind::Simulator, cx),
+            DeskKind::Simulator | DeskKind::Calls => self.show_kind(agent, kind, cx),
             DeskKind::Pages => {
-                self.show_kind(agent, DeskKind::Pages, cx);
-                self.front.remove(agent);
+                self.turn_to_pages(agent, cx);
                 return (self.strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
             }
             DeskKind::Files | DeskKind::Terminals => {
@@ -352,6 +374,32 @@ impl Desks {
             }
         }
         false
+    }
+
+    /// Asks for the agent's page to take the keys once its desk is in the tab in front.
+    fn want_page_focused(&mut self, agent: &str) {
+        self.page_wanted = Some((agent.to_owned(), Instant::now()));
+    }
+
+    /// The agent whose page is wanted focused, once one of `in_front` shows it, and only once.
+    /// A wish older than [`PAGE_WANTED_FOR`] lapses, so a desk that comes out much later leaves
+    /// the keys where they are.
+    fn take_page_wanted(&mut self, in_front: &[String], now: Instant) -> Option<String> {
+        let (agent, at) = self.page_wanted.as_ref()?;
+        if now.duration_since(*at) > PAGE_WANTED_FOR {
+            self.page_wanted = None;
+            return None;
+        }
+        if !in_front.contains(agent) {
+            return None;
+        }
+        self.page_wanted.take().map(|(agent, _)| agent)
+    }
+
+    /// Turns the desk to its pages, with no file or terminal in front of them.
+    fn turn_to_pages(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.show_kind(agent, DeskKind::Pages, cx);
+        self.front.remove(agent);
     }
 
     /// Shows `item` in front of the agent's pages, remembered as its kind's last.
@@ -375,7 +423,21 @@ impl Desks {
         cx.notify();
     }
 
-    /// Takes an item off the agent's desk; the last one left comes to the front, else its pages.
+    /// Takes the terminals of the agent's finished runs off its desk, but the one in front.
+    fn clear_finished_runs(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let front = self.front.get(agent);
+        let done: Vec<DeskItem> = (self.items.get(agent).into_iter().flatten())
+            .filter(|item| {
+                matches!(item, DeskItem::Terminal { session, .. } if self.finished_runs.contains(session))
+                    && front.is_none_or(|front| !front.same(item))
+            })
+            .cloned()
+            .collect();
+        for item in &done {
+            self.take_off(agent, item, cx);
+        }
+    }
+
     fn take_off(&mut self, agent: &str, item: &DeskItem, cx: &mut Context<Self>) {
         let Some(items) = self.items.get_mut(agent) else {
             return;
@@ -416,11 +478,49 @@ impl Desks {
         cx.notify();
     }
 
-    /// The files on every desk.
+    /// What every agent has out on its desk, as the core hears it.
+    fn held(
+        &self,
+        sims: &crate::sim::pane::Simulators,
+    ) -> std::collections::BTreeMap<String, AgentDesk> {
+        let mut held: std::collections::BTreeMap<String, AgentDesk> = Default::default();
+        for (agent, strip) in &self.strips {
+            let pages = (strip.tabs.iter())
+                .filter(|tab| !idle_blank(tab))
+                .map(|tab| sikemux_view::goals::DeskPage {
+                    id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    url: tab.url.clone(),
+                });
+            let desk = held.entry(agent.clone()).or_default();
+            desk.pages.extend(pages);
+        }
+        for (agent, items) in &self.items {
+            let desk = held.entry(agent.clone()).or_default();
+            for item in items {
+                match item {
+                    DeskItem::File(path) => desk.files.push(path.to_string_lossy().into_owned()),
+                    DeskItem::Terminal { session, title } => desk.terminals.push(DeskTerminal {
+                        session: *session,
+                        title: title.clone(),
+                        running: false,
+                    }),
+                }
+            }
+        }
+        for agent in self.kinds.keys() {
+            if let Some(device) = sims.device_name(agent) {
+                held.entry(agent.clone()).or_default().simulator = Some(device.to_owned());
+            }
+        }
+        held.retain(|_, desk| *desk != AgentDesk::default());
+        held
+    }
+
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
             DeskItem::File(path) => Some(path),
-            DeskItem::Terminal { .. } | DeskItem::Hosted { .. } | DeskItem::Plugin { .. } => None,
+            DeskItem::Terminal { .. } => None,
         })
     }
 }
@@ -461,13 +561,15 @@ fn window_pointer(window: &Window) -> Option<usize> {
     gpui_native_view::window_x11(window).map(|window| window as usize)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn window_pointer(_: &Window) -> Option<usize> {
-    None
+#[cfg(windows)]
+fn window_pointer(window: &Window) -> Option<usize> {
+    sikemux_browser::run_pages_on_this_thread();
+    gpui_native_view::window_hwnd(window).map(|window| window as usize)
 }
 
 struct DeskHost {
-    /// GPUI's own view of the window on macOS, its X11 id on Linux; it outlives the engine.
+    /// GPUI's own view of the window on macOS, its X11 id on Linux, its handle on Windows; it
+    /// outlives the engine.
     view: usize,
     heard: mpsc::UnboundedSender<Heard>,
     home: Option<PathBuf>,
@@ -492,8 +594,8 @@ impl Host for DeskHost {
         Some(sikemux_process::paths::home()?.join("Movies"))
     }
 
-    fn page_url(&self, agent_id: &str, html: &str) -> Result<String, String> {
-        self.pages.url(&draft_name(agent_id), html)
+    fn page_url(&self, agent_id: &str, html: &str, written_in: &Path) -> Result<String, String> {
+        self.pages.url(&draft_name(agent_id), html, written_in)
     }
 
     fn tabs_changed(&self) {
@@ -514,7 +616,7 @@ impl Host for DeskHost {
 }
 
 /// Where the pages agents show on their desks are kept, drawn in the window's theme.
-struct PageFiles {
+pub(crate) struct PageFiles {
     folder: Option<PathBuf>,
     theme: Mutex<String>,
     /// What a tab's page shows until it draws, on Linux.
@@ -523,20 +625,41 @@ struct PageFiles {
 }
 
 impl PageFiles {
-    /// An address for `html` in a desk tab, kept as `name` so showing it again replaces the copy.
-    fn url(&self, name: &str, html: &str) -> Result<String, String> {
+    /// An address for `html`, written in `written_in`, in a desk tab, kept as `name` so showing
+    /// it again replaces the copy.
+    pub(crate) fn url(&self, name: &str, html: &str, written_in: &Path) -> Result<String, String> {
+        self.page_url(name, html, None, Some(written_in))
+    }
+
+    /// An address for a page the core keeps, with the videos and sounds in `media` beside it.
+    pub(crate) fn kept_url(
+        &self,
+        id: &str,
+        page: &sikemux_calls::harness::PageHtml,
+    ) -> Result<String, String> {
+        let media = (page.media.as_deref()).filter(|media| media.is_dir());
+        self.page_url(id, &page.html, media, page.written_in.as_deref())
+    }
+
+    fn page_url(
+        &self,
+        name: &str,
+        html: &str,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+    ) -> Result<String, String> {
         let folder = self
             .folder
             .as_ref()
             .ok_or("Sikemux has no folder to keep pages in")?;
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
         let path = folder.join(format!("{name}.html"));
-        let themed = sikemux_core::pages::themed(html, &self.theme.locked(), None);
+        let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
         std::fs::write(&path, themed).map_err(|error| error.to_string())?;
-        self.engine()?.local_file_url(&path)
+        self.engine()?.local_page_url(&path, media, written_in)
     }
 
-    fn engine(&self) -> Result<Arc<BrowserManager>, String> {
+    pub(crate) fn engine(&self) -> Result<Arc<BrowserManager>, String> {
         self.engine
             .get()
             .and_then(Weak::upgrade)
@@ -572,7 +695,7 @@ impl Surface for DeskPage {
             holes: Vec::new(),
             dim: 0.,
             opacity: 1.,
-            bottom_radius: f64::from(f32::from(RADIUS_3) - 1.),
+            bottom_radius: f64::from(f32::from(radius_3()) - 1.),
         });
         if let Err(error) = self.engine.set_bounds(&self.agent, bounds) {
             eprintln!("sikemux: the desk's page could not be placed: {error}");
@@ -586,9 +709,54 @@ impl Surface for DeskPage {
 }
 
 impl Workbench {
+    /// The desks changed, so the core hears what they hold once they settle.
+    pub(crate) fn desks_moved(&mut self, cx: &mut Context<Self>) {
+        if self.desk_news.telling.is_some() {
+            return;
+        }
+        self.desk_news.telling = Some(cx.spawn(async move |bench, cx| {
+            cx.background_executor().timer(DESKS_SETTLE).await;
+            let _ = bench.update(cx, |bench, cx| {
+                bench.desk_news.telling = None;
+                bench.tell_desks(cx);
+            });
+        }));
+    }
+
+    fn tell_desks(&mut self, cx: &App) {
+        let mut params = sikemux_view::goals::DesksParams {
+            desks: self.desks.read(cx).held(self.sims.read(cx)),
+        };
+        let opened = self.opened_ask.as_ref().filter(|ask| ask.narrowed);
+        if let Some(opened) = opened {
+            if let Some(desk) = params.desks.get_mut(&opened.agent) {
+                desk.ask = Some(opened.id);
+            }
+        }
+        if self.desk_news.sent.as_ref() == Some(&params) {
+            return;
+        }
+        self.desk_news.sent = Some(params.clone());
+        let told = crate::core::Target::here(&self.asks)
+            .request_typed::<sikemux_calls::call::SetDesks>(params);
+        cx.foreground_executor()
+            .spawn(async move {
+                let _ = told.await;
+            })
+            .detach();
+    }
+
     fn hear(&mut self, heard: Heard, window: &mut Window, cx: &mut Context<Self>) {
         match heard {
-            Heard::Tabs => self.read_strips(cx),
+            Heard::Tabs => {
+                self.read_strips(cx);
+                self.desks.read(cx).rearm_snips();
+                self.show_pins(cx);
+            }
+            Heard::Pinned(agent, tab, pin) => self.pinned(&agent, tab, pin, cx),
+            Heard::PinAnswered(answer) => self.pin_answered(answer, cx),
+            Heard::Snipped(snip) => self.snipped(snip, window, cx),
+            Heard::SnipEnded(agent) => self.snip_ended(&agent, cx),
             Heard::Downloaded(download) => {
                 #[cfg(feature = "drive")]
                 crate::drive::trace(format_args!(
@@ -625,9 +793,10 @@ impl Workbench {
     }
 
     /// Closes the pages and lets go of the device of each agent that left the view, and lets go
-    /// of the device of each agent that went to sleep, so another agent can take it up.
+    /// of the device of each agent that went to sleep or ended its turn, so another agent can
+    /// take it up.
     pub(crate) fn forget_departed(&mut self, cx: &mut Context<Self>) {
-        let Some(view) = &self.view else {
+        let Some(view) = self.this_view() else {
             return;
         };
         let agents = &view.workspace.agents;
@@ -637,8 +806,23 @@ impl Workbench {
             .filter(|agent| agent.asleep && self.sims.read(cx).attached_by(&agent.id))
             .map(|agent| agent.id.clone())
             .collect();
-        let departed = self.desks.update(cx, |desks, cx| {
+        let working: HashSet<String> = (view.inbox.agents.iter())
+            .filter(|row| matches!(row.status, AgentStatus::Working | AgentStatus::Blocked))
+            .map(|row| row.agent_id.clone())
+            .collect();
+        let (departed, ended) = self.desks.update(cx, |desks, cx| {
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
+            let ended: Vec<String> = (desks.working.difference(&working))
+                .filter(|agent| present.contains(*agent))
+                .cloned()
+                .collect();
+            for agent in &ended {
+                if let Some(engine) = &desks.engine {
+                    engine.end_turn(agent);
+                }
+                desks.clear_finished_runs(agent, cx);
+            }
+            desks.working = working;
             desks.present = present;
             for agent in &departed {
                 if let Some(engine) = &desks.engine {
@@ -649,10 +833,13 @@ impl Workbench {
             if !departed.is_empty() {
                 cx.notify();
             }
-            departed
+            (departed, ended)
         });
         for agent in departed.iter().chain(&asleep) {
             self.sims.update(cx, |sims, _| sims.let_go_device(agent));
+        }
+        for agent in &ended {
+            self.sims.update(cx, |sims, _| sims.turn_ended(agent));
         }
     }
 
@@ -663,8 +850,7 @@ impl Workbench {
             return;
         };
         let agents: Vec<String> = self
-            .view
-            .as_ref()
+            .this_view()
             .map(|view| {
                 view.workspace
                     .agents
@@ -694,32 +880,35 @@ impl Workbench {
             if emptied {
                 self.shut_empty_desk(&agent, cx);
             }
+            self.take_pictures(&agent, cx);
         }
     }
 
     /// Shuts the agent's desk once nothing is left on it, so no empty desk stays open.
     fn shut_empty_desk(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let empty = self.desk_kind(agent, cx) != DeskKind::Simulator
-            && self
-                .desks
-                .read(cx)
-                .items
-                .get(agent)
-                .is_none_or(Vec::is_empty)
+        let empty = !matches!(
+            self.desk_kind(agent, cx),
+            DeskKind::Simulator | DeskKind::Calls
+        ) && self
+            .desks
+            .read(cx)
+            .items
+            .get(agent)
+            .is_none_or(Vec::is_empty)
             && (self.desks.read(cx).strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
         if !empty {
             return;
         }
         if let Some((strip, tab, desk)) = self.desk_place(agent) {
-            if !self.panes.desk_shutting(&desk) {
-                self.shut_desk(strip, tab, desk, cx);
+            if !self.panes.shutting(&desk) {
+                self.shut_desk(Target::here(&self.asks), strip, tab, desk, cx);
             }
         }
     }
 
     /// The project tab holding the agent's desk, its strip and the desk's view there.
     fn desk_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        let layout = &self.view.as_ref()?.layout;
+        let layout = &self.this_view()?.layout;
         layout.projects.iter().find_map(|(project, strip)| {
             strip.tabs.iter().find_map(|tab| {
                 view_of(&tab.pane, PaneKind::Desk, agent)
@@ -730,13 +919,7 @@ impl Workbench {
 
     /// The project tab holding the agent, its strip and its view there, wherever it is.
     fn agent_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        let layout = &self.view.as_ref()?.layout;
-        layout.projects.iter().find_map(|(project, strip)| {
-            strip.tabs.iter().find_map(|tab| {
-                view_of(&tab.pane, PaneKind::Agent, agent)
-                    .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
-            })
-        })
+        agent_place_in(self.this_view()?, agent)
     }
 
     /// Whether the agent's desk is in the tab in front, or about to be, as `show_pages` brings
@@ -749,8 +932,8 @@ impl Workbench {
         })
     }
 
-    fn desk_open_anywhere(&self, agent: &str) -> bool {
-        self.view.as_ref().is_some_and(|view| {
+    pub(crate) fn desk_open_anywhere(&self, agent: &str) -> bool {
+        self.this_view().is_some_and(|view| {
             view.layout.projects.values().any(|strip| {
                 strip
                     .tabs
@@ -762,7 +945,8 @@ impl Workbench {
 
     fn reveal_desk(&self, agent: &str) {
         if let Some((strip, tab, view)) = self.agent_place(agent) {
-            self.split_pane(&strip, &tab, &view, PaneKind::Desk, agent, true);
+            let here = Target::here(&self.asks);
+            self.split_desk(&here, &strip, &tab, &view, agent, true);
         }
     }
 
@@ -776,7 +960,17 @@ impl Workbench {
         }
     }
 
-    /// What the desk shows now: its simulator, else whatever is in front of its pages.
+    /// Turns the agent's desk to the calls of its project, bringing the desk out if it is closed.
+    pub(crate) fn show_calls(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.desks
+            .update(cx, |desks, cx| desks.show_kind(agent, DeskKind::Calls, cx));
+        if !self.desk_open_anywhere(agent) {
+            self.reveal_desk(agent);
+        }
+    }
+
+    /// What the desk shows now: its simulator or its calls, else whatever is in front of its
+    /// pages.
     pub(crate) fn desk_kind(&self, agent: &str, cx: &App) -> DeskKind {
         self.desks.read(cx).kind_of(agent)
     }
@@ -826,9 +1020,7 @@ impl Workbench {
     fn close_desk_item(&mut self, agent: &str, item: DeskItem, cx: &mut Context<Self>) {
         let closing = match &item {
             DeskItem::File(path) => vec![crate::editor::FileKey::new(self.place(), path)],
-            DeskItem::Terminal { .. } | DeskItem::Hosted { .. } | DeskItem::Plugin { .. } => {
-                Vec::new()
-            }
+            DeskItem::Terminal { .. } => Vec::new(),
         };
         let agent = agent.to_owned();
         crate::editor::close_unsaved(
@@ -861,8 +1053,9 @@ impl Workbench {
     }
 
     /// Puts the terminal of each task an agent starts on that agent's desk, as its run opens one,
-    /// in place of the terminal of the task's earlier run, and takes it off once the run is stopped.
-    /// Runs going when the window first reads them join their desks behind.
+    /// in place of the terminal of the task's earlier run or of its earlier run under the same
+    /// label, and takes it off once the run is stopped. Runs going when the window first reads
+    /// them join their desks behind.
     pub(crate) fn place_agent_runs(&mut self, cx: &mut Context<Self>) {
         struct AgentRun {
             execution: String,
@@ -872,7 +1065,7 @@ impl Workbench {
             title: String,
             stopped: bool,
         }
-        let runs: Vec<AgentRun> = (self.reads.runs.iter())
+        let runs: Vec<AgentRun> = (self.feeds.in_front().runs.iter())
             .filter_map(|listed| {
                 let run = &listed.run;
                 Some(AgentRun {
@@ -885,6 +1078,12 @@ impl Workbench {
                 })
             })
             .collect();
+        let finished = (self.feeds.in_front().runs.iter())
+            .filter(|listed| matches!(listed.run.status, RunStatus::Completed | RunStatus::Failed))
+            .filter_map(|listed| listed.run.pty_id)
+            .collect();
+        self.desks
+            .update(cx, |desks, _| desks.finished_runs = finished);
         let terminal = |session| DeskItem::Terminal {
             session,
             title: String::new(),
@@ -914,7 +1113,9 @@ impl Workbench {
                 continue;
             }
             let earlier = runs.iter().filter(|other| {
-                other.session != run.session && other.agent == run.agent && other.task == run.task
+                other.session != run.session
+                    && other.agent == run.agent
+                    && (other.task == run.task || other.title == run.title)
             });
             for other in earlier {
                 let item = terminal(other.session);
@@ -960,40 +1161,92 @@ impl Workbench {
         view_of(&tab.pane, PaneKind::Desk, agent)
     }
 
-    /// Opens the agent's desk beside its view, or closes it when it is open.
+    /// Steps the agent's desk between shut and beside the agent; a desk filling its tab comes
+    /// back to beside it.
     pub fn toggle_desk(&mut self, tab: &str, view: &str, agent: &str, cx: &mut Context<Self>) {
         let Some(strip) = self.strip() else {
             return;
         };
-        match self.desk_of(tab, agent) {
-            Some(desk) if self.panes.desk_shutting(&desk) => {
-                self.panes.slide_desk(&desk, true);
+        let Some(desk) = self.desk_of(tab, agent) else {
+            self.split_desk(&self.target(), &strip, tab, view, agent, false);
+            return self.open_first_page(agent, cx);
+        };
+        if self.narrow_desk(&desk, view, cx) {
+            return;
+        }
+        match self.panes.shutting(&desk) {
+            true => {
+                self.panes.slide_view(&desk, true);
                 self.parts.redraw_stage(cx);
             }
-            Some(desk) => self.shut_desk(strip, tab.to_owned(), desk, cx),
-            None => {
-                self.split_pane(&strip, tab, view, PaneKind::Desk, agent, false);
-                self.open_first_page(agent, cx);
-            }
+            false => self.shut_desk(self.target(), strip, tab.to_owned(), desk, cx),
         }
     }
 
-    /// Slides the desk back to the window's edge, then closes it unless it was opened again.
-    fn shut_desk(&mut self, strip: Strip, tab: String, desk: String, cx: &mut Context<Self>) {
-        if cx.reduce_motion() {
-            return self.close_pane(&strip, &tab, &desk);
+    /// Slides the agent `owner` back beside `desk` if the desk fills its tab or is on its way
+    /// to, answering whether it did.
+    fn narrow_desk(&mut self, desk: &str, owner: &str, cx: &mut Context<Self>) -> bool {
+        let alone = self.panes.zoomed.as_deref() == Some(desk);
+        let widening = self.panes.widening.as_deref() == Some(desk);
+        if !alone && !widening {
+            return false;
         }
-        let lasts = self.panes.slide_desk(&desk, false);
+        self.panes.zoomed = None;
+        self.panes.widening = None;
+        if !cx.reduce_motion() {
+            self.panes.slide_view(owner, true);
+        }
+        self.parts.redraw_stage(cx);
+        true
+    }
+
+    /// Slides the desk back to the window's edge, then closes it unless it was opened again.
+    /// A desk filling its tab, or on its way to, slides its agent back out as it goes. A desk
+    /// out of sight closes at once, since only the tab being drawn keeps its slide.
+    fn shut_desk(
+        &mut self,
+        to: Target,
+        strip: Strip,
+        tab: String,
+        desk: String,
+        cx: &mut Context<Self>,
+    ) {
+        let alone = self.panes.zoomed.as_ref() == Some(&desk);
+        if alone {
+            self.panes.zoomed = None;
+        }
+        if self.panes.widening.as_ref() == Some(&desk) {
+            self.panes.widening = None;
+        }
+        let in_sight = self.tab().is_some_and(|front| front.id == tab);
+        if cx.reduce_motion() || !in_sight {
+            return self.close_pane(&to, &strip, &tab, &desk);
+        }
+        let mut lasts = self.panes.slide_view(&desk, false);
+        if let Some(owner) = self.desk_owner(&strip, &tab, &desk) {
+            let back = match alone {
+                true => self.panes.slide_view(&owner, true),
+                false => self.panes.reopen(&owner),
+            };
+            lasts = lasts.max(back);
+        }
         self.parts.redraw_stage(cx);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(lasts).await;
             let _ = this.update(cx, |bench, _| {
-                if bench.panes.desk_shutting(&desk) {
-                    bench.close_pane(&strip, &tab, &desk);
+                if bench.panes.shutting(&desk) {
+                    bench.close_pane(&to, &strip, &tab, &desk);
                 }
             });
         })
         .detach();
+    }
+
+    /// The view of the agent whose desk is the view `desk` of `tab`.
+    fn desk_owner(&self, strip: &Strip, tab: &str, desk: &str) -> Option<String> {
+        let pane = &self.tabs(strip).iter().find(|held| held.id == tab)?.pane;
+        let agent = crate::panes::find_view(pane, desk)?.target;
+        view_of(pane, PaneKind::Agent, agent)
     }
 
     /// The agent in the pane the person last used, else the tab's first agent, with its view.
@@ -1029,13 +1282,15 @@ impl Workbench {
                 Some((
                     agent.active_at,
                     agent.id.clone(),
-                    self.agent_place(&agent.id)?,
+                    agent_place_in(self.shown()?, &agent.id)?,
                 ))
             })
             .max_by_key(|(active_at, ..)| *active_at);
         let Some((_, agent, (strip, tab, view))) = placed else {
             self.notify(
-                toast::info("Start an agent first — the desk and its browser belong to one"),
+                toast::info(t!(
+                    "Start an agent first — the desk and its browser belong to one"
+                )),
                 cx,
             );
             return None;
@@ -1063,6 +1318,50 @@ impl Workbench {
         }
     }
 
+    /// Steps the nearest agent's desk between beside the agent and filling its tab; a shut desk
+    /// opens beside the agent first.
+    pub fn toggle_desk_alone(&mut self, cx: &mut Context<Self>) {
+        let Some((tab, view, agent)) = self.nearest_agent(cx) else {
+            return;
+        };
+        let Some(desk) = self.desk_of(&tab, &agent) else {
+            return self.toggle_desk(&tab, &view, &agent, cx);
+        };
+        if self.narrow_desk(&desk, &view, cx) {
+            return;
+        }
+        if self.panes.shutting(&desk) {
+            self.panes.slide_view(&desk, true);
+            return self.parts.redraw_stage(cx);
+        }
+        self.widen_desk(desk, view, cx);
+    }
+
+    /// Slides the view `beside` shut until `desk` has its tab, then lets the desk fill it.
+    fn widen_desk(&mut self, desk: String, beside: String, cx: &mut Context<Self>) {
+        if cx.reduce_motion() {
+            self.panes.forget_slide(&desk);
+            self.panes.zoomed = Some(desk);
+            return self.parts.redraw_stage(cx);
+        }
+        let lasts = (self.panes.slide_view(&beside, false)).max(self.panes.reopen(&desk));
+        self.panes.widening = Some(desk.clone());
+        self.parts.redraw_stage(cx);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(lasts).await;
+            let _ = this.update(cx, |bench, cx| {
+                if bench.panes.widening.as_ref() != Some(&desk) {
+                    return;
+                }
+                bench.panes.widening = None;
+                bench.panes.zoomed = Some(desk);
+                bench.panes.forget_slide(&beside);
+                bench.parts.redraw_stage(cx);
+            });
+        })
+        .detach();
+    }
+
     /// The nearest agent's desk, turned to its simulator.
     pub fn front_simulator(&mut self, cx: &mut Context<Self>) {
         if let Some((_, _, agent)) = self.nearest_agent(cx) {
@@ -1078,7 +1377,7 @@ impl Workbench {
         self.desks
             .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
         if let (None, Some(strip)) = (self.desk_of(&tab, &agent), self.strip()) {
-            self.split_pane(&strip, &tab, &view, PaneKind::Desk, &agent, false);
+            self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
         }
         self.new_page(&agent, cx);
     }
@@ -1131,18 +1430,12 @@ impl Workbench {
             .copied()
             .unwrap_or_default()
         {
-            DeskKind::Simulator => {
+            DeskKind::Simulator | DeskKind::Calls => {
                 self.desks
                     .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
                 true
             }
             _ => {
-                if let Some(linked @ (DeskItem::Hosted { .. } | DeskItem::Plugin { .. })) =
-                    self.desks.read(cx).front.get(&agent).cloned()
-                {
-                    self.close_desk_item(&agent, linked, cx);
-                    return true;
-                }
                 let shown = self
                     .desks
                     .read(cx)
@@ -1169,7 +1462,7 @@ impl Workbench {
         self.desks
             .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
         if let (None, Some(strip)) = (self.desk_of(&tab, &agent), self.strip()) {
-            self.split_pane(&strip, &tab, &view, PaneKind::Desk, &agent, false);
+            self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
         }
         self.open_first_page(&agent, cx);
         self.desks.update(cx, |desks, cx| {
@@ -1239,198 +1532,93 @@ impl Workbench {
         }
         let agent = agent.to_owned();
         runtime().spawn(async move {
-            if let Err(error) = engine.open_tab(&agent, None).await {
-                eprintln!("sikemux: the desk could not open a page: {error}");
+            match engine.open_tab(&agent, None).await {
+                Ok(tab_id) => engine.keep(&agent, &tab_id),
+                Err(error) => eprintln!("sikemux: the desk could not open a page: {error}"),
             }
         });
     }
 
     /// Opens `url` in a new page on `agent`'s desk, bringing the agent and its desk to the
     /// front. Answers false when this window has no browser, so the caller can open it elsewhere.
-    pub fn open_on_desk(&mut self, agent: &str, url: &str, cx: &App) -> bool {
+    pub fn open_on_desk(&mut self, agent: &str, url: &str, cx: &mut Context<Self>) -> bool {
         if self.desks.read(cx).engine.is_none() {
             return false;
         }
-        self.open_agent(agent);
+        self.open_agent(agent, cx);
         self.show_on_desk(agent, url, cx)
     }
 
-    /// Opens a link on `agent`'s desk: the pull request it names, as the Git tab shows one,
-    /// else its web page. Answers false when this window has no browser, so the caller can
-    /// open it elsewhere.
-    pub fn open_link_on_desk(&mut self, agent: &str, url: &str, cx: &mut Context<Self>) -> bool {
-        if self.desks.read(cx).engine.is_none() {
-            return false;
-        }
-        let held = (self.desks.read(cx).items.get(agent).into_iter().flatten())
-            .find(|item| match item {
-                DeskItem::Hosted { url: held, .. } | DeskItem::Plugin { url: held, .. } => {
-                    held == url
-                }
-                _ => false,
-            })
-            .cloned();
-        if let Some(held) = held {
-            self.open_agent(agent);
-            self.put_on_desk(agent, held, true, cx);
-            return true;
-        }
-        let target = self.chat_target(agent);
-        let hosted = target.request("codeHostLink", json!({ "url": url }));
-        let plugin = target.request("pluginLink", json!({ "url": url }));
-        let (agent, url) = (agent.to_owned(), url.to_owned());
-        cx.spawn(async move |bench, cx| {
-            let hosted = hosted.await.ok().and_then(|found| {
-                let host = serde_json::from_value(found["codeHost"].clone()).ok()?;
-                Some((host, found["item"].clone()))
+    /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
+    /// or opens one, as the person's, clearing the look calls that show it.
+    pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
+        self.saw_page(id, cx);
+        let page = self
+            .chat_target(agent)
+            .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {
+                id: id.to_owned(),
             });
-            let plugin = match hosted {
-                Some(_) => None,
-                None => plugin.await.ok().and_then(|found| {
-                    Some((found["plugin"].as_str()?.to_owned(), found["at"].clone()))
-                }),
-            };
-            bench
-                .update(cx, |bench, cx| {
-                    match (hosted, plugin) {
-                        (Some((host, item)), _) => {
-                            bench.open_hosted_on_desk(&agent, &url, target, host, &item, cx)
-                        }
-                        (None, Some((plugin, at))) => {
-                            bench.open_plugin_on_desk(&agent, &url, target, &plugin, &at, cx)
-                        }
-                        (None, None) => {
-                            bench.open_on_desk(&agent, &url, cx);
-                        }
-                    }
-                    bench.parts.redraw_stage(cx);
-                })
-                .ok();
-        })
-        .detach();
-        true
-    }
-
-    /// Puts the pull request, issue or run `item` names of `host`'s repository on `agent`'s
-    /// desk, in front.
-    fn open_hosted_on_desk(
-        &mut self,
-        agent: &str,
-        url: &str,
-        target: crate::core::Target,
-        host: sikemux_wire::protocol::ProjectCodeHost,
-        item: &Value,
-        cx: &mut Context<Self>,
-    ) {
-        let project = self.agent_by_id(agent).and_then(|row| {
-            self.projects()
-                .iter()
-                .find(|project| project.id == row.project)
-                .cloned()
-        });
-        let bench = cx.entity().downgrade();
-        let (agent_id, link) = (agent.to_owned(), url.to_owned());
-        let shown = cx.new(|cx| {
-            HostArea::on_desk(
-                target,
-                bench,
-                agent_id,
-                link,
-                host,
-                item,
-                project.as_ref(),
-                cx,
-            )
-        });
-        self.open_agent(agent);
-        self.put_on_desk(
+        let (files, id) = (self.desks.read(cx).page_files.clone(), id.to_owned());
+        self.bring_page_forward(
             agent,
-            DeskItem::Hosted {
-                url: url.to_owned(),
-                shown,
-            },
-            true,
             cx,
+            |_| async move { files.kept_url(&id, &page.await?) },
         );
     }
 
-    /// Puts what `plugin`'s own view shows of `at` on `agent`'s desk, in front, or the link's
-    /// web page when its view cannot show it alone.
-    fn open_plugin_on_desk(
-        &mut self,
-        agent: &str,
-        url: &str,
-        target: crate::core::Target,
-        plugin: &str,
-        at: &Value,
-        cx: &mut Context<Self>,
-    ) {
-        let surface = crate::plugin_pane::surface(plugin).unwrap_or_default();
-        let place = format!("{plugin}:{surface}");
-        let slot = format!("desk-{agent}-{url}");
-        let bench = cx.entity().downgrade();
-        let shown = cx.new(|_| crate::plugin_pane::PluginPane::new(&place, slot, target, bench));
-        if !shown.update(cx, |shown, cx| shown.show_alone(at, cx)) {
-            self.open_on_desk(agent, url, cx);
-            return;
-        }
-        self.open_agent(agent);
-        self.put_on_desk(
-            agent,
-            DeskItem::Plugin {
-                url: url.to_owned(),
-                shown,
-            },
-            true,
-            cx,
-        );
+    /// Brings forward the tab on `agent`'s desk that shows the HTML file at `path` as a page,
+    /// or opens one, as the person's.
+    pub(crate) fn open_html_in_tab(&mut self, agent: &str, path: PathBuf, cx: &mut Context<Self>) {
+        self.bring_page_forward(agent, cx, move |engine| {
+            let url = engine.local_file_url(&path);
+            async move { url }
+        });
     }
 
-    /// The plugin views the desks hold, which hear as the plugin panes in tabs do that the
-    /// core read them again.
-    pub(crate) fn desk_plugin_panes(
-        &self,
-        cx: &App,
-    ) -> Vec<Entity<crate::plugin_pane::PluginPane>> {
-        (self.desks.read(cx).items.values().flatten())
-            .filter_map(|item| match item {
-                DeskItem::Plugin { shown, .. } => Some(shown.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Swaps the desk's pull request, issue or run `shown` for the web page of its link, which
-    /// the host could not show here.
-    pub(crate) fn desk_link_fell_back(
+    fn bring_page_forward<Url>(
         &mut self,
         agent: &str,
-        shown: gpui_kit::EntityId,
-        url: &str,
         cx: &mut Context<Self>,
-    ) {
-        let held = (self.desks.read(cx).items.get(agent).into_iter().flatten())
-            .find(|item| matches!(item, DeskItem::Hosted { shown: held, .. } if held.entity_id() == shown))
-            .cloned();
-        let Some(held) = held else {
+        url: impl FnOnce(&BrowserManager) -> Url,
+    ) where
+        Url: std::future::Future<Output = Result<String, String>> + Send + 'static,
+    {
+        let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
-        self.desks
-            .update(cx, |desks, cx| desks.take_off(agent, &held, cx));
-        self.show_on_desk(agent, url, cx);
-    }
-
-    /// Hands a watched read to the desks' pull requests, each taking only its own.
-    pub(crate) fn read_desk_pulls(&self, key: &str, value: &Value, cx: &mut Context<Self>) {
-        let shown: Vec<Entity<HostArea>> = (self.desks.read(cx).items.values().flatten())
-            .filter_map(|item| match item {
-                DeskItem::Hosted { shown, .. } => Some(shown.clone()),
-                _ => None,
-            })
-            .collect();
-        for shown in shown {
-            shown.update(cx, |shown, cx| shown.read(key, value, cx));
+        self.open_agent(agent, cx);
+        self.desks.update(cx, |desks, cx| {
+            desks.turn_to_pages(agent, cx);
+            desks.want_page_focused(agent);
+        });
+        if !self.desk_open_anywhere(agent) {
+            self.reveal_desk(agent);
         }
+        cx.notify();
+        let (agent, url) = (agent.to_owned(), url(&engine));
+        runtime().spawn(async move {
+            let shown = async {
+                let url = url.await?;
+                let open = (engine.snapshot(&agent).ok())
+                    .and_then(|strip| tab_showing(&strip, &url).map(str::to_owned));
+                match open {
+                    Some(tab) => engine
+                        .switch_tab(&agent, &tab)
+                        .map_err(|error| error.to_string()),
+                    None => {
+                        let tab_id = engine
+                            .open_tab(&agent, Some(&url))
+                            .await
+                            .map_err(|error| error.to_string())?;
+                        engine.keep(&agent, &tab_id);
+                        Ok(())
+                    }
+                }
+            };
+            if let Err(error) = shown.await {
+                eprintln!("sikemux: the page could not open in a tab: {error}");
+            }
+        });
     }
 
     /// Opens `url` in a new page on `agent`'s desk, leaving the tab in front where it is.
@@ -1461,19 +1649,33 @@ impl Workbench {
             cx.notify();
         });
         runtime().spawn(async move {
-            if let Err(error) = engine.open_tab(&agent, None).await {
-                eprintln!("sikemux: the desk could not open a page: {error}");
+            match engine.open_tab(&agent, None).await {
+                Ok(tab_id) => engine.keep(&agent, &tab_id),
+                Err(error) => eprintln!("sikemux: the desk could not open a page: {error}"),
             }
         });
     }
 
-    /// The page in front on the agent's desk.
+    /// Opens the latest tab closed on the desk in front again.
+    pub fn reopen_front_page(&self, cx: &App) {
+        let Some((_, _, agent)) = self.front_agent() else {
+            return;
+        };
+        let Some(engine) = self.desks.read(cx).engine.clone() else {
+            return;
+        };
+        runtime().spawn(async move {
+            if let Err(error) = engine.reopen_closed(&agent).await {
+                eprintln!("sikemux: the desk could not open a closed page again: {error}");
+            }
+        });
+    }
+
     fn front_page<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a sikemux_browser::BrowserTab> {
         let strip = self.desks.read(cx).strips.get(agent)?;
         (strip.tabs.iter()).find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
     }
 
-    /// The address of the page in front on the agent's desk.
     fn front_url<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a str> {
         self.front_page(agent, cx).map(|tab| tab.url.as_str())
     }
@@ -1502,7 +1704,7 @@ impl Workbench {
         });
     }
 
-    fn with_engine(
+    pub(crate) fn with_engine(
         &self,
         cx: &App,
         act: impl FnOnce(&BrowserManager) -> sikemux_browser::BrowserResult<()>,
@@ -1517,6 +1719,53 @@ impl Workbench {
 
 pub fn install(cx: &mut App) {
     address::install(cx);
+}
+
+/// Shuts the desks that came back from the last run with no pages, files or terminals on them,
+/// once the terminals have been read, since only a tab closing in sight shuts a desk otherwise.
+/// Each waits until the frame being drawn ends, since shutting one draws the stage again.
+fn shut_desks_restored_empty(
+    bench: &mut Workbench,
+    engine: &BrowserManager,
+    cx: &mut Context<Workbench>,
+) {
+    let Some(view) = bench.this_view() else {
+        return;
+    };
+    if bench.desks.read(cx).restored.is_none() {
+        let held: HashSet<String> = (view.layout.projects.values())
+            .flat_map(|strip| strip.tabs.iter())
+            .flat_map(|tab| crate::panes::views(&tab.pane))
+            .filter(|view| view.kind == PaneKind::Desk)
+            .map(|view| view.target.clone())
+            .collect();
+        bench
+            .desks
+            .update(cx, |desks, _| desks.restored = Some(held));
+    }
+    if !bench.desks.read(cx).runs_read {
+        return;
+    }
+    let restored = bench
+        .desks
+        .update(cx, |desks, _| desks.restored.replace(HashSet::new()))
+        .unwrap_or_default();
+    for agent in restored {
+        if !bench.desks.read(cx).strips.contains_key(&agent) {
+            let Ok(strip) = engine.snapshot(&agent) else {
+                continue;
+            };
+            let tabs = strip.tabs.iter().map(|tab| tab.id.clone()).collect();
+            bench.desks.update(cx, |desks, _| {
+                desks.known.insert(agent.clone(), tabs);
+                desks.strips.insert(agent.clone(), Arc::new(strip));
+            });
+        }
+        let this = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = this.update(cx, |bench, cx| bench.shut_empty_desk(&agent, cx));
+        });
+    }
 }
 
 /// Makes the page areas and address bars of the desks the tab in front shows.
@@ -1543,7 +1792,8 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
     let Some(engine) = bench.desks.read(cx).engine.clone() else {
         return;
     };
-    for agent in agents {
+    shut_desks_restored_empty(bench, &engine, cx);
+    for agent in agents.clone() {
         if bench.desks.read(cx).pages.contains_key(&agent) {
             continue;
         }
@@ -1557,7 +1807,7 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
             }
         }
         let address =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search or enter address"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search or enter address")));
         let typed = agent.clone();
         let typing = cx.subscribe_in(
             &address,
@@ -1585,6 +1835,13 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
         bench
             .desks
             .update(cx, |desks, _| desks.pages.insert(agent, page));
+    }
+    let wanted = (bench.desks).update(cx, |desks, _| {
+        desks.take_page_wanted(&agents, Instant::now())
+    });
+    if let Some(desk) = wanted.and_then(|agent| bench.desk_of(&bench.tab()?.id, &agent)) {
+        bench.focus_pane(desk.clone(), cx);
+        bench.focus_view(&desk, window, cx);
     }
     if let Some(agent) = bench.desks.read(cx).address_wanted.clone() {
         if bench.desks.read(cx).pages.contains_key(&agent) {
@@ -1616,151 +1873,19 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
     }
 }
 
-#[cfg(feature = "drive")]
-impl Workbench {
-    /// What each desk holds and where the keys are, for the test bundle's driver to check.
-    pub fn drive_state(&self, window: &Window, cx: &App) -> Value {
-        let desks = &self.desks.read(cx);
-        let agents: std::collections::BTreeSet<&String> = (desks.strips.keys())
-            .chain(desks.items.keys())
-            .chain(desks.kinds.keys())
-            .chain(desks.pages.keys())
-            .collect();
-        let item = |item: &DeskItem| match item {
-            DeskItem::File(path) => json!({ "file": path }),
-            DeskItem::Terminal { session, title } => {
-                json!({ "terminal": title, "session": session })
-            }
-            DeskItem::Hosted { url, .. } => json!({ "pull": url }),
-            DeskItem::Plugin { url, .. } => json!({ "plugin": url }),
-        };
-        let desk = |agent: &String| {
-            let page = desks.pages.get(agent);
-            let address = page.map(|page| page.address.read(cx));
-            let floating = desks
-                .floating
-                .as_ref()
-                .filter(|floating| floating.agent == *agent);
-            let floating_focused = floating.is_some_and(|floating| {
-                floating.input.read(cx).focus_handle(cx).is_focused(window)
-            });
-            let pages = desks.strips.get(agent).map(|strip| {
-                (strip.tabs.iter())
-                    .map(|tab| {
-                        json!({
-                            "title": tab.title,
-                            "url": tab.url,
-                            "active": tab.active,
-                            "loading": tab.loading,
-                            "back": tab.can_go_back,
-                            "forward": tab.can_go_forward,
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
-            json!({
-                "open": self.desk_open_anywhere(agent),
-                "kind": match desks.kinds.get(agent).copied().unwrap_or_default() {
-                    DeskKind::Simulator => "simulator",
-                    _ => "pages",
-                },
-                "pages": pages,
-                "items": desks.items.get(agent).map(|items| items.iter().map(item).collect::<Vec<_>>()),
-                "front": desks.front.get(agent).map(item),
-                "pageFocused": page.is_some_and(|page| page.focus.is_focused(window)),
-                "pageBounds": page.and_then(|page| page.surface.placed()).map(|frame| {
-                    let bounds = frame.visible;
-                    [bounds.left(), bounds.top(), bounds.size.width, bounds.size.height].map(f32::from)
-                }),
-                "addressFocused": floating_focused || address.is_some_and(|address| address.focus_handle(cx).is_focused(window)),
-                "addressFloating": floating.is_some(),
-                "address": address.map(|address| address.value().to_string()),
-            })
-        };
-        let files = (self.editors.read(cx).open_files(cx).into_iter())
-            .map(|(path, line, dirty)| json!({ "path": path, "line": line, "dirty": dirty }))
-            .collect::<Vec<_>>();
-        let size = window.viewport_size();
-        json!({
-            "window": [f32::from(size.width), f32::from(size.height)],
-            "contexts": window.context_stack().iter().map(|context| format!("{context:?}")).collect::<Vec<_>>(),
-            "desks": agents.into_iter().map(|agent| (agent.clone(), desk(agent))).collect::<serde_json::Map<_, _>>(),
-            "files": files,
-            "spots": crate::drive::spots(),
-            "rail": match self.rails.page {
-                crate::workbench::RailPage::Agents => "agents",
-                crate::workbench::RailPage::Terminals => "terminals",
-                crate::workbench::RailPage::Files => "files",
-            },
-            "railBounds": self.rails.frame.get(),
-            "tree": self.files.drive_state(),
-            "git": self.git.pane.as_ref().map(|git| git.read(cx).drive_state()),
-            "sky": crate::ui::grain::drive_state(window, cx),
-        })
-    }
-}
-
-/// What a page's download says: it started, failed, or finished with a way to keep the file.
-fn downloaded(download: &BrowserDownload) -> Notification {
-    let held = PathBuf::from(&download.path);
-    let name = held.file_name().map_or_else(
-        || download.url.clone(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    match download.state {
-        DownloadState::Started => toast::info(format!("Downloading {name}")),
-        DownloadState::Failed => toast::error(format!("Download of {name} failed")).autohide(false),
-        DownloadState::Finished => {
-            toast::success(format!("Downloaded {name}")).action(move |_, _, cx| {
-                let (note, held) = (cx.entity(), held.clone());
-                Button::new("keep-download")
-                    .label("Keep in Downloads")
-                    .children(ui::spot(|| "keep-download".into()))
-                    .on_click(move |_, window, cx| {
-                        match keep_download(&held) {
-                            Ok(kept) => cx.reveal_path(&kept),
-                            Err(error) => window.push_notification(
-                                toast::error(format!("The download was not kept: {error}")),
-                                cx,
-                            ),
-                        }
-                        note.update(cx, |note, cx| note.dismiss(window, cx));
-                    })
-            })
-        }
-    }
-}
-
-/// Moves a file a page saved from the browser's own folder into Downloads, beside what is
-/// there. A link keeps the file as macOS marked it on download and never replaces another.
-fn keep_download(held: &Path) -> Result<PathBuf, String> {
-    let downloads = sikemux_process::paths::home()
-        .ok_or("this account has no home folder")?
-        .join("Downloads");
-    let name = held
-        .file_name()
-        .ok_or("the download has no name")?
-        .to_string_lossy()
-        .into_owned();
-    let (stem, extension) = match name.rfind('.') {
-        Some(dot) if dot > 0 => name.split_at(dot),
-        _ => (name.as_str(), ""),
+fn snip_toggle(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> IconButton {
+    let label = match crate::keymap::hint(crate::workbench::actions::Snip::ID, cx) {
+        Some(keys) => t!("Snip to chat {keys}", keys = keys),
+        None => t!("Snip to chat").to_owned(),
     };
-    for n in 1..=100 {
-        let kept = match n {
-            1 => downloads.join(&name),
-            n => downloads.join(format!("{stem} ({n}){extension}")),
-        };
-        match std::fs::hard_link(held, &kept) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(held);
-                return Ok(kept);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    Err(format!("Downloads already has 100 files named like {name}"))
+    let agent = agent.to_owned();
+    IconButton::new("desk-snip", Icon::Snip, label)
+        .glyph(13.)
+        .pressed(bench.desks.read(cx).snipping(&agent))
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            crate::keymap::count(crate::workbench::actions::Snip::ID.name(), cx);
+            bench.toggle_snip(&agent, cx)
+        }))
 }
 
 /// What the address bar shows for a page: a local file as its path, a blank page as nothing.
@@ -1774,6 +1899,14 @@ fn shown_address(tab: &sikemux_browser::BrowserTab) -> String {
         String::new()
     } else {
         tab.url.clone()
+    }
+}
+
+/// The page's address for the person's default browser: a local file as a file URL.
+fn external_address(tab: &sikemux_browser::BrowserTab) -> Option<String> {
+    match &tab.local_file {
+        Some(path) => url::Url::from_file_path(path).ok().map(String::from),
+        None => (tab.url != sikemux_browser::BLANK_URL).then(|| tab.url.clone()),
     }
 }
 
@@ -1792,26 +1925,56 @@ fn view_of(pane: &Pane, kind: PaneKind, target: &str) -> Option<String> {
 const HEAD: f32 = 34.;
 /// The gap a pane keeps inside its cell, which the desk's edge keeps round the switch.
 const GAP: f32 = 5.;
-/// The kind switch's box: four 24pt kinds 2pt apart, 4pt inside its edge, a gap short of the head.
-const SWITCH_W: f32 = 4. * 24. + 3. * 2. + 2. * 4.;
+/// The kind switch's box: its kinds 2pt apart, a gap short of the head, each kind as far from
+/// the box's edge on every side.
+const KINDS: f32 = if cfg!(target_os = "macos") { 5. } else { 4. };
+const KIND_W: f32 = 24.;
+const KIND_H: f32 = 21.;
+const KIND_GAP: f32 = 2.;
 const SWITCH_H: f32 = HEAD - GAP;
+const SWITCH_INSET: f32 = (SWITCH_H - KIND_H) / 2.;
+const SWITCH_W: f32 = KINDS * KIND_W + (KINDS - 1.) * KIND_GAP + 2. * SWITCH_INSET;
 /// A desk tab's width, and the narrowest it gets before the strip scrolls, as the Mac's.
 const PILL_W: f32 = 180.;
 const PILL_MIN: f32 = 120.;
 /// The hover group of a desk tab, whose × shows while the pointer is on it.
 const DESK_PILL: &str = "desk-pill";
 
-/// The desk of `agent`.
+/// A desk of another host, which this app does not show yet.
+fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let name = bench.host_name(host);
+    ui::pane(cx)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(ui::meta(t!("This runs on {name}", name = name), cx))
+        .into_any_element()
+}
+
+/// Where the keys go in the agent's desk while it shows a page.
+pub(crate) fn page_focus(bench: &Workbench, agent: &str, cx: &App) -> Option<FocusHandle> {
+    let desks = bench.desks.read(cx);
+    (desks.kind_of(agent) == DeskKind::Pages)
+        .then(|| desks.pages.get(agent))
+        .flatten()
+        .map(|page| page.focus.clone())
+}
+
 pub fn pane(
     bench: &Workbench,
     agent: &str,
     window: &Window,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
+    if let crate::hosts::Place::Account(host) = bench.place() {
+        return elsewhere(bench, &host, cx);
+    }
     let t = Tokens::get(cx).clone();
     let kind = bench.desk_kind(agent, cx);
-    if kind == DeskKind::Simulator {
-        return simulator_desk(bench, agent, cx);
+    match kind {
+        DeskKind::Simulator => return simulator_desk(bench, agent, cx),
+        DeskKind::Calls => return calls_desk(bench, agent, cx),
+        _ => {}
     }
     let desks = bench.desks.read(cx);
     let strip = desks.strips.get(agent).cloned();
@@ -1834,25 +1997,7 @@ pub fn pane(
         .items_center()
         .pl(px(SWITCH_W + GAP - 1.))
         .pr(SPACE_1H);
-    let scroll = bench
-        .desks
-        .read(cx)
-        .tab_scrolls
-        .borrow_mut()
-        .entry(agent.to_owned())
-        .or_default()
-        .0
-        .clone();
-    let mut pills = div()
-        .id("desk-tabs")
-        .flex_initial()
-        .min_w_0()
-        .h_full()
-        .flex()
-        .items_center()
-        .gap(SPACE_1)
-        .overflow_x_scroll()
-        .track_scroll(&scroll);
+    let mut pills = tab_row(bench, agent, cx);
     let root = bench.agent_by_id(agent).and_then(|row| {
         bench
             .projects()
@@ -1872,11 +2017,15 @@ pub fn pane(
         DeskKind::Pages => strip.map(|strip| strip.tabs.as_slice()).unwrap_or_default(),
         _ => &[],
     };
-    for page in pages {
+    let narrowed = bench.narrowed_on(agent);
+    let in_ask = |page: &sikemux_browser::BrowserTab| {
+        narrowed.is_none_or(|ask| page.active || ask.pages.iter().any(|it| it.id == page.id))
+    };
+    for page in pages.iter().filter(|page| in_ask(page)) {
         let label = if !page.title.is_empty() {
             page.title.clone()
         } else if page.url == sikemux_browser::BLANK_URL {
-            "New tab".to_owned()
+            t!("New tab").to_owned()
         } else {
             page.url.clone()
         };
@@ -1896,11 +2045,7 @@ pub fn pane(
                 .with_size(px(13.))
                 .color(Tokens::get(cx).text_tertiary)
                 .into_any_element(),
-            Some(icon) => gpui_kit::img(icon)
-                .size(px(13.))
-                .flex_none()
-                .into_any_element(),
-            None => ui::icon(Icon::Globe, 13.).flex_none().into_any_element(),
+            favicon => ui::favicon(favicon, 13., cx),
         };
         let at_work = acting
             .as_ref()
@@ -1920,11 +2065,10 @@ pub fn pane(
                 cx,
             )
             .children(ui::spot(|| format!("desk-page-{agent}-{}", page.title)))
-            .on_click(cx.listener(move |bench, _, _, cx| {
-                bench.desks.update(cx, |desks, cx| {
-                    desks.front.remove(&switch_agent);
-                    cx.notify();
-                });
+            .clicks(cx.listener(move |bench, _, _, cx| {
+                bench
+                    .desks
+                    .update(cx, |desks, cx| desks.turn_to_pages(&switch_agent, cx));
                 bench.with_engine(cx, |engine| engine.switch_tab(&switch_agent, &switch_tab));
             }))
             .context_menu(ui::menu(tab_menu(
@@ -1938,10 +2082,17 @@ pub fn pane(
             ))),
         );
     }
+    let item_in_ask = |item: &DeskItem| match (item, narrowed) {
+        (DeskItem::File(path), Some(ask)) => {
+            front_item.is_some_and(|front| front.same(item))
+                || ask.files.iter().any(|file| Path::new(file) == path)
+        }
+        _ => true,
+    };
     for (index, item) in held
         .iter()
         .enumerate()
-        .filter(|(_, item)| item.kind() == kind)
+        .filter(|(_, item)| item.kind() == kind && item_in_ask(item))
     {
         let shown = front_item.is_some_and(|front| front.same(item));
         let (mark, label) = match item {
@@ -1959,8 +2110,6 @@ pub fn pane(
                     .into_any_element(),
                 title.clone(),
             ),
-            DeskItem::Hosted { shown, .. } => shown.read(cx).desk_face(cx),
-            DeskItem::Plugin { shown, .. } => shown.read(cx).desk_face(cx),
         };
         let (pick_agent, pick_item) = (agent.to_owned(), item.clone());
         let (close_agent, close_item) = (agent.to_owned(), item.clone());
@@ -1979,16 +2128,16 @@ pub fn pane(
                 cx.listener(move |bench, _, _, cx| {
                     bench.close_desk_item(&close_agent, close_item.clone(), cx);
                     bench.parts.redraw_stage(cx);
-                    bench.parts.redraw(&bench.parts.tabs, cx);
+                    bench.parts.redraw(&bench.parts.agents, cx);
                 }),
                 cx,
             )
             .children(ui::spot(|| format!("desk-item-{agent}-{label}")))
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.desks.update(cx, |desks, cx| {
                     desks.bring_front(&pick_agent, pick_item.clone(), cx)
                 });
-                bench.parts.redraw(&bench.parts.tabs, cx);
+                bench.parts.redraw(&bench.parts.agents, cx);
             }))
             .context_menu(ui::menu(tab_menu(
                 cx.weak_entity(),
@@ -1999,39 +2148,12 @@ pub fn pane(
         );
     }
     let new_agent = agent.to_owned();
-    if let Some((_, shown)) = bench.desks.read(cx).tab_scrolls.borrow_mut().get_mut(agent) {
-        if *shown != front_pill {
-            *shown = front_pill;
-            if let Some(front) = front_pill {
-                scroll.scroll_to_item(front);
-            }
-        }
-    }
     head = head
-        .child(
-            div()
-                .relative()
-                .flex_initial()
-                .min_w_0()
-                .h_full()
-                .flex()
-                .pl(SPACE_1H)
-                .child(pills)
-                .child(crate::track::sideways_scroller())
-                .children(ui::spot(|| format!("desk-tabs-{agent}")).map(|spot| {
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(6.))
-                        .right_0()
-                        .child(spot)
-                })),
-        )
+        .child(tab_strip(bench, agent, pills, front_pill, cx))
         .when(kind == DeskKind::Pages, |head| {
             head.child(
                 div().flex_none().pl(SPACE_1).child(
-                    IconButton::new("desk-new-page", Icon::Plus, "New browser tab")
+                    IconButton::new("desk-new-page", Icon::Plus, t!("New browser tab"))
                         .glyph(13.)
                         .width(24.)
                         .height(24.)
@@ -2052,10 +2174,10 @@ pub fn pane(
         .gap(SPACE_0)
         .px(SPACE_1H)
         .py(SPACE_1)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .child(
-            IconButton::new("desk-back", Icon::Chevron, "Back")
+            IconButton::new("desk-back", Icon::Chevron, t!("Back"))
                 .glyph(11.)
                 .turned(std::f32::consts::PI)
                 .disabled(!front.is_some_and(|tab| tab.can_go_back))
@@ -2064,7 +2186,7 @@ pub fn pane(
                 })),
         )
         .child(
-            IconButton::new("desk-forward", Icon::Chevron, "Forward")
+            IconButton::new("desk-forward", Icon::Chevron, t!("Forward"))
                 .glyph(11.)
                 .disabled(!front.is_some_and(|tab| tab.can_go_forward))
                 .on_click(cx.listener(move |bench, _, _, cx| {
@@ -2072,7 +2194,7 @@ pub fn pane(
                 })),
         )
         .child(
-            IconButton::new("desk-reload", Icon::Refresh, "Reload")
+            IconButton::new("desk-reload", Icon::Refresh, t!("Reload"))
                 .glyph(12.)
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     bench.with_engine(cx, |engine| engine.reload(&reload))
@@ -2089,8 +2211,8 @@ pub fn pane(
                 .ml(SPACE_1)
                 .flex()
                 .items_center()
-                .rounded(RADIUS_2)
-                .border_1()
+                .rounded(radius_2())
+                .border(crate::theme::border())
                 .border_color(if focused {
                     t.border_selected
                 } else {
@@ -2105,8 +2227,24 @@ pub fn pane(
                     field.hover(move |field| field.bg(t.text_primary.opacity(0.08)))
                 })
                 .when(!floating, |field| {
-                    field.child(Input::new(&page.address).appearance(false))
+                    field.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&page.address).appearance(false)),
+                    )
                 })
+        }))
+        .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
+        .child(snip_toggle(bench, agent, cx))
+        .children(front.and_then(external_address).map(|address| {
+            IconButton::new(
+                "desk-open-external",
+                Icon::ExternalLink,
+                t!("Open in default browser"),
+            )
+            .glyph(13.)
+            .on_click(move |_, _, cx| cx.open_url(&address))
         }));
     if let Some(item) = front_item {
         let shown = match item {
@@ -2120,12 +2258,6 @@ pub fn pane(
                 &session.to_string(),
                 cx,
             ),
-            DeskItem::Hosted { shown, .. } => {
-                div().size_full().child(shown.clone()).into_any_element()
-            }
-            DeskItem::Plugin { shown, .. } => {
-                div().size_full().child(shown.clone()).into_any_element()
-            }
         };
         return frame(
             bench,
@@ -2149,19 +2281,24 @@ pub fn pane(
         .relative()
         .key_context("BrowserPage")
         .children(page.filter(|_| !no_pages).map(|page| {
-            if front.is_some_and(idle_blank) {
-                div()
+            match front {
+                Some(tab) if idle_blank(tab) => div()
                     .track_focus(&page.focus)
                     .size_full()
-                    .into_any_element()
-            } else {
-                native_view(
-                    SharedString::from(format!("desk-page-{agent}")),
-                    &page.surface,
-                )
-                .track_focus(&page.focus)
-                .size_full()
-                .into_any_element()
+                    .into_any_element(),
+                _ => {
+                    let live = native_view(
+                        SharedString::from(format!("desk-page-{agent}")),
+                        &page.surface,
+                    )
+                    .track_focus(&page.focus)
+                    .size_full()
+                    .into_any_element();
+                    match front.filter(|tab| width::shows_all(bench, agent, tab, cx)) {
+                        Some(tab) => width::all(bench, agent, tab, live, cx),
+                        None => live,
+                    }
+                }
             }
         }))
         .when(no_pages, |body| {
@@ -2173,7 +2310,7 @@ pub fn pane(
                     .items_center()
                     .justify_center()
                     .text_color(t.text_tertiary)
-                    .child(ui::text("No pages yet", TEXT_XS_H, FontWeight::NORMAL)),
+                    .child(ui::text(t!("No pages yet"), TEXT_XS_H, FontWeight::NORMAL)),
             )
         })
         .children(address::overlay(bench, agent, cx));
@@ -2208,7 +2345,7 @@ fn frame(
         .relative()
         .size_full()
         .overflow_hidden()
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .child(
             gpui_kit::canvas(
                 |_, _, _| {},
@@ -2242,9 +2379,11 @@ fn frame(
                 .left_0()
                 .w(px(SWITCH_W))
                 .h(px(SWITCH_H))
-                .p(SPACE_1)
-                .rounded(RADIUS_3)
-                .border_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(radius_3())
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .bg(ground)
                 .child(kinds(bench, agent, kind, cx)),
@@ -2258,7 +2397,7 @@ fn stepped_edge(
     bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
     mut path: gpui_kit::PathBuilder,
 ) -> gpui_kit::PathBuilder {
-    let (radius, inner) = (f32::from(RADIUS_3), f32::from(RADIUS_3) + GAP);
+    let (radius, inner) = (f32::from(radius_3()), f32::from(radius_3()) + GAP);
     let at = |x: f32, y: f32| gpui_kit::point(bounds.origin.x + px(x), bounds.origin.y + px(y));
     let (left, top) = (0.5, 0.5);
     let (right, bottom) = (
@@ -2291,6 +2430,61 @@ fn stepped_edge(
     path
 }
 
+/// The row a desk's tabs sit in, scrolling sideways on the desk's own handle.
+fn tab_row(bench: &Workbench, agent: &str, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let scroll = (bench.desks.read(cx).tab_scrolls.borrow_mut())
+        .entry(agent.to_owned())
+        .or_default()
+        .0
+        .clone();
+    div()
+        .id("desk-tabs")
+        .flex_initial()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .overflow_x_scroll()
+        .track_scroll(&scroll)
+}
+
+/// A desk's strip of tabs from `tab_row`, scrolled to show the tab at `front` when it changes.
+fn tab_strip(
+    bench: &Workbench,
+    agent: &str,
+    tabs: gpui_kit::Stateful<gpui_kit::Div>,
+    front: Option<usize>,
+    cx: &App,
+) -> gpui_kit::Div {
+    if let Some((scroll, shown)) = bench.desks.read(cx).tab_scrolls.borrow_mut().get_mut(agent) {
+        if *shown != front {
+            *shown = front;
+            if let Some(front) = front {
+                scroll.scroll_to_item(front);
+            }
+        }
+    }
+    div()
+        .relative()
+        .flex_initial()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .pl(SPACE_1H)
+        .child(tabs)
+        .child(crate::track::sideways_scroller())
+        .children(ui::spot(|| format!("desk-tabs-{agent}")).map(|spot| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(6.))
+                .right_0()
+                .child(spot)
+        }))
+}
+
 /// A tab of a desk's strip, as the Mac draws one: its mark and name on a faint fill, lifted
 /// while shown, ringed in the agent's colour while it works there, its × showing on hover.
 #[allow(clippy::too_many_arguments)]
@@ -2304,8 +2498,32 @@ fn pill(
     close: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx).clone();
     let close_id = SharedString::from(format!("{id}-close"));
+    pill_face(id, mark, label, shown, at_work, cx)
+        .group_hover(DESK_PILL, |pill| pill.pr(SPACE_6))
+        .child(
+            ui::hover_actions(DESK_PILL)
+                .right(px(2.))
+                .top_0()
+                .bottom_0()
+                .child(
+                    div()
+                        .relative()
+                        .child(ui::close_button(close_id, t!("Close tab"), close, cx))
+                        .children(close_spot),
+                ),
+        )
+}
+
+fn pill_face(
+    id: SharedString,
+    mark: AnyElement,
+    label: String,
+    shown: bool,
+    at_work: Option<(Hsla, AnyElement)>,
+    cx: &App,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let t = Tokens::get(cx).clone();
     let rest = t.text_primary.opacity(0.05);
     let tinted = at_work.as_ref().map(|(tint, _)| *tint);
     div()
@@ -2318,18 +2536,18 @@ fn pill(
         .h(px(24.))
         .pl(SPACE_2)
         .pr(SPACE_2)
-        .group_hover(DESK_PILL, |pill| pill.pr(SPACE_6))
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(match (shown, tinted) {
             (true, _) => t.surface_chosen,
             (false, Some(tint)) => tint.opacity(0.14),
             (false, None) => rest,
         })
         .when_some(tinted, |pill, tint| {
-            pill.border_1().border_color(tint.opacity(0.7))
+            pill.border(crate::theme::border())
+                .border_color(tint.opacity(0.7))
         })
         .when(!shown, |pill| {
             pill.hover(move |pill| pill.bg(t.surface_hover))
@@ -2349,21 +2567,8 @@ fn pill(
                 .whitespace_nowrap(),
         )
         .children(at_work.map(|(_, mark)| ui::gives_way(DESK_PILL, mark)))
-        .child(
-            ui::hover_actions(DESK_PILL)
-                .right(px(2.))
-                .top_0()
-                .bottom_0()
-                .child(
-                    div()
-                        .relative()
-                        .child(ui::close_button(close_id, "Close tab", close, cx))
-                        .children(close_spot),
-                ),
-        )
 }
 
-/// The desk's switch between its pages and its simulator.
 /// A tab of a desk's strip, as its menu needs it.
 enum DeskTab {
     Page { id: String, url: String },
@@ -2392,7 +2597,7 @@ fn tab_menu(
                 DeskTab::Page { id, .. } => Err(id.clone()),
                 DeskTab::Item(item) => Ok(item.clone()),
             };
-            PopupMenuItem::new("Close")
+            PopupMenuItem::new(t!("Close"))
                 .icon(Icon::Close)
                 .on_click(move |_, _, cx| {
                     let _ = bench.update(cx, |bench, cx| {
@@ -2417,32 +2622,30 @@ fn tab_menu(
                 let revealed = path.clone();
                 popup
                     .item(
-                        PopupMenuItem::new("Copy Path")
+                        PopupMenuItem::new(t!("Copy Path"))
                             .icon(Icon::Copy)
-                            .on_click(copy(path.to_string_lossy().into_owned(), "Copied path")),
+                            .on_click(copy(path.to_string_lossy().into_owned(), t!("Copied path"))),
                     )
                     .item(
-                        PopupMenuItem::new("Copy Relative Path")
+                        PopupMenuItem::new(t!("Copy Relative Path"))
                             .icon(Icon::Copy)
-                            .on_click(copy(relative, "Copied relative path")),
+                            .on_click(copy(relative, t!("Copied relative path"))),
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::new(ui::REVEAL)
+                        PopupMenuItem::new(crate::i18n::tr(ui::REVEAL))
                             .icon(Icon::Folder)
                             .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
                     )
                     .separator()
                     .item(close)
             }
-            DeskTab::Page { url, .. }
-            | DeskTab::Item(DeskItem::Hosted { url, .. })
-            | DeskTab::Item(DeskItem::Plugin { url, .. }) => popup
+            DeskTab::Page { url, .. } => popup
                 .item(
-                    PopupMenuItem::new("Copy Link")
+                    PopupMenuItem::new(t!("Copy Link"))
                         .icon(Icon::Copy)
                         .disabled(url.is_empty() || url == sikemux_browser::BLANK_URL)
-                        .on_click(copy(url.clone(), "Copied link")),
+                        .on_click(copy(url.clone(), t!("Copied link"))),
                 )
                 .separator()
                 .item(close),
@@ -2451,8 +2654,8 @@ fn tab_menu(
     }
 }
 
-/// The desk's switch between what it holds, as the Mac's: its pages, its files, its task
-/// terminals and its simulator. A kind with nothing in it is greyed, but for the pages and the
+/// The desk's switch between what it holds, as the Mac's: the calls waiting on the person, its
+/// pages, its files, its task terminals and its simulator. A kind with nothing in it is greyed, but for the pages and the
 /// simulator, which open one; one the agent is at work in, and not shown, takes its colour.
 fn kinds(
     bench: &Workbench,
@@ -2476,12 +2679,24 @@ fn kinds(
         .get(agent)
         .map_or(&[][..], Vec::as_slice);
     let held = |kind: DeskKind| items.iter().filter(|item| item.kind() == kind).count();
-    let mut row = div().flex().items_center().gap(SPACE_0);
+    let calls = crate::calls::waiting_on_desk(bench, agent);
+    let t = Tokens::get(cx).clone();
+    let ground = crate::see_through::ground(t.surface, cx);
+    let thumb_radius = (radius_3() - px(SWITCH_INSET)).max(px(0.));
+    let mut row = div().flex().items_center().gap(px(KIND_GAP));
     for (id, icon, label, kind, count, busy) in [
+        (
+            "desk-calls",
+            Icon::Bell,
+            t!("Calls"),
+            DeskKind::Calls,
+            calls,
+            false,
+        ),
         (
             "desk-pages",
             Icon::Globe,
-            "Browser",
+            t!("Browser"),
             DeskKind::Pages,
             pages.len() + held(DeskKind::Pages),
             pages.iter().any(|page| page.acting),
@@ -2489,7 +2704,7 @@ fn kinds(
         (
             "desk-files",
             Icon::Editor,
-            "Files",
+            t!("Files"),
             DeskKind::Files,
             held(DeskKind::Files),
             false,
@@ -2497,7 +2712,7 @@ fn kinds(
         (
             "desk-terminals",
             Icon::Terminal,
-            "Terminals",
+            t!("Terminals"),
             DeskKind::Terminals,
             held(DeskKind::Terminals),
             false,
@@ -2505,7 +2720,7 @@ fn kinds(
         (
             "desk-simulator",
             Icon::Phone,
-            "iOS Simulator",
+            t!("Simulators"),
             DeskKind::Simulator,
             0,
             false,
@@ -2522,23 +2737,110 @@ fn kinds(
         let spot = format!("desk-kind-{agent}-{id}");
         let agent = agent.to_owned();
         row = row.child(
-            div().relative().children(ui::spot(|| spot)).child(
-                IconButton::new(id, icon, named)
-                    .glyph(13.)
-                    .width(24.)
-                    .height(21.)
-                    .pressed(shown == kind)
-                    .disabled(empty)
-                    .when_some(tint.filter(|_| busy && shown != kind), |button, tint| {
-                        button.tint(tint)
-                    })
-                    .on_click(
-                        cx.listener(move |bench, _, _, cx| bench.pick_kind(&agent, kind, cx)),
-                    ),
-            ),
+            div()
+                .relative()
+                .children(ui::spot(|| spot))
+                .child(
+                    IconButton::new(id, icon, named)
+                        .glyph(13.)
+                        .width(KIND_W)
+                        .height(KIND_H)
+                        .thumb()
+                        .radius(thumb_radius)
+                        .pressed(shown == kind)
+                        .disabled(empty)
+                        .when_some(tint.filter(|_| busy && shown != kind), |button, tint| {
+                            button.tint(tint)
+                        })
+                        .on_click(
+                            cx.listener(move |bench, _, _, cx| bench.pick_kind(&agent, kind, cx)),
+                        ),
+                )
+                .when(kind == DeskKind::Calls && count > 0, |button| {
+                    button.child(count_badge(count, ground, &t))
+                }),
         );
     }
     row
+}
+
+/// The amber count on the calls' bell while calls wait.
+fn count_badge(count: usize, ground: gpui_kit::Hsla, t: &Tokens) -> impl IntoElement {
+    div()
+        .absolute()
+        .top(px(-3.))
+        .right(px(-3.))
+        .min_w(px(14.))
+        .h(px(14.))
+        .px(px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(t.warn)
+        .border_2()
+        .border_color(ground)
+        .text_color(ground)
+        .text_size(crate::theme::ui_text(9.5))
+        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+        .font_features(crate::theme::tabular())
+        .child(count.to_string())
+}
+
+fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let page = match bench.desks.read(cx).call_pages.get(agent) {
+        Some(page) => page.clone(),
+        None => {
+            let page = crate::calls::Page::new(bench, agent, cx);
+            bench.desks.update(cx, |desks, _| {
+                desks.call_pages.insert(agent.to_owned(), page.clone());
+            });
+            page
+        }
+    };
+    let mut tabs = tab_row(bench, agent, cx);
+    let calls = crate::calls::on_desk(bench, agent);
+    let opened = page.read(cx).shown(&calls, cx).map(|call| call.id.clone());
+    let front = calls
+        .iter()
+        .position(|call| Some(&call.id) == opened.as_ref());
+    for call in &calls {
+        let id = call.id.clone();
+        let cards = bench.calls.clone();
+        tabs = tabs.child(
+            pill_face(
+                SharedString::from(format!("desk-call-{}", call.id)),
+                crate::calls::kind_mark(call.kind, cx),
+                crate::calls::tab_title(call),
+                Some(&call.id) == opened.as_ref(),
+                None,
+                cx,
+            )
+            .clicks(move |_, _, cx| cards.update(cx, |cards, cx| cards.open(&id, cx))),
+        );
+    }
+    let head = div()
+        .w_full()
+        .min_w_0()
+        .h(px(HEAD))
+        .flex_none()
+        .flex()
+        .items_center()
+        .pl(px(SWITCH_W + GAP - 1.))
+        .pr(SPACE_1H)
+        .child(tab_strip(bench, agent, tabs, front, cx));
+    frame(
+        bench,
+        agent,
+        DeskKind::Calls,
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(div().flex_1().min_h_0().child(page)),
+        cx,
+    )
 }
 
 fn simulator_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
@@ -2571,103 +2873,134 @@ fn simulator_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -
     )
 }
 
-impl Workbench {
-    /// Answers a call the core hands this window: an agent's browser tools run on the
-    /// engine, on a thread of their own, since most answers wait on a page.
-    pub fn answer_window_call(
-        &mut self,
-        call_id: CallId,
-        call: WindowCall,
-        cx: &mut Context<Self>,
-    ) {
-        let asks = self.asks.clone();
-        let answer: crate::opening::Answer = Box::new(move |answer: Result<Value, String>| {
-            let _ = asks.send(Ask::AnswerWindow(call_id, WindowAnswer::from(answer)));
-        });
-        let request = match call {
-            WindowCall::Open { request } => {
-                return self.open_from_cli(call_id, request, answer, cx)
-            }
-            WindowCall::OpenPlugin { plugin, at } => {
-                self.bring_window_forward(cx);
-                self.open_plugin_at(&plugin, at, cx);
-                return answer(Ok(Value::Null));
-            }
-            WindowCall::Harness { request } => request,
-        };
-        let request: HarnessRequest = match serde_json::from_value(request) {
-            Ok(request) => request,
-            Err(error) => {
-                return answer(Err(format!(
-                    "Sikemux could not read the tool call: {error}"
-                )))
-            }
-        };
-        match request.method.as_str() {
-            "app.console" => return answer(crate::console::read(&request.params)),
-            "page.show" => return self.show_page(request, answer, cx),
-            "ui.open" => return self.ui_open(request, answer, cx),
-            _ => {}
-        }
-        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> =
-            if is_sim_method(&request.method) {
-                let engine = Arc::clone(self.sims.read(cx).engine());
-                Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
-            } else if let Some(engine) = self
-                .desks
-                .read(cx)
-                .engine
-                .clone()
-                .filter(|_| is_browser_method(&request.method))
-            {
-                Box::new(move || sikemux_browser::tools::execute(&engine, &request))
-            } else {
-                return answer(Err(format!(
-                    "this window cannot answer {} yet",
-                    request.method
-                )));
-            };
-        let spawned = std::thread::Builder::new()
-            .name("sikemux-window-call".into())
-            .spawn(move || answer(run()));
-        if let Err(error) = spawned {
-            eprintln!("sikemux: a tool call could not start: {error}");
+impl Workbench {}
+
+/// How the core hears what the desks hold.
+pub(crate) struct DeskNews {
+    /// What the core was last told the desks hold.
+    pub sent: Option<sikemux_view::goals::DesksParams>,
+    /// Telling the core what the desks hold, once they settle.
+    pub telling: Option<Task<()>>,
+    watched: Vec<Subscription>,
+    _ears: DeskEars,
+}
+
+impl DeskNews {
+    pub(crate) fn new(
+        desks: &Entity<Desks>,
+        window: &mut Window,
+        cx: &mut Context<Workbench>,
+    ) -> Self {
+        Self {
+            sent: None,
+            telling: None,
+            watched: Vec::new(),
+            _ears: listen(desks, window, cx),
         }
     }
 
-    /// A page an agent kept, which an agent in a terminal sees on its desk.
-    fn show_page(
-        &self,
-        request: HarnessRequest,
-        answer: impl FnOnce(Result<Value, String>) + Send + 'static,
-        cx: &App,
+    /// Tells the core again whenever the desks or the simulators move.
+    pub(crate) fn follow(
+        &mut self,
+        desks: &Entity<Desks>,
+        sims: &Entity<crate::sim::pane::Simulators>,
+        cx: &mut Context<Workbench>,
     ) {
-        let Some(agent) = request.agent_id else {
-            return answer(Ok(json!({})));
-        };
-        let id = request.params["id"].as_str().unwrap_or_default().to_owned();
-        if !sikemux_core::pages::is_page_id(&id) {
-            return answer(Err("that is not a page the core keeps".into()));
+        self.watched = vec![
+            cx.observe(desks, |bench, _, cx| bench.desks_moved(cx)),
+            cx.observe(sims, |bench, _, cx| bench.desks_moved(cx)),
+        ];
+    }
+}
+
+fn agent_place_in(view: &DeviceView, agent: &str) -> Option<(Strip, String, String)> {
+    view.layout.projects.iter().find_map(|(project, strip)| {
+        strip.tabs.iter().find_map(|tab| {
+            view_of(&tab.pane, PaneKind::Agent, agent)
+                .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sikemux_browser::BrowserTab;
+
+    fn tab(id: &str, url: &str, active: bool) -> BrowserTab {
+        BrowserTab {
+            id: id.into(),
+            title: id.into(),
+            url: url.into(),
+            active,
+            loading: false,
+            can_go_back: false,
+            can_go_forward: false,
+            favicon: None,
+            acting: false,
+            local_file: None,
         }
-        let page = (request.params["desk"] == true)
-            .then(|| crate::core::request(&self.asks, "page", json!({ "id": id })));
-        let files = self.desks.read(cx).page_files.clone();
-        spawn(async move {
-            let Some(page) = page else {
-                return answer(Ok(json!({})));
-            };
-            let shown = async {
-                let page = page.await?;
-                let html = page["html"].as_str().ok_or("that page is gone")?;
-                let url = files.url(&id, html)?;
-                files
-                    .engine()?
-                    .open_tab(&agent, Some(&url))
-                    .await
-                    .map_err(|error| error.to_string())?;
-                Ok(json!({}))
-            };
-            answer(shown.await);
+    }
+
+    #[test]
+    fn open_on_a_page_already_in_a_tab_picks_that_tab_on_the_pages() {
+        let page = "file:///pages/tabs/x-posts.html";
+        let strip = BrowserSnapshot {
+            tabs: vec![
+                tab("page", page, false),
+                tab("other", "https://example.com", true),
+            ],
+            active_tab_id: Some("other".into()),
+        };
+        assert_eq!(tab_showing(&strip, page), Some("page"));
+        assert_eq!(tab_showing(&strip, "file:///pages/tabs/gone.html"), None);
+    }
+
+    #[gpui::test]
+    fn open_turns_a_desk_on_a_terminal_or_the_simulator_back_to_its_pages(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let window = cx.add_empty_window();
+        let desks = window.update(|window, cx| cx.new(|cx| Desks::new(window, cx)));
+        let terminal = DeskItem::Terminal {
+            session: 7,
+            title: "zsh".into(),
+        };
+        window.update(|_, cx| {
+            desks.update(cx, |desks, cx| {
+                desks.put("agent", terminal, true, cx);
+                assert_eq!(desks.kind_of("agent"), DeskKind::Terminals);
+                desks.turn_to_pages("agent", cx);
+                assert_eq!(desks.kind_of("agent"), DeskKind::Pages);
+
+                desks.show_kind("agent", DeskKind::Simulator, cx);
+                desks.turn_to_pages("agent", cx);
+                assert_eq!(desks.kind_of("agent"), DeskKind::Pages);
+            })
+        });
+    }
+
+    #[gpui::test]
+    fn open_focuses_the_page_once_its_desk_comes_out(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_empty_window();
+        let desks = window.update(|window, cx| cx.new(|cx| Desks::new(window, cx)));
+        window.update(|_, cx| {
+            desks.update(cx, |desks, _| {
+                let asked = Instant::now();
+                let (none, shown) = (Vec::new(), vec!["agent".to_owned()]);
+                desks.want_page_focused("agent");
+                assert_eq!(desks.take_page_wanted(&none, asked), None);
+                assert_eq!(
+                    desks.take_page_wanted(&shown, asked + Duration::from_millis(400)),
+                    Some("agent".to_owned())
+                );
+                assert_eq!(desks.take_page_wanted(&shown, asked), None);
+
+                desks.want_page_focused("agent");
+                let late = Instant::now() + PAGE_WANTED_FOR + Duration::from_secs(1);
+                assert_eq!(desks.take_page_wanted(&none, late), None);
+                assert_eq!(desks.take_page_wanted(&shown, asked), None);
+            })
         });
     }
 }

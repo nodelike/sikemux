@@ -18,14 +18,35 @@ pub(crate) fn home_root() -> KeychainResult<PathBuf> {
 }
 
 pub(crate) fn read(root: &Path, service: &str, account: &str) -> KeychainResult<Option<String>> {
-    match std::fs::read_to_string(root.join(service).join(account)) {
-        Ok(secret) => Ok(Some(secret.trim().to_owned()).filter(|secret| !secret.is_empty())),
+    let Some(bytes) = read_bytes(root, service, account)? else {
+        return Ok(None);
+    };
+    let secret = String::from_utf8(bytes).map_err(failed)?;
+    Ok(Some(secret.trim().to_owned()).filter(|secret| !secret.is_empty()))
+}
+
+pub(crate) fn write(root: &Path, service: &str, account: &str, secret: &str) -> KeychainResult<()> {
+    write_bytes(root, service, account, secret.as_bytes())
+}
+
+pub(crate) fn read_bytes(
+    root: &Path,
+    service: &str,
+    account: &str,
+) -> KeychainResult<Option<Vec<u8>>> {
+    match std::fs::read(root.join(service).join(account)) {
+        Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
         Err(error) => Err(failed(error)),
     }
 }
 
-pub(crate) fn write(root: &Path, service: &str, account: &str, secret: &str) -> KeychainResult<()> {
+pub(crate) fn write_bytes(
+    root: &Path,
+    service: &str,
+    account: &str,
+    bytes: &[u8],
+) -> KeychainResult<()> {
     let folder = root.join(service);
     std::fs::create_dir_all(&folder).map_err(failed)?;
     #[cfg(unix)]
@@ -33,8 +54,7 @@ pub(crate) fn write(root: &Path, service: &str, account: &str, secret: &str) -> 
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(failed)?;
     }
-    sikemux_process::files::write_atomic(&folder.join(account), secret.as_bytes(), true)
-        .map_err(failed)
+    sikemux_process::files::write_atomic(&folder.join(account), bytes, true).map_err(failed)
 }
 
 pub(crate) fn delete(root: &Path, service: &str, account: &str) -> KeychainResult<()> {

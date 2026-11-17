@@ -1,0 +1,24 @@
+{
+  "plan": "team",
+  "features": [
+    "sync",
+    "move_work",
+    "history_search",
+    "own_triggers",
+    "org_hosts",
+    "org_shared_setup",
+    "org_model_keys",
+    "org_github",
+    "org_bot_triggers",
+    "chat_handover",
+    "org_roles",
+    "org_policy"
+  ],
+  "boxes": [
+    {
+      "product": "shed",
+      "quantity": 1
+    }
+  ],
+  "seatOrgs": ["3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"]
+}

@@ -1,8 +1,25 @@
 import { HandleSSOCallback, useAuth, useClerk, useUser } from "@clerk/react";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
-import { Avatar } from "./Avatar.tsx";
+import {
+  IconCreditCard,
+  IconPlug,
+  IconServer,
+  IconTag,
+  IconUser,
+  IconUsers,
+} from "@shared/ui/Icons";
+
+import { AccountPage } from "./AccountPage.tsx";
 import { Backdrop } from "./Backdrop.tsx";
+import { ConnectorsPage } from "./Connectors.tsx";
+import { BillingPage, useBillingShown } from "./Billing.tsx";
 import { Consent, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
 import {
   AccountDeleted,
@@ -11,20 +28,32 @@ import {
 } from "./DeleteAccount.tsx";
 import { Devices, useDevices } from "./Devices.tsx";
 import { HostApproval } from "./HostApproval.tsx";
-import { Logo } from "./icons.tsx";
 import { useLive } from "./live.ts";
+import { PricingPage } from "./Pricing.tsx";
+import { ShedNotHost } from "./Shed.tsx";
+import { Pay } from "./Pay.tsx";
+import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
+  BILLING,
+  CONNECTORS,
   CONSENT,
   DELETE_ACCOUNT,
   HOST,
+  HOSTS,
   isSharePath,
+  JOIN,
+  PAY,
+  PRICING,
   takeReturn,
-  takeShareReturn,
+  TEAM,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
+import { Shell, type NavGroup } from "./Shell.tsx";
+import { useSignIns } from "./SignIns.tsx";
+import { PageHead } from "./ui.tsx";
 import "./app.css";
 
 /** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
@@ -55,33 +84,43 @@ export function App() {
       new URLSearchParams(location.search).has("deleted") &&
       !signedIn);
 
+  const shellShown =
+    signedIn &&
+    !showDeleted &&
+    ![SIGNED_IN, CONSENT, HOST, PAY, "/sso-callback"].includes(path);
+
   useEffect(() => {
+    if (shellShown) return;
     document.title = showDeleted
       ? "Account deleted · Sikemux"
       : path === "/sso-callback"
         ? "Signing in · Sikemux"
         : path === DELETE_ACCOUNT
           ? "Delete your account · Sikemux"
-          : path === CONSENT || path === SIGNED_IN
-            ? "Sign in on your computer · Sikemux"
-            : path === HOST
-              ? "Add a host · Sikemux"
-              : signedIn
-                ? "Your devices · Sikemux"
+          : path === PAY
+            ? "Checkout · Sikemux"
+            : path === CONSENT || path === SIGNED_IN
+              ? "Sign in on your computer · Sikemux"
+              : path === HOST
+                ? "Add a host · Sikemux"
                 : "Sign in · Sikemux";
-  }, [path, signedIn, showDeleted]);
+  }, [path, showDeleted, shellShown]);
 
-  useEffect(() => {
-    if (!signedIn || path === "/sso-callback") return;
-    const share = takeShareReturn();
-    if (share) location.replace(share);
-  }, [signedIn, path]);
-
-  const afterSignIn = () => {
-    const to = takeReturn();
+  const returnTo = (to: string) => {
     if (isSharePath(to)) location.replace(to);
     else go(to, { replace: true });
   };
+  const afterSignIn = () => returnTo(takeReturn() ?? "/");
+
+  /** Clerk skips the callback page when the provider signs the person in at once, landing here instead. */
+  const resumeReturn = useEffectEvent(() => {
+    const to = takeReturn();
+    if (to) returnTo(to);
+  });
+
+  useEffect(() => {
+    if (signedIn && path !== "/sso-callback") resumeReturn();
+  }, [signedIn, path]);
   const appReturning = signedIn ? appReturn() : null;
 
   useEffect(() => {
@@ -124,6 +163,10 @@ export function App() {
               />
             </Panel>
           </main>
+        ) : path === PAY ? (
+          <main className="center">
+            <Pay />
+          </main>
         ) : path === SIGNED_IN ? (
           <main className="center">
             <SignedIn />
@@ -139,9 +182,9 @@ export function App() {
         ) : signedIn ? (
           <Account
             ready={isLoaded}
-            deleting={path === DELETE_ACCOUNT}
-            onDelete={follow(DELETE_ACCOUNT)}
-            onBack={() => go("/")}
+            path={path}
+            follow={follow}
+            go={go}
             onDeleted={onDeleted}
           />
         ) : (
@@ -159,82 +202,163 @@ export function App() {
   );
 }
 
+const PAGE_TITLES: Record<string, string> = {
+  [CONNECTORS]: "Connectors",
+  [HOSTS]: "Hosts",
+  [BILLING]: "Plan and billing",
+  [TEAM]: "Team",
+  [JOIN]: "Join an org",
+  [PRICING]: "Pricing",
+  [DELETE_ACCOUNT]: "Delete your account",
+};
+
 function Account({
   ready,
-  deleting,
-  onDelete,
-  onBack,
+  path,
+  follow,
+  go,
   onDeleted,
 }: {
   ready: boolean;
-  deleting: boolean;
-  onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
-  onBack: () => void;
+  path: string;
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+  go: (to: string) => void;
   onDeleted: (deletesAt?: string) => void;
 }) {
   const { user } = useUser();
   const { isSignedIn } = useAuth();
-  const { signOut } = useClerk();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const { account, restored } = useAccountState(ready);
+  const { account, staff, restored } = useAccountState(ready);
   const active = account.state === "active";
   const devices = useDevices(ready && active);
+  const signIns = useSignIns(ready && active);
+  const hostCount =
+    devices.load.state === "loaded"
+      ? devices.load.devices.filter((device) => device.role === "host").length
+      : undefined;
+  const billingShown = useBillingShown(ready && active);
+  const [planVersion, setPlanVersion] = useState(0);
+  const shown: Record<string, boolean> = {
+    [BILLING]: billingShown,
+    [TEAM]: billingShown,
+    [JOIN]: billingShown,
+    [PRICING]: staff,
+  };
+  const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
+
+  useEffect(() => {
+    document.title = `${PAGE_TITLES[page] ?? "Account"} · Sikemux`;
+  }, [page]);
 
   useLive(ready && isSignedIn === true && active, {
-    onEvents: devices.apply,
-    onResync: devices.reload,
+    onEvents: (events) => {
+      devices.apply(events);
+      signIns.apply(events);
+      if (events.some((event) => event.type === "plan.changed"))
+        setPlanVersion((version) => version + 1);
+    },
+    onResync: () => {
+      devices.reload();
+      signIns.reload();
+      setPlanVersion((version) => version + 1);
+    },
     onAccountDeleted: () => onDeleted(),
   });
 
+  const groups: NavGroup[] = [
+    {
+      items: [
+        { path: "/", name: "Account", icon: <IconUser size={15} /> },
+        {
+          path: CONNECTORS,
+          name: "Connectors",
+          icon: <IconPlug size={15} />,
+        },
+        {
+          path: HOSTS,
+          name: "Hosts",
+          icon: <IconServer size={15} />,
+          count: hostCount ? String(hostCount) : undefined,
+        },
+      ],
+    },
+    ...(billingShown
+      ? [
+          {
+            label: "Billing",
+            items: [
+              {
+                path: BILLING,
+                name: "Plan and billing",
+                icon: <IconCreditCard size={15} />,
+              },
+            ],
+          },
+          {
+            label: "Org",
+            items: [
+              { path: TEAM, name: "Team", icon: <IconUsers size={15} /> },
+            ],
+          },
+        ]
+      : []),
+    ...(staff
+      ? [
+          {
+            label: "Staff",
+            items: [
+              {
+                path: PRICING,
+                name: "Pricing",
+                icon: <IconTag size={15} />,
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <div className="account">
-      <header className="top">
-        <div className="brand">
-          <Logo size={20} />
-          <span>Sikemux</span>
-        </div>
-        <div className="who">
-          <Avatar />
-          {email ? <span className="email">{email}</span> : null}
-          <button
-            type="button"
-            className="button small"
-            onClick={() => void signOut({ redirectUrl: "/" })}
-            disabled={!ready}
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-      <main>
-        {account.state === "deleting" ? (
-          <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
-        ) : deleting ? (
-          <DeleteAccount
-            email={email}
-            restorableDays={
-              account.state === "active" ? account.restorableDays : undefined
-            }
-            load={devices.load}
-            onBack={onBack}
-            onDeleted={onDeleted}
-          />
-        ) : (
-          <>
-            <h1>Your devices</h1>
-            <p className="lede">
-              Hosts and clients signed in to this account. A client still
-              connects to a host only after someone at the host allows it.
-            </p>
-            <Devices load={devices.load} remove={devices.remove} />
-            <footer className="account-footer">
-              <a href={DELETE_ACCOUNT} onClick={onDelete}>
-                Delete account
-              </a>
-            </footer>
-          </>
-        )}
-      </main>
-    </div>
+    <Shell
+      path={page === DELETE_ACCOUNT ? "/" : page === JOIN ? TEAM : page}
+      follow={follow}
+      groups={groups}
+      wide={page === PRICING}
+    >
+      {account.state === "deleting" ? (
+        <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
+      ) : page === DELETE_ACCOUNT ? (
+        <DeleteAccount
+          email={email}
+          restorableDays={
+            account.state === "active" ? account.restorableDays : undefined
+          }
+          load={devices.load}
+          onBack={() => go("/")}
+          onDeleted={onDeleted}
+        />
+      ) : page === JOIN ? (
+        <JoinPage follow={follow} />
+      ) : page === TEAM ? (
+        <TeamPage follow={follow} />
+      ) : page === PRICING ? (
+        <PricingPage />
+      ) : page === BILLING ? (
+        <BillingPage version={planVersion} staff={staff} />
+      ) : page === HOSTS ? (
+        <>
+          <PageHead title="Hosts">
+            Every host you own, linked on one account. No plan caps how many. A
+            client connects to a host only after someone at the host allows it.
+          </PageHead>
+          <Devices load={devices.load} remove={devices.remove} />
+          {staff ? <ShedNotHost follow={follow} /> : null}
+        </>
+      ) : page === CONNECTORS ? (
+        <ConnectorsPage signIns={signIns.load} />
+      ) : (
+        <AccountPage onDelete={follow(DELETE_ACCOUNT)} />
+      )}
+    </Shell>
   );
 }

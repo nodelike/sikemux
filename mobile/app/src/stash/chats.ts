@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Snapshot } from '@/core/protocol';
 import { knownDevices, liveOf, onAnyHost, useDevices, watch } from '@/devices/hub';
 import { deviceName, type PairedDevice } from '@/devices/paired';
+import { translate } from '@/i18n';
 import { projectAt, projectName, projectOf } from '@/devices/words';
 
 /** A chat the share sheet offers to put what is shared in, as an unsent draft attachment. */
@@ -11,7 +12,8 @@ export type ShareChat = {
   hostName: string;
   chatId: string;
   provider: string;
-  title: string;
+  /** Unset for a chat with no title yet. */
+  title?: string;
   /** What the core calls the agent, such as Otter. */
   name?: string;
   project: string;
@@ -19,18 +21,18 @@ export type ShareChat = {
 };
 
 /** The project a new chat would start in, on its host. */
-export type ShareNewChat = { host: string; hostName: string; project: string; projectPath: string };
+type ShareNewChat = { host: string; hostName: string; project: string; projectPath: string };
 
 export type ShareChats = { chats: ShareChat[]; newChat?: ShareNewChat };
 
 const SHOWN = 4;
 
 /** The chats used last across every host this phone has full access to, and a new chat in the newest one's project. */
-export function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[]): ShareChats {
+function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[]): ShareChats {
   const found: (ShareChat & { projectPath: string })[] = [];
   for (const { device, snapshot } of hosts) {
     if (device.access !== 'full' || !snapshot) continue;
-    const hostName = deviceName(device);
+    const hostName = deviceName(device, translate);
     for (const chat of snapshot.chats) {
       const shown = snapshot.inbox.agents.find((agent) => agent.agentId === chat.agentId);
       const where = projectOf(snapshot, chat.agentId) ?? chat.cwd;
@@ -39,7 +41,7 @@ export function shareChats(hosts: readonly { device: PairedDevice; snapshot: Sna
         hostName,
         chatId: chat.agentId,
         provider: chat.provider,
-        title: chat.title ?? shown?.title ?? 'New chat',
+        title: chat.title ?? shown?.title ?? undefined,
         name: chat.name ?? undefined,
         project: projectName(snapshot, where, chat.cwd),
         projectPath: projectAt(snapshot, where)?.path ?? chat.cwd,
@@ -56,7 +58,7 @@ export function shareChats(hosts: readonly { device: PairedDevice; snapshot: Sna
 }
 
 /** The share sheet's chats from what the phone knows of its hosts now. */
-export function shareChatsNow(): ShareChats {
+function shareChatsNow(): ShareChats {
   return shareChats(knownDevices().map((device) => ({ device, snapshot: liveOf(device.core).snapshot })));
 }
 
@@ -77,9 +79,4 @@ export function useShareChats(): ShareChats {
     [],
   );
   return chats;
-}
-
-/** Hears whenever the share sheet's chats may have changed. */
-export function onShareChats(listener: (chats: ShareChats) => void) {
-  return onAnyHost(() => listener(shareChatsNow()));
 }

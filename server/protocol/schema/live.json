@@ -22,7 +22,10 @@
         "stash.added",
         "stash.changed",
         "stash.removed",
-        "stash.seen"
+        "stash.seen",
+        "vault.changed",
+        "mods.changed",
+        "plan.changed"
       ]
     },
     "RevokeReason": {
@@ -38,7 +41,7 @@
         "type": { "$ref": "#/$defs/AccountEventType" },
         "at": { "type": "string", "format": "date-time" },
         "key": {
-          "description": "The device the event is about. Only on device events.",
+          "description": "The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.",
           "$ref": "devices.json#/$defs/DeviceKey"
         },
         "role": {
@@ -214,6 +217,11 @@
       "properties": {
         "type": { "const": "push" },
         "ref": { "$ref": "#/$defs/PushRef" },
+        "id": {
+          "description": "Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
         "to": {
           "description": "The phone's device key.",
           "$ref": "devices.json#/$defs/DeviceKey"
@@ -223,6 +231,11 @@
           "description": "Opaque to the server. A later push with the same collapseId replaces or clears the notification this one shows.",
           "type": "string",
           "pattern": "^[0-9a-f]{32}$"
+        },
+        "activityToken": {
+          "description": "For activity and activity_end: the APNs push token of the Live Activity the phone gave the host, in lowercase hex.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{16,512}$"
         },
         "blob": {
           "description": "The sealed notification, in standard base64.",

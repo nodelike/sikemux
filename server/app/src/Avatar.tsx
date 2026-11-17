@@ -1,3 +1,4 @@
+import { clerkImageUrl } from "@shared/lib/format";
 import { useUser } from "@clerk/react";
 import { initials } from "@shared/lib/initials";
 import { useState } from "react";
@@ -5,11 +6,48 @@ import { useState } from "react";
 /** The account's picture, or its initials on a neutral circle when it has none. */
 export function Avatar({ size = 26 }: { size?: number }) {
   const { user } = useUser();
+  return (
+    <Face
+      size={size}
+      picture={user?.hasImage ? user.imageUrl : undefined}
+      letters={
+        user
+          ? initials(user.fullName, user.primaryEmailAddress?.emailAddress)
+          : ""
+      }
+    />
+  );
+}
+
+/** Someone else's picture, or their initials. */
+export function PersonAvatar({
+  name,
+  imageUrl,
+  size = 26,
+}: {
+  name: string | null;
+  imageUrl: string | null;
+  size?: number;
+}) {
+  return (
+    <Face
+      size={size}
+      picture={imageUrl ?? undefined}
+      letters={initials(name, undefined)}
+    />
+  );
+}
+
+function Face({
+  size,
+  picture,
+  letters,
+}: {
+  size: number;
+  picture: string | undefined;
+  letters: string;
+}) {
   const [failed, setFailed] = useState<string>();
-  const picture = user?.hasImage ? user.imageUrl : undefined;
-  const letters = user
-    ? initials(user.fullName, user.primaryEmailAddress?.emailAddress)
-    : "";
   return (
     <span
       className="avatar"
@@ -18,7 +56,7 @@ export function Avatar({ size = 26 }: { size?: number }) {
     >
       {picture && picture !== failed ? (
         <img
-          src={`${picture}${picture.includes("?") ? "&" : "?"}width=${size * 2}&height=${size * 2}&fit=scale-down&quality=100`}
+          src={clerkImageUrl(picture, size * 2)}
           alt=""
           width={size}
           height={size}

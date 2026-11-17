@@ -1,0 +1,72 @@
+---
+title: Other apps
+description: "Let Claude Code, Codex and other MCP apps on your computer list, start, message and read Sikemux's chats."
+---
+
+Programs Sikemux did not start can use its chats through an MCP server on your computer: Claude Code or Codex in your own terminal, or any app that speaks MCP over HTTP with OAuth. Each signs in once, and you choose what it may do.
+
+## Add Sikemux to an app
+
+**Settings → Other apps** shows the server's address and copies it. The address stays the same:
+
+```text
+http://127.0.0.1:47731/mcp
+```
+
+### Claude Code
+
+```sh
+claude mcp add --transport http sikemux http://127.0.0.1:47731/mcp
+```
+
+Then run `/mcp` in Claude Code and choose **sikemux** to sign in.
+
+### Codex
+
+```sh
+codex mcp add sikemux --url http://127.0.0.1:47731/mcp
+codex mcp login sikemux
+```
+
+### Other apps
+
+Add a remote MCP server with OAuth and give it the address. The app finds the sign-in settings itself.
+
+Only apps on this computer can sign in: Sikemux sends a sign-in back only to a `localhost` address. Hosted assistants such as ChatGPT cannot reach it yet.
+
+## Allow a sign-in
+
+When an app signs in, your browser opens a page that names it and shows four digits, and Sikemux asks whether to let it in, with the same digits. Allow it only when the digits match a sign-in you just started, and choose what it may do:
+
+- **Full control** lets it start chats, send them messages and stop their turns.
+- **Watch only** lets it list and read chats.
+
+A chat an app starts runs as if you had started it in Sikemux, with your default agent settings, and shows in the rail beside your own.
+
+## What apps can call
+
+| Tool | Does |
+|---|---|
+| `chat_list` | Lists projects, the agents Sikemux can start, and chats with each one's status |
+| `chat_read` | Reads a chat's latest turns, or what came after a cursor |
+| `chat_wait` | Waits up to 50 seconds for a chat's turn to end |
+| `chat_start` | Starts a chat in a project with a first message |
+| `chat_send` | Sends a chat a message; a busy chat gets it next |
+| `chat_stop` | Stops the turn a chat is running |
+
+## From a terminal
+
+`sikemux chat` does the same from a shell or a script:
+
+```sh
+sikemux chat start . "Find why the tests are slow" --wait
+sikemux chat send @Otter "Now fix it" --wait
+sikemux chat read @Otter
+sikemux chat list --all
+```
+
+`.` means the project that holds the current folder. A message of `-` is read from stdin. The first time, outside an agent's terminal, it asks you to allow the terminal in Sikemux the same way. In an agent's own terminal it acts as that agent.
+
+## Remove an app
+
+**Settings → Other apps** lists every app you let in, what it may do and when it last called. Change its access or remove it there; a removed app is cut off at once. A sign-in lasts 30 days, after which the app asks again.

@@ -26,6 +26,7 @@ struct IslandView: View {
         .environment(\.faceMotion, store.view.faceStyle.motion)
         .onChange(of: store.entries) { _, entries in island.entriesChanged(entries) }
         .onChange(of: store.devices) { _, devices in island.devicesChanged(devices) }
+        .onChange(of: store.calls.map(\.id), initial: true) { _, ids in island.callsChanged(ids) }
     }
 
     private var geometry: NotchGeometry { island.geometry }
@@ -38,7 +39,7 @@ struct IslandView: View {
     private var expanded: Bool {
         switch island.mode {
         case .closed, .peekDone: return false
-        case .peekAsk, .connect, .open, .drop: return true
+        case .peekAsk, .connect, .open, .drop, .call: return true
         }
     }
 
@@ -46,7 +47,7 @@ struct IslandView: View {
         switch island.mode {
         case .closed, .peekDone: return Radii.closed
         case .peekAsk: return Radii.peek
-        case .connect, .open, .drop: return Radii.open
+        case .connect, .open, .drop, .call: return Radii.open
         }
     }
 
@@ -57,6 +58,7 @@ struct IslandView: View {
         case .peekAsk: return 460
         case .connect: return 560
         case .open, .drop: return geometry.hasNotch ? 680 : 560
+        case .call: return CallCard.width + 2 * (Radii.open.top + CallCard.margin)
         }
     }
 
@@ -65,6 +67,7 @@ struct IslandView: View {
         case .closed, .peekDone: return 0
         case .peekAsk: return Radii.peek.top + 8
         case .connect, .open, .drop: return Radii.open.top + 12
+        case .call: return Radii.open.top + CallCard.margin
         }
     }
 
@@ -93,13 +96,12 @@ struct IslandView: View {
         .shadow(color: lifted ? .black.opacity(0.7) : .clear, radius: 6)
         .onHover { island.pointer(entered: $0, opensOnHover: store.settings.openWith == .hover) }
         .onTapGesture {
-            if !island.isOpen, !island.asksToConnect { island.set(.open) }
+            if !island.isAgentList, !island.asksToConnect { island.set(.open) }
         }
         .onExitCommand { island.set(.closed) }
         .offset(x: shift)
     }
 
-    /// What sits beside the camera: the wings when closed, a header when open.
     @ViewBuilder
     private var band: some View {
         ZStack {
@@ -113,7 +115,7 @@ struct IslandView: View {
             case .peekAsk(let id):
                 AskHeader(entry: store.entries.first { $0.id == id }, geometry: geometry, marks: marks)
                     .transition(.inPlace)
-            case .connect:
+            case .connect, .call:
                 Color.clear
             case .open:
                 OpenHeader(store: store, island: island)
@@ -146,6 +148,10 @@ struct IslandView: View {
             ConnectCard(store: store, device: store.devices.first { $0.id == id })
         case .drop:
             DropTargets(store: store, island: island)
+        case .call(let id):
+            if let call = store.calls.first(where: { $0.id == id }), let draft = store.drafts[id] {
+                CallCard(store: store, island: island, call: call, draft: draft).padding(.top, 2)
+            }
         default:
             OpenBody(store: store, island: island, marks: marks)
         }
@@ -172,8 +178,6 @@ private struct BlurModifier: ViewModifier {
     func body(content: Content) -> some View { content.blur(radius: radius) }
 }
 
-/// Closed: the notch, with the marks of the first items in the inbox on its left
-/// and how many are in each state on its right.
 struct ClosedWings: View {
     let store: NotchStore
     let geometry: NotchGeometry
@@ -181,7 +185,8 @@ struct ClosedWings: View {
 
     private var shown: [Entry] { store.entries }
 
-    static let groupGap: CGFloat = 10
+    static let groupGap: CGFloat = 12
+    static let countGap: CGFloat = 3
 
     /// Each wing as wide as what it holds, so a quiet right wing stays small
     /// and grows when a state mark arrives.
@@ -192,7 +197,10 @@ struct ClosedWings: View {
         var left: CGFloat = 0
         if count > 0 { left = 14 + 20 + CGFloat(min(count, 3) - 1) * 17 + 10 }
         if count > 3 { left += 9 + 6.5 * CGFloat(String(count - 3).count + 1) }
-        let groups = rollups.map { ($0.mark.showsCount($0.count) ? CGFloat(String($0.count).count) * 7.5 + 6 : 0) + 16 }
+        let groups = rollups.map { group in
+            if group.mark == .calls { return CallCount.width(group.count) }
+            return (group.mark.showsCount(group.count) ? CGFloat(String(group.count).count) * 7.5 + ClosedWings.countGap : 0) + 16
+        }
         let held = groups.reduce(0, +) + CGFloat(rollups.count - 1) * ClosedWings.groupGap
         return (left, 10 + held + 14)
     }
@@ -232,14 +240,18 @@ struct ClosedWings: View {
             if wings.right > 0 {
                 HStack(spacing: Self.groupGap) {
                     ForEach(store.rollups, id: \.mark) { group in
-                        HStack(spacing: 6) {
-                            if group.mark.showsCount(group.count) {
-                                Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
-                            }
-                            switch group.mark {
-                            case .mark(let mark): StateMark(mark: mark)
-                            case .subagents: RunningGlyph(icon: Icons.agent, size: 10, colour: Theme.live)
-                            case .shells: RunningGlyph(icon: Icons.command, size: 11, colour: Theme.warn)
+                        if group.mark == .calls {
+                            CallCount(count: group.count)
+                        } else {
+                            HStack(spacing: Self.countGap) {
+                                if group.mark.showsCount(group.count) {
+                                    Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
+                                }
+                                switch group.mark {
+                                case .mark(let mark): StateMark(mark: mark)
+                                case .subagents: RunningGlyph(icon: Icons.agent, size: 10, colour: Theme.live)
+                                case .calls: EmptyView()
+                                }
                             }
                         }
                     }
@@ -252,7 +264,6 @@ struct ClosedWings: View {
     }
 }
 
-/// A finished turn, for a moment, on either side of the notch.
 struct FinishedWings: View {
     static let wing: CGFloat = 150
 
@@ -285,7 +296,6 @@ struct FinishedWings: View {
     }
 }
 
-/// The two sides of the menu-bar band, split around the camera.
 struct HeaderBand<Leading: View, Trailing: View>: View {
     let geometry: NotchGeometry
     @ViewBuilder let leading: () -> Leading
@@ -301,7 +311,6 @@ struct HeaderBand<Leading: View, Trailing: View>: View {
     }
 }
 
-/// What needs you, in the band: who asks on the left of the camera, that it needs you on the right.
 struct AskHeader: View {
     let entry: Entry?
     let geometry: NotchGeometry
@@ -311,7 +320,7 @@ struct AskHeader: View {
         HeaderBand(geometry: geometry) {
             if let entry {
                 AgentLook(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
-                Text(entry.item.name ?? agentName(entry.provider)).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
+                Text(entry.name ?? agentName(entry.provider)).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
             }
         } trailing: {
             Text("Needs you").font(Theme.ui(12, .semibold)).foregroundStyle(Theme.warn)
@@ -320,7 +329,6 @@ struct AskHeader: View {
     }
 }
 
-/// What needs you, answered without opening the island.
 struct AskBody: View {
     let store: NotchStore
     let island: IslandModel
@@ -360,15 +368,14 @@ struct ProjectLabel: View {
     }
 }
 
-/// What it waits on: the command it wants to run, or the question or note in its own words.
 struct AskDetail: View {
     let entry: Entry
     var darker = false
 
     var body: some View {
         if let ask = entry.ask {
-            CommandText(ask: ask, darker: darker)
-        } else if let text = entry.question?.text ?? entry.item.detail {
+            CommandText(command: ask.command, isCommand: ask.isCommand, darker: darker)
+        } else if let text = entry.item?.detail {
             Text(text)
                 .font(Theme.ui(13))
                 .foregroundStyle(Theme.ink)
@@ -380,13 +387,14 @@ struct AskDetail: View {
 }
 
 struct CommandText: View {
-    let ask: Ask
+    let command: String
+    let isCommand: Bool
     var darker = false
 
     var body: some View {
         HStack(spacing: 8) {
-            if ask.isCommand { Text("$").foregroundStyle(Theme.inkFaint) }
-            Text(ask.command).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.tail)
+            if isCommand { Text("$").foregroundStyle(Theme.inkFaint) }
+            Text(command).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.tail)
         }
         .font(Theme.mono(12))
         .padding(.horizontal, 12)
@@ -396,7 +404,8 @@ struct CommandText: View {
     }
 }
 
-/// Deny, Always allow and Allow for a permission; Open in Sikemux for anything the notch cannot answer.
+/// Deny, Always allow and Allow for a permission; Open in Sikemux for anything else the notch cannot answer.
+/// Questions and held actions are calls, which their cards answer.
 struct AnswerButtons: View {
     let store: NotchStore
     let island: IslandModel
@@ -404,16 +413,7 @@ struct AnswerButtons: View {
     var height: CGFloat
 
     var body: some View {
-        if let question = entry.question {
-            HStack(spacing: 8) {
-                if store.settings.answerInNotch, question.choices.count <= 2 {
-                    ForEach(Array(question.choices.enumerated()), id: \.offset) { index, choice in
-                        CapsuleButton(title: choice.label, height: height) { choose(question, index) }
-                    }
-                }
-                CapsuleButton(title: "Answer in Sikemux", primary: true, height: height) { store.open(entry) }
-            }
-        } else if let ask = entry.ask, store.settings.answerInNotch, ask.allowOnce != nil || ask.allowAlways != nil {
+        if let ask = entry.ask, store.settings.answerInNotch, ask.allowOnce != nil || ask.allowAlways != nil {
             HStack(spacing: 8) {
                 if let reject = ask.reject {
                     CapsuleButton(title: "Deny", height: height) { answer(ask, reject) }
@@ -431,12 +431,8 @@ struct AnswerButtons: View {
     }
 
     private func answer(_ ask: Ask, _ option: String) {
-        store.answer(ask, agentId: entry.item.agentId, optionId: option)
-        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
+        store.answer(ask, agentId: entry.agentId, optionId: option)
+        if case .peekAsk = island.mode { island.set(island.hovering ? island.opening : .closed) }
     }
 
-    private func choose(_ question: AgentQuestion, _ choice: Int) {
-        store.answer(question, choice: choice)
-        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
-    }
 }

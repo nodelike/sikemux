@@ -5,12 +5,13 @@ import * as Linking from 'expo-linking';
 
 import { Button } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-function Item({ icon, label, danger, onPress }: { icon: IconName; label: string; danger?: boolean; onPress: () => void }) {
+export function MenuItem({ icon, label, danger, onPress }: { icon: IconName; label: string; danger?: boolean; onPress: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const color = danger ? colors.danger : colors.ink;
@@ -25,7 +26,6 @@ function Item({ icon, label, danger, onPress }: { icon: IconName; label: string;
   );
 }
 
-/** The chat's ⋯ menu: finding words in it, what was sent before, a link that opens this chat on a phone, and stopping the agent. */
 export function ChatMenu({
   visible,
   onClose,
@@ -35,6 +35,7 @@ export function ChatMenu({
   hostName,
   onFind,
   onRecent,
+  onAway,
   onStop,
 }: {
   visible: boolean;
@@ -47,10 +48,13 @@ export function ChatMenu({
   onFind?: () => void;
   /** Absent while nothing was sent. */
   onRecent?: () => void;
+  /** Opens the snooze sheet; absent for a phone that can only watch. */
+  onAway?: () => void;
   /** Absent for a phone that can only watch. */
   onStop?: () => Promise<boolean>;
 }) {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const [confirming, setConfirming] = useState(false);
   const [stopping, setStopping] = useState(false);
   const close = () => {
@@ -61,13 +65,13 @@ export function ChatMenu({
     <Sheet visible={visible} onClose={close}>
       {confirming && onStop ? (
         <View style={styles.confirm}>
-          <Text style={styles.title}>Stop this chat?</Text>
+          <Text style={styles.title}>{t('Stop this chat?')}</Text>
           <Text style={styles.body}>
-            {agentName} stops and closes on {hostName}, along with anything it still has running.
+            {t('{name} stops and closes on {host}, along with anything it still has running.', { name: agentName, host: hostName })}
           </Text>
           <Button
             kind="danger"
-            title={stopping ? 'Stopping…' : 'Stop chat'}
+            title={stopping ? t('Stopping…') : t('Stop chat')}
             disabled={stopping}
             onPress={() => {
               setStopping(true);
@@ -77,14 +81,14 @@ export function ChatMenu({
               });
             }}
           />
-          <Button title="Cancel" onPress={() => setConfirming(false)} />
+          <Button title={t('Cancel')} onPress={() => setConfirming(false)} />
         </View>
       ) : (
         <View style={styles.items}>
           {onFind ? (
-            <Item
+            <MenuItem
               icon="IconSearch"
-              label="Find in chat"
+              label={t('Find in chat')}
               onPress={() => {
                 close();
                 onFind();
@@ -92,25 +96,35 @@ export function ChatMenu({
             />
           ) : null}
           {onRecent ? (
-            <Item
+            <MenuItem
               icon="IconClock"
-              label="Recent prompts"
+              label={t('Recent prompts')}
               onPress={() => {
                 close();
                 onRecent();
               }}
             />
           ) : null}
-          <Item
+          {onAway ? (
+            <MenuItem
+              icon="IconClock"
+              label={t('Snooze')}
+              onPress={() => {
+                close();
+                onAway();
+              }}
+            />
+          ) : null}
+          <MenuItem
             icon="IconCopy"
-            label="Copy link"
+            label={t('Copy link')}
             onPress={() => {
               const link = Linking.createURL(`device/${encodeURIComponent(core)}/chat/${encodeURIComponent(agentId)}`);
               void Clipboard.setStringAsync(link).then(() => haptics.select());
               close();
             }}
           />
-          {onStop ? <Item icon="IconStop" label="Stop chat" danger onPress={() => setConfirming(true)} /> : null}
+          {onStop ? <MenuItem icon="IconStop" label={t('Stop chat')} danger onPress={() => setConfirming(true)} /> : null}
         </View>
       )}
     </Sheet>

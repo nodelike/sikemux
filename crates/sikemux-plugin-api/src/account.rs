@@ -3,6 +3,8 @@
 
 use std::future::Future;
 
+use serde_json::Value;
+
 tokio::task_local! {
     static CHOSEN: Option<String>;
 }
@@ -14,4 +16,13 @@ pub fn as_account<F: Future>(account: Option<String>, work: F) -> impl Future<Ou
 
 pub fn chosen() -> Option<String> {
     CHOSEN.try_with(Clone::clone).ok().flatten()
+}
+
+/// Which account a call's arguments name; with none named, the default one.
+pub fn named_in(input: &Value) -> Option<String> {
+    input
+        .get("account")
+        .and_then(Value::as_str)
+        .filter(|account| !account.is_empty())
+        .map(str::to_string)
 }

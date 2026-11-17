@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import type { AccountEvent, LiveServerMessage, RevokeReason } from '@protocol';
+import type { AccountEvent, LiveServerMessage, RevokeReason } from '@sikemux/protocol';
 
-import { afterByeDelay, liveUrl, reconnectDelay, type SocketHandlers } from '@protocol/live';
+import { afterByeDelay, type SocketHandlers } from '@shared/account/live';
+import { reconnectDelay } from '@shared/account/renewal';
 
 import { LiveAccount, readEvents, type LiveDeps } from './live';
 
@@ -69,7 +70,7 @@ beforeEach(() => {
     key: async () => OWN,
     sign: async (nonce) => `signed:${nonce}`,
     token: async () => 'session-token',
-    app: { platform: 'ios', version: '0.1.0' },
+    app: { platform: 'android', version: '0.1.0' },
     cursor: {
       load: async () => saved,
       save: async (id) => {
@@ -101,7 +102,7 @@ describe('the hello', () => {
         key: OWN,
         signature: `signed:${NONCE}`,
         token: 'session-token',
-        app: { platform: 'ios', version: '0.1.0' },
+        app: { platform: 'android', version: '0.1.0' },
       },
     ]);
   });
@@ -116,11 +117,6 @@ describe('the hello', () => {
     expect(latest().closedWith).toBe(1000);
     await vi.advanceTimersByTimeAsync(120_000);
     expect(sockets).toHaveLength(1);
-  });
-
-  it('turns the API address into the live one', () => {
-    expect(liveUrl('https://api.sikemux.com')).toBe('wss://api.sikemux.com/v1/live');
-    expect(liveUrl('http://192.168.1.4:4000')).toBe('ws://192.168.1.4:4000/v1/live');
   });
 });
 

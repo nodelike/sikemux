@@ -12,9 +12,27 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/Relay" }
         },
-        "minimumVersions": { "$ref": "#/$defs/MinimumVersions" }
+        "minimumVersions": { "$ref": "#/$defs/MinimumVersions" },
+        "flags": { "$ref": "#/$defs/Flags" }
       },
       "required": ["relays", "minimumVersions"],
+      "additionalProperties": false
+    },
+    "Flags": {
+      "description": "Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.",
+      "type": "object",
+      "properties": {
+        "off": {
+          "description": "The names of the features switched off, such as staffFeed.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]*$",
+            "maxLength": 64
+          }
+        }
+      },
+      "required": ["off"],
       "additionalProperties": false
     },
     "Relay": {

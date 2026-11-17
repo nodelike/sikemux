@@ -1,27 +1,22 @@
-import { createContext, memo, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, memo, useContext, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@shared/chat/durationLabel';
-import { rowOf, toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@shared/chat/toolLabels';
+import { useToolDetail } from '@shared/chat/useToolDetail';
+import { toolKind, toolRunning, toolUrl } from '@shared/chat/toolLabels';
 import { attachmentName } from '@shared/chat/transcript';
-import {
-  callCount,
-  callsLabel,
-  secondsSince,
-  toolElapsed,
-  toolGroupSummary,
-  toolIconName,
-  toolRowKind,
-  type ToolIconName,
-} from '@shared/chat/toolView';
-import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/chat/types';
+import { callCount, callsLabel, secondsSince, toolElapsed, toolGroupSummary, toolIconName, type ToolIconName } from '@shared/chat/toolView';
+import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
+import { useT } from '@/i18n';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { openLink } from '@/ui/prompt';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { fonts, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { Shimmer } from '@/ui/Shimmer';
+import { useSecond } from '@/ui/motion';
+import { Sideways } from '@/ui/Sideways';
 import { DiffBody } from './Diff';
 import { FileRef } from './FileRef';
 import { useFold } from './folds';
@@ -35,55 +30,57 @@ export type ToolPart = Extract<ChatPart, { kind: 'tool' }>;
  */
 export const ToolDetailContext = createContext<((toolCallId: string, done: boolean) => Promise<Detail | null>) | null>(null);
 
-type Fetched = { detail: Detail | null; problem: string | null };
-
-/** What an opened row shows beyond its summary, fetched when it opens and again as a running call goes on. */
-function useToolDetail(part: ToolPart): Fetched {
+/** What an opened row shows beyond its summary, and why it could not get it. */
+function useToolFetch(part: ToolPart): { detail: Detail | null; problem: string | null } {
   const read = useContext(ToolDetailContext);
-  const [fetched, setFetched] = useState<Fetched>({ detail: null, problem: null });
-  const done = !toolRunning(part.tool);
-  const id = part.tool.toolCallId;
-  const lines = part.output?.lines;
-  useEffect(() => {
-    if (!read) return;
-    let current = true;
-    read(id, done).then(
-      (detail) => current && setFetched(detail ? { detail, problem: null } : { detail: null, problem: 'the host did not send it' }),
-      (error: unknown) => current && setFetched((before) => ({ ...before, problem: problemOf(error) })),
-    );
-    return () => {
-      current = false;
-    };
-  }, [read, id, done, lines]);
-  return read ? fetched : { detail: null, problem: 'the host is not here to send it' };
+  const { detail, error } = useToolDetail(read, part);
+  const t = useT();
+  if (!read) return { detail: null, problem: t('the host is not here to send it') };
+  return { detail, problem: error ? problemOf(error) : null };
 }
 
-/** Lines of output shown before "Show all", as on the Mac. */
-const OUTPUT_FOLD_LINES = 12;
 /** JetBrains Mono's advance at the rows' 11.5px, for lining the verbs up in one column. */
 const KIND_CHAR = 6.9;
 
 const TOOL_ICONS: Record<ToolIconName, IconName> = {
   activity: 'IconActivity',
   agent: 'IconAgent',
+  agents: 'IconAgents',
+  aws: 'IconAws',
+  bitbucket: 'IconBitbucket',
+  board: 'IconBoard',
+  bolt: 'IconBolt',
   book: 'IconBook',
   camera: 'IconCamera',
+  check: 'IconCheck',
   click: 'IconClick',
   clock: 'IconClock',
   close: 'IconClose',
   code: 'IconCode',
   command: 'IconCommand',
+  commit: 'IconCommit',
+  cube: 'IconCube',
   dashboard: 'IconDashboard',
   download: 'IconDownload',
   eye: 'IconEye',
   file: 'IconFile',
+  'file-plus': 'IconFilePlus',
+  flask: 'IconFlask',
   folder: 'IconFolder',
+  forgejo: 'IconForgejo',
+  git: 'IconGit',
+  gitea: 'IconGitea',
+  github: 'IconGithub',
+  gitlab: 'IconGitlab',
   globe: 'IconGlobe',
   highlighter: 'IconHighlighter',
   'home-button': 'IconHomeButton',
   hourglass: 'IconHourglass',
+  image: 'IconImage',
   issue: 'IconIssue',
+  jira: 'IconJira',
   keyboard: 'IconKeyboard',
+  linear: 'IconLinear',
   link: 'IconLink',
   'log-lines': 'IconLogLines',
   logo: 'Logo',
@@ -98,13 +95,18 @@ const TOOL_ICONS: Record<ToolIconName, IconName> = {
   plug: 'IconPlug',
   pointer: 'IconPointer',
   'pull-request': 'IconPullRequest',
+  push: 'IconPush',
   record: 'IconRecord',
   refresh: 'IconRefresh',
   resize: 'IconResize',
   rocket: 'IconRocket',
   rotate: 'IconRotate',
   run: 'IconRun',
+  rundeck: 'IconRundeck',
   search: 'IconSearch',
+  server: 'IconServer',
+  share: 'IconShare',
+  slack: 'IconSlack',
   'square-plus': 'IconSquarePlus',
   status: 'IconStatus',
   steps: 'IconSteps',
@@ -114,10 +116,13 @@ const TOOL_ICONS: Record<ToolIconName, IconName> = {
   tap: 'IconTap',
   terminal: 'IconTerminal',
   text: 'IconText',
+  timer: 'IconTimer',
   'touch-path': 'IconTouchPath',
   trash: 'IconTrash',
   unlink: 'IconUnlink',
   upload: 'IconUpload',
+  user: 'IconUser',
+  vercel: 'IconVercel',
   warning: 'IconWarning',
   waterfall: 'IconWaterfall',
   window: 'IconWindow',
@@ -142,39 +147,24 @@ const KIND_COLORS: Readonly<Record<string, keyof Palette>> = {
 
 /** The icon and colour of a call, as the Mac's tool rows draw them. */
 function look(tool: ToolCall, colors: Palette): { icon: IconName; color: string } {
-  const plugin = tool.status === 'failed' ? undefined : rowOf(tool).plugin;
+  const plugin = tool.status === 'failed' ? undefined : tool.row.plugin;
   const icon = (plugin && PLUGIN_MARKS[plugin]) || TOOL_ICONS[toolIconName(tool)];
   if (tool.status === 'failed') return { icon, color: colors.danger };
-  const kind = toolRowKind(tool);
+  const kind = tool.row.action;
   return { icon, color: colors[(kind && KIND_COLORS[kind]) || 'inkDim'] };
 }
 
-/** Counts up in whole seconds on a clock of its own, so the tick redraws this label and nothing around it. */
+/** Counts up in whole seconds, so the tick redraws this label and nothing around it. */
 export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent?: number; style: object }) {
   const [started] = useState(() => since ?? Date.now());
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return <Text style={style}>{secondsSince(started, now, spent)}</Text>;
+  const t = useT();
+  return <Text style={style}>{secondsSince(started, useSecond() * 1000, spent, t)}</Text>;
 }
 
-/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
-   scroller's own content takes it before the message's press handler can. */
-const keepTouch = () => true;
+/** Lines of what a command printed shown before "Show all": its last ones, as on the Mac. */
+const OUTPUT_TAIL_LINES = 8;
 
-/** Scrolls sideways inside the transcript, so long lines keep to the width of the screen. */
-function Sideways({ children }: { children: ReactNode }) {
-  const styles = useStyles(makeStyles);
-  return (
-    <ScrollView horizontal contentContainerStyle={styles.pad} showsHorizontalScrollIndicator={false}>
-      <View onStartShouldSetResponder={keepTouch}>{children}</View>
-    </ScrollView>
-  );
-}
-
-/** A command and what it printed, the way a terminal would have shown them. */
+/** What a command printed: its exit code and size, then its last lines, the rest a tap away. */
 function Terminal({
   part,
   command,
@@ -183,6 +173,7 @@ function Terminal({
   waiting,
 }: {
   part: ToolPart;
+  /** The whole command, when its line had to cut it short. */
   command: string | null;
   group: string;
   output: ToolOutput | undefined;
@@ -192,80 +183,100 @@ function Terminal({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const show = useShowImage();
+  const t = useT();
   const summary = part.output;
   const picture = output?.image
     ? { uri: `data:${output.image.mimeType};base64,${output.image.data}`, name: attachmentName(output.image.mimeType) }
     : null;
   const [whole, setWhole] = useFold(`${group}/${part.id}/whole`, false);
-  const lines = output?.text ? output.text.split('\n') : [];
-  const folds = lines.length > OUTPUT_FOLD_LINES;
-  const folded = folds && !whole;
-  const failed = part.tool.status === 'failed';
+  const text = output?.text?.replace(/\n+$/, '') ?? '';
+  const lines = text ? text.split('\n') : [];
+  const folds = lines.length > OUTPUT_TAIL_LINES;
+  const shown = folds && !whole ? lines.slice(-OUTPUT_TAIL_LINES).join('\n') : text;
+  const exit =
+    part.tool.status === 'failed' ? (summary?.exitCode !== undefined ? t('exit {code}', { code: summary.exitCode }) : t('failed')) : null;
   return (
-    <View style={styles.box}>
+    <View>
       {command !== null ? (
-        <View style={styles.command}>
+        <View style={[styles.well, styles.command]}>
           <Text style={[styles.mono, { color: colors.toolRun }]}>$</Text>
           <Text style={[styles.mono, styles.commandText]} selectable>
             {command}
           </Text>
-          <CopyButton value={command} label="command" size={12} />
+          <CopyButton value={command} label={t('Copy command')} size={12} />
+        </View>
+      ) : null}
+      {exit || lines.length > 0 || folds ? (
+        <View style={styles.outputHead}>
+          {exit ? <Text style={styles.exit}>{exit}</Text> : null}
+          {lines.length > 0 ? (
+            <Text style={styles.faint}>{lines.length === 1 ? t('1 line') : t('{count} lines', { count: lines.length })}</Text>
+          ) : null}
+          {folds ? (
+            <Pressable onPress={() => setWhole(!whole)} style={styles.showAll} hitSlop={8} accessibilityRole="button">
+              <View style={whole && styles.turned}>
+                <Icon name="IconChevron" size={9} color={colors.inkDim} />
+              </View>
+              <Text style={styles.quiet}>{whole ? t('Show less') : t('Show all')}</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       {picture ? (
-        <Pressable onPress={() => show(picture)} accessibilityRole="imagebutton" accessibilityLabel="Picture the call returned, open">
+        <Pressable onPress={() => show(picture)} accessibilityRole="imagebutton" accessibilityLabel={t('Picture the call returned, open')}>
           <Image source={{ uri: picture.uri }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />
         </Pressable>
       ) : null}
-      {output?.text ? (
-        <View style={[styles.output, command !== null && styles.ruled]}>
-          {folded ? (
-            <Sideways>
-              <Text style={[styles.mono, styles.outputText]}>{lines.slice(0, OUTPUT_FOLD_LINES).join('\n')}</Text>
-            </Sideways>
-          ) : (
+      {shown ? (
+        <View style={styles.well}>
+          {whole ? (
             <ScrollView style={styles.whole} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              <Sideways>
-                <Text style={[styles.mono, styles.outputText]} selectable>
-                  {output.text}
+              <Sideways contentStyle={styles.printedPad}>
+                <Text style={[styles.mono, styles.printed]} selectable>
+                  {shown}
                 </Text>
               </Sideways>
             </ScrollView>
+          ) : (
+            <Sideways contentStyle={styles.printedPad}>
+              <Text style={[styles.mono, styles.printed]}>{shown}</Text>
+            </Sideways>
           )}
-          <CopyButton value={output.text} label="output" size={12} style={styles.copyOutput} />
+          <CopyButton value={text} label={t('Copy output')} size={12} style={styles.copyOutput} />
         </View>
       ) : waiting ? (
-        <Text style={[styles.note, command !== null && styles.ruled]}>{waiting}</Text>
+        <Text style={styles.note}>{waiting}</Text>
       ) : summary && !output?.image ? (
-        <Text style={[styles.note, command !== null && styles.ruled]}>No output</Text>
+        <Text style={styles.note}>{t('No output')}</Text>
       ) : null}
-      {folds ? (
-        <Pressable onPress={() => setWhole(!whole)} style={[styles.more, styles.ruled]} hitSlop={4} accessibilityRole="button">
-          <Text style={styles.moreText}>{folded ? `Show all ${lines.length} lines` : 'Show fewer lines'}</Text>
-        </Pressable>
-      ) : null}
-      {(output ?? summary)?.cut && (!folds || whole) ? (
-        <Text style={[styles.note, styles.ruled]}>The rest of the output was not kept</Text>
-      ) : null}
-      {failed && summary?.exitCode !== undefined ? <Text style={styles.exit}>exit {summary.exitCode}</Text> : null}
+      {(output ?? summary)?.cut && (!folds || whole) ? <Text style={styles.note}>{t('The rest of the output was not kept')}</Text> : null}
     </View>
   );
 }
 
-function ToolDetail({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
+/** What an opened call did: its change, what it printed, or why it failed. */
+function ToolDetail({ part, group }: { part: ToolPart; group: string }) {
   const styles = useStyles(makeStyles);
-  const { detail, problem } = useToolDetail(part);
-  const waiting = detail ? null : problem ? `Could not load it: ${problem}` : 'Loading…';
+  const { detail, problem } = useToolFetch(part);
+  const t = useT();
+  const waiting = detail ? null : problem ? t('Could not load it: {problem}', { problem }) : t('Loading…');
+  const command = part.tool.kind === 'execute' ? part.tool.title.trim() : null;
   return (
     <View style={styles.detail}>
       {part.diff ? (
         <DiffBody
-          diff={detail?.diff ?? part.diff}
+          lines={detail?.diff?.lines}
           fold={`${group}/${part.id}/diff`}
           waiting={detail?.diff ? undefined : (waiting ?? undefined)}
         />
       ) : command !== null || part.output ? (
-        <Terminal part={part} command={command} group={group} output={detail?.output} waiting={part.output ? waiting : null} />
+        <Terminal
+          part={part}
+          command={command !== null && command !== part.tool.row.target ? command : null}
+          group={group}
+          output={detail?.output}
+          waiting={part.output ? waiting : null}
+        />
       ) : (
         <Text style={styles.failure} selectable>
           {part.failure}
@@ -278,7 +289,7 @@ function ToolDetail({ part, command, group }: { part: ToolPart; command: string 
 /** What a call acted on: a file as the Mac's file ref, a web address as a link, anything else as written. */
 function Target({ tool, target }: { tool: ToolCall; target: string }) {
   const styles = useStyles(makeStyles);
-  const file = toolPath(tool);
+  const file = tool.row.path;
   if (file) return <FileRef raw={file} label={target} look="plain" />;
   const link = toolUrl(target);
   if (!link) return target;
@@ -310,13 +321,16 @@ const ToolRow = memo(function ToolRow({
   const { icon, color } = look(tool, colors);
   const status = tool.status ?? 'pending';
   const running = toolRunning(tool);
-  const target = toolTarget(tool);
-  const detail = toolDetail(tool);
+  const target = tool.row.target;
+  const detail = tool.row.detail;
   const command = tool.kind === 'execute' ? tool.title.trim() : null;
   // The row holds one line of a command, so the whole of it is worth opening while it runs or when the row shortened it.
   const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && (running || command !== target));
   const [open, setOpen] = useFold(`${group}/${part.id}`, false);
-  const elapsed = toolElapsed(part);
+  const t = useT();
+  const elapsed = toolElapsed(part, true, t);
+  const kind = toolKind(tool, t);
+  const what = `${kind} ${target}`;
   return (
     <View style={status === 'cancelled' && styles.cancelled}>
       <Pressable
@@ -324,13 +338,13 @@ const ToolRow = memo(function ToolRow({
         onPress={opens ? () => setOpen(!open) : undefined}
         disabled={!opens}
         accessibilityRole={opens ? 'button' : undefined}
-        accessibilityLabel={`${toolKind(tool)} ${target}${status === 'failed' ? ', failed' : running ? ', running' : ''}`}
+        accessibilityLabel={status === 'failed' ? t('{what}, failed', { what }) : running ? t('{what}, running', { what }) : what}
         accessibilityState={opens ? { expanded: open } : undefined}>
         <View style={last && !open ? styles.elbow : styles.spine} />
         <View style={[styles.tick, last && !open && { backgroundColor: 'transparent' }]} />
         <Icon name={icon} size={12} color={color} />
         <Text style={[styles.mono, { color, minWidth: kindWidth }]} numberOfLines={1}>
-          {toolKind(tool)}
+          {kind}
         </Text>
         {running ? (
           <Shimmer style={[styles.mono, { color: colors.inkDim }]} layout={styles.targetLayout}>
@@ -350,6 +364,7 @@ const ToolRow = memo(function ToolRow({
               <Text style={{ color: colors.gitDeleted }}>−{part.diff.dels}</Text>
             </Text>
           ) : null}
+          {tool.row.times ? <Text style={styles.endText}>×{tool.row.times}</Text> : null}
           {running ? (
             <LiveSeconds since={part.startedAt} style={styles.endText} />
           ) : elapsed ? (
@@ -365,7 +380,9 @@ const ToolRow = memo(function ToolRow({
       {open ? (
         <View style={styles.detailRow}>
           {last ? null : <View style={styles.spine} />}
-          <ToolDetail part={part} command={command} group={group} />
+          <View style={styles.rowDetail}>
+            <ToolDetail part={part} group={group} />
+          </View>
         </View>
       ) : null}
     </View>
@@ -385,10 +402,12 @@ export const ToolGroup = memo(
   function ToolGroup({ id, parts, live }: { id: string; parts: ToolPart[]; live: boolean }) {
     const colors = useColors();
     const styles = useStyles(makeStyles);
-    const summary = toolGroupSummary(parts);
+    const t = useT();
+    const summary = toolGroupSummary(parts, t);
     const { current, said, spent } = summary;
     const [open, setOpen] = useFold(id, live || current !== undefined);
-    const calls = callsLabel(parts.length);
+    const total = parts.reduce((sum, part) => sum + (part.tool.row.times ?? 1), 0);
+    const calls = callsLabel(total, t);
     const kindWidth = summary.kindWidth * KIND_CHAR + 1;
     return (
       <ImageViewerHost>
@@ -398,7 +417,7 @@ export const ToolGroup = memo(
             style={styles.summary}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
+            accessibilityLabel={current ? t('{what}, running', { what: said ?? calls }) : (said ?? calls)}
             accessibilityState={{ expanded: open }}>
             {current ? (
               <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
@@ -409,11 +428,11 @@ export const ToolGroup = memo(
                 {calls}
               </Text>
             )}
-            {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{callCount(parts.length)}</Text> : null}
+            {said !== null && total > 1 ? <Text style={styles.summaryTime}>{callCount(total, t)}</Text> : null}
             {current ? (
               <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
             ) : spent > 0 ? (
-              <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+              <Text style={styles.summaryTime}>{durationLabel(spent, t)}</Text>
             ) : null}
             <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
               <Icon name="IconChevron" size={11} color={colors.inkDim} />
@@ -442,6 +461,8 @@ const makeStyles = (colors: Palette) => {
     summaryTime: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim },
     chevron: { opacity: 0.7 },
     body: { marginLeft: 6 },
+    turned: { transform: [{ rotate: '90deg' }] },
+    endText: { fontFamily: fonts.ui, fontSize: 12, fontVariant: ['tabular-nums'], color: colors.inkFaint },
     row: { flexDirection: 'row', alignItems: 'center', minHeight: 22, gap: 8 },
     cancelled: { opacity: 0.6 },
     spine: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 1, backgroundColor: colors.treeSpine },
@@ -467,23 +488,40 @@ const makeStyles = (colors: Palette) => {
     link: { color: colors.accent },
     rowChevron: { opacity: 0.55 },
     rowChevronOpen: { opacity: 1, transform: [{ rotate: '90deg' }] },
-    endText: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkDim },
+    rowDetail: { flex: 1, marginLeft: 18, marginTop: 2, marginBottom: 6 },
     detailRow: { flexDirection: 'row' },
-    detail: { flex: 1, marginLeft: 18, marginTop: 2, marginBottom: 6 },
-    failure: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 16, color: colors.danger },
-    box: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.sunken, overflow: 'hidden' },
-    whole: { maxHeight: 320 },
-    pad: { paddingHorizontal: 9, paddingVertical: 7 },
-    command: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, paddingLeft: 9, paddingRight: 3, paddingVertical: 3 },
+    detail: { flex: 1 },
+    failure: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 17, color: colors.danger },
+    well: { borderRadius: 8, backgroundColor: colors.sunken, overflow: 'hidden' },
+    command: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 7,
+      paddingLeft: 12,
+      paddingRight: 3,
+      paddingVertical: 3,
+      marginBottom: 4,
+    },
     commandText: { flex: 1, paddingVertical: 4, lineHeight: 17, color: colors.ink },
-    output: { position: 'relative' },
-    ruled: { borderTopWidth: 1, borderTopColor: colors.border },
-    outputText: { fontSize: 11, lineHeight: 16, color: colors.inkDim, paddingRight: 24 },
-    copyOutput: { position: 'absolute', top: 3, right: 3 },
-    note: { paddingHorizontal: 9, paddingVertical: 6, fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
-    more: { paddingHorizontal: 9, paddingVertical: 7 },
-    moreText: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
-    exit: { paddingHorizontal: 9, paddingBottom: 7, fontFamily: fonts.mono, fontSize: 10.5, color: colors.danger },
-    image: { width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.sunken },
+    outputHead: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 26 },
+    exit: {
+      paddingHorizontal: 7,
+      paddingVertical: 1,
+      borderRadius: 10,
+      overflow: 'hidden',
+      backgroundColor: translucent(colors.danger, 0.12),
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      color: mixed(colors.danger, colors.ink, 0.7),
+    },
+    faint: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
+    quiet: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
+    showAll: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 'auto' },
+    whole: { maxHeight: 320 },
+    printedPad: { paddingLeft: 12, paddingRight: 30, paddingVertical: 10 },
+    printed: { fontSize: 11.5, lineHeight: 19.5, color: colors.secondary },
+    copyOutput: { position: 'absolute', top: 4, right: 4 },
+    note: { paddingTop: 4, fontFamily: fonts.ui, fontSize: 10.5, color: colors.inkFaint },
+    image: { width: '100%', aspectRatio: 4 / 3, marginTop: 4, borderRadius: 8, backgroundColor: colors.sunken },
   });
 };

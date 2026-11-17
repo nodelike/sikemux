@@ -1,28 +1,29 @@
-# Sikemux v0.6.0
+# Sikemux v0.6.1-nightly.22
 
-Sikemux 0.6 is a new app. It is drawn natively on the GPU instead of in a web page, so it starts faster, stays light with many agents at work and long chats, and keeps everything you had: your projects, agents, chats, accounts, settings and plugins carry over.
+Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
 ## Before you update
 
-- **Your phone needs the new phone app, 0.2.0 or later.** Install it from TestFlight on iPhone or the Google Play testing track on Android. The older phone app, 0.1.0, can't connect to hosts on 0.6.
-- **Hosts link only with hosts on 0.6.** Update every computer you link, or they can't reach each other until they do.
-- **There is no going back to 0.5.** This release moves saved chats to a new format that 0.5 can't read.
+- **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
+- **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## What's new
+## New since nightly.20
 
-- **Native and fast.** The whole app is drawn on the GPU, with typed, lighter talk between the window and the core, and tabs out of sight cost nothing.
-- **Chats that keep their place.** Agents start only when you write, chats open with their history, pick up exactly where they left off after a reconnect, and resume on the model they last ran.
-- **Your own model providers.** Add any provider with its base URL and key, kept in the Keychain, and run OMP and OpenCode chats on its models.
-- **Stash.** Share links, text, photos and files to Sikemux from your phone's share menu, and add them to any chat from the composer's Stash button.
-- **Triggers.** Agents can prompt their own chats later, on a schedule, from the board, or from a webhook that reaches your computer wherever it is.
-- **Teams of agents.** An agent can start, message and close the agents it works with, and its tab shows what each one has going.
-- **Pull requests and CI in the app.** Pull requests read like GitHub's, links to pull requests, issues, runs and Jira issues open on the agent's desk, and the top bar's CI chip stands for your branch's newest commit.
-- **Databases and diagrams.** Connect PostgreSQL, MySQL or SQLite, browse tables and run SQL, and see `.dbml` files and replies as diagrams you can move around.
-- **Plugin panels.** Jira, Linear, Slack, databases and more open as panes, with Jira cards you can drag between columns.
-- **On Linux too.** The app ships for x86_64 as a .deb, an .rpm and an AppImage, and a Linux host updates itself.
-- **Crash reports.** A crash or a window that stops answering leaves a report that `sikemux doctor` shows.
-- **Settings regrouped** into six groups, menus that work with the keyboard, find in markdown, HTML previews, and videos that play in Quick Look.
+- **Agents show as chips in the chief's turn line and in an agent's header.** "Waiting on @Mujika" and the lead crumbs open the agent you click.
+- **A chief's agents are root rows in the rail**, under the chief's own row, with no indent.
+- **A chat coming to the front puts the keys in its composer**, so you can type straight away after opening, resuming or picking a chat.
+- **A project with nothing open opens on a new chat** instead of an empty stage.
+- **Agents can start teammates without limits** on how deep or how many, and the agent guide is half as long.
 
-Thanks to @ankit-ml12 for pasted pictures, find in markdown, parked browser tabs and Jira drag and drop.
+## Fixes
 
-For the complete patch history, compare [`v0.5.3...v0.6.0`](https://github.com/nodelike/sikemux/compare/v0.5.3...v0.6.0).
+- A project's chief can close any finished agent in its project, not only the ones it started.
+- Browser tabs an agent opens lay out at desktop size from their first frame, not at the width of the narrow desk pane.
+- A push from another repository no longer asks to change this project's Stable releases, and each GitHub write's call says what it writes.
+- Landing an agent's work runs Clippy only on the crates it changes and leaves the tests to CI, so lands go through much faster.
+- Only places known to be production hold an agent's action for you; a name that says nothing no longer does.
+- An agent's desk shuts when its last tab closes, even while its tab is out of sight.
+- `git_commit` no longer refuses a commit over a missing import or a line crediting the model; it warns or drops the line instead.
+- The daily usage ping counts each agent's chats, terminals, turns and time.
+
+For the complete patch history, compare [`v0.6.1-nightly.20...v0.6.1-nightly.22`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.20...v0.6.1-nightly.22).

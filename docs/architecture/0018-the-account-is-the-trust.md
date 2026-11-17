@@ -58,7 +58,8 @@ for whoever is signed in to the GitHub account.
   refused plugin calls and the browser to any agent that an agent on another host had started or
   messaged, and to every lead above it, until the person allowed that host. That rule goes: the
   person's hosts are one place to them, and a lead that hears from its worker on a server keeps
-  its tools.
+  its tools. The same goes for the account vault: every host on the account uses every sign-in
+  in it, with no step to allow a host ([ADR 0016](./0016-the-account-vault.md)).
 - **What stays separate.** A device signed in to another account still asks the owner, and can be
   limited to watching. The vault stays sealed from the server
   ([ADR 0016](./0016-the-account-vault.md)), and agent CLIs still sign in on each host.

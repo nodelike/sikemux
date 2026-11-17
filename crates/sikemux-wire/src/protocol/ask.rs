@@ -2,16 +2,14 @@
 
 use std::path::PathBuf;
 
-use crate::grid::{FindOptions, FindResult, GridPoint};
-use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
-use crate::pty::output_log::{OutputPage, OutputQuery};
+use crate::terminal::{FindOptions, FindResult, GridPoint};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    AllowedDevice, Attention, ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch,
-    ChatMark, ChatStart, DeviceAccess, HostInfo, HostRegistration, LaunchIdentity, NotifyPrefs,
-    PermissionMode, Request, Response, SessionId, SessionInfo, SpawnTarget, StreamId,
+    AllowedDevice, ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch, ChatMark,
+    ChatStart, DeviceAccess, HostRegistration, LaunchIdentity, NotifyPrefs, PermissionMode,
+    Request, Response, SessionId, SessionInfo, SpawnTarget, StreamId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,6 +40,7 @@ pub struct Attach {
     pub id: SessionId,
 }
 
+/// No frame of the stream arrives after this resolves.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Detach {
@@ -53,7 +52,7 @@ pub struct Detach {
 #[serde(rename_all = "camelCase")]
 pub struct TerminalInput {
     pub id: SessionId,
-    pub input: crate::grid::TerminalInput,
+    pub input: crate::terminal::TerminalInput,
 }
 
 /// History lines `start..start + count`, answered with a lines frame.
@@ -92,16 +91,6 @@ pub struct TerminalFind {
     pub inclusive: bool,
 }
 
-/// Answers with the first line on the session's screen that contains
-/// `containing`, once one shows, or with none when the session ends first.
-/// Needs no client to watch the terminal.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TerminalWaitFor {
-    pub id: SessionId,
-    pub containing: String,
-}
-
 /// Moves the cursor's line to the top of the screen and drops the history
 /// above it, without telling the program.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -118,33 +107,8 @@ pub struct ResetModes {
     pub id: SessionId,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskOutput {
-    pub id: SessionId,
-    pub query: OutputQuery,
-}
-
-/// Whether the session's shell is at its prompt, running nothing.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellAtPrompt {
-    pub id: SessionId,
-}
-
-/// Where the person's own agent detection rules live. Loads them at once.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Configure {
-    pub manifest_dir: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExplainAgentDetection {
-    pub agent_id: String,
-}
-
+/// `stop_all` kills every session first; without it the core refuses to
+/// exit while any session is running.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Shutdown {
@@ -384,15 +348,6 @@ pub struct AllowDevices {
     pub devices: Vec<AllowedDevice>,
 }
 
-/// What the app draws behind its panes, so devices draw the same.
-/// Replaces what it published before.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublishBackdrop {
-    pub texture: bool,
-    pub image: Option<super::BackdropImage>,
-}
-
 /// The agents the app shows now, replacing the last list, and whether its
 /// window is in front. An agent on screen in a window in front is never
 /// left unread, and one on screen is not put to sleep.
@@ -448,19 +403,13 @@ macro_rules! unit_requests {
 
 unit_requests! {
     List,
-    ListManifests,
-    ReloadManifests,
-    StopAll,
     RegisterWindow,
-    PluginsChanged,
     AcpList,
     RemoteStatus,
     Unpair,
     ClearNotifications,
     BackdropImage,
     WatchView,
-    Workspace,
-    Attentions,
     Host,
 }
 
@@ -484,13 +433,8 @@ requests! {
     TerminalLines,
     TerminalText,
     TerminalFind,
-    TerminalWaitFor,
     TerminalClear,
     ResetModes,
-    TaskOutput,
-    ShellAtPrompt,
-    Configure,
-    ExplainAgentDetection,
     Shutdown,
     AcpStart,
     AcpAttach,
@@ -518,7 +462,6 @@ requests! {
     SetOwner,
     AnswerPairing,
     AllowDevices,
-    PublishBackdrop,
     PublishOnScreen,
     FocusAgent,
     StartChat,
@@ -566,9 +509,7 @@ done! {
     TerminalInput,
     TerminalClear,
     ResetModes,
-    StopAll,
     RegisterWindow,
-    PluginsChanged,
     Shutdown,
     AcpDetach,
     AcpWake,
@@ -584,7 +525,6 @@ done! {
     SetNotifications,
     ClearNotifications,
     SetForeground,
-    PublishBackdrop,
     PublishOnScreen,
     WatchView,
     FocusAgent,
@@ -595,13 +535,6 @@ answers! {
     List -> Vec<SessionInfo> { sessions => Sessions { sessions } }
     TerminalText -> String { text => TerminalText { text } }
     TerminalFind -> FindResult { result => Found { result } }
-    TerminalWaitFor -> Option<String> { line => TerminalLine { line } }
-    ShellAtPrompt -> bool { at_prompt => ShellAtPrompt { at_prompt } }
-    TaskOutput -> OutputPage { page => TaskOutput { page } }
-    Configure -> ManifestReloadReport { report => Manifests { report } }
-    ListManifests -> ManifestReloadReport { report => Manifests { report } }
-    ReloadManifests -> ManifestReloadReport { report => Manifests { report } }
-    ExplainAgentDetection -> Box<DetectionExplain> { explain => DetectionExplain { explain } }
     AcpStart -> ChatStart { start => ChatStarted { start } }
     AcpAttach -> ChatAttachment { attachment => ChatAttached { attachment } }
     AcpHistory -> Value { page => ChatHistory { page } }
@@ -619,9 +552,7 @@ answers! {
     AllowDevices -> Box<super::RemoteStatus> { status => Remote { status } }
     SignRegistration -> HostRegistration { registration => Registration { registration } }
     BackdropImage -> Option<String> { data_url => BackdropImage { data_url } }
-    Workspace -> super::Workspace { workspace => Workspace { workspace } }
-    Attentions -> Vec<Attention> { attentions => Attentions { attentions } }
-    Host -> HostInfo { host => Host { host } }
+    Host -> Value { host => Host { host } }
     StartChat -> (String, ChatStart) { (agent_id, start) => ChatBegun { agent_id, start } }
     ResumeChat -> (String, ChatStart) { (agent_id, start) => ChatBegun { agent_id, start } }
 }

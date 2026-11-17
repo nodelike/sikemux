@@ -12,7 +12,7 @@ use gpui_kit::{
 
 use super::{icon, menu_button, MenuRow};
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, TEXT_XS};
+use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, TEXT_XS};
 
 /// One choice: what picking it hands back, and its words.
 pub struct Pick {
@@ -48,33 +48,29 @@ pub fn select(
     on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    marked_select(id, None, shown, picks, chosen, disabled, on_pick, cx)
+    select_led(id, None, shown, picks, chosen, disabled, on_pick, cx)
 }
 
-/// [`select`] with `mark` before what it shows, such as a status's colour.
-#[allow(clippy::too_many_arguments)]
-pub fn marked_select(
+/// What a select shows while closed: `shown` in a bordered field, `lead` before it, with a
+/// chevron after. Other pickers that open their own menus use it to look the same.
+pub fn select_field(
     id: impl Into<SharedString>,
-    mark: Option<AnyElement>,
+    lead: Option<AnyElement>,
     shown: impl Into<SharedString>,
-    picks: Vec<Pick>,
-    chosen: Option<SharedString>,
     disabled: bool,
-    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     cx: &App,
-) -> AnyElement {
+) -> BaseButton {
     let t = Tokens::get(cx).clone();
-    let id: SharedString = id.into();
     let shown: SharedString = shown.into();
-    let trigger = BaseButton::new(SharedString::from(format!("{id}-field")))
+    BaseButton::new(id.into())
         .accessibility_label(shown.clone())
         .h(px(26.))
         .px(SPACE_2)
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(RADIUS_2)
-        .border_1()
+        .rounded(radius_2())
+        .border(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(if disabled {
@@ -85,13 +81,35 @@ pub fn marked_select(
         .when(!disabled, |field| {
             field.hover(move |style| style.border_color(t.border_strong))
         })
-        .children(mark)
+        .children(lead)
         .child(div().truncate().child(shown))
         .child(
             icon(Icon::Chevron, 9.)
                 .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
                 .text_color(t.text_tertiary),
-        );
+        )
+}
+
+/// [`select`] with `lead` before its words, such as an agent's mark.
+#[allow(clippy::too_many_arguments)]
+fn select_led(
+    id: impl Into<SharedString>,
+    lead: Option<AnyElement>,
+    shown: impl Into<SharedString>,
+    picks: Vec<Pick>,
+    chosen: Option<SharedString>,
+    disabled: bool,
+    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let id: SharedString = id.into();
+    let trigger = select_field(
+        SharedString::from(format!("{id}-field")),
+        lead,
+        shown,
+        disabled,
+        cx,
+    );
     if disabled {
         return trigger.into_any_element();
     }

@@ -3,6 +3,11 @@
 //! agent to the session it starts, keeps titles in step with the ones the CLI
 //! saves, and writes a name the person gave back into the CLI's own session.
 
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::chat_state::ChatParts;
+use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -15,8 +20,8 @@ use tokio::time::Instant;
 
 use crate::agent_accounts::Book;
 use crate::agent_catalog::AgentKind;
-use crate::protocol::WorkspaceAgent;
 use crate::sessions::{self, AgentSession};
+use sikemux_view::workspace::WorkspaceAgent;
 
 use super::connection::blocking;
 use super::Core;
@@ -89,10 +94,10 @@ fn group_of(book: &Book, agent: &WorkspaceAgent) -> Option<Group> {
 }
 
 fn agents(core: &Core) -> Vec<WorkspaceAgent> {
-    core.workspaces
+    core.workspaces()
         .agent_ids()
         .into_iter()
-        .filter_map(|agent_id| core.workspaces.agent(&agent_id))
+        .filter_map(|agent_id| core.workspaces().agent(&agent_id))
         .filter(|agent| !agent.asleep)
         .collect()
 }
@@ -100,12 +105,12 @@ fn agents(core: &Core) -> Vec<WorkspaceAgent> {
 /// Watches the session folders of every group an agent of the workspace is
 /// in, and only those. Runs whenever the workspace changes.
 pub(crate) fn follow(core: &Arc<Core>) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let wanted: HashSet<Group> = agents(core)
         .iter()
         .filter_map(|agent| group_of(&book, agent))
         .collect();
-    let mut watching = core.session_watch.watching.locked();
+    let mut watching = core.session_watch().watching.locked();
     let fresh: Vec<Group> = wanted
         .iter()
         .filter(|group| !watching.places.iter().any(|places| places.group == **group))
@@ -177,7 +182,6 @@ fn start(core: &Arc<Core>) -> Option<RecommendedWatcher> {
     Some(watcher)
 }
 
-/// Reads the sessions written to once their writes settle.
 async fn listen(owner: Weak<Core>, mut heard: mpsc::UnboundedReceiver<Vec<PathBuf>>) {
     let mut pending: HashMap<Group, Touched> = HashMap::new();
     let mut due: Option<(Instant, Instant)> = None;
@@ -221,7 +225,7 @@ fn route(core: &Arc<Core>, paths: &[PathBuf], pending: &mut HashMap<Group, Touch
     let mut touches: Vec<(Group, Touch)> = Vec::new();
     let mut moved = false;
     {
-        let mut watching = core.session_watch.watching.locked();
+        let mut watching = core.session_watch().watching.locked();
         for places in &watching.places {
             for path in paths {
                 if let Some(touch) = places.touched(path) {
@@ -259,7 +263,6 @@ fn route(core: &Arc<Core>, paths: &[PathBuf], pending: &mut HashMap<Group, Touch
     any
 }
 
-/// Reads again the sessions a group's files say changed.
 async fn refresh(core: &Arc<Core>, group: Group, touched: Touched) {
     let rows = if touched.listing {
         listed(group.clone()).await
@@ -284,10 +287,10 @@ async fn refresh(core: &Arc<Core>, group: Group, touched: Touched) {
 
 /// The sessions of the group's chats with a turn running.
 fn streaming(core: &Core, group: &Group) -> Vec<String> {
-    core.chats
+    core.chats()
         .ids()
         .into_iter()
-        .filter_map(|agent_id| core.chats.get(&agent_id))
+        .filter_map(|agent_id| core.chats().get(&agent_id))
         .filter(|chat| {
             chat.provider() == group.kind.as_str()
                 && chat.launch.cwd.to_string_lossy() == group.cwd
@@ -368,10 +371,13 @@ impl Places {
 
 /// `path` as file events name it, through any link, even before it exists.
 fn real(path: &Path) -> PathBuf {
-    if let Ok(real) = path.canonicalize() {
+    if let Ok(real) = sikemux_process::files::real_path(path) {
         return real;
     }
-    match (path.parent().map(Path::canonicalize), path.file_name()) {
+    match (
+        path.parent().map(sikemux_process::files::real_path),
+        path.file_name(),
+    ) {
         (Some(Ok(parent)), Some(name)) => parent.join(name),
         _ => path.to_path_buf(),
     }
@@ -380,13 +386,13 @@ fn real(path: &Path) -> PathBuf {
 /// Notes the sessions there are as a terminal agent starts without one, so
 /// the one it binds to is the one it starts.
 pub(crate) async fn note_launch(core: &Arc<Core>, agent: &WorkspaceAgent) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let Some(group) = group_of(&book, agent) else {
         return;
     };
     let listed = listed(group).await;
     let ids = listed.into_iter().map(|session| session.id).collect();
-    core.session_watch
+    core.session_watch()
         .baselines
         .locked()
         .insert(agent.id.clone(), ids);
@@ -404,7 +410,6 @@ async fn listed(group: Group) -> Vec<AgentSession> {
     .unwrap_or_default()
 }
 
-/// Reads the group's sessions again and settles its agents on them.
 async fn scan(core: &Weak<Core>, group: &Group) {
     let rows = listed(group.clone()).await;
     let Some(core) = core.upgrade() else {
@@ -428,7 +433,7 @@ fn take_title(core: &Core, agent: &WorkspaceAgent, row: &AgentSession) {
 }
 
 async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let book = core.workspaces().accounts().unwrap_or_default();
     let members: Vec<WorkspaceAgent> = agents(core)
         .into_iter()
         .filter(|agent| group_of(&book, agent).as_ref() == Some(group))
@@ -465,7 +470,7 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
     candidates.sort_by_key(|row| std::cmp::Reverse(row.mtime));
     for agent in fresh {
         let baseline = core
-            .session_watch
+            .session_watch()
             .baselines
             .locked()
             .get(&agent.id)
@@ -480,18 +485,18 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
         };
         let row = candidates.remove(index);
         let resumed = core
-            .workspaces
+            .workspaces()
             .edit_agent(&agent.id, |agent| agent.resume_id = Some(row.id.clone()));
         if resumed.is_err() {
             continue;
         }
-        core.session_watch.baselines.locked().remove(&agent.id);
+        core.session_watch().baselines.locked().remove(&agent.id);
         if agent.renamed {
             names.push((row.id.clone(), agent.title.clone()));
         } else {
             take_title(core, agent, row);
         }
-        core.view_changed();
+        core.changed(What::View);
     }
     for (session_id, name) in names {
         name_session(core, group, session_id, name).await;
@@ -501,19 +506,18 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
 /// Writes a name the person gave an agent into its CLI's own session, once.
 async fn name_session(core: &Core, group: &Group, session_id: String, name: String) {
     let key = (session_id.clone(), name.clone());
-    let first = core.session_watch.named.locked().insert(key);
+    let first = core.session_watch().named.locked().insert(key);
     if !first {
         return;
     }
-    let renamed = sessions::rename::rename(
-        group.kind,
-        group.cwd.clone(),
+    let saved = sessions::SavedRef {
+        agent: group.kind,
+        cwd: group.cwd.clone(),
         session_id,
-        name,
-        None,
-        group.config_path.clone(),
-    )
-    .await;
+        executable_path: None,
+        config_path: group.config_path.clone(),
+    };
+    let renamed = sessions::rename::rename(saved, name).await;
     if let Err(error) = renamed {
         eprintln!("sikemux core: an agent's name was not saved with its session: {error}");
     }

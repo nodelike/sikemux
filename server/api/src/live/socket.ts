@@ -24,7 +24,7 @@ import {
 import type { Hub, Member } from "./hub.ts";
 import type { LiveOptions } from "./options.ts";
 
-export interface LiveContext extends SocketContext {
+interface LiveContext extends SocketContext {
   hub: Hub;
   options: LiveOptions;
   pusher: Pusher;
@@ -36,7 +36,6 @@ export const LIVE_SOCKET: SocketKind = {
   codes: LiveCloseCode,
 };
 
-/** Who a hello proved the connection is. */
 type Who =
   | { role: "web"; userId: string; expiresAt: Date }
   | {
@@ -67,7 +66,6 @@ export class LiveSocket extends ChallengedSocket<
   private storedThrough = 0;
   private inFlight: number[] = [];
   private pushesInFlight = 0;
-  private wakeQueued = false;
   private member: Member | undefined;
   private cursorTimer: NodeJS.Timeout | undefined;
   private lastCursorWrite = 0;
@@ -110,12 +108,7 @@ export class LiveSocket extends ChallengedSocket<
   }
 
   wake(who: Who) {
-    if (this.phase !== "open" || this.wakeQueued) return;
-    this.wakeQueued = true;
-    this.serially(async () => {
-      this.wakeQueued = false;
-      await this.deliver(who);
-    });
+    this.wakeOnce(() => this.deliver(who));
   }
 
   protected handle(message: Exclude<LiveDeviceMessage, LiveHello>, who: Who) {
@@ -229,7 +222,6 @@ export class LiveSocket extends ChallengedSocket<
     await this.deliver(who);
   }
 
-  /** Works out who the hello proves the connection is, or refuses it. */
   private async check(hello: LiveHello): Promise<Who> {
     const { db, verifier } = this.context;
     if (hello.role === "web") {

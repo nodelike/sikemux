@@ -4,7 +4,6 @@ extension PendingDevice: Identifiable {
     var expires: Date { Date(timeIntervalSince1970: Double(expiresAt) / 1000) }
 }
 
-/// A device asking to connect, answered from the island.
 struct ConnectCard: View {
     let store: NotchStore
     let device: PendingDevice?
@@ -50,7 +49,6 @@ struct ConnectCard: View {
     }
 }
 
-/// The time left to answer a device, as m:ss.
 private struct TimeLeft: View {
     let expires: Date
 

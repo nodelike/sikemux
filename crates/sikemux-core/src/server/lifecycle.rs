@@ -1,12 +1,22 @@
 //! When the core puts a chat to sleep and wakes it, and starts a terminal
-//! agent again. A chat no client has on screen sleeps once it has been idle for
-//! a while, the oldest first when more than a few sit idle, and one a client
-//! brings on screen wakes again. A chat at work, or one the person keeps
-//! alive, is never put to sleep. A terminal agent that crashes comes back on
-//! its saved session below its last screen, unless it crashes again at once.
+//! agent again. A chat sleeps once it has been idle for a while, on screen or
+//! not, and off screen the oldest go first when more than a few sit idle. A
+//! message, a trigger or the person's first key wakes it on its saved session.
+//! A chat at work, one waiting to send again a turn the network cut short, or
+//! one the person keeps alive, is never put to sleep. One the person is writing
+//! in, or started and has not read the last answer of, sleeps only once more
+//! than a few sit idle off screen. A terminal agent that
+//! crashes comes back on its saved session below its last screen, unless it
+//! crashes again at once.
 
+use crate::server::activity::ActivityCore;
+use crate::server::chat_state::ChatParts;
+use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,17 +24,21 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
-use crate::protocol::{AgentState, Continuation, SessionId};
+use sikemux_wire::protocol::{AgentState, Continuation, SessionId};
 
 use super::agent::AgentActivity;
-use super::{launching, session, Core, CoreError, CoreResult};
+use super::connection::ClientId;
+use super::{launching, session, Core, CoreResult};
 
-/// How long a chat nobody looks at stays idle before it sleeps.
-const IDLE_SLEEP_MS: u64 = 10 * 60_000;
+/// How long a chat stays idle before it sleeps. Over half of all replies come within it, and a
+/// later one loses nothing: the person's first key wakes the chat and its cache holds on resume.
+const IDLE_SLEEP_MS: u64 = 2 * 60_000;
 /// How many idle chats nobody looks at stay awake, so the ones switched
 /// back to most come back at once.
 const MAX_WARM: usize = 3;
 const CHECK_EVERY: Duration = Duration::from_secs(30);
+/// How long a new chat's agent runs with nothing sent before it sleeps until the person writes.
+const UNSENT_SLEEP: Duration = Duration::from_secs(5 * 60);
 /// A terminal agent that dies this soon after it was started again is in a
 /// crash loop, and the person decides what next.
 const RESUME_WINDOW: Duration = Duration::from_secs(30);
@@ -41,6 +55,8 @@ pub(crate) struct Lifecycle {
     started: Notify,
     /// When each terminal agent was last started again after a crash.
     resumed: Mutex<HashMap<String, Instant>>,
+    /// New chats started before their first message, by the client that opened them.
+    started_early: Mutex<HashMap<String, ClientId>>,
 }
 
 /// Holds an agent's place among those starting until it is dropped.
@@ -81,8 +97,8 @@ where
         if let Some(running) = running() {
             return Ok(running);
         }
-        let started = core.lifecycle.started.notified();
-        if let Some(_starting) = core.lifecycle.claim(agent_id) {
+        let started = core.lifecycle().started.notified();
+        if let Some(_starting) = core.lifecycle().claim(agent_id) {
             return match running() {
                 Some(running) => Ok(running),
                 None => start().await,
@@ -102,7 +118,7 @@ pub(crate) async fn ensure_running(
     start_once(
         core,
         agent_id,
-        || core.chats.get(agent_id).map(drop),
+        || core.chats().get(agent_id).map(drop),
         || async {
             launching::start_agent(core, None, agent_id, waits_for_person)
                 .await
@@ -116,28 +132,84 @@ pub(crate) async fn ensure_running(
 /// keeping how it ran so it wakes on its saved conversation. Answers whether
 /// it is asleep now.
 pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
-    let chat = core.chats.get(agent_id);
+    let chat = core.chats().get(agent_id);
     if let Some(chat) = &chat {
-        core.workspaces.note_stopping(chat);
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
     }
-    let stopped = core.chats.stop_if_idle(agent_id);
+    let stopped = core.chats().stop_if_idle(agent_id);
     if let Some(chat) = chat.filter(|_| stopped) {
-        core.chats.rest(&chat);
-        core.workspaces.set_asleep(agent_id, true);
-        core.note_agent_gone(agent_id);
+        super::chief::chat_rested(core, agent_id, chat.feed.id());
+        core.workspaces().set_asleep(agent_id, true);
+        core.note_agent_asleep(agent_id);
     }
     stopped
+}
+
+/// Starts the agent of a chat the person opened or began writing in, and puts it to sleep again
+/// should it sit there with nothing sent and an empty draft, so an abandoned new chat holds no
+/// process. The same goes once the client that opened it leaves, as when the app quits. Their
+/// next key starts it again.
+pub(crate) fn began_writing(core: &Arc<Core>, client: ClientId, agent_id: &str) {
+    let starts = core
+        .chats()
+        .get(agent_id)
+        .is_none_or(|chat| chat.unstarted());
+    super::chat::composing(core, agent_id);
+    if !starts {
+        return;
+    }
+    (core.lifecycle().started_early.locked()).insert(agent_id.to_owned(), client);
+    let (core, agent_id) = (core.clone(), agent_id.to_owned());
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(UNSENT_SLEEP).await;
+            if sleep_if_unsent(&core, &agent_id) != Some(false) {
+                core.lifecycle().started_early.locked().remove(&agent_id);
+                return;
+            }
+        }
+    });
+}
+
+/// Puts a new chat to sleep if nothing was sent or drafted in it. Answers whether it is asleep
+/// now, or `None` once it is no longer a new chat that runs.
+fn sleep_if_unsent(core: &Core, agent_id: &str) -> Option<bool> {
+    let new = core
+        .workspaces()
+        .agent(agent_id)
+        .is_some_and(|agent| agent.resume_id.is_none());
+    if !new || core.chats().get(agent_id).is_none() {
+        return None;
+    }
+    let drafted =
+        (core.drafts().chat_draft(agent_id)).is_some_and(|draft| !draft.text.trim().is_empty());
+    Some(!drafted && sleep(core, agent_id))
+}
+
+/// Puts every chat to sleep at the person's word to stop everything, ending
+/// its agent and any turn it was in, so each stays listed asleep on its saved
+/// conversation, here and in the next core. Every agent is held asleep until
+/// the person, or an agent they set going again, opens or writes to it, so mail
+/// sent as things stop wakes none.
+pub(crate) fn sleep_all(core: &Core) {
+    core.workspaces().hold_all();
+    for chat in core.chats().stop_all() {
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
+        core.chats().rest(&chat);
+        super::chief::chat_rested(core, chat.agent_id(), chat.feed.id());
+        core.workspaces().set_asleep(chat.agent_id(), true);
+    }
+    super::part::Part::flush(core.workspaces());
 }
 
 /// Puts the agent to sleep at the person's word: a chat as [`sleep`] does, and
 /// a terminal agent by ending its terminal, to start again on its saved
 /// session when next shown.
 pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
-    let agent = core
-        .workspaces
-        .agent(agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
-    if core.chats.get(agent_id).is_some() {
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
+    if core.chats().get(agent_id).is_some() {
         return match sleep(core, agent_id) {
             true => Ok(()),
             false => Err("the agent is at work; it can sleep once its turn ends".into()),
@@ -153,11 +225,11 @@ pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
         return Err("the agent is at work; it can sleep once its turn ends".into());
     }
     session::kill(core, &terminal);
-    core.workspaces.edit_agent(agent_id, |agent| {
+    core.workspaces().edit_agent(agent_id, |agent| {
         agent.pty_id = None;
         agent.asleep = true;
     })?;
-    core.note_agent_gone(agent_id);
+    core.note_agent_asleep(agent_id);
     Ok(())
 }
 
@@ -202,7 +274,7 @@ pub(crate) fn terminal_exited(
     signal: Option<&str>,
     killed: bool,
 ) {
-    let Some(agent) = core.workspaces.agent(agent_id) else {
+    let Some(agent) = core.workspaces().agent(agent_id) else {
         return;
     };
     let resumable = agent.pty_id == Some(pty) && agent.resume_id.is_some() && !agent.asleep;
@@ -210,7 +282,7 @@ pub(crate) fn terminal_exited(
         return;
     }
     let now = Instant::now();
-    let mut resumed = core.lifecycle.resumed.locked();
+    let mut resumed = core.lifecycle().resumed.locked();
     resumed.retain(|_, at| now.duration_since(*at) < RESUME_WINDOW);
     if resumed.insert(agent_id.to_owned(), now).is_some() {
         return;
@@ -226,8 +298,13 @@ pub(crate) fn terminal_exited(
         note: format!("— Resuming {label} —"),
     };
     tokio::spawn(async move {
-        if let Err(error) =
-            launching::start_terminal(&core, &agent_id, (80, 24), Some(continues)).await
+        if let Err(error) = launching::start_terminal(
+            &core,
+            &agent_id,
+            super::spare::opening_size(&core),
+            Some(continues),
+        )
+        .await
         {
             eprintln!("sikemux core: {agent_id} did not start again: {error}");
         }
@@ -239,17 +316,17 @@ pub(crate) fn terminal_exited(
 /// has nothing left to show.
 fn settle_terminals(core: &Core) {
     let gone: Vec<_> = core
-        .workspaces
+        .workspaces()
         .agent_ids()
         .into_iter()
-        .filter_map(|agent_id| core.workspaces.agent(&agent_id))
+        .filter_map(|agent_id| core.workspaces().agent(&agent_id))
         .filter(|agent| agent.pty_id.is_some_and(|pty| core.session(pty).is_none()))
         .collect();
     let mut closed = Vec::new();
     for agent in gone {
         if agent.resume_id.is_some() {
             let _ = core
-                .workspaces
+                .workspaces()
                 .edit_agent(&agent.id, |agent| agent.pty_id = None);
         } else {
             closed.push(agent.id);
@@ -263,7 +340,7 @@ fn settle_terminals(core: &Core) {
 /// Puts every idle chat to sleep now, on screen or not, but those the person
 /// keeps alive. Answers how many slept.
 pub(crate) fn sleep_idle(core: &Core) -> usize {
-    core.chats
+    core.chats()
         .ids()
         .into_iter()
         .filter(|agent_id| kept(core, agent_id) && idle(core, agent_id))
@@ -280,54 +357,114 @@ pub(crate) async fn serve(core: Arc<Core>) {
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        for agent_id in due(&core, began, epoch_ms()) {
-            sleep(&core, &agent_id);
+        let now = epoch_ms();
+        super::chat::cap::compact_idle(&core, now);
+        super::chat::cap::tell_expired(&core, now);
+        for agent_id in due(&core, began, now) {
+            if !super::chat::cap::compact_before_sleep(&core, &agent_id, now) {
+                sleep(&core, &agent_id);
+            }
         }
     }
 }
 
-/// The chats to sleep now: every one idle off screen for [`IDLE_SLEEP_MS`],
-/// and the oldest beyond [`MAX_WARM`] of the rest.
+/// The chats to sleep now: every one idle for [`IDLE_SLEEP_MS`], and the
+/// oldest beyond [`MAX_WARM`] of the rest no client has on screen.
 fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
-    let mut idle: Vec<(u64, String)> = core
-        .chats
-        .ids()
-        .into_iter()
-        .filter(|agent_id| may_sleep(core, agent_id))
-        .map(|agent_id| {
-            let quiet = core.seen.quiet_since(&agent_id).unwrap_or(began).max(began);
-            (quiet, agent_id)
-        })
-        .collect();
-    idle.sort();
-    let stale = idle
-        .iter()
-        .filter(|(quiet, _)| now.saturating_sub(*quiet) >= IDLE_SLEEP_MS)
-        .count();
-    let sleeping = stale.max(idle.len().saturating_sub(MAX_WARM));
-    idle.into_iter()
-        .take(sleeping)
-        .map(|(_, agent_id)| agent_id)
-        .collect()
+    let mut stale = Vec::new();
+    let mut off_screen: Vec<(u64, String)> = Vec::new();
+    for agent_id in core.chats().ids() {
+        if !may_sleep(core, &agent_id) {
+            continue;
+        }
+        let quiet = core
+            .seen()
+            .quiet_since(&agent_id)
+            .unwrap_or(began)
+            .max(began);
+        if now.saturating_sub(quiet) >= IDLE_SLEEP_MS && left_alone(core, &agent_id) {
+            stale.push(agent_id);
+        } else if !core.seen().viewed(&agent_id) {
+            off_screen.push((quiet, agent_id));
+        }
+    }
+    off_screen.sort();
+    let beyond_warm = off_screen.len().saturating_sub(MAX_WARM);
+    stale.extend(
+        off_screen
+            .into_iter()
+            .take(beyond_warm)
+            .map(|(_, agent_id)| agent_id),
+    );
+    stale
 }
 
 /// Whether the chat could sleep now: it is in the workspace, the person does
-/// not keep it alive, no client has it on screen, and it rests on a session
-/// it can be woken on.
+/// not keep it alive, and it has a conversation to wake on.
 fn may_sleep(core: &Core, agent_id: &str) -> bool {
-    kept(core, agent_id) && !core.seen.viewed(agent_id) && idle(core, agent_id)
+    let Some(agent) = core.workspaces().agent(agent_id) else {
+        return false;
+    };
+    !agent.keep_alive
+        && agent.resume_id.is_some()
+        && idle(core, agent_id)
+        && !super::chat::cap::holds_awake(core, agent_id, epoch_ms())
+}
+
+/// Whether the person has left the chat alone, so its idle time may put it to sleep: nothing is
+/// drafted in it, and they have read its last answer if they started it. Past the warm few off
+/// screen it sleeps either way.
+fn left_alone(core: &Core, agent_id: &str) -> bool {
+    let drafted =
+        (core.drafts().chat_draft(agent_id)).is_some_and(|draft| !draft.text.trim().is_empty());
+    let started_by_person = core
+        .workspaces()
+        .agent(agent_id)
+        .is_some_and(|agent| agent.lead.is_none());
+    !drafted && !(started_by_person && core.seen().unread(agent_id))
 }
 
 fn kept(core: &Core, agent_id: &str) -> bool {
-    core.workspaces
+    core.workspaces()
         .agent(agent_id)
         .is_some_and(|agent| !agent.keep_alive)
 }
 
+/// A chat waking from sleep reads as idle while it starts, since it keeps the feed it slept with,
+/// so only a ready one counts. One with a background task still running is not idle, as sleep
+/// would end the task with the agent, one whose agent cannot load its conversation again
+/// would wake on a new one, and one whose failed turn waits to be sent again would lose it.
 fn idle(core: &Core, agent_id: &str) -> bool {
-    core.chats
-        .get(agent_id)
-        .is_some_and(|chat| chat.state_now() == AgentState::Idle)
+    core.chats().get(agent_id).is_some_and(|chat| {
+        chat.is_ready()
+            && chat.reloadable.load(Ordering::Acquire)
+            && !chat.offline_failed.load(Ordering::Acquire)
+            && !chat.retry_waits.load(Ordering::Acquire)
+            && chat.state_now() == AgentState::Idle
+            && chat.feed.running_tasks() == 0
+    })
+}
+
+impl super::part::Part for Lifecycle {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![tokio::spawn(serve(core.clone()))]
+    }
+
+    fn client_gone(&self, core: &Arc<Core>, client: ClientId) {
+        let opened: Vec<String> = {
+            let mut started_early = self.started_early.locked();
+            let opened = started_early
+                .iter()
+                .filter(|(_, opener)| **opener == client)
+                .map(|(agent_id, _)| agent_id.clone())
+                .collect();
+            started_early.retain(|_, opener| *opener != client);
+            opened
+        };
+        for agent_id in opened {
+            sleep_if_unsent(core, &agent_id);
+        }
+    }
 }
 
 #[cfg(test)]

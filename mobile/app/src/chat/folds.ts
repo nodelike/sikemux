@@ -1,7 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
-import { outlivesFold } from '@shared/chat/transcript';
-import type { ChatMessage } from '@shared/chat/types';
+import { teamRows, type RunOpen, type TeamRow } from '@shared/chat/team';
+import type { ChatMessage } from '@shared/wire.generated';
 
 /**
  * Which tool groups and rows in a transcript the person opened or closed, kept outside the rows
@@ -49,33 +49,40 @@ export function useFold(id: string, otherwise: boolean): [boolean, (open: boolea
 /** How a row of a finished turn shows: under the summary it opens with, hidden while its work is folded, or only its reply. */
 type WorkFold = NonNullable<ChatMessage['fold']>;
 
-export type RowFold = {
+type RowFold = {
   /** The fold whose summary goes above this row, its first. */
   summary: WorkFold | null;
   hidden: boolean;
-  /** Where the shown parts start. */
-  from: number;
+  /** Which parts stay in view, or null when the row shows whole. */
+  shown: readonly number[] | null;
 };
 
-const UNFOLDED: RowFold = { summary: null, hidden: false, from: 0 };
+const UNFOLDED: RowFold = { summary: null, hidden: false, shown: null };
 
-/** `open` says whether the person opened the fold's work, by the fold's id. */
-export function rowFold(row: ChatMessage, open: (id: string) => boolean): RowFold {
+/** `open` says whether the person opened the fold's work, by the fold's id; `run` is how the row shows in a run of messages between agents, when it is in one. */
+export function rowFold(row: ChatMessage, open: (id: string) => boolean, run?: TeamRow): RowFold {
+  if (run) return { summary: null, hidden: run.hidden, shown: run.shown };
   const fold = row.fold;
   if (!fold) return UNFOLDED;
   const summary = row.id === fold.id ? fold : null;
-  if (open(fold.id)) return summary ? { summary, hidden: false, from: 0 } : UNFOLDED;
-  if (row.id === fold.last) return { summary, hidden: false, from: fold.from };
-  return { summary, hidden: !row.parts.some(outlivesFold), from: row.parts.length };
+  // A host older than v0.6.1-nightly.5 sends no `shown`, so its rows draw whole.
+  if (open(fold.id) || !fold.shown) return summary ? { summary, hidden: false, shown: null } : UNFOLDED;
+  return { summary, hidden: fold.shown.length === 0, shown: fold.shown };
 }
 
 /**
  * The rows a transcript draws. A folded row that draws nothing stays out of the list: each one the list
  * has to measure moves the scroll, and a long folded turn moved it until React gave up.
  */
-export function shownRows(rows: ChatMessage[], open: (id: string) => boolean): ChatMessage[] {
+export function shownRows(rows: ChatMessage[], open: (id: string) => boolean, runs: ReadonlyMap<string, TeamRow>): ChatMessage[] {
   return rows.filter((row) => {
-    const { summary, hidden } = rowFold(row, open);
-    return !hidden || summary !== null;
+    const run = runs.get(row.id);
+    const { summary, hidden } = rowFold(row, open, run);
+    return !hidden || summary !== null || !!run?.head;
   });
+}
+
+/** How far the person opened each run, kept as the folds `team/<run>` and `team-all/<run>`. */
+export function runsOf(rows: readonly ChatMessage[], open: (key: string) => boolean): Map<string, TeamRow> {
+  return teamRows(rows, (id): RunOpen => (open(`team-all/${id}`) ? 'all' : open(`team/${id}`) ? 'open' : 'closed'));
 }

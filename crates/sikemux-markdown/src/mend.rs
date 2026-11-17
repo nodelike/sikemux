@@ -153,14 +153,15 @@ fn mend_prose(source: &str) -> String {
         None => {}
     }
     if let Some(bracket) = brackets.last().filter(|bracket| bracket.at < text.len()) {
+        let open = bracket.open.min(runs.len());
         if is_image(source, bracket.at) {
             text.truncate(bracket.at - 1);
-            runs.truncate(bracket.open);
+            runs.truncate(open);
         } else if after(&text, bracket.at + 1).trim().is_empty() {
             text.truncate(bracket.at);
-            runs.truncate(bracket.open);
+            runs.truncate(open);
         } else {
-            for run in runs.drain(bracket.open..).rev() {
+            for run in runs.drain(open..).rev() {
                 text.push_str(run);
             }
             text.push_str("]()");
@@ -252,4 +253,12 @@ fn destination_end(text: &str, from: usize) -> Option<usize> {
         at += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn emphasis_closed_inside_an_open_link() {
+        super::mend("*a **[b** c");
+    }
 }

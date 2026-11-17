@@ -1,4 +1,4 @@
-// Pipelines, in the words the Git pane uses for every host's CI: a pipeline is
+// Pipelines, in the words every host's CI uses: a pipeline is
 // a run and its jobs are jobs, named `stage / job` so the graph groups them by
 // stage. A project has one pipeline definition, .gitlab-ci.yml, so it has one
 // workflow, which can also be started by hand with variables.
@@ -11,6 +11,7 @@ use futures::future::join_all;
 use reqwest::{Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
     Dispatch, ExcerptQuery, JobRef, RepoRef, Rerun, RerunJob, RunQuery, RunRef, WorkflowRef,
 };
@@ -18,7 +19,9 @@ use sikemux_plugin_api::codehost::{
     Job, JobLog, LogExcerpt, LogLine, Outcome, Run, RunDetail, RunPage, RunTiming, Workflow,
     WorkflowFile,
 };
-use sikemux_plugin_api::process::sync::Locked;
+use sikemux_plugin_api::http::Read;
+use sikemux_plugin_api::terminal::plain;
+use sikemux_process::sync::Locked;
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -163,13 +166,13 @@ async fn commit_title(data_dir: &Path, repo: &RepoRef, sha: &str) -> Option<Stri
         return Some(title);
     }
     let path = repo.path(&format!("/repository/commits/{sha}")).ok()?;
-    let commit: CommitRow = client::get(data_dir, &path, &[]).await.ok()?;
+    let commit: CommitRow = client::API.get(data_dir, &path, &[]).await.ok()?;
     let title = commit.title.filter(|title| !title.is_empty())?;
     remember_title(sha, &title);
     Some(title)
 }
 
-/// GitLab's own status names for one of the Git pane's, so the server filters.
+/// GitLab's own status names for one of ours, so the server filters.
 fn gitlab_status(wanted: &str) -> Option<&'static str> {
     Some(match wanted {
         "success" => "success",
@@ -258,7 +261,9 @@ fn pipeline_path(repo: &RepoRef, run_id: &str, rest: &str) -> GitlabResult<Strin
 }
 
 async fn pipeline(data_dir: &Path, repo: &RepoRef, run_id: &str) -> GitlabResult<PipelineRow> {
-    client::get(data_dir, &pipeline_path(repo, run_id, "")?, &[]).await
+    client::API
+        .get(data_dir, &pipeline_path(repo, run_id, "")?, &[])
+        .await
 }
 
 #[derive(Deserialize)]
@@ -327,23 +332,25 @@ pub async fn timing(data_dir: &Path, input: RunRef) -> GitlabResult<RunTiming> {
 }
 
 pub async fn cancel(data_dir: &Path, input: RunRef) -> GitlabResult<()> {
-    client::write(
-        data_dir,
-        Method::POST,
-        &pipeline_path(&input.repo, &input.run_id, "/cancel")?,
-        None,
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::POST,
+            &pipeline_path(&input.repo, &input.run_id, "/cancel")?,
+            None,
+        )
+        .await
 }
 
 pub async fn delete(data_dir: &Path, input: RunRef) -> GitlabResult<()> {
-    client::write(
-        data_dir,
-        Method::DELETE,
-        &pipeline_path(&input.repo, &input.run_id, "")?,
-        None,
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::DELETE,
+            &pipeline_path(&input.repo, &input.run_id, "")?,
+            None,
+        )
+        .await
 }
 
 /// Re-running the failed jobs is GitLab's Retry. Running everything again
@@ -351,33 +358,36 @@ pub async fn delete(data_dir: &Path, input: RunRef) -> GitlabResult<()> {
 pub async fn rerun(data_dir: &Path, input: Rerun) -> GitlabResult<()> {
     let repo = &input.run.repo;
     if input.failed_only {
-        return client::write(
-            data_dir,
-            Method::POST,
-            &pipeline_path(repo, &input.run.run_id, "/retry")?,
-            None,
-        )
-        .await;
+        return client::API
+            .write(
+                data_dir,
+                Method::POST,
+                &pipeline_path(repo, &input.run.run_id, "/retry")?,
+                None,
+            )
+            .await;
     }
     let row = pipeline(data_dir, repo, &input.run.run_id).await?;
     match merge_request_of(&row.git_ref) {
         Some(number) => {
-            client::write(
-                data_dir,
-                Method::POST,
-                &repo.path(&format!("/merge_requests/{number}/pipelines"))?,
-                None,
-            )
-            .await
+            client::API
+                .write(
+                    data_dir,
+                    Method::POST,
+                    &repo.path(&format!("/merge_requests/{number}/pipelines"))?,
+                    None,
+                )
+                .await
         }
         None => {
-            let _: Value = client::send_json(
-                data_dir,
-                Method::POST,
-                &repo.path("/pipeline")?,
-                &json!({ "ref": row.git_ref }),
-            )
-            .await?;
+            let _: Value = client::API
+                .send_json(
+                    data_dir,
+                    Method::POST,
+                    &repo.path("/pipeline")?,
+                    &json!({ "ref": row.git_ref }),
+                )
+                .await?;
             Ok(())
         }
     }
@@ -388,7 +398,9 @@ pub async fn rerun_job(data_dir: &Path, input: RerunJob) -> GitlabResult<()> {
     let path = job
         .repo
         .path(&format!("/jobs/{}/retry", number(&job.job_id, "job")?))?;
-    let _: Value = client::send_json(data_dir, Method::POST, &path, &json!({})).await?;
+    let _: Value = client::API
+        .send_json(data_dir, Method::POST, &path, &json!({}))
+        .await?;
     Ok(())
 }
 
@@ -399,22 +411,7 @@ pub fn readable(line: &str) -> String {
         .rsplit('\r')
         .find(|part| !part.trim().is_empty())
         .unwrap_or_default();
-    let mut out = String::with_capacity(shown.len());
-    let mut chars = shown.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for next in chars.by_ref() {
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        out.push(c);
-    }
+    let out = plain(shown);
     let before = out.split("section_start:").next().unwrap_or_default();
     before
         .split("section_end:")
@@ -446,8 +443,16 @@ pub async fn log(data_dir: &Path, input: JobRef) -> GitlabResult<JobLog> {
     let path = input
         .repo
         .path(&format!("/jobs/{}/trace", number(&input.job_id, "job")?))?;
-    let answer =
-        client::send_limited(data_dir, Method::GET, &path, &[], None, MAX_LOG_BYTES, true).await?;
+    let answer = client::API
+        .send(
+            data_dir,
+            Method::GET,
+            &path,
+            &[],
+            None,
+            Read::Tail(MAX_LOG_BYTES),
+        )
+        .await?;
     if answer.status.as_u16() == 404 {
         return Ok(JobLog {
             lines: Vec::new(),
@@ -456,7 +461,7 @@ pub async fn log(data_dir: &Path, input: JobRef) -> GitlabResult<JobLog> {
         });
     }
     if !answer.status.is_success() {
-        return Err(client::classify(answer.status, &answer.bytes));
+        return Err(answer.refused());
     }
     Ok(JobLog {
         lines: lines_of(&String::from_utf8_lossy(&answer.bytes), answer.cut),
@@ -465,63 +470,40 @@ pub async fn log(data_dir: &Path, input: JobRef) -> GitlabResult<JobLog> {
     })
 }
 
-const DEFAULT_TAIL: usize = 200;
-const MAX_TAIL: usize = 2000;
-
 /// The end of a job's log for an agent, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> GitlabResult<LogExcerpt> {
     let whole = log(data_dir, input.job).await?;
-    let needle = input
-        .grep
-        .map(|grep| grep.to_lowercase())
-        .filter(|grep| !grep.is_empty());
-    let mut lines: Vec<LogLine> = whole
-        .lines
-        .into_iter()
-        .filter(|line| {
-            needle
-                .as_deref()
-                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
-        })
-        .collect();
-    let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
-    let cut = lines.len() > tail;
-    if cut {
-        lines.drain(..lines.len() - tail);
-    }
-    Ok(LogExcerpt {
-        lines,
-        truncated: cut || whole.truncated,
-    })
+    Ok(answers::log_excerpt(whole, input.pick))
 }
 
 async fn file(data_dir: &Path, repo: &RepoRef) -> GitlabResult<String> {
     let branch = repo::default_branch(data_dir, repo).await?;
-    client::get_text(
-        data_dir,
-        &repo.path(&format!("/repository/files/{}/raw", encoded(PIPELINE_FILE)))?,
-        &[("ref", branch)],
-    )
-    .await
+    client::API
+        .get_text(
+            data_dir,
+            &repo.path(&format!("/repository/files/{}/raw", encoded(PIPELINE_FILE)))?,
+            &[("ref", branch)],
+        )
+        .await
 }
 
 /// Asks for the file's headers only, so a large one is not downloaded just to see it is there.
 async fn has_file(data_dir: &Path, repo: &RepoRef) -> GitlabResult<bool> {
     let branch = repo::default_branch(data_dir, repo).await?;
-    let answer = client::send_limited(
-        data_dir,
-        Method::HEAD,
-        &repo.path(&format!("/repository/files/{}", encoded(PIPELINE_FILE)))?,
-        &[("ref", branch)],
-        None,
-        64 * 1024,
-        false,
-    )
-    .await?;
+    let answer = client::API
+        .send(
+            data_dir,
+            Method::HEAD,
+            &repo.path(&format!("/repository/files/{}", encoded(PIPELINE_FILE)))?,
+            &[("ref", branch)],
+            None,
+            Read::Whole(64 * 1024),
+        )
+        .await?;
     match answer.status {
         status if status.is_success() => Ok(true),
         StatusCode::NOT_FOUND => Ok(false),
-        status => Err(client::classify(status, &answer.bytes)),
+        _ => Err(answer.refused()),
     }
 }
 
@@ -570,13 +552,14 @@ pub fn dispatch_body(input: &Dispatch) -> GitlabResult<Value> {
 
 pub async fn dispatch(data_dir: &Path, input: Dispatch) -> GitlabResult<()> {
     let body = dispatch_body(&input)?;
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/pipeline")?,
-        &body,
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/pipeline")?,
+            &body,
+        )
+        .await?;
     Ok(())
 }
 

@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-import type { AgentGroup } from '@/core/protocol';
-import { counted } from './words';
+import Svg, { Circle } from 'react-native-svg';
+
+import type { InLine, TurnState } from '@shared/wire.generated';
+import { inLine, ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
+import { useT } from '@/i18n';
 
 import { Icon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
@@ -39,8 +42,9 @@ function TwinkleCell({ period, index, still }: { period: number; index: number; 
 export function Working() {
   const styles = useStyles(makeStyles);
   const animating = useAnimating();
+  const t = useT();
   return (
-    <View style={styles.loader} accessible accessibilityLabel="Working">
+    <View style={styles.loader} accessible accessibilityLabel={t('Working')}>
       {TWINKLE.map((period, index) => (
         <TwinkleCell key={index} period={period} index={index} still={!animating} />
       ))}
@@ -77,8 +81,9 @@ function Ping({ delay }: { delay: number }) {
 export function NeedsYou() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
-    <View style={styles.dotBox} accessible accessibilityLabel="Needs input">
+    <View style={styles.dotBox} accessible accessibilityLabel={t('Needs input')}>
       {Array.from({ length: PINGS }, (_, ring) => (
         <Ping key={ring} delay={ring * 380} />
       ))}
@@ -91,10 +96,33 @@ export function NeedsYou() {
 export function SubagentCount({ count }: { count: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
-    <View style={styles.count} accessible accessibilityLabel={`${count} ${counted('subagent', count)} running`}>
+    <View
+      style={styles.count}
+      accessible
+      accessibilityLabel={count === 1 ? t('1 subagent running') : t('{count} subagents running', { count })}>
       <Icon name="IconAgent" size={11} color={colors.live} filled />
       <Text style={styles.countText}>{count}</Text>
+    </View>
+  );
+}
+
+/**
+ * Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line", or the
+ * thing it waits for while another agent holds it.
+ */
+export function LinePlace({ line }: { line: InLine }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const words = line.by == null ? inLine(line.place, t) : line.what;
+  return (
+    <View style={styles.count} accessible accessibilityLabel={words}>
+      <Icon name="IconHourglass" size={11} color={colors.warn} />
+      <Text style={[styles.countText, line.by != null && styles.thing]} numberOfLines={1}>
+        {words}
+      </Text>
     </View>
   );
 }
@@ -103,45 +131,101 @@ export function SubagentCount({ count }: { count: number }) {
 export function ShellCount({ count }: { count: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   return (
     <View
       style={styles.count}
       accessible
-      accessibilityLabel={`${count} ${count === 1 ? 'shell or monitor' : 'shells or monitors'} running`}>
+      accessibilityLabel={count === 1 ? t('1 shell or monitor running') : t('{count} shells or monitors running', { count })}>
       <Icon name="IconCommand" size={11} color={colors.warn} />
       <Text style={styles.countText}>{count}</Text>
     </View>
   );
 }
 
-/** How long until a trigger the agent set wakes it, in the Mac rail's tight column, rounded up: `now`, `1m`, `3h`, `4d`. */
-export function TriggerTime({ at, now }: { at: number; now: number }) {
+/** How soon a snoozed agent wakes, as the Mac rail says it: minutes, hours, then the weekday. */
+export function WakeTime({ at, now }: { at: number; now: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const seconds = Math.max(0, Math.floor((at - now) / 1000));
-  const left =
-    seconds === 0
-      ? 'now'
-      : seconds < 3600
-        ? `${Math.ceil(seconds / 60)}m`
-        : seconds < 86_400
-          ? `${Math.floor(seconds / 3600)}h`
-          : `${Math.floor(seconds / 86_400)}d`;
+  const t = useT();
+  const left = Math.max(0, at - now);
+  const hour = 3_600_000;
+  const words =
+    left < hour
+      ? `${Math.max(1, Math.ceil(left / 60_000))}m`
+      : left < 24 * hour
+        ? `${Math.max(1, Math.round(left / hour))}h`
+        : new Date(at).toLocaleDateString(undefined, { weekday: 'short' });
   return (
-    <View style={styles.count} accessible accessibilityLabel={`A trigger wakes it in ${left}`}>
-      <Icon name="IconTimer" size={11} color={colors.cmd} />
-      <Text style={styles.countText}>{left}</Text>
+    <View style={styles.count} accessible accessibilityLabel={t('Snoozed, wakes in {time}', { time: words })}>
+      <Icon name="IconClock" size={11} color={colors.tertiary} />
+      <Text style={[styles.countText, { color: colors.tertiary }]}>{words}</Text>
     </View>
   );
 }
 
-/** Where an agent's turn is, as the Mac rail marks it: squares while it works, a dot once something waits, nothing idle. */
-export function AgentState({ group }: { group: AgentGroup }) {
+/**
+ * How an agent's turn stands, as the Mac's rail and the notch mark a row, one state per row: its working squares; a
+ * ring filling in the neutral ink as a CI or check wait with an estimate runs, with the minutes left; the pink timer for
+ * any other wait, with the time left when it waits for a set time; the amber dot with how long a call has waited; the
+ * purple dot once done until the person has seen it, red once failed, a hollow ring once stopped. The core says
+ * which.
+ */
+export function TurnMark({ turn, now }: { turn?: TurnState; now: number }) {
   const colors = useColors();
-  if (group === 'working') return <Working />;
-  if (group === 'blocked') return <NeedsYou />;
-  if (group === 'done') return <Dot color={colors.accent} size={7} />;
-  return null;
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  if (!turn || turn.seen) return null;
+  const share = turn.state === 'waiting' ? ringShare(turn.wait, now) : undefined;
+  const time = rowMinutes(turn, now, t);
+  const tint = turn.state === 'needsYou' ? colors.warn : turn.state === 'waiting' && share == null ? colors.cmd : colors.tertiary;
+  return (
+    <View style={styles.count} accessible accessibilityLabel={rowLabel(turn, now, t)}>
+      {time ? <Text style={[styles.time, { color: tint }]}>{time}</Text> : null}
+      <View style={styles.markBox}>
+        {turn.state === 'working' ? (
+          <Working />
+        ) : turn.state === 'waiting' ? (
+          share != null ? (
+            <WaitRing share={share} />
+          ) : (
+            <Icon name="IconTimer" size={11} color={colors.cmd} />
+          )
+        ) : turn.state === 'needsYou' ? (
+          <Dot color={colors.warn} size={7} />
+        ) : turn.state === 'done' ? (
+          <Dot color={colors.accent} size={7} />
+        ) : turn.state === 'failed' ? (
+          <Dot color={colors.danger} size={7} />
+        ) : turn.state === 'stopped' ? (
+          <Dot color={colors.secondary} size={7} hollow />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** A ring that fills clockwise from the top in the neutral ink as a wait runs, over the border's track. */
+export function WaitRing({ share }: { share: number }) {
+  const colors = useColors();
+  const radius = (11 - 1.6) / 2;
+  const around = 2 * Math.PI * radius;
+  return (
+    <Svg width={11} height={11}>
+      <Circle cx={5.5} cy={5.5} r={radius} stroke={colors.border} strokeWidth={1.6} fill="none" />
+      <Circle
+        cx={5.5}
+        cy={5.5}
+        r={radius}
+        stroke={colors.secondary}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        fill="none"
+        strokeDasharray={`${around * share} ${around}`}
+        transform="rotate(-90 5.5 5.5)"
+      />
+    </Svg>
+  );
 }
 
 export function Dot({ color, size = 8, hollow }: { color: string; size?: number; hollow?: boolean }) {
@@ -164,5 +248,8 @@ const makeStyles = (colors: Palette) => {
     dot: { width: 7, height: 7, borderRadius: 4 },
     count: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     countText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.secondary, fontVariant: ['tabular-nums'] },
+    thing: { maxWidth: 56 },
+    time: { fontFamily: fonts.ui, fontSize: 11, fontVariant: ['tabular-nums'] },
+    markBox: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   });
 };

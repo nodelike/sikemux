@@ -1,4 +1,8 @@
+import release from '@sikemux/protocol/release.json';
 import Constants from 'expo-constants';
+
+/** How long a deleted account can be restored, and how long backups outlive it after that. */
+export const RETENTION = release.account;
 
 const extra = Constants.expoConfig?.extra ?? {};
 
@@ -14,5 +18,5 @@ export function apiUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_URL;
   if (configured) return configured.replace(/\/$/, '');
   const metro = Constants.expoConfig?.hostUri?.split(':')[0];
-  return `http://${metro ?? '127.0.0.1'}:4000`;
+  return `http://${metro ?? '127.0.0.1'}:${release.accounts.dev.apiPort}`;
 }

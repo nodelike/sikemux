@@ -10,27 +10,27 @@ the core sends.
 
 One word for each idea, in the interface, docs and the core's messages.
 
-| Word                      | Means                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| host                      | Anything running the core: a server, a Mac mini, a laptop. "This host", never "this computer".      |
-| device                    | What the person holds to reach hosts: a phone, a laptop, a browser.                                 |
-| app                       | The software on a device: the desktop app, phone app, web app and the notch.                        |
-| pair                      | A device on another account joins a host, once the host's owner allows it.                          |
-| link                      | Every host on one account works for the others ([ADR 0018](./0018-the-account-is-the-trust.md)).    |
-| project                   | A folder on one host, listed under that host ([ADR 0019](./0019-projects-belong-to-their-host.md)). |
-| you                       | Devices on the host's own account with full access, which act as the person. In code, "the person". |
-| full access               | Can run any command on the host as the person.                                                      |
-| watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                  |
-| shared device             | Someone else's device paired with a host. It never acts as the person.                              |
-| agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                   |
-| board, card, Auto         | Where work waits; one piece of work; what carries a card to merged.                                 |
-| sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                        |
-| trigger, event            | A rule that adds work when something happens; one time it happened.                                 |
-| inbox, digest             | What waits on the person; what happened while they were away.                                       |
-| vault                     | The account's encrypted store of keys, plugin sign-ins and site sign-ins.                           |
-| agent sign-in             | An agent CLI's own login, kept on each host and never in the vault.                                 |
-| site sign-in              | A website login the host's browser loads for agents allowed that site.                              |
-| take over                 | Drive a host's browser tab from any device, to sign in or pass a check.                             |
+| Word                      | Means                                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| host                      | Anything running the core: a server, a Mac mini, a laptop. "This host", never "this computer".                                |
+| device                    | What the person holds to reach hosts: a phone, a laptop, a browser.                                                           |
+| app                       | The software on a device: the desktop app, phone app, web app and the notch.                                                  |
+| pair                      | A device on another account joins a host, once the host's owner allows it.                                                    |
+| link                      | Every host on one account works for the others ([ADR 0018](./0018-the-account-is-the-trust.md)).                              |
+| project                   | A repository, with a copy on each host that holds one ([ADR 0023](./0023-projects-are-repositories-with-a-copy-per-host.md)). |
+| you                       | Devices on the host's own account with full access, which act as the person. In code, "the person".                           |
+| full access               | Can run any command on the host as the person.                                                                                |
+| watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                                            |
+| shared device             | Someone else's device paired with a host. It never acts as the person.                                                        |
+| agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                                             |
+| board, card               | Where work waits; one piece of work.                                                                                          |
+| sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                                                  |
+| trigger, event            | A rule that adds work when something happens; one time it happened.                                                           |
+| inbox, digest             | What waits on the person; what happened while they were away.                                                                 |
+| vault                     | The account's encrypted store of keys, plugin sign-ins and site sign-ins.                                                     |
+| agent sign-in             | An agent CLI's own login, kept on each host and never in the vault.                                                           |
+| site sign-in              | A website login the host's browser loads for agents allowed that site.                                                        |
+| take over                 | Drive a host's browser tab from any device, to sign in or pass a check.                                                       |
 
 Never "Mac", "computer", "machine" or "node" for a host, "client" for a device, or "session" for a
 website login, which would read as a chat or terminal session.
@@ -41,22 +41,22 @@ The desktop app is a Rust program drawn with [GPUI](https://www.gpui.rs). It is 
 the core, a long-lived process that owns every shell, agent and project, and that phones and
 other hosts reach too.
 
-| Process           | Where it lives                          | What it does                                                                                                                                                                                                                                                                           |
-| ----------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Desktop app       | `app` (`sikemux`)                       | One window that draws the core's views, the browser tabs on its desks and the native views it places in its layout. See [The desktop app](#the-desktop-app).                                                                                                                           |
-| Core              | `sikemux core` → `crates/sikemux-core`  | Owns terminals, tasks, chat agents, Git, search, language servers, the harness and the agents' tool endpoint. It outlives the window; see [The core](#the-core).                                                                                                                       |
-| `sikemux-host`    | `crates/sikemux-host` → `cli_client.rs` | The `sikemux` launcher, which asks the running app to open files and projects. With `--tools-mcp` it is the MCP server agents launch over stdio; with `core` it is the core, with the built-in plugins. It never links the window's code, so a host with no screen installs only this. |
-| Notch             | `helpers/notch` (Swift package)         | The island over a MacBook's notch, a client of the core that reads the view phones get. The app starts it; it keeps running after the app quits.                                                                                                                                       |
-| `sikemux-voice`   | `helpers/voice` (Swift package)         | Speech to text, downloaded with the speech model. The `sikemux-voice` crate starts it and puts what it hears on a channel.                                                                                                                                                             |
-| Simulator helper  | `helpers/sim` (Swift package)           | Streams an iOS Simulator's screen and takes its input, for the desk and the agents' simulator tools (`crates/sikemux-simulator`). Mac only.                                                                                                                                            |
-| Shells and agents | spawned by the core                     | Children of the core, not of the app, so closing or quitting the app leaves them running.                                                                                                                                                                                              |
+| Process           | Where it lives                         | What it does                                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Desktop app       | `app` (`sikemux`)                      | One window that draws the core's views, the browser tabs on its desks and the native views it places in its layout. See [The desktop app](#the-desktop-app).                                                                                                                           |
+| Core              | `sikemux core` → `crates/sikemux-core` | Owns terminals, tasks, chat agents, Git, search, language servers, the harness and the agents' tool endpoint. It outlives the window; see [The core](#the-core).                                                                                                                       |
+| `sikemux-host`    | `crates/sikemux-host` → `cli_client/`  | The `sikemux` launcher, which asks the running app to open files and projects. With `--tools-mcp` it is the MCP server agents launch over stdio; with `core` it is the core, with the built-in plugins. It never links the window's code, so a host with no screen installs only this. |
+| Notch             | `helpers/notch` (Swift package)        | The island over a MacBook's notch, a client of the core that reads the view phones get. The app starts it; it keeps running after the app quits.                                                                                                                                       |
+| `sikemux-voice`   | `helpers/voice` (Swift package)        | Speech to text, downloaded with the speech model. The `sikemux-voice` crate starts it and puts what it hears on a channel.                                                                                                                                                             |
+| Simulator helper  | `helpers/sim` (Swift package)          | Streams an iOS Simulator's screen and takes its input, for the desk and the agents' simulator tools (`crates/sikemux-simulator`). Mac only.                                                                                                                                            |
+| Shells and agents | spawned by the core                    | Children of the core, not of the app, so closing or quitting the app leaves them running.                                                                                                                                                                                              |
 
 On macOS, `scripts/build-mac.sh` lays out the bundle: the GPUI app, the core as an app of its
 own in `Contents/Helpers/Sikemux Core.app` (only an app can carry the provisioning profile that
 lets it keep secrets in the keychain group it shares with the app) with a
 `Contents/MacOS/sikemux-host` link for installed `sikemux` commands, and the notch helper.
 `scripts/sign-mac.sh` signs it. On Linux, `scripts/build-linux.sh` builds the app with the core
-beside it as a deb, an rpm and an AppImage. The voice and simulator helpers stay out of the
+beside it as a deb, a tarball and an AppImage. The voice and simulator helpers stay out of the
 app: each release publishes them, and their crates download the one their build was made with.
 
 ### The core
@@ -70,7 +70,7 @@ The app is a client of the core. [ADR 0006](./0006-background-core.md) records w
   `SIKEMUX_CORE_SOCKET` to override), mode 0600. Frames are a length, a kind byte and a
   payload: requests, answers and events are JSON, terminal input and output are bytes. Every
   connection starts with a versioned handshake. What crosses is defined once, in
-  `crates/sikemux-wire`.
+  `crates/sikemux-wire` and, for what clients only read as JSON and draw, `crates/sikemux-view`.
 - **What it owns.** Terminals and terminal agents (`server/session.rs`, on `sikemux-pty`),
   which it emulates and sends as screens of cells; chat agents (`server/chat/`), whose output
   it folds into rows (`crates/sikemux-fold`); tasks and their logs; Git, search, project files
@@ -89,7 +89,7 @@ The app is a client of the core. [ADR 0006](./0006-background-core.md) records w
   descriptors open across `exec`, and becomes the new binary in the same process, so every
   shell stays its child.
 - **Paired devices.** With remote access on, the core also listens on an iroh endpoint, and
-  phones signed in to the same account join it from anywhere (`server/remote.rs`,
+  phones signed in to the same account join it from anywhere (`server/remote/`,
   `server/join.rs`). Each request is checked against what the device may do
   (`server/access.rs`). [ADR 0007](./0007-remote-access-over-iroh.md) records the design.
 - **Linked hosts.** Hosts on one account link with each other and ask each other things over
@@ -108,10 +108,14 @@ such as a file open or an agent's browser, go to the one that registered last.
 
 ## The desktop app
 
-`app/` holds the GPUI app, the `sikemux-gpui` package. It shares the one Cargo workspace and
+`app/` holds the GPUI app as two packages: `sikemux-gpui` (`app/lib/Cargo.toml`), the library
+with everything under `src/` but `main.rs`, and `sikemux-app` (`app/Cargo.toml`), the program
+with `src/main.rs` and the examples. Only the program depends on `sikemux-buildinfo`, which is
+compiled again on every change to the core, so a core edit never recompiles the library. They share the one Cargo workspace and
 lockfile at the root, which builds it only when asked with `-p`. `src/main.rs` opens one
 window; in a Wayland session it takes XWayland's display, since browser pages are X11 windows
-inside it.
+inside it, and `xwayland_scale.rs` asks the compositor what scale to draw at and keeps the
+window at the scale of the display it is on.
 
 **One store, one direction.** `Workbench` (`workbench.rs`) is the one store: what the core last
 said, and the little the window decides itself, such as focus, open menus, scroll and sizes.
@@ -127,9 +131,8 @@ goes out as `Call`s. No view keeps a copy of the core's data.
 | `terminal.rs`                                                      | A terminal pane: the screen the core sends, drawn by `gpui-terminal-grid`                  |
 | `editor/`, `syntax.rs`                                             | The editor tab on Kit's editor, highlighted by `textmate-highlight`                        |
 | `git/`, `codehost/`, `search.rs`                                   | The Git tab, the project's code host in its place, and the Search pane                     |
-| `desk.rs`, `sim_pane.rs`                                           | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
-| `board.rs`, `board_panels.rs`                                      | The agent board and its card panels                                                        |
-| `plugin_pane/`                                                     | Each plugin's pane (see [Plugins](#plugins))                                               |
+| `desk.rs`, `sim/`                                                  | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
+| `board/`                                                           | The agent board and its card panels                                                        |
 | `settings/`, `experience.rs`, `welcome.rs`, `whats_new.rs`         | Settings, and the screens over the whole window                                            |
 | `palette.rs`, `commands.rs`, `finder.rs`, `picker.rs`, `keymap.rs` | The pickers over the stage and the shortcuts                                               |
 | `ui/`, `theme.rs`, `motion.rs`, `toast.rs`                         | The shared component set, the theme's tokens, motion and toasts                            |
@@ -138,12 +141,13 @@ goes out as `Call`s. No view keeps a copy of the core's data.
 
 Its own crates are in `app/crates/`:
 
-| Crate                | Purpose                                                                                                           |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `gpui-transcript`    | A streaming chat view: rows by stable id, markdown patched block by block, a windowed list anchored to the bottom |
-| `gpui-terminal-grid` | Draws a terminal's grid of cells from cells emulated anywhere                                                     |
-| `gpui-native-view`   | Shows a native view in an element's place, under the window's overlays                                            |
-| `textmate-highlight` | Shiki's TextMate grammars, loaded lazily from one compressed bundle                                               |
+| Crate                | Purpose                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `gpui-transcript`    | A streaming chat view: rows by stable id, markdown patched block by block, a windowed list anchored to the bottom   |
+| `gpui-terminal-grid` | Draws a terminal's grid of cells from cells emulated anywhere                                                       |
+| `gpui-native-view`   | Shows a native view in an element's place, under the window's overlays                                              |
+| `textmate-highlight` | Shiki's TextMate grammars, loaded lazily from one compressed bundle                                                 |
+| `film-frame`         | Frames a filmed window for posts: the wallpaper, the window's shadow, a camera, a drawn cursor and the closing card |
 
 ### GPUI, Kit and themes
 
@@ -157,13 +161,13 @@ Read [DESIGN.md](../../DESIGN.md) before changing anything visual.
 ### The browser engine
 
 `crates/sikemux-browser` is the browser with no UI toolkit: tabs, their pages, history,
-downloads and the agents' browser tools (`tools.rs`, declared in `browser/tools.json`). The
+downloads and the agents' browser tools (`tools.rs`, declared in `tools/tools.json`). The
 desk holds a `BrowserManager` and hands it the window to put pages in; the app answers the
 core's browser calls by running them on it.
 
-- **macOS** (`macos.rs`): each tab is a WKWebView added to the window's view, under the
+- **macOS** (`macos/`): each tab is a WKWebView added to the window's view, under the
   overlay plane GPUI draws menus on.
-- **Linux** (`linux.rs`, `linux_page.rs`, `linux_input.rs`): each tab is WebKitGTK through
+- **Linux** (`linux/`): each tab is WebKitGTK through
   wry, in an X11 window of its own inside the app's, sitting in a clip window that cuts it
   where the stage ends. GTK runs on a thread of its own. Our GPUI's X11 window cuts native
   child windows where its menus draw, and lets the pointer through where they take it. Before
@@ -183,41 +187,55 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 
 ## Crates (`crates/`)
 
-| Crate                | Purpose                                                                                                                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                               |
-| `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                        |
-| `sikemux-wire`       | What the core and its clients send each other. The phone links it, so it holds data and nothing that acts on it                                                                            |
-| `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                              |
-| `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                          |
-| `sikemux-pty`        | The terminal engine: each PTY's screen, shell integration, the login-shell environment, task checks and `agent_detection/`, which reads an agent's screen to tell working, blocked or idle |
-| `sikemux-browser`    | The browser engine (see [The browser engine](#the-browser-engine))                                                                                                                         |
-| `sikemux-simulator`  | The iOS Simulator for agents and the desk: the device helper and the agents' tools                                                                                                         |
-| `sikemux-linked`     | Reaching the account's other hosts as a device of the person's own                                                                                                                         |
-| `sikemux-markdown`   | Parses markdown into the block tree the transcript draws; `sikemux-markdown-wasm` builds it for the web                                                                                    |
-| `sikemux-plugin-api` | The contract between the core and a plugin: a method name and JSON in, JSON or a stream out                                                                                                |
-| `sikemux-keychain`   | Secrets in the system keychain, for the plugins that sign in                                                                                                                               |
-| `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path                                                                                          |
-| `sikemux-process`    | Runs a subprocess with a timeout and an output limit, and the paths and environment Sikemux uses                                                                                           |
-| `sikemux-voice`      | Dictation for every app, over the `sikemux-voice` helper                                                                                                                                   |
-| `sikemux-mobile`     | The core's client as the phone app calls it (see [Mobile app](#mobile-app-mobile))                                                                                                         |
-| `workspace-hack`     | Keeps every build in the workspace on one set of dependency features, managed by hakari                                                                                                    |
+| Crate                | Purpose                                                                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                                                                         |
+| `sikemux-calls`      | The core's methods a client calls by name, as types: each method's marker, what it takes and what it answers, so a client in Rust calls them without linking the core                                                                |
+| `sikemux-corekit`    | What the core is built on that needs no running core: the accounts client, the command line's protocol, tasks and releases                                                                                                           |
+| `sikemux-git`        | Reading and changing repositories, and the files in them: status, diffs, log, blame, branches, worktrees, remotes                                                                                                                    |
+| `sikemux-agents`     | The agents the core runs, apart from running them: their catalog, accounts and sign-in, how each is launched, their sessions on disk, and the guards on their git and on what they send off this machine                             |
+| `sikemux-kernel`     | The core itself, below everything that hangs its state on it: `Core`, its error type and the parts each feature keeps on it                                                                                                          |
+| `sikemux-serve`      | What a core stands on: its terminals, the clients connected to it, who may ask what, and saying that something changed. What it asks of the features above it goes through `Above`, which the core fills                             |
+| `sikemux-workspace`  | The workspace and the state kept beside it: projects, agents and their names, preferences, the activity log, drafts, the files and searches clients open. What it asks of the features above it goes through `WorkspaceAbove`        |
+| `sikemux-chat`       | Chats: an agent's conversation as the core keeps it, its feed and replay from disk, hand-overs between accounts and agents, and the model proxy. What it asks of the features above it goes through `ChatAbove`                      |
+| `sikemux-remote`     | Reaching a host from elsewhere and its account: pairing, listening for devices, the account, the vault, joining, sharing a chat and notifying the person's devices. What it asks of the features above it goes through `RemoteAbove` |
+| `sikemux-repo`       | A project's repository: who wrote which lines, committing, landing and pushing, collisions, the check, the code host and CI, places and deploys, the person's calls, language servers, skills. It asks above through `RepoAbove`     |
+| `sikemux-board`      | The board: cards and goals, their decisions and rules, hand-offs, and the agent a trigger's card starts. What it asks of the features above it goes through `BoardAbove`                                                             |
+| `sikemux-hostkit`    | What an app and the `sikemux` command do around the core without linking it: starting it and keeping it on their build, the login item, the CLI's paths, and crash, panic and hang reports                                           |
+| `sikemux-buildinfo`  | Which build this is: the commit, the time and a fingerprint of the core's sources, for the `sikemux` command and the app's program                                                                                                   |
+| `sikemux-drivers`    | The agents a chat runs on, each driven over its own protocol (Claude Code, Codex, Pi, Muse, ACP), and what a driver and its chat say to each other                                                                                   |
+| `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                                                                  |
+| `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                                                                  |
+| `sikemux-wire`       | What the phone's Rust decodes: frames, requests, answers and events. The phone links it, so it holds data and nothing that acts on it                                                                                                |
+| `sikemux-view`       | What clients read from the core as JSON and draw. The phone does not link it, so a change reaches phones over the air                                                                                                                |
+| `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                                                                        |
+| `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                                                                    |
+| `sikemux-pty`        | The terminal engine: each PTY's screen, shell integration, the login-shell environment, task checks and `agent_detection/`, which reads an agent's screen to tell working, blocked or idle                                           |
+| `sikemux-browser`    | The browser engine (see [The browser engine](#the-browser-engine))                                                                                                                                                                   |
+| `sikemux-simulator`  | The iOS Simulator for agents and the desk: the device helper and the agents' tools                                                                                                                                                   |
+| `sikemux-linked`     | Reaching the account's other hosts as a device of the person's own                                                                                                                                                                   |
+| `sikemux-markdown`   | Parses markdown into the block tree the transcript draws; `sikemux-markdown-wasm` builds it for the web                                                                                                                              |
+| `sikemux-plugin-api` | The contract between the core and a plugin: a method name and JSON in, JSON or a stream out                                                                                                                                          |
+| `sikemux-keychain`   | Secrets in the system keychain, for the plugins that sign in                                                                                                                                                                         |
+| `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path                                                                                                                                    |
+| `sikemux-process`    | Runs a subprocess with a timeout and an output limit, and the paths and environment Sikemux uses                                                                                                                                     |
+| `sikemux-voice`      | Dictation for every app, over the `sikemux-voice` helper                                                                                                                                                                             |
+| `sikemux-mobile`     | The core's client as the phone app calls it (see [Mobile app](#mobile-app-mobile))                                                                                                                                                   |
+| `workspace-hack`     | Keeps every build in the workspace on one set of dependency features, managed by hakari                                                                                                                                              |
 
 ## Plugins
 
 Plugins are compiled in; there is no marketplace and no runtime loading
-([ADR 0002](./0002-plugins-are-compiled-in.md)). The twelve built-ins are AWS, Bitbucket, Bruno,
-Database, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
+([ADR 0022](./0022-plugins-are-connectors-and-mods-are-their-panels.md)). The eleven built-ins are
+AWS, Bitbucket, Database, Forgejo, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
 
 - **In the core:** a crate in `plugins/<name>/` implements the `Plugin` trait from
   `sikemux-plugin-api`. `sikemux-host` gives each one a Cargo feature of the same name, all on
   by default, and `crates/sikemux-host/src/plugins/builtin.rs` lists them. Plugin crates opt
   in to the workspace Clippy lints that forbid `unwrap`, `expect`, `panic` and unchecked
   indexing, because a panicking plugin takes the core down.
-- **In the app:** the core reads the views a plugin's manifest names and says when one
-  changed (`server/plugin_views.rs`); `plugin_pane/` keeps what it was last sent and hands it
-  to the plugin's own panel, `plugin_pane/<name>.rs`, to draw. What a panel changes goes back
-  through the plugin's calls.
+- **In the app:** plugins are connectors. Settings signs a person in to each, and agents use
+  their tools; mods reach their methods through the bridge.
 
 A plugin can also offer agent tools, which the MCP server lists next to the built-in ones.
 Settings can switch a plugin off without removing it from the build.
@@ -242,8 +260,8 @@ same session when its account's sign-in changes and, when the person turned it o
 at a usage limit to the next signed-in account.
 
 **Harness tools.** Agents on both transports get Sikemux's tools through
-`sikemux-host --tools-mcp`. Tools are declared once in `browser/tools.json`, with the details in
-`browser/SIKEMUX_GUIDE.md`, which agents fetch with the `guide` tool. An agent keeps its MCP
+`sikemux-host --tools-mcp`. Tools are declared once in `tools/tools.json`, with the details in
+`tools/SIKEMUX_GUIDE.md`, which agents fetch with the `guide` tool. An agent keeps its MCP
 process across an update, so the process takes both from the core and uses its own copy only
 when the core cannot be reached. A tool call travels:
 
@@ -257,13 +275,14 @@ agent → sikemux-host --tools-mcp → the core's tool endpoint → server/harne
 
 The core keeps runs, idempotency keys and an event journal per project, so task tools work with
 no window open and event cursors survive restarts. `pnpm agent-tools:generate` writes
-`crates/sikemux-core/src/cli/methods.rs` and checks that every declared method has a handler.
+`crates/sikemux-base/src/cli/methods.rs` and checks that every declared method has a handler.
 
 ## Tests
 
-- **Rust tests** run with `cargo test` in each workspace. CI runs both workspaces' on macOS and
-  the core's crates' on Linux.
-- **Headless shots.** `sikemux-gpui`'s `shot` example draws the window offscreen into a PNG,
+- **Rust tests** run with `cargo test` in the one workspace, whose default members are the core's
+  crates and the plugins; the GPUI app and its crates are named with `-p`. CI runs both on macOS
+  and the core's crates' on Linux.
+- **Headless shots.** `sikemux-app`'s `shot` example draws the window offscreen into a PNG,
   optionally after a list of steps (clicks, keys, waits), to check a screen without a person at
   it. `fake_chat` seeds a throwaway core with chats from the fake agents in
   `crates/sikemux-core/src/bin/` (`sikemux-fake-acp-agent` and others), which answer prompts
@@ -278,12 +297,13 @@ no window open and event cursors survive restarts. `pnpm agent-tools:generate` w
 
 ## Mobile app (`mobile/`)
 
-The phone app pairs with a host's core and drives it over iroh. It is an Expo app (`mobile/app`)
-that calls the core's own client through `@sikemux/native` (`mobile/native`), which
-`uniffi-bindgen-react-native` generates from `crates/sikemux-mobile`. That crate links only
-`sikemux-wire` and `sikemux-client`, so their code decides when a phone needs a store build
-([ADR 0010](./0010-phone-links-only-the-wire-and-client.md)). TypeScript the phone and the web
-app share lives in `shared/`. [ADR 0008](./0008-mobile-app-expo-and-rust-client.md) records the
+The phone apps pair with a host's core and drive it over iroh, through the core's own client in
+`crates/sikemux-mobile`. The iPhone app is native SwiftUI (`mobile/ios`) and links it as a static
+library with UniFFI's Swift bindings; the Android app is an Expo app (`mobile/app`) that calls it
+through `@sikemux/native` (`mobile/native`), which `uniffi-bindgen-react-native` generates. That
+crate links only `sikemux-wire` and `sikemux-client`, so their code decides when a phone needs a
+store build ([ADR 0010](./0010-phone-links-only-the-wire-and-client.md)). TypeScript the Android
+app and the web app share lives in `shared/`. [ADR 0008](./0008-mobile-app-expo-and-rust-client.md) records the
 choices.
 
 ## Generated files and checks
@@ -293,15 +313,14 @@ matching `:generate` script and commit what it writes:
 
 | Check                            | What it compares                                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `wire:check`                     | The types clients read the core's JSON with (TypeScript for the phone and web app, Swift for the notch) against the Rust that writes it |
-| `agent-tools:check`              | `crates/sikemux-core/src/cli/methods.rs` against `browser/tools.json`                                                                   |
+| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                                                                     |
 | `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json`                                        |
 | `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                                                               |
 | `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                                                                 |
 | `faces:check`                    | The agents' faces, from the art in `shared/buddies`                                                                                     |
 | `file-icons:check`               | The file icons the app and the web app draw                                                                                             |
-| `notch-sources:check`            | The settings, colours and faces the notch helper shares with the app                                                                    |
+| `notch-sources:check`            | The core's Rust copy of the notch helper's settings against `helpers/notch/settings.json`                                               |
 
 `release:check` runs offline checks of the release configuration, which reads the app's name,
-identifiers and version from the GPUI crate's `Cargo.toml`. `pnpm rust:fmt:check`,
-`pnpm rust:clippy` and `pnpm rust:test` cover the Rust; CI is the gate.
+identifiers and version from the GPUI crate's `Cargo.toml`. `pnpm check:rust` covers the Rust,
+through the same `scripts/check-rust.sh` CI's jobs call; CI is the gate.

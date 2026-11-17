@@ -1,9 +1,10 @@
 import type { FindAnswer, FindAt, FindHit } from '@shared/wire.generated';
 
+import { translate } from '@/i18n';
 import type { Finding, Range } from './found';
 import type { ChatSession } from './session';
 
-export type FindState = {
+type FindState = {
   text: string;
   matchCase: boolean;
   wholeWord: boolean;
@@ -178,7 +179,7 @@ export class ChatFind {
 
   private label(): string {
     if (!this.text) return '';
-    if (this.counted === 0) return this.complete && !this.hits.length ? 'No results' : '…';
+    if (this.counted === 0) return this.complete && !this.hits.length ? translate('No results') : '…';
     if (this.counted >= MOST_COUNTED) return `${(this.at ?? 0) + 1}/999+`;
     const place = this.at === null ? this.counted : this.counted - this.at;
     return `${place}/${this.counted}${this.complete ? '' : '…'}`;

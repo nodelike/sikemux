@@ -1,5 +1,13 @@
 import pg from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { Database } from "../src/db.ts";
 import { backlog } from "../src/events/backlog.ts";
@@ -86,7 +94,7 @@ describe("the event log", () => {
       })
       .catch(() => undefined);
     await registered(app, "user_b", "host");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.waitFor(() => expect(heard).not.toEqual([]));
     await listener.end();
 
     expect(heard).toEqual(["user_b"]);
@@ -287,6 +295,28 @@ describe("what each device may read from the log", () => {
       `device.added ${a.host.key}`,
       `device.revoked ${a.otherPhone.key}`,
     ]);
+  });
+
+  it("shows a host another host renamed, so it shows the new name", async () => {
+    const a = await account("user_a");
+    const renamed = await registered(app, "user_a", "host");
+    const before = await latestEventId(database.db, "user_a");
+    await call(
+      `/v1/devices/${renamed.key}/name`,
+      await sessionToken("user_a"),
+      {
+        method: "POST",
+        json: { name: "sanctum" },
+      },
+    );
+    const visible = await backlog(database.db, {
+      userId: "user_a",
+      role: "host",
+      key: a.host.key,
+      after: before,
+      limit: 200,
+    });
+    expect(seen(visible)).toEqual([`device.changed ${renamed.key}`]);
   });
 
   it("never shows a phone another phone", async () => {

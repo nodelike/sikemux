@@ -8,8 +8,11 @@
 //! answer is shown. This binary's own copy is used only when Sikemux cannot be
 //! reached.
 
+mod bound;
+mod family;
 mod harness;
 mod manifest;
+mod shrink;
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -22,8 +25,8 @@ use sikemux_process::sync::Locked;
 
 use manifest::{Manifest, Tool};
 use sikemux_core::cli::protocol::{
-    PLUGINS_CHANGED_METHOD, REVIEWER_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
-    TOOLS_MANIFEST_METHOD, TOOLS_OFFER_ENV,
+    PLUGINS_CHANGED_METHOD, SETUP_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    TOOLS_MANIFEST_METHOD,
 };
 
 const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -33,6 +36,9 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     "2025-06-18",
     LATEST_PROTOCOL_VERSION,
 ];
+/// Told with the guide's setup topic, which lists setup_check for the agent that read it.
+const SETUP_LISTED: &str = "setup_check is now in your tools. If your list does not show it, your tools were not read again: ask the person to press Check again on the Playbook's Setup page, which runs the same check, and read its result there.";
+#[cfg(unix)]
 const PARENT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Asking whether to list the simulator tools must not hold up the host's handshake for long.
 const OFFER_TIMEOUT: Duration = Duration::from_secs(3);
@@ -49,8 +55,9 @@ pub fn run() -> i32 {
     };
     watch_parent();
     let simulator = simulator_offered(&agent_id);
-    let reviewer = std::env::var(TOOLS_OFFER_ENV).is_ok_and(|offer| offer == REVIEWER_OFFER);
-    serve(Arc::new(Offer::new(simulator, reviewer)), agent_id);
+    let resources = std::env::current_dir()
+        .is_ok_and(|cwd| sikemux_core::tasks::config::names_resources_near(&cwd));
+    serve(Arc::new(Offer::new(simulator, resources)), agent_id);
     0
 }
 
@@ -82,9 +89,9 @@ fn validate_agent_id(value: &str) -> Result<String, String> {
     Ok(agent_id.to_owned())
 }
 
-/// macOS has no way to ask for a signal when the parent dies, so the sidecar
+/// macOS has no way to ask for a signal when the parent dies, so this server
 /// watches for the reparenting that follows instead. Without this an agent that
-/// is killed rather than closed leaves its sidecar running forever.
+/// is killed rather than closed leaves its server running forever.
 #[cfg(unix)]
 fn watch_parent() {
     // SAFETY: `getppid` takes nothing and cannot fail.
@@ -108,12 +115,15 @@ fn watch_parent() {}
 /// out a restart and asks again.
 struct Offer {
     simulator: bool,
-    reviewer: bool,
+    /// The agent's project names things only one agent uses at a time.
+    resources: bool,
     built: Arc<Manifest>,
     served: Mutex<Option<Arc<Manifest>>>,
     plugins: Mutex<Option<Arc<Vec<Tool>>>>,
     /// What the agent was last given by `tools/list`.
     given: Mutex<Option<Vec<Value>>>,
+    /// The agent read the guide's setup topic, so the setup tools are listed for it.
+    setup: AtomicBool,
     /// The guide as the agent was last told it reads, once the app served one.
     told_guide: Mutex<Option<String>>,
     /// Parts of the guide that changed since, to tell the agent with its
@@ -122,16 +132,17 @@ struct Offer {
 }
 
 impl Offer {
-    fn new(simulator: bool, reviewer: bool) -> Self {
-        let built = Manifest::load().offering(simulator, reviewer);
+    fn new(simulator: bool, resources: bool) -> Self {
+        let built = (Manifest::load().with_resources(resources)).offering(simulator);
         Self {
             simulator,
-            reviewer,
+            resources,
             told_guide: Mutex::default(),
             built: Arc::new(built),
             served: Mutex::default(),
             plugins: Mutex::default(),
             given: Mutex::default(),
+            setup: AtomicBool::new(false),
             guide_news: Mutex::default(),
         }
     }
@@ -140,12 +151,13 @@ impl Offer {
     fn with(manifest: Manifest, plugins: Option<Vec<Tool>>) -> Self {
         Self {
             simulator: true,
-            reviewer: false,
+            resources: false,
             built: Arc::new(Manifest::load()),
             told_guide: Mutex::new(Some(manifest.guide_source().to_owned())),
             served: Mutex::new(Some(Arc::new(manifest))),
             plugins: Mutex::new(plugins.map(Arc::new)),
             given: Mutex::default(),
+            setup: AtomicBool::new(false),
             guide_news: Mutex::default(),
         }
     }
@@ -164,7 +176,8 @@ impl Offer {
 
     fn ask_manifest(&self, relay: &Relay<'_>) -> Option<Manifest> {
         let answer = relay(TOOLS_MANIFEST_METHOD, &json!({})).ok()?;
-        Some(Manifest::served(&answer)?.offering(self.simulator, self.reviewer))
+        let served = Manifest::served(&answer)?.with_resources(self.resources);
+        Some(served.offering(self.simulator))
     }
 
     /// Holds what the app serves, noting the parts of its guide that changed
@@ -237,9 +250,12 @@ impl Offer {
         (changed, served)
     }
 
-    /// What `tools/list` answers with what is held now.
     fn declarations(&self) -> Vec<Value> {
-        declarations(&self.manifest(), &held(&self.plugins).unwrap_or_default())
+        declarations(
+            &self.manifest(),
+            &held(&self.plugins).unwrap_or_default(),
+            self.setup.load(Ordering::Relaxed),
+        )
     }
 
     fn manifest(&self) -> Arc<Manifest> {
@@ -269,15 +285,8 @@ fn plugin_tools(answer: Value) -> Vec<Tool> {
         .collect()
 }
 
-fn declarations(manifest: &Manifest, plugins: &[Tool]) -> Vec<Value> {
-    let mut tools = manifest.declarations();
-    tools.extend(
-        plugins
-            .iter()
-            .filter(|tool| !manifest.declares(&tool.name))
-            .map(Tool::declaration),
-    );
-    tools
+fn declarations(manifest: &Manifest, plugins: &[Tool], setup: bool) -> Vec<Value> {
+    manifest.declarations(plugins, setup)
 }
 
 /// One request to the app: a harness method and its params.
@@ -373,10 +382,10 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
             } => {
                 let (offer, relays, calls) =
                     (Arc::clone(&offer), Arc::clone(&relays), Arc::clone(&calls));
-                calls.start(&id, &name);
-                let ticket = offer
-                    .manifest()
-                    .tool(&name)
+                let manifest = offer.manifest();
+                let member = manifest.member(&name, &arguments);
+                calls.start(&id, member.map_or(name.as_str(), |tool| tool.name.as_str()));
+                let ticket = member
                     .is_some_and(|tool| acts_on_tab(&tool.method))
                     .then(|| (Arc::clone(&tab_turns), tab_turns.take()));
                 // A call waits on the app, so it runs off the read loop; a host
@@ -387,8 +396,7 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
                         calls.finish(&id);
                         return;
                     }
-                    let mut answer =
-                        call(&offer, &*relays.quick, &*relays.patient, &name, &arguments);
+                    let mut answer = call_by_deadline(Arc::clone(&offer), relays, name, arguments);
                     if calls.finish(&id) {
                         if let Some(blocks) = answer["content"].as_array_mut() {
                             if let Some(news) = offer.take_guide_news() {
@@ -594,12 +602,54 @@ fn initialize(manifest: &Manifest, params: &Value) -> Value {
 }
 
 fn list(offer: &Offer, relay: &Relay<'_>) -> Vec<Value> {
-    let tools = declarations(&offer.built_in(relay), &offer.plugin_tools(relay));
+    let tools = declarations(
+        &offer.built_in(relay),
+        &offer.plugin_tools(relay),
+        offer.setup.load(Ordering::Relaxed),
+    );
     *offer.given.locked() = Some(tools.clone());
     tools
 }
 
 /// `quick` asks for the tools, `patient` makes the call.
+/// The longest a call may take while Sikemux answers: two tries, each waiting out a restart,
+/// and the wait for the new Sikemux between them, with a margin.
+const CALL_DEADLINE: Duration = Duration::from_secs(
+    2 * (harness::TOOLS_REPLY_TIMEOUT.as_secs() + harness::RESTART_WAIT.as_secs())
+        + harness::RESTART_WAIT.as_secs()
+        + 15,
+);
+
+/// As [`call`], answering that Sikemux never did once [`CALL_DEADLINE`] passes, so a call stuck
+/// on the way neither holds the agent nor the tab calls queued behind it.
+fn call_by_deadline(
+    offer: Arc<Offer>,
+    relays: Arc<Relays>,
+    name: String,
+    arguments: Value,
+) -> Value {
+    let (answer, answered) = std::sync::mpsc::channel();
+    let calling = name.clone();
+    std::thread::spawn(move || {
+        let _ = answer.send(call(
+            &offer,
+            &*relays.quick,
+            &*relays.patient,
+            &calling,
+            &arguments,
+        ));
+    });
+    answered.recv_timeout(CALL_DEADLINE).unwrap_or_else(|_| {
+        content(
+            vec![text(&format!(
+                "Sikemux did not answer {name} within {} s, so the call was given up; it may still have happened, so check before trying it again",
+                CALL_DEADLINE.as_secs()
+            ))],
+            true,
+        )
+    })
+}
+
 fn call(
     offer: &Offer,
     quick: &Relay<'_>,
@@ -610,34 +660,74 @@ fn call(
     if name == offer.manifest().guide_name() {
         let topic = arguments.get("topic").and_then(Value::as_str);
         return match offer.manifest().guide_text(topic) {
+            Ok(guide) if topic == Some(SETUP_OFFER) => {
+                if !offer.setup.swap(true, Ordering::Relaxed) {
+                    tell_tools_changed();
+                }
+                content(vec![text(guide), text(SETUP_LISTED)], false)
+            }
             Ok(guide) => content(vec![text(guide)], false),
             Err(message) => invalid(&message),
         };
     }
     let manifest = offer.built_in(quick);
-    if let Some(tool) = manifest.tool(name) {
-        if let Err(message) = tool.validate(arguments) {
-            return invalid(&message);
-        }
-        return answer(tool, patient(&tool.method, arguments));
-    }
     let plugins = offer.plugin_tools(quick);
-    let Some(tool) = plugins
-        .iter()
-        .find(|tool| tool.name == name && !manifest.declares(name))
-    else {
-        return content(vec![text(&format!("Unknown tool: {name}"))], true);
+    let (tool, arguments) = match manifest.chosen(&plugins, name, arguments) {
+        Some(Ok(chosen)) => (chosen.tool, chosen.arguments),
+        Some(Err(message)) => return invalid(&message),
+        None => {
+            let Some(tool) = manifest.tool(name).or_else(|| {
+                plugins
+                    .iter()
+                    .find(|tool| tool.name == name && !manifest.declares(name))
+            }) else {
+                return content(vec![text(&format!("Unknown tool: {name}"))], true);
+            };
+            let arguments = tool.settle(arguments.clone());
+            if let Err(message) = tool.validate(&arguments) {
+                return invalid(&message);
+            }
+            (tool, arguments)
+        }
     };
-    if let Err(message) = tool.validate(arguments) {
-        return invalid(&message);
+    if manifest.tool(&tool.name).is_none() {
+        return answer(
+            tool,
+            patient(
+                "plugins.call",
+                &json!({ "tool": tool.name, "arguments": arguments }),
+            ),
+        );
     }
-    answer(
-        tool,
-        patient(
-            "plugins.call",
-            &json!({ "tool": name, "arguments": arguments }),
-        ),
-    )
+    if tool.method == "browser.wait" {
+        return answer(tool, wait_longer(patient, &arguments));
+    }
+    answer(tool, patient(&tool.method, &arguments))
+}
+
+/// A browser_wait longer than one call to Sikemux may take, asked again until its
+/// condition holds or its time is up. Sikemux marks a wait it cut short with `cappedAtMs`.
+fn wait_longer(patient: &Relay<'_>, arguments: &Value) -> Result<Value, String> {
+    let started = std::time::Instant::now();
+    let asked = Duration::from_millis(arguments["timeoutMs"].as_u64().unwrap_or(0));
+    let mut arguments = arguments.clone();
+    let mut rounds = 0;
+    loop {
+        rounds += 1;
+        let mut result = patient("browser.wait", &arguments)?;
+        let cut_short = result
+            .as_object_mut()
+            .and_then(|fields| fields.remove("cappedAtMs"))
+            .is_some();
+        let left = asked.saturating_sub(started.elapsed());
+        if !cut_short || result["met"] != json!(false) || left.is_zero() {
+            if rounds > 1 {
+                result["waitedMs"] = json!(started.elapsed().as_millis() as u64);
+            }
+            return Ok(result);
+        }
+        arguments["timeoutMs"] = json!(left.as_millis() as u64);
+    }
 }
 
 fn invalid(message: &str) -> Value {
@@ -649,8 +739,14 @@ fn invalid(message: &str) -> Value {
 
 fn answer(tool: &Tool, result: Result<Value, String>) -> Value {
     match result {
-        Ok(value) => content(content_for(tool.answer.as_deref(), &value), false),
-        Err(message) => content(vec![text(&message)], true),
+        Ok(value) if tool.answer.is_some() => {
+            content(content_for(tool.answer.as_deref(), &value), false)
+        }
+        Ok(value) => content(
+            content_for(None, &bound::bounded(value, |name| tool.takes(name))),
+            false,
+        ),
+        Err(message) => content(vec![text(&bound::bounded_text(&message))], true),
     }
 }
 
@@ -668,9 +764,13 @@ fn content_for(kind: Option<&str>, value: &Value) -> Vec<Value> {
                 .get("mimeType")
                 .and_then(Value::as_str)
                 .unwrap_or("image/png");
+            let picture = shrink::for_model(data, mime_type);
             let mut caption = format!("{} {}", field("title"), field("url"))
                 .trim()
                 .to_owned();
+            if let Some(scale) = picture.scale {
+                caption.push_str(&scaled_note(scale));
+            }
             if let Some(height) = value.get("cutAt").and_then(Value::as_f64) {
                 caption.push_str(&format!("\n(cut at {height}px; the page is taller)"));
             }
@@ -680,7 +780,7 @@ fn content_for(kind: Option<&str>, value: &Value) -> Vec<Value> {
             }
             let caption = caption.trim();
             return vec![
-                json!({ "type": "image", "data": data, "mimeType": mime_type }),
+                image_block(&picture),
                 text(if caption.is_empty() {
                     "screenshot"
                 } else {
@@ -706,16 +806,31 @@ fn picture(value: &Value) -> Vec<Value> {
         fields.remove("mimeType");
     }
     match mime_type {
-        Some(mime_type) if mime_type.starts_with("image/") => vec![
-            json!({ "type": "image", "data": data, "mimeType": mime_type }),
-            text(&rest.to_string()),
-        ],
+        Some(mime_type) if mime_type.starts_with("image/") => {
+            let picture = shrink::for_model(data, mime_type);
+            let mut caption = rest.to_string();
+            if let Some(scale) = picture.scale {
+                caption.push_str(&scaled_note(scale));
+            }
+            vec![image_block(&picture), text(&caption)]
+        }
         _ => vec![text(&format!(
             "{rest} ({} bytes of {} left out)",
             data.len(),
             mime_type.unwrap_or("data")
         ))],
     }
+}
+
+fn image_block(picture: &shrink::Picture) -> Value {
+    json!({ "type": "image", "data": picture.data, "mimeType": picture.mime_type })
+}
+
+fn scaled_note(scale: f64) -> String {
+    format!(
+        "\n(shown at {:.0}% of its size: divide a point in the picture by {scale:.3} for the page's own)",
+        scale * 100.0
+    )
 }
 
 fn text(body: &str) -> Value {

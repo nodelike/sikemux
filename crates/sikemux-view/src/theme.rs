@@ -1,0 +1,358 @@
+//! A colour theme: the app's colours, the code editor's, syntax highlighting
+//! and the terminal's, each a CSS colour. The core resolves the person's
+//! choice to one of these; clients draw with it.
+
+use serde::{Deserialize, Serialize};
+
+use crate::backdrop::{ThemeBackdrop, ThemeBackdropChanges, WornBackdrop};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Theme {
+    pub id: String,
+    pub name: String,
+    pub dark: bool,
+    pub chrome: ThemeChrome,
+    pub editor: ThemeEditor,
+    pub highlight: ThemeHighlight,
+    pub terminal: ThemeTerminal,
+    #[serde(default, skip_serializing_if = "ThemeStyle::is_plain")]
+    pub style: ThemeStyle,
+    #[serde(default, skip_serializing_if = "ThemeBackdrop::is_plain")]
+    pub backdrop: ThemeBackdrop,
+}
+
+/// A theme written as changes to a base theme, as theme files and `theme_set`'s `save` give
+/// one. A key the theme does not have is refused.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ThemeChanges {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dark: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome: Option<ThemeChromeChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<ThemeEditorChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<ThemeHighlightChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<ThemeTerminalChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<ThemeStyleChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop: Option<ThemeBackdropChanges>,
+}
+
+impl ThemeChanges {
+    /// `theme` with these changes laid over it; the base and name are the caller's to use.
+    pub fn lay_over(self, theme: &mut Theme) {
+        if let Some(dark) = self.dark {
+            theme.dark = dark;
+        }
+        if let Some(changes) = self.chrome {
+            changes.lay_over(&mut theme.chrome);
+        }
+        if let Some(changes) = self.editor {
+            changes.lay_over(&mut theme.editor);
+        }
+        if let Some(changes) = self.highlight {
+            changes.lay_over(&mut theme.highlight);
+        }
+        if let Some(changes) = self.terminal {
+            changes.lay_over(&mut theme.terminal);
+        }
+        if let Some(changes) = self.style {
+            changes.lay_over(&mut theme.style);
+        }
+        if let Some(changes) = self.backdrop {
+            changes.lay_over(&mut theme.backdrop);
+        }
+    }
+}
+
+/// Each part of a theme, with a twin of the same fields, each optional, for changes to it.
+macro_rules! theme_parts {
+    ($(
+        $(#[$meta:meta])*
+        pub struct $part:ident / $changes:ident {
+            $( $(#[$field_meta:meta])* pub $field:ident: $kind:ty, )*
+        }
+    )*) => {$(
+        $(#[$meta])*
+        pub struct $part {
+            $( $(#[$field_meta])* pub $field: $kind, )*
+        }
+
+        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        pub struct $changes {
+            $(
+                $(#[$field_meta])*
+                #[serde(default, skip_serializing_if = "Option::is_none")]
+                pub $field: Option<$kind>,
+            )*
+        }
+
+        impl $changes {
+            pub fn lay_over(self, part: &mut $part) {
+                $( if let Some(value) = self.$field { part.$field = value; } )*
+            }
+        }
+    )*};
+}
+pub(crate) use theme_parts;
+
+theme_parts! {
+/// How a theme draws beside its colours.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ThemeStyle / ThemeStyleChanges {
+    /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
+    pub corners: f64,
+    /// Points between panes and rails.
+    pub gap: f64,
+    /// Points between the window's edge and what it holds.
+    pub inset: f64,
+    /// The interface's font family, installed on the computer; empty is Sikemux's own.
+    pub ui_font: String,
+    /// The code and terminal font family, installed on the computer; empty is Sikemux's own.
+    pub mono_font: String,
+    /// How tall rows are, as a share of the default.
+    pub density: f64,
+    /// How wide borders are, in points.
+    pub borders: f64,
+    /// How dark shadows are, from none at 0 through the default at 1 to twice at 2.
+    pub shadows: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeChrome / ThemeChromeChanges {
+    pub bg: String,
+    pub bg_dim: String,
+    pub bg_raised: String,
+    pub ink: String,
+    pub ink_dim: String,
+    pub ink_muted: String,
+    pub acc: String,
+    pub acc_line: String,
+    pub acc_dim: String,
+    pub line: String,
+    pub hl: String,
+    pub danger: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeEditor / ThemeEditorChanges {
+    pub fg: String,
+    pub bg: String,
+    pub caret: String,
+    pub selection: String,
+    pub active_line: String,
+    pub gutter: String,
+    pub gutter_active: String,
+    pub indent: String,
+    pub indent_active: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeHighlight / ThemeHighlightChanges {
+    pub keyword: String,
+    pub string: String,
+    pub comment: String,
+    pub number: String,
+    pub function: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub variable: String,
+    pub property: String,
+    pub tag: String,
+    pub operator: String,
+    pub link: String,
+    pub invalid: String,
+    pub meta: String,
+    pub heading: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeTerminal / ThemeTerminalChanges {
+    pub background: String,
+    pub foreground: String,
+    pub cursor: String,
+    pub cursor_accent: String,
+    pub selection_background: String,
+    pub black: String,
+    pub red: String,
+    pub green: String,
+    pub yellow: String,
+    pub blue: String,
+    pub magenta: String,
+    pub cyan: String,
+    pub white: String,
+    pub bright_black: String,
+    pub bright_red: String,
+    pub bright_green: String,
+    pub bright_yellow: String,
+    pub bright_blue: String,
+    pub bright_magenta: String,
+    pub bright_cyan: String,
+    pub bright_white: String,
+}
+}
+
+impl Eq for ThemeStyle {}
+
+impl Default for ThemeStyle {
+    fn default() -> Self {
+        Self {
+            corners: 1.,
+            gap: 10.,
+            inset: 10.,
+            ui_font: String::new(),
+            mono_font: String::new(),
+            density: 1.,
+            borders: 1.,
+            shadows: 1.,
+        }
+    }
+}
+
+impl ThemeStyle {
+    pub fn is_plain(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// A theme as a picker lists it: its name, where it comes from and its colours at a glance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeSummary {
+    pub id: String,
+    pub name: String,
+    pub dark: bool,
+    pub source: ThemeSource,
+    pub bg: String,
+    pub line: String,
+    pub acc: String,
+    /// The terminal's red, green, yellow, blue, magenta and cyan.
+    pub swatches: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemeSource {
+    /// One the person made, which they can edit and delete.
+    Custom,
+    /// The theme an Omarchy desktop set for the system, which changes with it.
+    Omarchy,
+    Sikemux,
+    Ghostty,
+}
+
+/// The picked theme with the colours every app draws with, worked out from it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Palette {
+    pub theme: Theme,
+    pub tokens: UiTokens,
+    pub style: UiStyle,
+    /// What panes show behind them, the theme's own or the kind the person picked.
+    #[serde(default)]
+    pub backdrop: WornBackdrop,
+}
+
+/// DESIGN.md's corner radii, row density, border width and shadow depth for one theme.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiStyle {
+    /// The theme's corners, clamped.
+    pub corners: f64,
+    pub radius1: f64,
+    pub radius2: f64,
+    pub radius3: f64,
+    pub radius4: f64,
+    /// Row heights' share of the default.
+    pub density: f64,
+    /// Border width in points.
+    pub border: f64,
+    /// Shadows' darkness as a share of the default.
+    pub shadows: f64,
+    /// Points between panes and rails.
+    pub gap: f64,
+    /// Points between the window's edge and what it holds.
+    pub inset: f64,
+}
+
+impl Eq for UiStyle {}
+
+/// DESIGN.md's colours for one theme, each `#rrggbb`, or `rgba(r, g, b, a)`
+/// when see-through. Phones read them by these names from the device view.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTokens {
+    /// The darkest ground, behind panes.
+    pub sunken: String,
+    pub ground: String,
+    pub raised: String,
+    pub overlay: String,
+    /// One step above the ground, where a phone's composer sits.
+    pub composer: String,
+    /// What the Mac's chat composer and its docked strips are filled with.
+    pub surface_composer: String,
+    pub hover: String,
+    pub chosen: String,
+    pub active: String,
+    pub selected: String,
+    pub tooltip: String,
+    pub border: String,
+    pub border_strong: String,
+    pub border_selected: String,
+    pub line: String,
+    pub line_soft: String,
+    pub ink: String,
+    pub secondary: String,
+    /// Text that recedes: labels, hints, timestamps.
+    pub tertiary: String,
+    pub disabled: String,
+    pub ink_dim: String,
+    pub ink_faint: String,
+    pub rest: String,
+    /// Header actions and other glyphs that recede until hovered.
+    pub icon_quiet: String,
+    pub accent: String,
+    pub accent_soft: String,
+    pub on_accent: String,
+    /// Running, connected, passing.
+    pub live: String,
+    /// Waiting on the person, or at risk.
+    pub warn: String,
+    pub danger: String,
+    /// Commands and the names of things that run.
+    pub cmd: String,
+    /// The mark of a host on the account.
+    pub host: String,
+    /// An SSH host's mark.
+    pub ssh: String,
+    pub tree_spine: String,
+    pub tree_tick: String,
+    pub git_added: String,
+    pub git_modified: String,
+    pub git_untracked: String,
+    pub git_deleted: String,
+    pub git_renamed: String,
+    /// What each kind of tool call is marked with in a chat.
+    pub tool_read: String,
+    pub tool_edit: String,
+    pub tool_delete: String,
+    pub tool_run: String,
+    pub tool_mcp: String,
+    /// The dots of the pane grain behind a phone's panes.
+    pub shader_dot: String,
+}

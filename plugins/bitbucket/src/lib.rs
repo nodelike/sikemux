@@ -1,17 +1,5 @@
 // Bitbucket Cloud: the pull requests and pipelines of whichever repository
-// Sikemux has open, answered in the shapes the Git pane reads from every host.
-//
-//   config    — which way this is signed in, and the Keychain entry behind it
-//   oauth     — signing in through the browser, and keeping the token fresh
-//   client    — the HTTP client, the credential, and Bitbucket's error shapes
-//   auth      — signing in and out, and who the app is talking to Bitbucket as
-//   repo      — a git remote turned into workspace and repository
-//   pulls     — pull requests, their files, commits and history, and merging one
-//   review    — what reviewers asked of a pull request, and answering it
-//   issues    — the issue tracker, tags as releases, and the inbox of pull requests waiting
-//   pipelines — pipelines as runs, their steps as jobs, and starting one
-//   watch     — following a pipeline while it is going
-//   images    — avatars, handed to the window as data: addresses
+// Sikemux has open, answered in the shapes every code host answers in.
 
 mod auth;
 mod client;
@@ -20,45 +8,38 @@ mod error;
 mod images;
 mod issues;
 mod oauth;
+mod pictures;
 mod pipelines;
 mod pulls;
+mod push;
 mod repo;
 mod review;
 
 use std::path::Path;
-use std::sync::Arc;
 
-use serde::de::IgnoredAny;
 use serde_json::Value;
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::{as_account, named_in};
 use sikemux_plugin_api::codehost::asks::{
     AccountQuery, Answers, CommitRef, CommitsQuery, Dispatch, ExcerptQuery, FeedbackQuery,
     FilesQuery, ImageRef, InboxQuery, IssueQuery, IssueRef, JobRef, Merge, MineQuery, NewComment,
-    NewIssue, NewPull, NewReview, NotificationRef, PullEdit, PullQuery, PullRef, RemoteQuery,
-    RepoRef, Rerun, RunQuery, RunRef, SetIssueState, SetPullState, ThreadOf, ThreadRef,
-    WorkflowRef,
+    NewIssue, NewPull, NewReview, PictureFile, PullEdit, PullQuery, PullRef, RemoteQuery, RepoRef,
+    Rerun, RunQuery, RunRef, SetIssueState, SetPullState, ThreadOf, ThreadRef, WorkflowRef,
 };
 use sikemux_plugin_api::codehost::{
-    self, work, ChangedFile, CodeHost, Comment, CommitAuthor, Issue, IssuePage, JobLog, LogExcerpt,
-    Notification, Pull, PullCommit, Release, RepoListing, Resolved, Review, ReviewFeedback,
-    RunDetail, RunPage, RunTiming, TimelineItem, Workflow, WorkflowFile,
+    self, work, Attached, ChangedFile, CodeHost, Comment, CommitAuthor, Issue, IssuePage, JobLog,
+    LogExcerpt, Notification, Pull, PullCommit, Release, RepoListing, Resolved, Review,
+    ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::store::Accounts;
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
+use sikemux_plugin_api::host_work;
+use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::BitbucketResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Bitbucket {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Bitbucket {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Bitbucket);
 
 fn resolve(query: RemoteQuery) -> Resolved {
     let found = repo::from_remote(&query.url);
@@ -69,7 +50,6 @@ fn resolve(query: RemoteQuery) -> Resolved {
     }
 }
 
-/// The status of the account that just signed in.
 async fn signed_in(
     data_dir: &Path,
     outcome: BitbucketResult<String>,
@@ -78,27 +58,15 @@ async fn signed_in(
     reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
-/// Whether the repository has a remote on Bitbucket, and an account is signed in.
-fn works_in(data_dir: &Path, remotes: &[String]) -> bool {
-    let on_bitbucket = remotes
-        .iter()
-        .filter_map(|remote| repo::from_remote(remote))
-        .any(|repo| repo.host == repo::HOST);
-    on_bitbucket && config::load(data_dir).is_ok_and(|config| !config.accounts.is_empty())
-}
-
-/// Which account a call is for; with none named, the default one.
-fn account_of(input: &Value) -> Option<String> {
-    input
-        .get("account")
-        .and_then(Value::as_str)
-        .filter(|account| !account.is_empty())
-        .map(str::to_string)
+/// Whether an account is signed in. Its tools name the repository they act on, so they work
+/// from any folder, and a person who connected Bitbucket expects their agents to have them.
+fn has_account(data_dir: &Path) -> bool {
+    store::has_account::<config::BitbucketConfig>(data_dir)
 }
 
 impl Plugin for Bitbucket {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&oauth::BOOK)
     }
 
     fn call<'a>(
@@ -107,7 +75,7 @@ impl Plugin for Bitbucket {
         method: &'a str,
         input: Value,
     ) -> PluginFuture<'a, Value> {
-        let account = account_of(&input);
+        let account = named_in(&input);
         Box::pin(as_account(account, dispatch(self, ctx, method, input)))
     }
 
@@ -118,16 +86,28 @@ impl Plugin for Bitbucket {
         input: Value,
         sink: StreamSink,
     ) -> PluginFuture<'a, ()> {
-        let account = account_of(&input);
+        let account = named_in(&input);
         Box::pin(as_account(account, dispatch_stream(ctx, method, sink)))
+    }
+
+    fn acts_as(&self, ctx: &PluginContext, remote: &str) -> Option<Acting> {
+        push::acts_as(ctx, remote)
+    }
+
+    fn credential<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        ask: &'a Ask,
+    ) -> PluginFuture<'a, Option<Credential>> {
+        Box::pin(async move { Ok(push::credential(ctx.data_dir(), ask).await?) })
     }
 
     fn offers_agent_tools<'a>(
         &'a self,
         ctx: &'a PluginContext,
-        remotes: &'a [String],
+        _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(works_in(ctx.data_dir(), remotes)) })
+        Box::pin(async move { Ok(has_account(ctx.data_dir())) })
     }
 }
 
@@ -140,14 +120,12 @@ async fn dispatch(
     let data_dir = ctx.data_dir();
     match method {
         "status" => reply(auth::status(data_dir).await),
-        "accounts" => reply(auth::accounts(data_dir)?),
-        "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
-        "rateLimit" => {
-            let id = config::load(data_dir)?
-                .account(chosen().as_deref())
-                .map(|account| account.id.clone())
-                .unwrap_or_default();
-            reply(client::LIMITS.budget(&id))
+        "setDefaultAccount" => {
+            answer(store::set_default::<
+                config::BitbucketConfig,
+                error::Bitbucket,
+            >(data_dir, params(input)?))
+            .await
         }
         "signInWithToken" => {
             signed_in(
@@ -170,158 +148,6 @@ impl CodeHost for Bitbucket {
         ask: RemoteQuery,
     ) -> PluginFuture<'a, Resolved> {
         Box::pin(async move { Ok(resolve(ask)) })
-    }
-
-    fn account_for<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: AccountQuery,
-    ) -> PluginFuture<'a, Option<String>> {
-        work(auth::account_for(dir, ask.repo))
-    }
-
-    fn my_repos<'a>(&'a self, dir: &'a Path, ask: MineQuery) -> PluginFuture<'a, Vec<RepoListing>> {
-        work(repo::mine(dir, ask.limit))
-    }
-
-    fn branches<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<String>> {
-        work(repo::branches(dir, ask))
-    }
-
-    fn image<'a>(&'a self, dir: &'a Path, ask: ImageRef) -> PluginFuture<'a, String> {
-        work(images::image(dir, ask))
-    }
-
-    fn workflows<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Workflow>> {
-        work(pipelines::workflows(dir, ask))
-    }
-
-    fn workflow_file<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: WorkflowRef,
-    ) -> PluginFuture<'a, WorkflowFile> {
-        work(pipelines::workflow_file(dir, ask))
-    }
-
-    fn dispatch_workflow<'a>(&'a self, dir: &'a Path, ask: Dispatch) -> PluginFuture<'a, ()> {
-        work(pipelines::dispatch(dir, ask))
-    }
-
-    fn runs<'a>(&'a self, dir: &'a Path, ask: RunQuery) -> PluginFuture<'a, RunPage> {
-        work(pipelines::list(dir, ask))
-    }
-
-    fn run<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunDetail> {
-        work(pipelines::detail(dir, ask))
-    }
-
-    fn run_timing<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunTiming> {
-        work(pipelines::timing(dir, ask))
-    }
-
-    fn rerun<'a>(&'a self, dir: &'a Path, ask: Rerun) -> PluginFuture<'a, ()> {
-        work(pipelines::rerun(dir, ask))
-    }
-
-    fn cancel<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(pipelines::cancel(dir, ask))
-    }
-
-    fn job_log<'a>(&'a self, dir: &'a Path, ask: JobRef) -> PluginFuture<'a, JobLog> {
-        work(pipelines::log(dir, ask))
-    }
-
-    fn job_log_excerpt<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: ExcerptQuery,
-    ) -> PluginFuture<'a, LogExcerpt> {
-        work(pipelines::excerpt(dir, ask))
-    }
-
-    fn pulls<'a>(&'a self, dir: &'a Path, ask: PullQuery) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::list(dir, ask))
-    }
-
-    fn pull_files<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FilesQuery,
-    ) -> PluginFuture<'a, Vec<ChangedFile>> {
-        work(pulls::files(dir, ask))
-    }
-
-    fn pull_commits<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: PullRef,
-    ) -> PluginFuture<'a, Vec<PullCommit>> {
-        work(pulls::commits(dir, ask))
-    }
-
-    fn pull_reviews<'a>(&'a self, dir: &'a Path, ask: PullRef) -> PluginFuture<'a, Vec<Review>> {
-        work(pulls::reviews(dir, ask))
-    }
-
-    fn commit_pulls<'a>(&'a self, dir: &'a Path, ask: CommitRef) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::of_commit(dir, ask))
-    }
-
-    fn commit_authors<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CommitsQuery,
-    ) -> PluginFuture<'a, Vec<CommitAuthor>> {
-        work(pulls::commit_authors(dir, ask))
-    }
-
-    fn merge_pull<'a>(&'a self, dir: &'a Path, ask: Merge) -> PluginFuture<'a, ()> {
-        work(pulls::merge(dir, ask))
-    }
-
-    fn create_pull<'a>(&'a self, dir: &'a Path, ask: NewPull) -> PluginFuture<'a, Pull> {
-        work(pulls::create(dir, ask))
-    }
-
-    fn edit_pull<'a>(&'a self, dir: &'a Path, ask: PullEdit) -> PluginFuture<'a, Pull> {
-        work(pulls::edit(dir, ask))
-    }
-
-    fn set_pull_state<'a>(&'a self, dir: &'a Path, ask: SetPullState) -> PluginFuture<'a, ()> {
-        work(pulls::set_state(dir, ask))
-    }
-
-    fn review_pull<'a>(&'a self, dir: &'a Path, ask: NewReview) -> PluginFuture<'a, ()> {
-        work(pulls::review(dir, ask))
-    }
-
-    fn review_feedback<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FeedbackQuery,
-    ) -> PluginFuture<'a, Vec<ReviewFeedback>> {
-        work(review::feedback(dir, ask))
-    }
-
-    fn answer_review<'a>(&'a self, dir: &'a Path, ask: Answers) -> PluginFuture<'a, ()> {
-        work(review::answer(dir, ask))
-    }
-
-    fn issues<'a>(&'a self, dir: &'a Path, ask: IssueQuery) -> PluginFuture<'a, IssuePage> {
-        work(issues::list(dir, ask))
-    }
-
-    fn issue<'a>(&'a self, dir: &'a Path, ask: IssueRef) -> PluginFuture<'a, Issue> {
-        work(issues::get(dir, ask))
-    }
-
-    fn create_issue<'a>(&'a self, dir: &'a Path, ask: NewIssue) -> PluginFuture<'a, Issue> {
-        work(issues::create(dir, ask))
-    }
-
-    fn set_issue_state<'a>(&'a self, dir: &'a Path, ask: SetIssueState) -> PluginFuture<'a, ()> {
-        work(issues::set_state(dir, ask))
     }
 
     /// Bitbucket numbers issues apart from pull requests, so a thread says which it is.
@@ -360,20 +186,41 @@ impl CodeHost for Bitbucket {
         })
     }
 
-    fn releases<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Release>> {
-        work(issues::releases(dir, ask))
-    }
-
-    fn inbox<'a>(&'a self, dir: &'a Path, ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
-        work(issues::inbox(dir, ask))
-    }
-
-    fn mark_read<'a>(&'a self, dir: &'a Path, ask: NotificationRef) -> PluginFuture<'a, ()> {
-        work(async move { issues::mark_read(dir, ask) })
-    }
-
-    fn mark_all_read<'a>(&'a self, dir: &'a Path, _ask: IgnoredAny) -> PluginFuture<'a, ()> {
-        work(issues::mark_all_read(dir))
+    host_work! {
+        inbox(dir, _ask: InboxQuery) -> Vec<Notification> = issues::inbox(dir);
+        account_for(dir, ask: AccountQuery) -> Option<String> = auth::account_for(dir, ask.repo);
+        my_repos(dir, ask: MineQuery) -> Vec<RepoListing> = repo::mine(dir, ask.limit);
+        branches(dir, ask: RepoRef) -> Vec<String> = repo::branches(dir, ask);
+        image(dir, ask: ImageRef) -> String = images::image(dir, ask);
+        workflows(dir, ask: RepoRef) -> Vec<Workflow> = pipelines::workflows(dir, ask);
+        workflow_file(dir, ask: WorkflowRef) -> WorkflowFile = pipelines::workflow_file(dir, ask);
+        dispatch_workflow(dir, ask: Dispatch) -> () = pipelines::dispatch(dir, ask);
+        runs(dir, ask: RunQuery) -> RunPage = pipelines::list(dir, ask);
+        run(dir, ask: RunRef) -> RunDetail = pipelines::detail(dir, ask);
+        run_timing(dir, ask: RunRef) -> RunTiming = pipelines::timing(dir, ask);
+        rerun(dir, ask: Rerun) -> () = pipelines::rerun(dir, ask);
+        cancel(dir, ask: RunRef) -> () = pipelines::cancel(dir, ask);
+        job_log(dir, ask: JobRef) -> JobLog = pipelines::log(dir, ask);
+        job_log_excerpt(dir, ask: ExcerptQuery) -> LogExcerpt = pipelines::excerpt(dir, ask);
+        pulls(dir, ask: PullQuery) -> Vec<Pull> = pulls::list(dir, ask);
+        pull_files(dir, ask: FilesQuery) -> Vec<ChangedFile> = pulls::files(dir, ask);
+        pull_commits(dir, ask: PullRef) -> Vec<PullCommit> = pulls::commits(dir, ask);
+        pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
+        commit_pulls(dir, ask: CommitRef) -> Vec<Pull> = pulls::of_commit(dir, ask);
+        commit_authors(dir, ask: CommitsQuery) -> Vec<CommitAuthor> = pulls::commit_authors(dir, ask);
+        merge_pull(dir, ask: Merge) -> Pull = pulls::merge(dir, ask);
+        create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
+        edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
+        attach_picture(dir, ask: PictureFile) -> Attached = pictures::attach(dir, ask);
+        set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);
+        review_pull(dir, ask: NewReview) -> () = pulls::review(dir, ask);
+        review_feedback(dir, ask: FeedbackQuery) -> Vec<ReviewFeedback> = review::feedback(dir, ask);
+        answer_review(dir, ask: Answers) -> () = review::answer(dir, ask);
+        issues(dir, ask: IssueQuery) -> IssuePage = issues::list(dir, ask);
+        issue(dir, ask: IssueRef) -> Issue = issues::get(dir, ask);
+        create_issue(dir, ask: NewIssue) -> Issue = issues::create(dir, ask);
+        set_issue_state(dir, ask: SetIssueState) -> () = issues::set_state(dir, ask);
+        releases(dir, ask: RepoRef) -> Vec<Release> = issues::releases(dir, ask);
     }
 }
 
@@ -396,18 +243,11 @@ async fn dispatch_stream(
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.bitbucket"
-        );
-    }
+    use sikemux_plugin_api::store::Accounts;
 
     #[tokio::test]
     async fn reading_a_remote_never_needs_the_network() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-bb-remote"));
         let resolved = plugin
             .call(
@@ -432,10 +272,9 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_is_offered_bitbucket_only_when_signed_in_with_a_remote_there() {
+    fn an_agent_is_offered_bitbucket_whenever_signed_in() {
         let dir = std::env::temp_dir().join(format!("sikemux-bb-offer-{}", std::process::id()));
-        let remote = ["https://bitbucket.org/swishx/api-docs.git".to_string()];
-        assert!(!works_in(&dir, &remote));
+        assert!(!has_account(&dir));
 
         let mut config = config::BitbucketConfig::default();
         config.upsert(config::Account {
@@ -447,17 +286,13 @@ mod tests {
             email: None,
         });
         sikemux_plugin_api::store::save(&dir, &config).expect("saves");
-        assert!(works_in(&dir, &remote));
-        assert!(!works_in(
-            &dir,
-            &["git@github.com:nodelike/sikemux.git".to_string()]
-        ));
+        assert!(has_account(&dir));
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let dir = std::env::temp_dir().join(format!("sikemux-bb-status-{}", std::process::id()));
         let ctx = PluginContext::new(dir.clone());
         let status = plugin
@@ -470,7 +305,10 @@ mod tests {
             .call(&ctx, "pulls", json!({ "owner": "a", "name": "b" }))
             .await
             .expect_err("signed out");
-        assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::Unconfigured
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

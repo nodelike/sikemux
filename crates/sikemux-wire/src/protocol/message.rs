@@ -4,17 +4,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::grid::FindResult;
-use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
 use crate::pty::launch::{PtyContext, PtyDirectCommand};
-use crate::pty::output_log::OutputPage;
 use crate::pty::task::TaskSpawnRequest;
+use crate::terminal::FindResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    ask, Attention, BuildChannel, BuildIdentity, CallId, ChatAttachment, ChatInfo, ChatStart,
-    Event, HostInfo, RemoteStatus, RequestId, SessionId, SessionInfo, StreamId, Workspace,
+    ask, BuildChannel, BuildIdentity, CallId, ChatAttachment, ChatInfo, ChatStart, Event,
+    RemoteStatus, RequestId, SessionId, SessionInfo, StreamId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -61,23 +59,11 @@ pub enum Request {
     TerminalLines(ask::TerminalLines),
     TerminalText(ask::TerminalText),
     TerminalFind(ask::TerminalFind),
-    TerminalWaitFor(ask::TerminalWaitFor),
     TerminalClear(ask::TerminalClear),
     ResetModes(ask::ResetModes),
-    TaskOutput(ask::TaskOutput),
-    ShellAtPrompt(ask::ShellAtPrompt),
-    Configure(ask::Configure),
-    ListManifests,
-    ReloadManifests,
-    ExplainAgentDetection(ask::ExplainAgentDetection),
-    /// Kills every session and keeps running.
-    StopAll,
     /// This connection is the app's window from now on, replacing any other.
     /// Tool calls that need the window are sent to it.
     RegisterWindow,
-    /// The person did something in a plugin, such as signing in, that may
-    /// change the tools it offers agents.
-    PluginsChanged,
     Shutdown(ask::Shutdown),
     AcpStart(ask::AcpStart),
     AcpAttach(ask::AcpAttach),
@@ -112,17 +98,13 @@ pub enum Request {
     SetOwner(ask::SetOwner),
     AnswerPairing(ask::AnswerPairing),
     AllowDevices(ask::AllowDevices),
-    PublishBackdrop(ask::PublishBackdrop),
-    /// The picture published with the backdrop, as a data URL.
+    /// The picture the core draws from the person's preferences, as a data URL.
     BackdropImage,
     PublishOnScreen(ask::PublishOnScreen),
-    /// Sends this client the [`DeviceView`] now and whenever it changes, as
+    /// Sends this client the device view now and whenever it changes, as
     /// paired devices get it.
     WatchView,
     FocusAgent(ask::FocusAgent),
-    Workspace,
-    /// What agents wait on a person for now.
-    Attentions,
     /// The computer this core runs on, so a device can name it.
     Host,
     StartChat(ask::StartChat),
@@ -145,12 +127,6 @@ pub enum WindowCall {
     /// later followed by [`ClientMessage::WindowOpenClosed`].
     Open {
         request: Value,
-    },
-    /// Opens a plugin's pane at the place `at` names in it, which the plugin
-    /// alone reads, as the person asked.
-    OpenPlugin {
-        plugin: String,
-        at: String,
     },
 }
 
@@ -227,6 +203,25 @@ pub struct Continuation {
     pub note: String,
 }
 
+/// What kind of failure a request met, which a client branches on and words itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorKind {
+    /// The file holds something other than text.
+    NotText,
+    /// The file changed since the client read it.
+    FileConflict,
+    /// A language's server is not installed. The detail says which.
+    LanguageServerMissing,
+    /// This core has no such method, being older than the client.
+    UnknownMethod,
+    /// What was answered has been answered or withdrawn already.
+    NotPending,
+    /// A kind this build does not know.
+    #[serde(other)]
+    Other,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -257,6 +252,12 @@ pub enum ServerMessage {
     Error {
         request_id: Option<RequestId>,
         message: String,
+        /// What a client branches on. Absent for a failure it only shows.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<ErrorKind>,
+        /// What the kind says about this failure, as JSON.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<Value>,
     },
     Event {
         event: Event,
@@ -283,26 +284,11 @@ pub enum Response {
     TerminalText {
         text: String,
     },
-    TerminalLine {
-        line: Option<String>,
-    },
     Found {
         result: FindResult,
     },
     Sessions {
         sessions: Vec<SessionInfo>,
-    },
-    TaskOutput {
-        page: OutputPage,
-    },
-    ShellAtPrompt {
-        at_prompt: bool,
-    },
-    Manifests {
-        report: ManifestReloadReport,
-    },
-    DetectionExplain {
-        explain: Box<DetectionExplain>,
     },
     ChatStarted {
         start: ChatStart,
@@ -310,7 +296,7 @@ pub enum Response {
     ChatAttached {
         attachment: ChatAttachment,
     },
-    /// Rows from before what a client holds, a [`crate::chat::ChatPage`] as
+    /// Rows from before what a client holds, a `ChatPage` as
     /// JSON. Paging goes on before its `olderBefore`; without one this reaches
     /// the start of what the host keeps.
     ChatHistory {
@@ -328,18 +314,13 @@ pub enum Response {
     Remote {
         status: Box<RemoteStatus>,
     },
-    Workspace {
-        workspace: Workspace,
-    },
-    Attentions {
-        attentions: Vec<Attention>,
-    },
     ChatBegun {
         agent_id: String,
         start: ChatStart,
     },
+    /// The core's `HostInfo` as JSON, so what it adds reaches phones over the air.
     Host {
-        host: HostInfo,
+        host: Value,
     },
     BackdropImage {
         data_url: Option<String>,

@@ -20,5 +20,5 @@ sikemux-client = { path = "../sikemux-client" }
 sikemux-wire = { path = "../sikemux-wire" }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
+[lints]
+workspace = true

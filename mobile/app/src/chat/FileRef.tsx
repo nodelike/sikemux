@@ -1,31 +1,38 @@
 import type { ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { localImagePath } from '@shared/lib/imagePaths';
+import { HAS_EXTENSION } from '@shared/chat/filePath';
+import { isImagePath, localImagePath } from '@shared/lib/imagePaths';
 import { basename } from '@shared/lib/paths';
+import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';
 import { useShowImage } from './ImageViewer';
 
 const LOCATION = /(?::\d+){1,2}$|#L\d+(?:C\d+)?$/i;
-const EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 const TWO_FOLDERS_DEEP = /^~?\/[^/\s]+\/[^/\s]/;
 
 /**
  * The Mac asks the host whether a name it reads as a path is there before drawing it as a file.
- * The phone cannot, so it takes only names that could hardly be anything else: a folder and an
- * extension, or a path from the root at least two folders deep.
+ * `files.kinds` takes full access, which a watching phone does not have, so the phone takes only
+ * names that could hardly be anything else: a folder and an extension, or a path from the root at
+ * least two folders deep.
  */
 export function namesFile(raw: string): boolean {
   const body = raw.replace(LOCATION, '');
-  return body.includes('/') && (EXTENSION.test(body) || TWO_FOLDERS_DEEP.test(body));
+  return body.includes('/') && (HAS_EXTENSION.test(body) || TWO_FOLDERS_DEEP.test(body));
+}
+
+/** Whether the phone draws `path` as a picture: anything it names as one but an SVG, which it has nothing to draw with. */
+export function drawsImage(path: string): boolean {
+  return isImagePath(path) && !/\.svg$/i.test(path);
 }
 
 /** A picture the phone can fetch from the host: a whole path, since it does not know which folder a chat works in. */
 export function hostImagePath(raw: string): string | null {
   const path = localImagePath(raw.replace(LOCATION, ''));
-  return path && !/\.svg$/i.test(path) ? path : null;
+  return path && drawsImage(path) ? path : null;
 }
 
 /**
@@ -56,10 +63,11 @@ export function LinkedImage({ path, label }: { path: string; label: ReactNode })
   const styles = useStyles(makeStyles);
   const show = useShowImage();
   const uri = useHostFile(path, true);
+  const t = useT();
   const name = basename(path);
   if (!uri) return <FileRef raw={path} label={label} look="link" />;
   return (
-    <Pressable onPress={() => show({ uri, name })} accessibilityRole="imagebutton" accessibilityLabel={`${name}, open`}>
+    <Pressable onPress={() => show({ uri, name })} accessibilityRole="imagebutton" accessibilityLabel={t('{name}, open', { name })}>
       <Image source={{ uri }} style={styles.picture} resizeMode="cover" accessibilityIgnoresInvertColors />
     </Pressable>
   );

@@ -5,37 +5,45 @@
 
 mod folded;
 
+use sikemux_process::command::{Child, Stdio};
+use sikemux_wire::protocol::ask;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use folded::Folded;
 use serde_json::{json, Value};
+use sikemux_client::client::{ClientEvent, CoreClient};
+use sikemux_core::build::BUILD_ID_OVERRIDE_ENV;
 use sikemux_core::cli::auth::new_nonce;
 use sikemux_core::cli::protocol::{
     CliClientCommand, CliClientHello, CliEndpointDescriptor, CliServerResponse, HarnessRequest,
     CLI_PROTOCOL_VERSION,
 };
-use sikemux_core::client::{
-    await_deferred_upgrade, await_upgrade, frozen_request, probe, ClientEvent, CoreClient,
+use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
+use sikemux_core::frozen::{
+    FrozenReply, FrozenRequest, UpgradeInfo, READS_FORMATS, UPGRADE_INFO_ARG,
 };
-use sikemux_core::frozen::{FrozenReply, FrozenRequest};
-use sikemux_core::grid::{decode_frame, Screen};
-use sikemux_core::protocol::{
+use sikemux_grid::{decode_frame, Screen};
+use sikemux_view::chat::{PermissionKind, StopReason};
+use sikemux_wire::protocol::{
     BuildIdentity, ChatAttachment, ChatLaunch, ChatMark, Event, LaunchIdentity, PermissionMode,
-    SessionId, SpawnTarget, StreamId, TerminalSpawn, BUILD_ID_OVERRIDE_ENV,
+    SessionId, SpawnTarget, StreamId, TerminalSpawn,
 };
-use sikemux_pty::output_log::OutputQuery;
-use sikemux_wire::chat::{PermissionKind, StopReason};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
 const WAIT: Duration = Duration::from_secs(30);
+/// A hand-over starts a new core and every chat's agent again, which takes this long at load 40.
+const UPDATE_WAIT: Duration = Duration::from_secs(120);
+/// How long a forced update waits for a starting chat, short so the tests need not wait out a released core's.
+const HANDOVER_SETTLE: Duration = Duration::from_millis(500);
+/// How long an update nobody forced waits for its chats, short for the same reason.
+const UPDATE_PATIENCE: Duration = Duration::from_secs(5);
 
 struct CoreProcess {
     child: Child,
@@ -50,7 +58,7 @@ impl CoreProcess {
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
         let endpoint = dir.path().join("cli.json");
-        let project = std::fs::canonicalize(dir.path())
+        let project = sikemux_process::files::real_path(dir.path())
             .expect("canonical")
             .join("project");
         std::fs::create_dir(&project).expect("project");
@@ -82,6 +90,10 @@ impl CoreProcess {
             .arg(dir.join("data"))
             .arg("--idle-exit-secs")
             .arg("600")
+            .arg("--handover-settle-ms")
+            .arg(HANDOVER_SETTLE.as_millis().to_string())
+            .arg("--update-patience-ms")
+            .arg(UPDATE_PATIENCE.as_millis().to_string())
             .env(BUILD_ID_OVERRIDE_ENV, build)
             .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("SHELL", "/bin/sh")
@@ -110,6 +122,58 @@ impl CoreProcess {
         self.child.wait().expect("reap the core");
         self.child = Self::spawn(self.dir.path(), &self.socket, &self.endpoint, "first");
         self.until_answering();
+    }
+
+    /// Waits for `files` of the core's own files to hold `text`, since a crash loses what
+    /// it has not written down yet.
+    async fn until_written(&self, files: usize, text: &str) {
+        self.until_written_in("", files, text).await;
+    }
+
+    /// As [`Self::until_written`], counting only `place` in the data folder, a file or a folder.
+    async fn until_written_in(&self, place: &str, files: usize, text: &str) {
+        fn holding(path: &Path, text: &str) -> usize {
+            // The folder also holds links to the core's binary, which takes seconds to read.
+            match std::fs::symlink_metadata(path) {
+                Ok(kind) if kind.is_dir() => std::fs::read_dir(path)
+                    .map(|entries| {
+                        entries
+                            .flatten()
+                            .map(|entry| holding(&entry.path(), text))
+                            .sum()
+                    })
+                    .unwrap_or(0),
+                Ok(kind) if kind.is_file() => {
+                    let bytes = std::fs::read(path).unwrap_or_default();
+                    usize::from(String::from_utf8_lossy(&bytes).contains(text))
+                }
+                _ => 0,
+            }
+        }
+        let data = self.dir.path().join("data").join(place);
+        let deadline = Instant::now() + WAIT;
+        while holding(&data, text) < files {
+            assert!(
+                Instant::now() < deadline,
+                "the core never wrote down {text}\n{}",
+                self.log()
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Waits for the core's log to hold `text`. A thread of the core's copies each line into
+    /// the log after it is written, so an answer can arrive before the line it follows.
+    async fn until_logged(&self, text: &str) {
+        let deadline = Instant::now() + WAIT;
+        while !self.log().contains(text) {
+            assert!(
+                Instant::now() < deadline,
+                "the core never logged {text}\n{}",
+                self.log()
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     fn pid(&self) -> u32 {
@@ -159,11 +223,12 @@ impl CoreProcess {
             built_at: 0,
             source: from.into(),
         };
-        let hello =
-            tokio::task::spawn_blocking(move || await_upgrade(&socket, pid, Some(&old), WAIT))
-                .await
-                .expect("join")
-                .unwrap_or_else(|error| panic!("{error}\n{}", self.log()));
+        let hello = tokio::task::spawn_blocking(move || {
+            await_upgrade(&socket, pid, Some(&old), UPDATE_WAIT)
+        })
+        .await
+        .expect("join")
+        .unwrap_or_else(|error| panic!("{error}\n{}", self.log()));
         assert_eq!(hello.pid, self.pid());
         hello.build
     }
@@ -364,7 +429,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
 
     let running = call(
         &core,
-        "task.start",
+        "process.start",
         json!({ "command": "printf 'task-out\\n'; sleep 30", "idempotencyKey": "keep", "readyWhen": "task-out" }),
     )
     .await
@@ -373,14 +438,14 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     let running_id = running["executionId"].as_str().expect("id").to_owned();
     let finished = call(
         &core,
-        "task.start",
+        "process.start",
         json!({ "command": "printf 'done-out\\n'; exit 3", "idempotencyKey": "done" }),
     )
     .await
     .expect("start a task that ends");
     let finished_id = finished["executionId"].as_str().expect("id").to_owned();
     let deadline = Instant::now() + WAIT;
-    while call(&core, "task.read", json!({ "executionId": finished_id }))
+    while call(&core, "process.read", json!({ "executionId": finished_id }))
         .await
         .expect("read")["exitCode"]
         != 3
@@ -394,7 +459,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .as_str()
         .expect("cursor")
         .to_owned();
-    let before = client.list().await.expect("list");
+    let before = client.ask(ask::List).await.expect("list");
     let shell_pid = before
         .iter()
         .find(|session| session.id == shell)
@@ -410,7 +475,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     assert!(alive(shell_pid), "the shell died in the update");
 
     let (client, mut stream) = connect(&core).await;
-    let after = client.list().await.expect("list");
+    let after = client.ask(ask::List).await.expect("list");
     assert_eq!(
         after
             .iter()
@@ -434,7 +499,12 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     let attached = client.attach(shell).await.expect("attach after the update");
     let text = screen_of(&attached.frame).text();
     assert!(text.contains("before-42"), "{text:?}");
-    client.detach(attached.stream).await.expect("detach");
+    client
+        .ask(ask::Detach {
+            stream: attached.stream,
+        })
+        .await
+        .expect("detach");
     stream.attach(&client, shell).await;
     client
         .write(shell, b"echo after-$((6*7))\r")
@@ -447,17 +517,14 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .find(|session| session.task_execution_id.as_deref() == Some(running_id.as_str()))
         .expect("the running task")
         .id;
-    let page = client
-        .task_output(
-            running_pty,
-            OutputQuery {
-                limit: 8192,
-                ..OutputQuery::default()
-            },
-        )
+    let text = client
+        .ask(ask::TerminalText {
+            id: running_pty,
+            range: None,
+        })
         .await
         .expect("task output");
-    assert!(String::from_utf8_lossy(&page.bytes).contains("task-out"));
+    assert!(text.contains("task-out"));
 
     assert_eq!(
         descriptor(&core.endpoint),
@@ -469,7 +536,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     );
     let read = call(
         &core,
-        "task.read",
+        "process.read",
         json!({ "executionId": running_id, "plain": true }),
     )
     .await
@@ -481,7 +548,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     assert_eq!(read["status"], "running");
     let ended = call(
         &core,
-        "task.read",
+        "process.read",
         json!({ "executionId": finished_id, "plain": true }),
     )
     .await
@@ -493,7 +560,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .contains("done-out"));
     let again = call(
         &core,
-        "task.start",
+        "process.start",
         json!({ "command": "printf 'task-out\\n'; sleep 30", "idempotencyKey": "keep" }),
     )
     .await
@@ -523,11 +590,11 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     )
     .await
     .expect("history");
-    assert_eq!(history["events"][1]["kind"], "task.running");
+    assert_eq!(history["events"][1]["kind"], "process.running");
 
     client.write(shell, b"exit 5\r").await.expect("write");
     assert_eq!(stream.until_exit(&client, shell).await, Some(5));
-    assert!(core.log().contains("took over from"), "{}", core.log());
+    core.until_logged("took over from").await;
     let prefix = format!("sikemux-core-handover-{pid}-");
     let left: Vec<_> = std::fs::read_dir(std::env::temp_dir())
         .expect("temp dir")
@@ -550,7 +617,7 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
         (plain.clone(), "not an executable"),
         (core.dir.path().join("missing"), "cannot be read"),
         (PathBuf::from("relative/core"), "not an absolute path"),
-        (core.binary("same", "first", ""), "already runs"),
+        (PathBuf::from(CORE), "already runs"),
         (
             core.binary("chatty", "other", "echo nonsense; exit 0"),
             "unreadable",
@@ -566,14 +633,14 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
         );
         assert!(message.contains(expected), "{message}");
     }
-    let hello = probe(&core.socket, Duration::from_secs(1)).expect("still serving");
+    let hello = probe(&core.socket, WAIT).expect("still serving");
     assert_eq!(hello.pid, core.pid());
     assert_eq!(hello.build.commit, "first");
 
     let (client, _stream) = connect(&core).await;
     let shell = spawn_shell(&client).await;
     let shell_pid = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -594,6 +661,44 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
     }
 }
 
+/// Two installed builds once moved one core back and forth between them every few seconds,
+/// each app pulling it to its own build, the older one included.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upgrade_to_an_older_release_is_refused() {
+    let core = CoreProcess::start("newer");
+    let older = UpgradeInfo {
+        version: "0.0.1".into(),
+        commit: "older".into(),
+        built_at: 0,
+        source: "older".into(),
+        resume_format: READS_FORMATS[0],
+        reads_formats: READS_FORMATS.to_vec(),
+    };
+    let info = serde_json::to_string(&older).expect("json");
+    let binary = core.binary(
+        "older",
+        "older",
+        &format!("[ \"$2\" = '{UPGRADE_INFO_ARG}' ] && {{ printf '%s' '{info}'; exit 0; }}"),
+    );
+    let reply = core
+        .frozen(FrozenRequest::Upgrade {
+            binary,
+            force: false,
+        })
+        .await;
+    let FrozenReply::Refused { message } = reply else {
+        panic!("{reply:?}\n{}", core.log());
+    };
+    assert!(
+        message.contains("a newer Sikemux is already running"),
+        "{message}"
+    );
+    core.until_logged("not handing over").await;
+    let hello = probe(&core.socket, WAIT).expect("still serving");
+    assert_eq!(hello.pid, core.pid());
+    assert_eq!(hello.build.commit, "newer");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
     let core = CoreProcess::start("first");
@@ -603,7 +708,7 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
     client.write(shell, b"echo kept\r").await.expect("write");
     stream.until_output(&client, shell, "kept").await;
     let shell_pid = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -615,15 +720,11 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
     let damaging = core.binary("damaging", "second", "printf garbage > \"$3/state.json\"");
     assert_eq!(core.upgrade(&damaging, "first").await.commit, "second");
     assert!(alive(shell_pid));
-    assert!(
-        core.log().contains("UPDATE STATE DAMAGED"),
-        "{}",
-        core.log()
-    );
+    core.until_logged("UPDATE STATE DAMAGED").await;
 
     let (client, mut stream) = connect(&core).await;
     let kept = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -649,7 +750,7 @@ fn chat_launch(core: &CoreProcess, agent_id: &str) -> ChatLaunch {
     std::fs::create_dir_all(&history).expect("history");
     ChatLaunch {
         agent_id: agent_id.into(),
-        provider: "opencode".into(),
+        provider: "omp".into(),
         cwd: core.project.clone(),
         program: PathBuf::from(FAKE_AGENT),
         args: vec!["acp".into()],
@@ -671,6 +772,7 @@ fn chat_launch(core: &CoreProcess, agent_id: &str) -> ChatLaunch {
 
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const FAKE_CODEX: &str = env!("CARGO_BIN_EXE_sikemux-fake-codex");
+const FAKE_OPENCODE: &str = env!("CARGO_BIN_EXE_sikemux-fake-opencode");
 
 /// A chat of `provider`'s stand-in agent, asking before it acts.
 fn agent_launch(core: &CoreProcess, provider: &str, agent_id: &str) -> ChatLaunch {
@@ -680,6 +782,16 @@ fn agent_launch(core: &CoreProcess, provider: &str, agent_id: &str) -> ChatLaunc
     let (program, variable) = match provider {
         "claude" => (FAKE_CLAUDE, "CLAUDE_CONFIG_DIR"),
         "codex" => (FAKE_CODEX, "CODEX_HOME"),
+        "opencode" => {
+            return ChatLaunch {
+                provider: provider.into(),
+                program: PathBuf::from(FAKE_OPENCODE),
+                args: Vec::new(),
+                env: Default::default(),
+                model: Some("fake/fake-model".into()),
+                ..chat_launch(core, agent_id)
+            }
+        }
         _ => return chat_launch(core, agent_id),
     };
     ChatLaunch {
@@ -746,7 +858,10 @@ async fn until_chats(
 /// The chat a client attaching is sent, when it is still running there.
 async fn attached(client: &CoreClient, agent_id: &str, since: Option<ChatMark>) -> Option<Folded> {
     let attachment = client
-        .acp_attach_since(agent_id.into(), since)
+        .ask(ask::AcpAttach {
+            agent_id: agent_id.into(),
+            since,
+        })
         .await
         .expect("attach");
     if !matches!(attachment, ChatAttachment::Live { .. }) {
@@ -761,7 +876,7 @@ async fn attached(client: &CoreClient, agent_id: &str, since: Option<ChatMark>) 
 async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     let core = CoreProcess::start("first");
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let providers = ["opencode", "claude", "codex"];
+    let providers = ["omp", "claude", "codex", "opencode"];
     let asking: Vec<String> = providers.iter().map(|p| format!("{p}-ask")).collect();
     let holding: Vec<String> = providers.iter().map(|p| format!("{p}-hold")).collect();
     let mut sessions = HashMap::new();
@@ -776,19 +891,27 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     }
     for agent_id in &asking {
         client
-            .acp_prompt(agent_id.clone(), None, "ask".into(), Vec::new(), Vec::new())
+            .ask(ask::AcpPrompt {
+                agent_id: agent_id.clone(),
+                message_id: None,
+                text: "ask".into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("prompt");
     }
+    let gate = core.dir.path().join("holding");
+    std::fs::write(&gate, b"").expect("gate");
     for agent_id in &holding {
         client
-            .acp_prompt(
-                agent_id.clone(),
-                None,
-                "hold 8000".into(),
-                Vec::new(),
-                Vec::new(),
-            )
+            .ask(ask::AcpPrompt {
+                agent_id: agent_id.clone(),
+                message_id: None,
+                text: format!("hold {}", gate.display()),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("prompt");
     }
@@ -806,7 +929,7 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     })
     .await;
     let agents = children(core.pid());
-    assert_eq!(agents.len(), 6, "{agents:?}");
+    assert_eq!(agents.len(), 8, "{agents:?}");
     drop(client);
     drop(events);
 
@@ -816,10 +939,15 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     assert_eq!(children(core.pid()), agents, "{}", core.log());
 
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let chats = client.acp_list().await.expect("list");
-    assert_eq!(chats.len(), 6, "{}", core.log());
+    let chats = client.ask(ask::AcpList).await.expect("list");
+    assert_eq!(chats.len(), 8, "{}", core.log());
     for chat in &chats {
-        assert!(chat.running, "{} stopped in the update", chat.agent_id);
+        assert!(
+            chat.running,
+            "{} stopped in the update\n{}",
+            chat.agent_id,
+            core.log()
+        );
         assert_eq!(
             chat.session_id.as_ref(),
             sessions.get(&chat.agent_id),
@@ -853,10 +981,15 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
             .option_id
             .clone();
         client
-            .acp_permission_reply(agent_id.clone(), request.request_id.clone(), Some(allow))
+            .ask(ask::AcpPermissionReply {
+                agent_id: agent_id.clone(),
+                request_id: request.request_id.clone(),
+                option_id: Some(allow),
+            })
             .await
             .unwrap_or_else(|error| panic!("{agent_id}: {error}\n{}", core.log()));
     }
+    std::fs::remove_file(&gate).expect("the held turns end");
     until_chats(&mut events, &mut carried, |_, chat| chat.turns_ended() >= 1).await;
     for (agent_id, chat) in &carried {
         assert_eq!(chat.ends[0], Some(StopReason::EndTurn), "{agent_id}");
@@ -875,12 +1008,105 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     assert_eq!(children(core.pid()), agents);
 }
 
+/// Read in #228: an update scrubs the words an earlier core kept, marked hidden, of what the
+/// person typed while a secret or an access call waited. It does so in a running chat's record
+/// in place, so the core taking the chat over reads on from where the last one stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_scrubs_words_kept_as_hidden_and_the_chat_reads_on() {
+    let core = CoreProcess::start("first");
+    let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = "omp-words".to_owned();
+    client
+        .acp_start(agent_launch(&core, "omp", &agent_id))
+        .await
+        .unwrap_or_else(|error| panic!("start: {error}\n{}", core.log()));
+    let words = "the passphrase is correct horse battery staple, and the vault is staging";
+    let mut chats: HashMap<String, Folded> = [(agent_id.clone(), Folded::default())].into();
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: words.into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    until_chats(&mut events, &mut chats, |_, chat| chat.turns_ended() >= 1).await;
+
+    let history = core.dir.path().join("data").join("chat-history");
+    let record = (std::fs::read_dir(&history).expect("the records").flatten())
+        .map(|entry| entry.path())
+        .find(|path| std::fs::read_to_string(path).is_ok_and(|text| text.contains(words)))
+        .expect("the record holding the words");
+    let kept = std::fs::read_to_string(&record).expect("the record");
+    let mark = "\"answered\":\"hiddenCall\",";
+    let marked = kept.replacen(
+        &format!("\"text\":\"{words}\""),
+        &format!("{mark}\"text\":\"{}\"", &words[..words.len() - mark.len()]),
+        1,
+    );
+    assert_eq!(marked.len(), kept.len());
+    std::fs::write(&record, &marked).expect("marked as an earlier core did");
+    std::fs::write(
+        core.dir.path().join("data").join("data-format.json"),
+        json!({ "format": 3 }).to_string(),
+    )
+    .expect("the earlier format");
+    drop(client);
+    drop(events);
+
+    let binary = core.binary("second-build", "second", "");
+    core.upgrade(&binary, "first").await;
+    let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let mut chats: HashMap<String, Folded> = [(
+        agent_id.clone(),
+        attached(&client, &agent_id, None)
+            .await
+            .unwrap_or_else(|| panic!("the chat was not carried over\n{}", core.log())),
+    )]
+    .into();
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "read on".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    until_chats(&mut events, &mut chats, |_, chat| {
+        chat.text().contains("echo: read on")
+    })
+    .await;
+
+    let scrubbed = std::fs::read_to_string(&record).expect("the record");
+    assert!(scrubbed.starts_with(&marked[..marked.find(mark).expect("the mark")]));
+    assert!(!scrubbed.contains("hiddenCall"), "{scrubbed}");
+    let lines: Vec<Value> = (scrubbed.lines())
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|error| panic!("{error}: {line}")))
+        .collect();
+    let prompts: Vec<&Value> = (lines.iter())
+        .filter(|line| line["event"]["kind"] == "prompt")
+        .map(|line| &line["event"]["payload"]["text"])
+        .collect();
+    assert_eq!(prompts, [&json!(""), &json!("read on")], "{scrubbed}");
+    let indexes: Vec<u64> = (lines.iter())
+        .filter_map(|line| line["index"].as_u64())
+        .collect();
+    assert!(
+        indexes.windows(2).all(|pair| pair[1] == pair[0] + 1),
+        "{scrubbed}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again() {
     let mut core = CoreProcess::start("first");
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
     let mut chats = Vec::new();
-    for provider in ["opencode", "claude", "codex"] {
+    for provider in ["omp", "claude", "codex"] {
         let agent_id = format!("{provider}-crash");
         client
             .acp_start(agent_launch(&core, provider, &agent_id))
@@ -890,13 +1116,13 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
     for agent_id in &chats {
         client
-            .acp_prompt(
-                agent_id.clone(),
-                None,
-                "hold 600000".into(),
-                Vec::new(),
-                Vec::new(),
-            )
+            .ask(ask::AcpPrompt {
+                agent_id: agent_id.clone(),
+                message_id: None,
+                text: "hold 600000".into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("prompt");
     }
@@ -919,15 +1145,15 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
     drop(client);
     drop(events);
-    // A crash loses what the chat said in its last second.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    core.until_written(chats.len(), "holding").await;
+    core.until_written(chats.len(), "\"working\":true").await;
 
     core.crash_and_start_again();
 
     let deadline = Instant::now() + WAIT * 2;
     loop {
         let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
-        let listed = client.acp_list().await.expect("list");
+        let listed = client.ask(ask::AcpList).await.expect("list");
         let finished = chats.iter().all(|agent_id| {
             listed.iter().any(|chat| {
                 chat.agent_id == *agent_id && chat.session_id.is_some() && !chat.running
@@ -967,7 +1193,13 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
             "{agent_id}: {:#?}",
             chat.view
         );
-        assert_eq!(head.stop_reason, Some(StopReason::EndTurn), "{agent_id}");
+        assert_eq!(
+            head.stop_reason,
+            Some(StopReason::EndTurn),
+            "{agent_id}: {:#?}\n{}",
+            chat.view,
+            core.log()
+        );
         assert_eq!(
             chat.notices()
                 .iter()
@@ -979,19 +1211,25 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
 }
 
-/// A chat shown on its saved session, still waiting for the person when its core crashes,
-/// waits again once the core is back: nothing starts its agent but the person.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
-    let mut core = CoreProcess::start("first");
-    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+/// A chat saved asleep on a profile running `program`, shown without starting its agent.
+async fn show_asleep_chat(core: &CoreProcess, client: &CoreClient, program: &str) -> String {
+    show_chat(core, client, program, Some("ses-saved")).await
+}
+
+/// Shows a chat whose agent has not started, on `resume_id` if it has a conversation.
+async fn show_chat(
+    core: &CoreProcess,
+    client: &CoreClient,
+    program: &str,
+    resume_id: Option<&str>,
+) -> String {
     let accounts = json!({
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
-            "executablePath": FAKE_AGENT,
+            "executablePath": program,
         }],
     });
     client
@@ -1006,14 +1244,14 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
     let agent_id = "agent-held".to_owned();
     let agent = json!({
         "id": agent_id,
-        "provider": "opencode",
+        "provider": "omp",
         "project": "held",
         "cwd": core.project,
         "title": "Saved",
         "renamed": true,
         "permissionMode": "bypass",
         "profileId": "fake",
-        "resumeId": "ses-saved",
+        "resumeId": resume_id,
         "asleep": true,
     });
     client
@@ -1028,21 +1266,32 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         "the asleep chat is shown\n{}",
         core.log()
     );
+    agent_id
+}
+
+/// A chat shown on its saved session, still waiting for the person when its core crashes,
+/// waits again once the core is back: nothing starts its agent but the person.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
+    let mut core = CoreProcess::start("first");
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = show_asleep_chat(&core, &client, FAKE_AGENT).await;
     assert_eq!(
         children(core.pid()),
         Vec::<u32>::new(),
         "showing it started nothing"
     );
     drop(client);
-    // A crash loses what the chat wrote down in its last second.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    core.until_written_in("chats", 1, &agent_id).await;
+    core.until_written_in("workspace.json", 1, "\"asleep\":false")
+        .await;
 
     core.crash_and_start_again();
 
     let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
     let deadline = Instant::now() + WAIT;
     while !client
-        .acp_list()
+        .ask(ask::AcpList)
         .await
         .expect("list")
         .iter()
@@ -1072,6 +1321,70 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         assert!(
             Instant::now() < deadline,
             "writing started the agent\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A new chat the app started early stops with the app. On 2026-11-16, 24 such chats' Claude
+/// processes were still running 60 s after quitting the app.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_chat_started_early_stops_when_its_app_leaves() {
+    let core = CoreProcess::start("first");
+    let (app, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = show_chat(&core, &app, FAKE_AGENT, None).await;
+    app.call("composing", json!({ "agentId": agent_id }))
+        .await
+        .expect("the app opens the chat");
+    let deadline = Instant::now() + WAIT;
+    while children(core.pid()).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "opening did not start the agent\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    drop(app);
+
+    let deadline = Instant::now() + WAIT;
+    while !children(core.pid()).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the agent outlived the app\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A program too busy to name its version in time is not a broken one: under load this left
+/// a person writing in a chat with no agent and nothing said.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_starts_though_its_program_was_too_busy_to_name_its_version() {
+    let core = CoreProcess::start("first");
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let slow = core.dir.path().join("slow-to-answer");
+    std::fs::write(
+        &slow,
+        format!("#!/bin/sh\n[ \"$1\" = --version ] && exec sleep 30\nexec '{FAKE_AGENT}' \"$@\"\n"),
+    )
+    .expect("the program");
+    std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    let agent_id = show_asleep_chat(&core, &client, slow.to_str().expect("a path")).await;
+
+    client
+        .call("composing", json!({ "agentId": agent_id }))
+        .await
+        .expect("the person begins writing");
+
+    let deadline = Instant::now() + WAIT;
+    while children(core.pid()).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "writing did not start the agent\n{}",
             core.log()
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1122,11 +1435,12 @@ async fn after_deferred_update(core: &CoreProcess) -> BuildIdentity {
         built_at: 0,
         source: "first".into(),
     };
-    let hello =
-        tokio::task::spawn_blocking(move || await_deferred_upgrade(&socket, pid, Some(&old), WAIT))
-            .await
-            .expect("join")
-            .unwrap_or_else(|error| panic!("{error}\n{}", core.log()));
+    let hello = tokio::task::spawn_blocking(move || {
+        await_deferred_upgrade(&socket, pid, Some(&old), UPDATE_WAIT)
+    })
+    .await
+    .expect("join")
+    .unwrap_or_else(|error| panic!("{error}\n{}", core.log()));
     assert_eq!(hello.pid, core.pid());
     hello.build
 }
@@ -1156,7 +1470,7 @@ async fn an_update_waits_for_a_starting_chat_and_then_carries_it_over() {
         .await;
     assert!(matches!(reply, FrozenReply::Deferred { .. }), "{reply:?}");
     // Longer than a forced update waits before it stops a chat.
-    tokio::time::sleep(Duration::from_secs(12)).await;
+    tokio::time::sleep(HANDOVER_SETTLE * 3).await;
     let (still, _) = CoreClient::connect(&core.socket).await.expect("connect");
     assert_eq!(still.hello().build.commit, "first", "{}", core.log());
     drop(still);
@@ -1168,11 +1482,50 @@ async fn an_update_waits_for_a_starting_chat_and_then_carries_it_over() {
         .await
         .unwrap_or_else(|| panic!("the chat was lost\n{}", core.log()));
     assert!(!restarted(&chat), "{}", core.log());
-    assert!(
-        core.log().contains("1 of them still running"),
-        "{}",
-        core.log()
-    );
+    core.until_logged("1 of them still running").await;
+}
+
+/// Waits for the chat "slow" to say it was started again rather than carried over.
+async fn until_restarted(core: &CoreProcess) {
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let chat = attached(&client, "slow", None)
+            .await
+            .unwrap_or_else(|| panic!("the chat was not started again\n{}", core.log()));
+        if restarted(&chat) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the chat never said it was restarted\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// On 15 Nov an update with 33 chats waited 44 minutes for a moment when none was busy.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_stops_waiting_on_a_busy_chat_after_a_while_and_restarts_it() {
+    let core = CoreProcess::start("first");
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let client = Arc::new(client);
+    let gate = core.dir.path().join("gate");
+    start_held_chat(&core, &client, &gate).await;
+
+    let binary = core.binary("second-build", "second", "");
+    let reply = core
+        .frozen(FrozenRequest::Upgrade {
+            binary,
+            force: false,
+        })
+        .await;
+    assert!(matches!(reply, FrozenReply::Deferred { .. }), "{reply:?}");
+    assert_eq!(after_deferred_update(&core).await.commit, "second");
+    std::fs::remove_file(&gate).expect("open the gate");
+
+    until_restarted(&core).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1194,22 +1547,7 @@ async fn a_forced_update_restarts_a_starting_chat_and_says_so() {
     assert_eq!(after_deferred_update(&core).await.commit, "second");
     std::fs::remove_file(&gate).expect("open the gate");
 
-    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let deadline = Instant::now() + WAIT;
-    loop {
-        let chat = attached(&client, "slow", None)
-            .await
-            .unwrap_or_else(|| panic!("the chat was not started again\n{}", core.log()));
-        if restarted(&chat) {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the chat never said it was restarted\n{}",
-            core.log()
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    until_restarted(&core).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

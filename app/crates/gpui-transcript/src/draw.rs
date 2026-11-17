@@ -1,3 +1,4 @@
+use gpui_clicks::Clicks;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
@@ -8,12 +9,13 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    canvas, combine_highlights, div, img, point, px, relative, rgb, rgba, size, AnyElement, App,
-    AvailableSpace, Bounds, ClipboardItem, DispatchPhase, Div, Element, ElementId, Font, FontStyle,
-    FontWeight, GlobalElementId, HighlightStyle, HitboxBehavior, Hsla, InspectorElementId,
-    InteractiveElement, InteractiveText, IntoElement, LayoutId, MouseButton, ParentElement, Pixels,
-    Point, ScrollEvent, ScrollHandle, SharedString, Stateful, StatefulInteractiveElement,
-    StrikethroughStyle, Styled, StyledText, TextAlign, Window,
+    canvas, combine_highlights, div, img, point, px, relative, rgb, rgba, size, svg, AnyElement,
+    App, AvailableSpace, Bounds, ClipboardItem, DispatchPhase, Div, Element, ElementId, Font,
+    FontStyle, FontWeight, GlobalElementId, HighlightStyle, HitboxBehavior, Hsla,
+    InspectorElementId, InteractiveElement, InteractiveText, IntoElement, LayoutId, MouseButton,
+    ParentElement, Pixels, Point, ScrollEvent, ScrollHandle, SharedString, Stateful,
+    StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, TextAlign, TextLayout,
+    UnderlineStyle, Window,
 };
 
 use crate::markdown::{superscript, Kind, Markdown, Marks, Node, Picture, Piece, Rich};
@@ -30,11 +32,11 @@ struct CodeScroll {
 pub struct Fence {
     pub id: ElementId,
     pub lang: SharedString,
+    pub icon: Option<AnyElement>,
     pub code: SharedString,
     /// The block's text as the transcript draws it, coloured, selectable and scrolling, for
     /// when the host shows the code itself.
     pub lines: AnyElement,
-    /// The block's Copy button.
     pub copy: AnyElement,
 }
 
@@ -56,6 +58,11 @@ pub type CodeRuns = Rc<[(Range<usize>, HighlightStyle)]>;
 /// A fenced code block's colours from its language and text, once the host has them.
 pub type CodeColours =
     Rc<dyn Fn(Option<&SharedString>, &SharedString, &mut App) -> Option<CodeRuns>>;
+/// The icon a code block heads itself with, by its language and its text, `size` square.
+pub type CodeIcon = Rc<dyn Fn(Option<&str>, &str, Pixels, &mut App) -> Option<AnyElement>>;
+/// What a code block without a file name is called, from its language and code, and whether
+/// its lines are numbered.
+pub type CodeTitle = Rc<dyn Fn(Option<&str>, &str) -> (SharedString, bool)>;
 /// Draws a picture from its address and its alt text.
 pub type DrawImage = Rc<dyn Fn(&str, &str, &mut Window, &mut App) -> AnyElement>;
 
@@ -87,6 +94,8 @@ pub type FileIcon = Rc<dyn Fn(&str, FileKind, Pixels, &mut Window, &mut App) -> 
 pub type LinkIcon = Rc<dyn Fn(&str, Pixels, &mut App) -> Option<AnyElement>>;
 /// Draws a chip in place of the words it stands for.
 pub type DrawChip = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+/// The chip a link is drawn as instead of its words, by where it leads; none to draw the link.
+pub type LinkChip = Rc<dyn Fn(&str) -> Option<Chip>>;
 
 /// Words a message wrote for something it names, drawn in their place as a chip `width` wide.
 #[derive(Clone)]
@@ -96,12 +105,52 @@ pub struct Chip {
     pub draw: DrawChip,
 }
 
-/// The space kept on each side of a chip in the text.
-const CHIP_SPACE: Pixels = px(2.);
-
 /// A file's icon beside its name, in ems of the text it sits in, and the space after it.
 const FILE_ICON_EMS: f32 = 0.95;
 const FILE_ICON_SPACE_EMS: f32 = 0.3;
+
+/// How a fenced code block's card looks.
+#[derive(Clone)]
+pub struct CodeCard {
+    pub ground: Hsla,
+    pub edge: Hsla,
+    pub radius: Pixels,
+    /// The line numbers, and the ground and edge of the Copy pill.
+    pub gutter: Hsla,
+    pub pill: Hsla,
+    pub pill_edge: Hsla,
+    /// The buttons' icons at rest, and the ground under a button hovered or held on.
+    pub button: Hsla,
+    pub hover: Hsla,
+    pub held: Hsla,
+    /// The buttons' icons, as paths among the app's assets.
+    pub copy: SharedString,
+    pub copied: SharedString,
+    pub wrap: SharedString,
+    pub icon: Option<CodeIcon>,
+    pub title: Option<CodeTitle>,
+}
+
+impl Default for CodeCard {
+    fn default() -> Self {
+        CodeCard {
+            ground: rgb(0x131317).into(),
+            edge: rgb(0x22222a).into(),
+            radius: px(12.),
+            gutter: rgb(0x3b3a44).into(),
+            pill: rgb(0x1e1e25).into(),
+            pill_edge: rgb(0x2a2a32).into(),
+            button: rgb(0xb4b1c0).into(),
+            hover: rgba(0xffffff0f).into(),
+            held: rgba(0xffffff17).into(),
+            copy: "icons/copy.svg".into(),
+            copied: "icons/check.svg".into(),
+            wrap: "icons/wrap.svg".into(),
+            icon: None,
+            title: None,
+        }
+    }
+}
 
 /// How markdown looks and what it does when clicked. The defaults are Sikemux's dark theme.
 #[derive(Clone)]
@@ -118,7 +167,7 @@ pub struct Style {
     pub ink_faint: Hsla,
     pub accent: Hsla,
     pub code_ink: Hsla,
-    pub code_ground: Hsla,
+    pub card: CodeCard,
     pub mark_ground: Hsla,
     pub selection: Hsla,
     /// The ground under each place a find found, and under the one the reader is on.
@@ -129,6 +178,9 @@ pub struct Style {
     pub table_ground: Hsla,
     pub table_head: Hsla,
     pub radius: Pixels,
+    /// The colour of a link's words, and of the line under them when they have one.
+    pub link: Hsla,
+    pub link_underline: Option<Hsla>,
     pub on_link: Option<OnLink>,
     /// Makes task boxes clickable.
     pub on_task: Option<OnTask>,
@@ -143,10 +195,15 @@ pub struct Style {
     pub code: Option<CodeColours>,
     pub image: Option<DrawImage>,
     pub chips: Rc<[Chip]>,
+    /// Draws the links it knows as chips in place of their words.
+    pub link_chip: Option<LinkChip>,
     /// Level-two headings lead with their number, `01` and on, in the accent's mono face.
     pub numbered_sections: bool,
     /// Level-one and level-two headings are larger and sit on a rule, as GitHub draws a README.
     pub ruled_headings: bool,
+    /// Reads like an article: section headings larger with room above, level-three headings as
+    /// spaced capital labels, the lead paragraph larger, list markers and quotes in the accent.
+    pub editorial: bool,
     pub italic: bool,
 }
 
@@ -167,11 +224,11 @@ impl Style {
 impl Default for Style {
     fn default() -> Self {
         Style {
-            font: "Figtree".into(),
-            mono: gpui::font("JetBrainsMono NFM"),
+            font: ".SystemUIFont".into(),
+            mono: gpui::font("Menlo"),
             text_size: px(14.),
             line_height: 1.65,
-            code_size: px(12.),
+            code_size: px(12.5),
             table_size: px(13.5),
             gap: px(10.),
             ink: rgb(0xe7e5ef).into(),
@@ -179,7 +236,7 @@ impl Default for Style {
             ink_faint: rgb(0x736f80).into(),
             accent: rgb(0xa277ff).into(),
             code_ink: rgb(0xb494fb).into(),
-            code_ground: rgba(0x09090bb8).into(),
+            card: CodeCard::default(),
             mark_ground: rgba(0xa277ff1a).into(),
             selection: rgba(0xa277ff4d).into(),
             found: rgba(0xa277ff47).into(),
@@ -189,6 +246,8 @@ impl Default for Style {
             table_ground: rgba(0x19191eb8).into(),
             table_head: rgba(0xe7e5ef0a).into(),
             radius: px(5.),
+            link: rgb(0xa277ff).into(),
+            link_underline: None,
             on_link: None,
             on_task: None,
             file_of: None,
@@ -199,8 +258,10 @@ impl Default for Style {
             code: None,
             image: None,
             chips: Rc::from(Vec::new()),
+            link_chip: None,
             numbered_sections: false,
             ruled_headings: false,
+            editorial: false,
             italic: false,
         }
     }
@@ -342,6 +403,7 @@ impl Blocks {
             depth: 0,
             tasks,
             align: TextAlign::Left,
+            capitals: false,
         };
         draw.block(&self.blocks[ix], ix, window, cx)
     }
@@ -673,9 +735,12 @@ impl Element for Code {
         let line_height = *line_height;
         let starts = &self.starts;
         let view = window.content_mask().bounds;
-        let line_at = |y: Pixels| ((y - bounds.top()) / line_height).max(0.) as usize;
+        let line_at = |y: Pixels| {
+            let line = ((y - bounds.top()) / line_height).max(0.) as usize;
+            line.min(starts.len().saturating_sub(1))
+        };
         let first = line_at(view.top()) / CODE_CHUNK;
-        let last = line_at(view.bottom()).min(starts.len().saturating_sub(1)) / CODE_CHUNK;
+        let last = line_at(view.bottom()) / CODE_CHUNK;
         if view.bottom() < bounds.top() || view.top() > bounds.bottom() {
             return Vec::new();
         }
@@ -725,6 +790,8 @@ struct Draw<'a> {
     tasks: usize,
     /// The side the blocks being drawn line up to.
     align: TextAlign,
+    /// Draws the text's letters as capitals, for a heading set as a label.
+    capitals: bool,
 }
 
 impl Draw<'_> {
@@ -739,9 +806,11 @@ impl Draw<'_> {
         match &node.kind {
             Kind::Heading(level) => {
                 let ruled = style.ruled_headings && *level <= 2;
-                let scales = match style.ruled_headings {
-                    true => [1.8, 1.4, 1.2, 1., 0.9, 0.85],
-                    false => [1.4, 1.2, 1.07, 1., 1., 1.],
+                let label = style.editorial && *level == 3;
+                let scales = match (style.ruled_headings, style.editorial) {
+                    (true, _) => [1.8, 1.4, 1.2, 1., 0.9, 0.85],
+                    (_, true) => [1.52, 1.24, 0.72, 1., 1., 1.],
+                    _ => [1.4, 1.2, 1.07, 1., 1., 1.],
                 };
                 let scale = scales[usize::from(level.clamp(&1, &6) - 1)];
                 let blocks = &self.on.blocks;
@@ -755,13 +824,25 @@ impl Draw<'_> {
                         .count();
                     format!("{:02}", before + 1)
                 });
+                let room = match (style.editorial, *level) {
+                    (true, 2) => style.text_size * 1.5,
+                    (true, 3) => style.text_size * 0.4,
+                    _ => style.text_size * (scale * 0.4),
+                };
+                self.capitals = label;
+                let words = self.flow(node, window, cx);
+                self.capitals = false;
                 div()
-                    .when(ix > 0, |heading| {
-                        heading.pt(style.text_size * (scale * 0.4))
-                    })
+                    .when(ix > 0, |heading| heading.pt(room))
                     .text_size(style.text_size * scale)
                     .line_height(relative(1.3))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .when(style.editorial && *level <= 2, |heading| {
+                        heading.letter_spacing(if *level == 1 { -0.015 } else { -0.01 })
+                    })
+                    .when(label, |heading| {
+                        heading.letter_spacing(0.16).text_color(style.ink_dim)
+                    })
                     .when(*level >= 5, |heading| heading.text_color(style.ink_dim))
                     .when(ruled, |heading| {
                         heading.pb(px(6.)).border_b_1().border_color(style.line)
@@ -771,24 +852,26 @@ impl Draw<'_> {
                             div()
                                 .flex_none()
                                 .font(style.mono.clone())
-                                .text_size(style.code_size * 0.92)
+                                .text_size(style.code_size * 0.88)
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(style.accent)
                                 .child(number),
                         )
                     })
-                    .child(self.flow(node, window, cx))
+                    .child(words)
                     .into_any_element()
             }
             Kind::Quote => div()
-                .pl(px(12.))
+                .pl(px(if style.editorial { 16. } else { 12. }))
                 .border_l_2()
-                .border_color(style.line)
-                .text_color(style.ink_dim)
+                .map(|quote| match style.editorial {
+                    true => quote.border_color(style.accent).italic(),
+                    false => quote.border_color(style.line).text_color(style.ink_dim),
+                })
                 .child(self.flow(node, window, cx))
                 .into_any_element(),
             Kind::Bullets | Kind::Numbers(_) => self.list(node, window, cx),
-            Kind::Code(lang) => self.fence(node, lang.clone(), window, cx),
+            Kind::Code(lang, name) => self.fence(node, lang.clone(), name.clone(), window, cx),
             Kind::Rule => div().h(px(1.)).my(px(4.)).bg(style.line).into_any_element(),
             Kind::Table(_) => self.table(node, window, cx),
             Kind::Footnote(n) => div()
@@ -820,6 +903,10 @@ impl Draw<'_> {
             }
             Kind::Paragraph => match node.pictures() {
                 Some(pictures) => self.pictures(pictures, window, cx),
+                None if style.editorial && self.leads(node, ix) => div()
+                    .text_size(style.text_size * 1.07)
+                    .child(self.flow(node, window, cx))
+                    .into_any_element(),
                 None => self.flow(node, window, cx),
             },
             _ => self.flow(node, window, cx),
@@ -827,6 +914,16 @@ impl Draw<'_> {
     }
 
     /// An element's content: its inline runs as text, its blocks as blocks.
+    /// Whether `node` is the paragraph straight under the text's title.
+    fn leads(&self, node: &Node, ix: usize) -> bool {
+        let blocks = &self.on.blocks;
+        ix > 0
+            && blocks
+                .get(ix)
+                .is_some_and(|block| std::ptr::eq(&**block, node))
+            && matches!(blocks[ix - 1].kind, Kind::Heading(1))
+    }
+
     fn flow(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let pieces = node.flow();
         if let [Piece::Text(rich)] = pieces {
@@ -871,8 +968,7 @@ impl Draw<'_> {
                 div()
                     .id(self.id("picture"))
                     .max_w_full()
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| match &on_link {
+                    .clicks(move |_, window, cx| match &on_link {
                         Some(on_link) => on_link(&href, window, cx),
                         None => cx.open_url(&href),
                     })
@@ -924,13 +1020,23 @@ impl Draw<'_> {
         (place, highlights(rich, selected, &found, &on.style))
     }
 
-    /// A code block's text with `colours` beneath the selection, its lines drawn as they show.
-    fn code(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+    /// A code block's place among the texts drawn, and its looks: `colours` beneath the selection.
+    fn code_looks(
+        &mut self,
+        rich: &Rich,
+        colours: Option<CodeRuns>,
+    ) -> ((usize, usize, u32), Looks) {
         let (place, own) = self.marked(rich);
         let looks = match colours {
             Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
             None => own,
         };
+        (place, looks)
+    }
+
+    /// A code block's text, its lines drawn as they show.
+    fn code(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+        let (place, looks) = self.code_looks(rich, colours);
         let selecting = self.on.selecting.as_ref();
         let shown = selecting.map(|selecting| {
             let key = (selecting.row.clone(), place.0, place.1, place.2);
@@ -949,6 +1055,39 @@ impl Draw<'_> {
         .into_any_element()
     }
 
+    /// A code block's text wrapped to the block's width, laid out whole.
+    fn wrapped(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+        let (place, looks) = self.code_looks(rich, colours);
+        let text = StyledText::new(rich.text.clone()).with_highlights(looks);
+        let layout = text.layout().clone();
+        self.recorded(place, layout, rich.text.len(), text.into_any_element())
+    }
+
+    /// `inner`, recording where its text was laid out so the pointer can select it.
+    fn recorded(
+        &self,
+        place: (usize, usize, u32),
+        layout: TextLayout,
+        len: usize,
+        inner: AnyElement,
+    ) -> AnyElement {
+        let Some(selecting) = &self.on.selecting else {
+            return inner;
+        };
+        let key = (selecting.row.clone(), place.0, place.1, place.2);
+        let shown = Cell::new(Some(Shown {
+            key,
+            layout,
+            len,
+            offset: 0,
+        }));
+        let all = selecting.shown.clone();
+        div()
+            .child(inner)
+            .on_children_prepainted(move |_, _, _| all.borrow_mut().extend(shown.take()))
+            .into_any_element()
+    }
+
     /// Text with `colours` beneath its own marks and the selection.
     fn coloured(&mut self, rich: &Rich, colours: Option<CodeRuns>, cx: &mut App) -> AnyElement {
         let on = self.on;
@@ -958,7 +1097,7 @@ impl Draw<'_> {
             .marks
             .iter()
             .filter(|(_, marks)| marks.has(Marks::CODE));
-        let chips = chips_in(rich, &style.chips);
+        let chips = chips_in(rich, &style.chips, style.link_chip.as_ref());
         let files: Vec<(Range<usize>, SharedString, FileKind)> = match &style.file_of {
             Some(file_of) => rich
                 .paths
@@ -976,7 +1115,13 @@ impl Draw<'_> {
             };
             (range.clone(), look)
         });
-        let own = hide_chip_words(combine_highlights(file_looks, own).collect(), &chips);
+        let mut own: Vec<_> = combine_highlights(file_looks, own).collect();
+        for (range, look) in &mut own {
+            if files.iter().any(|(file, _, _)| overlap(file, range)) {
+                look.underline = None;
+            }
+        }
+        let own = hide_chip_words(own, &chips);
         let looks = match colours {
             Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
             None => own,
@@ -1009,16 +1154,16 @@ impl Draw<'_> {
                 .iter()
                 .map(|(at, _)| (*at, icon_size + style.text_size * FILE_ICON_SPACE_EMS)),
         );
-        gaps.extend(
-            chips
-                .iter()
-                .map(|(range, chip)| (range.start, chip.width + CHIP_SPACE * 2.)),
-        );
+        gaps.extend(chips.iter().map(|(range, chip)| (range.start, chip.width)));
         gaps.sort_by_key(|(at, _)| *at);
         gaps.dedup_by_key(|(at, _)| *at);
         #[cfg(feature = "counts")]
         crate::counts::add(&crate::counts::TEXTS, 1);
-        let text = StyledText::new(rich.text.clone())
+        let words = match self.capitals {
+            true => SharedString::from(rich.text.to_ascii_uppercase()),
+            false => rich.text.clone(),
+        };
+        let text = StyledText::new(words)
             .with_highlights(looks)
             .with_font_family_overrides(
                 mono.map(|(range, _)| (range.clone(), style.mono.family.clone())),
@@ -1029,6 +1174,7 @@ impl Draw<'_> {
             .links
             .iter()
             .filter(|(range, _)| !files.iter().any(|(file, _, _)| file == range))
+            .filter(|(range, _)| !chips.iter().any(|(chip, _)| overlap(chip, range)))
             .collect();
         let inner = if links.is_empty() {
             text.into_any_element()
@@ -1117,7 +1263,7 @@ impl Draw<'_> {
                                     let at = layout.gap_origin(range.start)?;
                                     let mut drawn = (chip.draw)(window, cx);
                                     drawn.prepaint_as_root(
-                                        point(at.x + CHIP_SPACE, at.y),
+                                        point(at.x, at.y),
                                         size(
                                             AvailableSpace::Definite(chip.width),
                                             AvailableSpace::Definite(line),
@@ -1174,26 +1320,17 @@ impl Draw<'_> {
             }
             _ => inner,
         };
-        let Some(selecting) = &on.selecting else {
-            return inner;
-        };
-        let key = (selecting.row.clone(), place.0, place.1, place.2);
-        let shown = Cell::new(Some(Shown {
-            key,
-            layout,
-            len: rich.text.len(),
-            offset: 0,
-        }));
-        let all = selecting.shown.clone();
-        div()
-            .child(inner)
-            .on_children_prepainted(move |_, _, _| all.borrow_mut().extend(shown.take()))
-            .into_any_element()
+        self.recorded(place, layout, rich.text.len(), inner)
     }
 
     fn list(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let style = &*self.on.style;
         let bullet = ["•", "◦", "▪"][self.depth % 3];
+        let editorial = style.editorial;
+        let bullet_ink = match self.depth {
+            0 => style.accent,
+            _ => style.ink_dim,
+        };
         self.depth += 1;
         let items: Vec<_> = node
             .children
@@ -1209,8 +1346,7 @@ impl Draw<'_> {
                             Some(on_task) => {
                                 let (done, words) = (!*checked, task_words(item));
                                 tick.id(("task", place))
-                                    .cursor_pointer()
-                                    .on_click(move |_, window, cx| {
+                                    .clicks(move |_, window, cx| {
                                         on_task(place, &words, done, window, cx)
                                     })
                                     .into_any_element()
@@ -1218,10 +1354,23 @@ impl Draw<'_> {
                             None => tick.into_any_element(),
                         }
                     }
+                    (_, Kind::Numbers(start)) if editorial => div()
+                        .font(style.mono.clone())
+                        .text_size(style.code_size * 0.88)
+                        .line_height(style.text_size * style.line_height)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(style.accent)
+                        .child(format!("{:02}", start + ix as u64))
+                        .into_any_element(),
                     (_, Kind::Numbers(start)) => div()
                         .text_right()
                         .pr(px(6.))
                         .child(format!("{}.", start + ix as u64))
+                        .into_any_element(),
+                    _ if editorial => div()
+                        .pl(px(6.))
+                        .text_color(bullet_ink)
+                        .child(bullet)
                         .into_any_element(),
                     _ => div().pl(px(6.)).child(bullet).into_any_element(),
                 };
@@ -1235,7 +1384,7 @@ impl Draw<'_> {
         div()
             .flex()
             .flex_col()
-            .gap(px(2.))
+            .gap(px(if editorial { 5. } else { 2. }))
             .children(items)
             .into_any_element()
     }
@@ -1244,10 +1393,11 @@ impl Draw<'_> {
         &mut self,
         node: &Node,
         lang: Option<SharedString>,
+        name: Option<SharedString>,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let style = &*self.on.style;
+        let style = self.on.style.clone();
         let [Piece::Text(code)] = node.flow() else {
             return div().into_any_element();
         };
@@ -1256,6 +1406,8 @@ impl Draw<'_> {
             .code
             .clone()
             .and_then(|colour| colour(lang.as_ref(), &code.text, cx));
+        let icon = (style.card.icon.as_ref())
+            .and_then(|icon| icon(lang.as_deref(), &code.text, px(14.), cx));
         let fences = (style.fences.clone())
             .zip(lang.clone())
             .filter(|(fences, lang)| {
@@ -1265,12 +1417,13 @@ impl Draw<'_> {
                     .any(|known| lang.eq_ignore_ascii_case(known))
             });
         if let Some((fences, lang)) = fences {
-            let lines = self.lines(id.clone(), code, colours, window, cx);
-            let copy = self.copy(code.text.clone(), window, cx).into_any_element();
+            let lines = self.lines(id.clone(), code, colours, (false, false), window, cx);
+            let copy = self.copy_button(code.text.clone(), window, cx);
             return (fences.draw)(
                 Fence {
                     id,
                     lang,
+                    icon,
                     code: code.text.clone(),
                     lines,
                     copy,
@@ -1279,26 +1432,69 @@ impl Draw<'_> {
                 cx,
             );
         }
-        let title = div()
-            .h(px(23.))
-            .px(px(10.))
+        let key = ElementId::NamedChild(Arc::new(id.clone()), "wrap".into());
+        let wrap = window.use_keyed_state(key, cx, |_, _| false);
+        let wrapped = *wrap.read(cx);
+        let block = self.on.blocks[self.block].clone();
+        let wrap_id = self.id("wrap");
+        let toggle = self
+            .button(wrap_id, style.card.wrap.clone(), wrapped)
+            .clicks(move |_, window, cx| {
+                wrap.update(cx, |wrapped, cx| {
+                    *wrapped = !*wrapped;
+                    cx.notify();
+                });
+                block.size.set(None);
+                window.refresh();
+            });
+        let (title, numbered) = match &name {
+            Some(name) => (name.clone(), true),
+            None => match &style.card.title {
+                Some(title) => title(lang.as_deref(), &code.text),
+                None => (lang.unwrap_or_default(), true),
+            },
+        };
+        let (folder, file) = match title.rsplit_once('/') {
+            Some((folder, file)) if name.is_some() => (Some(folder.to_owned()), file.to_owned()),
+            _ => (None, title.to_string()),
+        };
+        let numbered = numbered && !wrapped && code.text.contains('\n');
+        let card = &style.card;
+        let head = div()
+            .h(px(38.))
+            .pl(px(14.))
+            .pr(px(8.))
             .flex()
             .items_center()
-            .border_b_1()
-            .border_color(style.line_soft)
-            .text_size(px(10.))
-            .text_color(style.ink_faint)
-            .child(div().flex_1().min_w_0().truncate().children(lang))
-            .child(self.copy(code.text.clone(), window, cx));
-        let body = self.lines(id, code, colours, window, cx);
-        let frame = div()
-            .rounded(style.radius)
+            .gap(px(8.))
+            .text_size(style.code_size)
+            .children(icon)
+            .child(
+                div()
+                    .flex_none()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(style.ink)
+                    .child(file),
+            )
+            .children(folder.map(|folder| {
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(style.code_size * 0.96)
+                    .text_color(style.ink_faint)
+                    .child(folder)
+            }))
+            .child(div().flex_1())
+            .child(toggle)
+            .child(self.copy_pill(code.text.clone(), window, cx));
+        div()
+            .rounded(card.radius)
+            .bg(card.ground)
             .border_1()
-            .border_color(style.line_soft);
-        frame
-            .bg(style.code_ground)
-            .child(title)
-            .child(body)
+            .border_color(card.edge)
+            .overflow_hidden()
+            .child(head)
+            .child(self.lines(id, code, colours, (wrapped, numbered), window, cx))
             .into_any_element()
     }
 
@@ -1309,27 +1505,63 @@ impl Draw<'_> {
         id: ElementId,
         code: &Rich,
         colours: Option<CodeRuns>,
+        (wrapped, numbered): (bool, bool),
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let style = &*self.on.style;
-        let (mono, size, ink) = (style.mono.clone(), style.code_size, style.ink_dim);
+        let style = self.on.style.clone();
+        let gutter = numbered.then(|| {
+            let count = code.text.lines().count();
+            let key = ElementId::NamedChild(Arc::new(id.clone()), "gutter".into());
+            let numbers = window.use_keyed_state(key, cx, |_, _| (0, SharedString::default()));
+            if numbers.read(cx).0 != count {
+                let written = (1..=count)
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                numbers.update(cx, |numbers, _| *numbers = (count, written.into()));
+            }
+            div()
+                .flex_none()
+                .w(px(24.))
+                .mr(px(16.))
+                .text_right()
+                .text_color(style.card.gutter)
+                .child(numbers.read(cx).1.clone())
+        });
         let key = ElementId::NamedChild(Arc::new(id.clone()), "scroll".into());
         let scroll = window.use_keyed_state(key, cx, |_, _| CodeScroll::default());
         let handle = scroll.read(cx).handle.clone();
+        if wrapped && handle.offset().x != px(0.) {
+            handle.set_offset(point(px(0.), handle.offset().y));
+        }
+        let text = match wrapped {
+            true => self.wrapped(code, colours),
+            false => self.code(code, colours),
+        };
         let lines = div()
             .id(id)
             .max_h(px(420.))
             .overflow_hidden()
             .track_scroll(&handle)
-            .px(px(12.))
-            .py(px(9.))
-            .font(mono)
-            .text_size(size)
-            .line_height(relative(1.55))
-            .whitespace_nowrap()
-            .text_color(ink)
-            .child(self.code(code, colours));
+            .pr(px(16.))
+            .pb(px(14.))
+            .pl(px(if gutter.is_some() { 0. } else { 16. }))
+            .font(style.mono.clone())
+            .text_size(style.code_size)
+            .line_height(relative(1.7))
+            .when(!wrapped, |lines| lines.whitespace_nowrap())
+            .text_color(style.ink)
+            .flex()
+            .items_start()
+            .children(gutter)
+            .child(
+                div()
+                    .flex_1()
+                    .when(wrapped, |text| text.min_w_0())
+                    .debug_selector(|| "code text".into())
+                    .child(text),
+            );
         div()
             .relative()
             .child(lines)
@@ -1375,37 +1607,111 @@ impl Draw<'_> {
             .into_any_element()
     }
 
-    fn copy(&mut self, text: SharedString, window: &mut Window, cx: &mut App) -> Stateful<Div> {
-        let ink = self.on.style.ink;
+    /// A button drawn by `button` with whether it has just copied, that copies `text`.
+    fn copy(
+        &mut self,
+        text: SharedString,
+        window: &mut Window,
+        cx: &mut App,
+        button: impl FnOnce(&Self, ElementId, bool) -> Stateful<Div>,
+    ) -> Stateful<Div> {
         let id = self.id("copy");
         let copied = window.use_keyed_state(id.clone(), cx, |_, _| false);
         let shown = *copied.read(cx);
+        button(self, id, shown).clicks(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+            copied.update(cx, |shown, cx| {
+                *shown = true;
+                cx.notify();
+            });
+            let copied = copied.downgrade();
+            cx.spawn(async move |cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(1500))
+                    .await;
+                copied
+                    .update(cx, |shown, cx| {
+                        *shown = false;
+                        cx.notify();
+                    })
+                    .ok();
+            })
+            .detach();
+        })
+    }
+
+    fn copy_button(&mut self, text: SharedString, window: &mut Window, cx: &mut App) -> AnyElement {
+        self.copy(text, window, cx, |draw, id, copied| {
+            let card = &draw.on.style.card;
+            let icon = if copied { &card.copied } else { &card.copy };
+            draw.button(id, icon.clone(), copied)
+        })
+        .into_any_element()
+    }
+
+    /// The Copy pill in a code block's head, its icon and word, ticking once it has copied.
+    fn copy_pill(&mut self, text: SharedString, window: &mut Window, cx: &mut App) -> AnyElement {
+        self.copy(text, window, cx, |draw, id, copied| {
+            let style = &draw.on.style;
+            let card = &style.card;
+            let icon = if copied { &card.copied } else { &card.copy };
+            let ink = style.ink;
+            div()
+                .id(id)
+                .group("code-copy")
+                .h(px(26.))
+                .px(px(9.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .rounded(px(7.))
+                .bg(card.pill)
+                .border_1()
+                .border_color(card.pill_edge)
+                .cursor_pointer()
+                .text_size(style.code_size * 0.92)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if copied { ink } else { card.button })
+                .hover(move |pill| pill.text_color(ink))
+                .child(
+                    svg()
+                        .path(icon.clone())
+                        .size(px(13.))
+                        .flex_none()
+                        .text_color(if copied { ink } else { card.button })
+                        .group_hover("code-copy", move |icon| icon.text_color(ink)),
+                )
+                .child(if copied { "Copied" } else { "Copy" })
+        })
+        .into_any_element()
+    }
+
+    /// One of a code block's small square buttons, showing `icon`, on a ground while `held`.
+    fn button(&self, id: ElementId, icon: SharedString, held: bool) -> Stateful<Div> {
+        let style = &self.on.style;
+        let card = &style.card;
+        let (hover, ink) = (card.hover, style.ink);
         div()
             .id(id)
+            .group("code-button")
+            .size(px(22.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(style.radius)
             .cursor_pointer()
-            .hover(move |copy| copy.text_color(ink))
-            .when(shown, |copy| copy.text_color(ink))
-            .child(if shown { "Copied" } else { "Copy" })
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
-                copied.update(cx, |shown, cx| {
-                    *shown = true;
-                    cx.notify();
-                });
-                let copied = copied.downgrade();
-                cx.spawn(async move |cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(1500))
-                        .await;
-                    copied
-                        .update(cx, |shown, cx| {
-                            *shown = false;
-                            cx.notify();
-                        })
-                        .ok();
-                })
-                .detach();
-            })
+            .hover(move |button| button.bg(hover))
+            .when(held, |button| button.bg(card.held))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(15.))
+                    .flex_none()
+                    .text_color(if held { ink } else { card.button })
+                    .group_hover("code-button", move |icon| icon.text_color(ink)),
+            )
     }
 
     /// A table as rows of cells. A column is as wide as its longest text,
@@ -1440,8 +1746,17 @@ impl Draw<'_> {
                     .unwrap_or(0) as f32
             })
             .collect();
+        let source = node.table_source().unwrap_or_default().into();
+        let ink = style.ink;
         let copy = self
-            .copy(node.table_source().unwrap_or_default().into(), window, cx)
+            .copy(source, window, cx, |_, id, copied| {
+                div()
+                    .id(id)
+                    .cursor_pointer()
+                    .hover(move |copy| copy.text_color(ink))
+                    .when(copied, |copy| copy.text_color(ink))
+                    .child(if copied { "Copied" } else { "Copy" })
+            })
             .absolute()
             .top(px(4.))
             .right(px(8.));
@@ -1524,11 +1839,10 @@ impl Draw<'_> {
             .id(self.id("details"))
             .flex()
             .gap(px(6.))
-            .cursor_pointer()
             .text_color(self.on.style.ink_dim)
             .child(if open { "▾" } else { "▸" })
             .child(summary)
-            .on_click(move |_, window, _| {
+            .clicks(move |_, window, _| {
                 let mut turned = turned.borrow_mut();
                 if !turned.remove(&key) {
                     turned.insert(key);
@@ -1560,7 +1874,11 @@ fn highlights(
         .map(|(range, _)| range.clone())
         .chain(selected.clone())
         .chain(found.iter().map(|(range, _)| range.clone()));
-    let mut edges: Vec<usize> = ranges.flat_map(|range| [range.start, range.end]).collect();
+    // A selection or find hit keeps its offsets while a streaming reply rewrites the text.
+    let mut edges: Vec<usize> = ranges
+        .flat_map(|range| [range.start, range.end])
+        .map(|edge| rich.text.floor_char_boundary(edge))
+        .collect();
     edges.sort_unstable();
     edges.dedup();
     let inside = |outer: &Range<usize>, inner: &Range<usize>| {
@@ -1601,9 +1919,19 @@ fn highlights(
 
 /// Where the text wrote each chip's words, outside code, longer words first where two would
 /// share letters.
-fn chips_in(rich: &Rich, chips: &[Chip]) -> Vec<(Range<usize>, Chip)> {
+fn chips_in(
+    rich: &Rich,
+    chips: &[Chip],
+    link_chip: Option<&LinkChip>,
+) -> Vec<(Range<usize>, Chip)> {
+    let linked: Vec<(Range<usize>, Chip)> = match link_chip {
+        Some(link_chip) => (rich.links.iter())
+            .filter_map(|(range, href)| Some((range.clone(), link_chip(href)?)))
+            .collect(),
+        None => Vec::new(),
+    };
     if chips.is_empty() {
-        return Vec::new();
+        return linked;
     }
     let code: Vec<&Range<usize>> = rich
         .marks
@@ -1613,14 +1941,22 @@ fn chips_in(rich: &Rich, chips: &[Chip]) -> Vec<(Range<usize>, Chip)> {
         .collect();
     let mut longest: Vec<&Chip> = chips.iter().collect();
     longest.sort_by_key(|chip| std::cmp::Reverse(chip.written.len()));
-    let mut found: Vec<(Range<usize>, Chip)> = Vec::new();
+    let mut found = linked;
     for chip in longest {
         for (at, _) in rich.text.match_indices(chip.written.as_ref()) {
             let range = at..at + chip.written.len();
-            let before = rich.text[..at].chars().next_back();
-            let after = rich.text[range.end..].chars().next();
-            let apart = before.is_none_or(|letter| !letter.is_alphanumeric() && letter != '/')
-                && after.is_none_or(|letter| !letter.is_alphanumeric() && letter != '/');
+            let (before, after) = (&rich.text[..at], &rich.text[range.end..]);
+            let apart = before
+                .chars()
+                .next_back()
+                .is_none_or(|letter| match letter {
+                    '/' => mention_before_slash(before),
+                    letter => !letter.is_alphanumeric(),
+                })
+                && after.chars().next().is_none_or(|letter| match letter {
+                    '/' => after[1..].starts_with('@'),
+                    letter => !letter.is_alphanumeric(),
+                });
             let taken = code.iter().any(|code| overlap(code, &range))
                 || found.iter().any(|(held, _)| overlap(held, &range));
             if apart && !taken {
@@ -1630,6 +1966,14 @@ fn chips_in(rich: &Rich, chips: &[Chip]) -> Vec<(Range<usize>, Chip)> {
     }
     found.sort_by_key(|(range, _)| range.start);
     found
+}
+
+/// Whether the word `text` ends on, a slash, is a run of mentions such as `@Azuma/@Sweyn/`
+/// rather than a path such as `node_modules/`.
+fn mention_before_slash(text: &str) -> bool {
+    let word = text.rsplit(char::is_whitespace).next().unwrap_or(text);
+    word.trim_start_matches(|letter: char| !letter.is_alphanumeric() && letter != '@')
+        .starts_with('@')
 }
 
 fn overlap(a: &Range<usize>, b: &Range<usize>) -> bool {
@@ -1654,10 +1998,7 @@ fn hide_chip_words(looks: Looks, chips: &[(Range<usize>, Chip)]) -> Looks {
                     color: Some(gpui::transparent_black()),
                     ..HighlightStyle::default()
                 };
-                #[cfg(feature = "fork")]
-                {
-                    look.font_scale = Some(gpui::FontScale(0.01));
-                }
+                look.font_scale = Some(gpui::FontScale(0.01));
             }
             (range, look)
         })
@@ -1681,25 +2022,27 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
     if marks.has(Marks::CODE) {
         highlight.color = Some(style.code_ink);
         highlight.background_color = Some(style.mark_ground);
-        #[cfg(feature = "fork")]
-        {
-            highlight.font_scale = Some(gpui::FontScale(0.88));
-        }
+        highlight.font_scale = Some(gpui::FontScale(0.88));
+    }
+    if marks.has(Marks::FAINT) {
+        highlight.color = Some(style.ink_faint);
+    }
+    if marks.has(Marks::SMALL) {
+        highlight.font_scale = Some(gpui::FontScale(0.72));
     }
     if marks.has(Marks::LINK) {
-        highlight.color = Some(style.accent);
+        highlight.color = Some(style.link);
+        highlight.underline = style.link_underline.map(|color| UnderlineStyle {
+            thickness: px(1.),
+            color: Some(color),
+            wavy: false,
+        });
     }
     highlight
 }
 
-#[cfg(feature = "fork")]
 fn spaced(row: Div) -> Div {
     row.letter_spacing(0.06)
-}
-
-#[cfg(not(feature = "fork"))]
-fn spaced(row: Div) -> Div {
-    row
 }
 
 fn tasks_in(node: &Node) -> usize {

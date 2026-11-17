@@ -1,0 +1,11 @@
+<resources>
+  <string name="sikemux_limits_widget">Limits</string>
+  <string name="sikemux_limits_description">How much of each agent account\'s plan is used, and when it resets.</string>
+  <string name="sikemux_limits_empty">Open Sikemux to read your plan limits</string>
+  <color name="sikemux_widget_ground">#F209090B</color>
+  <color name="sikemux_widget_ink">#E7E5EF</color>
+  <color name="sikemux_widget_secondary">#B3B2BA</color>
+  <color name="sikemux_widget_tertiary">#86858C</color>
+  <color name="sikemux_widget_track">#27272B</color>
+  <color name="sikemux_widget_warn">#FFCA85</color>
+</resources>

@@ -7,7 +7,6 @@ import { deleteInClerk, revokeRemovedSession } from "./deletion.ts";
 
 const BATCH = 20;
 
-/** Retries every call to Clerk that failed and is due again. */
 export async function sweepClerk(
   db: Kysely<Tables>,
   clerk: ClerkBackend,

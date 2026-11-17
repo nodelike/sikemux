@@ -1,166 +1,64 @@
+import { useChatFind, useRevealFound } from '@/chat/useChatFind';
+import { takeFind } from '@/devices/pendingFind';
+import { useEditingRow } from '@/chat/useEditingRow';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, Keyboard, type ScrollViewProps, type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type TextInput, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import MaskedView from '@react-native-masked-view/masked-view';
-import { KeyboardChatScrollView, KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
-import { sentPrompts } from '@shared/chat/promptHistory';
-import { activeToolLabel } from '@shared/chat/toolLabels';
-import type { ChatMessage } from '@shared/chat/types';
+import { activityDoing, composerPlaceholder } from '@shared/chat/chatStatus';
+import { forgetShown } from '@/chat/LeftOut';
+import { sentPrompts } from '@/chat/promptHistory';
+import type { ChatMessage } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
-import { ChatFind } from '@/chat/chatFind';
-import type { FindHit } from '@shared/wire.generated';
+import { AwaySheet } from '@/devices/AwaySheet';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
-import { askTitle, Composer, RecentSheet } from '@/chat/Composer';
-import { FoldsContext, rowFold, shownRows } from '@/chat/folds';
+import { Composer } from '@/chat/Composer';
+import { askTitle } from '@/chat/PermissionDock';
+import { RecentSheet } from '@/chat/RecentSheet';
+import { FoldsContext, rowFold, runsOf, shownRows } from '@/chat/folds';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
 import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
-import { AnsweredQuestion, AssumedQuestion, QuestionDock } from '@/chat/Question';
-import { useQuestions } from '@/chat/questions';
+import { CallDock } from '@/calls/CallDock';
+import { TurnLine } from '@/calls/TurnLine';
+import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
+import { TELL_CHIEF, sendToTold } from '@shared/calls/words';
+import { AwayCard } from '@/calls/AwayCard';
+import { NowCard } from '@/calls/NowCard';
+import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
 import { Trouble } from '@/chat/Trouble';
-import {
-  Activity,
-  Earlier,
-  EarlierLost,
-  Message,
-  AgentContext,
-  ProviderContext,
-  Queued,
-  SubagentsContext,
-  subagentsOf,
-  WorkSummary,
-} from '@/chat/Transcript';
+import { Message, plainlySent, TeamFold, WorkSummary } from '@/chat/Transcript';
+import { Activity } from '@/chat/Activity';
+import { SmartPick } from '@/chat/Notices';
+import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
+import { ActsContext, AgentContext, ChiefContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { placeResults, ResultCard } from '@/chat/ResultCard';
+import { crumbsOf, useCrew } from '@/devices/Crew';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
-import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hub';
+import { useT } from '@/i18n';
+import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
 import { agentLabel } from '@shared/agents/catalog';
-import { haptics } from '@/ui/haptics';
+import { subagentsOf } from '@shared/chat/subagents';
 import { Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
-import { pauseBackdrop } from '@/ui/motion';
 import { goBack } from '@/ui/navigate';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { Working } from '@/devices/AgentMarks';
-import { fonts, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
-
-const noSubscribe = () => () => {};
-
-function capitalised(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1) + (text.endsWith('.') ? '' : '.');
-}
-
-/** Above the composer while the host is out of reach: the chat stays, and what is sent waits. */
-function Reconnecting({ live, hostName, onTry }: { live: Live; hostName: string; onTry: () => void }) {
-  const styles = useStyles(makeStyles);
-  const closed = live.status === 'closed';
-  return (
-    <View style={styles.reconnect} accessibilityLiveRegion="polite">
-      {closed ? null : <Working />}
-      <Text style={styles.reconnectText} numberOfLines={2}>
-        {closed ? `Can't reach ${hostName}. ${capitalised(live.problem)}` : `Reconnecting to ${hostName}…`}
-      </Text>
-      <Pressable onPress={onTry} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Try reaching ${hostName} now`}>
-        <Text style={styles.reconnectTry}>Try now</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** Something this phone asked for that did not happen, said where the person is looking. */
-function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.notice} accessibilityLiveRegion="polite">
-      <Icon name="IconWarning" size={13} color={colors.danger} />
-      <Text style={styles.noticeText}>{capitalised(text)}</Text>
-      <Pressable onPress={onDismiss} hitSlop={10} accessibilityRole="button" accessibilityLabel="Dismiss">
-        <Icon name="IconClose" size={13} color={colors.inkDim} />
-      </Pressable>
-    </View>
-  );
-}
-
-/** A turn ending and a request arriving are felt and, with a screen reader, heard. */
-function useArrivals(running: boolean, waiting: string | undefined, said: { done: string; asks: string }) {
-  const was = useRef(running);
-  const asked = useRef(waiting);
-  useEffect(() => {
-    if (was.current && !running) {
-      haptics.success();
-      AccessibilityInfo.announceForAccessibility(said.done);
-    }
-    was.current = running;
-  }, [running, said.done]);
-  // A streaming reply needs the JavaScript thread more than the moving backdrop does.
-  useEffect(() => (running ? pauseBackdrop() : undefined), [running]);
-  useEffect(() => {
-    if (waiting && waiting !== asked.current) {
-      haptics.warning();
-      AccessibilityInfo.announceForAccessibility(said.asks);
-    }
-    asked.current = waiting;
-  }, [waiting, said.asks]);
-}
-
-/** How far the transcript fades out under the header and above the composer. */
-const FADE = 22;
-
-function Fade({ id, from }: { id: string; from: 0 | 1 }) {
-  return (
-    <Svg width="100%" height={FADE}>
-      <Defs>
-        <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#000" stopOpacity={from} />
-          <Stop offset="1" stopColor="#000" stopOpacity={1 - from} />
-        </LinearGradient>
-      </Defs>
-      <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${id})`} />
-    </Svg>
-  );
-}
-
-/** The header and composer float over the backdrop, so the transcript fades into them rather than ending on a line. */
-function EdgeFades() {
-  const { bottom } = useSafeAreaInsets();
-  const { height, progress } = useReanimatedKeyboardAnimation();
-  // The bottom fade rises with the composer, which rides the keyboard less the home bar it covers.
-  const rise = useAnimatedStyle(() => ({ transform: [{ translateY: height.value + progress.value * bottom }] }));
-  return (
-    <View style={{ flex: 1 }}>
-      <Fade id="transcript-top" from={0} />
-      <View style={{ flex: 1, overflow: 'hidden' }}>
-        <Animated.View style={[{ flex: 1 }, rise]}>
-          <View style={{ flex: 1, backgroundColor: '#000' }} />
-          <Fade id="transcript-bottom" from={1} />
-        </Animated.View>
-      </View>
-    </View>
-  );
-}
-
-/** The keyboard covers the home bar, so the transcript makes room for only what rises above it. */
-function KeyboardScroller(props: ScrollViewProps) {
-  const { bottom } = useSafeAreaInsets();
-  return <KeyboardChatScrollView {...props} keyboardLiftBehavior="whenAtEnd" offset={bottom} />;
-}
-
-// Someone reading the latest keeps reading it as the keyboard rises, frame by frame with it.
-const renderScrollComponent = (props: ScrollViewProps) => <KeyboardScroller {...props} />;
+import { type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
+import { EdgeFades, Notice, Reconnecting, capitalised, renderScrollComponent, useArrivals } from '@/chat/ChatChrome';
 
 export default function Chat() {
   const { core, agent } = useLocalSearchParams<{ core: string; agent: string }>();
@@ -172,14 +70,16 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const live = useLive(core);
   const { devices } = useDevices();
   const device = devices.find((paired) => paired.core === core);
   const access = device?.access ?? 'full';
-  const hostName = device ? deviceName(device) : 'the host';
+  const hostName = device ? deviceName(device, t) : t('the host');
   const info = live.snapshot?.chats.find((chat) => chat.agentId === agentId);
   const provider = info?.provider ?? 'agent';
   const { session, chat, connection } = useChat(core, agentId);
+  useEffect(() => () => forgetShown(agentId), [agentId]);
   const state = chat.view;
   const request = chat.permissions[0];
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;
@@ -195,30 +95,56 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     setOpen((shown) => (shown === owner ? undefined : owner));
   };
   const [editing, setEditing] = useState<string>();
-  const [find, setFind] = useState<ChatFind | null>(null);
-  const finding = useSyncExternalStore(find?.subscribe ?? noSubscribe, () => find?.snapshot().finding ?? null);
-  // A place found is brought into view once the rows it unfolded or paged in are drawn.
-  const [shown, setShown] = useState<{ row: string }>();
   // The list redraws its rows when a summary opens or closes, and only then, so it watches those folds alone.
-  const openWork = useSyncExternalStore(session.folds.subscribe, () => session.folds.openUnder('work/'));
+  const openWork = useSyncExternalStore(session.folds.subscribe, () => session.folds.openUnder('work/') + session.folds.openUnder('team'));
   const workOpen = (id: string) => session.folds.isOpen(`work/${id}`, false);
   const toggleWork = (id: string) => session.folds.set(`work/${id}`, !workOpen(id));
-  const rows = useMemo(() => {
+  const { rows, runs } = useMemo(() => {
     const opened = new Set(openWork.split('\n'));
-    return shownRows(state.messages, (id) => opened.has(`work/${id}`));
+    const runs = runsOf(state.messages, (key) => opened.has(key));
+    return { rows: shownRows(state.messages, (id) => opened.has(`work/${id}`), runs), runs };
   }, [state.messages, openWork]);
+  const toggleRun = (id: string) => {
+    scroll.hold();
+    session.folds.set(`team/${id}`, !session.folds.isOpen(`team/${id}`, false));
+    session.folds.set(`team-all/${id}`, false);
+  };
+  const showRunEarlier = (id: string) => {
+    scroll.hold();
+    session.folds.set(`team-all/${id}`, true);
+  };
+  const { find, finding, shown, shownIndex, openFind, closeFind } = useChatFind(session, rows, workOpen, () => setEditing(undefined));
+  // A chat opened from a search of what was said opens its find on those words once it is attached.
+  const foundWords = useRef<string>(undefined);
+  useEffect(() => {
+    if (chat.attached !== 'live') return;
+    const words = takeFind(core, agentId);
+    if (!words) return;
+    foundWords.current = words;
+    openFind();
+  }, [chat.attached, core, agentId, openFind]);
+  useEffect(() => {
+    if (!find || !foundWords.current) return;
+    find.setText(foundWords.current);
+    foundWords.current = undefined;
+  }, [find]);
   const watchOnly = access === 'watch';
+  useOnScreen(core, agentId, access === 'full', chat.attached === 'live', connection);
   const canEdit = !watchOnly && state.capabilities.editing && state.connection === 'ready' && !state.running && chat.attached === 'live';
   if (editing !== undefined && !canEdit) setEditing(undefined);
   const editable = (message: ChatMessage) =>
     canEdit && message.role === 'user' && message.promptId !== undefined && !message.context?.length && !chat.unsent.has(message.id);
+  const results = useMemo(() => placeResults(state.results, rows), [state.results, rows]);
   const marks = useMemo(
-    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
-    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
+    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
+    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
-  const { plan, runningSubagents, tasks, queued } = state;
-  const fresh = useMemo(() => liveWork({ plan, runningSubagents, tasks, queued }), [plan, runningSubagents, tasks, queued]);
+  const { handoff, guests, plan, runningSubagents, tasks, queued } = state;
+  const fresh = useMemo(
+    () => liveWork({ handoff, guests, plan, runningSubagents, tasks, queued }),
+    [handoff, guests, plan, runningSubagents, tasks, queued],
+  );
   // The strip redraws, and with it the composer, only when what it counts changes, not on every word streamed.
   const [work, setWork] = useState(fresh);
   if (liveKey(fresh) !== liveKey(work)) setWork(fresh);
@@ -235,13 +161,14 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   );
   const [showLive, setShowLive] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [away, setAway] = useState(false);
   const openLive = () => setShowLive(true);
   const openRecent = () => setRecent(true);
   useEffect(() => dismissCardsFor(core, agentId), [core, agentId]);
   const name = info?.name ?? agentLabel(provider);
   useArrivals(state.running, request?.requestId, {
-    done: `${name} finished`,
-    asks: request ? `${name} asks: ${askTitle(request)}` : '',
+    done: t('{name} finished', { name }),
+    asks: request ? t('{name} asks: {question}', { name, question: askTitle(request, t) }) : '',
   });
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const bottom = useBottomGap();
@@ -255,68 +182,38 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     },
     editing !== undefined || find !== null,
   );
-  const showHit = (hit: FindHit) => {
-    const row = session.snapshot().view.messages.find((message) => message.id === hit.row);
-    if (!row) return;
-    const { hidden, from } = rowFold(row, workOpen);
-    const part = row.parts.findIndex((held) => held.id === hit.part);
-    if (row.fold && (hidden || part < from)) session.folds.set(`work/${row.fold.id}`, true);
-    setShown({ row: hit.row });
-  };
-  const showing = useRef(showHit);
-  useEffect(() => {
-    showing.current = showHit;
-  });
-  const shownIndex = shown ? rows.findIndex((row) => row.id === shown.row) : -1;
-  // Only a new place moves the transcript, not the rows growing under it.
-  const revealed = useRef(shown);
-  useEffect(() => {
-    if (shownIndex < 0 || revealed.current === shown) return;
-    revealed.current = shown;
-    scroll.reveal(shownIndex, 0.3);
-  }, [shown, shownIndex, scroll]);
-  const openFind = () => {
-    setEditing(undefined);
-    setFind(new ChatFind(session, (hit) => showing.current(hit)));
-  };
-  const closeFind = () => {
-    find?.close();
-    setFind(null);
-    setShown(undefined);
-  };
+  useRevealFound(scroll, shown, shownIndex);
   const startEdit = (message: ChatMessage) => {
     setOpen(undefined);
     setEditing(message.id);
   };
-  const editingIndex = editing === undefined ? -1 : rows.findIndex((row) => row.id === editing);
-  useEffect(() => {
-    if (editingIndex < 0) return;
-    // The editor sits just above the keyboard once it is up.
-    const shown = Keyboard.addListener('keyboardDidShow', () => scroll.reveal(editingIndex, 1));
-    return () => shown.remove();
-  }, [editingIndex, scroll]);
-  const editingRow = useMemo(
-    () =>
-      editing === undefined
-        ? undefined
-        : {
-            onCancel: () => setEditing(undefined),
-            onSend: (text: string) => {
-              session.edit(editing, text);
-              setEditing(undefined);
-              scroll.toEnd();
-            },
-          },
-    [editing, session, scroll],
-  );
-  const activity = chat.stoppingTurn ? 'Stopping…' : activityText({ ...state, permissions: chat.permissions }, activeToolLabel(state));
-  const title = state.title ?? live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId)?.title ?? agentLabel(provider);
+  const editingRow = useEditingRow(editing, setEditing, session, scroll, rows);
+  const doing = chat.stoppingTurn ? { verb: t('Stopping') } : chat.permissions.length > 0 ? null : activityDoing(state.activity, t);
+  const liveRun = liveRunKey(state.messages, state.activeTool);
+  // While the run holding the running call is open, its line already names what runs.
+  const runShown = useSyncExternalStore(session.folds.subscribe, () => liveRun !== null && session.folds.isOpen(liveRun, true));
+  const activity = doing && runShown ? { verb: doing.verb } : doing;
+  const listed = live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId);
+  const own = state.title ?? (listed?.titled ? listed.title : undefined);
+  const title = own ?? (info?.name ? undefined : (listed?.title ?? agentLabel(provider)));
+  const crew = useCrew();
+  const crumbs = useMemo(() => crumbsOf(crew, agentId, listed?.project, live.snapshot), [crew, agentId, listed?.project, live.snapshot]);
   const steerable = state.capabilities.steering === true && state.running && !watchOnly;
   // The person may change how sending mid-turn goes between turns, so each turn reads it afresh.
   const preferences = useHostCall(connection, 'preferences', {}, String(state.running)).data;
   const steers = steerable && preferences?.midTurnSend !== 'queue';
   const saved = live.snapshot?.workspace.agents?.find((shown) => shown.id === agentId);
+  const providerOf = (other: string) => live.snapshot?.workspace.agents?.find((shown) => shown.id === other)?.provider ?? 'agent';
   const worktree = worktreeOf(saved?.worktree);
+  const project = live.snapshot?.workspace.projects.find((known) => known.id === saved?.project);
+  const accounts = live.snapshot?.workspace.launchers.filter((known) => known.provider === provider) ?? [];
+  const place = {
+    host: devices.length > 1 ? hostName : undefined,
+    project: project?.name,
+    branch: worktree?.branch || project?.git?.branch,
+    account:
+      accounts.length > 1 && saved?.profileId ? accounts.find((known) => known.id.endsWith(`:${saved.profileId}`))?.label : undefined,
+  };
   const startOver = saved
     ? () => {
         const launcher = live.snapshot?.workspace.launchers.find(
@@ -329,25 +226,68 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
   const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
-  const questions = useQuestions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
   const input = useRef<TextInput>(null);
-  const composing = watchOnly ? null : questions.composing;
+  const keptCalls = useKept(core);
+  // The hub keeps the host's calls as the same array while none changes, so typing beside a docked call does not
+  // redraw it on every view the host sends.
+  const calls = live.snapshot?.calls;
+  // While the chief's chat shows what happened while the person was away, it docks every call that card counts.
+  const awayCalls = state.chief ? state.away?.calls : undefined;
+  const queue = useMemo(() => queueOf(calls, agentId, awayCalls), [calls, agentId, awayCalls]);
+  const docked = waitingCall(queue, keptCalls, agentId);
+  const canAnswerCall = !watchOnly && live.status === 'open';
+  // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
+  const composerTo = state.chief
+    ? { words: t(TELL_CHIEF), commands: true }
+    : state.chiefHears && info?.name
+      ? { words: sendToTold(info.name, t), commands: false }
+      : undefined;
+  // React's compiler keeps this element while its inputs stay the same, so a view from the host leaves the card be.
+  const dock = docked ? (
+    <CallDock
+      key={docked.id}
+      core={core}
+      calls={calls}
+      call={docked}
+      chat={agentId}
+      queue={queue}
+      connection={connection}
+      canAnswer={canAnswerCall}
+      report={session.report}
+    />
+  ) : null;
+  // A chief's chat carries its project's Now card while anything stands on it or closed lately.
+  const now = state.chief ? live.snapshot?.now?.find((shown) => shown.project === saved?.project) : undefined;
+  const nowCard =
+    now && (now.rows?.length || now.closed?.length) ? (
+      <NowCard
+        now={now}
+        agents={live.snapshot?.workspace.agents}
+        connection={connection}
+        full={access === 'full'}
+        onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
+      />
+    ) : null;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
     <View style={styles.missing}>
-      <Text style={styles.gone}>{`Can't reach ${hostName}. ${capitalised(live.problem)}`}</Text>
-      <Button title="Try again" onPress={() => reconnect(core)} />
+      <Text style={styles.gone}>{`${t("Can't reach {host}.", { host: hostName })} ${capitalised(live.problem)}`}</Text>
+      <Button title={t('Try again')} onPress={() => reconnect(core)} />
     </View>
   ) : chat.attached === 'missing' ? (
     <View style={styles.missing}>
-      <Text style={styles.gone}>{chat.problem ? capitalised(chat.problem) : 'This chat is no longer running on the host.'}</Text>
-      <Button title="Try again" onPress={session.retry} />
+      <Text style={styles.gone}>{chat.problem ? capitalised(chat.problem) : t('This chat is no longer running on the host.')}</Text>
+      <Button title={t('Try again')} onPress={session.retry} />
     </View>
   ) : chat.attached === 'attaching' ? (
     <View style={styles.attaching} accessibilityLiveRegion="polite">
       <Working />
       <Text style={type.meta}>
-        {live.status === 'connecting' ? `Reaching ${hostName}…` : info?.state === 'asleep' ? 'Waking the chat…' : 'Opening the chat…'}
+        {live.status === 'connecting'
+          ? t('Reaching {host}…', { host: hostName })
+          : info?.state === 'asleep'
+            ? t('Waking the chat…')
+            : t('Opening the chat…')}
       </Text>
     </View>
   ) : null;
@@ -355,14 +295,26 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const screen = (
     <Screen>
       <Nav
-        title={<ChatTitle agentId={agentId} group={info?.group} provider={provider} name={info?.name} title={title} />}
+        title={
+          <HostContext value={core}>
+            <ChatTitle
+              agentId={agentId}
+              turn={state.turn}
+              provider={provider}
+              name={info?.name}
+              title={title}
+              chief={state.chief}
+              crumbs={crumbs}
+            />
+          </HostContext>
+        }
         end={
           <Pressable
             onPress={() => setMenu(true)}
             hitSlop={6}
             style={({ pressed }) => [styles.more, pressed && { backgroundColor: colors.active }]}
             accessibilityRole="button"
-            accessibilityLabel="Chat actions">
+            accessibilityLabel={t('Chat actions')}>
             <Icon name="IconMoreVertical" size={16} color={colors.tertiary} />
           </Pressable>
         }
@@ -374,142 +326,166 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
           <HostContext value={core}>
             <ProviderContext value={provider}>
               <AgentContext value={agentId}>
-                <FoldsContext value={session.folds}>
-                  <SubagentsContext value={subagents}>
-                    <ToolDetailContext value={session.toolDetail}>
-                      <View style={styles.transcript}>
-                        <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
-                          <FlashList
-                            ref={list}
-                            showsVerticalScrollIndicator={false}
-                            data={rows}
-                            keyExtractor={(message) => message.id}
-                            // Folded work draws nothing, so it is never recycled into a whole answer.
-                            getItemType={(message) => (rowFold(message, workOpen).hidden ? 'folded' : message.role)}
-                            extraData={marks}
-                            renderItem={({ item, index }) => {
-                              const { summary: fold, hidden, from } = rowFold(item, workOpen);
-                              const note =
-                                index === 0 && worktree && !chat.hasEarlier ? (
-                                  <WorktreeNote branch={worktree.branch} path={worktree.path} />
-                                ) : null;
-                              const summary = fold ? (
-                                <WorkSummary
-                                  took={fold.took}
-                                  calls={fold.calls}
-                                  thought={fold.thought}
-                                  open={workOpen(fold.id)}
-                                  onToggle={() => toggleWork(fold.id)}
-                                />
-                              ) : null;
-                              if (hidden)
-                                return note || summary ? (
+                <ChiefContext value={state.chief === true}>
+                  <ActsContext value={access === 'full'}>
+                    <FoldsContext value={session.folds}>
+                      <SubagentsContext value={subagents}>
+                        <ToolDetailContext value={session.toolDetail}>
+                          <View style={styles.transcript}>
+                            <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
+                              <FlashList
+                                ref={list}
+                                showsVerticalScrollIndicator={false}
+                                data={rows}
+                                keyExtractor={(message) => message.id}
+                                // Folded work draws nothing, so it is never recycled into a whole answer.
+                                getItemType={(message) =>
+                                  rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role
+                                }
+                                extraData={marks}
+                                renderItem={({ item, index }) => {
+                                  const run = runs.get(item.id);
+                                  const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
+                                  const head = run?.head ? (
+                                    <TeamFold
+                                      line={run.head}
+                                      open={session.folds.isOpen(`team/${run.id}`, false)}
+                                      all={session.folds.isOpen(`team-all/${run.id}`, false)}
+                                      onToggle={() => toggleRun(run.id)}
+                                      onAll={() => showRunEarlier(run.id)}
+                                    />
+                                  ) : null;
+                                  const note =
+                                    index === 0 && worktree && !chat.hasEarlier ? (
+                                      <WorktreeNote branch={worktree.branch} path={worktree.path} />
+                                    ) : null;
+                                  const summary = fold ? (
+                                    <WorkSummary
+                                      took={fold.took}
+                                      calls={fold.calls}
+                                      thought={fold.thought}
+                                      open={workOpen(fold.id)}
+                                      onToggle={() => toggleWork(fold.id)}
+                                    />
+                                  ) : null;
+                                  const finished = results
+                                    .get(index)
+                                    ?.map((result) => <ResultCard key={result.agentId} row={result} connection={connection} />);
+                                  if (hidden)
+                                    return note || summary || head || finished ? (
+                                      <>
+                                        {note}
+                                        {head}
+                                        {summary}
+                                        {finished}
+                                      </>
+                                    ) : (
+                                      <View />
+                                    );
+                                  return (
+                                    <>
+                                      {note}
+                                      {head}
+                                      {summary}
+                                      <Message
+                                        message={item}
+                                        live={item.id === liveId}
+                                        unsent={chat.unsent.get(item.id)}
+                                        onRetry={session.retrySend}
+                                        onTap={onTap}
+                                        strip={item.id === open ? openStrip : undefined}
+                                        sentFiles={chat.sentFiles}
+                                        kept={kept}
+                                        onEdit={editable(item) ? startEdit : undefined}
+                                        editing={item.id === editing ? editingRow : undefined}
+                                        followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
+                                        followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
+                                      />
+                                      {finished}
+                                    </>
+                                  );
+                                }}
+                                ListEmptyComponent={state.placed ? <SmartPick move={state.placed} provider={provider} /> : null}
+                                ListHeaderComponent={
+                                  chat.hasEarlier ? (
+                                    <Earlier
+                                      failed={chat.earlier === 'failed'}
+                                      loading={chat.earlier === 'loading'}
+                                      onRetry={session.loadEarlier}
+                                    />
+                                  ) : state.earlierLost ? (
+                                    <EarlierLost />
+                                  ) : null
+                                }
+                                ListFooterComponent={
                                   <>
-                                    {note}
-                                    {summary}
+                                    {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
+                                    {state.away ? (
+                                      <AwayCard
+                                        away={state.away}
+                                        connection={connection}
+                                        full={access === 'full'}
+                                        providerOf={providerOf}
+                                        onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
+                                      />
+                                    ) : null}
+                                    {activity ? (
+                                      <Activity
+                                        provider={provider}
+                                        doing={activity}
+                                        since={chat.turnSince}
+                                        agentId={agentId}
+                                        chief={state.chief}
+                                      />
+                                    ) : state.turn ? (
+                                      <TurnLine
+                                        agentId={agentId}
+                                        provider={provider}
+                                        chief={state.chief === true}
+                                        turn={state.turn}
+                                        connection={connection}
+                                        canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
+                                        docked={!!docked}
+                                        onLook={() => input.current?.focus()}
+                                      />
+                                    ) : null}
+                                    <Trouble
+                                      state={state}
+                                      provider={provider}
+                                      hostName={hostName}
+                                      connection={connection}
+                                      session={session}
+                                      canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
+                                      onStartOver={startOver}
+                                    />
                                   </>
-                                ) : (
-                                  <View />
-                                );
-                              return (
-                                <>
-                                  {note}
-                                  {summary}
-                                  <Message
-                                    message={item}
-                                    live={item.id === liveId}
-                                    unsent={chat.unsent.get(item.id)}
-                                    onRetry={session.retrySend}
-                                    onTap={onTap}
-                                    strip={item.id === open ? openStrip : undefined}
-                                    sentFiles={chat.sentFiles}
-                                    from={from}
-                                    onEdit={editable(item) ? startEdit : undefined}
-                                    editing={item.id === editing ? editingRow : undefined}
-                                  />
-                                </>
-                              );
-                            }}
-                            ListHeaderComponent={
-                              chat.hasEarlier ? (
-                                <Earlier
-                                  failed={chat.earlier === 'failed'}
-                                  loading={chat.earlier === 'loading'}
-                                  onRetry={session.loadEarlier}
-                                />
-                              ) : state.earlierLost ? (
-                                <EarlierLost />
-                              ) : null
-                            }
-                            ListFooterComponent={
-                              <>
-                                {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
-                                {activity ? <Activity provider={provider} label={activity} since={chat.turnSince} /> : null}
-                                <Trouble
-                                  state={state}
-                                  provider={provider}
-                                  hostName={hostName}
-                                  connection={connection}
-                                  session={session}
-                                  canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
-                                  onStartOver={startOver}
-                                />
-                                {questions.answered.map((question) => (
-                                  <AnsweredQuestion
-                                    key={question.id}
-                                    own={question.agentId === agentId}
-                                    asker={question.name}
-                                    cli={question.cli}
-                                    question={question.asked}
-                                    answer={question.answer ?? ''}
-                                    secret={question.secret}
-                                  />
-                                ))}
-                                <QuestionDock
-                                  questions={questions}
-                                  canAnswer={!watchOnly}
-                                  onWrite={(question) => {
-                                    questions.write(question);
-                                    input.current?.focus();
-                                  }}
-                                />
-                                {questions.assumed.map((question) => (
-                                  <AssumedQuestion
-                                    key={question.id}
-                                    question={question}
-                                    canAnswer={!watchOnly}
-                                    onFine={() => void questions.answer(question, { fine: true })}
-                                    onChange={() => {
-                                      questions.write(question);
-                                      input.current?.focus();
-                                    }}
-                                  />
-                                ))}
-                              </>
-                            }
-                            contentContainerStyle={styles.content}
-                            {...scroll.listProps}
-                            renderScrollComponent={renderScrollComponent}
-                            keyboardDismissMode="interactive"
-                            keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
-                          />
-                        </MaskedView>
-                        {scroll.away ? (
-                          <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
-                            <Pressable
-                              onPress={scroll.toEnd}
-                              style={styles.jump}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                              accessibilityLabel="Jump to latest message">
-                              <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
-                            </Pressable>
-                          </KeyboardStickyView>
-                        ) : null}
-                      </View>
-                    </ToolDetailContext>
-                  </SubagentsContext>
-                </FoldsContext>
+                                }
+                                contentContainerStyle={styles.content}
+                                {...scroll.listProps}
+                                renderScrollComponent={renderScrollComponent}
+                                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                                keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
+                              />
+                            </MaskedView>
+                            {scroll.away ? (
+                              <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
+                                <Pressable
+                                  onPress={scroll.toEnd}
+                                  style={styles.jump}
+                                  hitSlop={8}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={t('Jump to latest message')}>
+                                  <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
+                                </Pressable>
+                              </KeyboardStickyView>
+                            ) : null}
+                            {nowCard}
+                          </View>
+                        </ToolDetailContext>
+                      </SubagentsContext>
+                    </FoldsContext>
+                  </ActsContext>
+                </ChiefContext>
               </AgentContext>
             </ProviderContext>
           </HostContext>
@@ -529,21 +505,25 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   running={state.running && !chat.stoppingTurn}
                   steers={steers}
                   model={state.model}
+                  modelsUnread={state.connection === 'ready' ? undefined : state.modelsUnread}
                   effort={state.effort}
+                  speed={state.speed}
                   usage={state.usage}
+                  expiredCache={chat.expiredCache}
                   commands={state.commands}
                   requests={chat.permissions}
                   answering={chat.answering}
-                  placeholder={
-                    composing
-                      ? `Answer ${composing.name}`
-                      : composerPlaceholder(state, {
-                          resuming: false,
-                          disconnected: live.status !== 'open',
-                          commands: state.commands.length > 0,
-                          steers,
-                        })
-                  }
+                  placeholder={composerPlaceholder(
+                    state,
+                    {
+                      resuming: false,
+                      disconnected: live.status !== 'open',
+                      commands: state.commands.length > 0,
+                      steers,
+                      to: composerTo,
+                    },
+                    t,
+                  )}
                   permissionMode={chat.permissionMode ?? ''}
                   modeLocked={state.running || chat.permissions.length > 0 || state.connection !== 'ready' || live.status !== 'open'}
                   watchOnly={watchOnly}
@@ -552,18 +532,11 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   onSent={scroll.toEnd}
                   attachments={chat.attachments}
                   chips={chat.chips}
+                  held={dock}
                   strip={strip}
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}
-                  question={
-                    composing && {
-                      name: composing.name,
-                      cli: composing.cli,
-                      text: composing.text,
-                      onRemove: questions.stopComposing,
-                      onAnswer: (text) => questions.hold(composing, text, () => session.setDraft(text)),
-                    }
-                  }
+                  place={place}
                 />
               )}
             </HostContext>
@@ -586,6 +559,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
           scroll.toEnd();
         }}
         onDrop={session.dropQueued}
+        onSendGuest={session.sendGuest}
+        onDismissGuest={session.dismissGuest}
+        onLeaveOutHandoff={session.dropHandoff}
       />
       <RecentSheet
         visible={recent}
@@ -605,6 +581,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         hostName={hostName}
         onFind={chat.attached === 'live' ? openFind : undefined}
         onRecent={recalls ? openRecent : undefined}
+        onAway={watchOnly || !listed ? undefined : () => setAway(true)}
         onStop={
           watchOnly || chat.attached !== 'live'
             ? undefined
@@ -615,6 +592,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
               }
         }
       />
+      <AwaySheet core={core} shown={away ? listed : undefined} onClose={() => setAway(false)} onDone={goBack} />
     </Screen>
   );
   return <FindingContext value={finding}>{screen}</FindingContext>;
@@ -647,34 +625,5 @@ const makeStyles = (colors: Palette) => {
     missing: { gap: 16, paddingHorizontal: 18, paddingVertical: 24 },
     bottomStatus: { borderTopWidth: 1, borderTopColor: colors.border },
     gone: { ...type.meta, textAlign: 'center' },
-    reconnect: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      marginHorizontal: 10,
-      marginTop: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.overlay,
-    },
-    reconnectText: { flex: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
-    reconnectTry: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.ink },
-    notice: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 9,
-      marginHorizontal: 10,
-      marginTop: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.overlay,
-    },
-    noticeText: { flex: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
   });
 };

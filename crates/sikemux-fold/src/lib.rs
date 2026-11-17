@@ -1,14 +1,21 @@
 //! A chat folded from what its agent says into the rows clients draw. The
 //! events go in as the core's feed keeps them; what changed goes out at each
-//! flush as [`sikemux_wire::chat::ChatChange`]s, so a client never reads an
+//! flush as [`sikemux_view::chat::ChatChange`]s, so a client never reads an
 //! agent's own messages and a streamed token costs only itself.
 
+mod ended;
 mod event;
 mod find;
 pub mod pickers;
 mod prompt;
+pub use prompt::{is_agent_letter, sent_spans, SentNames};
+mod kinds;
+mod left_out;
+mod own;
 mod row;
 mod send;
+mod servers;
+mod team;
 #[cfg(test)]
 mod tests;
 mod tool_rows;
@@ -23,29 +30,60 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use sikemux_markdown::paths::is_image_path;
 use sikemux_markdown::Doc;
 use sikemux_wire::protocol::PermissionMode;
 
-use sikemux_wire::chat::{
-    AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
-    ChatDraft, ChatFailure, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger, ContentBlock,
-    ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState, PermissionAsk,
-    PermissionKind, PermissionOption, PlanEntry, QueuedMessage, Retrying, SentContext,
-    SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage,
-    ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
+use sikemux_view::chat::{
+    AccountMove, AgentLetter, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo,
+    ChatConnection, ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole,
+    ChatTrigger, ChiefAway, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks,
+    FailureKind, GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity,
+    NoticeState, OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
+    QueuedMessage, RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason,
+    SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail,
+    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
+use sikemux_view::shown::{ResultRow, TurnShown};
+use sikemux_view::turn::TurnState;
 use tools::WithRow;
 
 pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
+pub use left_out::restored_parts;
 pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
-use update::stamped_at;
+pub use team::AgentNeed;
 pub use update::UpdateKind;
+use update::{finished_compaction, stamped_at};
 
-/// Whether a call is one of our gestures, such as a reaction, which a chat shows
-/// only by what it did.
-pub fn is_gesture(title: &str) -> bool {
-    tools::is_gesture(title)
+fn plan_entries(update: &Value) -> Option<Vec<PlanEntry>> {
+    let entries = update.get("entries")?.as_array()?;
+    Some(
+        (entries.iter())
+            .filter_map(|entry| PlanEntry::deserialize(entry).ok())
+            .filter_map(|entry| {
+                let content = entry.content.trim();
+                (!content.is_empty()).then(|| PlanEntry {
+                    content: content.to_owned(),
+                    ..entry.clone()
+                })
+            })
+            .collect(),
+    )
+}
+
+/// The steps the agent plans, when an event of `kind` is a plan the agent just said, for a reader
+/// that keeps no fold. Only a live event's one update is looked at, by its kind alone, so the
+/// streamed text around it costs a field read each.
+pub fn plan_in(kind: ChatEventKind, payload: &Value) -> Option<Vec<PlanEntry>> {
+    if !matches!(kind, ChatEventKind::SessionUpdate) {
+        return None;
+    }
+    let update = payload.get("update")?;
+    if update.get("sessionUpdate")?.as_str()? != "plan" {
+        return None;
+    }
+    plan_entries(update)
 }
 
 /// The change a call made and what it printed, from everything said of it.
@@ -62,12 +100,22 @@ pub fn detail_of(raw: &Map<String, Value>, work: Option<(&Path, &Place)>) -> Too
 /// path the agent gave and that text; none unless it is there exactly once.
 pub type Place = std::sync::Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>;
 
+/// The agents a chat's calls reach, as the core knows them.
+pub trait AgentBook: Send + Sync {
+    /// The id and name of the agent a call named, by its id, its name or its session.
+    fn called(&self, named: &str) -> Option<(String, String)>;
+    /// The id and name of the worker this chat's agent is starting for the task titled `task`.
+    fn hired(&self, task: &str) -> Option<(String, String)>;
+    /// The model the agent runs on, once it has started.
+    fn model(&self, agent_id: &str) -> Option<String>;
+}
+
+pub type Agents = std::sync::Arc<dyn AgentBook>;
+
 /// A picture bigger than the transcript can reasonably hold onto is kept by
 /// name instead of by its bytes: the row still says what it was.
 const MAX_IMAGE_DATA_CHARS: usize = 2 * 1024 * 1024;
 const MAX_COMMANDS: usize = 256;
-/// An agent reacting more than this to one message is noise.
-const MAX_REACTIONS: usize = 3;
 
 /// What streamed into an answer and when, which its speed is worked out from.
 #[derive(Clone, Copy, Default)]
@@ -100,7 +148,6 @@ struct Row {
     /// What a message to the agent held as it came, before its context and
     /// letters were read out of it.
     raw: Vec<ChatPart>,
-    /// The context it was sent with.
     sent_context: Vec<SentContext>,
     stream: Option<Stream>,
     sides: Vec<Side>,
@@ -120,6 +167,7 @@ impl Row {
                 prompt_id: None,
                 parts: Vec::new(),
                 attachments: Vec::new(),
+                spans: Vec::new(),
                 context: Vec::new(),
                 letters: Vec::new(),
                 sent_at: None,
@@ -127,8 +175,11 @@ impl Row {
                 opens_turn: None,
                 meta: None,
                 fold: None,
+                team: None,
                 from_event: Some(index),
-                reactions: Vec::new(),
+                chips: Vec::new(),
+                left_out: Vec::new(),
+                ask: None,
             },
             index,
             v: 0,
@@ -169,6 +220,13 @@ impl Row {
     }
 }
 
+/// A GIF the reply asked for, by the event that holds its place, and what came after it.
+struct GifWait {
+    slot: u64,
+    within: Within,
+    after: Vec<(u64, ChatEventKind, Value, u64)>,
+}
+
 /// The rows of the chat itself or of one subagent.
 #[derive(Default)]
 struct Transcript {
@@ -181,6 +239,14 @@ struct Transcript {
     bytes: usize,
     /// The number of the change it takes in now.
     now: u64,
+    /// The person's ask the turn now running answers, which each row it opens carries.
+    ask: Option<u64>,
+}
+
+/// The event that opened the row `id`, as [`Transcript::next_id`] names rows.
+pub fn row_event(id: &str) -> Option<u64> {
+    let index = id.strip_prefix('m')?;
+    index.split('.').next()?.parse().ok()
 }
 
 impl Transcript {
@@ -216,7 +282,8 @@ impl Transcript {
         }
     }
 
-    fn push(&mut self, row: Row) -> usize {
+    fn push(&mut self, mut row: Row) -> usize {
+        row.msg.ask = self.ask;
         self.rows.push(row);
         let at = self.rows.len() - 1;
         self.touch(at);
@@ -225,6 +292,7 @@ impl Transcript {
 }
 
 /// Where a tool call's part is, and while it runs, everything said of it.
+#[derive(Clone)]
 struct ToolPlace {
     within: Option<String>,
     row: String,
@@ -277,24 +345,30 @@ impl Details {
     }
 }
 
-/// Where a subagent's card is.
 struct CardPlace {
     within: Option<String>,
     row: String,
     part: usize,
 }
 
-/// A chat as the core folds it.
 pub struct Fold {
     head: ChatHead,
     main: Transcript,
     subs: HashMap<String, Transcript>,
     cards: HashMap<String, CardPlace>,
     tools: HashMap<(Option<String>, String), ToolPlace>,
-    /// Gesture calls by id: what has come of one still running, or nothing once it has finished.
-    gestures: HashMap<(Option<String>, String), Option<Raw>>,
+    /// The GIF the reply asked for that has not come yet, and what the reply said after it,
+    /// which waits for it so the GIF shows where it was asked for.
+    gif_waits: Option<GifWait>,
+    /// GIFs that stopped being waited for, by the event that held their place, and where each
+    /// goes should it come.
+    late_gifs: HashMap<u64, Within>,
     details: Details,
     notices: HashSet<String>,
+    /// The line of ended tasks in the turn now running, by its row and part.
+    turn_tasks: Option<(String, usize)>,
+    /// The compactions already counted, as an agent may say one has finished more than once.
+    compacted: HashSet<String>,
     suppress_user_echo: bool,
     /// Head fields changed since the last flush.
     head_dirty: BTreeSet<&'static str>,
@@ -302,6 +376,8 @@ pub struct Fold {
     dropped: Option<String>,
     /// The main rows from this position on may have new folds or meta.
     settle_from: Option<usize>,
+    /// What other agents need of the person now, and the run that says so for each.
+    needs: team::Needs,
     /// The number of the change it takes in now.
     seq: u64,
     /// The change that last said whether a turn runs.
@@ -313,9 +389,24 @@ pub struct Fold {
     folder: Option<PathBuf>,
     /// Where a finished edit's lines sit in its file, so they carry the file's numbers.
     place: Option<Place>,
+    agents: Option<Agents>,
+    /// The label each process run was started under, by its id, so a row names a run by it.
+    runs: HashMap<String, String>,
     /// How many bytes each row's JSON is as a client opening the chat is sent it, by row id,
     /// with the change it was measured at.
     sent_bytes: RefCell<HashMap<String, (u64, usize)>>,
+    /// Decisions the agent recorded during the running turn, which go under its reply when the
+    /// turn ends, as part of it, by the event that brought each and when it came.
+    decided_in_turn: Vec<(u64, Option<u64>, AgentNotice)>,
+}
+
+/// A call's row worked out afresh, still counting the calls it stands for.
+fn same_times(
+    held: &sikemux_view::chat::ToolCall,
+    mut call: sikemux_view::chat::ToolCall,
+) -> sikemux_view::chat::ToolCall {
+    call.row.times = held.row.times;
+    call
 }
 
 const TEXT_PART: &str = "text";
@@ -395,7 +486,14 @@ fn context_usage(update: &Value) -> Option<ContextUsage> {
             currency: text_of(cost.get("currency"))?.to_owned(),
         })
     });
-    Some(ContextUsage { used, size, cost })
+    let compact_at = (update.get("compactAt").and_then(Value::as_f64))
+        .filter(|at| at.is_finite() && *at > 0.0 && *at < size);
+    Some(ContextUsage {
+        used,
+        size,
+        compact_at,
+        cost,
+    })
 }
 
 /// An agent says it is retrying as a warning-level failure, in the same shape
@@ -411,6 +509,10 @@ fn retry_of(update: &Value) -> Option<Retrying> {
             .and_then(Value::as_u64)
             .filter(|attempt| *attempt > 0),
         connection: text_of(notice.get("category")) == Some("connection"),
+        reason: text_of(notice.get("title"))
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_owned),
     })
 }
 
@@ -419,6 +521,7 @@ fn failure_of(payload: &Value) -> Option<ChatFailure> {
     let kind = match text_of(failure.get("kind"))? {
         "signIn" => FailureKind::SignIn,
         "limit" => FailureKind::Limit,
+        "payment" => FailureKind::Payment,
         "network" => FailureKind::Network,
         "other" => FailureKind::Other,
         _ => return None,
@@ -430,6 +533,7 @@ fn failure_of(payload: &Value) -> Option<ChatFailure> {
             .map(str::to_owned),
         account: text_of(failure.get("account")).map(str::to_owned),
         resumes_at: None,
+        carry_on_with: None,
     })
 }
 
@@ -512,10 +616,10 @@ fn queued_of(value: Option<&Value>) -> Vec<QueuedMessage> {
                     items
                         .iter()
                         .filter_map(|item| {
-                            Some(SentContext {
-                                uri: text_of(item.get("uri"))?.to_owned(),
-                                title: text_of(item.get("title"))?.to_owned(),
-                            })
+                            Some(SentContext::new(
+                                text_of(item.get("uri"))?.to_owned(),
+                                text_of(item.get("title"))?.to_owned(),
+                            ))
                         })
                         .collect()
                 })
@@ -542,7 +646,6 @@ fn workflow_agents(value: &Value) -> Option<Vec<WorkflowAgent>> {
 
 /// Which transcript an update lands in: the chat's own, or a subagent's.
 type Within = Option<String>;
-type Raw = Map<String, Value>;
 
 impl Fold {
     /// Makes the paths the agent names whole against `folder`, and numbers the lines of
@@ -550,6 +653,35 @@ impl Fold {
     pub fn work_in(&mut self, folder: PathBuf, place: Place) {
         self.folder = Some(folder);
         self.place = Some(place);
+    }
+
+    pub fn know_agents(&mut self, agents: Agents) {
+        self.agents = Some(agents);
+    }
+
+    /// Names again the agents the running calls reach, as one the core has just hired.
+    pub fn rename_agents(&mut self) {
+        let running: Vec<(ToolPlace, Map<String, Value>)> = (self.tools.values())
+            .filter_map(|place| Some((place.clone(), place.raw.clone()?)))
+            .collect();
+        for (place, raw) in running {
+            let call = self.shown_call(&raw);
+            if call.row.agents.is_empty() {
+                continue;
+            }
+            self.replace_tool(&place.within, &place.row, place.part, |part| {
+                if let ChatPart::Tool { tool, .. } = part {
+                    *tool = same_times(tool, call);
+                }
+            });
+        }
+    }
+
+    /// A call made whole for its row: its paths against the chat's folder, its agents by name.
+    fn settled_call(&self, call: sikemux_view::chat::ToolCall) -> sikemux_view::chat::ToolCall {
+        let mut call = tools::root_call(self.folder.as_deref(), call);
+        row::name_agents(&mut call, self.agents.as_ref());
+        call
     }
 
     pub fn new(permission_mode: PermissionMode) -> Self {
@@ -564,19 +696,26 @@ impl Fold {
             subs: HashMap::new(),
             cards: HashMap::new(),
             tools: HashMap::new(),
-            gestures: HashMap::new(),
+            gif_waits: None,
+            late_gifs: HashMap::new(),
             details: Details::default(),
             notices: HashSet::new(),
+            turn_tasks: None,
+            compacted: HashSet::new(),
             suppress_user_echo: false,
             head_dirty: BTreeSet::new(),
             dropped: None,
             settle_from: None,
+            needs: team::Needs::default(),
             seq: 1,
             running_v: 0,
             offers_effort: false,
             folder: None,
             place: None,
+            agents: None,
+            runs: HashMap::new(),
             sent_bytes: RefCell::default(),
+            decided_in_turn: Vec::new(),
         }
     }
 
@@ -587,11 +726,10 @@ impl Fold {
         self.read_pickers();
     }
 
-    /// The head's model and effort pickers, read from the session's options.
     fn read_pickers(&mut self) {
         let (model, mut effort) = pickers::pickers(&self.head.setup["configOptions"]);
         if effort.is_none() && self.offers_effort {
-            effort = Some(sikemux_wire::protocol::ConfigPicker {
+            effort = Some(sikemux_view::workspace::ConfigPicker {
                 id: "effort".into(),
                 current: String::new(),
                 choices: Vec::new(),
@@ -604,6 +742,16 @@ impl Fold {
         if self.head.effort != effort {
             self.head.effort = effort;
             self.set_head("effort");
+        }
+        let speed = pickers::speed(&self.head.setup["configOptions"]);
+        if self.head.speed != speed {
+            self.head.speed = speed;
+            self.set_head("speed");
+        }
+        let session_mode = pickers::session_mode(&self.head.setup["configOptions"]);
+        if self.head.session_mode != session_mode {
+            self.head.session_mode = session_mode;
+            self.set_head("sessionMode");
         }
     }
 
@@ -641,18 +789,32 @@ impl Fold {
         }
     }
 
+    /// The person's ask that the turn the next events start inside of answers, when they start
+    /// past the prompt that opened it.
+    pub fn answering(&mut self, ask: Option<u64>) {
+        self.main.ask = ask;
+    }
+
     pub fn set_running(&mut self, running: bool) {
         if self.head.running != running {
+            if !running {
+                self.place_decided();
+            }
             self.head.running = running;
             self.set_head("running");
             self.settle_last_run();
         }
+        if running {
+            self.drop_suggestion();
+        }
     }
 
-    pub fn set_setup(&mut self, setup: &Value) {
-        self.head.setup = setup.clone();
-        self.set_head("setup");
-        self.read_pickers();
+    /// The models and efforts the session offers, on the ones it runs.
+    pub fn config_options(&self) -> Option<&Value> {
+        self.head
+            .setup
+            .get("configOptions")
+            .filter(|options| options.is_array())
     }
 
     pub fn set_config_options(&mut self, options: Value) {
@@ -671,6 +833,13 @@ impl Fold {
         self.set_head("queued");
     }
 
+    pub fn set_guests(&mut self, guests: Vec<GuestMessage>) {
+        if self.head.guests != guests {
+            self.head.guests = guests;
+            self.set_head("guests");
+        }
+    }
+
     pub fn set_triggers(&mut self, triggers: Vec<ChatTrigger>) {
         if self.head.triggers != triggers {
             self.head.triggers = triggers;
@@ -682,6 +851,97 @@ impl Fold {
         if self.head.draft != draft {
             self.head.draft = draft;
             self.set_head("draft");
+        }
+    }
+
+    pub fn set_chief_hears(&mut self, chief: Option<String>) {
+        if self.head.chief_hears != chief {
+            self.head.chief_hears = chief;
+            self.set_head("chiefHears");
+        }
+    }
+
+    pub fn set_away(&mut self, away: Option<ChiefAway>) {
+        if self.head.away != away {
+            self.head.away = away;
+            self.set_head("away");
+        }
+    }
+
+    pub fn set_chief(&mut self, chief: bool) {
+        if self.head.chief != chief {
+            self.head.chief = chief;
+            self.set_head("chief");
+        }
+    }
+
+    pub fn set_shown(&mut self, shown: Vec<TurnShown>, results: Vec<ResultRow>) {
+        if self.head.shown != shown {
+            self.head.shown = shown;
+            self.set_head("shown");
+        }
+        if self.head.results != results {
+            self.head.results = results;
+            self.set_head("results");
+        }
+    }
+
+    pub fn set_turn(&mut self, turn: Option<TurnState>) {
+        if self.head.turn != turn {
+            self.head.turn = turn;
+            self.set_head("turn");
+        }
+    }
+
+    /// What the next message hands over. A chat handed to another agent has moved on from the
+    /// turn its old agent failed.
+    pub fn set_handoff(&mut self, handoff: Option<sikemux_view::chat::Handoff>) {
+        if handoff.is_some() && (self.head.error.is_some() || self.head.failure.is_some()) {
+            self.head.error = None;
+            self.head.failure = None;
+            self.set_head("error");
+            self.set_head("failure");
+        }
+        if self.head.handoff != handoff {
+            self.head.handoff = handoff;
+            self.set_head("handoff");
+        }
+    }
+
+    pub fn set_expired_cache(&mut self, expired: Option<sikemux_view::chat::ExpiredCache>) {
+        if self.head.expired_cache != expired {
+            self.head.expired_cache = expired;
+            self.set_head("expiredCache");
+        }
+    }
+
+    pub fn set_goal(&mut self, goal: Option<ChatGoal>) {
+        if self.head.goal != goal {
+            self.head.goal = goal;
+            self.set_head("goal");
+        }
+    }
+
+    /// A sent message read before the agent named its commands may have named one.
+    fn read_sent_again(&mut self) {
+        for at in 0..self.main.rows.len() {
+            let row = &mut self.main.rows[at];
+            let sent = row.msg.role == ChatRole::User
+                && (row.raw.iter())
+                    .any(|part| matches!(part, ChatPart::Text { text, .. } if text.contains('/')));
+            if !sent {
+                continue;
+            }
+            let before = std::mem::take(&mut row.msg.spans);
+            let was_fresh = row.fresh;
+            read_sent(row, &self.head.commands);
+            let row = &mut self.main.rows[at];
+            if row.msg.spans == before {
+                row.fresh = was_fresh;
+            } else {
+                self.main.touch(at);
+                self.note_main_change(&None, at);
+            }
         }
     }
 
@@ -728,8 +988,40 @@ impl Fold {
     /// Takes in one event the feed kept, `index` its place in the chat's
     /// history, `at` when it happened.
     pub fn apply(&mut self, index: u64, kind: ChatEventKind, payload: &Value, at: u64) {
+        self.take_in(index, kind, payload, at);
+        if self.head.running {
+            self.drop_suggestion();
+        }
+    }
+
+    fn drop_suggestion(&mut self) {
+        if self.head.suggestion.take().is_some() {
+            self.set_head("suggestion");
+        }
+    }
+
+    fn take_in(&mut self, index: u64, kind: ChatEventKind, payload: &Value, at: u64) {
+        if let Some(wait) = self.gif_waits.as_mut() {
+            match kind {
+                ChatEventKind::SessionUpdate => {
+                    wait.after.push((index, kind, payload.clone(), at));
+                    return;
+                }
+                ChatEventKind::Gif if payload.get("ask").is_some() => {
+                    wait.after.push((index, kind, payload.clone(), at));
+                    return;
+                }
+                ChatEventKind::Gif
+                | ChatEventKind::Status
+                | ChatEventKind::Sourced
+                | ChatEventKind::PermissionRequest => {}
+                _ => self.stop_waiting_for_gif(),
+            }
+        }
         match kind {
+            ChatEventKind::Gif => self.gif(index, payload),
             ChatEventKind::Status => self.status(payload, at),
+            ChatEventKind::Sourced => self.sourced(payload),
             ChatEventKind::Ready => {
                 self.head.connection = ChatConnection::Ready;
                 if let Some(capabilities) = payload
@@ -777,6 +1069,7 @@ impl Fold {
             ChatEventKind::Prompt => self.prompted(index, payload, at),
             ChatEventKind::TurnStarted => {
                 let at = payload.get("at").and_then(Value::as_u64);
+                self.turn_tasks = None;
                 self.head.running = true;
                 self.head.turn_opening = Some(TurnStart { at });
                 self.head.retrying = None;
@@ -795,16 +1088,14 @@ impl Fold {
                 }
             }
             ChatEventKind::TurnCompleted => {
-                let stop = payload
-                    .get("stopReason")
-                    .and_then(|reason| StopReason::deserialize(reason).ok());
+                let stop = update::stop_reason(payload);
                 let at = payload.get("at").and_then(Value::as_u64).unwrap_or(at);
                 self.end_turn(stop, at);
             }
             ChatEventKind::PermissionRequest => {
                 if let Some(mut ask) = permission_ask(payload) {
+                    ask.tool_call = self.settled_call(ask.tool_call);
                     let folder = self.folder.as_deref();
-                    ask.tool_call = tools::root_call(folder, ask.tool_call);
                     if let Some(diff) = ask.diff.as_mut() {
                         diff.path = tools::rooted(folder, std::mem::take(&mut diff.path));
                     }
@@ -815,10 +1106,21 @@ impl Fold {
                     self.set_head("permissions");
                 }
             }
+            ChatEventKind::Error if !update::ends_turn(ChatEventKind::Error, payload) => {
+                self.head.error = Some(
+                    text_of(payload.get("message"))
+                        .unwrap_or("The agent stopped.")
+                        .to_owned(),
+                );
+                self.head.failure = failure_of(payload);
+                self.set_head("error");
+                self.set_head("failure");
+            }
             ChatEventKind::Error => {
                 if self.head.connection != ChatConnection::Ready {
                     self.head.connection = ChatConnection::Error;
                 }
+                self.place_decided();
                 self.head.running = false;
                 self.head.retrying = None;
                 self.head.permissions.clear();
@@ -855,6 +1157,7 @@ impl Fold {
         let ended = matches!(state, ChatConnection::Stopped | ChatConnection::Error);
         if ended {
             self.settle_transcript(&None, at, false);
+            self.place_decided();
             self.head.running = false;
             self.head.permissions.clear();
             self.head.tasks.clear();
@@ -896,6 +1199,7 @@ impl Fold {
                     .collect()
             })
             .unwrap_or_default();
+        self.main.ask = payload.get("ask").and_then(Value::as_u64);
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::User, index);
         row.local = true;
@@ -909,10 +1213,11 @@ impl Fold {
                 items
                     .iter()
                     .filter_map(|item| {
-                        Some(SentContext {
-                            uri: text_of(item.get("uri"))?.to_owned(),
-                            title: text_of(item.get("title"))?.to_owned(),
-                        })
+                        let sent = SentContext::new(
+                            text_of(item.get("uri"))?.to_owned(),
+                            text_of(item.get("title"))?.to_owned(),
+                        );
+                        Some(sent.with_text(text_of(item.get("quote")).unwrap_or_default()))
                     })
                     .collect()
             })
@@ -925,7 +1230,7 @@ impl Fold {
                 cut_bytes: None,
             });
         }
-        read_sent(&mut row);
+        read_sent(&mut row, &self.head.commands);
         let at = self.main.push(row);
         self.note_main_change(&None, at);
         self.suppress_user_echo = true;
@@ -969,6 +1274,8 @@ impl Fold {
         self.head.stop_reason = None;
         self.set_head("plan");
         self.set_head("stopReason");
+        self.drop_suggestion();
+        self.needs_moved();
         self.settle_from = Some(
             self.settle_from
                 .map_or(at, |from| from.min(at))
@@ -1041,6 +1348,9 @@ impl Fold {
             .turn_opening
             .clone()
             .or_else(|| replayed_turn_start(update));
+        if let Some(id) = finished_compaction(update) {
+            self.count_compaction(id, stamped_at(update).unwrap_or(at));
+        }
         let rows = self.main.rows.len();
         let timed = self.head.running;
         if self.transcript_update(index, &None, update, timed, opening.is_some(), at, until) {
@@ -1101,29 +1411,29 @@ impl Fold {
             }
             UpdateKind::Notice => self.agent_notice(index, update),
             UpdateKind::Plan => {
-                self.head.plan = update
-                    .get("entries")
-                    .and_then(Value::as_array)
-                    .map(|entries| {
-                        entries
-                            .iter()
-                            .filter_map(|entry| PlanEntry::deserialize(entry).ok())
-                            .collect()
-                    });
+                self.head.plan = plan_entries(update);
                 self.set_head("plan");
                 self.suppress_user_echo = false;
             }
             UpdateKind::AvailableCommandsUpdate => {
                 self.head.commands = commands_of(update);
                 self.set_head("commands");
+                self.read_sent_again();
             }
             UpdateKind::ConfigOptionUpdate => {
                 self.set_config_options(
                     update.get("configOptions").cloned().unwrap_or(Value::Null),
                 );
+                let unread = failure_of(update);
+                if self.head.models_unread != unread {
+                    self.head.models_unread = unread;
+                    self.set_head("modelsUnread");
+                }
             }
             UpdateKind::UsageUpdate => {
-                if let Some(usage) = context_usage(update) {
+                if let Some(usage) =
+                    context_usage(update).filter(|usage| self.head.usage.as_ref() != Some(usage))
+                {
                     self.head.usage = Some(usage);
                     self.set_head("usage");
                 }
@@ -1140,8 +1450,39 @@ impl Fold {
                     } else {
                         MoveReason::Chosen
                     },
+                    placed: (text_of(update.get("reason")) == Some("placed"))
+                        .then(|| text_of(update.get("why")).map(str::to_owned))
+                        .flatten(),
                 };
+                if moved.placed.is_some() {
+                    self.head.placed = Some(moved);
+                    self.set_head("placed");
+                    return;
+                }
+                if self.head.placed.take().is_some() {
+                    self.set_head("placed");
+                }
+                if self.head.error.is_some() || self.head.failure.is_some() {
+                    self.head.error = None;
+                    self.head.failure = None;
+                    self.set_head("error");
+                    self.set_head("failure");
+                }
                 self.append_part(index, &None, |id| ChatPart::Account { id, moved }, false);
+            }
+            UpdateKind::SessionRotated => {
+                let Some(rotation) = update
+                    .get("rotation")
+                    .and_then(|rotation| serde_json::from_value(rotation.clone()).ok())
+                else {
+                    return;
+                };
+                self.append_part(
+                    index,
+                    &None,
+                    |id| ChatPart::Rotation { id, rotation },
+                    false,
+                );
             }
             UpdateKind::SessionInfoUpdate => {
                 if let Some(title) = text_of(update.get("title")) {
@@ -1162,8 +1503,26 @@ impl Fold {
                     self.rewind(message);
                 }
             }
+            UpdateKind::PromptSuggestion => {
+                let suggestion = text_of(update.get("suggestion"))
+                    .map(str::trim)
+                    .filter(|suggestion| !suggestion.is_empty());
+                if let Some(suggestion) = suggestion.filter(|_| !self.head.running) {
+                    self.head.suggestion = Some(suggestion.to_owned());
+                    self.set_head("suggestion");
+                }
+            }
             _ => {}
         }
+    }
+
+    fn count_compaction(&mut self, id: &str, at: u64) {
+        if !self.compacted.insert(id.to_owned()) {
+            return;
+        }
+        let count = self.head.compactions.as_ref().map_or(0, |had| had.count) + 1;
+        self.head.compactions = Some(Compactions { count, last_at: at });
+        self.set_head("compactions");
     }
 
     /// History the agent kept says when each part of it happened. A turn
@@ -1281,6 +1640,10 @@ impl Fold {
         until: u64,
     ) {
         let text = text_of(content.get("text"));
+        let commands = match role {
+            ChatRole::User => self.head.commands.clone(),
+            _ => Vec::new(),
+        };
         let Some(transcript) = self.transcript(within) else {
             return;
         };
@@ -1330,7 +1693,7 @@ impl Fold {
                     content: bound_content(content),
                 }),
             }
-            read_sent(row);
+            read_sent(row, &commands);
             transcript.touch(position);
             self.note_main_change(within, position);
             return;
@@ -1340,7 +1703,7 @@ impl Fold {
         while open > 0
             && matches!(
                 row.msg.parts[open],
-                ChatPart::Notice { .. } | ChatPart::AgentNotice { .. }
+                ChatPart::Notice { .. } | ChatPart::Tasks { .. } | ChatPart::AgentNotice { .. }
             )
         {
             open -= 1;
@@ -1397,7 +1760,6 @@ impl Fold {
         self.note_main_change(within, position);
     }
 
-    /// Adds `part` to the agent's last message, or starts one for it.
     fn append_part(
         &mut self,
         index: u64,
@@ -1437,12 +1799,7 @@ impl Fold {
         let id = text_of(update.get("toolCallId"))
             .unwrap_or_default()
             .to_owned();
-        let key = (within.clone(), id.clone());
-        if self.gestures.contains_key(&key)
-            || text_of(update.get("title")).is_some_and(tools::is_gesture)
-        {
-            return self.gesture(index, within, key, update, merge);
-        }
+        let key = (within.clone(), id);
         if let Some(place) = self.tools.get_mut(&key) {
             let patch = update.iter().filter(|(key, value)| {
                 !(value.is_null() || key.as_str() == "title" && value.as_str() == Some(""))
@@ -1469,10 +1826,10 @@ impl Fold {
             let running = tools::running(text_of(raw.get("status")));
             if running {
                 self.tools.get_mut(&key).expect("held").raw = Some(raw.clone());
-                let call = tools::root_call(self.folder.as_deref(), tools::call(&raw));
+                let call = self.shown_call(&raw);
                 self.replace_tool(&within, &row, part, |part| {
                     if let ChatPart::Tool { tool, .. } = part {
-                        *tool = call;
+                        *tool = same_times(tool, call);
                     }
                 });
             } else {
@@ -1491,23 +1848,27 @@ impl Fold {
         let ended = !tools::running(text_of(update.get("status")));
         // Reloading a session replays its whole history at once, so a call
         // already finished the first time this side sees it never ran here.
-        let call = tools::root_call(self.folder.as_deref(), tools::call(update));
-        let Some((row, part)) = self.append_part(
-            index,
-            within,
-            |id| ChatPart::Tool {
-                id,
-                tool: call,
-                diff: None,
-                output: None,
-                page: None,
-                gif: None,
-                failure: None,
-                started_at: (!ended).then_some(at),
-                ended_at: None,
-            },
-            fresh,
-        ) else {
+        let call = self.shown_call(update);
+        let joined = self.join_repeated_wait(within, &call, fresh);
+        let Some((row, part)) = joined.or_else(|| {
+            self.append_part(
+                index,
+                within,
+                |id| ChatPart::Tool {
+                    id,
+                    tool: call,
+                    diff: None,
+                    output: None,
+                    page: None,
+                    app: None,
+                    gif: None,
+                    failure: None,
+                    started_at: (!ended).then_some(at),
+                    ended_at: None,
+                },
+                fresh,
+            )
+        }) else {
             return false;
         };
         self.tools.insert(
@@ -1525,74 +1886,177 @@ impl Fold {
         true
     }
 
-    /// A gesture shows nothing while it runs, and once it has finished only what it did.
-    fn gesture(
-        &mut self,
-        index: u64,
-        within: &Within,
-        key: (Within, String),
-        update: &Map<String, Value>,
-        merge: bool,
-    ) -> bool {
-        let slot = self.gestures.entry(key).or_insert_with(|| Some(Map::new()));
-        let Some(held) = slot.as_mut() else {
-            return false;
-        };
-        if !merge {
-            held.clear();
+    /// A GIF the reply asked for holds its place, or one asked for came, or could not be found.
+    fn gif(&mut self, index: u64, payload: &Value) {
+        if let Some(session) = text_of(payload.get("sessionId")) {
+            let main = self.head.session_id.as_deref() == Some(session);
+            let within = (!main && self.subs.contains_key(session)).then(|| session.to_owned());
+            self.gif_waits = Some(GifWait {
+                slot: index,
+                within,
+                after: Vec::new(),
+            });
+            return;
         }
-        for (field, value) in update {
-            if !value.is_null() {
-                held.insert(field.clone(), value.clone());
+        let Some(slot) = payload.get("slot").and_then(Value::as_u64) else {
+            return;
+        };
+        let gif = payload
+            .get("gif")
+            .and_then(|gif| GifRef::deserialize(gif).ok())
+            .filter(|gif| gif.url.starts_with("https://"));
+        let waited = self.gif_waits.take_if(|wait| wait.slot == slot);
+        let within = match &waited {
+            Some(wait) => Some(wait.within.clone()),
+            None => self.late_gifs.remove(&slot),
+        };
+        if let (Some(within), Some(gif)) = (within, gif) {
+            let replying = waited.is_some()
+                || self.transcript(&within).is_some_and(|transcript| {
+                    (transcript.rows.last())
+                        .is_some_and(|row| row.msg.role == ChatRole::Assistant && !row.local)
+                });
+            if replying {
+                self.show_gif(index, &within, slot, gif);
             }
         }
-        if tools::running(text_of(held.get("status"))) {
-            return false;
-        }
-        let Some(raw) = slot.take() else {
-            return false;
-        };
-        match tools::gesture(&raw) {
-            Some(tools::Gesture::React(emoji)) => self.react(within, emoji),
-            Some(tools::Gesture::Gif(gif)) => {
-                let call = tools::root_call(self.folder.as_deref(), tools::call(&raw));
-                let part = |id| ChatPart::Tool {
-                    id,
-                    tool: call,
-                    diff: None,
-                    output: None,
-                    page: None,
-                    gif: Some(gif),
-                    failure: None,
-                    started_at: None,
-                    ended_at: None,
-                };
-                self.append_part(index, within, part, false).is_some()
-            }
-            None => false,
+        if let Some(wait) = waited {
+            self.go_on_after_gif(wait.after);
         }
     }
 
-    /// Puts `emoji` on the latest message to the agent, the one it is answering.
-    fn react(&mut self, within: &Within, emoji: String) -> bool {
-        let Some(transcript) = self.transcript(within) else {
-            return false;
+    fn show_gif(&mut self, index: u64, within: &Within, slot: u64, gif: GifRef) {
+        let call = ToolCall {
+            tool_call_id: format!("gif-{slot}"),
+            title: "gif".to_owned(),
+            ..ToolCall::default()
         };
-        let Some(position) = transcript
-            .rows
-            .iter()
-            .rposition(|row| row.msg.role == ChatRole::User)
-        else {
-            return false;
-        };
-        let row = &mut transcript.rows[position];
-        if row.msg.reactions.contains(&emoji) || row.msg.reactions.len() >= MAX_REACTIONS {
-            return false;
+        self.append_part(
+            index,
+            within,
+            |id| ChatPart::Tool {
+                id,
+                tool: call,
+                diff: None,
+                output: None,
+                page: None,
+                app: None,
+                gif: Some(gif),
+                failure: None,
+                started_at: None,
+                ended_at: None,
+            },
+            false,
+        );
+    }
+
+    /// Something other than the reply came, such as its turn's end, so what waited for a GIF
+    /// shows now, and the GIF after it should it still come.
+    fn stop_waiting_for_gif(&mut self) {
+        if let Some(wait) = self.gif_waits.take() {
+            self.late_gifs.insert(wait.slot, wait.within);
+            self.go_on_after_gif(wait.after);
         }
-        row.msg.reactions.push(emoji);
-        row.set("reactions");
-        transcript.touch(position);
-        true
+    }
+
+    fn go_on_after_gif(&mut self, after: Vec<(u64, ChatEventKind, Value, u64)>) {
+        let mut after = after.into_iter();
+        while let Some((index, kind, payload, at)) = after.next() {
+            self.take_in(index, kind, &payload, at);
+            if let Some(wait) = self.gif_waits.as_mut() {
+                wait.after.extend(after);
+                return;
+            }
+        }
+    }
+
+    /// What the claims of an answer rest on, from the message a `why` call was made in, at the
+    /// event `from`, to its turn's end at `until`: each text part loses the sentences that rest on
+    /// none of the links the core checked and found, kept beside it as left out, and each message
+    /// carries the chips of the links it still holds. A link the core did not check holds its
+    /// sentence as markup does.
+    fn sourced(&mut self, payload: &Value) {
+        let number = |key: &str| payload.get(key).and_then(Value::as_u64);
+        let (Some(from), Some(until)) = (number("from"), number("until")) else {
+            return;
+        };
+        let chips: Vec<WhyChip> = (payload.get("chips").and_then(Value::as_array))
+            .into_iter()
+            .flatten()
+            .filter_map(|chip| serde_json::from_value(chip.clone()).ok())
+            .collect();
+        let checked: Vec<&str> = (payload.get("checked").and_then(Value::as_array))
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let found = |href: &str| {
+            (href.starts_with(WHY_URI) && checked.contains(&href))
+                .then(|| chips.iter().any(|chip| chip.href == href))
+        };
+        let within = None;
+        let Some(transcript) = self.transcript(&within) else {
+            return;
+        };
+        let first = (transcript.rows.iter())
+            .rposition(|row| row.index <= from)
+            .unwrap_or(0);
+        let answer: Vec<usize> = (first..transcript.rows.len())
+            .filter(|&at| {
+                let row = &transcript.rows[at];
+                row.index <= until && row.msg.role == ChatRole::Assistant
+            })
+            .collect();
+        for &at in &answer {
+            let row = &mut transcript.rows[at];
+            let mut changed = Vec::new();
+            for (part, held) in row.msg.parts.iter_mut().enumerate() {
+                let ChatPart::Text { id, text, .. } = held else {
+                    continue;
+                };
+                let cuts = sikemux_markdown::unsourced(text, found);
+                let mut gone = 0;
+                for (cut, sentences) in &cuts {
+                    row.msg.left_out.push(Unsourced {
+                        part: id.clone(),
+                        at: (cut.start - gone) as u64,
+                        text: text[cut.clone()].to_owned(),
+                        sentences: *sentences as u64,
+                    });
+                    gone += cut.len();
+                }
+                for (cut, _) in cuts.iter().rev() {
+                    text.replace_range(cut.clone(), "");
+                }
+                if !cuts.is_empty() {
+                    changed.push(part);
+                }
+            }
+            let held: Vec<WhyChip> = (chips.iter())
+                .filter(|chip| {
+                    let link = format!("]({})", chip.href);
+                    (row.msg.parts.iter()).any(|part| match part {
+                        ChatPart::Text { text, .. } => text.contains(&link),
+                        _ => false,
+                    })
+                })
+                .cloned()
+                .collect();
+            if !changed.is_empty() {
+                row.set("leftOut");
+            }
+            for part in changed {
+                row.touch_part(part);
+            }
+            if !held.is_empty() {
+                row.msg.chips = held;
+                row.set("chips");
+            }
+            transcript.touch(at);
+        }
+        if let Some(&first) = answer.first() {
+            self.note_main_change(&within, first);
+        }
     }
 
     fn replace_tool(
@@ -1636,7 +2100,10 @@ impl Fold {
             }
             diff.path = tools::rooted(self.folder.as_deref(), std::mem::take(&mut diff.path));
         }
-        let call = tools::root_call(self.folder.as_deref(), tools::call(raw));
+        if let Some((id, label)) = tools::started_run(raw) {
+            self.runs.insert(id, label);
+        }
+        let call = self.shown_call(raw);
         let detail = tools::detail(&settled);
         let id = call.tool_call_id.clone();
         if detail.diff.is_some() || detail.output.is_some() {
@@ -1651,15 +2118,17 @@ impl Fold {
                 diff,
                 output,
                 page,
+                app,
                 failure,
                 ended_at,
                 ..
             } = part
             {
-                *tool = call;
+                *tool = same_times(tool, call);
                 *diff = settled.diff.as_ref().map(tools::summary);
                 *output = settled.output.as_ref().map(tools::output_summary);
                 *page = settled.page;
+                *app = settled.app;
                 *failure = settled.failure;
                 ended_at.get_or_insert(at);
             }
@@ -1674,6 +2143,8 @@ impl Fold {
         patch: &Map<String, Value>,
     ) {
         let folder = self.folder.clone();
+        let agents = self.agents.clone();
+        let runs = self.runs.clone();
         self.replace_tool(within, row, part, |part| {
             let ChatPart::Tool { tool, .. } = part else {
                 return;
@@ -1695,8 +2166,77 @@ impl Fold {
                 tool.raw_input = restated.raw_input;
                 tool.description = restated.description;
             }
-            *tool = tools::root_call(folder.as_deref(), std::mem::take(tool).with_row());
+            let times = tool.row.times;
+            let mut call = std::mem::take(tool).with_row();
+            row::name_run(&mut call, &runs);
+            call.row.times = times;
+            *tool = tools::root_call(folder.as_deref(), call);
+            row::name_agents(tool, agents.as_ref());
         });
+    }
+
+    /// A wait on the same thing as the finished call just before it joins that call's row,
+    /// which counts it, rather than adding a row of its own.
+    fn join_repeated_wait(
+        &mut self,
+        within: &Within,
+        call: &sikemux_view::chat::ToolCall,
+        fresh: bool,
+    ) -> Option<(String, usize)> {
+        if fresh || call.row.verb.as_deref() != Some("wait") {
+            return None;
+        }
+        let last = self.transcript(within)?.rows.last()?;
+        if last.msg.role != ChatRole::Assistant || last.local {
+            return None;
+        }
+        let part = last.msg.parts.len().checked_sub(1)?;
+        let ChatPart::Tool {
+            tool: before,
+            failure: None,
+            gif: None,
+            app: None,
+            ended_at: Some(_),
+            ..
+        } = &last.msg.parts[part]
+        else {
+            return None;
+        };
+        let repeats = before.status == Some(ToolStatus::Completed)
+            && before.title == call.title
+            && before.row.target == call.row.target
+            && before.row.detail == call.row.detail;
+        if !repeats {
+            return None;
+        }
+        let row = last.msg.id.clone();
+        let times = u32::try_from(before.row.calls() + 1).unwrap_or(u32::MAX);
+        let mut call = call.clone();
+        call.row.times = Some(times);
+        self.replace_tool(within, &row, part, |part| {
+            if let ChatPart::Tool {
+                tool,
+                diff,
+                output,
+                page,
+                ended_at,
+                ..
+            } = part
+            {
+                *tool = call;
+                *diff = None;
+                *output = None;
+                *page = None;
+                *ended_at = None;
+            }
+        });
+        Some((row, part))
+    }
+
+    fn shown_call(&self, raw: &Map<String, Value>) -> sikemux_view::chat::ToolCall {
+        let mut call = tools::call(raw);
+        row::name_run(&mut call, &self.runs);
+        self.settled_call(call)
     }
 
     /// A subagent's card counts its calls and names the last one; a change to
@@ -1713,7 +2253,7 @@ impl Fold {
         for row in &sub.rows {
             for part in &row.msg.parts {
                 if let ChatPart::Tool { tool, .. } = part {
-                    calls += 1;
+                    calls += tool.row.calls();
                     last = Some(tool.clone());
                 }
             }
@@ -1837,6 +2377,7 @@ impl Fold {
             tokens: None,
             calls: 0,
             last_tool: None,
+            can_stop: update.get("canStop").and_then(Value::as_bool) == Some(true),
         };
         let Some((row, part)) = self.append_part(
             index,
@@ -1984,18 +2525,67 @@ impl Fold {
         if !self.notices.insert(task.to_owned()) {
             return;
         }
+        if notice.subagent.is_none() {
+            self.add_ended_task(index, notice, at, between);
+            return;
+        }
         if !between {
             self.append_part(index, &None, |id| ChatPart::Notice { id, notice }, false);
             return;
         }
+        self.push_between(index, at, |id| ChatPart::Notice { id, notice });
+    }
+
+    /// A task that ended during a turn joins that turn's line of ended tasks, and one that ended
+    /// while the agent was idle joins the line just before it when nothing came since; otherwise
+    /// it starts a line of its own.
+    fn add_ended_task(&mut self, index: u64, notice: TaskNotice, at: Option<u64>, between: bool) {
+        let turn_tasks = self.turn_tasks.clone();
+        let Some(transcript) = self.transcript(&None) else {
+            return;
+        };
+        let rows = &transcript.rows;
+        let joins = if between {
+            rows.len()
+                .checked_sub(1)
+                .filter(|&last| rows[last].msg.role == ChatRole::Assistant && !rows[last].local)
+                .map(|last| (last, rows[last].msg.parts.len().saturating_sub(1)))
+        } else {
+            turn_tasks.and_then(|(row, part)| Some((transcript.position(&row)?, part)))
+        };
+        let joins = joins.filter(|&(position, part)| {
+            matches!(
+                transcript.rows[position].msg.parts.get(part),
+                Some(ChatPart::Tasks { .. })
+            )
+        });
+        if let Some((position, part)) = joins {
+            let row = &mut transcript.rows[position];
+            if let Some(ChatPart::Tasks { tasks, .. }) = row.msg.parts.get_mut(part) {
+                ended::add(tasks, notice);
+            }
+            row.touch_part(part);
+            transcript.touch(position);
+            self.note_main_change(&None, position);
+            return;
+        }
+        let mut tasks = EndedTasks::default();
+        ended::add(&mut tasks, notice);
+        let part = |id| ChatPart::Tasks { id, tasks };
+        if between {
+            self.push_between(index, at, part);
+        } else {
+            self.turn_tasks = self.append_part(index, &None, part, false);
+        }
+    }
+
+    /// A row of its own between the turns, holding only `part`.
+    fn push_between(&mut self, index: u64, at: Option<u64>, part: impl FnOnce(String) -> ChatPart) {
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::Assistant, index);
         row.msg.opens_turn = Some(TurnStart { at });
         let part_id = row.next_part_id();
-        row.push_part(ChatPart::Notice {
-            id: part_id,
-            notice,
-        });
+        row.push_part(part(part_id));
         let position = self.main.push(row);
         self.note_main_change(&None, position);
     }
@@ -2063,7 +2653,64 @@ impl Fold {
             severity,
             title: title.to_owned(),
             description: text_of(update.get("description")).map(str::to_owned),
+            goal: update
+                .get("goal")
+                .and_then(|goal| serde_json::from_value(goal.clone()).ok()),
+            rule: update
+                .get("rule")
+                .and_then(|rule| serde_json::from_value(rule.clone()).ok()),
+            overruled: update
+                .get("overruled")
+                .and_then(|overruled| serde_json::from_value(overruled.clone()).ok()),
+            week: update
+                .get("week")
+                .and_then(|week| serde_json::from_value(week.clone()).ok()),
+            rule_change: update
+                .get("ruleChange")
+                .and_then(|rule_change| serde_json::from_value(rule_change.clone()).ok()),
+            decided: update
+                .get("decided")
+                .and_then(|decided| serde_json::from_value(decided.clone()).ok()),
+            worker_page: update
+                .get("workerPage")
+                .and_then(|page| serde_json::from_value(page.clone()).ok()),
+            closed_card: update
+                .get("closedCard")
+                .and_then(|closed| serde_json::from_value(closed.clone()).ok()),
         };
+        if let Some(page) = notice.worker_page.as_ref() {
+            if self.worker_page_again(page) {
+                return;
+            }
+        }
+        if let Some(overruled) = notice.overruled.as_ref() {
+            if self.decision_line_moved(overruled, &notice.title) {
+                return;
+            }
+        }
+        if notice.decided.is_some() && self.head.running {
+            (self.decided_in_turn).push((index, stamped_at(update), notice));
+            return;
+        }
+        if let Some(undone) = notice.rule.as_ref().filter(|rule| rule.undone) {
+            if self.kept_rule_undone(undone, &notice.title) {
+                return;
+            }
+        }
+        if let Some(back) = notice
+            .rule_change
+            .as_ref()
+            .filter(|rule_change| rule_change.restored)
+        {
+            if self.rule_restored(back) || back.back_by.is_none() {
+                return;
+            }
+        }
+        if let Some(reopened) = notice.closed_card.as_ref().filter(|closed| closed.reopened) {
+            if self.card_reopened(reopened, &notice.title) {
+                return;
+            }
+        }
         // A chat a usage limit stopped says when it resumes, or that it no longer will.
         if let Some(failure) = self
             .head
@@ -2075,6 +2722,25 @@ impl Fold {
                 failure.resumes_at = update.get("resumesAt").and_then(Value::as_u64);
                 self.head_dirty.insert("failure");
             }
+            if let Some(other) = text_of(update.get("carryOnWith")) {
+                failure.carry_on_with = Some(other.to_owned());
+                self.head_dirty.insert("failure");
+            }
+        }
+        // Between turns a goal's line, a decision's, an Overrule's and a week's count stand on their own, so
+        // the turn before keeps its fold and line.
+        let own_line = notice.goal.is_some()
+            || notice.overruled.is_some()
+            || notice.decided.is_some()
+            || notice.rule.as_ref().is_some_and(|rule| rule.undone)
+            || notice.week.is_some()
+            || notice.rule_change.is_some()
+            || notice.worker_page.is_some()
+            || notice.closed_card.is_some();
+        if own_line && !self.head.running {
+            let at = stamped_at(update);
+            self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
+            return;
         }
         self.append_part(
             index,
@@ -2084,11 +2750,181 @@ impl Fold {
         );
     }
 
+    /// A worker showed a page again under a title it showed before: the row for that one shows
+    /// this one instead of a new row. Answers whether the chat held that row.
+    fn worker_page_again(&mut self, page: &WorkerPage) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.worker_page.as_ref().is_some_and(|shown| {
+                    shown.agent_id == page.agent_id && shown.title == page.title
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            notice.worker_page = Some(page.clone());
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    /// A rule an agent took off the list or reworded is back: its line says so. Answers whether
+    /// the chat held that line.
+    /// The person reopened a card the board closed by itself: its line says so in place, rather
+    /// than as a new line. Answers whether the chat held that line.
+    fn card_reopened(&mut self, reopened: &ClosedCard, title: &str) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.closed_card.as_ref().is_some_and(|line| {
+                    line.project == reopened.project && line.card == reopened.card && !line.reopened
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            notice.closed_card = Some(Box::new(reopened.clone()));
+            notice.title = title.to_owned();
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    fn rule_restored(&mut self, back: &RuleChange) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.rule_change.as_ref().is_some_and(|line| {
+                    line.project == back.project && line.rule == back.rule && !line.restored
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            if let Some(line) = notice.rule_change.as_mut() {
+                line.restored = true;
+                line.back_by = back.back_by.clone();
+                notice.title = "Rule back".to_owned();
+            }
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    /// The person removed a rule kept from their words: its line in the chat says so, rather
+    /// than a new line. Answers whether the chat held that line.
+    fn kept_rule_undone(&mut self, undone: &KeptRule, title: &str) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.rule.as_ref().is_some_and(|rule| {
+                    (&rule.project, rule.id) == (&undone.project, undone.id) && !rule.undone
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            if let Some(rule) = notice.rule.as_mut() {
+                rule.undone = true;
+                notice.title = title.to_owned();
+            }
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    /// The person overruled a decision, or undid that: the chat's line for it, decided or
+    /// overruled, says so in its place rather than as a new line. Answers whether the chat held
+    /// that line.
+    fn decision_line_moved(&mut self, now: &OverruledDecision, title: &str) -> bool {
+        let key = (&now.project, now.goal, now.decision);
+        let holds = |notice: &AgentNotice| {
+            let decided = (notice.decided.as_ref())
+                .is_some_and(|decided| (&decided.project, decided.goal, decided.decision) == key);
+            let overruled = (notice.overruled.as_ref()).is_some_and(|overruled| {
+                (&overruled.project, overruled.goal, overruled.decision) == key
+            });
+            decided || overruled
+        };
+        let waiting = (self.decided_in_turn.iter_mut()).find(|(_, _, notice)| holds(notice));
+        if let Some((_, _, notice)) = waiting {
+            notice.decided = None;
+            notice.overruled = Some(now.clone());
+            notice.title = title.to_owned();
+            return true;
+        }
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(
+                |part| matches!(part, ChatPart::AgentNotice { notice, .. } if holds(notice)),
+            )?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            notice.decided = None;
+            notice.overruled = Some(now.clone());
+            notice.title = title.to_owned();
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    /// The decisions held for the turn that stopped go under its reply, as part of it, or on a
+    /// line of their own when it left no reply.
+    fn place_decided(&mut self) {
+        for (index, at, notice) in std::mem::take(&mut self.decided_in_turn) {
+            let answered =
+                (self.main.rows.last()).is_some_and(|last| last.msg.role == ChatRole::Assistant);
+            match answered {
+                true => {
+                    self.append_part(
+                        index,
+                        &None,
+                        |id| ChatPart::AgentNotice { id, notice },
+                        false,
+                    );
+                }
+                false => self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice }),
+            }
+        }
+    }
+
     /// A cancelled turn stops only the subagents it was waiting on, and the
     /// agent says which. Background ones run on and report their own end.
     fn end_turn(&mut self, stop_reason: Option<StopReason>, at: u64) {
         let was_running = self.head.running;
         self.settle_transcript(&None, at, false);
+        self.place_decided();
         if was_running {
             if let Some(last) = self
                 .main
@@ -2121,23 +2957,70 @@ impl Fold {
         self.settle_last_run();
     }
 
-    /// Whether the last run can now fold depends on the turn having ended.
+    /// Works out the last run's fold again, as it depends on the turn having ended.
     fn settle_last_run(&mut self) {
         if let Some(last) = self.main.rows.len().checked_sub(1) {
             self.settle_from = Some(self.settle_from.map_or(last, |from| from.min(last)));
         }
     }
 
-    /// The change a tool call made and what it printed, line by line.
     pub fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
         self.details.get(tool_call_id).cloned()
     }
+
+    /// The text parts of the message `id`, while the fold holds it, that had sentences left out,
+    /// each with them back where they stood. Empty for one it holds no longer, which a fold of
+    /// the history from [`row_event`] finds.
+    pub fn left_out_shown(&self, id: &str) -> Vec<RestoredPart> {
+        (self.main.rows.iter())
+            .find(|row| row.msg.id == id)
+            .map(|row| restored_parts(&row.msg))
+            .unwrap_or_default()
+    }
+}
+
+/// What the person wrote in a prompt of `text` sent with the files at `paths`, as their row in
+/// the transcript reads it: the answer for an answer to an agent's question, else the words
+/// without the context sent with them.
+pub fn person_wrote(text: &str, paths: &[String]) -> String {
+    let row = sent_row(text, paths);
+    if let Some(answer) = answer_in(&row) {
+        return answer.text.clone();
+    }
+    (row.msg.parts.iter())
+        .filter_map(|part| match part {
+            ChatPart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The answer to an agent's question a prompt of `text` carries, with who asked and what.
+pub fn call_answered(text: &str, paths: &[String]) -> Option<AgentLetter> {
+    answer_in(&sent_row(text, paths)).cloned()
+}
+
+fn sent_row(text: &str, paths: &[String]) -> Row {
+    let mut row = Row::new(String::new(), ChatRole::User, 0);
+    row.msg.attachments = paths.to_vec();
+    row.raw.push(ChatPart::Text {
+        id: String::new(),
+        text: text.to_owned(),
+        md: None,
+        cut_bytes: None,
+    });
+    read_sent(&mut row, &[]);
+    row
+}
+
+fn answer_in(row: &Row) -> Option<&AgentLetter> {
+    (row.msg.letters.iter()).find(|letter| letter.kind == LetterKind::Answer)
 }
 
 /// What a person sent with a message is shown by name: their own text stays
 /// prose, an issue they handed over is a chip, and letters from other agents
 /// are read out. A row read again goes out whole.
-fn read_sent(row: &mut Row) {
+fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let mut context = row.sent_context.clone();
     let mut parts = Vec::new();
     for part in &row.raw {
@@ -2152,10 +3035,8 @@ fn read_sent(row: &mut Row) {
                     .and_then(|text| text.split('\n').next())
                     .filter(|line| !line.is_empty())
                     .unwrap_or(&resource.uri);
-                context.push(SentContext {
-                    uri: resource.uri.clone(),
-                    title: first.to_owned(),
-                });
+                let sent = SentContext::new(resource.uri.clone(), first.to_owned());
+                context.push(sent.with_text(resource.text.as_deref().unwrap_or_default()));
             }
             ChatPart::Text { text, .. } => {
                 let (rest, found) = prompt::split_sent_context(text);
@@ -2172,8 +3053,6 @@ fn read_sent(row: &mut Row) {
             _ => parts.push(part.clone()),
         }
     }
-    let mut seen = HashSet::new();
-    context.retain(|item| !prompt::is_mention(&item.uri) && seen.insert(item.uri.clone()));
     let whole: String = parts
         .iter()
         .map(|part| match part {
@@ -2181,13 +3060,42 @@ fn read_sent(row: &mut Row) {
             _ => "",
         })
         .collect();
+    let commands: Vec<String> = (commands.iter())
+        .map(|command| command.name.clone())
+        .collect();
+    // The fold runs on the host the chat's files are on, however old the message it reads.
+    let folders: Vec<String> = (row.msg.attachments.iter())
+        .filter(|path| !is_image_path(path) && Path::new(path).is_dir())
+        .cloned()
+        .collect();
+    row.msg.spans = prompt::sent_spans(
+        &whole,
+        prompt::SentNames {
+            attachments: &row.msg.attachments,
+            folders: &folders,
+            context: &context,
+            commands: &commands,
+            ..Default::default()
+        },
+    );
+    let mut seen = HashSet::new();
+    context.retain(|item| !prompt::is_mention(&item.uri) && seen.insert(item.uri.clone()));
     let only_text = parts
         .iter()
         .all(|part| matches!(part, ChatPart::Text { .. }));
-    let letters = only_text
-        .then(|| prompt::agent_letters(&whole))
+    let (lettered, linked) = prompt::split_trailing_file_links(&whole);
+    let mut letters = only_text
+        .then(|| prompt::agent_letters(lettered))
         .flatten()
         .unwrap_or_default();
+    let answer = (letters.iter_mut()).find(|letter| letter.kind == LetterKind::Answer);
+    if let Some(answer) = answer.filter(|answer| answer.attachments.is_empty()) {
+        answer.attachments = match row.msg.attachments.is_empty() {
+            true => linked,
+            false => row.msg.attachments.clone(),
+        };
+        answer.text = prompt::without_image_tags(&answer.text, answer.attachments.len());
+    }
     for (at, part) in parts.iter_mut().enumerate() {
         let id = format!("{}.{at}", row.msg.id);
         match part {

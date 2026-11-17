@@ -1,17 +1,21 @@
 //! Sikemux's own links, followed inside this app: `sikemux://agent/<agent>/<session>?project=`
 //! takes an agent's chat up again in its project on this host, as the Mac does. Any message
 //! can hold one, so a folder that is not already a project is opened only once the person
-//! agrees.
+//! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
+//! holds, opens that slice in the project whose code host repository it names.
+//! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
+//! `sikemux://ask/<number>` opens one of the person's asks, as its card on the board does.
 
 use std::path::PathBuf;
 
 use gpui_kit::{App, Context, Entity, Window};
-use serde_json::json;
 use url::Url;
 
 use crate::core;
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_calls::workspace::SessionChoice;
 
 /// An agent's chat a link asks to take up again.
 struct Resume {
@@ -52,6 +56,23 @@ fn parse(link: &str) -> Option<Resume> {
     })
 }
 
+/// The host a `sikemux://hosts/<host>` link names, empty for every host.
+fn hosts_link(link: &str) -> Option<String> {
+    let url = Url::parse(link).ok()?;
+    if url.scheme() != "sikemux" || url.host_str() != Some("hosts") {
+        return None;
+    }
+    let host = url
+        .path_segments()
+        .and_then(|mut parts| parts.find(|part| !part.is_empty()))
+        .map(|part| {
+            percent_encoding::percent_decode_str(part)
+                .decode_utf8_lossy()
+                .into_owned()
+        });
+    Some(host.unwrap_or_default())
+}
+
 /// Takes what the system hands this app to open: each `sikemux://` link, such as one clicked
 /// in another app, brings the window to the front for it, and files and folders, such as
 /// from Finder's Open With, open as `sikemux open` would; a start with nothing to open, as
@@ -88,6 +109,12 @@ pub fn follow_opened(
 /// Follows a `sikemux://` link. A link this app does not understand goes nowhere, rather
 /// than to whichever app the system would pick, and the window says so.
 pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
+    if let Some(id) = crate::opened_ask::link(link) {
+        return bench.open_ask(id, cx);
+    }
+    if let Some(host) = hosts_link(link) {
+        return bench.open_hosts(Some(host).filter(|host| !host.is_empty()));
+    }
     let resume = parse(link).filter(|resume| {
         bench
             .launchers()
@@ -95,9 +122,12 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
             .any(|launcher| launcher.provider == resume.provider)
     });
     let Some(resume) = resume else {
-        return bench.notify(toast::error(format!("Sikemux couldn't open {link}")), cx);
+        return bench.notify(
+            toast::error(t!("Sikemux couldn't open {link}", link = link)),
+            cx,
+        );
     };
-    let open = bench.view.as_ref().and_then(|view| {
+    let open = bench.this_view().and_then(|view| {
         view.chats
             .iter()
             .find(|chat| {
@@ -107,10 +137,10 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
             .map(|chat| chat.agent_id.clone())
     });
     if let Some(agent) = open {
-        bench.open_agent(&agent);
+        bench.open_agent(&agent, cx);
         return;
     }
-    let known = bench.view.as_ref().is_some_and(|view| {
+    let known = bench.this_view().is_some_and(|view| {
         view.workspace
             .projects
             .iter()
@@ -120,16 +150,16 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
         take_up(bench, resume, false, cx);
         return;
     }
-    let body = format!(
-        "A link asks to resume a {} chat in {}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.",
-        bench.agent_name(&resume.provider),
-        resume.project.display(),
+    let body = t!(
+        "A link asks to resume a {agent} chat in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.",
+        agent = bench.agent_name(&resume.provider),
+        folder = resume.project.display(),
     );
     let resume = std::rc::Rc::new(resume);
     bench.confirm(
-        "Open this folder as a project?",
+        t!("Open this folder as a project?"),
         body,
-        "Open project",
+        t!("Open project"),
         false,
         move |bench, yes, _: &mut Window, cx| {
             if yes {
@@ -152,43 +182,31 @@ fn take_up(bench: &mut Workbench, resume: Resume, add: bool, cx: &mut Context<Wo
     let path = resume.project.to_string_lossy().into_owned();
     cx.spawn(async move |bench, cx| {
         if add {
-            if let Err(error) = core::request(&asks, "addProject", json!({ "path": path })).await {
-                let note = toast::error(format!("The folder did not open as a project: {error}"));
-                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+            let Ok(added) = bench.update(cx, |bench, cx| bench.add_project(&path, cx)) else {
+                return;
+            };
+            if added.await.is_none() {
                 return;
             }
         }
-        let asked = json!({
-            "provider": resume.provider,
-            "sessionId": resume.session,
-            "project": path,
-        });
-        let taken = core::request(&asks, "resumeSession", asked).await;
+        let taken = core::Target::here(&asks)
+            .request_typed::<call::ResumeSession>(SessionChoice {
+                provider: resume.provider.clone(),
+                session_id: resume.session.clone(),
+                project: path.clone().into(),
+                cwd: None,
+                title: None,
+            })
+            .await;
         let _ = bench.update(cx, |bench, cx| match taken {
             Ok(taken) => {
-                if let Some(agent) = taken["agentId"].as_str() {
-                    bench.open_agent(agent);
-                }
+                bench.open_agent(&taken.agent_id, cx);
             }
-            Err(error) => bench.notify(toast::error(format!("The chat did not open: {error}")), cx),
+            Err(error) => bench.notify(
+                toast::error(t!("The chat did not open: {error}", error = error)),
+                cx,
+            ),
         });
     })
     .detach();
-}
-
-/// Follows a link in a page outside a chat, such as an issue's comment or a release's notes:
-/// with ⌘ held, or anything but a web address, as the system does; else as
-/// [`Workbench::follow_web_link`] does, a pull request or issue in its project's Git tab.
-pub fn web_opener(bench: gpui_kit::WeakEntity<Workbench>) -> gpui_transcript::OnLink {
-    std::rc::Rc::new(move |href: &str, window: &mut Window, cx: &mut App| {
-        let web = href.starts_with("https://") || href.starts_with("http://");
-        if !web || window.modifiers().platform {
-            cx.open_url(href);
-            return;
-        }
-        let followed = bench.update(cx, |bench, cx| bench.follow_web_link(href, cx));
-        if followed.is_err() {
-            cx.open_url(href);
-        }
-    })
 }

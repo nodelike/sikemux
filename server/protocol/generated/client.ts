@@ -5,8 +5,15 @@ import type {
   AccountDeletion,
   AccountDeletionRequest,
   AccountProfile,
+  Allowance,
   ApprovedHost,
+  BillingCatalog,
+  BillingLink,
+  BillingOverview,
   Challenge,
+  ChangePreview,
+  Checkout,
+  CheckoutRequest,
   Device,
   DeviceList,
   DeviceRegistration,
@@ -20,9 +27,30 @@ import type {
   HostSignInPoll,
   HostSignInStart,
   HostSignInState,
+  Invoice,
+  InvoiceList,
   JoinRequest,
   JoinTicket,
+  ModFiles,
+  ModSeqParam,
+  ModsPulled,
+  ModsPurged,
+  ModsPush,
+  ModsPushed,
   Network,
+  Org,
+  OrgCreate,
+  OrgId,
+  OrgInviteCreate,
+  OrgInviteCreated,
+  OrgInviteList,
+  OrgJoin,
+  OrgList,
+  OrgMember,
+  OrgMemberList,
+  OrgRename,
+  OrgRoleChange,
+  PaddleCheckout,
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
@@ -33,6 +61,18 @@ import type {
   StashSeen,
   StashTaken,
   StashUpdate,
+  Subscription,
+  SubscriptionChange,
+  VaultCreate,
+  VaultEntry,
+  VaultEntryId,
+  VaultEntryPut,
+  VaultKeysAdd,
+  VaultRevisionParam,
+  VaultRotate,
+  VaultState,
+  VaultUses,
+  VaultUsesAdd,
 } from "./types.ts";
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -128,6 +168,61 @@ export function apiClient(send: Send) {
     restoreAccount: () => send<Account>("POST", `/v1/account/restore`),
     /** The name, email and picture of the account a host is on. */
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
+    /** The plan of the account a host is on, and what it may use. */
+    getAccountAllowance: () => send<Allowance>("GET", `/v1/account/allowance`),
+    /** Make an org, with you as its owner. */
+    createOrg: (body: OrgCreate) => send<Org>("POST", `/v1/orgs`, body),
+    /** The orgs you are in. */
+    listOrgs: () => send<OrgList>("GET", `/v1/orgs`),
+    /** Accept an invite and join its org. */
+    joinOrg: (body: OrgJoin) => send<Org>("POST", `/v1/orgs/join`, body),
+    /** Rename an org, as its owner or an admin. */
+    renameOrg: (orgId: string, body: OrgRename) =>
+      send<Org>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/name`, body),
+    /** Delete an org, as its owner. */
+    deleteOrg: (orgId: string) =>
+      send<void>("DELETE", `/v1/orgs/${encodeURIComponent(orgId)}`),
+    /** Everyone in an org. */
+    listOrgMembers: (orgId: string) =>
+      send<OrgMemberList>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/members`,
+      ),
+    /** Change a member's role. */
+    setOrgMemberRole: (orgId: string, memberId: string, body: OrgRoleChange) =>
+      send<OrgMember>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}/role`,
+        body,
+      ),
+    /** Take someone out of an org. */
+    removeOrgMember: (orgId: string, memberId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`,
+      ),
+    /** Leave an org. */
+    leaveOrg: (orgId: string) =>
+      send<void>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/leave`),
+    /** Make an invite link, as an owner or an admin. */
+    createOrgInvite: (orgId: string, body: OrgInviteCreate) =>
+      send<OrgInviteCreated>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
+        body,
+      ),
+    /** An org's pending invites, as an owner or an admin. */
+    listOrgInvites: (orgId: string) =>
+      send<OrgInviteList>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
+      ),
+    /** Revoke an invite, as an owner or an admin. */
+    revokeOrgInvite: (orgId: string, inviteId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}`,
+      ),
     /** Stash a link, text or file on your account. */
     addStash: (body: StashAdd) => send<StashItem>("POST", `/v1/stash`, body),
     /** Your stash, newest first. */
@@ -150,6 +245,123 @@ export function apiClient(send: Send) {
     /** Take one of this host's webhooks away, with the requests it still holds. */
     removeHook: (hookId: string) =>
       send<void>("DELETE", `/v1/hooks/${encodeURIComponent(hookId)}`),
+    /** The account's vault as this host sees it: its entries, the key sealed for this host, and the hosts still waiting for it. */
+    getVault: () => send<VaultState>("GET", `/v1/vault`),
+    /** Make the account's vault, with its key sealed for this host and for the recovery key. */
+    createVault: (body: VaultCreate) =>
+      send<VaultState>("POST", `/v1/vault`, body),
+    /** Seal the vault key for hosts on the account: a holder for any of them, a host restoring the vault from its recovery key only for itself. */
+    addVaultKeys: (body: VaultKeysAdd) =>
+      send<VaultState>("PUT", `/v1/vault/keys`, body),
+    /** Replace the vault key, sealing every entry again under the new one. */
+    rotateVault: (body: VaultRotate) =>
+      send<VaultState>("POST", `/v1/vault/rotate`, body),
+    /** Add an entry to the vault, or replace one. */
+    putVaultEntry: (id: string, body: VaultEntryPut) =>
+      send<VaultEntry>(
+        "PUT",
+        `/v1/vault/entries/${encodeURIComponent(id)}`,
+        body,
+      ),
+    /** Take an entry out of the vault. */
+    deleteVaultEntry: (
+      id: string,
+      query: { revision?: VaultRevisionParam } = {},
+    ) =>
+      send<void>(
+        "DELETE",
+        `/v1/vault/entries/${encodeURIComponent(id)}${search(query)}`,
+      ),
+    /** Report the uses this host's agents made of the vault's entries. */
+    addVaultUses: (body: VaultUsesAdd) =>
+      send<void>("POST", `/v1/vault/uses`, body),
+    /** Which agents on which hosts used the vault's entries in the last 30 days. */
+    listVaultUses: (query: { entry?: VaultEntryId } = {}) =>
+      send<VaultUses>("GET", `/v1/vault/uses${search(query)}`),
+    /** Store the mod documents this host changed, each only if its revision is still the server's. */
+    pushModDocuments: (body: ModsPush) =>
+      send<ModsPushed>("POST", `/v1/mods/documents`, body),
+    /** The mod documents and purges after a seq, a page at a time. */
+    pullModDocuments: (query: { since?: ModSeqParam } = {}) =>
+      send<ModsPulled>("GET", `/v1/mods/documents${search(query)}`),
+    /** The ids of the files the account holds for one mod. */
+    listModFiles: (mod: string) =>
+      send<ModFiles>("GET", `/v1/mods/${encodeURIComponent(mod)}/files`),
+    /** Remove one of a mod's files no host's copy of the mod names any more. */
+    removeModFile: (mod: string, file: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/mods/${encodeURIComponent(mod)}/files/${encodeURIComponent(file)}`,
+      ),
+    /** Remove every document of one mod from the account, when the person removes the mod. */
+    purgeModDocuments: (mod: string) =>
+      send<ModsPurged>(
+        "DELETE",
+        `/v1/mods/${encodeURIComponent(mod)}/documents`,
+      ),
+    /** Every plan and product on sale, with prices. */
+    getBillingCatalog: () => send<BillingCatalog>("GET", `/v1/billing/catalog`),
+    /** Your plan, or an org's, and what it pays for. */
+    getBilling: (query: { org?: OrgId } = {}) =>
+      send<BillingOverview>("GET", `/v1/billing${search(query)}`),
+    /** Open the provider's page to buy a product. */
+    startCheckout: (body: CheckoutRequest) =>
+      send<Checkout>("POST", `/v1/billing/checkout`, body),
+    /** Change a subscription's quantity, product or interval, now and prorated or at renewal. */
+    changeSubscription: (subscriptionId: string, body: SubscriptionChange) =>
+      send<Subscription>(
+        "PATCH",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`,
+        body,
+      ),
+    /** What a change would charge now and at the next renewal, changing nothing. */
+    previewSubscriptionChange: (
+      subscriptionId: string,
+      body: SubscriptionChange,
+    ) =>
+      send<ChangePreview>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/preview`,
+        body,
+      ),
+    /** End a subscription when its paid period ends. */
+    cancelSubscription: (subscriptionId: string) =>
+      send<Subscription>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+      ),
+    /** Take back a cancellation before the period ends. */
+    resumeSubscription: (subscriptionId: string) =>
+      send<Subscription>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/resume`,
+      ),
+    /** Refund a plan in its first days and end it. */
+    refundSubscription: (subscriptionId: string) =>
+      send<Subscription>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/refund`,
+      ),
+    /** Your payments, or an org's. */
+    listInvoices: (query: { org?: OrgId } = {}) =>
+      send<InvoiceList>("GET", `/v1/billing/invoices${search(query)}`),
+    /** Refund the plan an invoice paid for, in its first days, and end it. */
+    refundInvoice: (invoiceId: string) =>
+      send<Invoice>(
+        "POST",
+        `/v1/billing/invoices/${encodeURIComponent(invoiceId)}/refund`,
+      ),
+    /** Where one payment's receipt is. */
+    getInvoiceReceipt: (invoiceId: string) =>
+      send<BillingLink>(
+        "GET",
+        `/v1/billing/invoices/${encodeURIComponent(invoiceId)}/receipt`,
+      ),
+    /** The provider's own page for payment methods and receipts. */
+    getBillingPortal: (query: { org?: OrgId } = {}) =>
+      send<BillingLink>("GET", `/v1/billing/portal${search(query)}`),
+    /** What the checkout page opens Paddle's checkout with. */
+    getPaddleCheckout: () => send<PaddleCheckout>("GET", `/v1/billing/paddle`),
   };
 }
 

@@ -479,7 +479,7 @@ async function withdrawFromChannels(trx: Transaction<Tables>, id: string) {
   return rows.map((row) => row.channel);
 }
 
-export interface Withdrawn {
+interface Withdrawn {
   id: string;
   platform: string;
   runtimeVersion: string;
@@ -540,7 +540,7 @@ function readDirective(directive: Buffer): Date {
   return new Date(commitTime);
 }
 
-export interface RolledBack {
+interface RolledBack {
   id: string;
   platform: string;
   runtimeVersion: string;

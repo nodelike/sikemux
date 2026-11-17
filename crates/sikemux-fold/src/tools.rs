@@ -2,14 +2,16 @@
 //! back, so the chat keeps the change, the output and the failure rather than
 //! the payloads they came from.
 
+use std::borrow::Cow;
+
 use serde_json::{Map, Value};
 
-use sikemux_wire::chat::{
-    DiffLine, DiffSummary, GifRef, OutputImage, OutputSummary, PageRef, ToolCall, ToolDetail,
-    ToolDiff, ToolOutput,
+use sikemux_view::chat::{
+    DiffLine, DiffSummary, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef, ToolCall,
+    ToolDetail, ToolDiff, ToolOutput,
 };
 
-use super::tool_rows::GESTURES;
+use super::tool_rows::FAMILIES;
 
 /// Past this the transcript is the wrong place to read the change: the row
 /// still names the file, and the diff pane shows the whole thing.
@@ -30,6 +32,18 @@ fn text(value: Option<&Value>) -> Option<&str> {
 
 pub(super) fn running(status: Option<&str>) -> bool {
     !matches!(status, Some("completed" | "failed" | "cancelled"))
+}
+
+/// The tool of ours a call ran: a family's by the action it names, as `browser` with
+/// `action: "click"` runs browser_click, else the one it names.
+pub(super) fn sikemux_tool<'a>(title: &'a str, args: &Map<String, Value>) -> Cow<'a, str> {
+    let name = sikemux_tool_name(title);
+    match text(args.get("action")) {
+        Some(action) if name != title.trim() && FAMILIES.contains(&name) => {
+            Cow::Owned(format!("{name}_{action}"))
+        }
+        _ => Cow::Borrowed(name),
+    }
 }
 
 /// Our own tools, under whatever server name a host put in front of them.
@@ -241,7 +255,6 @@ pub(super) fn rooted(folder: Option<&std::path::Path>, path: String) -> String {
     }
 }
 
-/// The call with the paths it names made whole against `folder`.
 pub(super) fn root_call(folder: Option<&std::path::Path>, mut call: ToolCall) -> ToolCall {
     call.path = call.path.map(|path| rooted(folder, path));
     call.row.path = call.row.path.take().map(|path| rooted(folder, path));
@@ -376,7 +389,12 @@ pub(super) fn tool_output(
     if raw.is_none() && image.is_none() {
         return None;
     }
-    let (text, cut) = capped(raw.as_deref().unwrap_or_default());
+    let raw = raw.unwrap_or_default();
+    let (page, rest) = match image {
+        Some(_) => shot_caption(&raw),
+        None => (None, raw),
+    };
+    let (text, cut) = capped(&rest);
     Some(ToolOutput {
         text,
         cut,
@@ -384,7 +402,45 @@ pub(super) fn tool_output(
             .and_then(|raw| raw.get("exit_code"))
             .and_then(Value::as_i64),
         image,
+        page,
     })
+}
+
+/// A picture's caption split into the page it shows, from a "title url" line, and the rest.
+/// The agent's own "[Image: source: …]" note of where it saved the picture is dropped.
+fn shot_caption(text: &str) -> (Option<OutputPage>, String) {
+    let mut page = None;
+    let mut rest = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[Image: source:")
+            || trimmed.starts_with("[image:")
+            || trimmed == "screenshot"
+        {
+            continue;
+        }
+        if page.is_none() {
+            if let Some((title, url)) = trimmed
+                .rsplit_once(' ')
+                .filter(|(_, url)| url.starts_with("https://") || url.starts_with("http://"))
+            {
+                page = Some(OutputPage {
+                    title: title.trim().to_owned(),
+                    url: url.to_owned(),
+                });
+                continue;
+            }
+            if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+                page = Some(OutputPage {
+                    title: String::new(),
+                    url: trimmed.to_owned(),
+                });
+                continue;
+            }
+        }
+        rest.push(line);
+    }
+    (page, rest.join("\n").trim().to_owned())
 }
 
 pub(super) fn output_summary(output: &ToolOutput) -> OutputSummary {
@@ -426,56 +482,53 @@ pub(super) fn tool_failure(status: Option<&str>, raw_output: Option<&Value>) -> 
 
 /// The JSON one of our tools answered with.
 fn printed(raw_output: Option<&Value>, content: Option<&Value>) -> Option<Value> {
-    let printed = raw_output.and_then(output_text).or_else(|| {
+    serde_json::from_str(&said(raw_output, content)?).ok()
+}
+
+fn said(raw_output: Option<&Value>, content: Option<&Value>) -> Option<String> {
+    raw_output.and_then(output_text).or_else(|| {
         let inner: Vec<Value> = content?
             .as_array()?
             .iter()
             .map(|entry| entry.get("content").cloned().unwrap_or(Value::Null))
             .collect();
         output_text(&Value::Array(inner))
-    })?;
-    serde_json::from_str(&printed).ok()
+    })
 }
 
-/// One of our tools the chat never draws as a row, such as a reaction.
-pub(super) fn is_gesture(title: &str) -> bool {
-    let title = title.replace("sikemux_tools", "sikemux-tools");
-    let name = sikemux_tool_name(&title);
-    name != title.trim() && GESTURES.contains(&name)
-}
-
-/// What a gesture leaves in the chat once it has finished.
-pub(super) enum Gesture {
-    React(String),
-    Gif(GifRef),
-}
-
-pub(super) fn gesture(raw: &Map<String, Value>) -> Option<Gesture> {
-    if text(raw.get("status")) != Some("completed") {
-        return None;
+/// What a finished call started running, by the id or output file later calls name it
+/// by, with the words a row shows for it: a process's label, or a background command's
+/// description.
+pub(super) fn started_run(raw: &Map<String, Value>) -> Option<(String, String)> {
+    let title = text(raw.get("title"))?;
+    if matches!(
+        sikemux_tool_name(title),
+        "process_start" | "process_restart"
+    ) {
+        let run = printed(raw.get("rawOutput"), raw.get("content"))?;
+        let id = text(run.get("executionId"))?;
+        let label = text(run.get("label")).or_else(|| text(run.get("processId")))?;
+        return Some((id.to_owned(), label.to_owned()));
     }
-    let answer = printed(raw.get("rawOutput"), raw.get("content"))?;
-    if let Some(emoji) = text(answer.get("reacted")) {
-        return Some(Gesture::React(emoji.to_owned()));
-    }
-    let gif = answer.get("gif")?;
-    let dimension = |key: &str| {
-        gif.get(key)
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok())
-    };
-    Some(Gesture::Gif(GifRef {
-        id: text(gif.get("id"))?.to_owned(),
-        url: text(gif.get("url"))
-            .filter(|url| url.starts_with("https://"))?
-            .to_owned(),
-        width: dimension("width")?,
-        height: dimension("height")?,
-        title: text(gif.get("title")).unwrap_or_default().to_owned(),
-    }))
+    let output = said(raw.get("rawOutput"), raw.get("content"))?;
+    let file = output
+        .split_once("Output is being written to: ")?
+        .1
+        .split_whitespace()
+        .next()?
+        .trim_end_matches('.');
+    let input = raw.get("rawInput");
+    let name = text(input.and_then(|input| input.get("description")))
+        .or_else(|| {
+            text(input.and_then(|input| input.get("command")))?
+                .lines()
+                .next()
+        })?
+        .trim();
+    (!name.is_empty()).then(|| (file.to_owned(), name.to_owned()))
 }
 
-/// The page a finished `page_show` call put in the reply, read from what it printed.
+/// The page a finished `page_show` call opened, read from what it printed.
 pub(super) fn tool_page(
     title: &str,
     status: Option<&str>,
@@ -498,10 +551,6 @@ pub(super) fn tool_page(
     Some(PageRef {
         id: id.to_owned(),
         title: title.to_owned(),
-        height: page
-            .get("height")
-            .and_then(Value::as_f64)
-            .filter(|height| height.is_finite()),
     })
 }
 
@@ -588,13 +637,13 @@ pub(super) fn call(raw: &Map<String, Value>) -> ToolCall {
         path: location(raw.get("locations")),
         description: description(kind.as_deref(), raw.get("rawInput")),
         kind,
+        name: text(raw.get("name")).map(str::to_owned),
         row: Default::default(),
     }
     .with_row()
 }
 
 pub(super) trait WithRow {
-    /// The call with its row worked out again from the rest of it.
     fn with_row(self) -> Self;
 }
 
@@ -610,6 +659,7 @@ pub(super) struct Settled {
     pub diff: Option<ToolDiff>,
     pub output: Option<ToolOutput>,
     pub page: Option<PageRef>,
+    pub app: Option<McpAppRef>,
     pub failure: Option<String>,
 }
 
@@ -632,7 +682,14 @@ pub(super) fn settle(raw: &Map<String, Value>) -> Settled {
             .flatten(),
         output: page.is_none().then_some(output).flatten(),
         page,
+        app: tool_app(raw),
     }
+}
+
+/// The MCP app the core kept for a finished call, which it names on the call's last update.
+fn tool_app(raw: &Map<String, Value>) -> Option<McpAppRef> {
+    let id = text(raw.get("_meta")?.get("sikemuxMcpApp")?.get("id"))?;
+    Some(McpAppRef { id: id.to_owned() })
 }
 
 pub(super) fn summary(diff: &ToolDiff) -> DiffSummary {

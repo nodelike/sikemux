@@ -3,7 +3,7 @@ title: Chats and terminals
 description: "An agent's chat, its own terminal UI, and how to talk to it while it works."
 ---
 
-Start an agent with `⌘N`, or from **Start an agent** on the welcome screen. Each agent opens in the chat Sikemux draws for it. Its agent starts as you begin writing, so a chat you open and leave empty runs nothing. An agent that went to sleep shows its chat as it was and wakes as you begin writing to it.
+Start an agent with `⌘N`. Each agent opens in the chat Sikemux draws for it. A chat you open yourself, with `⌘N`, **New chat** or the agent picker, starts its agent at once, so it is ready by the time you send; one left empty with nothing sent for 5 minutes goes to sleep and starts again as you begin writing. A chat that opens by itself, such as in a project with nothing open, starts its agent only as you begin writing. A chat idle for 2 minutes goes to sleep too, open on screen or not, so it holds no memory while it waits. It stays awake while it works, runs a background task, or has a draft in its composer, and a chat you started stays awake until you have seen its last answer. Agents that cannot load a saved conversation, such as some ACP agents, never sleep this way. A chat that went to sleep shows its chat as it was and wakes as you begin writing to it, or when a trigger or another agent writes to it. It wakes on the same conversation, so its prompt cache still holds and the answer comes back about as fast as from a chat that never slept.
 
 ## GUI and TUI
 
@@ -12,21 +12,30 @@ The **GUI / TUI** switch at the top of an agent swaps between:
 - **GUI**: Sikemux's chat, with the transcript, tool calls, questions and the composer.
 - **TUI**: the agent's own terminal interface, running in a Sikemux terminal.
 
-Switch while the agent is idle. A switch waits until the agent finishes its reply.
+Switch while the agent is idle: while it works, the switch is greyed out until it finishes its reply.
 
 What you typed but did not send comes with you. A draft in the composer waits at the TUI's prompt, unsent, and what is typed in Claude's input box comes back to the composer.
 
 ## The composer
 
-- `/` lists the session's commands and skills; the one you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
-- `@` names another agent, in this project or any other, or an earlier chat to open again. An agent you renamed keeps its name and buddy after you close it, so `@` finds it by that name and opens its chat again.
-- `#` hands over a GitHub, GitLab or Bitbucket issue, and `!` a pull request.
+- `↑` in an empty box brings back what you sent before, and `↓` goes forward again.
+- `/` at the start of a message lists Sikemux's own commands, then the session's commands and skills. `/side` opens a side chat (see below), `/model` opens the model picker, `/clear` starts a fresh chat with the same agent, account and model, `/fork` goes on in a new chat that takes this one's words along, and `/yolo` turns asking before acting off or on. A session command or skill you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
+- `@` names another agent, in this project or any other, or an earlier chat to open again. A closed agent keeps its name, so `@` finds it by that name and opens its chat again.
+- `#` hands over a GitHub, GitLab, Bitbucket or Forgejo issue, and `!` a pull request.
 - `+` attaches a file or folder from the project.
+- Drag an agent or chat from the tab rail onto a composer to hand it over as context. An open agent goes in as an `@` chip at the cursor, and the agent you are writing to learns how to read what it said; a closed chat opens again for the message, as with `@`. A teammate on another host goes in by its name and host; another host's agents outside your team can't be handed over.
 - `&`, or **Stash** beside **+**, opens your [Stash](/getting-started/stash/), what you shared to Sikemux from your phone; the item you pick goes into the message as a chip. `⌘S` stashes the message you are writing for later.
-- A picture you paste, drop or add with the `+` button is numbered, and shows up as **Image 1**, with a small copy of the picture, where the caret was. The agent sees each picture at that spot in your message, just as a terminal agent would. Click a picture above the box to see it at full size.
+- A picture you paste, drop or add with the `+` button is numbered, and shows up as **Image 1**, with a small copy of the picture, where the caret was. The agent sees each picture at that spot in your message, just as a terminal agent would. Click a picture above the box to see it at full size. On your phone a picture you add is named the same way, as **[Image #1]** where the caret was; delete the tag and the picture comes off the message.
+- On a Mac, the camera beside the mic takes a **SnapShot**: a picture of the window you were in just before Sikemux, such as a browser or a simulator, put in the draft like any picture; hover it to see which app's window it takes. `⌘⇧2` does the same from any app, sending the window in front to the project's front chat, bringing Sikemux forward and saying which chat it went to; change the keys under Keyboard shortcuts. The agent is also told the app's name and the window's title, and, when Sikemux is allowed **Accessibility** in System Settings > Privacy & Security, the text the window shows and where each piece sits. The first SnapShot asks for **Screen Recording**; allow it, then quit and reopen Sikemux. SnapShots need macOS 14 or later.
 - What you pick stays in your message as a chip. Backspace once selects a chip, and again removes it.
 - On your phone, `@`, `#`, `!` and `+` open the same lists above the composer; tap a kind at the top to switch to it. A backspace into a chip there removes it at once.
-- Selections from terminals, problems, logs and pull request lines can be sent to any agent. They land in its draft, or are typed into its CLI when it runs in its terminal.
+- The ring beside the model shows how full the agent's context is. For Claude Code it fills toward where Claude will compact the conversation on its own, near 150K tokens, rather than toward the model's whole window: Sikemux starts every Claude Code chat on a 183K compaction window, whatever your `autoCompactWindow` setting or the model's 1M window, and tells Claude to keep your own messages and what is still open through each compaction; hover it for the tokens, where it compacts out of the whole window, and what the session has cost. Once Claude Code, Codex or Muse has compacted the conversation to make room, the ring holds how many times, and its card says when it last did. Many compactions in one chat mean the agent has lost detail, so a fresh chat may serve better.
+- `/compact` summarizes the conversation so far to free up context, in every chat agent, each with its own compaction: Hermes calls it `/compress`, and `/compact` runs that. A Claude Code chat over 150K tokens left idle compacts by itself while its prompt cache is still warm, before it sleeps or before the cache's hour runs out, so coming back to it later does not send the whole conversation again uncached. The chat you see keeps every message either way. When that could not happen, such as while the Mac slept, the context ring under the composer turns purple with the chat's size beside it. Click it: the card says "Cache expired 2 h ago · your next message re-reads all 152K tokens", and **Summarise the chat before your next message** is on, so your next message first summarises the chat and then goes. Turn the switch off to keep the full history for that message. The phone shows the same card in the chat's settings.
+- The chip under the composer names the chat's model and, after the gauge, its effort, such as **Opus 5.5 ◔ High**. It opens the model menu: the agents down the left, the agent's models in the middle under a search field, and the effort on the right, each step with its strength bars. `⌘1` to `⌘4` pick the first four models, and `←` `→` step the effort while the search is empty. A model with no effort says so in that column.
+- On your phone the same chip opens a sheet: the agents along the top, a search over the agent's models, then the effort steps and the speed. Typing in the search hides the effort and speed until you clear it. A new chat's chip works the same way before you send its first message.
+- When the chat's model can run faster, the foot of the model menu has a **Standard | Fast** switch. Claude Code offers it on the models it lists as supporting fast mode, Codex on the models it lists a faster service tier for, so it follows each agent's own list. Fast answers sooner and costs more; it applies from the next turn and lasts for that session, and the switch shows once the chat has started.
+- Once a Claude Code or Codex reply ends, the empty box may show what the agent expects you to send next, with `Tab` after it. `Tab` puts it in the box to change or send; `Esc` hides it until the next reply. It goes when you type, attach something, or the agent asks you something. Claude Code only offers one from the second reply on. For Codex it costs one short, low-effort model call after each reply, and older Codex versions offer none.
+- Selections from terminals, problems and logs can be sent to any agent. They land in its draft, or are typed into its CLI when it runs in its terminal.
 
 ## While the agent works
 
@@ -35,44 +44,196 @@ What you typed but did not send comes with you. A draft in the composer waits at
 | `Enter` | Sends it now, steering the agent in the middle of its reply |
 | `⌘Enter` | Your message waits and is sent when the agent finishes its reply |
 | `⌘Enter` in an empty box | Sends the messages that were waiting, now |
+| `Esc` in an empty box | Stops the agent's reply |
 
-To swap the two, set **Settings › Chats › Sending while an agent works** to **Queue**. An agent that can't be steered always queues. Sending from your phone follows the same setting.
+To swap the two, set **Settings → Chats → Sending while an agent works** to **Queue**. An agent that can't be steered always queues. Sending from your phone follows the same setting.
+
+The line under the reply says what the agent is on: the step of its plan, or else the command it runs, the agent it waits for, or why it retries, and for how long.
+
+## How a chat stands
+
+The last line of every chat says how its turn stands, in one of six states:
+
+| State | Says | What you can do there |
+|---|---|---|
+| **Working** | the step of its plan it is on, and for how long | |
+| **Waiting** | what it waits on, such as CI, a deploy, a set time, or another agent: a worker it started, or the lead that has a question it stopped for, and how long that has gone against how long it usually takes | |
+| **Needs you** | the question or permission it waits on, and for how long | |
+| **Done** | where the work is (no changes, uncommitted, committed, landed, on staging, shipped) and how its checks went | the next step, such as **Commit**, **Push**, **Deploy to staging**, **Ship to production…** or **Roll back** |
+| **Stopped** | what it left open, with nothing set to wake it | **Carry on** |
+| **Failed** | why, such as Claude's usage limit and when it resets | another account, sign in, retry, or reconnect |
+
+A lead that starts agents of its own, such as the Chief, ends **Done** on where the work of the agents it started for your latest ask stands: the least far along of theirs, such as **uncommitted** while one of them has not committed yet. That line has no button; each of those agents' own lines keeps its. It says **no changes** only when neither the lead nor they changed anything.
+
+On your phone the same line ends the chat, with the same buttons; over a call docked in the chat it says only **Needs you** and how long the call has waited. A step's button sends that step to the agent as your message. The purple one is the next step that needs no call; **Ship to production…** never ships by itself, it raises a call you answer first. An agent running in its terminal (TUI) shows the same words after its name at the top of the pane.
 
 ## Triggers
 
 An agent can set a trigger on its own chat, to be sent a prompt later: once, such as "check the deploy in 20 minutes", or on a schedule, such as every hour or each weekday at 9:00. Ask it to, in your own words.
 
-Its triggers are listed above the composer under **Triggers**, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat as a message from **Trigger**, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time. Closing the agent removes its triggers.
+Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat in a bubble at the left under the trigger's name, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time.
 
-For recurring work that shouldn't depend on one chat, such as triaging new issues every morning, ask the agent to put the trigger on the board. Each time it fires, it adds a card to the project's board as if you added it, so Auto starts an agent on it when Auto is on. Board triggers are listed under **Triggers** at the top of the **Agent board**, where **×** removes one; they stay after the agent that set them closes.
+A trigger can also fire on a [mod's](/getting-started/mods/#agents) data: each time someone other than the agent adds or changes documents in one of the mod's collections, naming them.
+
+An agent that pushed can end its turn on CI instead of watching it: its trigger fires once CI on that commit ends, with how it went. When the CI ends, you get one notification, but none on a phone that has that chat open.
+
+The same goes for anything else an agent waits on. Rather than checking again and again, each check a turn that costs tokens, it parks on a build or other run it started, ending its turn until the run finishes or prints what it waits for, or on another agent, until that agent finishes or asks you something. Sikemux starts its next turn when that happens, saying what happened, or after a timeout, two hours unless the agent sets another. While it waits, the chat says what on.
+
+Closing the agent pauses its triggers, and a toast says how many with **Undo**, which opens the chat again. **Recent** keeps the chat while they wait, with a clock and their count on its row, and taking it up again, from **Recent** or by an agent resuming it, starts them again: a repeating trigger skips the times that passed while it was closed, and a one-time trigger that came due meanwhile fires once, saying when it was due. A webhook trigger keeps its address, and the requests that arrive while the chat is closed wait for it: taken up again, it gets each in turn, the last 10 at most, and is told how many older ones were dropped. Paused triggers still count toward the 20 a chat holds. Rest the pointer on that row to see them; **×** beside one removes it for good.
+
+For recurring work that shouldn't depend on one chat, such as triaging new issues every morning, ask the agent to give the trigger to the project rather than its chat. Each time it fires, it adds a card to the project's board as if you added it. While the card it added last is still open, a firing goes to that card instead of adding another, and the agent working it is told, so the same work never starts twice. These triggers, like every other, are listed on the [Playbook](/agents/playbook/#automation)'s Automation page, where you can pause or remove one; they stay after the agent that set them closes.
+
+## Editing a message you sent
+
+In a Claude Code, Codex, OpenCode, Muse or Pi chat, click the pencil under a message you sent, **Edit message**, while the agent is idle. Change it and press `Enter`; `Esc` leaves it as it was. The chat goes back to that message: the replies after it are dropped, and your new text is sent in its place.
+
+## Replying to an answer
+
+Hover over the end of an agent's answer and click the arrow beside the copy button, **Reply**. The answer is quoted above your draft; the × takes it off. When you send, the agent gets the quoted words with your message, so it knows which answer you mean, and your sent message shows one line of it above the text.
+
+## Side chats
+
+To ask something aside without derailing a chat, type `/side` in it, or `/side` and your question. A new chat opens beside it with the same agent, account, model and project, and is listed under the main chat. Its first message carries the main chat's latest exchanges and tells the agent how to read more of it; the main chat carries on and isn't told. The side chat's header says **side of @Name**; click it to go back to the main chat. On the phone, send `/side` the same way and the side chat opens.
+
+## Subagents
+
+When an agent hands part of its work to subagents, each one shows in the chat as a card with its name, its task and how it stands: working, done, failed, lost or stopped, with its tool calls and tokens. Click a card to see what that subagent did. While any are still working, they are also listed above the composer, where **×** stops one of Claude Code's alone and the chat works on without it.
+
+Background tasks the agent started, such as a command it left running or a watch, show above the composer while they run. Once they end, the ones that ended in the same turn fold into one line in the chat: how many there were, a dot for each (green done, grey stopped, red failed) and how they ended, such as **5 done · 2 watches stopped**. Click it to list them; a task that ran the same way more than once is listed once with **×2**. On a phone the line opens a sheet with the list.
+
+## Messages between agents
+
+When agents on a team message a chat, what they say folds to one line, so your prompt and its answer stay close together. The line shows who wrote, how many messages there are, the latest of them and how long it went on. Click it to open it where it is, on the last five messages; **Show N earlier** brings the rest.
+
+Everything in a turn another agent started folds except that turn's last message, and a message that arrives while the agent answers you folds on its own. Whatever stays in view ends the line, so a long job reads as its answers with one line between each. When someone in a line needs you, because it asked you something, waits on a permission, failed its turn or stopped, the line says so in red until that is settled.
+
+What wakes an agent without you, such as a trigger, a teammate's report or Sikemux's own note, waits 30 seconds after the agent's last turn ends, so what arrives close together is read in one turn. Your messages and answers to an agent's question go at once. After 20 turns in a row that nobody wrote, the rest wait for you, except reports from the agent's own workers: the agent shows as needing you in the inbox, and anything you write to it lets it go on.
+
+A worker whose turn ends on something set to wake it, such as a trigger, a run or its commits in line to land, asks nothing and wakes nobody: its row says what it waits on, such as **Waiting to land on main · 2nd in line**. Its lead hears from it when it lands, fails, has its land sent back, asks something, or stops with nothing set to wake it. A lead's turn that a worker started may end without a reply when nothing changed for you, and sends no notification.
+
+An agent that has been working for 30 minutes without calling a tool, such as one stuck behind a build waiting in line, is said to be stalled. Sikemux tells its lead once, which wakes the lead; an agent with no lead, or whose lead is asleep or stopped, shows in the inbox under **Needs you** instead, until it calls a tool again or its turn ends.
+
+Once your last message has scrolled off the top of the chat, a strip over the transcript says what you asked. Click it to go back to that message.
+
+## Sharing a chat
+
+The share button at the top of a chat makes a link to it. Pick how long the link works, 1 hour, 24 hours or 7 days, and **Create link**. Anyone signed in to Sikemux who has the link can read the chat as it happens, from its start. They see everything the agent read and ran, including what's in your files, so share with care. While it is shared, the button shows how many people are watching; click it to copy the link again or **Stop sharing**.
+
+People with the link can also write to the agent, while your computer is online, and give a name to sign it with. Sikemux can't check that name, so it always shows marked as a guest's, such as "Alex · guest". Their message doesn't reach it straight away: it waits over your composer under **From guests**, on the Mac and the phone, and they see it waiting too. You get a notification, and the agent shows as needing you until you deal with it. **Send** gives it to the agent as your own message, running with the chat's current permission mode, so read it first; **×** dismisses it. Up to 10 wait at once, of up to 10,000 characters each. They can't answer the agent's questions or attach files. Stopping the share dismisses whatever still waits.
+
+## Code in a reply
+
+When Sikemux leaves sentences out of an answer because they rest on no source, a quiet line under the answer says how many, such as **2 sentences with no source left out**. **Show** puts them back where they stood, faint, and **Hide** takes them out again; this works on your Mac and your phone, and a shared chat's page lists them under the answer.
+
+A code block in a reply shows its language's icon at the top. The wrap button beside it wraps long lines to the chat's width, and the copy button copies the code, showing a tick once it has. A long block scrolls inside itself when a scroll starts over it.
+
+## Pages in a reply
+
+An agent can answer with a page it built, such as a chart, a table or a comparison, drawn right in its reply. Hover the page for **Open in tab**, which opens it on the agent's desk; on Linux it sits under the page. A mockup of a whole screen, app or site opens in a tab on the agent's desk instead, at full width, and the reply shows a card with a picture of it; **Show** brings that tab forward, or opens it again if it was closed. A reply draws at most 4,000 px of a page: a taller one fades out at the cut on a Mac, with how much it shows and **Open in tab** under it. Clicking a page never takes the keyboard from the composer. When an agent names an HTML file in a reply instead, such as `report.html`, clicking the name opens it as a page in a tab on the agent's desk rather than as source in the editor.
+
+## MCP apps in a reply
+
+Some MCP servers give a tool a page of its own, an [MCP App](https://github.com/modelcontextprotocol/ext-apps). When a Claude chat calls such a tool, the reply shows the page in place of the call, in a card that names the server and the tool. **Expand** in the card's corner grows the app over the whole chat, still running as it was, and Esc or **Collapse** puts it back; an app can ask to grow itself too. It needs Claude Code 2.1.301 or newer, and works with any MCP server Claude is set up with.
+
+The app runs in a sandbox of its own: it keeps no cookies or storage, can reach only the domains its server declared, and can't open windows or leave its card. It can call its own server's tools, through the chat's agent and under the chat's permissions, read that server's resources, and ask for a link to open on the agent's desk. It can't reach any other server or the agent's conversation. Calls it makes don't go into the conversation either. While the chat's agent isn't running, the app can still show what its call returned, but its own calls are refused until you send a message.
+
+Only the apps you can see run. One you scroll past turns into a picture of itself after a moment and stops running, and at most three run at once however long the chat is. Scroll back and it starts again from its call's result, so anything you'd changed in it that its server doesn't keep starts over.
 
 ## Schemas in a reply
 
-When an agent writes a database schema in a ` ```dbml ` code block, the chat draws it as a diagram of its tables and the references between them. A scroll that starts over it pans the diagram, and one that starts elsewhere keeps scrolling the chat; pinch or `⌘`-scroll zooms, and tables drag. While the agent is still writing it, the diagram only grows, so it holds still between tables. **Fit** shows every table again and **Arrange** lays them out afresh. **Source** shows the DBML, **Copy** copies it, and **Open on desk** opens it on the agent's desk, as a diagram with room to spread out and its DBML a click away.
+When an agent writes a database schema in a ` ```dbml ` code block, the chat draws it as a diagram of its tables and the references between them. A scroll that starts over it pans the diagram, and one that starts elsewhere keeps scrolling the chat; pinch or `⌘`-scroll zooms, and tables drag. While the agent is still writing it, the diagram only grows, so it holds still between tables. **Fit** shows every table again and **Arrange** lays them out afresh. **Source** shows the DBML, the copy button copies it, and **Open on desk** opens it on the agent's desk, as a diagram with room to spread out and its DBML a click away.
 
-## Reactions and GIFs
+## Diagrams in a reply
 
-An agent can react to your message with an emoji, which shows on the corner of your bubble, and can send a GIF, which shows where it sent it with **Powered by KLIPY** beneath it. When a turn's work folds away, its GIFs stay in view above the reply. Neither shows up as a step in the chat, and the agent doesn't mention them. A message from another agent can get a reaction too.
+When an agent writes a ` ```mermaid ` code block, such as a flowchart, a sequence, class, state or ER diagram, a pie chart or a Gantt chart, the chat draws it as a diagram in your theme's colours. It draws it once the agent has finished writing the block, which shows its text until then. A diagram wider than the chat shrinks to fit. **Source** shows the Mermaid text and **Diagram** the drawing again; the copy button copies the text. A block that isn't a diagram Mermaid can draw stays as text, with **Can't draw** above it, and pointing at that says why. On the phone, a Mermaid block shows as its text.
+
+## Math in a reply
+
+When an agent writes LaTeX math, the chat typesets it. A formula on its own between `$$` signs or `\[` and `\]`, or in a ` ```math ` code block, is drawn centred in your theme's ink once the agent has finished writing it; double-click it to see its LaTeX, and point at it for the copy button. A block that isn't math Sikemux can typeset stays as text, with **Can't typeset** above it, and pointing at that says why. Math between single `$` signs or `\(` and `\)` inside a sentence is written in its line, such as `α² ≤ 1/n`, with letters in italic, names such as log upright and a script Unicode has no letters for set smaller, so it wraps with the words around it. On the phone, math shows as its LaTeX.
+
+## GIFs
+
+An agent can send a GIF, which shows where it sent it with **Powered by KLIPY** beneath it. When a turn's work folds away, its GIFs stay in view above the reply. It doesn't show up as a step in the chat, and the agent doesn't mention it.
+
+## Why something is as it is
+
+Ask an agent why something in the project is as it is, such as a file, a few of its lines, a commit, a call or a rule, and it can look it up in what Sikemux keeps: the commits that made it and the agents that wrote them, what you asked those agents before, the calls you answered, your rules and what was decided. It answers from those, and each claim carries a small chip of what it rests on: **your message**, **the change** (and whether it landed), **your answer**, **your rule** or **decided**, on your Mac, your phone and a shared chat's page alike. On your Mac, click a chip to open it: the chat at that message, the commit in Git, the Playbook's rules, or the chat of the agent that asked the call. On your phone, tapping **your message** opens that agent's chat; the other chips don't open there.
+
+In such an answer, a sentence of plain words that sits beside sourced claims but rests on none of them is left out, and a quiet line under the answer says how many: **2 sentences with no source left out · Show**. **Show** puts them back where they were, in faint text; **Hide** takes them out again. Questions, code, quotes, tables, headings and anything with its own formatting are never left out. If Sikemux restarts while the agent is still answering, that answer gets no chips and nothing is left out of it.
 
 ## Long chats
 
+On a wide window, **Settings → Appearance → Chat width** lets a chat's messages and composer grow wider than their reading width: **Comfortable** keeps them to a reading column, **Wide** to half as wide again, and **Full** to the whole pane.
+
 A chat holds only the part of its transcript near what you're reading, so a long one stays quick. Scroll up and earlier turns come back as you reach them, and the find bar searches the whole chat. A chat that is asleep, as resumed tabs are until you select them, shows its history, scrolls and finds without starting its agent.
+
+## @Chief
+
+Every project has a chief, @Chief: one chat that stays with the project, where you say what you want and it starts and steers the agents that do the work. Its row is the first in the project's list in the tab rail, with Sikemux's purple S where other rows have a face, and what it is on beside its name. The row is there from the start; the chat is made the first time you open it or write to it, and spends nothing until then. Closed, it comes back as itself when you open it again.
+
+The chief runs on the agent and model a new chat in the project would use, and its chat's header says which, with the project and how many agents it has: **storefront · 14 agents · Opus 5.5**. The agents it starts are listed under it as any team is. Opening a worker's chat shows the chain down to it in the header, such as **@Chief › @Rohan › Stripe webhook retries**, and what you type there goes to that worker. The composer says so, **Send to @Rohan · @Chief is told**: the chief hears what you wrote with its next turn.
+
+Sikemux closes an agent by itself once it is finished: its work is on the project's branch on its remote, or it changed nothing; its last answer asks you nothing; no other agent waits on it or reports to it; no trigger or process of its is left; and you have not written to it or reopened it in the last hour. That goes for chats you started too, once you have opened their last answer. The chief and agents in a terminal stay open, and work that never landed stays for the chief to land or drop. Each close leaves a line under **Closed lately** in the chief's **Now** card, such as **Closed @Mayaka, landed**, and **Reopen** brings back the chat with every message, its place under its lead, its triggers and its checkout. Agents close only the ones they started.
+
+A card closes by itself once the project's check passes on its agent's landed work and that agent has closed or waits on you. The chief's chat then shows **Closed by itself** with the card and the commit, and **Undo** puts the card back to being worked.
+
+A **Now** card floats over the top right of the chief's chat. It sets four counts large: **For you**, **Ready**, **Moving** and **Not sure**. Under them it lists the agents waiting on you and the ones ready to look at, each with what it is on and for how long, then the moving agents as faces, a lead as **@Rohan +6**, and **Closed lately**: one line per agent the chief closed, such as **Closed @Flint, landed**, with **Reopen**. Click any row to open that agent. Click the card's head to fold it to the four counts, and click again to open it. Your phone shows the same card under the chief's chat header.
+
+The first time you open a project's chief, it writes to you first: who it is, the chats open in the project and how each stands, and what waits on you. Your chats stay where they are, and you can still talk to any of them.
+
+When you come back to the chief after an hour or more, a **While you were away** card sits at the end of its chat. It holds the calls that wait on you, one open and the rest folded under it, and each one you answer there folds to a line saying how you answered, with how many are left; what agents decided for you, each with **Overrule**; and what landed, with who landed it, what its commit says it changed, how many lines it removed and added (**−120 +40**), and **Try it** where there is something to try. It stays until every call in it is answered, or, with none, until you next write to the chief.
+
+When an agent decides something itself, such as recording a decision on its goal, a quiet line under its reply in its own chat says so: **✓ Decided · "Inbox for shared links" · they land untriaged · Overrule**. Each decision gets its own line, under the reply of the turn that made it. A decision that may hold a password or a key gets no line. After the chat sleeps and wakes, its lines come back at the end of the chat.
+
+**Overrule**, there or in the card, sends the decision back to the agent that made it and leaves one line in the chief's chat; in the agent's own chat its decided line becomes that line. When Sikemux kept a rule from it, the line says decisions like that come to you from now on. **Undo** on that line puts the decision back.
+
+On Monday mornings, the chief's chat shows a count of last week when anything was decided or answered: **Last week I decided 212 things, and you overruled 3. You answered 12 of 14 calls as I picked.**
+
+Your phone shows all of this in the chief's chat too, and a rule's lines (**Now a check**, **Rule changed**, **Rule removed**, **Rule back**) without Undo. It shows an agent's decided line in that agent's chat, with **Overrule** beside **Decided** and the decision and its reason under them. There the card's calls are the ones docked above the composer, and a landed row opens that agent's chat in place of **Try it**. **Overrule** and **Undo** need a phone with full access. In a worker's chat, the composer says **Send to @Name · @Chief is told**, since the chief hears what you write there.
+
+A project has one chief across your hosts. When it is open on more than one, the chief lives on the host where it was made, and the row on your other hosts opens that one and carries the server mark; hover it for the host's name. While that host is out of reach, the mark says so with when: **Runs on throne, out of reach since 14:02**. After a couple of minutes out of reach, a question one of its agents on another host asks goes straight to you there, rather than waiting for the chief.
+
+### Standing roles
+
+Any chat can be hired for a standing role, so it looks after one area for weeks under the chief: **Hire…** in an agent's menu, beside **Rename…** and **Pin**, takes the role's name and what it covers, such as **Marketer: reach, distribution and DAU growth**. The agent is renamed to the role, @Marketer, and pinned, so ⌘⇧N lists it first and finds it by `@Marketer`. It is told its role at once, and starts every new session with it ahead of the project's rules. The chief sends work in that area to it instead of starting a new worker, and can hire one itself; a hire the chief makes is a decision you can **Overrule**. Its session is kept small, as the chief's is, so it stays quick and cheap across weeks. Closing a hired chat ends its role.
+
+In **All projects**, each project's @Chief leads that project's agents, with the project's name beside it. The project that most needs you comes first: one with a call open or an agent that needs you, then one with work under way, then the rest. The island over the notch lists them the same way.
 
 ## Agent names
 
-Each agent gets a one-word name when it starts, an anime character's such as Luffy or Frieren, that no other open agent in its project has. To name new agents after nature instead, such as Otter or Maple, set **Settings › Chats › Agent names** to **Nature**. Agents already open keep their names, and so does any agent you renamed.
+Each agent gets a one-word name when it starts, an anime character's such as Luffy or Frieren, that no other agent in its project has, open or closed. To name new agents after nature instead, such as Otter or Maple, set **Settings → Chats → Agent names** to **Nature**. Agents already open keep their names, and so does any agent you renamed.
+
+A chat keeps its agent and its name when you close it and open it again, from **Recent**, **Undo**, a link or `@`. Only when another open agent of the project holds that name by then does it come back under a new one. It comes back with everything it showed, such as its **Kept as a rule** and **Decided** lines, and as it was: under its lead in the tab rail while that lead is open, with its effort, permission mode, labels, the name you gave it and its own checkout on the same branch, even after Sikemux restarts or updates; in a Claude Code chat, turns added to its session elsewhere since, such as in a terminal, follow at its end. Names are reused only once the list runs out, the name of the chat closed longest first, and a name you chose is never reused. Clicking a closed agent's name, such as on a message it sent or a decision in a goal, opens its chat again.
 
 When you name an agent with `@` in a message, or another agent messages it, a band of light passes once over its row in the tab rail and on the island.
+
+The tab rail lists the agents in the order they started, the first at the top, and each keeps its place: working, waiting on you, finishing or being read changes only its mark. When an agent that needs you is scrolled out of sight, a **Needs you** chip shows at that edge of the list, with how many when more than one, and clicking it scrolls to the nearest.
+
+Each row ends with one mark for how its turn stands, the same on the island and your phone: the agent's own working mark while it works; a ring that fills as a wait on CI runs, with the minutes left beside it once Sikemux knows how long that usually takes; the pink timer with when a set wait ends; an amber dot with how long it has waited on you; a purple dot when it is done, until you look at its chat, a red one when it failed, and a hollow ring when it stopped with work left and nothing set to wake it. Point at a row for its card, which says it in words, such as **needs you 12m** or **CI 4m**, and with the line its chat ends with.
 
 To change a chat's title, double-click it in its header or in the tab rail, type, and press Return; Escape leaves it as it was. **Edit Title…** in its right-click menu does the same.
 
 ## Earlier chats
 
-**Recent** in the tab rail lists the project's earlier chats, newest first. Scroll to its foot and older ones load, a page at a time, and the rail's search finds any of the project's saved chats by title, however old. ⌘⇧N lists them too, beside the agents already open: pinned first, then newest first, and typing narrows the list without reordering it. A chat that ran in a worktree is listed under its project and opens again in that worktree.
+**Recent** in the tab rail lists the project's earlier chats, newest first. Scroll to its foot and older ones load, a page at a time. ⌘⇧N lists them too, beside the agents already open: pinned first, then newest first, and typing narrows the list without reordering it. A chat that ran in a worktree is listed under its project and opens again in that worktree.
+
+The rail's search and ⌘⇧N find a chat, open or saved and however old, by its title or by what you and its agent wrote in it, though not by what its tools printed. Each word you type matches the start of a word, and a message has to hold them all. A chat found by its words shows the line that holds them, the words in full ink: under its title in the rail, beside it in ⌘⇧N. Open it and its find bar opens on those words, at the newest place they come. What it finds comes in one order on the Mac and your phone: chats whose agent's name starts with what you typed, then those whose title holds every word, then those that said them, with title words that start a word ahead of those inside one. Within each, a chat waiting on you comes first, then one working or unread, then one open, then a closed one; open chats keep the rail's order and closed ones go pinned first, then newest. Type `@` first, as in `@calc`, to look only at agents' names. Chats found by what was said arrive a moment later below the rest, and never move a row already shown. On your phone, the magnifier at the top of a host's agents searches its chats the same way, and opens a chat found by its words with **Find in chat** on them. Sikemux keeps an index of what was said in every saved chat on this computer, and reads only what each chat added since it last looked.
+
+## Tags
+
+Right-click a chat and choose **Tags** to tag it: tick a tag already in use, or **New Tag…** to name one. Once any chat has a tag, a tag button sits in the tab rail's head; pick a tag there to list only its chats, with a pill under the head naming it. Click the pill, or the tag again, to see every chat. Tags stay with a chat while it is open.
 
 ## Pinned chats
 
-Point at an open chat in the tab rail and click the pin beside its close, or right-click a chat, open or from the earlier chats, and choose **Pin**. It stays in **Pinned**, right under the running chats, whether it is open or closed, and keeps the name you give it. Click a closed one to open it again. The same pin, or **Unpin** in the menu, takes it off.
+Point at an open chat in the tab rail and click the pin beside its close, or right-click a chat, open or from the earlier chats, and choose **Pin**. It stays in **Pinned**, right under the running chats, whether it is open or closed, and keeps the name you give it. Click a closed one to open it again. The same pin, or **Unpin** in the menu, takes it off. Drag a pinned chat up or down to put it in another place among them.
+
+Click the heading of **Pinned** or **Recent** to fold it away. A folded group shows how many chats it holds, and stays folded after Sikemux restarts.
+
+## Snoozing and settling
+
+To put a chat out of the way for a while, right-click it and choose **Snooze**: in an hour, in three hours, this evening, tomorrow morning or next Monday, or **Pick a Time…** and type one, such as `fri 2pm`, `tomorrow 8` or `in 90m`. It moves under **Snoozed** in the tab rail, with how soon it wakes, and comes back to the main list at that time, or earlier as soon as its agent asks you something, needs a permission or runs into a problem. **Wake Now** in its menu brings it back at once.
+
+When you are done with a chat but want to keep it, choose **Settle** in its menu, with **Undo** after. Sikemux never settles a chat by itself. A settled chat leaves the tab rail, the island and your phone's list, and comes back by itself when you write to it, its agent starts a turn or asks you something. **Settings → Settled chats** lists every settled chat by project, with **Restore** on each, and **Restore** in its menu does the same. Sikemux leaves a lead in the list while any agent it started is still there.
 
 ## Closing an agent
 
@@ -88,6 +249,16 @@ Right-click an agent's tab or its row in the tab rail and choose **Move to Proje
 
 A Claude Code or Codex chat that has already started moves too, with its history: Sikemux stops it, files its saved conversation under the new project, and resumes it there. Wait for it to finish its reply first. Other agents can move only before their first message.
 
+## Handing a chat to another agent
+
+A chat that has begun can go on with another agent: open the model menu under its composer and pick the agent from the rail down its left, such as Codex for a Claude chat. Stop its turn first. The chat stays one conversation, with its history in view, and the new agent starts a fresh session. Your next message takes the chat's words along: your first request, the latest exchanges word for word, and how the commands it ran went, about 16,000 tokens at most. It is a selection, not a summary; what doesn't fit is left out, and the new agent can read the whole chat with Sikemux's tools. The agent's reasoning, tool results and attachments don't go along.
+
+A chat that is asleep hands over what its agent's saved session holds, without the commands. Until you send, a line above the composer says what will go and about how many tokens, and it is still there after Sikemux restarts; **Leave out** sends your message without it. On the phone the handoff shows first in the chat's live strip and its sheet, with the same **Leave out**. `/fork` does the same into a new chat with the same agent and account, leaving this one as it is.
+
+## Moving a new chat to another host
+
+Before its first message, a chat can also move to another host on your account: click the host name under its composer. **Has** lists the hosts that hold a copy of the project, with each copy's folder and branch; pick one and the chat starts there, in that copy, keeping what you typed, its agent, model and effort. **Copy to** lists your other hosts; picking one copies the project there first, then moves the chat onto the copy. Hosts out of reach are greyed out. Files attached to the draft stay on this host, so a chat with attachments doesn't move until you take them off; attach them again once it's there. After the first message the host is fixed.
+
 ## If something stops it mid-reply
 
 An agent's reply finishes even if Sikemux's background process crashes, your computer restarts, or the agent's own process dies, and nobody has to be watching. Sikemux opens the agent's saved conversation again, says so in the chat, and asks the agent to check what got done before carrying on, since a step cut off mid-way may not have finished. After a few stops in a row the agent is left stopped, with **Retry**.
@@ -96,20 +267,49 @@ After a restart this happens when Sikemux's background process starts again: at 
 
 ## When the agent asks you something
 
-An agent's questions open above the composer, one tab per question. Pick an answer, or type your own in the composer, and the next question comes up. Nothing reaches the agent until every question has an answer: then **Send** gives it all of them in one message. A single question goes as soon as you answer it.
+When an agent asks you something and has no lead to ask, it puts a call to you: a card at the end of its chat, the last thing in it. The card says who asks and how long ago, the question, what you need to know to answer, and a picture when there is one to look at. Its options sit in one block, the one the agent would take chosen from the start and marked with Sikemux's **S** and **pick**. Click another to choose it, or click the chosen one again to clear it. The block's last row is a field: with an option chosen it adds a note that goes with it, and with none chosen it takes your answer in your own words. Under it, **Against it** gives the strongest point against the pick, and on a call to ship to production, **What runs** opens to show the exact command it runs. **Go with this** sends whichever option is chosen with its note, or your own words alone; `Enter` in the field does the same, except on a call to ship to production, which no key ever sends, wherever you are typing: only a click or tap on **Go with this** does. A call to ship to production always waits for you. A call never times out.
+
+While a call waits, what you send in the composer goes to the agent as an ordinary message, and the call stays open: only the card's options and its field answer it. On a call that asks for a secret or for access, such as a password, a token or a key, the card's field hides what you type, and the agent reads your answer from a file only your account can open: it never reaches the agent's conversation, the chat, its history or any summary.
+
+When each option has a picture, such as mockups, the pictures sit in a strip above the options: the chosen option's leads, large, and the others wait beside it, smaller. Click a small one to choose its option, and the large one to see it full size.
+
+When a call is about another agent's work, such as a mockup a worker made, its head says **about** and that agent's name; click it to open that agent's chat. A call can also name a page the agent showed, such as both mockups side by side: it sits under the question with its title, and **Open** brings it forward on the agent's desk. On your phone and the island over the notch, a tap on the name opens that agent; the phone names the page and says it is on the computer.
+
+When an agent's worker shows a page, the agent's own chat gets a row for it: **@Sayuki showed a page**, with the top of the page and **Open**, which brings it forward on the worker's desk. A page shown again under the same title updates its row. A call about a worker's work that names no page links the page that worker showed last, if it was within the hour.
+
+Once you answer, the card gives way to one line saying what you chose and what came of it, such as **You chose “Allow it once” · shipped**.
+
+The title bar shows how many calls wait in the project in front, beside its name, as an amber dot and **2 calls**. Click it for the newest call open with its pick chosen and the others a line each under it; click one to open it instead, and **Open chat** goes to the agent that asked. Another project with calls waiting shows an amber dot on its row in the project tree.
+
+On a MacBook's notch, the closed island adds an amber **N calls** to its right wing, counting the calls of every project. When a call arrives, the island drops open on its card for a few seconds, and resting the pointer on it opens on the newest call alone. Clicking the island opens the agents with every waiting call at the top, the newest open as its card; click another call's row to open that one. It is the same card, with the same rows, field and buttons, and **Go with this** answers it there; **Open chat** opens the asker's chat in Sikemux. Answering moves on to the next call. A call that asks for a password or a key offers **Answer in Sikemux** instead. Drop a file on **Answer** while the island lists the agents to answer the question waiting with it.
+
+On your phone, a host's **Calls** tab, beside **Agents** and **Terminals**, lists the calls open in the project in view, each with its project and how long it has waited, and under **Answered** what came of those settled lately. Tap one to open its asker's chat, where the call docks above the composer: the same card with taller rows and **Go with this** across it. A call's context stops at two lines and opens in full when you tap it; on a call to production, or one with something that can't be undone, it is shown whole, and the card scrolls to its button. A call from an agent with no chat on that host, such as one running in a terminal, opens its card right under its row instead. What you send in the composer goes to the agent as a message; only the card answers the call, and `Return` in its field sends it. A call reaches the lock screen in its own words. On one about taste or direction, its options are buttons and **Something else…** opens a field to type an answer: hold the card down on an iPhone, which opens the app to send it; Android shows two of the options and answers from the card itself, without opening the app. Either asks for the phone's lock first; on Android 11 and older the buttons open the app instead. Any other call opens the app.
+
+While the composer is empty, the keys answer the call at the end of the chat, or the card open in the title bar's calls:
 
 | You press | What happens |
 |---|---|
-| `1`–`9` | Picks that answer, or ticks it when the question takes several |
-| `↑` `↓` | Moves between the answers |
-| `Space` | Ticks the answer you moved to, when the question takes several |
-| `←` `→` | Moves between the questions |
-| `Enter` | Picks the answer you moved to, or moves on once you've ticked some |
-| `⌘Enter` | Sends every answer, once each question has one |
+| `1`–`9` | Chooses that option |
+| `↑` `↓` | Moves the chosen option |
+| `←` `→` | Moves between the questions, when several wait |
+| `Enter` | **Go with this** |
+| `⌘Enter` | **Go with this**, or sends every question's answer once each has one |
 
-These keys work while the composer is empty. The arrow at the right of the tabs folds the questions away, so the composer writes to the agent again.
+While you type a note or your own answer in the card's field, these keys type there, and `Enter` still answers. A call to ship to production is the exception everywhere: on the Mac, the notch and the phones, neither `Enter` nor `⌘Enter` sends it, so a key pressed just as it arrives can't ship anything; its numbers and arrows still move the choice, and only **Go with this** sends it.
 
-On your phone the questions sit at the end of the chat, with the same tabs. Tap an answer to pick it, or to tick it when the question takes several, and **Send** under the answers sends them all once each question has one. **Something else…** writes your own answer in the composer. The arrow beside who's asking folds them into one line; tap it to open them again.
+A question an agent writes in its reply stays in the chat, and you answer it in the composer as you would anything else; only a question it asks with its `ask` tool becomes a call.
+
+An offer a yes or a no answers, such as "Want me to commit it?" or "Ship it to dev?", is not a question to you. If one of the project's [rules](/agents/memory/) names what it offers, Sikemux sends the agent back once and the rule decides: the agent does the work if the rule says to, and leaves it if the rule says to wait for you. Otherwise, and in that case too, the agent shows how its turn left things, such as **Done, uncommitted** under its chat with the offer beside it, and you take it up in its chat if you want it.
+
+## What a turn showed
+
+When a turn changes a page of the project, such as a `.tsx`, `.vue`, `.html` or `.css` file, and something already serves that agent's copy of the project on this machine, Sikemux opens the page itself and takes it at a phone's, a tablet's and a desktop's width. It does that once the project's check passes on the turn's commit, or when the turn ends if the project has no check or the work isn't committed. The pictures sit under the reply that ended the turn, each width's **Before** and **After** side by side. Before is the last picture of the same page, and there's none the first time. Click one to see it full size. They show the page; they don't prove anything about it.
+
+Sikemux takes them in a view of its own that keeps no cookies or storage, so nothing you're signed in to shows, and only of pages served on this machine. It keeps the latest 60 sets per project, and a closed agent keeps only its latest of each page.
+
+When nothing serves the agent's copy yet, there are no pictures. Done then offers **Try it**, if the project's `sikemux.json` names a process that serves it, for its preview or for running. **Try it** starts that process in the agent's copy, as one of your processes you can see and stop, and opens the page on the agent's desk. Its next turn that changes the page gets pictures.
+
+In a lead's chat, each worker's finished work shows as a row where it finished. The row has the worker's name, what it did, where its work is and how its checks stand, and its pages' pictures under it. **Try it** opens its page from its own copy. **Undo**, on work that has landed, asks it to revert its own landed commits, which Sikemux lists for it; a commit it shares with another agent isn't its alone to take out. The arrow opens its chat. A shared chat shows neither the pictures nor these rows.
 
 ## Its desk
 

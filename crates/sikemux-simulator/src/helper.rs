@@ -3,10 +3,10 @@
 //! This module starts the helper, sends it one JSON request per line and hands
 //! each answer back to the caller that asked, matched by id.
 
+use sikemux_process::command::{Child, ChildStdin, Stdio};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -86,6 +86,22 @@ impl Progress {
     }
 }
 
+/// A helper to run: its program, and the arguments it takes.
+#[derive(Clone, Debug)]
+pub struct Program {
+    pub path: PathBuf,
+    pub args: Vec<std::ffi::OsString>,
+}
+
+impl From<PathBuf> for Program {
+    fn from(path: PathBuf) -> Self {
+        Self {
+            path,
+            args: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct SimManager {
     helper: Arc<Mutex<Option<Helper>>>,
@@ -99,7 +115,14 @@ pub struct SimManager {
 pub struct SimStatus {
     supported: bool,
     installed: bool,
-    reason: Option<String>,
+    pub reason: Option<String>,
+}
+
+impl SimStatus {
+    /// Whether the simulator can run on this machine.
+    pub fn usable(&self) -> bool {
+        self.supported && self.reason.is_none()
+    }
 }
 
 impl SimManager {
@@ -120,7 +143,11 @@ impl SimManager {
     }
 
     /// Sends one request, such as `{"type": "tap", "x": 10, "y": 20}`, and waits for its answer.
-    pub async fn call(&self, executable: PathBuf, request: Map<String, Value>) -> SimResult<Value> {
+    pub async fn call(
+        &self,
+        executable: impl Into<Program>,
+        request: Map<String, Value>,
+    ) -> SimResult<Value> {
         let timeout = if request.get("type").and_then(Value::as_str) == Some("boot") {
             BOOT_TIMEOUT
         } else {
@@ -131,7 +158,7 @@ impl SimManager {
 
     pub async fn call_within(
         &self,
-        executable: PathBuf,
+        executable: impl Into<Program>,
         mut request: Map<String, Value>,
         timeout: Duration,
     ) -> SimResult<Value> {
@@ -143,7 +170,8 @@ impl SimManager {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         request.insert("id".into(), Value::from(id));
         let (sender, receiver) = oneshot::channel();
-        let (waiting, generation) = self.send(executable, id, sender, &Value::Object(request))?;
+        let (waiting, generation) =
+            self.send(executable.into(), id, sender, &Value::Object(request))?;
         match tokio::time::timeout(timeout, receiver).await {
             Ok(Ok(reply)) => {
                 self.note_answer(generation);
@@ -162,7 +190,7 @@ impl SimManager {
 
     fn send(
         &self,
-        executable: PathBuf,
+        executable: Program,
         id: u64,
         sender: oneshot::Sender<Reply>,
         request: &Value,
@@ -236,8 +264,9 @@ impl SimManager {
         }
     }
 
-    fn spawn(&self, executable: PathBuf) -> SimResult<Helper> {
-        let mut child = sikemux_process::user_environment::command(executable)
+    fn spawn(&self, executable: Program) -> SimResult<Helper> {
+        let mut child = sikemux_process::user_environment::command(&executable.path)
+            .args(&executable.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -303,6 +332,9 @@ fn parse_reply(line: &str) -> Option<(u64, Reply)> {
                 .unwrap_or("the simulator failed");
             let message = match fields.get("reason").and_then(Value::as_str) {
                 Some(reason @ "streamUnavailable") => format!("{message} ({reason})"),
+                Some("notBooted") => {
+                    format!("{message} Call sim attach to start it, or ask the person.")
+                }
                 _ => message.to_owned(),
             };
             Some((id, Err(message)))
@@ -313,20 +345,12 @@ fn parse_reply(line: &str) -> Option<(u64, Reply)> {
 
 /// A helper built alongside the app, as `make dev` does.
 pub fn local_helper() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("SIKEMUX_SIM_EXECUTABLE") {
-        return Some(PathBuf::from(path));
-    }
-    let beside = std::env::current_exe().ok()?.parent()?.join("sikemux-sim");
-    beside.is_file().then_some(beside)
+    download::local_helper("SIKEMUX_SIM_EXECUTABLE", "sikemux-sim")
 }
 
 /// The helper published beside this release, which the app downloads the first time it is needed.
 pub fn published_helper() -> Option<PinnedFile> {
-    PinnedFile::recorded(
-        option_env!("SIKEMUX_HELPER_ASSET"),
-        option_env!("SIKEMUX_HELPER_SIZE"),
-        option_env!("SIKEMUX_HELPER_SHA256"),
-    )
+    sikemux_base::recorded_helper!()
 }
 
 fn downloaded_helper(host: &dyn Host) -> SimResult<PathBuf> {
@@ -519,6 +543,41 @@ impl SimManager {
         Ok(id)
     }
 
+    /// Follows a screen Sikemux streams itself rather than through the helper, under an id
+    /// [`Self::unwatch`] stops; a stream that ends on its own sends [`WATCH_ENDED_EVENT`].
+    pub fn follow(
+        &self,
+        host: Arc<dyn Host>,
+        udid: String,
+        format: String,
+        stream: impl std::future::Future<Output = SimResult<()>> + Send + 'static,
+    ) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut watches = self.watches.locked();
+        let manager = self.clone();
+        let task = tokio::spawn(async move {
+            let ended = stream.await;
+            if manager.end_watch(id).is_none() {
+                return;
+            }
+            let reason = match ended {
+                Ok(()) => return,
+                Err(error) => format!("the stream stopped: {error}"),
+            };
+            host.emit(WATCH_ENDED_EVENT, json!({ "id": id, "reason": reason }));
+        });
+        watches.insert(
+            id,
+            Watch {
+                task,
+                udid,
+                format,
+                read: Arc::default(),
+            },
+        );
+        id
+    }
+
     /// The reader has read this many frames of a watch.
     pub fn watch_read(&self, id: u64, frames: u64) {
         if let Some(watch) = self.watches.locked().get(&id) {
@@ -531,7 +590,7 @@ impl SimManager {
             return Ok(());
         };
         watch.task.abort();
-        if !self.streamed(&watch.udid, &watch.format) {
+        if !crate::android::is_android(&watch.udid) && !self.streamed(&watch.udid, &watch.format) {
             let request =
                 json!({ "type": "stopStream", "udid": watch.udid, "format": watch.format });
             let _ = self
@@ -545,7 +604,7 @@ impl SimManager {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -558,11 +617,14 @@ mod tests {
 
     #[test]
     fn an_error_carries_the_helpers_message() {
-        let (id, reply) = parse_reply(r#"{"id":3,"type":"error","reason":"notBooted","message":"iPhone 17 is not running. Boot it first."}"#).unwrap();
+        let (id, reply) = parse_reply(
+            r#"{"id":3,"type":"error","reason":"notBooted","message":"iPhone 17 is not running."}"#,
+        )
+        .unwrap();
         assert_eq!(id, 3);
         assert_eq!(
-            reply.unwrap_err().to_string(),
-            "iPhone 17 is not running. Boot it first."
+            reply.unwrap_err(),
+            "iPhone 17 is not running. Call sim attach to start it, or ask the person."
         );
     }
 
@@ -632,7 +694,7 @@ mod tests {
         let udid = device["udid"].as_str().unwrap().to_owned();
         let was_booted = device["state"] == "booted";
         call(json!({ "type": "boot", "udid": udid })).await.unwrap();
-        // A device says it is booted a little before its screen can be read, as sim_attach allows for.
+        // A device says it is booted a little before its screen can be read, as sim attach allows for.
         let mut tree = Err(String::new());
         for _ in 0..crate::tools::SCREEN_READY_READS {
             tree = call(json!({ "type": "tree", "udid": udid })).await;
@@ -717,6 +779,13 @@ mod tests {
             Arc::clone(&read),
             channel,
         ));
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while received.lock().unwrap().len() < UNREAD_FRAMES as usize {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("frames up to the limit arrive");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(received.lock().unwrap().len(), UNREAD_FRAMES as usize);
         read.report(UNREAD_FRAMES);
@@ -735,7 +804,7 @@ mod tests {
             r#"{"id":4,"type":"error","reason":"streamUnavailable","message":"No H.264 encoder."}"#,
         )
         .unwrap();
-        assert!(reply.unwrap_err().to_string().contains("streamUnavailable"));
+        assert!(reply.unwrap_err().contains("streamUnavailable"));
     }
 
     #[test]

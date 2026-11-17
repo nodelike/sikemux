@@ -2,11 +2,11 @@
 //! letters from other agents, the context sent with it, and the notes an
 //! agent's harness writes to itself, which the person never sees.
 
-use sikemux_wire::chat::{AgentLetter, LetterKind, SentContext};
-
-/// Where an `@` mention of another agent points; the message's own text
-/// already shows the mention.
-const MENTION_URI: &str = "sikemux://agent/";
+use sikemux_markdown::paths::is_image_path;
+use sikemux_view::chat::{
+    tracked_title, AgentLetter, LetterKind, SentChip, SentChipKind, SentContext, SentSpan,
+    TrackedKind, AGENT_URI, EARLIER_URI, WOKEN_URI,
+};
 
 /// Tags Claude Code writes to itself. A finished background agent's notice
 /// carries its whole report, paragraphs and all, so these are recognised by
@@ -26,7 +26,7 @@ const LETTER_TAGS: [&str; 2] = ["agent-message", "question-answer"];
 /// The sender the core names on the prompts of a chat's triggers.
 const TRIGGER: &str = "trigger";
 
-pub(super) fn is_agent_letter(text: &str) -> bool {
+pub fn is_agent_letter(text: &str) -> bool {
     let text = text.trim_start();
     LETTER_TAGS.iter().any(|tag| {
         text.strip_prefix('<')
@@ -174,14 +174,16 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
                 .unwrap_or_default()
         };
         letters.push(if tag == "question-answer" {
+            let (text, attachments) = split_attached(&body);
             AgentLetter {
                 kind: LetterKind::Answer,
                 name: attribute("asker"),
                 agent_id: attribute("asker-id"),
                 cli: attribute("cli"),
                 question: attribute("question"),
-                text: body,
+                text,
                 secret: attribute("secret") == "true",
+                attachments,
                 tree: None,
                 trigger: None,
             }
@@ -203,12 +205,66 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
                 tree: Some(super::send::read(&text)),
                 text,
                 secret: false,
+                attachments: Vec::new(),
                 trigger,
             }
         });
         rest = &rest[body_start + body_len + close.len()..];
     }
     (!letters.is_empty() && outside.trim().is_empty()).then_some(letters)
+}
+
+/// `text` without the `[@name](file://path)` links at its end, and their paths. A saved
+/// Claude session keeps the files sent with a message as such links after its text.
+pub(super) fn split_trailing_file_links(text: &str) -> (&str, Vec<String>) {
+    let mut rest = text.trim_end();
+    let mut paths = Vec::new();
+    while let Some(inner) = rest.strip_suffix(')') {
+        let Some(open) = inner.rfind("](file://") else {
+            break;
+        };
+        let Some(start) = inner[..open].rfind("[@") else {
+            break;
+        };
+        let path = &inner[open + "](file://".len()..];
+        if path.is_empty() || path.contains([')', '\n']) || inner[start..open].contains('\n') {
+            break;
+        }
+        paths.push(path.to_owned());
+        rest = inner[..start].trim_end();
+    }
+    paths.reverse();
+    (rest, paths)
+}
+
+/// An answer's typed text and the files listed under the `Attached:` the core wrote after it,
+/// with the `[Image #n]` tags that stood for those files taken out of the text.
+fn split_attached(answer: &str) -> (String, Vec<String>) {
+    const HEAD: &str = "Attached:\n";
+    let start = match answer.strip_prefix(HEAD) {
+        Some(_) => 0,
+        None => match answer.find(&format!("\n\n{HEAD}")) {
+            Some(at) => at + 2,
+            None => return (answer.to_owned(), Vec::new()),
+        },
+    };
+    let listed = &answer[start + HEAD.len()..];
+    let end = listed.find("\n\n").unwrap_or(listed.len());
+    let paths: Vec<String> = (listed[..end].lines())
+        .filter_map(|line| line.strip_prefix("- "))
+        .map(str::to_owned)
+        .collect();
+    let text = [&answer[..start], &listed[end..]].concat();
+    (without_image_tags(&text, paths.len()), paths)
+}
+
+/// `text` without the `[Image #n]` tags that stood for its first `count` files.
+pub(super) fn without_image_tags(text: &str, count: usize) -> String {
+    let mut text = text.to_owned();
+    for number in 1..=count {
+        text = text.replace(&format!("[Image #{number}]"), "");
+    }
+    text.trim().to_owned()
 }
 
 /// The context items a message carries in its text, read back out of it: the
@@ -235,10 +291,13 @@ pub(super) fn split_sent_context(text: &str) -> (String, Vec<SentContext>) {
         let before = &remaining[..at];
         rest.push_str(before.strip_suffix('\n').unwrap_or(before));
         let body = &remaining[body_start..body_start + body_len];
-        context.push(SentContext {
-            uri: uri.to_owned(),
-            title: body.split('\n').next().unwrap_or_default().to_owned(),
-        });
+        context.push(
+            SentContext::new(
+                uri.to_owned(),
+                body.split('\n').next().unwrap_or_default().to_owned(),
+            )
+            .with_text(body),
+        );
         remaining = &remaining[body_start + body_len + "\n</context>".len()..];
     }
     rest.push_str(remaining);
@@ -269,9 +328,9 @@ fn headed_fences(text: &str, context: &mut Vec<SentContext>) -> String {
             break;
         };
         match headed_fence(&text[head..]) {
-            Some((uri, title, len)) => {
+            Some((sent, len)) => {
                 out.push_str(&text[at..cut]);
-                context.push(SentContext { uri, title });
+                context.push(sent);
                 at = head + len;
             }
             None => {
@@ -284,7 +343,7 @@ fn headed_fences(text: &str, context: &mut Vec<SentContext>) -> String {
     out
 }
 
-fn headed_fence(text: &str) -> Option<(String, String, usize)> {
+fn headed_fence(text: &str) -> Option<(SentContext, usize)> {
     let rest = text.strip_prefix("### ")?;
     let (title, rest) = rest.split_once('\n')?;
     let (uri, rest) = rest.split_once('\n')?;
@@ -305,7 +364,9 @@ fn headed_fence(text: &str) -> Option<(String, String, usize)> {
         let after = &body[end..];
         if after.is_empty() || after.starts_with("\n\n###") {
             let consumed = text.len() - after.len();
-            return Some((uri.to_owned(), title.to_owned(), consumed));
+            let sent = SentContext::new(uri.to_owned(), title.to_owned())
+                .with_text(&body[..search + found]);
+            return Some((sent, consumed));
         }
         search = search + found + 1;
     }
@@ -313,5 +374,134 @@ fn headed_fence(text: &str) -> Option<(String, String, usize)> {
 }
 
 pub(super) fn is_mention(uri: &str) -> bool {
-    uri.starts_with(MENTION_URI)
+    uri.starts_with(AGENT_URI)
+}
+
+/// What a draft wrote into a text, as far as the text itself says.
+#[derive(Default)]
+pub struct SentNames<'a> {
+    pub attachments: &'a [String],
+    /// Which of `attachments` are folders.
+    pub folders: &'a [String],
+    pub context: &'a [SentContext],
+    /// Agents the text may name by `@name`, as `(name, id)`, when no context item says so.
+    pub agents: &'a [(String, String)],
+    /// Commands the text may name by `/name`.
+    pub commands: &'a [String],
+}
+
+/// `text` read in order, its words and the chips its draft wrote into it; empty when it holds
+/// no chip. The core reads this once, so each client draws the same chips, whether or not the
+/// agent a chip names is still open under that name.
+pub fn sent_spans(text: &str, names: SentNames<'_>) -> Vec<SentSpan> {
+    let found = sent_chips(text, &names);
+    let mut spans = Vec::new();
+    let mut rest = text;
+    loop {
+        let next = (found.iter())
+            .filter_map(|(written, chip)| Some((rest.find(written.as_str())?, written, chip)))
+            .min_by_key(|(at, written, _)| (*at, std::cmp::Reverse(written.len())));
+        let Some((at, written, chip)) = next else {
+            break;
+        };
+        if at > 0 {
+            spans.push(SentSpan {
+                text: rest[..at].to_owned(),
+                chip: None,
+            });
+        }
+        spans.push(SentSpan {
+            text: written.clone(),
+            chip: Some(chip.clone()),
+        });
+        rest = &rest[at + written.len()..];
+    }
+    if spans.is_empty() {
+        return spans;
+    }
+    if !rest.is_empty() {
+        spans.push(SentSpan {
+            text: rest.to_owned(),
+            chip: None,
+        });
+    }
+    spans
+}
+
+fn sent_chips(text: &str, names: &SentNames<'_>) -> Vec<(String, SentChip)> {
+    let chip = |kind, label: &str, carried: Option<&str>| SentChip {
+        kind,
+        label: label.to_owned(),
+        carried: carried.map(str::to_owned),
+    };
+    let mut found: Vec<(String, SentChip)> = Vec::new();
+    for (name, id) in names.agents {
+        let written = format!("@{name}");
+        let carried = format!("{AGENT_URI}{id}");
+        let agent = chip(SentChipKind::Agent, &written, Some(&carried));
+        found.push((written, agent));
+    }
+    for name in names.commands {
+        let written = format!("/{name}");
+        let command = chip(SentChipKind::Command, &written, None);
+        found.push((written, command));
+    }
+    for (index, path) in names.attachments.iter().enumerate() {
+        if is_image_path(path) {
+            let number = index + 1;
+            let label = format!("Image #{number}");
+            let image = chip(SentChipKind::Image, &label, Some(path));
+            found.push((format!("[Image #{number}]"), image));
+            continue;
+        }
+        let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+        let tag = (0..parts.len())
+            .map(|from| format!("+{}", parts[from..].join("/")))
+            .find(|tag| text.contains(tag.as_str()));
+        if let Some(tag) = tag {
+            let kind = match names.folders.contains(path) {
+                true => SentChipKind::Folder,
+                false => SentChipKind::File,
+            };
+            let file = chip(kind, &tag, Some(path));
+            found.push((tag, file));
+        }
+    }
+    for item in names.context {
+        if item.uri.starts_with(AGENT_URI) || item.uri.starts_with(WOKEN_URI) {
+            let written = item.title.split(' ').next().unwrap_or_default();
+            if written.starts_with('@') {
+                let agent = chip(SentChipKind::Agent, written, Some(&item.uri));
+                found.push((written.to_owned(), agent));
+            }
+        } else if item.uri.starts_with(EARLIER_URI) && item.title.starts_with('@') {
+            let earlier = chip(SentChipKind::Chat, &item.title, Some(&item.uri));
+            found.push((item.title.clone(), earlier));
+        } else if let Some(tracked) = &item.tracked {
+            let (sign, kind) = match tracked.kind {
+                TrackedKind::Pull => ('!', SentChipKind::Pull),
+                TrackedKind::Issue => ('#', SentChipKind::Issue),
+            };
+            let number = &tracked.number;
+            let label = format!("#{number} {}", tracked_title(&item.title, number));
+            let named = chip(kind, &label, Some(&item.uri));
+            found.push((format!("{sign}{number}"), named));
+        }
+    }
+    found.retain(|(written, _)| text.contains(written.as_str()));
+    found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_resumed_answer_whose_image_follows_it_as_a_link() {
+        let saved = "<question-answer asker=\"Zouken\" asker-id=\"agent-1\" cli=\"claude\" question=\"Keep it?\" note=\"\">\nKeep the App line\n</question-answer>[@shot.png](file:///Users/me/shot.png)";
+        let (lettered, linked) = split_trailing_file_links(saved);
+        let letters = agent_letters(lettered).expect("an answer");
+        assert_eq!(letters[0].text, "Keep the App line");
+        assert_eq!(linked, ["/Users/me/shot.png"]);
+    }
 }

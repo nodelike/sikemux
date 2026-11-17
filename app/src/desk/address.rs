@@ -1,25 +1,25 @@
 //! ⌘L's address: a field floating over the middle of a desk's page, which finishes a
 //! remembered site as it is typed and lists the pages that match below it.
 
+use crate::ui::Clicks;
 use std::ops::Range;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, deferred, div, px, relative, AnyElement, App, AppContext, Context, Entity, FontWeight,
-    HighlightStyle, InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, StyledText, Subscription, Task, Window,
+    deferred, div, px, relative, AnyElement, App, AppContext, Context, Entity, FontWeight,
+    HighlightStyle, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    StyledText, Subscription, Task, Window,
 };
 use sikemux_browser::history::{AddressSuggestions, Suggestion};
 
 use crate::icons::Icon;
 use crate::theme::{
-    ui_text, Tokens, RADIUS_2, SPACE_0, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XL, TEXT_XS,
+    radius_2, ui_text, Tokens, SPACE_0, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XL, TEXT_XS,
 };
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Next, Previous};
 use crate::workbench::Workbench;
-
-actions!(address, [Next, Previous, Go, Close]);
 
 const MAX_WIDTH: f32 = 680.;
 const MARGIN: f32 = 16.;
@@ -29,19 +29,13 @@ const FIELD_AT: f32 = 0.36;
 const UNDER_DIM: f32 = 0.2;
 
 pub fn install(cx: &mut App) {
-    let context = Some("FloatingAddress > Input");
-    cx.bind_keys([
-        KeyBinding::new("down", Next, context),
-        KeyBinding::new("up", Previous, context),
-        KeyBinding::new("enter", Go, context),
-        KeyBinding::new("escape", Close, context),
-    ]);
+    list_picker::bind("FloatingAddress > Input", list_picker::Tab::Nothing, cx);
 }
 
 /// The open address and what it offers.
-pub(super) struct Floating {
-    pub(super) agent: String,
-    pub(super) input: Entity<InputState>,
+pub(crate) struct Floating {
+    pub(crate) agent: String,
+    pub(crate) input: Entity<InputState>,
     /// What the person typed, without the part finished for them.
     typed: String,
     /// Only typing forward is finished; deleting the finished part must not bring it back.
@@ -177,7 +171,7 @@ impl Workbench {
             .unwrap_or_default();
         let input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Search or enter address")
+                .placeholder(t!("Search or enter address"))
                 .default_value(shown)
         });
         let typing = cx.subscribe_in(
@@ -349,12 +343,14 @@ pub(super) fn overlay(
             .children(rows.iter().enumerate().map(|(at, row)| {
                 let selected = floating.selected == Some(at);
                 let mark = match (row.search, row.icon.as_deref()) {
-                    (true, _) => ui::icon(Icon::Search, 13.).into_any_element(),
-                    (false, Some(icon)) => match bench.desks.read(cx).favicon(icon) {
-                        Some(icon) => gpui_kit::img(icon).size(px(13.)).into_any_element(),
-                        None => ui::icon(Icon::Globe, 13.).into_any_element(),
-                    },
-                    (false, None) => ui::icon(Icon::Globe, 13.).into_any_element(),
+                    (true, _) => ui::icon(Icon::Search, 13.)
+                        .text_color(t.text_tertiary)
+                        .into_any_element(),
+                    (false, icon) => ui::favicon(
+                        icon.and_then(|icon| bench.desks.read(cx).favicon(icon)),
+                        13.,
+                        cx,
+                    ),
                 };
                 div()
                     .id(("address-row", at))
@@ -363,14 +359,14 @@ pub(super) fn overlay(
                     .flex()
                     .items_center()
                     .gap(SPACE_2)
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .text_size(ui_text(TEXT_XS))
                     .text_color(t.text_primary)
                     .map(|line| match selected {
                         true => line.bg(t.surface_chosen),
                         false => line.hover(|line| line.bg(t.surface_hover)),
                     })
-                    .on_click(cx.listener(move |bench, _, window, cx| {
+                    .clicks(cx.listener(move |bench, _, window, cx| {
                         bench.go_address(Some(at), window, cx)
                     }))
                     .child(
@@ -401,7 +397,7 @@ pub(super) fn overlay(
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_action(cx.listener(|bench, _: &Next, _, cx| bench.step_address(1, cx)))
         .on_action(cx.listener(|bench, _: &Previous, _, cx| bench.step_address(-1, cx)))
-        .on_action(cx.listener(|bench, _: &Go, window, cx| bench.go_address(None, window, cx)))
+        .on_action(cx.listener(|bench, _: &Choose, window, cx| bench.go_address(None, window, cx)))
         .on_action(
             cx.listener(|bench, _: &Close, window, cx| bench.close_address(true, window, cx)),
         )

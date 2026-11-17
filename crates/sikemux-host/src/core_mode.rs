@@ -1,17 +1,15 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// `sikemux core`: runs the background process that owns terminals in the
 /// foreground, as the service and the app start it. See
 /// [`sikemux_core::server::main`]; the commands that manage it are in
 /// [`sikemux_host::headless`].
 pub fn run() -> i32 {
+    sikemux_process::cgroups::take_own_unit();
+    leave_launch_folder();
     let args: Vec<String> = std::env::args().skip(2).collect();
     sikemux_host::cli_paths::link_cli_for_children();
-    let plugins = args
-        .iter()
-        .position(|arg| arg == "--data-dir")
-        .and_then(|at| args.get(at + 1))
-        .and_then(|data_dir| sikemux_host::provide_to_core(Path::new(data_dir)));
+    let plugins = data_dir().and_then(|data_dir| sikemux_host::provide_to_core(&data_dir));
     if !args
         .iter()
         .any(|arg| arg == sikemux_core::frozen::UPGRADE_INFO_ARG)
@@ -19,6 +17,30 @@ pub fn run() -> i32 {
         rewrite_service();
     }
     sikemux_core::server::main(args.into_iter(), sikemux_host::build_identity(), plugins)
+}
+
+/// The core outlives the app that started it, and an update deletes the app's folder, which
+/// agent CLIs started without a folder of their own then refuse to run in.
+fn leave_launch_folder() {
+    if let Some(home) = sikemux_process::paths::home() {
+        let _ = std::env::set_current_dir(home);
+    }
+}
+
+/// The folder `--data-dir` names.
+pub fn data_dir() -> Option<PathBuf> {
+    path_arg("--data-dir")
+}
+
+/// The socket `--socket` names.
+pub fn socket() -> Option<PathBuf> {
+    path_arg("--socket")
+}
+
+fn path_arg(name: &str) -> Option<PathBuf> {
+    let mut args = std::env::args_os().skip(2);
+    args.find(|arg| arg == name)?;
+    args.next().map(PathBuf::from)
 }
 
 /// A core that updated itself starts its service the way its own release

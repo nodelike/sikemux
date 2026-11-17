@@ -32,9 +32,12 @@ export function devKeyFile(home: string): string {
 /** What the server signs for a ticket. Times are unix seconds in decimal, keys lowercase hex. */
 export function joinMessage(ticket: Omit<JoinTicket, "signature">): string {
   const base = `sikemux-join|v${ticket.v}|${ticket.keyId}|${ticket.account}|${ticket.host}|${ticket.phone}|${ticket.issuedAt}|${ticket.expiresAt}`;
-  return ticket.via === undefined
-    ? base
-    : `${base}|${ticket.via}|${ticket.viaName ?? ""}`;
+  const via =
+    ticket.via === undefined
+      ? base
+      : `${base}|${ticket.via}|${ticket.viaName ?? ""}`;
+  const hands = ticket.handsOnly ? `${via}|hands-only` : via;
+  return ticket.lookOnly ? `${hands}|look-only` : hands;
 }
 
 export function signTicket(
@@ -44,8 +47,12 @@ export function signTicket(
     host,
     phone,
     via,
+    handsOnly,
+    lookOnly,
   }: Pick<JoinTicket, "account" | "host" | "phone"> & {
     via?: { key: string; name: string };
+    handsOnly?: boolean;
+    lookOnly?: boolean;
   },
   now = Date.now(),
 ): JoinTicket {
@@ -63,6 +70,8 @@ export function signTicket(
     fields.via = via.key;
     fields.viaName = via.name;
   }
+  if (handsOnly) fields.handsOnly = true;
+  if (lookOnly) fields.lookOnly = true;
   const signature = sign(
     null,
     Buffer.from(joinMessage(fields), "utf8"),

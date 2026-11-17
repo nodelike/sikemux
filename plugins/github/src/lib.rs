@@ -1,25 +1,9 @@
 // GitHub: the runs, pull requests, issues, releases and notifications of
 // whichever repository Sikemux has open.
-//
-//   config    — which GitHub this is, and where the token comes from
-//   client    — the HTTP client, size limits, and GitHub's error shapes
-//   auth      — signing in, signing out, and who the token belongs to
-//   repo      — a git remote turned into owner and repository
-//   workflows — the workflows a repository has, and starting one by hand
-//   runs      — runs, the jobs in one, and re-running or stopping them
-//   logs      — a job's log, and what GitHub flagged in it
-//   artifacts — what a run left behind, and putting one on disk
-//   approvals — a run held at an environment until somebody signs it off
-//   pulls     — pull requests, the files they touch, and merging one
-//   review    — what reviewers asked of a pull request, and answering it
-//   issues    — issues, and closing or reopening one
-//   releases  — releases, their notes and the files hung off them
-//   inbox     — the notifications GitHub would otherwise email
-//   common    — the shapes every part of the API repeats
-//   images    — avatars and pictures, handed to the window as data: addresses
-//   watch     — following a run while it is going
 
 mod annotations;
+mod app;
+mod app_setup;
 mod approvals;
 mod artifacts;
 mod auth;
@@ -28,10 +12,12 @@ mod client;
 mod common;
 mod config;
 mod error;
+mod feed;
 mod images;
 mod inbox;
 mod issues;
 mod logs;
+mod pictures;
 mod pulls;
 mod releases;
 mod repo;
@@ -40,35 +26,27 @@ mod runs;
 mod workflows;
 
 use std::path::Path;
-use std::sync::Arc;
 
-use serde::de::IgnoredAny;
 use serde_json::Value;
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::{as_account, named_in};
 use sikemux_plugin_api::codehost::asks::*;
-use sikemux_plugin_api::codehost::{self, work, CodeHost};
+use sikemux_plugin_api::codehost::{self, CodeHost};
 use sikemux_plugin_api::codehost::{
-    Annotation, Artifact, ChangedFile, Check, Comment, CommitAuthor, Issue, IssuePage, JobLog,
-    JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit, PullCounts, Release,
-    RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem,
-    Workflow, WorkflowFile,
+    Annotation, Artifact, Attached, ChangedFile, Check, CiMoved, Comment, CommitAuthor, Issue,
+    IssuePage, JobLog, JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit,
+    PullCounts, Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage,
+    RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::store::Accounts;
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
+use sikemux_plugin_api::host_work;
+use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::GithubResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Github {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Github {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Github);
 
 /// What a git remote points at, and whether it is the GitHub this is signed in
 /// to. A repository on another host is still described, so the view can say so
@@ -89,28 +67,9 @@ async fn signed_in(data_dir: &Path, outcome: GithubResult<String>) -> Result<Val
     reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
-/// Which account a call is for; with none named, the default one.
-fn account_of(input: &Value) -> Option<String> {
-    input
-        .get("account")
-        .and_then(Value::as_str)
-        .filter(|account| !account.is_empty())
-        .map(str::to_string)
-}
-
 impl Plugin for Github {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
-    fn call<'a>(
-        &'a self,
-        ctx: &'a PluginContext,
-        method: &'a str,
-        input: Value,
-    ) -> PluginFuture<'a, Value> {
-        let account = account_of(&input);
-        Box::pin(as_account(account, self.dispatch(ctx, method, input)))
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&app::BOOKS)
     }
 
     fn stream<'a>(
@@ -120,11 +79,59 @@ impl Plugin for Github {
         input: Value,
         sink: StreamSink,
     ) -> PluginFuture<'a, ()> {
-        let account = account_of(&input);
-        Box::pin(as_account(
-            account,
-            dispatch_stream(ctx, method, input, sink),
-        ))
+        Box::pin(async move {
+            match method {
+                "createApp" => {
+                    let ask = match input {
+                        Value::Null => app_setup::Create::default(),
+                        input => params(input)?,
+                    };
+                    app_setup::create(ctx.data_dir(), ask, &sink).await?;
+                    sink.send(reply(app_setup::status(ctx.data_dir()).await)?)
+                }
+                _ => Err(PluginError::unknown_method(method)),
+            }
+        })
+    }
+
+    fn credential<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        ask: &'a Ask,
+    ) -> PluginFuture<'a, Option<Credential>> {
+        Box::pin(async move { Ok(app::credential(ctx.data_dir(), ask).await?) })
+    }
+
+    fn revoke<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        remote: &'a str,
+        secret: &'a str,
+    ) -> PluginFuture<'a, ()> {
+        Box::pin(async move { Ok(app::revoke(remote, secret).await?) })
+    }
+
+    fn merge_as_agents<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        remote: &'a str,
+        merge: Merge,
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async move { Ok(app::merge(ctx.data_dir(), remote, merge).await?) })
+    }
+
+    fn acts_as(&self, ctx: &PluginContext, remote: &str) -> Option<Acting> {
+        app::acts_as(ctx, remote).map(Acting::Agents)
+    }
+
+    fn call<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        method: &'a str,
+        input: Value,
+    ) -> PluginFuture<'a, Value> {
+        let account = named_in(&input);
+        Box::pin(as_account(account, self.dispatch(ctx, method, input)))
     }
 }
 
@@ -138,295 +145,84 @@ impl Github {
         let data_dir = ctx.data_dir();
         match method {
             "status" => reply(auth::status(data_dir).await),
-            "accounts" => reply(auth::accounts(data_dir)?),
-            "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
-            "rateLimit" => {
-                let id = config::load(data_dir)?
-                    .account(chosen().as_deref())
-                    .map(|account| account.id.clone())
-                    .unwrap_or_default();
-                reply(client::LIMITS.budget(&id))
+            "setDefaultAccount" => {
+                answer(store::set_default::<config::GithubConfig, error::Github>(
+                    data_dir,
+                    params(input)?,
+                ))
+                .await
             }
             "signIn" => signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await,
             "signOut" => answer(auth::sign_out(data_dir)).await,
+            "appStatus" => reply(app_setup::status(data_dir).await),
+            "forgetApp" => answer(app_setup::forget(data_dir, params(input)?)).await,
             _ => codehost::dispatch(self, data_dir, method, input).await,
         }
     }
 }
 
 impl CodeHost for Github {
+    fn ci_event<'a>(&'a self, _dir: &'a Path, ask: CiEvent) -> PluginFuture<'a, Option<CiMoved>> {
+        Box::pin(async move { Ok(feed::take(ask)?) })
+    }
+
     fn resolve_remote<'a>(&'a self, dir: &'a Path, ask: RemoteQuery) -> PluginFuture<'a, Resolved> {
         Box::pin(async move { Ok(resolve(dir, ask)) })
     }
 
-    fn account_for<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: AccountQuery,
-    ) -> PluginFuture<'a, Option<String>> {
-        work(auth::account_for(dir, ask.repo))
-    }
-
-    fn my_repos<'a>(&'a self, dir: &'a Path, ask: MineQuery) -> PluginFuture<'a, Vec<RepoListing>> {
-        work(repo::mine(dir, ask.limit))
-    }
-
-    fn branches<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<String>> {
-        work(workflows::branches(dir, ask))
-    }
-
-    fn image<'a>(&'a self, dir: &'a Path, ask: ImageRef) -> PluginFuture<'a, String> {
-        work(images::image(dir, ask))
-    }
-
-    fn workflows<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Workflow>> {
-        work(workflows::list(dir, ask))
-    }
-
-    fn workflow_file<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: WorkflowRef,
-    ) -> PluginFuture<'a, WorkflowFile> {
-        work(workflows::file(dir, ask))
-    }
-
-    fn workflow_file_at<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FileAt,
-    ) -> PluginFuture<'a, WorkflowFile> {
-        work(workflows::file_at(dir, ask))
-    }
-
-    fn dispatch_workflow<'a>(&'a self, dir: &'a Path, ask: Dispatch) -> PluginFuture<'a, ()> {
-        work(workflows::dispatch(dir, ask))
-    }
-
-    fn runs<'a>(&'a self, dir: &'a Path, ask: RunQuery) -> PluginFuture<'a, RunPage> {
-        work(runs::list(dir, ask))
-    }
-
-    fn run<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunDetail> {
-        work(runs::detail(dir, ask))
-    }
-
-    fn run_attempt<'a>(&'a self, dir: &'a Path, ask: AttemptRef) -> PluginFuture<'a, RunDetail> {
-        work(runs::attempt(dir, ask))
-    }
-
-    fn run_timing<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunTiming> {
-        work(runs::timing(dir, ask))
-    }
-
-    fn rerun<'a>(&'a self, dir: &'a Path, ask: Rerun) -> PluginFuture<'a, ()> {
-        work(runs::rerun(dir, ask))
-    }
-
-    fn rerun_job<'a>(&'a self, dir: &'a Path, ask: RerunJob) -> PluginFuture<'a, ()> {
-        work(runs::rerun_job(dir, ask))
-    }
-
-    fn cancel<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(runs::cancel(dir, ask))
-    }
-
-    fn delete_run<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(runs::delete(dir, ask))
-    }
-
-    fn delete_run_logs<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(runs::delete_logs(dir, ask))
-    }
-
-    fn job_log<'a>(&'a self, dir: &'a Path, ask: JobRef) -> PluginFuture<'a, JobLog> {
-        work(logs::job(dir, ask))
-    }
-
-    fn job_log_excerpt<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: ExcerptQuery,
-    ) -> PluginFuture<'a, LogExcerpt> {
-        work(logs::excerpt(dir, ask))
-    }
-
-    fn annotations<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CheckRunRef,
-    ) -> PluginFuture<'a, Vec<Annotation>> {
-        work(annotations::list(dir, ask))
-    }
-
-    fn job_summary<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CheckRunRef,
-    ) -> PluginFuture<'a, Option<JobSummary>> {
-        work(annotations::summary(dir, ask))
-    }
-
-    fn checks<'a>(&'a self, dir: &'a Path, ask: ChecksQuery) -> PluginFuture<'a, Vec<Check>> {
-        work(checks::list(dir, ask))
-    }
-
-    fn artifacts<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, Vec<Artifact>> {
-        work(artifacts::list(dir, ask))
-    }
-
-    fn pending_approvals<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: RunRef,
-    ) -> PluginFuture<'a, Vec<PendingApproval>> {
-        work(approvals::pending(dir, ask))
-    }
-
-    fn review_deployment<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: DeploymentReview,
-    ) -> PluginFuture<'a, ()> {
-        work(approvals::review(dir, ask))
-    }
-
-    fn pulls<'a>(&'a self, dir: &'a Path, ask: PullQuery) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::list(dir, ask))
-    }
-
-    fn pull_counts<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, PullCounts> {
-        work(pulls::counts(dir, ask))
-    }
-
-    fn issue_counts<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, PullCounts> {
-        work(pulls::issue_counts(dir, ask))
-    }
-
-    fn pull<'a>(&'a self, dir: &'a Path, ask: PullRef) -> PluginFuture<'a, Pull> {
-        work(pulls::get(dir, ask))
-    }
-
-    fn pull_files<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FilesQuery,
-    ) -> PluginFuture<'a, Vec<ChangedFile>> {
-        work(pulls::files(dir, ask))
-    }
-
-    fn pull_commits<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: PullRef,
-    ) -> PluginFuture<'a, Vec<PullCommit>> {
-        work(pulls::commits(dir, ask))
-    }
-
-    fn pull_reviews<'a>(&'a self, dir: &'a Path, ask: PullRef) -> PluginFuture<'a, Vec<Review>> {
-        work(pulls::reviews(dir, ask))
-    }
-
-    fn commit_pulls<'a>(&'a self, dir: &'a Path, ask: CommitRef) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::of_commit(dir, ask))
-    }
-
-    fn commit_authors<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CommitsQuery,
-    ) -> PluginFuture<'a, Vec<CommitAuthor>> {
-        work(pulls::commit_authors(dir, ask))
-    }
-
-    fn merge_pull<'a>(&'a self, dir: &'a Path, ask: Merge) -> PluginFuture<'a, ()> {
-        work(pulls::merge(dir, ask))
-    }
-
-    fn create_pull<'a>(&'a self, dir: &'a Path, ask: NewPull) -> PluginFuture<'a, Pull> {
-        work(pulls::create(dir, ask))
-    }
-
-    fn set_pull_state<'a>(&'a self, dir: &'a Path, ask: SetPullState) -> PluginFuture<'a, ()> {
-        work(pulls::set_state(dir, ask))
-    }
-
-    fn review_pull<'a>(&'a self, dir: &'a Path, ask: NewReview) -> PluginFuture<'a, ()> {
-        work(pulls::review(dir, ask))
-    }
-
-    fn review_feedback<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FeedbackQuery,
-    ) -> PluginFuture<'a, Vec<ReviewFeedback>> {
-        work(review::feedback(dir, ask))
-    }
-
-    fn answer_review<'a>(&'a self, dir: &'a Path, ask: Answers) -> PluginFuture<'a, ()> {
-        work(review::answer(dir, ask))
-    }
-
-    fn issues<'a>(&'a self, dir: &'a Path, ask: IssueQuery) -> PluginFuture<'a, IssuePage> {
-        work(issues::list(dir, ask))
-    }
-
-    fn issue<'a>(&'a self, dir: &'a Path, ask: IssueRef) -> PluginFuture<'a, Issue> {
-        work(issues::get(dir, ask))
-    }
-
-    fn create_issue<'a>(&'a self, dir: &'a Path, ask: NewIssue) -> PluginFuture<'a, Issue> {
-        work(issues::create(dir, ask))
-    }
-
-    fn set_issue_state<'a>(&'a self, dir: &'a Path, ask: SetIssueState) -> PluginFuture<'a, ()> {
-        work(issues::set_state(dir, ask))
-    }
-
-    fn comments<'a>(&'a self, dir: &'a Path, ask: ThreadRef) -> PluginFuture<'a, Vec<Comment>> {
-        work(common::comments(dir, ask))
-    }
-
-    fn timeline<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: ThreadRef,
-    ) -> PluginFuture<'a, Vec<TimelineItem>> {
-        work(common::timeline(dir, ask))
-    }
-
-    fn add_comment<'a>(&'a self, dir: &'a Path, ask: NewComment) -> PluginFuture<'a, ()> {
-        work(common::add_comment(dir, ask))
-    }
-
-    fn releases<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Release>> {
-        work(releases::list(dir, ask))
-    }
-
-    fn inbox<'a>(&'a self, dir: &'a Path, ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
-        work(inbox::list(dir, ask))
-    }
-
-    fn mark_read<'a>(&'a self, dir: &'a Path, ask: NotificationRef) -> PluginFuture<'a, ()> {
-        work(inbox::mark_read(dir, ask))
-    }
-
-    fn mark_all_read<'a>(&'a self, dir: &'a Path, _ask: IgnoredAny) -> PluginFuture<'a, ()> {
-        work(inbox::mark_all_read(dir))
-    }
-}
-
-async fn dispatch_stream(
-    ctx: &PluginContext,
-    method: &str,
-    input: Value,
-    sink: StreamSink,
-) -> Result<(), PluginError> {
-    let data_dir = ctx.data_dir();
-    match method {
-        "downloadArtifact" => artifacts::download(data_dir, params(input)?, &sink).await,
-        "downloadAsset" => releases::download(data_dir, params(input)?, &sink).await,
-        _ => Err(PluginError::unknown_method(method)),
+    host_work! {
+        inbox(dir, ask: InboxQuery) -> Vec<Notification> = inbox::list(dir, ask);
+        account_for(dir, ask: AccountQuery) -> Option<String> = auth::account_for(dir, ask.repo);
+        my_repos(dir, ask: MineQuery) -> Vec<RepoListing> = repo::mine(dir, ask.limit);
+        branches(dir, ask: RepoRef) -> Vec<String> = workflows::branches(dir, ask);
+        image(dir, ask: ImageRef) -> String = images::image(dir, ask);
+        workflows(dir, ask: RepoRef) -> Vec<Workflow> = workflows::list(dir, ask);
+        workflow_file(dir, ask: WorkflowRef) -> WorkflowFile = workflows::file(dir, ask);
+        workflow_file_at(dir, ask: FileAt) -> WorkflowFile = workflows::file_at(dir, ask);
+        dispatch_workflow(dir, ask: Dispatch) -> () = workflows::dispatch(dir, ask);
+        runs(dir, ask: RunQuery) -> RunPage = runs::list(dir, ask);
+        run(dir, ask: RunRef) -> RunDetail = runs::detail(dir, ask);
+        add_ci_hook(dir, ask: CiHookAdd) -> String = feed::add_hook(dir, ask);
+        run_attempt(dir, ask: AttemptRef) -> RunDetail = runs::attempt(dir, ask);
+        run_timing(dir, ask: RunRef) -> RunTiming = runs::timing(dir, ask);
+        rerun(dir, ask: Rerun) -> () = runs::rerun(dir, ask);
+        rerun_job(dir, ask: RerunJob) -> () = runs::rerun_job(dir, ask);
+        cancel(dir, ask: RunRef) -> () = runs::cancel(dir, ask);
+        delete_run(dir, ask: RunRef) -> () = runs::delete(dir, ask);
+        delete_run_logs(dir, ask: RunRef) -> () = runs::delete_logs(dir, ask);
+        job_log(dir, ask: JobRef) -> JobLog = logs::job(dir, ask);
+        job_log_excerpt(dir, ask: ExcerptQuery) -> LogExcerpt = logs::excerpt(dir, ask);
+        annotations(dir, ask: CheckRunRef) -> Vec<Annotation> = annotations::list(dir, ask);
+        job_summary(dir, ask: CheckRunRef) -> Option<JobSummary> = annotations::summary(dir, ask);
+        checks(dir, ask: ChecksQuery) -> Vec<Check> = checks::list(dir, ask);
+        artifacts(dir, ask: RunRef) -> Vec<Artifact> = artifacts::list(dir, ask);
+        pending_approvals(dir, ask: RunRef) -> Vec<PendingApproval> = approvals::pending(dir, ask);
+        review_deployment(dir, ask: DeploymentReview) -> () = approvals::review(dir, ask);
+        pulls(dir, ask: PullQuery) -> Vec<Pull> = pulls::list(dir, ask);
+        pull_counts(dir, ask: RepoRef) -> PullCounts = pulls::counts(dir, ask);
+        issue_counts(dir, ask: RepoRef) -> PullCounts = pulls::issue_counts(dir, ask);
+        pull(dir, ask: PullRef) -> Pull = pulls::get(dir, ask);
+        pull_files(dir, ask: FilesQuery) -> Vec<ChangedFile> = pulls::files(dir, ask);
+        pull_commits(dir, ask: PullRef) -> Vec<PullCommit> = pulls::commits(dir, ask);
+        pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
+        commit_pulls(dir, ask: CommitRef) -> Vec<Pull> = pulls::of_commit(dir, ask);
+        commit_authors(dir, ask: CommitsQuery) -> Vec<CommitAuthor> = pulls::commit_authors(dir, ask);
+        merge_pull(dir, ask: Merge) -> Pull = pulls::merge(dir, ask);
+        create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
+        edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
+        attach_picture(dir, ask: PictureFile) -> Attached = pictures::attach(dir, ask);
+        set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);
+        review_pull(dir, ask: NewReview) -> () = pulls::review(dir, ask);
+        review_feedback(dir, ask: FeedbackQuery) -> Vec<ReviewFeedback> = review::feedback(dir, ask);
+        answer_review(dir, ask: Answers) -> () = review::answer(dir, ask);
+        issues(dir, ask: IssueQuery) -> IssuePage = issues::list(dir, ask);
+        issue(dir, ask: IssueRef) -> Issue = issues::get(dir, ask);
+        create_issue(dir, ask: NewIssue) -> Issue = issues::create(dir, ask);
+        set_issue_state(dir, ask: SetIssueState) -> () = issues::set_state(dir, ask);
+        comments(dir, ask: ThreadRef) -> Vec<Comment> = common::comments(dir, ask);
+        timeline(dir, ask: ThreadRef) -> Vec<TimelineItem> = common::timeline(dir, ask);
+        add_comment(dir, ask: NewComment) -> () = common::add_comment(dir, ask);
+        releases(dir, ask: RepoRef) -> Vec<Release> = releases::list(dir, ask);
     }
 }
 
@@ -435,17 +231,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.github"
-        );
-    }
-
     #[tokio::test]
     async fn reading_a_remote_never_needs_the_network() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-gha-remote"));
         let resolved = plugin
             .call(
@@ -499,7 +287,7 @@ mod live {
         };
         let dir = std::env::temp_dir().join(format!("sikemux-gha-live-{}", std::process::id()));
         let ctx = PluginContext::new(dir.clone());
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let (owner, name) = slug.split_once('/').expect("GHA_LIVE_REPO is owner/repo");
 
         let status = plugin
@@ -563,53 +351,5 @@ mod live {
             .await
             .expect("sign out");
         std::fs::remove_dir_all(dir).ok();
-    }
-
-    /// `GHA_LIVE_ARTIFACT=owner/repo:artifact_id GH_TOKEN=… cargo test -p sikemux-plugin-github -- --ignored`
-    /// with an artifact over 16 MiB, which used to fail. The token is read from
-    /// the environment, so the Keychain is never touched.
-    #[tokio::test]
-    #[ignore]
-    async fn downloads_an_artifact_larger_than_an_api_answer() {
-        let (Some(target), Some(_)) = (env("GHA_LIVE_ARTIFACT"), env("GH_TOKEN")) else {
-            return;
-        };
-        let (slug, id) = target
-            .split_once(':')
-            .expect("GHA_LIVE_ARTIFACT is owner/repo:id");
-        let (owner, name) = slug.split_once('/').expect("owner/repo");
-        let dir = std::env::temp_dir().join(format!("sikemux-gha-dl-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        std::env::set_var("HOME", &dir);
-        let ctx = PluginContext::new(dir.clone());
-        let plugin = plugin().expect("plugin loads");
-        plugin
-            .call(&ctx, "signIn", json!({ "host": "github.com" }))
-            .await
-            .expect("sign in with the environment's token");
-        let ticks = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let kept = Arc::clone(&ticks);
-        let sink = StreamSink::new(move |tick| kept.lock().map(|mut all| all.push(tick)).is_ok());
-        plugin
-            .stream(
-                &ctx,
-                "downloadArtifact",
-                json!({ "owner": owner, "name": name, "artifactId": id.parse::<u64>().expect("id"), "fileName": "live" }),
-                sink,
-            )
-            .await
-            .expect("download");
-        let last = ticks
-            .lock()
-            .expect("ticks")
-            .last()
-            .cloned()
-            .expect("a tick");
-        let saved = &last["saved"];
-        let bytes = saved["bytes"].as_u64().expect("bytes");
-        assert!(bytes > 16 * 1024 * 1024, "{bytes}");
-        let path = saved["path"].as_str().expect("path");
-        assert_eq!(std::fs::metadata(path).expect("saved").len(), bytes);
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

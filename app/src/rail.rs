@@ -1,34 +1,128 @@
+use crate::ui::keyed::{self, KeyedRows};
+use crate::ui::Clicks;
+use crate::workbench::actions;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::prefs::PreferenceChange;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight,
+    div, px, Anchor, AnyElement, App, ClickEvent, Context, Div, DragMoveEvent, Entity, FontWeight,
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, WeakEntity, Window,
+    StyleRefinement, Styled, WeakEntity, Window,
 };
-use serde_json::json;
-use sikemux_core::server::{HostFound, HostReach};
-use sikemux_wire::protocol::{
-    AccountInfo, AgentGroup, AgentStatus, PaneKind, Preferences, ProjectInfo, TabRailPage,
-    TabRailScope,
-};
+use sikemux_calls::hosts::Found as HostFound;
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::hosts::Reach as HostReach;
+use sikemux_view::device::AccountInfo;
+use sikemux_view::host_stats::AlertLevel;
+use sikemux_view::layout::PaneKind;
+use sikemux_view::prefs::{Preferences, ProjectSort, TabRailPage, TabRailScope};
+use sikemux_view::workspace::ProjectStanding;
+use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
-use crate::codehost::{Area, OpenArea};
+use crate::agents::rows::AgentRow;
+use crate::copies::Folded;
+use crate::hosts::install_pane::{SetUp, Words};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
-use crate::install_pane::{SetUp, Words};
-use crate::keymap;
-use crate::tabs;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
+    radius_1, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
-use crate::ui::{self, Button, Group, IconButton, Row, Tone, Variant};
-use crate::workbench::{AgentRow, Edge, RailPage, RailWidth, Strip, Workbench};
+use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
+use crate::workbench::{Strip, Workbench};
+use crate::{keymap, motion, tabs, ui};
+use sikemux_calls::call;
+use sikemux_calls::workspace::UpdateProjectParams;
+
+/// The two rails: the side rail of projects, and the tab rail of agents and chats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rail {
+    Side,
+    Agents,
+}
+
+impl Rail {
+    pub fn widths(self) -> RailWidth {
+        match self {
+            Rail::Side => SIDE_RAIL,
+            Rail::Agents => crate::agents::TAB_RAIL,
+        }
+    }
+}
+
+/// The window's edge a closed rail comes out from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Left,
+    Right,
+}
+
+/// How wide a rail can be dragged, and how wide it starts.
+#[derive(Clone, Copy)]
+pub struct RailWidth {
+    pub min: f32,
+    pub max: f32,
+    pub initial: f32,
+}
+
+/// A rail's handle while it is dragged.
+#[derive(Clone)]
+pub(crate) struct DraggedRail(pub(crate) Rail);
+
+/// How far past its own width a peeking rail starts and ends, out of sight beyond the window.
+const PEEK_GAP: f32 = 10.;
+
+/// How long a peeking rail stays after the pointer leaves it.
+const PEEK_CLOSE: Duration = Duration::from_millis(180);
+
+/// How close to the window's edge the pointer brings out a closed rail.
+const PEEK_REACH: f32 = 28.;
 
 impl Rails {
+    pub fn new(cx: &mut Context<Workbench>) -> Self {
+        let scroll = gpui_kit::ScrollHandle::default();
+        let keyed = [
+            KeyedRows::new(cx.focus_handle(), gpui_kit::ScrollHandle::default()),
+            KeyedRows::new(cx.focus_handle(), scroll.clone()),
+        ];
+        Self {
+            side_open: true,
+            tab_open: true,
+            side_width: SIDE_RAIL.initial,
+            tab_width: crate::agents::TAB_RAIL.initial,
+            drawn: [SIDE_RAIL.initial, crate::agents::TAB_RAIL.initial],
+            resizers: [cx.focus_handle(), cx.focus_handle()],
+            peeking: None,
+            unpeek: None,
+            page: TabRailPage::Agents,
+            copy_leaves_uncommitted: false,
+            copy_notes: HashMap::new(),
+            keeping: None,
+            all_projects: false,
+            all_harnesses: false,
+            tag: None,
+            folded_teams: HashSet::new(),
+            folded_groups: Vec::new(),
+            seen: Default::default(),
+            scroll,
+            glide: Default::default(),
+            frame: Rc::default(),
+            slide: crate::track::Slide::default(),
+            keyed,
+        }
+    }
+
+    pub(crate) fn keyed(&self, rail: Rail) -> &KeyedRows {
+        &self.keyed[rail as usize]
+    }
+
     /// Opens, sizes and pages the rails as the person's preferences keep them.
     pub fn follow(&mut self, preferences: &Preferences) {
         self.side_open = preferences.side_rail_open;
@@ -37,13 +131,22 @@ impl Rails {
             |width: f64, range: RailWidth| (width as f32).clamp(range.min, range.max).round();
         self.side_width = width(preferences.side_rail_width, SIDE_RAIL);
         self.tab_width = width(preferences.tab_rail_width, crate::agents::TAB_RAIL);
-        self.page = match preferences.tab_rail_page {
-            TabRailPage::Agents => RailPage::Agents,
-            TabRailPage::Terminals => RailPage::Terminals,
-            TabRailPage::Files => RailPage::Files,
-        };
+        self.page = preferences.tab_rail_page;
         self.all_projects = preferences.tab_rail_scope == TabRailScope::All;
         self.all_harnesses = preferences.tab_rail_all_agents;
+        self.folded_groups
+            .clone_from(&preferences.folded_rail_groups);
+    }
+
+    pub(crate) fn open(&self, rail: Rail) -> bool {
+        match rail {
+            Rail::Side => self.side_open,
+            Rail::Agents => self.tab_open,
+        }
+    }
+
+    pub(crate) fn folded(&self, group: &str) -> bool {
+        self.folded_groups.iter().any(|folded| folded == group)
     }
 }
 
@@ -55,19 +158,30 @@ pub struct Rails {
     pub(crate) tab_open: bool,
     pub(crate) side_width: f32,
     pub(crate) tab_width: f32,
+    /// How wide each rail was last drawn, by [`Rail`]: as kept, unless the window is narrow.
+    pub(crate) drawn: [f32; 2],
     /// The handles beside the rails, which arrow keys move once focused.
     pub(crate) resizers: [gpui_kit::FocusHandle; 2],
-    pub(crate) peeking: Option<Edge>,
+    pub(crate) peeking: Option<Rail>,
     pub(crate) unpeek: Option<gpui_kit::Task<()>>,
     /// Which of its pages the tab rail shows.
-    pub page: RailPage,
+    pub page: TabRailPage,
+    /// A new copy of a project leaves the uncommitted changes where they are, as the person
+    /// chose in the copy switch.
+    pub(crate) copy_leaves_uncommitted: bool,
+    /// How each copy the person asked for went, by its project's identity, until dismissed.
+    pub(crate) copy_notes: HashMap<String, crate::copies::CopyNote>,
     /// The rails' state waiting to be kept in the core's preferences, once a drag settles.
     pub(crate) keeping: Option<gpui_kit::Task<()>>,
     pub(crate) all_projects: bool,
     /// The rail lists the recent chats of every agent, not one's.
     pub(crate) all_harnesses: bool,
+    /// The tag the agent rail lists only the chats of, when the person picked one.
+    pub(crate) tag: Option<String>,
     /// The leads whose teams the agent rail folds away.
     pub(crate) folded_teams: std::collections::HashSet<String>,
+    /// The rail groups folded away, by key, such as `pinned`.
+    pub(crate) folded_groups: Vec<String>,
     /// The agent rows the rail drew last, for telling the rows that have just arrived.
     pub(crate) seen: std::cell::RefCell<crate::agents::RailSeen>,
     /// The tab rail's list of agents and chats, whose foot brings older chats into view.
@@ -77,7 +191,9 @@ pub struct Rails {
     /// Where the tab rail's frame was last drawn, left, top, width and height, for the driver.
     pub(crate) frame: Rc<std::cell::Cell<[f32; 4]>>,
     /// The tab rail's pages while they move between one another.
-    pub(crate) slide: crate::track::Slide<RailPage>,
+    pub(crate) slide: crate::track::Slide<TabRailPage>,
+    /// The side rail's rows and the tab rail's, as the keys walk them.
+    pub(crate) keyed: [crate::ui::keyed::KeyedRows; 2],
 }
 
 pub const SIDE_RAIL: RailWidth = RailWidth {
@@ -88,19 +204,19 @@ pub const SIDE_RAIL: RailWidth = RailWidth {
 
 pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let space = bench.space();
-    let projects: Vec<_> = bench
-        .projects()
-        .iter()
-        .filter(|project| space.is_none_or(|space| project.space.as_deref() == Some(&space.id)))
-        .map(|project| project_tree(bench, project, cx).into_any_element())
+    let listed = bench.folded();
+    let projects: Vec<_> = (listed.iter())
+        .filter(|folded| space.is_none_or(|space| bench.space_of(folded) == Some(&space.id)))
+        .map(|folded| project_tree(bench, folded, cx).into_any_element())
         .collect();
     let empty = match space {
-        Some(space) => format!("no projects in {}", space.name),
-        None => "no projects".to_owned(),
+        Some(space) => t!("no projects in {space}", space = space.name),
+        None => t!("no projects").to_owned(),
     };
-    ui::panel(cx)
-        .w(px(bench.rail_width(Edge::Start)))
-        .flex_none()
+    let rail = ui::panel(cx)
+        .w(px(bench.rail_width(Rail::Side)))
+        .flex_none();
+    keyed_rail(rail, Rail::Side, bench, cx)
         .child(masthead(bench, cx))
         .child(
             div()
@@ -110,48 +226,78 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .pt(SPACE_2H)
                 .px(SPACE_2H)
                 .pb(SPACE_4)
+                .track_scroll(&bench.rails.keyed(Rail::Side).scroll)
                 .overflow_y_scroll()
                 .child(
-                    Group::new("Projects", empty)
+                    Group::new(t!("Projects"), empty)
                         .first()
-                        .actions(actions(
-                            keymap::hint("project.open", cx),
-                            [
-                                IconButton::new("add-project", Icon::Plus, "Open project")
-                                    .on_click(|_, window, cx| {
-                                        keymap::dispatch("project.open", window, cx)
-                                    }),
-                            ],
-                            cx,
-                        ))
-                        .toolbar((!bench.projects().is_empty()).then(|| space_switch(bench, cx)))
+                        .actions(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(SPACE_0)
+                                .children((listed.len() > 1).then(|| project_sort(bench, cx)))
+                                .child(actions(
+                                    keymap::hint(actions::OpenProject::ID, cx),
+                                    [IconButton::new(
+                                        "add-project",
+                                        Icon::Plus,
+                                        t!("Open project"),
+                                    )
+                                    .on_click(
+                                        |_, window, cx| {
+                                            keymap::dispatch(actions::OpenProject::ID, window, cx)
+                                        },
+                                    )],
+                                    cx,
+                                )),
+                        )
+                        .toolbar((!listed.is_empty()).then(|| space_switch(bench, cx)))
                         .children(projects),
                 )
                 .child(
-                    Group::new("Hosts", "no hosts")
+                    Group::new(t!("Hosts"), t!("no hosts"))
                         .actions(actions(
-                            keymap::hint("ssh.open", cx),
+                            keymap::hint(actions::OpenHost::ID, cx),
                             [
-                                IconButton::new("edit-ssh", Icon::Pencil, "Edit ~/.ssh/config")
+                                IconButton::new("hosts-overview", Icon::Gauge, hosts_overview(cx))
+                                    .on_click(|_, window, cx| {
+                                        keymap::dispatch(actions::FocusHosts::ID, window, cx)
+                                    }),
+                                IconButton::new("edit-ssh", Icon::Pencil, t!("Edit ~/.ssh/config"))
                                     .on_click(cx.listener(|bench, _, _, cx| {
                                         bench.edit_ssh_config(None, cx)
                                     })),
-                                IconButton::new("add-host", Icon::Plus, "Find a host").on_click(
-                                    |_, window, cx| keymap::dispatch("ssh.open", window, cx),
-                                ),
+                                IconButton::new("add-host", Icon::Plus, t!("Find a host"))
+                                    .on_click(|_, window, cx| {
+                                        keymap::dispatch(actions::OpenHost::ID, window, cx)
+                                    }),
                             ],
                             cx,
                         ))
                         .child(this_host(bench, cx))
                         .children(hosts(bench, cx)),
                 )
-                .child(Group::new("Plugins", "no plugins").children(plugins(bench, cx)))
                 .child(
-                    Group::new("Terminals", "no terminals")
+                    Group::new(t!("Mods"), t!("no mods"))
+                        .actions(actions(
+                            None,
+                            [IconButton::new(
+                                "add-mod",
+                                Icon::Plus,
+                                t!("Make a mod with an agent"),
+                            )
+                            .on_click(cx.listener(|bench, _, _, cx| bench.ask_for_mod(None, cx)))],
+                            cx,
+                        ))
+                        .children(mods(bench, cx)),
+                )
+                .child(
+                    Group::new(t!("Terminals"), t!("no terminals"))
                         .actions(actions(
                             None,
                             [
-                                IconButton::new("add-terminal", Icon::Plus, "New terminal")
+                                IconButton::new("add-terminal", Icon::Plus, t!("New terminal"))
                                     .on_click(
                                         cx.listener(|bench, _, _, cx| bench.new_loose_terminal(cx)),
                                     ),
@@ -161,18 +307,50 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(terminals(bench, cx)),
                 ),
         )
-        .children(crate::whats_new::rail_chip(bench, cx))
+        .children(crate::updates::rail_chip(bench, cx))
         .child(account(bench, cx))
 }
 
+/// The Hosts header's gauge, naming its shortcut.
+fn hosts_overview(cx: &App) -> String {
+    match keymap::hint(actions::FocusHosts::ID, cx) {
+        Some(keys) => t!("Hosts overview — {keys}", keys = keys),
+        None => t!("Hosts overview").to_owned(),
+    }
+}
+
+/// "Host details" at the top of a host's menu, opening the Hosts page on `host`.
+fn details_item(bench: WeakEntity<Workbench>, host: String) -> PopupMenuItem {
+    PopupMenuItem::new(t!("Host details"))
+        .icon(Icon::Gauge)
+        .on_click(move |_, _, cx| {
+            let host = host.clone();
+            let _ = bench.update(cx, |bench, _| {
+                bench.open_hosts(Some(host));
+            });
+        })
+}
+
 /// The host this window runs on, where new work starts.
+/// The folder a project's row is marked with, wherever a project is named.
+pub(crate) fn project_glyph(size: f32, cx: &App) -> gpui_kit::Svg {
+    ui::icon(Icon::Folder, size).text_color(Tokens::get(cx).live)
+}
+
+/// The laptop a host's row is marked with: a linked host's colour, else an SSH one's.
+pub(crate) fn host_glyph(size: f32, linked: bool, cx: &App) -> gpui_kit::Svg {
+    let t = Tokens::get(cx);
+    ui::icon(Icon::Laptop, size).text_color(if linked { t.host } else { t.ssh })
+}
+
 fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let agents = bench
-        .view
-        .as_ref()
+        .this_view()
         .map_or(0, |view| view.workspace.agents.len());
-    let row = Row::new("this-host", "This host")
+    let alert = bench.host_alert(None, true).cloned();
+    let alert = alert.as_ref();
+    let row = Row::new("this-host", t!("This host"))
         .mark(
             16.,
             ui::icon(Icon::Laptop, 14.)
@@ -188,34 +366,54 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
             cx.listener(|bench, _, _, cx| bench.choose_host(crate::hosts::HostChoice::This, cx)),
         )
         .when(agents > 0, |row| {
-            row.detail(format!(
-                "{agents} {}",
-                if agents == 1 { "agent" } else { "agents" }
-            ))
+            row.detail(match agents {
+                1 => t!("1 agent").to_owned(),
+                agents => t!("{count} agents", count = agents),
+            })
         })
-        .status(Some(ui::dot(Tone::Ok, cx)));
-    let (bench_entity, approval) = (cx.weak_entity(), bench.hosts.approvals.get(&None).copied());
+        .status(Some(ui::dot(
+            match alert.map(|alert| alert.level) {
+                Some(AlertLevel::Danger) => Tone::Failed,
+                _ => Tone::Ok,
+            },
+            cx,
+        )));
     with_menu(
         "this-host-menu".into(),
-        move |popup, _, _| {
-            let bench = bench_entity.clone();
-            popup
-                .item(
-                    PopupMenuItem::new("New terminal here")
-                        .icon(Icon::Terminal)
-                        .on_click(move |_, _, cx| {
-                            let _ = bench.update(cx, |bench, cx| {
-                                bench.choose_host(HostChoice::This, cx);
-                                bench.new_loose_terminal(cx);
-                            });
-                        }),
-                )
-                .separator()
-                .item(approval_item(bench_entity.clone(), None, approval))
-        },
+        this_host_menu(cx.weak_entity(), bench.feeds.this.approval, true),
         row,
         cx,
     )
+}
+
+/// What this host's menu offers, on its row and on its page.
+pub(crate) fn this_host_menu(
+    bench: WeakEntity<Workbench>,
+    approval: Option<bool>,
+    details: bool,
+) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+    move |popup, _, _| {
+        let terminal = bench.clone();
+        let popup = match details {
+            true => popup
+                .item(details_item(bench.clone(), HostChoice::This.key().into()))
+                .separator(),
+            false => popup,
+        };
+        popup
+            .item(
+                PopupMenuItem::new(t!("New terminal here"))
+                    .icon(Icon::Terminal)
+                    .on_click(move |_, _, cx| {
+                        let _ = terminal.update(cx, |bench, cx| {
+                            bench.choose_host(HostChoice::This, cx);
+                            bench.new_loose_terminal(cx);
+                        });
+                    }),
+            )
+            .separator()
+            .item(approval_item(bench.clone(), None, approval))
+    }
 }
 
 /// A host's row with its menu on a right-click and on a ⋯ that shows while the pointer is
@@ -240,7 +438,7 @@ fn with_menu(
                 KitButton::new(SharedString::from(format!("{id}-more")))
                     .ghost()
                     .compact()
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .bg(t.surface_hover)
                     .child(ui::icon(Icon::More, 12.).text_color(t.text_secondary))
                     .dropdown_menu_with_anchor(
@@ -261,7 +459,7 @@ fn approval_item(
     host: Option<String>,
     approval: Option<bool>,
 ) -> PopupMenuItem {
-    PopupMenuItem::new("Require approval for new devices")
+    PopupMenuItem::new(t!("Require approval for new devices"))
         .icon(Icon::Shield)
         .checked(approval == Some(true))
         .disabled(approval.is_none())
@@ -273,67 +471,76 @@ fn approval_item(
 
 /// The account's other hosts, then the SSH hosts a terminal is open to.
 fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let t = Tokens::get(cx).clone();
     (bench.reads.hosts.iter())
         .map(|host| {
             let name = host.name.clone();
             let linked = host.id.is_some();
-            let reach = host.reach;
+            let reach = crate::hosts::reach(bench, host);
             let tone = match reach {
                 HostReach::Connected => Tone::Ok,
                 HostReach::Connecting => Tone::Pending,
                 HostReach::Failed => Tone::Failed,
                 HostReach::Away => Tone::Idle,
             };
-            let view = host.id.as_ref().and_then(|id| bench.hosts.views.get(id));
+            let view = (host.id.as_ref()).and_then(|id| bench.feeds.host(id)?.view.as_ref());
             let agents = view.map_or(0, |view| view.workspace.agents.len());
             let connected = reach == HostReach::Connected;
-            let load = view
-                .and_then(|view| view.load.as_ref())
-                .filter(|_| connected)
-                .map(crate::hosts::load_label);
             let updates = view
                 .and_then(crate::hosts::host_updates)
-                .filter(|_| connected)
-                .cloned();
+                .filter(|_| connected);
             let detail = match reach {
-                HostReach::Away if linked => Some("out of reach".to_owned()),
-                HostReach::Connecting if linked => Some("connecting".to_owned()),
-                _ if linked && bench.hosts.unavailable.is_some() => {
-                    Some("needs the signed app".to_owned())
+                _ if linked && bench.feeds.unavailable.is_some() => {
+                    Some(t!("needs the signed app").to_owned())
                 }
+                HostReach::Away if linked => Some(t!("out of reach").to_owned()),
+                HostReach::Connecting if linked => Some(t!("connecting").to_owned()),
                 _ if agents > 0 => Some(match agents {
-                    1 => "1 agent".to_owned(),
-                    count => format!("{count} agents"),
+                    1 => t!("1 agent").to_owned(),
+                    count => t!("{count} agents", count = count),
                 }),
                 _ => None,
             };
             let found = match host.found {
-                Some(HostFound::SignedOut) => Some("not signed in".to_owned()),
-                Some(HostFound::Other) => Some("on another account".to_owned()),
-                Some(HostFound::Stopped) => Some("stopped".to_owned()),
-                Some(HostFound::Outdated) => Some("older release".to_owned()),
+                Some(HostFound::SignedOut) => Some(t!("not signed in").to_owned()),
+                Some(HostFound::Other) => Some(t!("on another account").to_owned()),
+                Some(HostFound::Stopped) => Some(t!("stopped").to_owned()),
+                Some(HostFound::Outdated) => Some(t!("older release").to_owned()),
+                _ => (host.unanswered.as_ref()).map(|unanswered| {
+                    crate::hosts::install_pane::unanswered_detail(unanswered).to_owned()
+                }),
+            };
+            let tip = match (
+                host.setup.as_ref().and_then(|setup| setup.problem.as_ref()),
+                &host.unanswered,
+                &host.ssh,
+            ) {
+                (Some(problem), _, _) => Some(t!("Not set up: {problem}", problem = problem)),
+                (None, Some(unanswered), Some(alias)) => Some(
+                    crate::hosts::install_pane::unanswered_says(unanswered, alias),
+                ),
                 _ => None,
             };
             let setup = host.setup.as_ref();
             let detail = match setup.map(|setup| (setup.work, setup.problem.as_deref())) {
-                Some((_, Some(problem))) => Some(format!("not set up: {problem}")),
-                Some((SetUp::Install, None)) => Some("installing".to_owned()),
-                Some((SetUp::Update, None)) => Some("updating".to_owned()),
-                Some((SetUp::Start, None)) => Some("starting".to_owned()),
-                Some((SetUp::SignIn, None)) => Some("signing in".to_owned()),
+                Some((_, Some(problem))) => Some(t!("not set up: {problem}", problem = problem)),
+                Some((SetUp::Install, None)) => Some(t!("installing").to_owned()),
+                Some((SetUp::Update, None)) => Some(t!("updating").to_owned()),
+                Some((SetUp::Start, None)) => Some(t!("starting").to_owned()),
+                Some((SetUp::SignIn, None)) => Some(t!("signing in").to_owned()),
                 None => found.or(detail),
             };
-            let setting_up = setup.is_some_and(|setup| setup.problem.is_none());
             let alias = host.ssh.clone().filter(|_| !linked);
-            let front = alias.is_some() && bench.strip() == alias.clone().map(Strip::Host);
+            let front = host.ssh.is_some() && bench.strip() == host.ssh.clone().map(Strip::Host);
             let key = host.id.clone();
             let chosen = !bench.settings.read(cx).is_open()
                 && (front
                     || key.as_ref().is_some_and(|key| {
                         bench.chosen_host() == crate::hosts::HostChoice::Account(key.clone())
                     }));
-            let row = Row::new(SharedString::from(format!("host-{name}")), name.clone())
+            let row_key = (host.id.clone())
+                .or_else(|| host.ssh.as_ref().map(|alias| format!("ssh:{alias}")))
+                .unwrap_or_else(|| name.to_string());
+            let row = Row::new(SharedString::from(format!("host-{row_key}")), name)
                 .chosen(chosen)
                 .when_some(alias.clone(), |row, alias| {
                     row.on_click(cx.listener(move |bench, _, _, cx| {
@@ -345,15 +552,11 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         bench.choose_host(crate::hosts::HostChoice::Account(key.clone()), cx)
                     }))
                 })
-                .mark(
-                    16.,
-                    ui::icon(Icon::Server, 14.).text_color(if linked { t.host } else { t.ssh }),
-                )
+                .mark(16., host_glyph(14., linked, cx))
                 .quiet()
                 .when_some(
                     {
                         let parts: Vec<String> = [
-                            load.map(|load| load.to_string()),
                             detail,
                             updates.as_ref().and_then(crate::hosts::updates_label),
                         ]
@@ -364,143 +567,56 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                     },
                     |row, detail| row.detail(detail),
                 )
-                .status(Some(ui::dot(tone, cx)));
+                .when_some(tip, |row, tip| row.detail_tip(tip));
+            let alert = (host.id.as_deref())
+                .and_then(|key| bench.host_alert(Some(key), connected))
+                .cloned();
+            let tone = match alert.as_ref().map(|alert| alert.level) {
+                Some(AlertLevel::Danger) => Tone::Failed,
+                _ => tone,
+            };
+            let row = row.status(Some(ui::dot(tone, cx)));
             let bench_entity = cx.weak_entity();
-            let set_up_alias = host.ssh.clone();
-            let set_up = set_up_alias
-                .as_deref()
-                .and_then(|alias| bench.set_up_of(alias))
-                .zip(set_up_alias);
-            let set_up_item = move |bench: WeakEntity<Workbench>, here: bool| {
-                set_up.clone().map(|(set_up, alias)| {
-                    let label = match set_up {
-                        SetUp::Install if here => "Install Sikemux here",
-                        _ => set_up.menu_label(),
-                    };
-                    PopupMenuItem::new(label)
-                        .icon(set_up.icon())
-                        .disabled(setting_up)
-                        .on_click(move |_, _, cx| {
-                            let _ =
-                                bench.update(cx, |bench, cx| bench.set_up_host(&alias, set_up, cx));
-                        })
-                })
+            let menu_id = SharedString::from(format!("host-menu-{row_key}"));
+            if let Some(menu) = account_host_menu(bench, host, true, cx) {
+                return with_menu(menu_id, menu, row, cx);
+            }
+            let Some(alias) = alias else {
+                return row.into_any_element();
             };
-            let menu_id = SharedString::from(format!("host-menu-{name}"));
-            let Some(key) = host.id.clone() else {
-                let Some(alias) = alias else {
-                    return row.into_any_element();
-                };
-                return with_menu(
-                    menu_id,
-                    move |popup, _, _| {
-                        let (bench, alias) = (bench_entity.clone(), alias.clone());
-                        let edited = (bench.clone(), alias.clone());
-                        let popup = popup.item(
-                            PopupMenuItem::new("New SSH terminal")
-                                .icon(Icon::Terminal)
-                                .on_click(move |_, _, cx| {
-                                    let _ = bench.update(cx, |bench, cx| {
-                                        bench.open_ssh_terminal(&alias, cx)
-                                    });
-                                }),
-                        );
-                        let popup = match set_up_item(bench_entity.clone(), true) {
-                            Some(item) => popup.item(item),
-                            None => popup,
-                        };
-                        popup.separator().item(
-                            PopupMenuItem::new("Edit in ~/.ssh/config")
-                                .icon(Icon::Pencil)
-                                .on_click(move |_, _, cx| {
-                                    let (bench, alias) = &edited;
-                                    let _ = bench.update(cx, |bench, cx| {
-                                        bench.edit_ssh_config(Some(alias.clone()), cx)
-                                    });
-                                }),
-                        )
-                    },
-                    row,
-                    cx,
-                );
-            };
-            let has_project = bench
-                .hosts
-                .views
-                .get(&key)
-                .is_some_and(|view| !view.workspace.projects.is_empty());
-            let approval = bench.hosts.approvals.get(&Some(key.clone())).copied();
+            let set_up_item = set_up_offer(bench, host);
+            let dismiss_item = dismiss_offer(host);
             with_menu(
                 menu_id,
-                move |popup, _, cx| {
-                    let bench = bench_entity.clone();
-                    let mut popup = popup;
-                    if let Some(item) = set_up_item(bench.clone(), false) {
-                        popup = popup.item(item).separator();
-                    }
-                    let on = |run: fn(&mut Workbench, &str, &mut Context<Workbench>)| {
-                        let (bench, key) = (bench.clone(), key.clone());
-                        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
-                            let _ = bench.update(cx, |bench, cx| run(bench, &key, cx));
-                        }
-                    };
-                    let named = name.clone();
-                    let popup = popup
-                        .item(
-                            PopupMenuItem::new("New chat here")
-                                .icon(Icon::Plus)
-                                .disabled(!has_project)
-                                .on_click(on(|bench, key, cx| bench.new_chat_on(key, cx))),
-                        )
-                        .item(
-                            PopupMenuItem::new("New terminal here")
-                                .icon(Icon::Terminal)
-                                .on_click(on(|bench, key, cx| bench.new_terminal_on(key, cx))),
-                        )
-                        .item(
-                            PopupMenuItem::new("Files")
-                                .icon(Icon::Folder)
-                                .disabled(!has_project)
-                                .on_click(on(|bench, key, cx| {
-                                    bench.choose_host(HostChoice::Account(key.to_owned()), cx);
-                                    bench.show_rail_page(RailPage::Files, cx);
-                                })),
-                        )
-                        .separator()
-                        .item(approval_item(bench.clone(), Some(key.clone()), approval));
-                    let popup = match &updates {
-                        Some(updates) => {
-                            let (bench, key) = (bench.clone(), key.clone());
-                            crate::hosts::updates_items(popup, updates, move |on, cx| {
-                                let host = key.clone();
+                move |popup, _, _| {
+                    let (bench, alias) = (bench_entity.clone(), alias.clone());
+                    let edited = (bench.clone(), alias.clone());
+                    let popup = popup.item(
+                        PopupMenuItem::new(t!("New SSH terminal"))
+                            .icon(Icon::Terminal)
+                            .on_click(move |_, _, cx| {
                                 let _ = bench
-                                    .update(cx, |bench, cx| bench.set_host_updates(host, on, cx));
-                            })
-                        }
+                                    .update(cx, |bench, cx| bench.open_ssh_terminal(&alias, cx));
+                            }),
+                    );
+                    let popup = match set_up_item(bench_entity.clone(), true) {
+                        Some(item) => popup.item(item),
                         None => popup,
                     };
-                    popup
-                        .item(PopupMenuItem::new("Rename").icon(Icon::Pencil).on_click({
-                            let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
-                            move |_, _, cx| {
-                                let _ = bench
-                                    .update(cx, |bench, cx| bench.rename_host(&key, &named, cx));
-                            }
-                        }))
-                        .item(
-                            ui::MenuRow::new("Remove from account")
-                                .icon(Icon::Trash)
-                                .danger(true)
-                                .item(cx)
-                                .on_click({
-                                    let (bench, key) = (bench.clone(), key.clone());
-                                    move |_, _, cx| {
-                                        let _ = bench.update(cx, |bench, cx| {
-                                            bench.remove_host(&key, &named, cx)
-                                        });
-                                    }
-                                }),
-                        )
+                    let popup = match dismiss_item(bench_entity.clone()) {
+                        Some(item) => popup.item(item),
+                        None => popup,
+                    };
+                    popup.separator().item(
+                        PopupMenuItem::new(t!("Edit in ~/.ssh/config"))
+                            .icon(Icon::Pencil)
+                            .on_click(move |_, _, cx| {
+                                let (bench, alias) = &edited;
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.edit_ssh_config(Some(alias.clone()), cx)
+                                });
+                            }),
+                    )
                 },
                 row,
                 cx,
@@ -509,60 +625,241 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
         .collect()
 }
 
-/// The plugins that are on and draw in the rail, signed in or not.
-fn plugins(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let ink = Tokens::get(cx).text_secondary;
-    let strip = bench.strip();
-    bench
-        .reads
-        .plugins
-        .on()
-        .filter_map(|plugin| {
-            let mark = plugin_mark(&plugin.id)?;
-            let tone = plugin
-                .signed_in
-                .map(|signed_in| if signed_in { Tone::Ok } else { Tone::Idle });
-            let id = plugin.id.as_str();
-            let opens =
-                crate::plugin_pane::surface(id)
-                    .zip(strip.clone())
-                    .map(|(surface, strip)| {
-                        let target = format!("{id}:{surface}");
-                        cx.listener(move |bench: &mut Workbench, _, _, _| {
-                            let params = json!({ "kind": PaneKind::Plugin, "target": target });
-                            bench.call_in_front("openTab", strip.with(params));
-                        })
-                    });
-            Some(
-                Row::new(
-                    SharedString::from(format!("plugin-{id}")),
-                    plugin.name.clone(),
+/// The item that sets Sikemux up on an SSH host, installing, updating, starting or signing it
+/// in as it needs, while it needs that.
+fn set_up_offer(
+    bench: &Workbench,
+    host: &HostRow,
+) -> impl Fn(WeakEntity<Workbench>, bool) -> Option<PopupMenuItem> + Clone + 'static {
+    let setting_up = (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_none());
+    let set_up = (host.ssh.as_deref())
+        .and_then(|alias| bench.set_up_offered(alias))
+        .zip(host.ssh.clone());
+    move |bench: WeakEntity<Workbench>, here: bool| {
+        set_up.clone().map(|(set_up, alias)| {
+            let label = match set_up {
+                SetUp::Install if here => t!("Install Sikemux here"),
+                _ => set_up.menu_label(),
+            };
+            PopupMenuItem::new(label)
+                .icon(set_up.icon())
+                .disabled(setting_up)
+                .on_click(move |_, _, cx| {
+                    let _ = bench.update(cx, |bench, cx| bench.set_up_host(&alias, set_up, cx));
+                })
+        })
+    }
+}
+
+/// The item that takes a set-up that stopped short off the host's row.
+fn dismiss_offer(
+    host: &HostRow,
+) -> impl Fn(WeakEntity<Workbench>) -> Option<PopupMenuItem> + Clone + 'static {
+    let alias = (host.ssh.clone())
+        .filter(|_| (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_some()));
+    move |bench: WeakEntity<Workbench>| {
+        alias.clone().map(|alias| {
+            PopupMenuItem::new(t!("Dismiss the failed set-up"))
+                .icon(Icon::Close)
+                .on_click(move |_, _, cx| {
+                    let _ = bench.update(cx, |bench, _| bench.dismiss_set_up(&alias));
+                })
+        })
+    }
+}
+
+/// What an account host's menu offers, on its row and on its page; none for an SSH host
+/// without Sikemux.
+pub(crate) fn account_host_menu(
+    bench: &Workbench,
+    host: &HostRow,
+    details: bool,
+    cx: &mut Context<Workbench>,
+) -> Option<impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static> {
+    let key = host.id.clone()?;
+    let name = host.name.clone();
+    let view = bench.feeds.host(&key).and_then(|feed| feed.view.as_ref());
+    let has_project = view.is_some_and(|view| !view.workspace.projects.is_empty());
+    let updates = view
+        .and_then(crate::hosts::host_updates)
+        .filter(|_| crate::hosts::reach(bench, host) == HostReach::Connected);
+    let approval = bench.feeds.host(&key).and_then(|feed| feed.approval);
+    let set_up_item = set_up_offer(bench, host);
+    let dismiss_item = dismiss_offer(host);
+    let ssh = host.ssh.clone();
+    let bench_entity = cx.weak_entity();
+    Some(
+        move |popup: PopupMenu, _: &mut Window, cx: &mut Context<PopupMenu>| {
+            let bench = bench_entity.clone();
+            let mut popup = popup;
+            if details {
+                popup = popup
+                    .item(details_item(bench.clone(), key.clone()))
+                    .separator();
+            }
+            if let Some(alias) = ssh.clone() {
+                popup = popup.item(
+                    PopupMenuItem::new(t!("New SSH terminal"))
+                        .icon(Icon::Terminal)
+                        .on_click({
+                            let bench = bench.clone();
+                            move |_, _, cx| {
+                                let _ = bench
+                                    .update(cx, |bench, cx| bench.open_ssh_terminal(&alias, cx));
+                            }
+                        }),
+                );
+            }
+            if let Some(item) = set_up_item(bench.clone(), false) {
+                popup = popup.item(item);
+            }
+            if let Some(item) = dismiss_item(bench.clone()) {
+                popup = popup.item(item);
+            }
+            if ssh.is_some() {
+                popup = popup.separator();
+            }
+            let on = |run: fn(&mut Workbench, &str, &mut Context<Workbench>)| {
+                let (bench, key) = (bench.clone(), key.clone());
+                move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+                    let _ = bench.update(cx, |bench, cx| run(bench, &key, cx));
+                }
+            };
+            let named = name.clone();
+            let popup = popup
+                .item(
+                    PopupMenuItem::new(t!("New chat here"))
+                        .icon(Icon::Plus)
+                        .disabled(!has_project)
+                        .on_click(on(|bench, key, cx| bench.new_chat_on(key, cx))),
                 )
-                .mark(16., ui::picture(mark, 13., ink))
+                .item(
+                    PopupMenuItem::new(t!("New terminal here"))
+                        .icon(Icon::Terminal)
+                        .on_click(on(|bench, key, cx| bench.new_terminal_on(key, cx))),
+                )
+                .item(
+                    PopupMenuItem::new(t!("Files"))
+                        .icon(Icon::Folder)
+                        .disabled(!has_project)
+                        .on_click(on(|bench, key, cx| {
+                            bench.choose_host(HostChoice::Account(key.to_owned()), cx);
+                            bench.show_rail_page(TabRailPage::Files, cx);
+                        })),
+                )
+                .separator()
+                .item(approval_item(bench.clone(), Some(key.clone()), approval));
+            let popup = match &updates {
+                Some(updates) => {
+                    let (bench, key) = (bench.clone(), key.clone());
+                    crate::hosts::updates_items(popup, updates, move |on, cx| {
+                        let host = key.clone();
+                        let _ = bench.update(cx, |bench, cx| bench.set_host_updates(host, on, cx));
+                    })
+                }
+                None => popup,
+            };
+            popup
+                .item(
+                    PopupMenuItem::new(t!("Rename…"))
+                        .icon(Icon::Pencil)
+                        .on_click({
+                            let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
+                            move |_, _, cx| {
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.rename_on_account(&key, &named, cx)
+                                });
+                            }
+                        }),
+                )
+                .item(
+                    ui::MenuRow::new(t!("Remove from account"))
+                        .icon(Icon::Trash)
+                        .danger(true)
+                        .item(cx)
+                        .on_click({
+                            let (bench, key) = (bench.clone(), key.clone());
+                            move |_, _, cx| {
+                                let _ = bench
+                                    .update(cx, |bench, cx| bench.remove_host(&key, &named, cx));
+                            }
+                        }),
+                )
+        },
+    )
+}
+
+/// The mods of the host in front that show in the project in front, each opening in a tab of its
+/// own, with the few words its page shows beside its name.
+fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
+    let ink = Tokens::get(cx).text_secondary;
+    let front = bench
+        .tab()
+        .and_then(|tab| tabs::first_view(&tab.pane))
+        .filter(|(kind, _)| *kind == PaneKind::Mod)
+        .map(|(_, target)| target.clone());
+    let settings_open = bench.settings.read(cx).is_open();
+    let project = bench.project().map(|project| project.name.clone());
+    bench
+        .mods_here()
+        .map(|shown| {
+            let (id, name) = (shown.id.clone(), shown.name.clone());
+            let row = Row::new(SharedString::from(format!("mod-{id}")), name.clone())
+                .mark(16., ui::picture(crate::mods::icon(shown), 13., ink))
                 .quiet()
-                .status(tone.map(|tone| ui::dot(tone, cx)))
-                .when_some(opens, |row, opens| row.on_click(opens))
-                .into_any_element(),
+                .chosen(!settings_open && front.as_ref() == Some(&id))
+                .when_some(shown.badge.clone(), |row, badge| row.detail(badge))
+                .when(shown.problem.is_some(), |row| {
+                    row.status(Some(ui::dot(Tone::Failed, cx)))
+                })
+                .when(shown.problem.is_none() && shown.note.is_some(), |row| {
+                    row.status(Some(ui::dot(Tone::Pending, cx)))
+                })
+                .on_click(cx.listener(move |bench, _, _, _| bench.open_mod(&id, &name)));
+            let (bench, shown, project) = (cx.weak_entity(), shown.clone(), project.clone());
+            with_menu(
+                SharedString::from(format!("mod-{}-menu", shown.id)),
+                move |popup, _, _| {
+                    let pinned = shown.project.is_some();
+                    let pin = match (pinned, &project) {
+                        (true, _) => t!("Show in every project").to_owned(),
+                        (false, Some(project)) => t!("Show only in {project}", project = project),
+                        (false, None) => t!("Show only in this project").to_owned(),
+                    };
+                    let (pinning, editing, removing) =
+                        (bench.clone(), bench.clone(), bench.clone());
+                    let (id, edited, removed) = (shown.id.clone(), shown.clone(), shown.clone());
+                    popup
+                        .item(
+                            PopupMenuItem::new(pin)
+                                .icon(Icon::Pin)
+                                .on_click(move |_, _, cx| {
+                                    let _ =
+                                        pinning.update(cx, |bench, _| bench.pin_mod(&id, pinned));
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new(t!("Edit with an agent"))
+                                .icon(Icon::Sparkle)
+                                .on_click(move |_, _, cx| {
+                                    let edited = Some(edited.clone());
+                                    let _ = editing
+                                        .update(cx, |bench, cx| bench.ask_for_mod(edited, cx));
+                                }),
+                        )
+                        .separator()
+                        .item(PopupMenuItem::new(t!("Remove")).icon(Icon::Trash).on_click(
+                            move |_, _, cx| {
+                                let _ =
+                                    removing.update(cx, |bench, cx| bench.remove_mod(&removed, cx));
+                            },
+                        ))
+                },
+                row,
+                cx,
             )
         })
         .collect()
-}
-
-/// The mark of a plugin that has a place of its own in the rail; code hosts show
-/// under their projects instead.
-pub(crate) fn plugin_mark(id: &str) -> Option<Icon> {
-    Some(match id.strip_prefix("sikemux.")? {
-        "aws" => Icon::Aws,
-        "bruno" => Icon::Bruno,
-        "database" => Icon::Database,
-        "jira" => Icon::Jira,
-        "linear" => Icon::Linear,
-        "rundeck" => Icon::Rundeck,
-        "signoz" => Icon::Signoz,
-        "slack" => Icon::Slack,
-        "vercel" => Icon::Vercel,
-        _ => return None,
-    })
 }
 
 /// Terminals started outside every project, each opening in the terminals' strip.
@@ -578,18 +875,20 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
         .into_iter()
         .map(|session| {
             let id = session.id.to_string();
-            Row::new(
-                SharedString::from(format!("terminal-{id}")),
-                session.rail_name.clone().unwrap_or_default(),
-            )
-            .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
-            .on_click(cx.listener(move |bench, _, _, _| {
-                let params = json!({ "kind": PaneKind::Terminal, "target": id });
-                bench.call("openTab", Strip::Terminals.with(params));
-            }))
-            .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
-            .quiet()
-            .into_any_element()
+            let name = session.rail_name.clone().unwrap_or_default();
+            let row = Row::new(SharedString::from(format!("terminal-{id}")), name.clone())
+                .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
+                .on_click(cx.listener(move |bench, _, _, _| {
+                    bench.open_here(OpenTab::new(
+                        At::terminals(),
+                        PaneKind::Terminal,
+                        id.clone(),
+                    ));
+                }))
+                .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
+                .quiet();
+            let keyed = bench.rails.keyed(Rail::Side);
+            keyed.row(format!("terminal-{}", session.id), name, row, cx)
         })
         .collect()
 }
@@ -605,7 +904,7 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
         .h(px(40.))
         .pl(px(18.))
         .pr(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .child(ui::icon(Icon::Logo, 14.).text_color(t.accent))
         .child(
@@ -627,9 +926,9 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .px(SPACE_1)
                         .py(px(1.))
                         .line_height(crate::theme::ui_text(TEXT_XS))
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.line)
-                        .rounded(RADIUS_1)
+                        .rounded(radius_1())
                         .text_color(t.text_tertiary)
                 })),
         )
@@ -639,12 +938,12 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                     "hide-side-rail",
                     Icon::PanelLeft,
                     if bench.rails.side_open {
-                        "Hide the side rail"
+                        t!("Hide the side rail")
                     } else {
-                        "Keep the side rail open"
+                        t!("Keep the side rail open")
                     },
                 )
-                .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Edge::Start, cx))),
+                .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Rail::Side, cx))),
             ),
         )
 }
@@ -655,6 +954,39 @@ fn split_version(version: &str) -> (String, Option<String>) {
         Some((release, channel)) => (release.into(), Some(channel.replacen('.', " ", 1))),
         None => (version.into(), None),
     }
+}
+
+/// The menu that sorts the projects: the one worked in last first, the first added first, or
+/// as the person drags them.
+fn project_sort(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
+    let chosen = bench.project_sort();
+    let choose = Rc::new(cx.listener(|bench, sort: &ProjectSort, _, _| {
+        crate::settings::set(bench, PreferenceChange::ProjectSort(*sort));
+    }));
+    ui::menu_button(
+        "project-sort",
+        gpui_kit::Anchor::TopRight,
+        IconButton::new("project-sort-button", Icon::Sort, t!("Sort projects")).small(),
+        move |mut popup, _, cx| {
+            popup = popup.label(t!("Sort projects"));
+            for (sort, label) in [
+                (ProjectSort::Recent, t!("Recent")),
+                (ProjectSort::Created, t!("Created")),
+                (ProjectSort::Manual, t!("Manual")),
+            ] {
+                let choose = choose.clone();
+                let row = ui::MenuRow::new(label)
+                    .when(sort == ProjectSort::Manual, |row| row.hint(t!("drag")));
+                popup = popup.item(
+                    row.item(cx)
+                        .checked(sort == chosen)
+                        .on_click(move |_, window, cx| choose(&sort, window, cx)),
+                );
+            }
+            popup
+        },
+    )
+    .into_any_element()
 }
 
 fn actions<const N: usize>(
@@ -672,61 +1004,89 @@ fn actions<const N: usize>(
 
 fn project_tree(
     bench: &Workbench,
-    project: &ProjectInfo,
+    folded: &Folded,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
+    let in_front = bench.copy_in_front(folded).cloned();
     let active = !bench.settings.read(cx).is_open()
-        && bench.strip() == Some(Strip::Project(project.id.clone()));
-    let agents = bench.agents_of(&project.id);
-    let id = project.id.clone();
-    let menu = project_menu(bench, project, cx);
-    let name = project.name.clone();
-    let closable = bench.projects().len() > 1;
-    let close = closable.then(|| {
-        let project = project.clone();
+        && in_front
+            .as_ref()
+            .is_some_and(|copy| bench.strip() == Some(Strip::Project(copy.project.clone())));
+    let agents = bench.agents_of_folded(folded);
+    let key = folded.key();
+    let menu = project_menu(bench, folded, cx);
+    let front = bench.front_copy(folded).cloned();
+    let closing = (front.clone())
+        .filter(|copy| {
+            bench
+                .view_at(&copy.place)
+                .is_some_and(|view| view.workspace.projects.len() > 1)
+        })
+        .and_then(|copy| {
+            let project = bench.project_on(&copy.place, &copy.project)?.clone();
+            Some((copy.place, project))
+        });
+    let close = closing.map(|(place, project)| {
         ui::hover_actions(PROJECT_ROW)
             .top_0()
             .bottom_0()
             .child(ui::close_button(
-                SharedString::from(format!("close-project-{}", project.id)),
-                format!("Close {}", project.name),
-                cx.listener(move |bench, _, _, cx| bench.close_project(project.clone(), cx)),
+                SharedString::from(format!("close-project-{key}")),
+                t!("Close {name}", name = project.name),
+                cx.listener(move |bench, _, _, cx| {
+                    bench.close_project(place.clone(), project.clone(), cx)
+                }),
                 cx,
             ))
     });
+    let go = {
+        let (front, identity) = (front, folded.identity.clone());
+        cx.listener(move |bench, _, _, cx| {
+            if let Some(front) = &front {
+                bench.go_to_copy(front, identity.as_deref(), cx)
+            }
+        })
+    };
+    let name = folded.name.clone();
+    let row = Row::new(
+        SharedString::from(format!("project-{key}")),
+        folded.name.clone(),
+    )
+    .mark(16., project_glyph(13., cx))
+    .quiet()
+    .bold(active)
+    .chosen(active)
+    .padding_right(4.)
+    .when(close.is_some(), |row| row.hover_padding(PROJECT_ROW, 28.))
+    .on_click(go)
+    .child(faces(&agents, cx))
+    .children(crate::copies::copy_note(bench, folded, cx))
+    .children(crate::copies::clone_note(bench, folded, cx))
+    .children(crate::copies::where_held(folded, cx))
+    .status(rollup(bench, folded, cx))
+    .into_any_element();
+    let row = crate::drag::project(
+        row,
+        crate::drag::DraggedProject {
+            id: key.clone(),
+            label: folded.name.clone().into(),
+        },
+        &cx.entity(),
+        cx,
+    )
+    .into_any_element();
     let row = div()
-        .id(SharedString::from(format!("project-menu-{}", project.id)))
+        .id(SharedString::from(format!("project-menu-{key}")))
         .group(PROJECT_ROW)
         .relative()
         .children(ui::spot(|| format!("project-row-{name}")))
         .context_menu(ui::menu(menu))
-        .child(crate::drag::project(
-            Row::new(
-                SharedString::from(format!("project-{}", project.id)),
-                project.name.clone(),
-            )
-            .mark(16., ui::icon(Icon::Folder, 13.).text_color(t.live))
-            .quiet()
-            .bold(active)
-            .chosen(active)
-            .padding_right(4.)
-            .when(closable, |row| row.hover_padding(PROJECT_ROW, 28.))
-            .on_click(cx.listener(move |bench, _, _, _| bench.activate_project(&id)))
-            .child(faces(&agents, cx))
-            .status(rollup(bench, &project.id, cx))
-            .into_any_element(),
-            crate::drag::DraggedProject {
-                id: project.id.clone(),
-                label: project.name.clone().into(),
-            },
-            &cx.entity(),
-            cx,
-        ))
+        .child(row)
         .children(close);
+    let row = (bench.rails.keyed(Rail::Side)).row(format!("project-{key}"), name, row, cx);
     div().flex().flex_col().child(row).when(active, |tree| {
         tree.pb(SPACE_1)
-            .child(surfaces(project, lit_surface(bench), bench.git.area, cx))
+            .child(surfaces(bench, lit_surface(bench), cx))
     })
 }
 
@@ -737,37 +1097,35 @@ fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
         .tab()
         .and_then(|tab| tabs::first_view(&tab.pane))
         .map(|(kind, _)| kind);
-    let paged = front.is_none_or(|kind| page_of(kind).is_some());
+    let paged = front.is_none_or(|kind| crate::pane_kind::page_of(kind).is_some());
     if !(bench.rails.tab_open && paged) {
         return front;
     }
-    Some(match bench.rails.page {
-        RailPage::Agents => PaneKind::Agent,
-        RailPage::Terminals => PaneKind::Terminal,
-        RailPage::Files => PaneKind::Files,
-    })
-}
-
-/// The tab rail's page that lists a surface's tabs.
-fn page_of(kind: PaneKind) -> Option<RailPage> {
-    crate::pane_kind::of(kind).page
+    Some(crate::pane_kind::listed_on(bench.rails.page))
 }
 
 /// The hover group of a project's row, whose × shows on hover.
 const PROJECT_ROW: &str = "project-row";
 
-/// What right-clicking a project offers: its settings, and the space the rail lists it under.
+/// What right-clicking a project offers: the settings of the copy the person works on, its
+/// copies and a copy on each host without one, and the space the rail lists this host's copy
+/// under.
 fn project_menu(
     bench: &Workbench,
-    project: &ProjectInfo,
+    folded: &Folded,
     cx: &Context<Workbench>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
     let bench_entity = cx.weak_entity();
-    let (id, current) = (project.id.clone(), project.space.clone());
-    let path = project.path.clone();
-    let others = bench.other_hosts();
+    let front = bench.front_copy(folded).cloned();
+    let own = (folded.own.as_ref()).map(|own| own.id.clone());
+    let clones: Vec<String> = (folded.own.iter().chain(&folded.clones))
+        .map(|project| project.id.clone())
+        .collect();
+    let identity = folded.identity.clone();
+    let current = bench.space_of(folded).map(str::to_owned);
+    let copies = crate::copies::copy_menu(bench, folded, cx);
     let spaces: Vec<(String, String, Option<Icon>)> =
-        bench.view.as_ref().map_or(Vec::new(), |view| {
+        bench.this_view().map_or(Vec::new(), |view| {
             view.workspace
                 .spaces
                 .iter()
@@ -780,52 +1138,48 @@ fn project_menu(
                 })
                 .collect()
         });
-    move |popup, _, _| {
+    move |popup, window, cx| {
         let act = |work: Rc<dyn Fn(&mut Workbench)>| {
             let bench = bench_entity.clone();
             move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
                 let _ = bench.update(cx, |bench, _| work(bench));
             }
         };
-        let move_to = |space: Option<String>| {
-            let id = id.clone();
-            act(Rc::new(move |bench: &mut Workbench| {
-                bench.call(
-                    "updateProject",
-                    json!({ "id": id, "patch": { "space": space } }),
+        let mut popup = match &front {
+            Some(front) => {
+                let front = front.clone();
+                popup.item(
+                    PopupMenuItem::new(t!("Playbook"))
+                        .icon(Icon::Book)
+                        .on_click(act(Rc::new(move |bench: &mut Workbench| {
+                            bench.open_copy_settings(&front)
+                        }))),
                 )
-            }))
+            }
+            None => popup,
         };
-        let settings = {
-            let id = id.clone();
-            act(Rc::new(move |bench: &mut Workbench| {
-                bench.open_project_settings(&id)
-            }))
-        };
-        let mut popup = popup.item(
-            PopupMenuItem::new("Project settings")
-                .icon(Icon::Settings)
-                .on_click(settings),
-        );
-        for (host, label, reached, after) in &others {
-            let (bench, path, host, label, after) = (
-                bench_entity.clone(),
-                path.clone(),
-                host.clone(),
-                label.clone(),
-                after.clone(),
-            );
-            popup = popup.item(
-                PopupMenuItem::new(format!("Open on {label}"))
-                    .icon(Icon::Server)
-                    .disabled(!reached)
-                    .on_click(move |_, _, cx| {
-                        let _ = bench.update(cx, |bench, cx| {
-                            bench.open_on(&path, &host, label.clone(), after.clone(), cx)
-                        });
-                    }),
-            );
+        popup = copies(popup.separator(), window, cx);
+        if own.is_none() && identity.is_none() {
+            return popup;
         }
+        let move_to = |space: Option<String>| {
+            let (own, identity, clones) = (own.clone(), identity.clone(), clones.clone());
+            act(Rc::new(move |bench: &mut Workbench| {
+                match (&own, &identity) {
+                    (Some(_), _) => {
+                        for id in &clones {
+                            crate::core::Target::here(&bench.asks)
+                                .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                                    id.clone(),
+                                    space.clone(),
+                                ))
+                        }
+                    }
+                    (None, Some(identity)) => bench.set_elsewhere_space(identity, space.clone()),
+                    (None, None) => {}
+                }
+            }))
+        };
         popup = popup.separator();
         for (space, name, glyph) in &spaces {
             let mut item = PopupMenuItem::new(name.clone())
@@ -836,19 +1190,21 @@ fn project_menu(
             }
             popup = popup.item(item);
         }
-        let new_space = {
-            let (bench, id) = (bench_entity.clone(), id.clone());
-            move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                let _ = bench.update(cx, |bench, cx| bench.new_space(Some(id.clone()), cx));
-            }
-        };
-        popup = popup.item(
-            PopupMenuItem::new("New Space…")
-                .icon(Icon::Plus)
-                .on_click(new_space),
-        );
+        if let Some(id) = &own {
+            let new_space = {
+                let (bench, id) = (bench_entity.clone(), id.clone());
+                move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+                    let _ = bench.update(cx, |bench, cx| bench.new_space(Some(id.clone()), cx));
+                }
+            };
+            popup = popup.item(
+                PopupMenuItem::new(t!("New Space…"))
+                    .icon(Icon::Plus)
+                    .on_click(new_space),
+            );
+        }
         popup.separator().item(
-            PopupMenuItem::new("No Space")
+            PopupMenuItem::new(t!("No Space"))
                 .icon(Icon::Move)
                 .checked(current.is_none())
                 .on_click(move_to(None)),
@@ -891,149 +1247,182 @@ fn faces(agents: &[AgentRow], cx: &App) -> impl IntoElement {
         })
 }
 
-/// How a project's open agents stand together, as the core rolls them up; none while all are idle.
-fn rollup(bench: &Workbench, project: &str, cx: &App) -> Option<gpui_kit::AnyElement> {
-    let status = match bench.shown()?.inbox.projects.get(project)?.group {
-        AgentGroup::Blocked => AgentStatus::Blocked,
-        AgentGroup::Working => AgentStatus::Working,
-        AgentGroup::Done => AgentStatus::Done,
-        AgentGroup::Idle => return None,
-    };
-    ui::status_mark(&format!("project:{project}"), status, cx)
-}
-
-/// What a project opens, in the order the rail lists them: its own surfaces,
-/// with its code host's sections after Git, each an area of the Git tab.
-fn surface_rows(
-    project: &ProjectInfo,
-) -> Vec<(Icon, SharedString, &'static str, Option<PaneKind>, Area)> {
-    let surface = |kind: PaneKind| {
-        let shown = crate::pane_kind::of(kind);
-        let (label, command) = shown.surface.unwrap_or_default();
-        (shown.icon, label.into(), command, Some(kind), Area::Local)
-    };
-    let mut rows: Vec<_> = [
-        PaneKind::Files,
-        PaneKind::Terminal,
-        PaneKind::Agent,
-        PaneKind::Git,
-    ]
-    .map(surface)
-    .into();
-    if let Some(host) = &project.code_host {
-        rows.extend(host.sections.iter().filter_map(|section| {
-            let area = Area::of(section)?;
-            Some((area.icon(), area.label(host), "", Some(PaneKind::Git), area))
-        }));
+/// How a project's open agents stand together on every host that holds it: amber while the core
+/// says it needs the person, else as each core rolls its agents up; none while all are idle.
+fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyElement> {
+    let key = format!("project:{}", folded.key());
+    let needs_you = (folded.copies.iter())
+        .filter_map(|copy| bench.project_on(&copy.place, &copy.project))
+        .any(|project| project.standing == ProjectStanding::NeedsYou);
+    if needs_you {
+        return ui::status_mark(&key, AgentStatus::Blocked, cx);
     }
-    rows.extend([PaneKind::Search, PaneKind::Board].map(surface));
-    rows
+    let group = (folded.copies.iter())
+        .filter_map(|copy| {
+            let view = bench.view_at(&copy.place)?;
+            Some(view.inbox.projects.get(&copy.project)?.group)
+        })
+        .filter(|group| *group != AgentGroup::Blocked)
+        .min();
+    let status = match group {
+        Some(AgentGroup::Working) => AgentStatus::Working,
+        Some(AgentGroup::Done) => AgentStatus::Done,
+        _ => return None,
+    };
+    ui::status_mark(&key, status, cx)
 }
 
-/// The project's surfaces, hung off a spine with a tick to each, the one in front lit.
+/// The project's surfaces, its Agent Board and its Playbook, hung off a spine with a tick to each, the one in
+/// front lit.
 fn surfaces(
-    project: &ProjectInfo,
+    workbench: &Workbench,
     front: Option<PaneKind>,
-    area: Area,
     cx: &Context<Workbench>,
 ) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
+    let keyed = workbench.rails.keyed(Rail::Side);
     let bench = cx.entity().downgrade();
-    let rows = surface_rows(project);
-    let last = rows.len() - 1;
+    let surfaces = crate::pane_kind::SURFACES
+        .into_iter()
+        .enumerate()
+        .map(|(index, surface)| {
+            let (kind, command) = (surface.kind, surface.command);
+            let bench = bench.clone();
+            let row = tree_row(
+                SharedString::from(format!("surface-{index}")),
+                crate::pane_kind::of(kind).icon,
+                surface.label,
+                Some(kind) == front,
+                false,
+                keymap::hint(command, cx),
+                cx,
+            )
+            .clicks(move |_, window, cx| {
+                if let Some(page) = crate::pane_kind::page_of(kind) {
+                    let _ = bench.update(cx, |bench, cx| {
+                        if bench.rails.tab_open {
+                            bench.show_rail_page(page, cx);
+                        }
+                    });
+                }
+                keymap::dispatch(command, window, cx);
+            });
+            keyed.row(
+                format!("surface-{index}"),
+                crate::i18n::tr(surface.label),
+                row,
+                cx,
+            )
+        });
+    let board = crate::workbench::actions::FocusAgentBoard::ID;
+    let board = tree_row(
+        "surface-board".into(),
+        Icon::SquareKanban,
+        n!("Agent Board"),
+        false,
+        false,
+        keymap::hint(board, cx),
+        cx,
+    )
+    .clicks(move |_, window, cx| keymap::dispatch(board, window, cx));
+    let board = keyed.row("surface-board", t!("Agent Board"), board, cx);
+    let playbook = crate::workbench::actions::FocusPlaybook::ID;
+    let playbook = tree_row(
+        "surface-playbook".into(),
+        Icon::Book,
+        n!("Playbook"),
+        front == Some(PaneKind::ProjectSettings),
+        true,
+        keymap::hint(playbook, cx),
+        cx,
+    )
+    .clicks(move |_, window, cx| keymap::dispatch(playbook, window, cx));
+    let playbook = keyed.row("surface-playbook", t!("Playbook"), playbook, cx);
     div()
         .flex()
         .flex_col()
         .ml(px(13.5))
         .py(SPACE_0)
         .pr(SPACE_1H)
-        .children(rows.into_iter().enumerate().map(
-            move |(index, (glyph, label, command, kind, opens))| {
-                let tail = index == last;
-                let in_git = kind == Some(PaneKind::Git);
-                let lit = kind.is_some() && kind == front && (!in_git || opens == area);
-                let spine = div().absolute().left_0().top_0();
-                let bench = bench.clone();
+        .children(surfaces)
+        .child(board)
+        .child(playbook)
+}
+
+/// One row of a project's tree; the `tail` ends the spine.
+fn tree_row(
+    id: SharedString,
+    glyph: Icon,
+    label: &'static str,
+    lit: bool,
+    tail: bool,
+    keys: Option<SharedString>,
+    cx: &Context<Workbench>,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let t = Tokens::get(cx).clone();
+    let spine = div().absolute().left_0().top_0();
+    div()
+        .id(id)
+        .relative()
+        .h(px(25.))
+        .pr(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(radius_2())
+        .text_color(if lit { t.accent } else { t.text_tertiary })
+        .when(!lit, |row| {
+            row.hover(move |style| style.text_color(t.text_primary))
+        })
+        .child(if tail {
+            spine
+                .w(px(9.))
+                .h(px(13.))
+                .border_l(crate::theme::border())
+                .border_b(crate::theme::border())
+                .border_color(t.tree_spine)
+                .rounded_bl(px(4.))
+        } else {
+            spine.bottom_0().w(px(1.)).bg(t.tree_spine)
+        })
+        .when(!tail, |row| {
+            row.child(
                 div()
-                    .id(SharedString::from(format!("surface-{index}")))
-                    .relative()
-                    .h(px(25.))
-                    .on_click(move |_, window, cx| {
-                        if let Some(page) = kind.and_then(page_of) {
-                            let _ = bench.update(cx, |bench, cx| {
-                                if bench.rails.tab_open {
-                                    bench.show_rail_page(page, cx);
-                                }
-                            });
-                        }
-                        if in_git {
-                            window.dispatch_action(Box::new(OpenArea { area: opens }), cx);
-                        } else {
-                            keymap::dispatch(command, window, cx);
-                        }
-                    })
-                    .pr(SPACE_2)
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .rounded(RADIUS_2)
-                    .text_color(if lit { t.accent } else { t.text_tertiary })
-                    .when(!lit, |row| {
-                        row.hover(move |style| style.text_color(t.text_primary))
-                    })
-                    .child(if tail {
-                        spine
-                            .w(px(9.))
-                            .h(px(13.))
-                            .border_l_1()
-                            .border_b_1()
-                            .border_color(t.tree_spine)
-                            .rounded_bl(px(4.))
-                    } else {
-                        spine.bottom_0().w(px(1.)).bg(t.tree_spine)
-                    })
-                    .when(!tail, |row| {
-                        row.child(
-                            div()
-                                .absolute()
-                                .left_0()
-                                .top(px(12.))
-                                .w(px(9.))
-                                .h(px(1.))
-                                .bg(t.tree_tick),
-                        )
-                    })
-                    .child(div().w(px(9.)).flex_none())
-                    .child(ui::mark_box(
-                        16.,
-                        ui::icon(glyph, 13.).text_color(if lit { t.live } else { t.text_tertiary }),
-                    ))
-                    .child(ui::text(label, TEXT_XS_H, FontWeight::MEDIUM).letter_spacing(0.01))
-                    .when_some(keymap::hint(command, cx), |row, keys| {
-                        let keys = ui::kbd(keys, cx).when(lit, |keys| keys.text_color(t.accent));
-                        row.child(
-                            div()
-                                .ml_auto()
-                                .when(!lit, |keys| keys.opacity(0.5))
-                                .child(keys),
-                        )
-                    })
-            },
+                    .absolute()
+                    .left_0()
+                    .top(px(12.))
+                    .w(px(9.))
+                    .h(px(1.))
+                    .bg(t.tree_tick),
+            )
+        })
+        .child(div().w(px(9.)).flex_none())
+        .child(ui::mark_box(
+            16.,
+            ui::icon(glyph, 13.).text_color(if lit { t.live } else { t.text_tertiary }),
         ))
+        .child(ui::text(crate::i18n::tr(label), TEXT_XS_H, FontWeight::MEDIUM).letter_spacing(0.01))
+        .when_some(keys, |row, keys| {
+            let keys = ui::kbd(keys, cx).when(lit, |keys| keys.text_color(t.accent));
+            row.child(
+                div()
+                    .ml_auto()
+                    .when(!lit, |keys| keys.opacity(0.5))
+                    .child(keys),
+            )
+        })
 }
 
 /// The spaces the person sorts projects into, which filter the projects below them.
 fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let spaces = bench
-        .view
-        .as_ref()
+        .this_view()
         .map_or(&[][..], |view| view.workspace.spaces.as_slice());
     if spaces.is_empty() {
         return div()
             .mb(SPACE_1H)
             .child(
-                Button::new("new-space", "New space", Variant::Dashed)
+                Button::new("new-space", t!("New space"), Variant::Dashed)
                     .icon(Icon::Plus)
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_space(None, cx))),
             )
@@ -1055,7 +1444,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .gap(px(5.))
             .h(px(22.))
             .px(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .whitespace_nowrap()
             .text_color(if on { t.text_primary } else { t.text_tertiary })
@@ -1071,7 +1460,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     .text_ellipsis()
                     .child(name),
             )
-            .on_click({
+            .clicks({
                 let id = id.clone();
                 cx.listener(move |bench, event: &ClickEvent, _, cx| {
                     match (event.click_count(), &id) {
@@ -1102,21 +1491,23 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         .gap(SPACE_0)
         .p(SPACE_0)
         .overflow_x_scroll()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .rounded(RADIUS_2 + px(3.))
+        .rounded(radius_2() + px(3.))
         .context_menu(ui::menu({
             let bench = cx.entity();
             move |popup, _, _| {
                 let (made, edited) = (bench.clone(), bench.clone());
                 popup
-                    .item(PopupMenuItem::new("New Space…").icon(Icon::Plus).on_click(
-                        move |_, _, cx| {
-                            made.update(cx, |bench, cx| bench.new_space(None, cx));
-                        },
-                    ))
                     .item(
-                        PopupMenuItem::new("Edit Spaces…")
+                        PopupMenuItem::new(t!("New Space…"))
+                            .icon(Icon::Plus)
+                            .on_click(move |_, _, cx| {
+                                made.update(cx, |bench, cx| bench.new_space(None, cx));
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(t!("Edit Spaces…"))
                             .icon(Icon::Wrench)
                             .on_click(move |_, _, cx| {
                                 edited.update(cx, |bench, cx| bench.open_space_editor(cx));
@@ -1124,7 +1515,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     )
             }
         }))
-        .child(chip(None, Some(Icon::Stack), "All".into()))
+        .child(chip(None, Some(Icon::Stack), t!("All").into()))
         .children(spaces.iter().map(|space| {
             chip(
                 Some(space.id.clone()),
@@ -1132,7 +1523,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 space.name.clone().into(),
             )
         }));
-    let width = bench.rail_width(Edge::Start) - 20.;
+    let width = bench.rail_width(Rail::Side) - 20.;
     div()
         .mb(SPACE_1H)
         .child(track)
@@ -1166,32 +1557,32 @@ fn space_menu(
         }
     };
     let mut popup = popup
-        .item(item("Rename…", Icon::Pencil, |bench, space, cx| {
+        .item(item(t!("Rename…"), Icon::Pencil, |bench, space, cx| {
             bench.rename_space(space, cx)
         }))
         .submenu_with_icon(
             Some(Icon::Pencil.into()),
-            "Change Icon…",
+            t!("Change Icon…"),
             window,
             cx,
             ui::menu(icons),
         );
     if !icon.is_empty() {
-        popup = popup.item(item("Remove Icon", Icon::Trash, |bench, space, _| {
+        popup = popup.item(item(t!("Remove Icon"), Icon::Trash, |bench, space, _| {
             bench.set_space_icon(&space, "")
         }));
     }
     popup
         .separator()
-        .item(item("New Space…", Icon::Plus, |bench, _, cx| {
+        .item(item(t!("New Space…"), Icon::Plus, |bench, _, cx| {
             bench.new_space(None, cx)
         }))
-        .item(item("Edit Spaces…", Icon::Wrench, |bench, _, cx| {
+        .item(item(t!("Edit Spaces…"), Icon::Wrench, |bench, _, cx| {
             bench.open_space_editor(cx)
         }))
         .separator()
         .item(
-            ui::MenuRow::new("Delete Space…")
+            ui::MenuRow::new(t!("Delete Space…"))
                 .icon(Icon::Trash)
                 .danger(true)
                 .item(cx)
@@ -1207,14 +1598,14 @@ fn space_menu(
 /// Who the host is signed in as, or the card that signs it in.
 fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let Some(view) = bench.view.as_ref() else {
+    let Some(view) = bench.this_view() else {
         return div()
             .flex_none()
             .flex()
             .justify_end()
             .px(SPACE_2H)
             .py(SPACE_1H)
-            .border_t_1()
+            .border_t(crate::theme::border())
             .border_color(t.border)
             .child(settings_button())
             .into_any_element();
@@ -1225,59 +1616,67 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let who = account
         .name
         .clone()
-        .or_else(|| account.email.clone())
-        .unwrap_or_else(|| "Signed in".into());
+        .unwrap_or_else(|| t!("Signed in").into());
     let row = Row::new("account", who)
         .mark(24., avatar(bench, account, 24., &t))
-        .centered()
-        .when_some(
-            account.name.as_ref().and(account.email.clone()),
-            |row, email| row.subtitle(ui::meta(email, cx)),
-        );
+        .centered();
     use crate::settings::Page;
-    let settings_keys = keymap::hint("settings.toggle", cx);
+    let settings_keys = keymap::hint(actions::ToggleSettings::ID, cx);
     let act = |act: fn(&mut Workbench, &mut Window, &mut Context<Workbench>)| {
         Rc::new(cx.listener(move |bench, _: &ClickEvent, window, cx| act(bench, window, cx)))
     };
     let items = [
         (
-            "Your account",
+            n!("Manage account"),
             Icon::User,
-            None,
-            act(|bench, window, cx| bench.open_settings(Page::Account, window, cx)),
+            Some(Trailing::Icon(Icon::ExternalLink)),
+            act(|_, _, cx| cx.open_url(&sikemux_corekit::accounts::app_base())),
         ),
         (
-            "Devices",
+            n!("Devices"),
             Icon::Laptop,
             None,
-            act(|bench, window, cx| bench.open_settings(Page::Devices, window, cx)),
+            act(|bench, window, cx| {
+                if bench.settings.read(cx).is_open() {
+                    crate::settings::close(bench, window, cx);
+                }
+                keymap::count(actions::FocusHosts::ID.name(), cx);
+                bench.open_hosts(None);
+            }),
         ),
         (
-            "Settings",
+            n!("Connectors"),
+            Icon::Plug,
+            None,
+            act(|bench, window, cx| bench.open_settings(Page::Connectors, window, cx)),
+        ),
+        (
+            n!("Settings"),
             Icon::Settings,
-            settings_keys,
-            act(|bench, window, cx| bench.open_settings(Page::default(), window, cx)),
+            settings_keys.map(Trailing::Keys),
+            act(|bench, window, cx| {
+                keymap::count(actions::ToggleSettings::ID.name(), cx);
+                bench.open_settings(Page::default(), window, cx)
+            }),
         ),
     ];
     let sign_out = act(|bench, _, _| bench.sign_out());
+    let menu_width = px(bench.rail_width(Rail::Side)) - SPACE_2H * 2. - px(2.);
     let menu = ui::menu_button(
         "account-menu",
         Anchor::BottomLeft,
         row,
-        move |mut popup, _, cx| {
-            for (label, icon, hint, act) in items.iter().cloned() {
+        move |mut popup, _, _| {
+            popup = popup.min_w(menu_width).max_w(menu_width);
+            for (label, icon, trailing, act) in items.iter().cloned() {
                 popup = popup.item(
-                    ui::MenuRow::new(label)
-                        .icon(icon)
-                        .when_some(hint, ui::MenuRow::hint)
-                        .item(cx)
+                    account_item(label, icon, trailing)
                         .on_click(move |event, window, cx| act(event, window, cx)),
                 );
             }
             let sign_out = sign_out.clone();
             popup.separator().item(
-                PopupMenuItem::new("Sign out")
-                    .icon(Icon::LogOut)
+                account_item(n!("Sign out"), Icon::LogOut, None)
                     .on_click(move |event, window, cx| sign_out(event, window, cx)),
             )
         },
@@ -1289,19 +1688,61 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .gap(SPACE_1)
         .px(SPACE_2H)
         .py(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(div().flex_1().min_w_0().child(menu))
-        .child(settings_button())
         .into_any_element()
 }
 
-/// Settings, kept in the rail's foot whether or not the person is signed in.
+/// A row of the account menu, roomier than other menus' rows since it opens the width of the rail.
+#[derive(Clone)]
+enum Trailing {
+    Keys(SharedString),
+    Icon(Icon),
+}
+
+fn account_item(label: &'static str, icon: Icon, trailing: Option<Trailing>) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, cx| {
+        let t = Tokens::get(cx);
+        div()
+            .id(label)
+            .aria_label(crate::i18n::tr(label))
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(SPACE_2H)
+            .py(SPACE_1H)
+            .text_size(crate::theme::ui_text(TEXT_SM))
+            .child(ui::icon(icon, 16.).text_color(t.text_secondary))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(crate::i18n::tr(label)),
+            )
+            .children(trailing.clone().map(|trailing| {
+                match trailing {
+                    Trailing::Keys(keys) => div()
+                        .text_size(crate::theme::ui_text(TEXT_XS))
+                        .text_color(t.text_tertiary)
+                        .child(keys)
+                        .into_any_element(),
+                    Trailing::Icon(icon) => ui::icon(icon, 13.)
+                        .text_color(t.text_tertiary)
+                        .into_any_element(),
+                }
+            }))
+    })
+}
+
+/// Settings, in the rail's foot until the person signs in and it moves into the account menu.
 fn settings_button() -> IconButton {
-    IconButton::new("settings", Icon::Settings, "Settings")
+    IconButton::new("settings", Icon::Settings, t!("Settings"))
         .glyph(14.)
         .width(28.)
-        .on_click(|_, window, cx| keymap::dispatch("settings.toggle", window, cx))
+        .on_click(|_, window, cx| keymap::dispatch(actions::ToggleSettings::ID, window, cx))
 }
 
 /// The account's picture in a circle, else its initials.
@@ -1311,7 +1752,7 @@ pub(crate) fn avatar(bench: &Workbench, account: &AccountInfo, size: f32, t: &To
         .size(px(size))
         .flex_none()
         .rounded_full()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(t.surface_raised)
         .overflow_hidden()
@@ -1347,14 +1788,18 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx);
     let (copy, button) = if bench.signing_in {
         (
-            "Finish signing in in your browser.",
-            Button::new("sign-in", "Cancel", Variant::Outline)
-                .on_click(cx.listener(|bench, _, _, _| bench.cancel_sign_in())),
+            t!("Finish signing in in your browser."),
+            Button::new("sign-in", t!("Cancel"), Variant::Outline).on_click(cx.listener(
+                |bench, _, _, cx| {
+                    bench.cancel_sign_in();
+                    cx.notify();
+                },
+            )),
         )
     } else {
         (
-            "Sign in to reach this host from your phone and other devices.",
-            Button::new("sign-in", "Sign in", Variant::Primary)
+            t!("Sign in to reach this host from your phone and other devices."),
+            Button::new("sign-in", t!("Sign in"), Variant::Primary)
                 .icon(Icon::LogIn)
                 .on_click(cx.listener(|bench, _, _, cx| {
                     bench.sign_in();
@@ -1370,7 +1815,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(gpui_kit::Hsla {
             a: 0.04,
             ..t.text_primary
@@ -1390,4 +1835,395 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                 .child(div().flex_1().min_w_0().flex().flex_col().child(button))
                 .child(settings_button()),
         )
+}
+
+/// `rail` taking the keys, whose arrows walk the rows it lists.
+pub(crate) fn keyed_rail(
+    rail: Div,
+    which: Rail,
+    bench: &Workbench,
+    cx: &Context<Workbench>,
+) -> Div {
+    fn on<A: gpui_kit::Action>(
+        which: Rail,
+        cx: &Context<Workbench>,
+    ) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
+        let this = cx.weak_entity();
+        move |key: &A, window: &mut Window, cx: &mut App| {
+            this.update(cx, |bench, cx| {
+                if bench.rails.keyed[which as usize].key(key, window, cx) {
+                    bench.redraw_rail(which, cx);
+                }
+            })
+            .ok();
+        }
+    }
+    rail.track_focus(&bench.rails.keyed(which).focus)
+        .key_context(keyed::CONTEXT)
+        .on_action(on::<keyed::Previous>(which, cx))
+        .on_action(on::<keyed::Next>(which, cx))
+        .on_action(on::<keyed::First>(which, cx))
+        .on_action(on::<keyed::Last>(which, cx))
+        .on_action(on::<keyed::Open>(which, cx))
+        .on_action(on::<keyed::ShowMenu>(which, cx))
+        .on_action(
+            cx.listener(|bench, _: &keyed::Leave, window, cx| bench.keys_to_stage(window, cx)),
+        )
+}
+
+impl Workbench {
+    pub(crate) fn redraw_rail(&self, rail: Rail, cx: &mut App) {
+        let part = match rail {
+            Rail::Side => &self.parts.side,
+            Rail::Agents => &self.parts.agents,
+        };
+        self.parts.redraw(part, cx);
+    }
+
+    /// Gives the keys to the view in front, else the window.
+    pub(crate) fn keys_to_stage(&self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.focused_view() {
+            Some(view) => self.focus_view(&view, window, cx),
+            None => self.keys.focus.focus(window, cx),
+        }
+    }
+
+    /// Moves the keys `by` one area along the window's, in the order the skeleton reads them,
+    /// leaving out a closed rail, and around.
+    pub(crate) fn step_area(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let areas: Vec<Option<Rail>> = (self.skeleton.areas())
+            .filter(|area| area.is_none_or(|rail| self.rails.open(rail)))
+            .collect();
+        if areas.is_empty() {
+            return;
+        }
+        let now = [Rail::Side, Rail::Agents]
+            .into_iter()
+            .find(|rail| self.rails.keyed(*rail).focus.contains_focused(window, cx));
+        let at = areas.iter().position(|area| *area == now).unwrap_or(0);
+        let to = areas[(at as isize + by).rem_euclid(areas.len() as isize) as usize];
+        match to {
+            Some(rail) => {
+                self.rails.keyed[rail as usize].take_keys(window, cx);
+                self.redraw_rail(rail, cx);
+            }
+            None => self.keys_to_stage(window, cx),
+        }
+    }
+
+    /// Keeps a rail open, or closes it; a peeking rail that is kept stays where it is.
+    pub fn toggle_rail(&mut self, rail: Rail, cx: &mut Context<Self>) {
+        let open = match rail {
+            Rail::Side => &mut self.rails.side_open,
+            Rail::Agents => &mut self.rails.tab_open,
+        };
+        *open = !*open;
+        self.rails.peeking = None;
+        self.keep_rails(cx);
+        cx.notify();
+    }
+
+    /// How wide `rail` is drawn, which a narrow window can make less than the width kept.
+    pub fn rail_width(&self, rail: Rail) -> f32 {
+        self.rails.drawn[rail as usize]
+    }
+
+    fn kept_width(&self, rail: Rail) -> f32 {
+        match rail {
+            Rail::Side => self.rails.side_width,
+            Rail::Agents => self.rails.tab_width,
+        }
+    }
+
+    /// Sets a rail's width, within what that rail allows, and draws it at once.
+    pub fn resize_rail(
+        &mut self,
+        rail: Rail,
+        width: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let range = rail.widths();
+        let kept = match rail {
+            Rail::Side => &mut self.rails.side_width,
+            Rail::Agents => &mut self.rails.tab_width,
+        };
+        let width = width.clamp(range.min, range.max).round();
+        if *kept != width {
+            *kept = width;
+            window.refresh();
+            self.keep_rails(cx);
+        }
+    }
+
+    /// Moves `rail`'s edge beside the stage `by` points to the right.
+    pub(crate) fn nudge_rail(
+        &mut self,
+        rail: Rail,
+        by: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let outward = match self.skeleton.peek_edge(rail) {
+            Edge::Left => by,
+            Edge::Right => -by,
+        };
+        self.resize_rail(rail, self.kept_width(rail) + outward, window, cx);
+    }
+
+    /// The handle between a rail and the stage, dragged or moved by arrow keys to resize the rail.
+    pub(crate) fn rail_resizer(&self, rail: Rail, cx: &mut Context<Self>) -> impl IntoElement {
+        use crate::keymap::{EdgeFarLeft, EdgeFarRight, EdgeLeft, EdgeRight};
+        let id = match rail {
+            Rail::Side => "resize-side-rail",
+            Rail::Agents => "resize-tab-rail",
+        };
+        crate::panes::handle(id, DraggedRail(rail), true)
+            .key_context("RailResizer")
+            .track_focus(&self.rails.resizers[rail as usize])
+            .clicks_keep_cursor(cx.listener(move |bench, _, window, cx| {
+                bench.rails.resizers[rail as usize].focus(window, cx)
+            }))
+            .on_action(cx.listener(move |bench, _: &EdgeLeft, window, cx| {
+                bench.nudge_rail(rail, -16., window, cx)
+            }))
+            .on_action(cx.listener(move |bench, _: &EdgeRight, window, cx| {
+                bench.nudge_rail(rail, 16., window, cx)
+            }))
+            .on_action(cx.listener(move |bench, _: &EdgeFarLeft, window, cx| {
+                bench.nudge_rail(rail, -40., window, cx)
+            }))
+            .on_action(cx.listener(move |bench, _: &EdgeFarRight, window, cx| {
+                bench.nudge_rail(rail, 40., window, cx)
+            }))
+    }
+
+    /// Takes the rails as the person last left them, from the core's preferences.
+    pub(crate) fn follow_rails(&mut self, preferences: &Preferences) {
+        self.rails.follow(preferences);
+        self.recent_commands = preferences
+            .recent_command_keys
+            .iter()
+            .map(|key| SharedString::from(key.clone()))
+            .collect();
+    }
+
+    /// Keeps the rails and the commands run lately in the core's preferences once changes
+    /// settle, so a drag is written once, and the rails come back as they were. Nothing is
+    /// kept before the preferences are first read, when the rails hold only the window's defaults.
+    pub fn keep_rails(&mut self, cx: &mut Context<Self>) {
+        if self.preferences.is_none() {
+            return;
+        }
+        self.rails.keeping = Some(cx.spawn(async move |bench, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(400))
+                .await;
+            let _ = bench.update(cx, |bench, _| {
+                bench.rails.keeping = None;
+                bench.write_rails();
+            });
+        }));
+    }
+
+    pub(crate) fn write_rails(&self) {
+        let page = self.rails.page;
+        let scope = if self.rails.all_projects {
+            TabRailScope::All
+        } else {
+            TabRailScope::Project
+        };
+        let recent: Vec<String> = self
+            .recent_commands
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let now = [
+            PreferenceChange::SideRailOpen(self.rails.side_open),
+            PreferenceChange::SideRailWidth(self.rails.side_width.into()),
+            PreferenceChange::TabRailOpen(self.rails.tab_open),
+            PreferenceChange::TabRailWidth(self.rails.tab_width.into()),
+            PreferenceChange::TabRailPage(page),
+            PreferenceChange::TabRailScope(scope),
+            PreferenceChange::TabRailAllAgents(self.rails.all_harnesses),
+            PreferenceChange::FoldedRailGroups(self.rails.folded_groups.clone()),
+            PreferenceChange::RecentCommandKeys(recent),
+        ];
+        let kept = self.preferences.as_ref();
+        for change in now {
+            if !kept.is_some_and(|kept| change.is_in(kept)) {
+                crate::settings::set(self, change);
+            }
+        }
+    }
+
+    /// The order the side rail lists projects in.
+    pub(crate) fn project_sort(&self) -> ProjectSort {
+        self.preferences
+            .as_ref()
+            .map_or_else(ProjectSort::default, |preferences| preferences.project_sort)
+    }
+
+    /// Folds the rail group `key` away, or opens it again, and keeps that.
+    pub fn fold_group(&mut self, key: &str, cx: &mut Context<Self>) {
+        let folded = &mut self.rails.folded_groups;
+        match folded.iter().position(|kept| kept == key) {
+            Some(at) => {
+                folded.remove(at);
+            }
+            None => folded.push(key.to_owned()),
+        }
+        self.keep_rails(cx);
+        cx.notify();
+    }
+
+    /// Opens both rails when either is closed, else closes both.
+    pub fn toggle_focus_mode(&mut self, cx: &mut Context<Self>) {
+        let open = !(self.rails.side_open && self.rails.tab_open);
+        self.rails.side_open = open;
+        self.rails.tab_open = open;
+        self.rails.peeking = None;
+        self.keep_rails(cx);
+        cx.notify();
+    }
+
+    /// Shows a closed rail over the stage while the pointer is at its edge or over it, and puts
+    /// it away a moment after the pointer leaves.
+    pub(crate) fn peek(&mut self, rail: Rail, inside: bool, cx: &mut Context<Self>) {
+        if inside {
+            self.rails.unpeek = None;
+            if self.rails.peeking != Some(rail) {
+                self.rails.peeking = Some(rail);
+                cx.notify();
+            }
+            return;
+        }
+        self.rails.unpeek = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(PEEK_CLOSE).await;
+            let _ = this.update(cx, |bench, cx| {
+                if bench.rails.peeking == Some(rail) {
+                    bench.rails.peeking = None;
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
+    /// A docked rail and its handle, `tuck` of the way under the stage, the handle after it
+    /// when `handle_after`. It keeps its width as it goes, so nothing in it wraps again; the
+    /// stage takes the room it gives up.
+    pub(crate) fn docked_rail(
+        &self,
+        rail: Rail,
+        tuck: f32,
+        handle_after: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let width = self.rail_width(rail);
+        let drawn = crate::settings::leaves(div().h_full().flex_none(), cx).child(
+            self.rail_part(rail)
+                .clone()
+                .cached(StyleRefinement::default().w(px(width)).h_full().flex_none()),
+        );
+        let drawer = div()
+            .id(match rail {
+                Rail::Side => "side-rail-drawer",
+                Rail::Agents => "tab-rail-drawer",
+            })
+            .flex_none()
+            .h_full()
+            .w(px((width + crate::theme::gap()) * (1. - tuck)))
+            .overflow_hidden()
+            .flex()
+            .opacity(1. - tuck)
+            .on_drag_move(cx.listener(
+                move |bench, event: &DragMoveEvent<DraggedRail>, window, cx| {
+                    if event.drag(cx).0 != rail {
+                        return;
+                    }
+                    let (x, bounds) = (event.event.position.x, event.bounds);
+                    let width = match handle_after {
+                        true => x - bounds.left(),
+                        false => bounds.right() - x,
+                    };
+                    let width = f32::from(width) - crate::theme::gap() / 2.;
+                    bench.resize_rail(rail, width, window, cx);
+                },
+            ));
+        match handle_after {
+            true => drawer.child(drawn).child(self.rail_resizer(rail, cx)),
+            false => drawer
+                .justify_end()
+                .child(self.rail_resizer(rail, cx))
+                .child(drawn),
+        }
+    }
+
+    fn rail_part(&self, rail: Rail) -> &Entity<crate::workbench::Part> {
+        match rail {
+            Rail::Side => &self.parts.side,
+            Rail::Agents => &self.parts.agents,
+        }
+    }
+
+    /// A closed rail's edge of the window, which brings the rail out over the stage.
+    pub(crate) fn rail_edge(
+        &self,
+        rail: Rail,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let width = self.kept_width(rail);
+        let edge = self.skeleton.peek_edge(rail);
+        let peeking = self.rails.peeking == Some(rail);
+        let shown = motion::follow(
+            match rail {
+                Rail::Side => "peek-side-shown",
+                Rail::Agents => "peek-agents-shown",
+            },
+            if peeking { 1. } else { 0. },
+            if peeking {
+                motion::PEEK_IN
+            } else {
+                motion::PEEK_OUT
+            },
+            window,
+            cx,
+        );
+        let away = (width + PEEK_GAP) * (1. - shown);
+        let zone = div()
+            .id(match rail {
+                Rail::Side => "peek-side",
+                Rail::Agents => "peek-agents",
+            })
+            .absolute()
+            .top(px(tabs::bar_height() + crate::skeleton::room_beside_bar()))
+            .bottom(px(crate::theme::inset()))
+            .w(px(if shown > 0. { width + 20. } else { PEEK_REACH }))
+            .px(SPACE_2H)
+            .on_hover(cx.listener(move |bench, inside: &bool, _, cx| bench.peek(rail, *inside, cx)))
+            .when(shown > 0., |zone| {
+                zone.child(
+                    div()
+                        .h_full()
+                        .relative()
+                        .left(px(match edge {
+                            Edge::Left => -away,
+                            Edge::Right => away,
+                        }))
+                        .opacity(shown)
+                        .child(
+                            crate::settings::leaves(div().h_full(), cx).child(
+                                self.rail_part(rail)
+                                    .clone()
+                                    .cached(StyleRefinement::default().w(px(width)).h_full()),
+                            ),
+                        ),
+                )
+            });
+        match edge {
+            Edge::Left => zone.left_0(),
+            Edge::Right => zone.right_0(),
+        }
+    }
 }

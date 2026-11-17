@@ -26,6 +26,8 @@ const ENDPOINTS: Record<ApnsEnvironment, string> = {
 /** Apple refuses a provider token older than an hour, and one replaced more often than every 20 minutes. */
 const TOKEN_LIFE_MS = 50 * 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
+/** An ended Live Activity stays on the lock screen this long, saying how the agents finished. */
+const ACTIVITY_LINGERS_S = 5 * 60;
 
 /** The card a phone shows when its notification extension cannot open what the host sealed. */
 export const GENERIC_ALERT = {
@@ -34,7 +36,7 @@ export const GENERIC_ALERT = {
 };
 
 /** The ES256 provider token Apple checks on every request. */
-export function signProviderToken(key: AppleKey, nowMs: number): string {
+function signProviderToken(key: AppleKey, nowMs: number): string {
   return signAppleToken(key, {
     iss: key.teamId,
     iat: Math.floor(nowMs / 1000),
@@ -48,14 +50,14 @@ export interface ApnsReply {
 }
 
 /** Sends one request over HTTP/2, the only protocol APNs speaks. */
-export type ApnsTransport = (
+type ApnsTransport = (
   origin: string,
   headers: OutgoingHttpHeaders,
   body: string,
 ) => Promise<ApnsReply>;
 
 /** Keeps one HTTP/2 connection to each origin, as Apple asks, and opens a new one when it closes. */
-export class Http2Transport {
+class Http2Transport {
   private readonly sessions = new Map<string, ClientHttp2Session>();
 
   readonly send: ApnsTransport = (origin, headers, body) =>
@@ -107,7 +109,7 @@ export class Http2Transport {
   }
 }
 
-export interface ApnsOptions {
+interface ApnsOptions {
   topic: string;
   /** Where each of Apple's push servers is; tests point them at a fake. */
   endpoints?: Record<ApnsEnvironment, string>;
@@ -180,6 +182,8 @@ export class ApnsProvider implements PushProvider {
   }
 
   private async post(message: PushMessage): Promise<ApnsReply | Error> {
+    if (message.kind === "activity" || message.kind === "activity_end")
+      return this.postActivity(message);
     const alert = message.kind === "alert";
     const ttl = Math.ceil(message.ttlSeconds);
     const headers: OutgoingHttpHeaders = {
@@ -203,6 +207,45 @@ export class ApnsProvider implements PushProvider {
       b: message.blob,
       c: message.collapseId,
       t: message.kind,
+    });
+    try {
+      return await this.transport(
+        this.endpoints[message.apnsEnvironment ?? "production"],
+        headers,
+        body,
+      );
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  /**
+   * Updates or ends a Live Activity. Its content is only the sealed blob, which the phone's widget
+   * extension opens; it goes stale once its time runs out without another, and an ended one stays
+   * on the lock screen a few minutes.
+   */
+  private async postActivity(message: PushMessage): Promise<ApnsReply | Error> {
+    const now = Math.floor((message.sentAt ?? this.now()) / 1000);
+    const ttl = Math.max(1, Math.ceil(message.ttlSeconds));
+    const end = message.kind === "activity_end";
+    const headers: OutgoingHttpHeaders = {
+      ":method": "POST",
+      ":path": `/3/device/${encodeURIComponent(message.token)}`,
+      authorization: `bearer ${this.token()}`,
+      "apns-topic": `${this.topic}.push-type.liveactivity`,
+      "apns-push-type": "liveactivity",
+      "apns-priority": "5",
+      "apns-expiration": String(now + ttl),
+      "content-type": "application/json",
+    };
+    const body = JSON.stringify({
+      aps: {
+        timestamp: now,
+        event: end ? "end" : "update",
+        "content-state": { sealed: message.blob },
+        "stale-date": now + ttl,
+        ...(end ? { "dismissal-date": now + ACTIVITY_LINGERS_S } : {}),
+      },
     });
     try {
       return await this.transport(

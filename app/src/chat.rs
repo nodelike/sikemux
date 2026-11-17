@@ -6,89 +6,107 @@ use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
+use cards::*;
+use changes::Changed;
+use composing::*;
 use gpui_kit::base::{Button as BaseButton, Scrollbar};
-use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, FontWeight,
-    HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement, Radians,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, StyledText, Subscription,
-    Task, Transformation, WeakEntity, Window,
+    actions, div, px, relative, AnyElement, AnyView, App, AppContext, Context, Div, Entity,
+    Focusable, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    ParentElement, Radians, Render, SharedString, StatefulInteractiveElement, StyleRefinement,
+    Styled, Subscription, Transformation, WeakEntity, Window,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
     Style, Transcript,
 };
+use looks::*;
+use questions::*;
+use rows::*;
 use serde_json::{json, Value};
-use sikemux_wire::catalog::Driver;
-use sikemux_wire::chat::{
-    ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, FiredRequest,
-    LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk, SubagentCard,
-    SubagentState, ToolDetail, WorkFold,
+use sikemux_view::catalog::ChatDriver;
+use sikemux_view::chat::{
+    AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
+    ChatView, FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree,
+    PermissionAsk, SubagentCard, SubagentState, TeamLine, TeamNeedKind, ToolDetail, WorkFold,
 };
-use sikemux_wire::protocol::{
-    AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, MidTurnSend, PermissionMode,
-    WorkspaceAgent, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE,
-};
-use sikemux_wire::questions::{AgentQuestion, QuestionState};
+use sikemux_view::layout::PaneKind;
+use sikemux_view::questions::{AgentQuestion, QuestionState};
+use sikemux_view::workspace::{ConfigPicker, WorkspaceAgent};
+use sikemux_wire::protocol::{AgentStatus, ChatAttachment, ChatContext, ChatMark, PermissionMode};
+use tokio::sync::mpsc::UnboundedSender;
 
+use crate::agents::rows::AgentRow;
 use crate::agents::setup::Installing;
 use crate::chat::composer::{Act, Composer, Notice, Strip};
 use crate::core::{Ask, ChatAsk, ChatNews, Target};
 use crate::icons::Icon;
-use crate::keymap::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
-use crate::motion;
 use crate::picture::Picture;
-use crate::syntax;
-use crate::theme::{self, Tokens};
+use crate::tabs::shows;
+use crate::theme::Tokens;
 use crate::ui::shimmer::shimmer;
-use crate::ui::{self, Button, IconButton, Variant};
-use crate::workbench::{AgentRow, Workbench};
-use crate::worktree_switch::Switch;
-use cards::*;
-use changes::Changed;
-use composing::*;
-use looks::*;
-use questions::*;
-use rows::*;
-use tokio::sync::mpsc::UnboundedSender;
+use crate::ui::{Button, IconButton, Variant};
+use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
+use crate::workbench::Workbench;
+use crate::worktrees::switch::Switch;
+use crate::{motion, syntax, theme, ui};
 
+mod announce;
+mod app;
 mod attach;
 mod cards;
 pub mod changes;
+pub mod column;
 pub mod composer;
 mod composing;
 mod content;
 pub(crate) mod draft;
 mod edit;
+mod ended;
 mod files;
 mod find;
 mod gestures;
 mod installing;
-mod link;
+pub(crate) mod link;
 pub(crate) mod live;
 mod looks;
+mod math;
 mod mention;
+mod mermaid;
 mod moving;
-pub(crate) use attach::{named, named_agents, pill, site_icon, Mention};
+mod now;
+mod rotation;
+pub(crate) use attach::{
+    agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon, Made,
+    Mention, SNIP_NAME,
+};
 pub use mention::Tray;
 mod meta;
 pub mod model_picker;
-mod page;
+pub(crate) mod narrowed;
+pub(crate) mod page;
 mod questions;
 mod rows;
 mod schema;
-mod status;
+mod shown;
+pub(crate) use shown::{take as take_step, turn_picture, turn_picture_held};
+pub(crate) mod status;
+mod team;
 mod tools;
-
 pub(crate) use installing::installs_moved;
+
 mod worktree;
 
 pub use attach::lasting;
+pub(crate) use attach::{drop_hint, takes_drops};
 pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
-pub use draft::key as draft_key;
+pub(crate) use composing::{drafting, mounted};
+pub(crate) use mention::{AGENT, FILE, TRACKED};
+pub(crate) use meta::clock;
 pub use questions::{question_keys, Answering, Question};
 
 /// Turns asked for each time the reader nears the top of what is held.
@@ -114,6 +132,11 @@ const LONG_TEXT: usize = 20_000;
 pub struct ChatRow {
     message: ChatMessage,
     docs: Vec<Doc>,
+    /// Each text part that had sentences left out, with them back where they stood, drawn faint.
+    restored: Vec<Doc>,
+    /// The reader asked to see what was left out, so the row is drawn, and selected and copied
+    /// from, with `restored` in place of those parts.
+    left_out_shown: std::cell::Cell<bool>,
 }
 
 /// A text part's markdown, and its text's length in UTF-16 units, which the core's patches count.
@@ -122,6 +145,10 @@ struct Doc {
     markdown: Markdown,
     units: usize,
 }
+
+/// How long a chat stays attached once its tab leaves the front, so flicking between tabs
+/// keeps them live while a long-hidden one stops streaming every change to the app.
+const CHAT_RESTS_AFTER: Duration = Duration::from_secs(60);
 
 impl Doc {
     fn new(part: &str, text: &str, md: Option<&PartTree>) -> Doc {
@@ -133,6 +160,18 @@ impl Doc {
         Doc {
             part: part.to_owned(),
             markdown,
+            units,
+        }
+    }
+}
+
+impl Doc {
+    /// A part drawn from a tree alone, which no patch ever writes on to.
+    fn of_tree(part: &str, md: &PartTree) -> Doc {
+        let units = units_of(md.n);
+        Doc {
+            part: part.to_owned(),
+            markdown: Markdown::new(&md.blocks, units),
             units,
         }
     }
@@ -185,8 +224,11 @@ impl ChatRow {
         let mut row = ChatRow {
             message,
             docs: Vec::new(),
+            restored: Vec::new(),
+            left_out_shown: std::cell::Cell::new(false),
         };
         row.read_docs();
+        row.read_restored();
         row
     }
 
@@ -227,6 +269,26 @@ impl ChatRow {
 
     fn doc(&self, part: &str) -> Option<&Doc> {
         self.docs.iter().find(|doc| doc.part == part)
+    }
+
+    /// The doc the row draws for `part`: what was left out of it put back while the reader
+    /// asked to see it.
+    fn shown_doc(&self, part: &str) -> Option<&Doc> {
+        match self.left_out_shown.get() {
+            true => self.restored(part).or_else(|| self.doc(part)),
+            false => self.doc(part),
+        }
+    }
+
+    /// The text part `part` with the sentences left out of it back in place, when any were.
+    fn restored(&self, part: &str) -> Option<&Doc> {
+        self.restored.iter().find(|doc| doc.part == part)
+    }
+
+    fn read_restored(&mut self) {
+        self.restored = (sikemux_fold::restored_parts(&self.message).iter())
+            .map(|part| Doc::of_tree(&part.part, &part.md))
+            .collect();
     }
 
     fn put_part(&mut self, part: ChatPart) {
@@ -272,6 +334,7 @@ impl ChatRow {
         if docs {
             self.read_docs();
         }
+        self.read_restored();
     }
 }
 
@@ -290,7 +353,7 @@ impl Row for ChatRow {
         self.message
             .parts
             .iter()
-            .filter_map(|part| self.doc(part.id()))
+            .filter_map(|part| self.shown_doc(part.id()))
             .map(|doc| &doc.markdown)
             .collect()
     }
@@ -348,7 +411,6 @@ actions!(
         NextChoice,
         PreviousQuestion,
         NextQuestion,
-        Tick,
         Confirm
     ]
 );
@@ -359,10 +421,7 @@ actions!(
         OlderPrompt,
         NewerPrompt,
         StopTurn,
-        MenuUp,
-        MenuDown,
-        MenuPick,
-        MenuClose,
+        TakeSuggestion,
         CancelEdit,
         StashPrompt
     ]
@@ -389,6 +448,7 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("up", OlderPrompt, Some("ChatComposer > Input")),
         KeyBinding::new("down", NewerPrompt, Some("ChatComposer > Input")),
         KeyBinding::new("escape", StopTurn, Some("ChatComposer > Input")),
+        KeyBinding::new("tab", TakeSuggestion, Some("ChatComposer > Input")),
         KeyBinding::new(
             if cfg!(target_os = "macos") {
                 "cmd-s"
@@ -411,19 +471,20 @@ pub fn install(cx: &mut App) {
             KeyBinding::new("down", NextChoice, Some(context)),
             KeyBinding::new("left", PreviousQuestion, Some(context)),
             KeyBinding::new("right", NextQuestion, Some(context)),
-            KeyBinding::new("space", Tick, Some(context)),
             KeyBinding::new("enter", Confirm, Some(context)),
         ]);
     }
-    bindings.extend([
-        KeyBinding::new("up", MenuUp, Some("ComposerMenu > Input")),
-        KeyBinding::new("down", MenuDown, Some("ComposerMenu > Input")),
-        KeyBinding::new("tab", MenuPick, Some("ComposerMenu > Input")),
-        KeyBinding::new("enter", MenuPick, Some("ComposerMenu > Input")),
-        KeyBinding::new("escape", MenuClose, Some("ComposerMenu > Input")),
-        KeyBinding::new("escape", CancelEdit, Some("MessageEditor > Input")),
-    ]);
+    bindings.extend([KeyBinding::new(
+        "escape",
+        CancelEdit,
+        Some("MessageEditor > Input"),
+    )]);
     cx.bind_keys(bindings);
+    crate::ui::list_picker::bind(
+        "ComposerMenu > Input",
+        crate::ui::list_picker::Tab::Chooses,
+        cx,
+    );
 }
 
 /// What a key asks of the question on show.
@@ -434,7 +495,6 @@ pub enum Press {
     Down,
     Left,
     Right,
-    Tick,
     Pick,
 }
 
@@ -447,8 +507,9 @@ struct Reading {
     tools: tools::Opened,
     /// Each subagent's rows, by its session.
     subagents: HashMap<String, Vec<ChatRow>>,
-    /// A turn is running, so the last row's run of calls stays open.
-    running: bool,
+    /// A turn is running, so the last row's run of calls stays open. Shared with the chat's
+    /// diagrams, which read it while the rows are being drawn.
+    running: Rc<Cell<bool>>,
     /// The chat takes a sent message written again.
     editable: bool,
     editing: Option<edit::Editing>,
@@ -461,7 +522,15 @@ struct Reading {
     /// The find bar is looking for something, so every long text shows all of itself.
     finding: bool,
     /// Where the chat stands with a worktree, said above its first message.
-    worktree: Option<crate::worktree_switch::Switch>,
+    worktree: Option<crate::worktrees::switch::Switch>,
+    /// The runs of messages between agents the reader opened, and whether all of each shows,
+    /// by the run.
+    teams: HashMap<String, bool>,
+    /// The pages the chat's turns changed, as the core took them.
+    shown: Vec<sikemux_view::shown::TurnShown>,
+    /// The whole briefs fresh sessions started from that the reader asked to read, by when
+    /// each started, or why it could not be read.
+    briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
 }
 
 impl Reading {
@@ -474,10 +543,33 @@ impl Reading {
             self.opened.insert(id.to_owned());
         }
     }
+
+    fn team_open(&self, id: &str) -> bool {
+        self.finding || self.teams.contains_key(id)
+    }
+
+    fn team_all(&self, id: &str) -> bool {
+        self.finding || self.teams.get(id).copied().unwrap_or(false)
+    }
 }
 
-/// A chat the window shows: its rows in a transcript, how it stands, its
-/// subagents' rows, and where in the core's changes it has got to.
+/// What the transcript draws after its last row.
+struct Footer {
+    calls: AnyView,
+    activity: AnyView,
+}
+
+impl Render for Footer {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(self.calls.clone())
+            .child(self.activity.clone())
+    }
+}
+
 /// The chats the window holds and what waits on them.
 #[derive(Default)]
 pub struct Chats {
@@ -485,18 +577,26 @@ pub struct Chats {
     pub open: HashMap<String, Chat>,
     /// The chat in front and whether its session was ready when its draft last took the keys.
     pub(crate) focused: Option<(String, bool)>,
+    /// The chat that was in front when the window last settled, so one coming forward takes
+    /// the keys even from the rail, a terminal or a closing picker.
+    pub(crate) front: Option<String>,
     /// Text handed to agents whose composer is not made yet, put in once it is.
     pub(crate) deliveries: HashMap<String, String>,
-    /// What agents asked the person, and the assumptions they went on: this host's, then the
-    /// chosen account host's.
-    pub questions: Vec<Question>,
-    /// The chosen account host's questions, apart, so this host's reading again keeps them.
-    pub(crate) host_questions: Vec<Question>,
+    /// What to find in chats opened from a search of what was said, once each one shows.
+    pub(crate) finds: HashMap<String, String>,
+    /// Files and the notes about them handed to agents whose composer is not made yet.
+    pub(crate) held_files: HashMap<String, (Vec<PathBuf>, Vec<ChatContext>)>,
+    /// The composers the open calls are answered with on their page, by what names each.
+    pub(crate) replies: HashMap<String, Composing>,
+    /// Pictures made in the app while the chat they go to starts.
+    pub(crate) pictures_for_new_chat: Option<Vec<attach::Made>>,
     /// Lets go of the chats out of sight once they have been for a while, counted from when
     /// the chat now in front came there.
     pub(crate) resting: Option<(Option<String>, gpui_kit::Task<()>)>,
 }
 
+/// A chat the window shows: its rows in a transcript, how it stands, its
+/// subagents' rows, and where in the core's changes it has got to.
 pub struct Chat {
     pub transcript: Entity<Transcript<ChatRow>>,
     /// Swapped for new looks when the theme changes, which the transcript's rows draw with.
@@ -512,14 +612,17 @@ pub struct Chat {
     _found: [Subscription; 2],
     /// The find bar over the transcript, while it is open.
     pub finding: Option<find::Finding>,
-    /// The reader opened the agent's plan.
     plan_open: bool,
     /// The line under the last row saying what the agent is doing.
     activity_line: Entity<status::Activity>,
+    /// What a screen reader hears of the turn as it runs.
+    announcer: Entity<announce::Announcer>,
+    /// The calls the agent asks, over the activity line.
+    calls: Entity<crate::calls::InChat>,
     /// The core of the host the agent runs on, which every ask of the chat goes to.
     pub target: Target,
     /// The head as last changed.
-    state: Option<ChatHead>,
+    pub(crate) state: Option<ChatHead>,
     /// The head changed since the window last drew what stands around the rows.
     head_moved: bool,
     reader: Entity<Reading>,
@@ -538,6 +641,10 @@ pub struct Chat {
     pub composer: Option<Composing>,
     /// The answers picked for the agent's open questions, sent once each has one.
     picks: HashMap<String, Pick>,
+    /// What the person typed for each open question and left unsent, put back when it shows again.
+    typed: HashMap<String, String>,
+    /// The question the composer's draft belongs to.
+    drafted_for: Option<String>,
     /// The open question on show, once the person chose one.
     shown: Option<String>,
     /// The first open question when the person folded them away; another coming first unfolds them.
@@ -564,23 +671,50 @@ pub struct Chat {
     /// Out of sight long enough to stop following the core, which it attaches to again from
     /// its mark once it shows.
     pub resting: bool,
+    /// When the person sent the first message of this new chat, so its welcome leaves rather
+    /// than vanishing; a chat filled by its own history never has one.
+    first_sent: Cell<Option<std::time::Instant>>,
+    /// Its agent's record names the session a turn ran in, so until the core first answers
+    /// the chat is drawn as one with messages, never as a new one.
+    pub(crate) said: bool,
+    /// A chief's Now card is folded to its counts.
+    now_folded: bool,
+    /// The person's ask the chat shows alone, while it shows one.
+    pub(crate) narrowed: Option<narrowed::Narrowed>,
+    /// Rows of other asks came while it showed one alone.
+    pub(crate) outside: bool,
+    /// The rows of the ask shown alone it has been given since it began showing it.
+    ask_rows: usize,
 }
 
 impl Chat {
+    /// The core's latest pictures of the page at `page`, as this chat's turns took it.
+    pub(crate) fn pictures_of(&self, page: &str) -> Option<sikemux_view::shown::PageShown> {
+        let turns = &self.state.as_ref()?.shown;
+        (turns.iter().rev())
+            .flat_map(|turn| turn.pages.iter())
+            .find(|shown| shown.page == page)
+            .cloned()
+    }
+
     pub fn new(
         agent: String,
         provider: &str,
         bench: WeakEntity<Workbench>,
         target: Target,
+        cards: Entity<crate::calls::Cards>,
         cx: &mut App,
     ) -> Chat {
         let reader = cx.new(|_| Reading::default());
+        let running = reader.read(cx).running.clone();
         let stage = bench.clone();
+        let calls = cx
+            .new(|cx| crate::calls::InChat::new(bench.clone(), cards, target.clone(), &agent, cx));
         let chat = agent.clone();
         let looks = Rc::new(RefCell::new(Rc::new(Looks::new(
             Tokens::get(cx),
             provider,
-            reader.clone(),
+            (reader.clone(), running),
             (bench.clone(), target.asks().clone()),
             agent.clone(),
             Rc::default(),
@@ -665,7 +799,7 @@ impl Chat {
                 let new = Looks::new(
                     Tokens::get(cx),
                     &provider,
-                    old.reader.clone(),
+                    (old.reader.clone(), old.running.clone()),
                     (old.bench.clone(), asks.clone()),
                     old.agent.clone(),
                     old.files.clone(),
@@ -678,9 +812,13 @@ impl Chat {
                     .ok();
             }
         });
-        let activity_line = cx.new(|_| status::Activity::new(provider));
+        let activity_line = cx.new(|_| status::Activity::new(provider, target.clone()));
+        let footer = cx.new(|_| Footer {
+            calls: calls.clone().into(),
+            activity: activity_line.clone().into(),
+        });
         transcript.update(cx, |transcript, cx| {
-            transcript.set_footer(activity_line.clone().into(), cx)
+            transcript.set_footer(footer.into(), cx)
         });
         Chat {
             transcript,
@@ -690,7 +828,11 @@ impl Chat {
             _found: found,
             finding: None,
             plan_open: false,
+            first_sent: Cell::new(None),
+            now_folded: false,
             activity_line,
+            announcer: cx.new(|_| announce::Announcer::default()),
+            calls,
             target,
             _rows: [emptied, rows_changed],
             state: None,
@@ -705,6 +847,8 @@ impl Chat {
             asked_later: false,
             composer: None,
             picks: HashMap::new(),
+            typed: HashMap::new(),
+            drafted_for: None,
             shown: None,
             folded: None,
             groups_folded: HashSet::new(),
@@ -717,6 +861,10 @@ impl Chat {
             awaits_agent: false,
             file_menu: None,
             resting: false,
+            said: false,
+            narrowed: None,
+            outside: false,
+            ask_rows: 0,
         }
     }
 
@@ -763,7 +911,6 @@ impl Chat {
         None
     }
 
-    /// Takes the core's changes numbered `seq`, and says whether some before them went missing.
     /// Applies the changes numbered `seq`, and says whether the chat must attach again from
     /// its mark: some came before them, or they did not read.
     fn changed(&mut self, seq: u64, changes: Result<Vec<Changed>, String>, cx: &mut App) -> bool {
@@ -808,7 +955,7 @@ impl Chat {
         self.older_before = view.older_before;
         self.asked_earlier = false;
         (self.detached, self.newer_after, self.asked_later) = (false, None, false);
-        let rows = view.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(view.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Reset(rows), cx)
         });
@@ -863,14 +1010,24 @@ impl Chat {
                     );
                 }
             }
-            ChatNews::Page(page) => self.page(page, cx),
+            ChatNews::Page(page) => {
+                self.page(page, cx);
+                if let Some(next) = self.more_of_ask(agent) {
+                    ask(self, next);
+                }
+            }
             ChatNews::Later(page) => {
                 if let Some(next) = self.later_page(agent, page, cx) {
                     ask(self, next);
                 }
             }
             ChatNews::Around(page) => self.around_page(page, cx),
-            ChatNews::Latest(page) => self.latest_page(page, cx),
+            ChatNews::Latest(page) => {
+                self.latest_page(page, cx);
+                if let Some(next) = self.more_of_ask(agent) {
+                    ask(self, next);
+                }
+            }
             ChatNews::Found { .. } => {}
             ChatNews::Detail { tool, detail } => self.detail(tool, detail, cx),
             ChatNews::Replied { request, error } => self.replied(&request, error),
@@ -911,10 +1068,21 @@ impl Chat {
             head.capabilities.editing && head.connection == ChatConnection::Ready && !head.running
         });
         let earlier_lost = self.state.as_ref().is_some_and(|head| head.earlier_lost);
+        let shown = (self.state.as_ref()).map_or_else(Vec::new, |head| head.shown.clone());
         self.reader.update(cx, |reading, cx| {
+            if reading.shown != shown {
+                reading.shown = shown;
+                cx.notify();
+            }
             let now = (running, editable, earlier_lost);
-            if (reading.running, reading.editable, reading.earlier_lost) != now {
-                (reading.running, reading.editable, reading.earlier_lost) = now;
+            let was = (
+                reading.running.get(),
+                reading.editable,
+                reading.earlier_lost,
+            );
+            if was != now {
+                reading.running.set(running);
+                (reading.editable, reading.earlier_lost) = (editable, earlier_lost);
                 cx.notify();
             }
         });
@@ -924,13 +1092,77 @@ impl Chat {
     /// Says on the line under the last row what the agent is doing, from the head and the
     /// rows as they stand; the rows land only when the transcript draws, so this runs again then.
     fn follow_activity(&self, cx: &mut App) {
-        let doing = self.activity(cx);
-        self.activity_line
-            .update(cx, |activity, cx| activity.set(doing, cx));
+        let doing = self.activity().map(|doing| {
+            if self.live_run_shown(cx) {
+                doing.without_what()
+            } else {
+                doing
+            }
+        });
+        let turn = (self.state.as_ref())
+            .and_then(|head| head.turn.as_ref())
+            .filter(|_| !self.is_new(cx));
+        let step = doing.as_ref().map(status::Doing::whole);
+        self.activity_line.update(cx, |activity, cx| {
+            activity.set_turn(turn, cx);
+            activity.set(doing, cx)
+        });
+        let transcript = self.transcript.clone();
+        self.announcer.update(cx, |announcer, cx| {
+            if announcer.follow(turn, transcript.read(cx).rows(), step) {
+                cx.notify();
+            }
+        });
+    }
+
+    /// Whether the run holding the running call is open, so its line already says what runs.
+    fn live_run_shown(&self, cx: &App) -> bool {
+        let Some(active) = self
+            .state
+            .as_ref()
+            .and_then(|head| head.active_tool.as_deref())
+        else {
+            return false;
+        };
+        let transcript = self.transcript.read(cx);
+        let Some(row) = transcript.rows().last() else {
+            return false;
+        };
+        let parts = &row.message.parts;
+        let Some(at) = parts.iter().position(|part| part.id() == active) else {
+            return false;
+        };
+        let head = parts[..=at]
+            .iter()
+            .rev()
+            .take_while(|part| {
+                matches!(
+                    part,
+                    ChatPart::Tool {
+                        page: None,
+                        gif: None,
+                        ..
+                    }
+                )
+            })
+            .last();
+        head.is_some_and(|head| {
+            self.reader
+                .read(cx)
+                .tools
+                .run_open(head.id())
+                .unwrap_or(true)
+        })
     }
 
     /// While the find bar looks for something, long texts show all of themselves so every
     /// place it finds can be seen.
+    /// Keeps what the reader sees where it is while a fold opens or closes below its top.
+    pub(crate) fn hold_place(&self, cx: &mut App) {
+        self.transcript
+            .update(cx, |transcript, cx| transcript.hold_place(cx));
+    }
+
     pub fn unfold_for_find(&self, on: bool, cx: &mut App) {
         if self.reader.read(cx).finding == on {
             return;
@@ -948,7 +1180,7 @@ impl Chat {
         if self.replying.as_deref() == Some(request) {
             self.replying = None;
         }
-        self.failed(error.filter(|error| !error.contains("no longer pending")));
+        self.failed(error);
     }
 
     /// Whether nothing the person did waits on the core's answer, so the chat can stop
@@ -981,6 +1213,7 @@ impl Chat {
         if let Some(state) = self.state.as_mut() {
             state.model = None;
             state.effort = None;
+            state.speed = None;
         }
         self.head_moved = true;
     }
@@ -988,6 +1221,14 @@ impl Chat {
     /// Whether the head changed since this was last asked.
     pub fn take_head_moved(&mut self) -> bool {
         std::mem::take(&mut self.head_moved)
+    }
+
+    /// When the newest row that says when it was written was, which a call answered after
+    /// stays under as a line saying so.
+    fn last_said(&self, cx: &App) -> u64 {
+        (self.transcript.read(cx).rows().iter().rev())
+            .find_map(|row| row.message.ended_at.or(row.message.sent_at))
+            .unwrap_or(0)
     }
 
     /// Draws the chat's text at `scale` times its designed size.
@@ -999,6 +1240,12 @@ impl Chat {
         let style = self.looks.borrow().rescale(scale);
         self.transcript
             .update(cx, |transcript, cx| transcript.restyle(style, cx));
+    }
+
+    /// Lays its rows out again at the column width the person set.
+    pub fn widen(&self, cx: &mut App) {
+        self.transcript
+            .update(cx, |transcript, cx| transcript.remeasure(cx));
     }
 
     /// What the messages waiting behind the running turn say.
@@ -1023,8 +1270,39 @@ impl Chat {
         self.state.as_ref().is_some_and(|head| head.running)
     }
 
-    pub fn is_empty(&self, cx: &App) -> bool {
-        self.transcript.read(cx).rows().is_empty()
+    /// Notes that the person is sending this new chat its first message, which starts its
+    /// welcome leaving.
+    pub(crate) fn sending_first(&self, cx: &App) {
+        if self.is_new(cx) && self.first_sent.get().is_none() {
+            self.first_sent.set(Some(std::time::Instant::now()));
+        }
+    }
+
+    /// How far the welcome has gone, from 0 while the chat is new to 1 as it finishes leaving
+    /// after the person's first message; none once it has left, or when the chat is not new.
+    pub fn welcome_gone(&self, cx: &App) -> Option<f32> {
+        let Some(sent) = self.first_sent.get() else {
+            return self.is_new(cx).then_some(0.);
+        };
+        let leaves = crate::motion::WELCOME_LEAVES;
+        let through = sent.elapsed().as_secs_f32() / leaves.duration.as_secs_f32();
+        (through < 1. && !cx.reduce_motion()).then(|| leaves.at(through))
+    }
+
+    /// Nothing has been said in it and no While you were away card stands in it.
+    pub fn is_new(&self, cx: &App) -> bool {
+        if self.narrowed.is_some() {
+            return false;
+        }
+        let Some(head) = self.state.as_ref() else {
+            return !self.said && self.transcript.read(cx).rows().is_empty();
+        };
+        head.away.is_none() && self.transcript.read(cx).rows().is_empty()
+    }
+
+    /// The account smart accounts started the chat on, and why.
+    pub fn placed(&self) -> Option<&sikemux_view::chat::AccountMove> {
+        self.state.as_ref()?.placed.as_ref()
     }
 
     /// The earlier turns to ask for, when there are more and none are on their way.
@@ -1047,14 +1325,14 @@ impl Chat {
         let Some(page) = page else {
             return;
         };
-        self.older_before = page.older_before;
+        self.older_before = page.older_before.filter(|_| !self.before_ask(&page.rows));
         self.reader.update(cx, |reading, cx| {
             for (session, rows) in rows_by_session(page.subagents) {
                 reading.subagents.entry(session).or_insert(rows);
             }
             cx.notify();
         });
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Prepend(rows), cx)
         });
@@ -1095,12 +1373,11 @@ impl Chat {
 
     /// A later page, whose `newer_after` is none once it reached the live
     /// rows; the chat then attaches again from its mark, which it answers.
-    fn later_page(&mut self, agent: &str, page: Option<ChatPage>, cx: &mut App) -> Option<ChatAsk> {
+    fn later_page(&mut self, agent: &str, page: ChatPage, cx: &mut App) -> Option<ChatAsk> {
         self.asked_later = false;
-        let page = page?;
         let newer_after = page.newer_after;
         self.newer_after = newer_after;
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Append(rows), cx)
         });
@@ -1112,28 +1389,22 @@ impl Chat {
 
     /// The rows around a place found, which take the place of those held; the chat follows only
     /// its head until the reader pages back down to its live rows.
-    fn around_page(&mut self, page: Option<ChatPage>, cx: &mut App) {
-        let Some(page) = page else {
-            return;
-        };
+    fn around_page(&mut self, page: ChatPage, cx: &mut App) {
         self.older_before = page.older_before;
         self.newer_after = page.newer_after;
         (self.detached, self.asked_earlier, self.asked_later) = (true, false, false);
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Place(rows), cx)
         });
     }
 
     /// The chat's latest rows, which take the place of those held.
-    fn latest_page(&mut self, page: Option<ChatPage>, cx: &mut App) {
-        let Some(page) = page else {
-            return;
-        };
-        self.older_before = page.older_before;
+    fn latest_page(&mut self, page: ChatPage, cx: &mut App) {
+        self.older_before = page.older_before.filter(|_| !self.before_ask(&page.rows));
         (self.detached, self.newer_after) = (false, None);
         (self.asked_earlier, self.asked_later) = (false, false);
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Reset(rows), cx);
             transcript.to_latest(cx);
@@ -1234,7 +1505,10 @@ impl Chat {
                         cx.notify();
                     });
                 }
-                Changed::Row { row, within: None } => rows.push(Change::Put(ChatRow::new(row))),
+                Changed::Row { row, within: None } => match self.shows(&row) {
+                    true => rows.extend(self.of_ask(vec![row]).into_iter().map(Change::Put)),
+                    false => self.outside = true,
+                },
                 Changed::Part { row, part, within } => {
                     self.wanted.extend(self.reader.read(cx).tools.stale(&part));
                     self.update(&mut rows, row, within, move |held| held.put_part(part), cx)
@@ -1309,21 +1583,11 @@ fn rows_by_session(
         .collect()
 }
 
-/// The chat in the stage: its rows, with a scrollbar over their right edge, or before its
-/// first message `welcome`; under them what waits on the person, then the composer.
-/// What `agent`'s empty chat says in place of the welcome while its session is not ready.
-pub fn connection_note(
-    agent: &AgentRow,
-    chat: &Chat,
-    resumes: bool,
-    cx: &mut Context<Workbench>,
-) -> Option<AnyElement> {
-    status::connection_note(agent, chat, resumes, cx)
-}
-
 /// How deep the transcript fades out as rows scroll up under the pane's header.
 const TOP_FADE: f32 = 16.;
 
+/// The chat in the stage: its rows, with a scrollbar over their right edge, or before its
+/// first message `welcome`; under them what waits on the person, then the composer.
 pub fn pane(
     bench: &Workbench,
     agent: &AgentRow,
@@ -1353,13 +1617,18 @@ pub fn pane(
     let worktree = bench
         .worktree_switch(&agent.id, cx)
         .map(|(switch, _)| switch)
-        .filter(|switch| !matches!(switch, crate::worktree_switch::Switch::Choosing { .. }));
+        .filter(|switch| !matches!(switch, crate::worktrees::switch::Switch::Choosing { .. }));
     let empty_note = worktree
         .as_ref()
-        .filter(|_| chat.is_empty(cx))
-        .and_then(|switch| crate::worktree_switch::note(switch, cx));
+        .filter(|_| chat.is_new(cx))
+        .and_then(|switch| crate::worktrees::switch::note(switch, cx));
+    let bench_handle = cx.weak_entity();
     chat.activity_line
-        .update(cx, |line, cx| line.wear(agent, cx));
+        .update(cx, |line, cx| line.wear(agent, bench_handle, cx));
+    let level = bench.preferences().screen_reader;
+    chat.announcer.update(cx, |announcer, _| {
+        announcer.wear(level, agent.name.as_deref())
+    });
     chat.reader.update(cx, |reading, cx| {
         if reading.worktree != worktree {
             reading.worktree = worktree;
@@ -1381,8 +1650,10 @@ pub fn pane(
     };
     let list = chat.transcript.read(cx).list().clone();
     // The scrollbar shows whenever its list moves, and a list following the latest rows moves
-    // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac.
-    let scrollbar = chat.transcript.read(cx).away().then(|| {
+    // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac, unless
+    // the person keeps scroll bars always shown.
+    let shown = chat.transcript.read(cx).away() || crate::theme::scrollbars_always(cx);
+    let scrollbar = shown.then(|| {
         div()
             .absolute()
             .top_0()
@@ -1390,6 +1661,7 @@ pub fn pane(
             .bottom_0()
             .child(Scrollbar::vertical(&list))
     });
+    let now_card = now::card(bench, agent, chat, cx);
     let rows = div()
         .flex_1()
         .min_h_0()
@@ -1436,16 +1708,17 @@ pub fn pane(
                         .opacity(shown)
                         .child(
                             div()
-                                .rounded(theme::RADIUS_2)
-                                .border_1()
+                                .block_mouse_except_scroll()
+                                .rounded(theme::radius_2())
+                                .border(crate::theme::border())
                                 .border_color(line)
                                 .bg(ground)
-                                .shadow_md()
+                                .shadow(theme::shadow_medium())
                                 .child(
                                     IconButton::new(
                                         "chat-latest",
                                         Icon::ArrowDown,
-                                        "Jump to latest message",
+                                        t!("Jump to latest message"),
                                     )
                                     .glyph(14.)
                                     .on_click(latest),
@@ -1455,13 +1728,37 @@ pub fn pane(
                 },
             )
         })
-        .children(welcome.map(|welcome| crate::home::centred(welcome).absolute().inset_0()));
+        .children(welcome.map(|welcome| crate::home::over_composer(welcome).absolute().inset_0()))
+        .children(app::expanded(&agent.id, cx))
+        .children(app::scrolls(cx))
+        .children(now_card);
     let open: Vec<&Question> = bench
-        .chats
-        .questions
-        .iter()
+        .feeds
+        .questions_outside_calls()
         .filter(|question| question.asks(&agent.id))
         .collect();
+    let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
+    let head = (chat.state.as_ref()).and_then(|head| head.away.as_ref());
+    let away_calls: Vec<&sikemux_view::calls::PersonCall> = (head.iter())
+        .flat_map(|head| {
+            let open = (head.calls.iter())
+                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
+                .filter(|call| call.state == sikemux_view::calls::CallState::Open);
+            let answered = (head.answered.iter())
+                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
+                .filter(|call| call.state == sikemux_view::calls::CallState::Answered);
+            answered.chain(open)
+        })
+        .collect();
+    let away = match chat.calls.read(cx).shows_away(head, &away_calls) {
+        true => crate::calls::Shown::Same,
+        false => crate::calls::Shown::New(head.map(|head| crate::calls::Away {
+            head: head.clone(),
+            calls: away_calls.into_iter().cloned().collect(),
+        })),
+    };
+    chat.calls
+        .update(cx, |shown, cx| shown.show(calls, away, cx));
     let permissions = chat
         .state
         .as_ref()
@@ -1478,9 +1775,8 @@ pub fn pane(
         waiting.push(("questions".into(), Waiting::Questions(asked)));
     }
     let answered: Vec<&Question> = bench
-        .chats
-        .questions
-        .iter()
+        .feeds
+        .questions_outside_calls()
         .filter(|question| question.of(&agent.id, QuestionState::Answered))
         .collect();
     if !answered.is_empty() {
@@ -1540,21 +1836,27 @@ pub fn pane(
         }
     }
     drop(seen);
-    let mut groups: Vec<AnyElement> = asking.into_iter().collect();
-    groups.extend(live::subagents(agent, chat, cx));
-    groups.extend(live::tasks(agent, chat, cx));
-    groups.extend(sending);
-    groups.extend(live::queued(&agent.id, chat, cx));
-    groups.extend(live::triggers(&agent.id, chat, cx));
-    let stack = live::stack(groups, Tokens::get(cx));
-    let covered = stack.is_some();
+    let asks: Vec<AnyElement> = asking.into_iter().chain(sending).collect();
+    let dock = live::dock(agent, chat, asks, cx);
+    let notice = composing::notice(bench, &agent.id, cx).map(|notice| {
+        div()
+            .w_full()
+            .px(theme::SPACE_4)
+            .flex()
+            .justify_center()
+            .child(composer::notice_line(notice, cx))
+    });
     let empty = chat
         .composer
         .as_ref()
         .is_some_and(|composing| composing.draft.read(cx).value().is_empty());
+    let keyed_call = bench
+        .keyed_call(chat.target.place(), &agent.id, cx)
+        .is_some();
     let asking = empty
-        && chat.current(&open).is_some_and(|question| !question.secret)
-        && !chat.is_folded(&open);
+        && (keyed_call
+            || chat.current(&open).is_some_and(|question| !question.secret)
+                && !chat.is_folded(&open));
     let id = &agent.id;
     let composing = chat.composer.is_some();
     let pane = div()
@@ -1563,29 +1865,47 @@ pub fn pane(
         .flex()
         .flex_col()
         .when(composing, |pane| {
-            crate::stash::takes_drops(attach::takes_drops(pane, id, cx), id, cx)
+            let bench = cx.weak_entity();
+            crate::stash::takes_drops(attach::takes_drops(pane, id, bench.clone()), id, bench)
         })
         .when(asking, |pane| {
-            question_keys(pane, id, true, &cx.weak_entity())
+            question_keys(
+                pane.key_context("QuestionDock"),
+                id,
+                true,
+                &cx.weak_entity(),
+            )
         })
         .child(rows)
         .children(file_menu)
         .children(status::plan(agent, chat, cx))
         .children(status::trouble(bench, agent, chat, cx))
         .children(permissions)
-        .children(stack)
+        .children(notice)
+        .children(dock)
         .children(chat.composer.as_ref().map(|composing| {
-            composing.view.update(cx, |view, cx| {
+            composing.view.update(cx, |view, _| {
                 view.agent = Some(agent.clone());
-                if view.covered != covered {
-                    view.covered = covered;
-                    cx.notify();
-                }
             });
             composing.view.clone().into_element().isolated()
         }))
+        .child({
+            let gone = chat.welcome_gone(cx);
+            crate::motion::replay(
+                SharedString::from(format!("composer-rise:{id}")),
+                chat.first_sent.get(),
+                crate::motion::WELCOME_LEAVES,
+                move |_| {
+                    let mut room = div();
+                    room.style().flex_grow = Some(gone.map_or(0., |gone| 1. - gone));
+                    room.into_any_element()
+                },
+            )
+        })
         .when(composing && cx.has_active_drag(), |pane| {
-            pane.child(gpui_kit::deferred(attach::drop_hint(cx)))
+            let hint =
+                attach::drop_hint(t!("Drop files or folders into this session"), id, bench, cx);
+            pane.child(gpui_kit::deferred(hint))
         });
     let this = cx.weak_entity();
     let agent = id.to_owned();
@@ -1603,7 +1923,7 @@ pub fn pane(
             let this = this.clone();
             move |event, _, cx| {
                 this.update(cx, |bench, _| {
-                    crate::pinch::resize(bench, crate::pinch::Surface::Chat, event)
+                    crate::text_size::resize(bench, crate::text_size::Surface::Chat, event)
                 })
                 .ok();
             }
@@ -1611,11 +1931,10 @@ pub fn pane(
         .on_action(text_size::<TextSizeIncrease>(&this, Some(true)))
         .on_action(text_size::<TextSizeDecrease>(&this, Some(false)))
         .on_action(text_size::<TextSizeReset>(&this, None))
+        .relative()
         .child(pane)
+        .child(chat.announcer.clone())
 }
-
-/// How much one press of ⌘= or ⌘− changes the chat's text size.
-const TEXT_SCALE_STEP: f64 = 0.1;
 
 /// Makes the chat's text bigger or smaller by `step`, or back to its designed size without
 /// one, for every chat.
@@ -1625,25 +1944,11 @@ fn text_size<A: gpui_kit::Action>(
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
     let this = this.clone();
     move |_, _, cx| {
-        this.update(cx, |bench, _| resize_text(bench, grow)).ok();
+        this.update(cx, |bench, _| {
+            crate::text_size::Surface::Chat.step(bench, grow)
+        })
+        .ok();
     }
-}
-
-/// Makes the chats' text bigger or smaller a step, or back to the default size without either.
-pub(crate) fn resize_text(bench: &Workbench, grow: Option<bool>) {
-    let scale = grow.map_or(DEFAULT_TEXT_SCALE, |grow| {
-        let step = if grow {
-            TEXT_SCALE_STEP
-        } else {
-            -TEXT_SCALE_STEP
-        };
-        ((bench.preferences().chat_text_scale + step) * 100.).round() / 100.
-    });
-    crate::settings::set(
-        bench,
-        "chatTextScale",
-        scale.clamp(MIN_TEXT_SCALE, MAX_TEXT_SCALE),
-    );
 }
 
 fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
@@ -1652,14 +1957,20 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
     bench: &WeakEntity<Workbench>,
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A, F> {
     let (agent, this) = (agent.to_owned(), bench.clone());
-    move |action: &A, _: &mut Window, cx: &mut App| {
+    move |action: &A, window: &mut Window, cx: &mut App| {
         let taken = this.update(cx, |bench, cx| {
             let open: Vec<&Question> = bench
-                .chats
-                .questions
-                .iter()
+                .feeds
+                .questions_outside_calls()
                 .filter(|question| question.asks(&agent))
                 .collect();
+            if open.is_empty() {
+                let place = bench.chats.open.get(&agent)?.target.place().clone();
+                let id = bench.keyed_call(&place, &agent, cx)?;
+                return bench
+                    .press_call(&id, press(action), window, cx)
+                    .then_some(());
+            }
             let chat = bench.chats.open.get_mut(&agent)?;
             let (taken, ask) = chat.press(press(action), &open);
             if let Some(ask) = ask {
@@ -1737,5 +2048,180 @@ impl Workbench {
             _dismissed: dismissed,
         });
         self.parts.redraw_stage(cx);
+    }
+}
+
+impl Workbench {
+    pub fn ask_chat(&self, ask: ChatAsk) {
+        self.chat_target(ask.agent()).ask(Ask::Chat(ask));
+    }
+
+    /// Where `agent`'s chat asks: the core of the host the agent runs on. A call's reply asks
+    /// the core that holds the call.
+    pub fn chat_target(&self, agent: &str) -> Target {
+        if let Some(chat) = self.chats.open.get(agent) {
+            return chat.target.clone();
+        }
+        let place = crate::calls::reply::call_of(agent)
+            .and_then(|call| self.call_at(call))
+            .map_or_else(|| self.place(), |(place, _)| place);
+        Target::new(&self.asks, place)
+    }
+
+    /// Holds the chat of the agent the tab in front shows, attaching to it the first time.
+    pub(crate) fn open_chat(&mut self, cx: &mut Context<Self>) {
+        let Some(AgentRow {
+            id: agent,
+            provider,
+            ..
+        }) = self.agent()
+        else {
+            return;
+        };
+        if let Some(chat) = self.chats.open.get_mut(&agent) {
+            if std::mem::take(&mut chat.resting) {
+                let since = chat.mark.clone();
+                self.ask_chat(ChatAsk::Attach { agent, since });
+            }
+            return;
+        }
+        let mut chat = Chat::new(
+            agent.clone(),
+            &provider,
+            cx.weak_entity(),
+            Target::new(&self.asks, self.place()),
+            self.calls.clone(),
+            cx,
+        );
+        chat.rescale(self.preferences().chat_text_scale as f32, cx);
+        chat.said = self.shown().is_some_and(|view| {
+            (view.workspace.agents.iter())
+                .any(|saved| saved.id == agent && saved.resume_id.is_some())
+        });
+        self.chats.open.insert(agent.clone(), chat);
+        self.ask_chat(ChatAsk::Attach { agent, since: None });
+    }
+
+    /// Lets go of the chats out of sight once they have stayed so for `CHAT_RESTS_AFTER`.
+    pub(crate) fn rest_chats_later(&mut self, cx: &mut Context<Self>) {
+        let front = self.agent().map(|agent| agent.id);
+        let anyone = self
+            .chats
+            .open
+            .iter()
+            .any(|(agent, chat)| !chat.resting && Some(agent) != front.as_ref());
+        if !anyone {
+            self.chats.resting = None;
+            return;
+        }
+        if self
+            .chats
+            .resting
+            .as_ref()
+            .is_some_and(|(counted_from, _)| *counted_from == front)
+        {
+            return;
+        }
+        let task = cx.spawn(async move |bench, cx| {
+            cx.background_executor().timer(CHAT_RESTS_AFTER).await;
+            let _ = bench.update(cx, |bench, cx| {
+                bench.rest_chats();
+                bench.rest_chats_later(cx);
+            });
+        });
+        self.chats.resting = Some((front, task));
+    }
+
+    pub(crate) fn rest_chats(&mut self) {
+        self.chats.resting = None;
+        let front = self.agent().map(|agent| agent.id);
+        let resting: Vec<String> = self
+            .chats
+            .open
+            .iter_mut()
+            .filter(|(agent, chat)| {
+                Some(*agent) != front.as_ref() && !chat.resting && chat.can_rest()
+            })
+            .map(|(agent, chat)| {
+                chat.resting = true;
+                agent.clone()
+            })
+            .collect();
+        for agent in resting {
+            self.ask_chat(ChatAsk::Detach { agent });
+        }
+    }
+
+    /// Lets go of the chats whose agents no longer have a tab. A draft let go of gives the
+    /// keyboard back to the workbench, and the chat takes it again if it comes back.
+    pub(crate) fn close_chats(&mut self, cx: &mut Context<Self>) {
+        let Some(view) = self.shown() else {
+            return;
+        };
+        let tabs = view
+            .layout
+            .projects
+            .values()
+            .flat_map(|layout| &layout.tabs);
+        let shown: Vec<&String> = tabs.filter_map(|tab| shows(tab, PaneKind::Agent)).collect();
+        let gone: Vec<String> = self
+            .chats
+            .open
+            .keys()
+            .filter(|agent| !shown.contains(agent))
+            .cloned()
+            .collect();
+        let closed = !gone.is_empty();
+        for agent in gone {
+            if let Some(composing) = self
+                .chats
+                .open
+                .remove(&agent)
+                .and_then(|chat| chat.composer)
+            {
+                self.release_keys(composing.draft.read(cx).focus_handle(cx), cx);
+            }
+            self.chats.focused.take_if(|(shown, _)| *shown == agent);
+            self.chats.front.take_if(|shown| *shown == agent);
+            self.ask_chat(ChatAsk::Detach { agent });
+        }
+        if closed {
+            self.watch_drafts();
+        }
+    }
+
+    /// Asks for the rows after the last the chat holds, when those were dropped.
+    pub fn ask_later(&mut self, agent: &str) {
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| chat.later(agent))
+        {
+            self.ask_chat(ask);
+        }
+    }
+
+    pub fn show_latest(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| chat.show_latest(agent, cx))
+        {
+            self.ask_chat(ask);
+        }
+    }
+
+    /// Asks for the turns before the earliest the chat holds.
+    pub fn ask_earlier(&mut self, agent: &str) {
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| chat.earlier(agent))
+        {
+            self.ask_chat(ask);
+        }
     }
 }

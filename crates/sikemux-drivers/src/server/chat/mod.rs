@@ -1,0 +1,22 @@
+pub mod cap;
+pub mod feed;
+pub mod find;
+pub mod history;
+pub mod native;
+pub mod permission;
+pub mod prompt;
+pub mod reset;
+pub mod rotation;
+pub mod states;
+
+use serde_json::Value;
+use sikemux_fold::update::notice;
+
+/// Tells the agent the option the person chose, or none when the question
+/// was cancelled. It writes to the agent before it returns, so an answer
+/// given before the chat lets go of its agent is never lost.
+pub type Respond = Box<dyn FnOnce(Option<String>) + Send>;
+
+pub fn restart_notice(title: &str, description: &str) -> Value {
+    notice("warning", title, Some(description))
+}

@@ -1,15 +1,18 @@
 // A job's log. GitHub keeps them behind a redirect to storage and only for a
 // while, so a log that has aged out reads as missing rather than as an error
-// nobody can act on.
+// nobody can act on. A job's log never changes once it ends, so the ended
+// ones are kept on disk by job id and read from GitHub once.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use sikemux_plugin_api::codehost::asks::{ExcerptQuery, JobRef};
+use sikemux_plugin_api::codehost::answers;
+use sikemux_plugin_api::codehost::asks::{numeric, ExcerptQuery, JobRef};
 use sikemux_plugin_api::codehost::{JobLog, LogExcerpt, LogLine};
+use sikemux_plugin_api::http::{Read, MAX_ANSWER};
 
 use crate::client;
-use crate::error::{GithubError, GithubResult};
-use crate::runs;
+use crate::error::{self, GithubError, GithubResult};
+use crate::{feed, runs};
 
 /// Every log line carries the time the runner wrote it, ahead of a space.
 /// Fractional seconds are usually there but not always, so only the part
@@ -62,14 +65,48 @@ fn parse(text: &str) -> Vec<LogLine> {
         .collect()
 }
 
+/// Kept logs past this many bytes in all are dropped, the oldest first.
+const KEPT_BYTES: u64 = 256 * 1024 * 1024;
+
+fn kept_at(data_dir: &Path, input: &JobRef) -> Option<PathBuf> {
+    let id = numeric::<error::Github>(&input.job_id).ok()?;
+    Some(data_dir.join("job-logs").join(format!("{id}.log")))
+}
+
 pub async fn job(data_dir: &Path, input: JobRef) -> GithubResult<JobLog> {
-    let path = runs::job_path(&input, "/logs")?;
-    match client::download_as(data_dir, &path, "application/vnd.github+json", true).await {
-        Ok((bytes, truncated)) => Ok(JobLog {
-            lines: parse(&text_of(&bytes, truncated)),
+    let kept = kept_at(data_dir, &input);
+    if let Some(text) = kept
+        .as_deref()
+        .and_then(|at| std::fs::read_to_string(at).ok())
+    {
+        return Ok(JobLog {
+            lines: parse(&text),
             expired: false,
-            truncated,
-        }),
+            truncated: false,
+        });
+    }
+    let path = runs::job_path(&input, "/logs")?;
+    let read = client::download_as(
+        data_dir,
+        &path,
+        "application/vnd.github+json",
+        Read::Tail(MAX_ANSWER),
+    )
+    .await;
+    match read {
+        Ok((bytes, truncated)) => {
+            let text = text_of(&bytes, truncated);
+            if let (Some(at), false) = (kept, truncated) {
+                if ended(data_dir, &input).await {
+                    keep(&at, &text);
+                }
+            }
+            Ok(JobLog {
+                lines: parse(&text),
+                expired: false,
+                truncated,
+            })
+        }
         Err(GithubError::Http { status: 410, .. }) => Ok(JobLog {
             lines: Vec::new(),
             expired: true,
@@ -80,34 +117,49 @@ pub async fn job(data_dir: &Path, input: JobRef) -> GithubResult<JobLog> {
     }
 }
 
-const DEFAULT_TAIL: usize = 200;
-const MAX_TAIL: usize = 2000;
+async fn ended(data_dir: &Path, job: &JobRef) -> bool {
+    let Ok(id) = numeric::<error::Github>(&job.job_id) else {
+        return false;
+    };
+    match feed::job_ended(&job.repo, id) {
+        Some(ended) => ended,
+        None => runs::job_status(data_dir, job.clone())
+            .await
+            .is_ok_and(|status| runs::is_finished(&status)),
+    }
+}
+
+fn keep(at: &Path, text: &str) {
+    let Some(folder) = at.parent() else { return };
+    if std::fs::create_dir_all(folder).is_err() || std::fs::write(at, text).is_err() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    let mut kept: Vec<(std::time::SystemTime, u64, PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let meta = entry.metadata().ok()?;
+            Some((meta.modified().ok()?, meta.len(), entry.path()))
+        })
+        .collect();
+    kept.sort();
+    let mut bytes: u64 = kept.iter().map(|(_, len, _)| len).sum();
+    for (_, len, path) in kept {
+        if bytes <= KEPT_BYTES {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            bytes -= len;
+        }
+    }
+}
 
 /// The end of a job's log, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> GithubResult<LogExcerpt> {
     let whole = job(data_dir, input.job).await?;
-    let needle = input
-        .grep
-        .map(|grep| grep.to_lowercase())
-        .filter(|grep| !grep.is_empty());
-    let mut lines: Vec<LogLine> = whole
-        .lines
-        .into_iter()
-        .filter(|line| {
-            needle
-                .as_deref()
-                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
-        })
-        .collect();
-    let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
-    let cut = lines.len() > tail;
-    if cut {
-        lines.drain(..lines.len() - tail);
-    }
-    Ok(LogExcerpt {
-        lines,
-        truncated: cut || whole.truncated,
-    })
+    Ok(answers::log_excerpt(whole, input.pick))
 }
 
 /// GitHub answers "not found" for a log that aged out, for one a job has not

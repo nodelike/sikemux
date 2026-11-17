@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes the icons the GPUI screens draw as SVG files, by rendering shared/ui/Icons.tsx,
-// the set the phone and the notch draw too. The plugin marks, code-host section icons,
-// outcome marks and phone QR code in assets/icons are kept as they are.
+// the set the phone and the notch draw too. The plugin and service marks, outcome marks,
+// the database mark and phone QR code in assets/icons are kept as they are.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -14,6 +14,7 @@ const root = resolve(crate, "..");
 const out = resolve(crate, "assets/icons");
 
 const ICONS = "/shared/ui/Icons.tsx";
+const BATTERY_BOLT = "M14.6 -1.6 L8.4 7.4 H12.6 L11.4 14.6 L17.6 5.6 H13.4 Z";
 
 /** File name → the module, its export and the props it is drawn with. */
 const DRAWN = {
@@ -42,6 +43,8 @@ const DRAWN = {
   chevron: [ICONS, "IconChevron"],
   "arrow-down": [ICONS, "IconArrowDown"],
   copy: [ICONS, "IconCopy"],
+  reply: [ICONS, "IconReply"],
+  wrap: [ICONS, "IconWrap"],
   text: [ICONS, "IconText"],
   discard: [ICONS, "IconDiscard"],
   inbox: [ICONS, "IconInbox"],
@@ -51,6 +54,7 @@ const DRAWN = {
   command: [ICONS, "IconCommand"],
   contrast: [ICONS, "IconContrast"],
   focus: [ICONS, "IconFocus"],
+  snip: [ICONS, "IconSnip"],
   pencil: [ICONS, "IconPencil"],
   server: [ICONS, "IconServer"],
   window: [ICONS, "IconWindow"],
@@ -96,6 +100,7 @@ const DRAWN = {
   highlighter: [ICONS, "IconHighlighter"],
   "home-button": [ICONS, "IconHomeButton"],
   hourglass: [ICONS, "IconHourglass"],
+  bell: [ICONS, "IconBell"],
   gauge: [ICONS, "IconGauge"],
   issue: [ICONS, "IconIssue"],
   keyboard: [ICONS, "IconKeyboard"],
@@ -112,7 +117,12 @@ const DRAWN = {
   record: [ICONS, "IconRecord"],
   resize: [ICONS, "IconResize"],
   rocket: [ICONS, "IconRocket"],
+  "hand-off": [ICONS, "IconHandOff"],
   rotate: [ICONS, "IconRotate"],
+  resume: [ICONS, "IconResume"],
+  restore: [ICONS, "IconRestore"],
+  wand: [ICONS, "IconWand"],
+  replace: [ICONS, "IconReplace"],
   pin: [ICONS, "IconPin"],
   power: [ICONS, "IconPower"],
   "square-plus": [ICONS, "IconSquarePlus"],
@@ -127,10 +137,33 @@ const DRAWN = {
   upload: [ICONS, "IconUpload"],
   warning: [ICONS, "IconWarning"],
   "info-circle": [ICONS, "IconInfo"],
+  "check-circle": [ICONS, "IconCircleCheck"],
+  "alert-circle": [ICONS, "IconCircleAlert"],
   waterfall: [ICONS, "IconWaterfall"],
   workflow: [ICONS, "IconWorkflow"],
   wrench: [ICONS, "IconWrench"],
   timer: [ICONS, "IconTimer"],
+  actions: [ICONS, "IconActions"],
+  "arrow-left": [ICONS, "IconArrowLeft"],
+  "bolt-fill": [ICONS, "IconBoltFill"],
+  checkout: [ICONS, "IconCheckout"],
+  commit: [ICONS, "IconCommit"],
+  "expand-all": [ICONS, "IconExpandAll"],
+  fetch: [ICONS, "IconFetch"],
+  image: [ICONS, "IconImage"],
+  issues: [ICONS, "IconIssue"],
+  lock: [ICONS, "IconLock"],
+  merge: [ICONS, "IconMerge"],
+  minus: [ICONS, "IconMinus"],
+  pull: [ICONS, "IconPull"],
+  push: [ICONS, "IconPush"],
+  releases: [ICONS, "IconTag"],
+  sort: [ICONS, "IconSort"],
+  sparkle: [ICONS, "IconSparkle"],
+  stash: [ICONS, "IconStash"],
+  tablet: [ICONS, "IconTablet"],
+  tag: [ICONS, "IconTag"],
+  viewport: [ICONS, "IconViewport"],
   // The marks of a toast, named as GPUI Kit's notifications ask for them.
   info: [ICONS, "IconInfoMark"],
   "circle-check": [ICONS, "IconCheck"],
@@ -142,7 +175,6 @@ const PICTURES = {
   codex: "shared/assets/agent-logos/codex.svg",
   omp: "shared/assets/agent-logos/omp.svg",
   muse: "shared/assets/agent-logos/muse.svg",
-  bruno: "shared/assets/bruno.svg",
 };
 /** GPUI's SVG renderer has no oklch(), which WebKit draws, so a picture's oklch colours are
  * written as the sRGB they come to. */
@@ -163,8 +195,13 @@ function oklchToHex(l, c, h) {
   ];
   const encoded = linear.map((value) => {
     const clamped = Math.min(1, Math.max(0, value));
-    const srgb = clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * clamped ** (1 / 2.4) - 0.055;
-    return Math.round(srgb * 255).toString(16).padStart(2, "0");
+    const srgb =
+      clamped <= 0.0031308
+        ? 12.92 * clamped
+        : 1.055 * clamped ** (1 / 2.4) - 0.055;
+    return Math.round(srgb * 255)
+      .toString(16)
+      .padStart(2, "0");
   });
   return `#${encoded.join("")}`;
 }
@@ -183,24 +220,39 @@ try {
   await mkdir(out, { recursive: true });
   for (const [file, [module, name, props = {}]] of Object.entries(DRAWN)) {
     const component = (await server.ssrLoadModule(module))[name];
-    const markup = renderToStaticMarkup(createElement(component, { size: 16, ...props }))
-      .replace(/^<svg[^>]*>/, (root) => root.replace(/ (width|height|class|aria-hidden)="[^"]*"/g, ""))
+    const markup = renderToStaticMarkup(
+      createElement(component, { size: 16, ...props }),
+    )
+      .replace(/^<svg[^>]*>/, (root) =>
+        root.replace(/ (width|height|class|aria-hidden)="[^"]*"/g, ""),
+      )
       .replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"')
       .replaceAll("currentColor", MIXED[file] ?? "currentColor");
     await writeFile(resolve(out, `${file}.svg`), `${markup}\n`);
   }
   for (const [file, path] of Object.entries(PICTURES))
-    await writeFile(resolve(out, `${file}.svg`), (await readFile(resolve(root, path), "utf8")).replace(OKLCH, (_, l, c, h) => oklchToHex(+l, +c, +h)));
-  const { BATTERY_BOLT } = await server.ssrLoadModule(ICONS);
+    await writeFile(
+      resolve(out, `${file}.svg`),
+      (await readFile(resolve(root, path), "utf8")).replace(
+        OKLCH,
+        (_, l, c, h) => oklchToHex(+l, +c, +h),
+      ),
+    );
   const bolt = (extra) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="7 -3 12 19" fill="currentColor"><path d="${BATTERY_BOLT}"${extra}></path></svg>\n`;
   const chevron = await readFile(resolve(out, "chevron.svg"), "utf8");
   await writeFile(
     resolve(out, "chevron-down.svg"),
-    chevron.replace(/^(<svg[^>]*>)(.*)(<\/svg>)/s, '$1<g transform="rotate(90 8 8)">$2</g>$3'),
+    chevron.replace(
+      /^(<svg[^>]*>)(.*)(<\/svg>)/s,
+      '$1<g transform="rotate(90 12 12)">$2</g>$3',
+    ),
   );
   await writeFile(resolve(out, "battery-bolt.svg"), bolt(""));
-  await writeFile(resolve(out, "battery-bolt-gap.svg"), bolt(' stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"'));
+  await writeFile(
+    resolve(out, "battery-bolt-gap.svg"),
+    bolt(' stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"'),
+  );
 } finally {
   await server.close();
 }

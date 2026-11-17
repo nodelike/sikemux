@@ -3,14 +3,20 @@
 //! redraw only the block at its end.
 
 mod autolink;
+mod delimiters;
 mod doc;
 mod mend;
 pub mod paths;
 mod reference;
+mod sentences;
 mod url;
 
-pub use doc::{diff, Doc, Op, Patch};
+pub use doc::{diff, Doc, MdChange, MdOp, Patch};
+
+/// The language a block of math is marked with, from `$$…$$` or a ```` ```math ```` fence.
+pub const MATH: &str = "math";
 pub use reference::name as reference;
+pub use sentences::unsourced;
 
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, Options as ParserOptions, Parser, Tag, TagEnd,
@@ -19,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Options {
+pub struct MarkdownOptions {
     /// Tables, strikethrough, task lists, footnotes and bare addresses as links.
     #[serde(default)]
     pub gfm: bool,
@@ -45,59 +51,65 @@ pub struct Options {
     /// writes a reference to one, such as `owner/repo#12`.
     #[serde(default)]
     pub references: bool,
+    /// Reads `$…$` as inline math and `$$…$$` as a block of math, kept as LaTeX.
+    #[serde(default)]
+    pub math: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(untagged)]
-pub enum Node {
+pub enum MdNode {
     Text(String),
-    Element(Element),
+    Element(MdElement),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Align {
+pub enum MdAlign {
     Left,
     Center,
     Right,
 }
 
-type Cell = Vec<Node>;
+type Cell = Vec<MdNode>;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
-pub enum Element {
+pub enum MdElement {
     P {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     H {
         l: u8,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Quote {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Ul {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Ol {
         #[serde(skip_serializing_if = "Option::is_none")]
         start: Option<u64>,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Li {
         #[serde(skip_serializing_if = "Option::is_none")]
         checked: Option<bool>,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Pre {
         #[serde(skip_serializing_if = "Option::is_none")]
         lang: Option<String>,
+        /// The file the block shows, when its fence names one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         v: String,
     },
     Hr,
     Table {
-        align: Vec<Option<Align>>,
+        align: Vec<Option<MdAlign>>,
         /// Missing when every heading cell is blank.
         #[serde(skip_serializing_if = "Option::is_none")]
         head: Option<Vec<Cell>>,
@@ -106,25 +118,36 @@ pub enum Element {
     /// Footnotes are numbered in the order they are first mentioned.
     Fndef {
         n: usize,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Em {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Strong {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Del {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
+    },
+    /// Words drawn faint: sentences an answer left out, put back for a reader who asked to see
+    /// them. Reading markdown never makes one.
+    Faint {
+        c: Vec<MdNode>,
     },
     Code {
         v: String,
+        /// `v` is LaTeX math the message wrote between single dollar signs.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        math: bool,
     },
     A {
         href: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
-        c: Vec<Node>,
+        /// `href` names a file rather than a place on the web.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        file: bool,
+        c: Vec<MdNode>,
     },
     Img {
         src: String,
@@ -142,30 +165,30 @@ pub enum Element {
         href: String,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         code: bool,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     /// Blocks embedded HTML lines up to one side, as `<div align="center">` does.
     Div {
-        align: Align,
-        c: Vec<Node>,
+        align: MdAlign,
+        c: Vec<MdNode>,
     },
     /// A `<details>` fold from embedded HTML, open or not as it was written.
     Details {
         summary: String,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         open: bool,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
 }
 
 /// Parses `text` and returns its top-level blocks from index `skip` on. A
 /// caller that already holds the blocks before `skip` gets only the rest.
-pub fn parse(text: &str, options: Options, skip: usize) -> Vec<Element> {
+pub fn parse(text: &str, options: MarkdownOptions, skip: usize) -> Vec<MdElement> {
     read(text, options, skip).0
 }
 
 /// Parses `text` into its top-level blocks, each with the byte in `text` it starts at.
-pub fn parse_blocks(text: &str, options: Options) -> (Vec<Element>, Vec<usize>) {
+pub fn parse_blocks(text: &str, options: MarkdownOptions) -> (Vec<MdElement>, Vec<usize>) {
     read(text, options, 0)
 }
 
@@ -194,13 +217,16 @@ pub fn words(text: &str) -> String {
     out
 }
 
-fn read(text: &str, options: Options, skip: usize) -> (Vec<Element>, Vec<usize>) {
+fn read(text: &str, options: MarkdownOptions, skip: usize) -> (Vec<MdElement>, Vec<usize>) {
     let mut flags = ParserOptions::empty();
     if options.gfm {
         flags |= ParserOptions::ENABLE_TABLES
             | ParserOptions::ENABLE_STRIKETHROUGH
             | ParserOptions::ENABLE_TASKLISTS
             | ParserOptions::ENABLE_FOOTNOTES;
+    }
+    if options.math {
+        flags |= ParserOptions::ENABLE_MATH;
     }
     let mut builder = Builder {
         options,
@@ -213,9 +239,15 @@ fn read(text: &str, options: Options, skip: usize) -> (Vec<Element>, Vec<usize>)
         links_open: 0,
         footnotes: Vec::new(),
     };
-    for (event, range) in Parser::new_ext(text, flags).into_offset_iter() {
+    let rewritten = options.math.then(|| delimiters::as_dollars(text)).flatten();
+    let (read, moved) = match &rewritten {
+        Some((dollars, moved)) => (dollars.as_str(), Some(moved)),
+        None => (text, None),
+    };
+    for (event, range) in Parser::new_ext(read, flags).into_offset_iter() {
         if builder.stack.is_empty() {
-            builder.opening.get_or_insert(range.start);
+            let start = moved.map_or(range.start, |moved| moved.original(range.start));
+            builder.opening.get_or_insert(start);
         }
         builder.event(event);
         if builder.stack.is_empty() {
@@ -229,7 +261,7 @@ fn read(text: &str, options: Options, skip: usize) -> (Vec<Element>, Vec<usize>)
 /// Text that came from markup the reader typed. It stays apart from the text
 /// around it so that nothing reads it as an address.
 enum Piece {
-    Node(Node),
+    MdNode(MdNode),
     Typed(String),
 }
 
@@ -253,11 +285,12 @@ enum Kind {
     },
     Code {
         lang: Option<String>,
+        name: Option<String>,
         text: String,
     },
     Html(String),
     Table {
-        align: Vec<Option<Align>>,
+        align: Vec<Option<MdAlign>>,
         head: Option<Vec<Cell>>,
         rows: Vec<Vec<Cell>>,
     },
@@ -268,7 +301,7 @@ enum Kind {
         open: bool,
     },
     /// A `<div>` or `<p>` from embedded HTML, and the side it lines its blocks up to.
-    Aligned(Option<Align>),
+    Aligned(Option<MdAlign>),
     Unsupported,
 }
 
@@ -278,9 +311,9 @@ struct Frame {
 }
 
 struct Builder {
-    options: Options,
+    options: MarkdownOptions,
     stack: Vec<Frame>,
-    blocks: Vec<Element>,
+    blocks: Vec<MdElement>,
     /// Where each of `blocks` starts in the text.
     starts: Vec<usize>,
     /// Where the block being read now starts.
@@ -291,7 +324,6 @@ struct Builder {
     footnotes: Vec<String>,
 }
 
-/// The value of `name="…"` or `name='…'` in one HTML tag.
 fn attribute(tag: &str, name: &str) -> Option<String> {
     let lower = tag.to_ascii_lowercase();
     let mut from = 0;
@@ -316,7 +348,6 @@ fn attribute(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// The words in a run of HTML, with its tags taken out and its spaces collapsed.
 fn strip_tags(html: &str) -> String {
     let mut out = String::new();
     let mut inside = false;
@@ -342,11 +373,11 @@ fn tag_name(tag: &str) -> &str {
     inside.get(..end).unwrap_or_default()
 }
 
-fn aligned(side: &str) -> Option<Align> {
+fn aligned(side: &str) -> Option<MdAlign> {
     match side.trim().to_ascii_lowercase().as_str() {
-        "left" => Some(Align::Left),
-        "center" => Some(Align::Center),
-        "right" => Some(Align::Right),
+        "left" => Some(MdAlign::Left),
+        "center" => Some(MdAlign::Center),
+        "right" => Some(MdAlign::Right),
         _ => None,
     }
 }
@@ -355,30 +386,33 @@ fn nonempty(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-fn align(alignment: Alignment) -> Option<Align> {
+fn align(alignment: Alignment) -> Option<MdAlign> {
     match alignment {
         Alignment::None => None,
-        Alignment::Left => Some(Align::Left),
-        Alignment::Center => Some(Align::Center),
-        Alignment::Right => Some(Align::Right),
+        Alignment::Left => Some(MdAlign::Left),
+        Alignment::Center => Some(MdAlign::Center),
+        Alignment::Right => Some(MdAlign::Right),
     }
 }
 
-fn plain_text(nodes: &[Node], out: &mut String) {
+fn plain_text(nodes: &[MdNode], out: &mut String) {
     for node in nodes {
         match node {
-            Node::Text(text) => out.push_str(text),
-            Node::Element(Element::Code { v } | Element::Pre { v, .. }) => out.push_str(v),
-            Node::Element(
-                Element::P { c }
-                | Element::H { c, .. }
-                | Element::Em { c }
-                | Element::Strong { c }
-                | Element::Del { c }
-                | Element::A { c, .. }
-                | Element::Path { c, .. },
+            MdNode::Text(text) => out.push_str(text),
+            MdNode::Element(MdElement::Code { v, .. } | MdElement::Pre { v, .. }) => {
+                out.push_str(v)
+            }
+            MdNode::Element(
+                MdElement::P { c }
+                | MdElement::H { c, .. }
+                | MdElement::Em { c }
+                | MdElement::Strong { c }
+                | MdElement::Del { c }
+                | MdElement::Faint { c }
+                | MdElement::A { c, .. }
+                | MdElement::Path { c, .. },
             ) => plain_text(c, out),
-            Node::Element(_) => {}
+            MdNode::Element(_) => {}
         }
     }
 }
@@ -406,12 +440,12 @@ impl Builder {
 
     fn push(&mut self, piece: Piece) {
         let Some(frame) = self.stack.last_mut() else {
-            if let Piece::Node(Node::Element(element)) = piece {
+            if let Piece::MdNode(MdNode::Element(element)) = piece {
                 self.finish_block(element);
             }
             return;
         };
-        if let (Piece::Node(Node::Text(more)), Some(Piece::Node(Node::Text(text)))) =
+        if let (Piece::MdNode(MdNode::Text(more)), Some(Piece::MdNode(MdNode::Text(text)))) =
             (&piece, frame.children.last_mut())
         {
             text.push_str(more);
@@ -423,15 +457,15 @@ impl Builder {
     fn push_text(&mut self, text: &str) {
         match self.stack.last_mut().map(|frame| &mut frame.kind) {
             Some(Kind::Code { text: code, .. } | Kind::Html(code)) => code.push_str(text),
-            _ => self.push(Piece::Node(Node::Text(text.to_owned()))),
+            _ => self.push(Piece::MdNode(MdNode::Text(text.to_owned()))),
         }
     }
 
-    fn push_element(&mut self, element: Element) {
-        self.push(Piece::Node(Node::Element(element)));
+    fn push_element(&mut self, element: MdElement) {
+        self.push(Piece::MdNode(MdNode::Element(element)));
     }
 
-    fn finish_block(&mut self, element: Element) {
+    fn finish_block(&mut self, element: MdElement) {
         if self.seen >= self.skip {
             self.blocks.push(element);
             self.starts.push(self.opening.unwrap_or_default());
@@ -439,7 +473,7 @@ impl Builder {
         self.seen += 1;
     }
 
-    fn children(&self, pieces: Vec<Piece>) -> Vec<Node> {
+    fn children(&self, pieces: Vec<Piece>) -> Vec<MdNode> {
         let outside_links = self.links_open == 0;
         let nodes = Self::nodes(
             pieces,
@@ -453,26 +487,26 @@ impl Builder {
         }
     }
 
-    fn nodes(pieces: Vec<Piece>, link_addresses: bool, file_paths: bool) -> Vec<Node> {
+    fn nodes(pieces: Vec<Piece>, link_addresses: bool, file_paths: bool) -> Vec<MdNode> {
         let mut nodes = Vec::with_capacity(pieces.len());
         for piece in pieces {
             match piece {
-                Piece::Node(Node::Text(text)) if link_addresses || file_paths => {
+                Piece::MdNode(MdNode::Text(text)) if link_addresses || file_paths => {
                     let mut linked = Vec::new();
                     if link_addresses {
                         autolink::link_addresses(text, &mut linked);
                     } else {
-                        linked.push(Node::Text(text));
+                        linked.push(MdNode::Text(text));
                     }
                     for node in linked {
                         match node {
-                            Node::Text(text) if file_paths => paths::mark_paths(text, &mut nodes),
+                            MdNode::Text(text) if file_paths => paths::mark_paths(text, &mut nodes),
                             node => nodes.push(node),
                         }
                     }
                 }
-                Piece::Node(node) => nodes.push(node),
-                Piece::Typed(text) => nodes.push(Node::Text(text)),
+                Piece::MdNode(node) => nodes.push(node),
+                Piece::Typed(text) => nodes.push(MdNode::Text(text)),
             }
         }
         nodes
@@ -568,18 +602,18 @@ impl Builder {
                     let mut c = Vec::new();
                     if self.options.html_images {
                         for image in self.html_images(inner) {
-                            c.push(Node::Element(image));
+                            c.push(MdNode::Element(image));
                         }
                     }
                     let words = strip_tags(inner);
                     if !words.is_empty() {
-                        c.push(Node::Text(words));
+                        c.push(MdNode::Text(words));
                     }
-                    let heading = Element::H { l: level, c };
+                    let heading = MdElement::H { l: level, c };
                     match attribute(tag, "align").and_then(|side| aligned(&side)) {
-                        Some(align) => self.push_element(Element::Div {
+                        Some(align) => self.push_element(MdElement::Div {
                             align,
-                            c: vec![Node::Element(heading)],
+                            c: vec![MdNode::Element(heading)],
                         }),
                         None => self.push_element(heading),
                     }
@@ -594,10 +628,11 @@ impl Builder {
                 "img" if self.options.html_images => {
                     for image in self.html_images(tag) {
                         pictures.push(match &link {
-                            Some(href) => Element::A {
+                            Some(href) => MdElement::A {
                                 href: href.clone(),
                                 title: None,
-                                c: vec![Node::Element(image)],
+                                file: false,
+                                c: vec![MdNode::Element(image)],
                             },
                             None => image,
                         });
@@ -609,8 +644,7 @@ impl Builder {
         self.flush_pictures(&mut pictures);
     }
 
-    /// Puts the pictures read so far in a paragraph of their own.
-    fn flush_pictures(&mut self, pictures: &mut Vec<Element>) {
+    fn flush_pictures(&mut self, pictures: &mut Vec<MdElement>) {
         if pictures.is_empty() {
             return;
         }
@@ -637,11 +671,11 @@ impl Builder {
         match frame.kind {
             Kind::Details { summary, open } => {
                 let c = self.children(frame.children);
-                self.push_element(Element::Details { summary, open, c });
+                self.push_element(MdElement::Details { summary, open, c });
             }
             Kind::Aligned(Some(align)) => {
                 let c = self.children(frame.children);
-                self.push_element(Element::Div { align, c });
+                self.push_element(MdElement::Div { align, c });
             }
             _ => {
                 for piece in frame.children {
@@ -652,7 +686,7 @@ impl Builder {
         true
     }
 
-    fn html_images(&self, html: &str) -> Vec<Element> {
+    fn html_images(&self, html: &str) -> Vec<MdElement> {
         let lower = html.to_ascii_lowercase();
         let mut images = Vec::new();
         let mut from = 0;
@@ -667,7 +701,7 @@ impl Builder {
                 .map(|src| self.url(&src))
                 .filter(|src| !src.is_empty())
             {
-                images.push(Element::Img {
+                images.push(MdElement::Img {
                     src,
                     alt: attribute(tag, "alt").unwrap_or_default(),
                     title: attribute(tag, "title"),
@@ -688,18 +722,27 @@ impl Builder {
                     && self.links_open == 0
                     && paths::names_whole_path(&code) =>
             {
-                self.push(Piece::Node(paths::path(&code, true)));
+                self.push(Piece::MdNode(paths::path(&code, true)));
             }
-            Event::Code(code) => self.push_element(Element::Code {
+            Event::Code(code) => self.push_element(MdElement::Code {
                 v: code.into_string(),
+                math: false,
             }),
-            Event::InlineMath(math) | Event::DisplayMath(math) => self.push_text(&math),
+            Event::InlineMath(math) => self.push_element(MdElement::Code {
+                v: math.into_string(),
+                math: true,
+            }),
+            Event::DisplayMath(math) => self.push_element(MdElement::Pre {
+                lang: Some(MATH.to_owned()),
+                name: None,
+                v: format!("{}\n", math.trim()),
+            }),
             Event::Html(html) => self.push_text(&html),
             Event::InlineHtml(html) => {
                 if self.options.html_as_text {
                     self.push(Piece::Typed(html.into_string()));
                 } else if self.options.html_layout && tag_name(&html.to_ascii_lowercase()) == "br" {
-                    self.push_element(Element::Br);
+                    self.push_element(MdElement::Br);
                 } else if self.options.html_images {
                     for image in self.html_images(&html) {
                         self.push_element(image);
@@ -708,11 +751,11 @@ impl Builder {
             }
             Event::FootnoteReference(label) => {
                 let n = self.footnote(&label);
-                self.push_element(Element::Fnref { n });
+                self.push_element(MdElement::Fnref { n });
             }
             Event::SoftBreak => self.push_text("\n"),
-            Event::HardBreak => self.push_element(Element::Br),
-            Event::Rule => self.push_element(Element::Hr),
+            Event::HardBreak => self.push_element(MdElement::Br),
+            Event::Rule => self.push_element(MdElement::Hr),
             Event::TaskListMarker(checked) => {
                 if let Some(Frame {
                     kind: Kind::Item(state),
@@ -734,15 +777,17 @@ impl Builder {
             Tag::Paragraph => Kind::Paragraph,
             Tag::Heading { level, .. } => Kind::Heading(level as u8),
             Tag::BlockQuote(_) => Kind::Quote,
-            Tag::CodeBlock(kind) => Kind::Code {
-                lang: match kind {
-                    CodeBlockKind::Fenced(info) => {
-                        info.split_whitespace().next().map(str::to_owned)
-                    }
-                    CodeBlockKind::Indented => None,
-                },
-                text: String::new(),
-            },
+            Tag::CodeBlock(kind) => {
+                let (lang, name) = match kind {
+                    CodeBlockKind::Fenced(info) => fence_info(&info),
+                    CodeBlockKind::Indented => (None, None),
+                };
+                Kind::Code {
+                    lang,
+                    name,
+                    text: String::new(),
+                }
+            }
             Tag::HtmlBlock => Kind::Html(String::new()),
             Tag::List(start) => Kind::List(start),
             Tag::Item => Kind::Item(None),
@@ -796,41 +841,42 @@ impl Builder {
             return;
         };
         let element = match frame.kind {
-            Kind::Paragraph => Element::P {
+            Kind::Paragraph => MdElement::P {
                 c: self.children(frame.children),
             },
-            Kind::Heading(level) => Element::H {
+            Kind::Heading(level) => MdElement::H {
                 l: level,
                 c: self.children(frame.children),
             },
-            Kind::Quote => Element::Quote {
+            Kind::Quote => MdElement::Quote {
                 c: self.children(frame.children),
             },
-            Kind::List(Some(start)) => Element::Ol {
+            Kind::List(Some(start)) => MdElement::Ol {
                 start: (start != 1).then_some(start),
                 c: self.children(frame.children),
             },
-            Kind::List(None) => Element::Ul {
+            Kind::List(None) => MdElement::Ul {
                 c: self.children(frame.children),
             },
-            Kind::Item(checked) => Element::Li {
+            Kind::Item(checked) => MdElement::Li {
                 checked,
                 c: self.children(frame.children),
             },
-            Kind::FootnoteDefinition(n) => Element::Fndef {
+            Kind::FootnoteDefinition(n) => MdElement::Fndef {
                 n,
                 c: self.children(frame.children),
             },
-            Kind::Emphasis => Element::Em {
+            Kind::Emphasis => MdElement::Em {
                 c: self.children(frame.children),
             },
-            Kind::Strong => Element::Strong {
+            Kind::Strong => MdElement::Strong {
                 c: self.children(frame.children),
             },
-            Kind::Strikethrough => Element::Del {
+            Kind::Strikethrough => MdElement::Del {
                 c: self.children(frame.children),
             },
-            Kind::Link { href, title } => Element::A {
+            Kind::Link { href, title } => MdElement::A {
+                file: paths::names_whole_path(&href),
                 href,
                 title,
                 c: Self::nodes(frame.children, false, false),
@@ -838,13 +884,21 @@ impl Builder {
             Kind::Image { src, title } => {
                 let mut alt = String::new();
                 plain_text(&Self::nodes(frame.children, false, false), &mut alt);
-                Element::Img { src, alt, title }
+                MdElement::Img { src, alt, title }
             }
-            Kind::Code { lang, mut text } => {
+            Kind::Code {
+                lang,
+                name,
+                mut text,
+            } => {
                 if !text.is_empty() && !text.ends_with('\n') {
                     text.push('\n');
                 }
-                Element::Pre { lang, v: text }
+                MdElement::Pre {
+                    lang,
+                    name,
+                    v: text,
+                }
             }
             Kind::Html(html) => {
                 if !self.options.html_as_text {
@@ -880,7 +934,7 @@ impl Builder {
                 }
                 return;
             }
-            Kind::Table { align, head, rows } => Element::Table { align, head, rows },
+            Kind::Table { align, head, rows } => MdElement::Table { align, head, rows },
             Kind::Details { .. } | Kind::Aligned(_) => return,
             Kind::Unsupported => {
                 for piece in frame.children {
@@ -891,4 +945,35 @@ impl Builder {
         };
         self.push_element(element);
     }
+}
+
+/// A fence's language and the file it names: `rust:src/main.rs`, `rust title="main.rs"`, or a
+/// bare `main.rs`, whose language is its extension.
+fn fence_info(info: &str) -> (Option<String>, Option<String>) {
+    let mut words = info.split_whitespace();
+    let Some(first) = words.next() else {
+        return (None, None);
+    };
+    let named = words.find_map(|word| {
+        let (key, value) = word.split_once('=')?;
+        matches!(key, "title" | "file" | "filename" | "path")
+            .then(|| value.trim_matches(['"', '\'']).to_owned())
+            .filter(|value| !value.is_empty())
+    });
+    if let Some((lang, name)) = first
+        .split_once(':')
+        .filter(|(lang, name)| !lang.is_empty() && !name.is_empty())
+    {
+        return (
+            Some(lang.to_owned()),
+            named.or_else(|| Some(name.to_owned())),
+        );
+    }
+    if first.contains(['.', '/']) {
+        let extension = first
+            .rsplit_once('.')
+            .map(|(_, extension)| extension.to_owned());
+        return (extension, named.or_else(|| Some(first.to_owned())));
+    }
+    (Some(first.to_owned()), named)
 }

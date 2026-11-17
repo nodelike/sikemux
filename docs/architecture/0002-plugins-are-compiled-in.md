@@ -1,6 +1,6 @@
 # ADR 0002: Plugins are first-party and compiled in
 
-- Status: Accepted
+- Status: Superseded by [ADR 0022](./0022-plugins-are-connectors-and-mods-are-their-panels.md)
 - Decision date: 2026-09-24 (issue #6)
 
 ## Context

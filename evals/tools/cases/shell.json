@@ -29,8 +29,8 @@
     "prompt": "Give me a quick status in one go: the current branch, the last three commits and anything uncommitted.",
     "fixture": {
       "commits": [
-        { "message": "feat(gpui): desk tabs keep their order after a drag", "files": { "src-tauri/crates/sikemux-gpui/src/desk/tabs.rs": "pub fn keep_order() {}\n" } },
-        { "message": "fix(gpui): list rows are 28 px tall", "files": { "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "pub const ROW_HEIGHT: f32 = 28.0;\n" } }
+        { "message": "feat(gpui): desk tabs keep their order after a drag", "files": { "app/src/desk/tabs.rs": "pub fn keep_order() {}\n" } },
+        { "message": "fix(gpui): list rows are 28 px tall", "files": { "app/src/ui/lists.rs": "pub const ROW_HEIGHT: f32 = 28.0;\n" } }
       ],
       "dirty": { "README.md": "# Sikemux\n\nA workspace for agents.\n" }
     },
@@ -84,12 +84,12 @@
     "from": ["err_bash-011"],
     "category": "malformed_call",
     "severity": "med",
-    "tools": ["task_start"],
+    "tools": ["process_start"],
     "prompt": "Run `pnpm showcase`, and give up on it if it hasn't finished within five minutes.",
     "fixture": {},
     "grade": {
       "expect": [
-        { "tool": ["Bash", "task_start"], "args": { "command": "/pnpm\\s+(-s\\s+)?(run\\s+)?showcase\\b/" } }
+        { "tool": ["Bash", "process_start"], "args": { "command": "/pnpm\\s+(-s\\s+)?(run\\s+)?showcase\\b/" } }
       ]
     },
     "maxTurns": 8
@@ -153,7 +153,7 @@
     "fixture": {},
     "grade": {
       "limit": [
-        { "tool": "Bash", "args": { "command": "/^\\s*cd\\s+[\"']?(\\.\\/)?src-tauri\\/crates\\/sikemux-gpui/" }, "max": 1 }
+        { "tool": "Bash", "args": { "command": "/^\\s*cd\\s+[\"']?(\\.\\/)?app/" }, "max": 1 }
       ]
     },
     "maxTurns": 8
@@ -170,7 +170,7 @@
     },
     "grade": {
       "expect": [
-        { "tool": ["Bash", "task_start"], "args": { "$any": [{ "command": "/^(?![\\s\\S]*\\brtk\\b)[\\s\\S]*\\b(typecheck|tsc)\\b/" }, { "taskId": "typecheck" }] } }
+        { "tool": ["Bash", "process_start"], "args": { "$any": [{ "command": "/^(?![\\s\\S]*\\brtk\\b)[\\s\\S]*\\b(typecheck|tsc)\\b/" }, { "processId": "typecheck" }] } }
       ],
       "limit": [
         { "tool": "Bash", "args": { "command": "/(^|[;&|(]\\s*)rtk\\s/" }, "max": 2 }

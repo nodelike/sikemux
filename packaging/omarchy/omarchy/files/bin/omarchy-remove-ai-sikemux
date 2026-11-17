@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# omarchy:summary=Remove Sikemux along with its core service.
+# omarchy:requires-sudo=true
+
+# -u so an unset HOME is an error rather than a set of rm -rf paths rooted at /.
+set -euo pipefail
+
+# The core outlives the window: it keeps terminals and agents running, and a
+# user service may start it again at login. Stop both before the package goes,
+# or the core keeps running a binary that is no longer there.
+systemctl --user disable --now com.nodelike.sikemux.core.service &>/dev/null || true
+rm -f "$HOME/.config/systemd/user/com.nodelike.sikemux.core.service"
+systemctl --user daemon-reload &>/dev/null || true
+sikemux-host stop &>/dev/null || pkill -x sikemux-host || true
+pkill -x sikemux || true
+
+omarchy-pkg-drop sikemux-bin
+
+# What is left is the user's: chats, layouts, settings and mods under
+# ~/.local/share and ~/.config, and the sign-ins the core keeps for this
+# account in /var/lib/sikemux/<uid>, which only root can reach once the core is
+# gone. Keeping them is the default, so a reinstall picks up where it left off,
+# but a removal meant to be complete should not leave credentials behind, so
+# the choice is put in front of the user, default no. Without a terminal to ask
+# in, keeping it is the answer -- and gum draws the prompt on stderr, so a
+# redirected stderr would block on a question nobody can see.
+# Not ~/.claude, ~/.codex and the like: the agents Sikemux runs keep their own
+# state, and it outlives Sikemux.
+data_removed=false
+if [[ -t 0 && -t 2 ]]; then
+  # du answers non-zero when a directory is missing, and pipefail would turn
+  # that into an aborted removal; the size is worth no such thing.
+  size=$(du -shc "$HOME/.local/share/com.nodelike.sikemux" "$HOME/.config/com.nodelike.sikemux" "$HOME/.config/sikemux" 2>/dev/null | tail -1 | cut -f1 || true)
+  # du glues the unit to the number ("1.2G"); write the number with the
+  # language's decimal separator and digits.
+  if [[ $size =~ ^([0-9]+([.,][0-9]+)?)([A-Za-z]*)$ ]] && number=$(omarchy-i18n --number "${BASH_REMATCH[1]/,/.}"); then
+    size="$number${BASH_REMATCH[3]}"
+  fi
+  if gum confirm --default=false --affirmative "$(omarchy-i18n common.yes)" --negative "$(omarchy-i18n common.no)" "$(omarchy-i18n sikemux.deleteData "$size")"; then
+    rm -rf \
+      "$HOME/.local/share/com.nodelike.sikemux" \
+      "$HOME/.config/com.nodelike.sikemux" \
+      "$HOME/.config/sikemux"
+    sudo rm -rf "/var/lib/sikemux/$(id -u)"
+    data_removed=true
+  fi
+fi
+
+echo ""
+echo "Sikemux has been removed."
+if [[ $data_removed == "true" ]]; then
+  echo "Its chats, settings, mods and saved sign-ins are gone too."
+else
+  echo "Nothing of yours was touched: not the chats and settings in ~/.local/share/com.nodelike.sikemux"
+  echo "and ~/.config/sikemux, nor the sign-ins the core kept in /var/lib/sikemux."
+fi

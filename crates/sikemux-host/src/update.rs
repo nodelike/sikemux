@@ -11,9 +11,10 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use sikemux_core::client::{probe, CoreClient};
+use sikemux_client::client::CoreClient;
+use sikemux_core::client::probe;
 use sikemux_core::host_update::{HostUpdate, UpdateStep};
-use sikemux_core::protocol::BuildChannel;
+use sikemux_wire::protocol::BuildChannel;
 
 use crate::headless;
 use crate::style;
@@ -21,6 +22,9 @@ use crate::style;
 const HAND_OVER_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    if cfg!(windows) {
+        return Err("on Windows, Sikemux and its core update through the installer".into());
+    }
     if !cfg!(target_os = "linux") {
         style::note("On a Mac, the app updates itself and its core with it.");
         return Ok(());
@@ -47,7 +51,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 /// Whether this runs as root. Under sudo, it then acts for the person who
 /// ran sudo: their core, their switch.
-fn as_person_of_sudo() -> bool {
+#[cfg(unix)]
+pub(crate) fn as_person_of_sudo() -> bool {
     // SAFETY: geteuid takes nothing and cannot fail.
     if unsafe { libc::geteuid() } != 0 {
         return false;
@@ -59,10 +64,22 @@ fn as_person_of_sudo() -> bool {
     true
 }
 
-fn sudo_uid() -> Option<u32> {
+#[cfg(unix)]
+pub(crate) fn sudo_uid() -> Option<u32> {
     std::env::var("SUDO_UID").ok()?.parse().ok()
 }
 
+#[cfg(windows)]
+pub(crate) fn as_person_of_sudo() -> bool {
+    false
+}
+
+#[cfg(windows)]
+pub(crate) fn sudo_uid() -> Option<u32> {
+    None
+}
+
+#[cfg(unix)]
 fn home_of(uid: u32) -> Option<std::path::PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: getpwuid's record is read at once, before anything else here
@@ -110,12 +127,12 @@ fn update_now() -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn install_as_root() -> Result<(), String> {
-    use sikemux_core::protocol::UpdateChannel;
+    use sikemux_view::prefs::UpdateChannel;
     let channel = match BuildChannel::of_release(env!("CARGO_PKG_VERSION")) {
         BuildChannel::Nightly => UpdateChannel::Nightly,
         BuildChannel::Stable | BuildChannel::Dev => UpdateChannel::Stable,
     };
-    let last = root::install(sudo_uid().unwrap_or(0), channel, &mut show);
+    let last = root::install(sudo_uid().unwrap_or(0), channel, None, &mut show);
     let installed = matches!(
         last,
         UpdateStep::Installed { .. } | UpdateStep::Current { .. }

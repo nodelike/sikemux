@@ -1,15 +1,39 @@
 name: Mobile CI
 
-# Checks the phone app before its code ships: ci.yml leaves mobile/ out, and the update and release
-# workflows only run after the fact. Also runs the notifications module's Kotlin tests, which nothing
-# else does.
+# Checks the phone apps before their code ships: ci.yml leaves mobile/ out, and the update and release
+# workflows only run after the fact. Builds the iPhone app for the simulator, and runs the Android
+# notifications module's Kotlin tests, which nothing else does.
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "mobile/**"
       - "crates/sikemux-mobile/**"
       - "crates/sikemux-core/**"
+      - "crates/sikemux-calls/**"
+      - "crates/sikemux-corekit/**"
+      - "crates/sikemux-git/**"
+      - "crates/sikemux-agents/**"
+      - "crates/sikemux-kernel/**"
+      - "crates/sikemux-serve/**"
+      - "crates/sikemux-workspace/**"
+      - "crates/sikemux-chat/**"
+      - "crates/sikemux-remote/**"
+      - "crates/sikemux-repo/**"
+      - "crates/sikemux-board/**"
+      - "crates/sikemux-drivers/**"
+      - "crates/sikemux-client/**"
+      - "crates/sikemux-wire/**"
+      - "helpers/notch/Sources/NotchKit/**"
+      - "helpers/notch/settings.json"
+      - "scripts/generate-notch-icons.mjs"
+      - "scripts/generate-notch-sources.mjs"
+      - "scripts/generate-wire-types.mjs"
+      - "brand/mark/**"
+      - "app/assets/icons/**"
+      - "crates/sikemux-core/src/assets/agent-catalog.json"
+      - "helpers/notch/Fonts/**"
+      - "packaging/icons/**"
       - "Cargo.lock"
       - "server/protocol/**"
       - "shared/**"
@@ -17,23 +41,15 @@ on:
       - .github/workflows/mobile-update.yml
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "mobile/**"
-      - "crates/sikemux-mobile/**"
-      - "crates/sikemux-core/**"
-      - "Cargo.lock"
-      - "server/protocol/**"
-      - "shared/**"
-      - .github/workflows/mobile-ci.yml
-      - .github/workflows/mobile-update.yml
+    paths: *paths
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: mobile-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: mobile-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -44,6 +60,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -59,17 +77,8 @@ jobs:
           cache-dependency-path: |
             mobile/pnpm-lock.yaml
 
-      - name: Use the runner's Java 17 and Android NDK
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >>"$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >>"$GITHUB_ENV"
-
-      - name: Setup Rust
-        run: |
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-linux-android --target x86_64-linux-android
-          cargo install cargo-ndk --locked
+      - name: Setup Android
+        uses: ./.github/actions/setup-android
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -106,6 +115,67 @@ jobs:
         working-directory: mobile/app
         run: node scripts/run.mjs prebuild android development
 
-      - name: Test the notifications module
+      - name: Test the notifications module and build the widgets
         working-directory: mobile/app/android
-        run: ./gradlew :notify:testDebugUnitTest --no-daemon
+        run: |
+          # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          ./gradlew :notify:testDebugUnitTest :widgets:compileDebugKotlin --no-daemon
+
+  ios:
+    name: Build the iPhone app
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Choose Xcode
+        uses: ./.github/actions/setup-xcode-ios
+
+      - name: Check the Swift's format
+        working-directory: mobile/ios
+        run: |
+          find Sikemux Share Shared Notifications Tests -name '*.swift' ! -name '*.generated.swift' -print0 |
+            xargs -0 xcrun swift-format lint --strict --configuration .swift-format
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: aarch64-apple-ios aarch64-apple-ios-sim
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the icon generators' dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install XcodeGen
+        run: scripts/install-xcodegen.sh
+
+      - name: Check the shared phone core's key follows every crate the phone links
+        run: python3 mobile/scripts/phone-core.py --check
+
+      # Both slices, so a library that only fails to build for a phone shows here and not at release.
+      - name: Build the Rust client
+        run: mobile/ios/scripts/build-core.sh
+
+      - name: Generate the Xcode project
+        working-directory: mobile/ios
+        run: xcodegen generate --quiet
+
+      - name: Build the app for the simulator
+        working-directory: mobile/ios
+        run: |
+          xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/derived \
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build

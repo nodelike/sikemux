@@ -1,0 +1,9 @@
+[package]
+name = "backdrop-shaders"
+version = "0.1.0"
+edition = "2021"
+description = "Writes the phones' backdrop shaders from the Mac's WGSL"
+publish = false
+
+[dependencies]
+naga = { git = "https://github.com/gfx-rs/wgpu", rev = "3b3506ea31154edc04de64debda0e780cba2639c", features = ["wgsl-in", "msl-out", "glsl-out"] }

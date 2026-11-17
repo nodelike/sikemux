@@ -1,17 +1,11 @@
-//! What the core and its clients send each other, and nothing either side
-//! does with it. The phone app links this crate, so a change here is a change
-//! to the phone's native code and needs a store build to reach it.
+//! What the core and its clients send each other: frames, requests and their answers, events, and
+//! joining a host. The phone links this crate, so a change here is a change to its native code and
+//! needs a store build. Whatever it only passes to TypeScript as JSON lives in `sikemux-view`, and
+//! a terminal's frames in `sikemux-grid`. The phone's Rust acts on only part of what is left: the
+//! Mac's requests and events decode typed here too, since moving those would not earn its cost.
 
 pub mod accounts;
-pub mod catalog;
-pub mod changed;
-pub mod chat;
-pub mod grid;
-pub mod inbox;
-pub mod notch;
+pub mod look;
 pub mod protocol;
 pub mod pty;
-pub mod push;
-pub mod questions;
-pub mod share;
-pub mod theme;
+pub mod terminal;

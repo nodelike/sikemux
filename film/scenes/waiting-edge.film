@@ -1,0 +1,16 @@
+# A theme whose backdrop follows its agents: the pane of an agent waiting on the person is
+# framed in warn dots along its four inside edges.
+stage 1440 900
+window 1440 900
+replies waiting-edge-replies.json
+project storefront shop
+core saveTheme waiting-edge.json
+prefer themeId custom-mood-rice
+prefer paneBackdrop theme
+chat Wren
+title "Cache the product pages"
+say "Cache the product pages so a page loads without asking the database each time."
+settle 6
+front Wren
+settle 2
+snap waiting

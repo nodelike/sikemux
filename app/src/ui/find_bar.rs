@@ -107,15 +107,16 @@ impl RenderOnce for FindBar {
             .on_action(move |_: &FindPrevious, window, cx| previous(false, window, cx))
             .on_action(move |_: &CloseFind, window, cx| closing(window, cx))
             .absolute()
+            .block_mouse_except_scroll()
             .top(px(7.))
             .right(px(12.))
             .flex()
             .items_center()
             .gap(px(3.))
             .p(px(5.))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.line)
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .bg(t.surface_overlay)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(div().w(px(250.)).child(Field::new(&self.input)))
@@ -138,17 +139,17 @@ impl RenderOnce for FindBar {
                 Toggle::new("find-regex", ".*", on).on_click(move |_, window, cx| flip(window, cx))
             }))
             .child(
-                IconButton::new("find-previous", Icon::ArrowUp, "Previous match")
+                IconButton::new("find-previous", Icon::ArrowUp, t!("Previous match"))
                     .small()
                     .on_click(stepping(false)),
             )
             .child(
-                IconButton::new("find-next", Icon::ArrowDown, "Next match")
+                IconButton::new("find-next", Icon::ArrowDown, t!("Next match"))
                     .small()
                     .on_click(stepping(true)),
             )
             .child(
-                IconButton::new("find-close", Icon::Close, "Close")
+                IconButton::new("find-close", Icon::Close, t!("Close"))
                     .small()
                     .on_click(move |_, window, cx| close(window, cx)),
             )

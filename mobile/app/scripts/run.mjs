@@ -10,7 +10,7 @@ import { bindingsExist, buildCommand, libraries, readBuild, releaseCommand } fro
 import { generate } from './generate.mjs';
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PLATFORMS = ['ios', 'android'];
+const PLATFORMS = ['android'];
 const VARIANTS = ['development', 'production'];
 
 const argv = process.argv.slice(2);
@@ -18,8 +18,7 @@ const prebuildOnly = argv[0] === 'prebuild';
 const [platform, variant = prebuildOnly ? 'development' : undefined, ...rest] = prebuildOnly ? argv.slice(1) : argv;
 if (!PLATFORMS.includes(platform) || !VARIANTS.includes(variant)) {
   console.error(
-    'usage: run.mjs <ios|android> <development|production> [expo run args...]\n' +
-      '       run.mjs prebuild <ios|android> [development|production]',
+    'usage: run.mjs android <development|production> [expo run args...]\n' + '       run.mjs prebuild android [development|production]',
   );
   process.exit(1);
 }
@@ -31,9 +30,6 @@ function stop(message) {
 
 if (!bindingsExist() || libraries(platform).length === 0) {
   stop(`The Rust client has not been built for ${platform}: run \`${buildCommand[platform]}\` in mobile/ first.`);
-}
-if (platform === 'ios' && rest.includes('--device') && readBuild('ios')?.simOnly) {
-  stop('The Rust client was built for the simulator only: run `pnpm native:ios` in mobile/ to add the device slice.');
 }
 // A production build in the Debug configuration runs from Metro against the real accounts, on any Rust build.
 const release = rest.some((arg) => /^release$/i.test(arg));
@@ -69,6 +65,8 @@ await generate();
 
 const env = { ...process.env, APP_VARIANT: variant };
 if (platform === 'android' && variant === 'production' && !prebuildOnly) Object.assign(env, uploadKey());
+// Release builds send their symbols and source maps to Sentry only from CI, which has the token.
+if (!env.SENTRY_AUTH_TOKEN) env.SENTRY_DISABLE_AUTO_UPLOAD = 'true';
 // A clean prebuild deletes android/local.properties, which is where Gradle found the SDK.
 const androidStudioSdk = join(homedir(), 'Library/Android/sdk');
 if (!env.ANDROID_HOME && existsSync(androidStudioSdk)) env.ANDROID_HOME = androidStudioSdk;

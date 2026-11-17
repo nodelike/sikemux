@@ -2,7 +2,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Flags;
 use regex::RegexBuilder;
-use sikemux_wire::grid::{FindOptions, FindResult, GridPoint};
+use sikemux_wire::terminal::{FindOptions, FindResult, GridPoint};
 
 use super::Terminal;
 

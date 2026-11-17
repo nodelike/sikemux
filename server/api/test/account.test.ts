@@ -518,7 +518,7 @@ describe("purging", () => {
       "select user_id, actor, detail from audit where action = 'account.purged'",
     );
     expect(rows).toEqual([
-      { user_id: null, actor: "system", detail: { devices: 2 } },
+      { user_id: null, actor: "system", detail: { devices: 2, orgs: 0 } },
     ]);
     expect(await count("select count(*)::int as n from devices")).toBe(2);
   });

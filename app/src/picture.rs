@@ -1,27 +1,37 @@
 //! A picture shown properly: over the whole window, as large as the window lets it
 //! be, with a way to keep a copy in Downloads.
 
+use crate::ui::Clicks;
+use sikemux_calls::account::AccountPictureParams;
+use sikemux_calls::remote_image::ImageParams;
+use sikemux_calls::remote_image::PictureData;
+use sikemux_calls::stash::StashItemParams;
+use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use base64::Engine;
 use gpui_kit::component::WindowExt;
 use gpui_kit::{
-    div, img, px, size, App, Asset, Context, CursorStyle, Div, ElementId, FontWeight, Hsla, Image,
+    div, img, px, size, App, Asset, Context, Div, ElementId, FontWeight, Hsla, Image,
     ImageCacheError, ImageFormat, ImageSource, ImgResourceLoader, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, Pixels, RenderImage, SharedString, Size, StatefulInteractiveElement,
-    Styled, StyledImage, WeakEntity, Window,
+    ObjectFit, ParentElement, Pixels, RenderImage, SharedString, Size, Styled, StyledImage,
+    WeakEntity, Window,
 };
-use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::core::{Ask, Watch};
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
+use crate::reads::Read;
 use crate::theme;
 use crate::theme::{SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_SM, TEXT_XS};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
+use sikemux_calls::call;
+use sikemux_git::files::FileCopyIntoParams;
+use sikemux_git::files::FileWriteBytesParams;
 
 /// A picture from a file, one an agent sent as bytes, or one on the web.
 #[derive(Clone)]
@@ -61,10 +71,15 @@ impl Remote {
         }
     }
 
-    fn fetch(&self) -> impl std::future::Future<Output = Result<Value, String>> {
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<PictureData, String>> + Send>> {
+        let here = Target::here(&self.asks);
         match self.stashed {
-            true => crate::core::request(&self.asks, "stashPicture", json!({ "id": self.url })),
-            false => crate::core::request(&self.asks, "remoteImage", json!({ "url": self.url })),
+            true => Box::pin(here.request_typed::<call::StashPicture>(StashItemParams {
+                id: self.url.to_string(),
+            })),
+            false => Box::pin(here.request_typed::<call::RemoteImage>(ImageParams {
+                url: self.url.to_string(),
+            })),
         }
     }
 
@@ -74,11 +89,8 @@ impl Remote {
             let answer = fetched
                 .await
                 .map_err(|error| ImageCacheError::Asset(error.into()))?;
-            decode(
-                answer["mime"].as_str().unwrap_or_default(),
-                answer["data"].as_str().unwrap_or_default(),
-            )
-            .ok_or_else(|| ImageCacheError::Asset("Couldn't load the picture".into()))
+            decode(&answer.mime, &answer.data)
+                .ok_or_else(|| ImageCacheError::Asset("Couldn't load the picture".into()))
         }
     }
 }
@@ -248,19 +260,17 @@ impl AccountPicture {
         }
         self.image = None;
         if let Some(hash) = &hash {
-            let _ = asks.send(Ask::Watch(
-                "picture",
-                Watch::new("accountPicture", json!({ "hash": hash }), &[]),
-            ));
+            Target::here(asks).watch::<call::AccountPicture>(
+                Read::Picture,
+                AccountPictureParams { hash: hash.clone() },
+            );
         }
         self.hash = hash;
     }
 
-    /// Keeps the picture `accountPicture` answered with: its type, and its bytes in base64.
-    pub fn read(&mut self, value: &Value) {
-        self.image = (value["mime"].as_str())
-            .zip(value["data"].as_str())
-            .and_then(|(mime, data)| decode(mime, data));
+    /// Keeps the picture `accountPicture` answered with.
+    pub fn read(&mut self, picture: Option<PictureData>) {
+        self.image = picture.and_then(|picture| decode(&picture.mime, &picture.data));
     }
 }
 
@@ -321,17 +331,8 @@ impl Picture {
     /// The picture as `img` draws it no larger than `longest` points: from a copy decoded at
     /// twice that, for a sharp screen, where it would otherwise be decoded whole.
     pub fn source_at(&self, longest: Pixels) -> ImageSource {
-        let picture = match self {
-            Picture::File(path) if format_of(path).is_some_and(shrinks) => {
-                Shrunk::File(path.clone())
-            }
-            Picture::Sent { image, .. } if shrinks(image.format) => Shrunk::Sent(image.clone()),
-            Picture::Remote(remote) => Shrunk::Remote(remote.clone()),
-            _ => return self.source(),
-        };
-        let thumb = Thumb {
-            picture,
-            longest: (f32::from(longest) * 2.).ceil() as u32,
+        let Some(thumb) = self.thumb(longest) else {
+            return self.source();
         };
         ImageSource::Custom(Arc::new(move |window, cx| {
             let image = window.use_asset::<Thumbnail>(&thumb, cx);
@@ -340,6 +341,33 @@ impl Picture {
             }
             image
         }))
+    }
+
+    fn thumb(&self, longest: Pixels) -> Option<Thumb> {
+        let picture = match self {
+            Picture::File(path) if format_of(path).is_some_and(shrinks) => {
+                Shrunk::File(path.clone())
+            }
+            Picture::Sent { image, .. } if shrinks(image.format) => Shrunk::Sent(image.clone()),
+            Picture::Remote(remote) => Shrunk::Remote(remote.clone()),
+            _ => return None,
+        };
+        Some(Thumb {
+            picture,
+            longest: (f32::from(longest) * 2.).ceil() as u32,
+        })
+    }
+
+    /// The size its thumbnail draws at inside `room`, once that thumbnail has loaded.
+    fn fitted(&self, room: Size<Pixels>, cx: &mut App) -> Option<Size<Pixels>> {
+        let thumb = self.thumb(room.width.max(room.height))?;
+        let loaded = cx.fetch_asset::<Thumbnail>(&thumb)?.ok()?;
+        let pixels = loaded.size(0);
+        let natural = size(px(pixels.width.0 as f32), px(pixels.height.0 as f32));
+        let scale = (room.width / natural.width)
+            .min(room.height / natural.height)
+            .min(1.);
+        Some(size(natural.width * scale, natural.height * scale))
     }
 
     /// The picture's own size, once it has loaded.
@@ -392,32 +420,30 @@ pub fn thumb(
     height: Pixels,
     bench: WeakEntity<Workbench>,
     quiet: Hsla,
+    cx: &mut App,
 ) -> Div {
     let source = picture.source_at(width.max(height));
+    let shown = match picture.fitted(size(width, height), cx) {
+        Some(fitted) => img(source).w(fitted.width).h(fitted.height),
+        None => img(source).max_w(width).max_h(height),
+    };
     let clickable = div()
         .id(id)
         .max_w(width)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .overflow_hidden()
-        .cursor(CursorStyle::PointingHand)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             bench
                 .update(cx, |bench, cx| {
                     bench.show_picture(picture.clone(), window, cx)
                 })
                 .ok();
         })
-        .child(
-            img(source)
-                .max_w(width)
-                .max_h(height)
-                .object_fit(ObjectFit::Contain)
-                .with_fallback(move || {
-                    ui::text("Couldn't load the picture", TEXT_XS, FontWeight::NORMAL)
-                        .text_color(quiet)
-                        .into_any_element()
-                }),
-        );
+        .child(shown.object_fit(ObjectFit::Contain).with_fallback(move || {
+            ui::text(t!("Couldn't load the picture"), TEXT_XS, FontWeight::NORMAL)
+                .text_color(quiet)
+                .into_any_element()
+        }));
     div().flex().child(clickable)
 }
 
@@ -436,12 +462,23 @@ impl Workbench {
     ) {
         let picture = picture.into();
         let name = picture.name();
+        self.show_picture_titled(picture, name, window, cx);
+    }
+
+    /// Shows `picture` as `show_picture` does, under `name` rather than its file's.
+    pub fn show_picture_titled(
+        &self,
+        picture: Picture,
+        name: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let this = cx.weak_entity();
         window.open_dialog(cx, move |dialog, window, cx| {
             let room = window.viewport_size();
             let save = {
                 let (this, picture) = (this.clone(), picture.clone());
-                Button::new("picture-save", "Save to Downloads", Variant::Outline)
+                Button::new("picture-save", t!("Save to Downloads"), Variant::Outline)
                     .icon(Icon::Download)
                     .on_click(move |_, window, cx| {
                         this.update(cx, |bench, cx| bench.keep_picture(&picture, window, cx))
@@ -508,31 +545,28 @@ impl Workbench {
         cx.spawn_in(window, async move |_, cx| {
             let kept = match picture {
                 Picture::File(path) => {
-                    let asked = json!({ "from": path, "dir": downloads });
-                    crate::core::request(&asks, "files.copyInto", asked).await
+                    crate::core::Target::here(&asks)
+                        .request_typed::<call::FilesCopyInto>(FileCopyIntoParams {
+                            from: path.to_string_lossy().into_owned(),
+                            dir: downloads.to_string_lossy().into_owned(),
+                        })
+                        .await
                 }
                 Picture::Sent { image, .. } => {
                     let base64 = base64::engine::general_purpose::STANDARD.encode(&image.bytes);
                     write(&asks, &downloads, &name, base64).await
                 }
                 Picture::Remote(remote) => match remote.fetch().await {
-                    Ok(answer) => {
-                        let base64 = answer["data"].as_str().unwrap_or_default().to_owned();
-                        write(&asks, &downloads, &name, base64).await
-                    }
+                    Ok(answer) => write(&asks, &downloads, &name, answer.data).await,
                     Err(error) => Err(error),
                 },
             };
             let said = match kept {
-                Ok(saved) => {
-                    let name = saved
-                        .as_str()
-                        .and_then(|saved| saved.rsplit('/').next())
-                        .unwrap_or("the picture")
-                        .to_owned();
-                    format!("Saved {name} to Downloads")
-                }
-                Err(error) => format!("Could not save the picture: {error}"),
+                Ok(saved) => match saved.rsplit('/').next() {
+                    Some(name) => t!("Saved {name} to Downloads", name = name),
+                    None => t!("Saved the picture to Downloads").to_owned(),
+                },
+                Err(error) => t!("Could not save the picture: {error}", error = error),
             };
             cx.update(|window, cx| window.push_notification(said, cx))
                 .ok();
@@ -546,7 +580,10 @@ fn write(
     dir: &Path,
     name: &str,
     base64: String,
-) -> impl std::future::Future<Output = Result<Value, String>> {
-    let asked = json!({ "dir": dir, "name": name, "base64": base64 });
-    crate::core::request(asks, "files.writeBytes", asked)
+) -> impl std::future::Future<Output = Result<String, String>> {
+    crate::core::Target::here(asks).request_typed::<call::FilesWriteBytes>(FileWriteBytesParams {
+        dir: dir.to_string_lossy().into_owned(),
+        name: name.to_owned(),
+        base64,
+    })
 }

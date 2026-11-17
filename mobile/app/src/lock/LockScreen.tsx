@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { useT } from '@/i18n';
 import { Button } from '@/ui/controls';
 import { PromptScreen } from '@/ui/prompt';
 import { useColors } from '@/ui/theme';
@@ -9,6 +10,7 @@ import { unlock, useLock } from './lock';
 /** What shows until the person passes Face ID, Touch ID or the passcode. It asks by itself as it opens. */
 export function LockScreen() {
   const { asking } = useLock();
+  const t = useT();
   useEffect(() => {
     void unlock();
   }, []);
@@ -16,8 +18,8 @@ export function LockScreen() {
   return (
     <PromptScreen
       icon="IconLock"
-      title="Sikemux is locked"
-      actions={<Button kind="primary" title="Unlock" busy={asking} onPress={() => void unlock()} />}
+      title={t('Sikemux is locked')}
+      actions={<Button kind="primary" title={t('Unlock')} busy={asking} onPress={() => void unlock()} />}
     />
   );
 }

@@ -40,13 +40,13 @@
       ]
     },
     "grade": {
-      "expect": [{ "tool": "jira_search", "args": { "jql": "/PROJ/" } }],
+      "expect": [{ "tool": "jira", "args": { "action": "search", "jql": "/PROJ/" } }],
       "forbid": [
-        { "tool": "jira_search", "args": { "jql": { "$not": "/~/" }, "limit": "/^(2[1-9]|[3-9]\\d|\\d{3,})$/" }, "why": "listed more than 20 of the project's tickets without a text filter for a duplicate check" },
-        { "tool": "jira_search", "args": { "limit": "/^(5[1-9]|[6-9]\\d|\\d{3,})$/" }, "why": "asked for more than 50 results for a duplicate check" },
-        { "tool": "jira_search", "args": { "comments": true }, "why": "pulled every result's comments into a duplicate check" }
+        { "tool": "jira", "args": { "action": "search", "jql": { "$not": "/~/" }, "limit": "/^(2[1-9]|[3-9]\\d|\\d{3,})$/" }, "why": "listed more than 20 of the project's tickets without a text filter for a duplicate check" },
+        { "tool": "jira", "args": { "action": "search", "limit": "/^(5[1-9]|[6-9]\\d|\\d{3,})$/" }, "why": "asked for more than 50 results for a duplicate check" },
+        { "tool": "jira", "args": { "action": "search", "comments": true }, "why": "pulled every result's comments into a duplicate check" }
       ],
-      "limit": [{ "tool": "jira_search", "max": 3 }, { "tool": "jira_issue", "max": 2 }],
+      "limit": [{ "tool": "jira", "args": { "action": "search" }, "max": 3 }, { "tool": "jira", "args": { "action": "issue" }, "max": 2 }],
       "reply": "/PROJ-77/",
       "replyWhy": "did not point at PROJ-77 as the likely duplicate"
     },

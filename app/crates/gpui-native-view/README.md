@@ -17,11 +17,11 @@ Shows a native view, such as a web page or a PDF, in a
   keyboard, and focusing anything else in GPUI takes it back. Actions and key
   contexts on the element's ancestors work as for any focused element.
 
-Native views sit above everything GPUI draws. Call
-`Window::enable_scene_overlay` as the window opens: popovers, menus and other
-deferred drawing then show above the views and take the clicks where they sit.
-That needs GPUI with the window overlay plane, as in
-[sikemux/gpui](https://github.com/sikemux/gpui).
+A native view takes its place in paint order, as GPUI's own drawing does:
+whatever is painted after it and over it, such as a fade, a popover, a dialog or
+a toast, shows above it and takes the clicks where it sits. Call
+`Window::enable_scene_overlay` as the window opens. That needs GPUI with the
+window overlay plane, as in [sikemux/gpui](https://github.com/sikemux/gpui).
 
 ```rust
 let page = NativeSurface::new(OwnedView::new(pdf_view, window).unwrap());

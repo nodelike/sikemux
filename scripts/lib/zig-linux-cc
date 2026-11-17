@@ -1,0 +1,7 @@
+#!/bin/sh
+# Compiles C for aarch64 Linux with zig, which carries Linux's headers; the target cc-rs passes is one zig does not take.
+for arg; do
+  shift
+  case "$arg" in --target=*) ;; *) set -- "$@" "$arg" ;; esac
+done
+exec zig cc -target aarch64-linux-gnu "$@"

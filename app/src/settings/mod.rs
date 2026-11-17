@@ -2,6 +2,12 @@
 //! chosen from the list on their left or found by searching. Every change
 //! goes to the core as it is made.
 
+use crate::core::Target;
+use crate::ui::Clicks;
+use crate::workbench::actions;
+use sikemux_calls::call;
+use sikemux_view::prefs::PreferenceChange;
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -11,9 +17,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
 
-use crate::core::Ask;
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS_H,
@@ -29,18 +33,10 @@ pub(crate) mod rows;
 
 pub use index::Page;
 
-/// Named by today's command id, so a shortcut the person set for it still finds it.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "settings.toggle")]
-pub struct ToggleSettings;
-
 actions!(
     settings,
     [CloseSettings, FocusSearch, ResultUp, ResultDown, OpenResult]
 );
-
-/// What every project's agents did, as the Activity page watches it.
-pub const ACTIVITY: &str = "activity-everywhere";
 
 const CONTEXT: &str = "Settings";
 const SEARCH: &str = "SettingsSearch";
@@ -99,6 +95,8 @@ pub struct Open {
     chosen: usize,
     /// A place a search led to, lit for a moment.
     flash: Option<(&'static str, Instant)>,
+    /// The section to scroll to once its page has drawn.
+    reveal_section: Cell<Option<&'static str>>,
     scroll: ScrollHandle,
     /// Held while settings are open, so Escape and their other keys reach them wherever the
     /// person clicked.
@@ -129,7 +127,7 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
     if shown.is_some() {
         return;
     }
-    let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search settings"));
+    let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search settings")));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {
         if let InputEvent::Change = event {
             let query = search.read(cx).value();
@@ -146,6 +144,7 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
         query: SharedString::default(),
         chosen: 0,
         flash: None,
+        reveal_section: Cell::new(None),
         scroll: ScrollHandle::new(),
         focus: cx.focus_handle(),
         nav: ScrollHandle::new(),
@@ -248,14 +247,10 @@ pub fn before_shortcut(
     }
 }
 
-pub use pages::{providers_changed, remote_moved};
+pub use pages::{devices_changed, plugins_changed, providers_changed};
 
-/// Sets one of the person's preferences in the core.
-pub(crate) fn set(bench: &Workbench, key: &str, value: impl Into<Value>) {
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: json!({ "key": key, "value": value.into() }),
-    });
+pub(crate) fn set(bench: &Workbench, change: PreferenceChange) {
+    Target::here(&bench.asks).call_typed::<call::SetPreference>(change);
 }
 
 /// Opens settings on `page` with `section` brought into view and lit, as a search hit is.
@@ -296,12 +291,7 @@ fn go_to(
         settings
             .search
             .update(cx, |search, cx| search.set_value("", window, cx));
-        let section = pages::sections(entry.page)
-            .iter()
-            .position(|section| *section == entry.section);
-        if let Some(at) = section {
-            settings.scroll.scroll_to_item(at + 1);
-        }
+        settings.reveal_section.set(Some(entry.section));
     });
     if shown.is_none() {
         return;
@@ -319,7 +309,6 @@ fn go_to(
     .detach();
 }
 
-/// Settings in the stage's place.
 pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
     let Some(settings) = bench.settings.read(cx).open.as_ref() else {
         return div().into_any_element();
@@ -329,6 +318,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
     if settings.query.trim().is_empty() {
         let page = settings.page;
         cx.set_global(rows::Shown(page.name()));
+        cx.set_global(rows::Drawn::default());
         pages::prepare(bench, page, window, cx);
         dialogs = pages::dialogs(bench, &this, window, cx);
     }
@@ -338,8 +328,8 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
     let t = Tokens::get(cx).clone();
     let found = index::search(&settings.query, cx);
     let searching = !settings.query.trim().is_empty();
-    let close_keys = crate::keymap::hint("settings.toggle", cx)
-        .map_or_else(|| "Esc".to_owned(), |keys| format!("Esc / {keys}"));
+    let close_keys = crate::keymap::hint(actions::ToggleSettings::ID, cx)
+        .map_or_else(|| "Esc".to_owned(), |keys| t!("Esc / {keys}", keys = keys));
 
     let page_row = |page: Page| {
         let this = this.clone();
@@ -351,7 +341,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             .gap(px(9.))
             .h(px(24.))
             .px(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_size(crate::theme::ui_text(TEXT_XS_H))
             .text_color(if chosen {
@@ -361,15 +351,19 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             })
             .when(chosen, |row| row.bg(t.surface_chosen))
             .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
-            .on_click(move |_, window, cx| {
-                this.update(cx, |bench, cx| open(bench, page, window, cx))
-            })
+            .clicks(move |_, window, cx| this.update(cx, |bench, cx| open(bench, page, window, cx)))
             .child(ui::icon(page.icon(), 14.).text_color(if chosen {
                 t.text_secondary
             } else {
                 t.text_tertiary
             }))
-            .child(div().flex_1().min_w_0().truncate().child(page.name()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(crate::i18n::tr(page.name())),
+            )
     };
     let nav = index::GROUPS
         .iter()
@@ -388,7 +382,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         .px(SPACE_2)
                         .pt(px(if at == 0 { 10. } else { 20. }))
                         .pb(px(5.))
-                        .child(ui::caps(group, cx))
+                        .child(ui::caps(crate::i18n::tr(group), cx))
                         .child(div().flex_1().h(px(1.)).bg(t.border)),
                 )
                 .children(
@@ -400,7 +394,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 )
         });
 
-    let account = bench.view.as_ref().and_then(|view| view.account.as_deref());
+    let account = bench.this_view().and_then(|view| view.account.as_deref());
     let me = {
         let this = this.clone();
         let chosen = settings.page == Page::Account && !searching;
@@ -411,7 +405,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                     .name
                     .clone()
                     .or_else(|| account.email.clone())
-                    .unwrap_or_else(|| "Signed in".into())
+                    .unwrap_or_else(|| t!("Signed in").into())
                     .into(),
             ),
             None => (
@@ -422,7 +416,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         t.text_tertiary
                     })
                     .into_any_element(),
-                "Not signed in".into(),
+                t!("Not signed in").into(),
             ),
         };
         div()
@@ -432,7 +426,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             .gap(px(9.))
             .h(px(24.))
             .px(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_size(crate::theme::ui_text(TEXT_XS_H))
             .text_color(if chosen {
@@ -442,7 +436,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             })
             .when(chosen, |row| row.bg(t.surface_chosen))
             .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 this.update(cx, |bench, cx| open(bench, Page::Account, window, cx))
             })
             .child(div().w(px(14.)).flex().justify_center().child(mark))
@@ -461,7 +455,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         .gap(px(1.))
         .pt(SPACE_1H)
         .mt(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(me)
         .children(index::FOOT.map(|page| {
@@ -478,7 +472,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         .flex()
         .flex_col()
         .bg(rows::card_fill(cx).opacity(0.7))
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.border)
         .child(
             div()
@@ -540,13 +534,16 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
 
     let (title, about): (SharedString, SharedString) = match searching {
         true => (
-            "Search".into(),
+            t!("Search").into(),
             match found.len() {
-                1 => "1 place matches".into(),
-                count => format!("{count} places match").into(),
+                1 => t!("1 place matches").into(),
+                count => t!("{count} places match", count = count).into(),
             },
         ),
-        false => (settings.page.name().into(), settings.page.about().into()),
+        false => (
+            crate::i18n::tr(settings.page.name()).into(),
+            crate::i18n::tr(settings.page.about()).into(),
+        ),
     };
     let header = div().flex().items_start().gap(SPACE_3).pb(SPACE_0).child(
         div()
@@ -568,7 +565,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         ui::IconButton::new(
             "settings-close",
             Icon::Close,
-            format!("Close settings ({close_keys})"),
+            t!("Close settings ({close_keys})", close_keys = close_keys),
         )
         .on_click(move |_, window, cx| this.update(cx, |bench, cx| close(bench, window, cx)))
     };
@@ -577,16 +574,19 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         true if found.is_empty() => vec![div()
             .py(SPACE_6)
             .text_color(t.text_secondary)
-            .child(format!("No settings match “{}”", settings.query.trim()))
+            .child(t!(
+                "No settings match “{query}”",
+                query = settings.query.trim()
+            ))
             .into_any_element()],
         true => vec![div()
             .flex()
             .flex_col()
             .p(SPACE_1)
             .bg(rows::card_fill(cx))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .children(found.iter().enumerate().map(|(at, entry)| {
                 let (entry, this) = (*entry, this.clone());
                 let chosen = at == settings.chosen;
@@ -596,19 +596,26 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                     .flex_col()
                     .px(SPACE_3)
                     .py(px(7.))
-                    .rounded(theme::RADIUS_2)
-                    .cursor_pointer()
+                    .rounded(theme::radius_2())
                     .when(chosen, |row| row.bg(t.surface_chosen))
                     .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
-                    .on_click(move |_, window, cx| {
+                    .clicks(move |_, window, cx| {
                         this.update(cx, |bench, cx| go_to(bench, entry, window, cx))
                     })
-                    .child(div().text_color(t.text_primary).child(entry.label))
+                    .child(
+                        div()
+                            .text_color(t.text_primary)
+                            .child(crate::i18n::tr(entry.label)),
+                    )
                     .child(
                         div()
                             .text_size(crate::theme::ui_text(TEXT_2XS_H))
                             .text_color(t.text_tertiary)
-                            .child(format!("{} › {}", entry.page.name(), entry.section)),
+                            .child(format!(
+                                "{} › {}",
+                                crate::i18n::tr(entry.page.name()),
+                                crate::i18n::tr(entry.section)
+                            )),
                     )
             }))
             .into_any_element()],
@@ -618,6 +625,12 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 .filter(|(_, at)| at.elapsed() < FLASH)
                 .map(|(section, _)| section);
             let mut sections = pages::render(bench, settings, flash, &this, window, cx);
+            if let Some(wanted) = settings.reveal_section.take() {
+                let drawn = cx.global::<rows::Drawn>().0.borrow();
+                if let Some(at) = drawn.iter().position(|title| title.as_ref() == wanted) {
+                    settings.scroll.scroll_to_item(at + 1);
+                }
+            }
             sections.extend(dialogs);
             sections
         }

@@ -7,11 +7,18 @@ import {
 } from "kysely";
 import type {
   AccountEventType,
+  BillingInterval,
+  BillingProductId,
+  InvoiceLine,
+  InvoiceReason,
+  InvoiceStatus,
+  SubscriptionStatus,
   ApnsEnvironment,
   Channel,
   DeviceRole,
   HookHeader,
   HookMethod,
+  OrgRole,
   Platform,
   PushApp,
   PushPlatform,
@@ -39,8 +46,11 @@ export interface Tables {
     clerk_attempts: ColumnType<number, never, number>;
     clerk_retry_at: ColumnType<Date | null, never, Date | null>;
     purge_after: ColumnType<Date | null, never, Date | null>;
+    billing_attempts: ColumnType<number, never, number>;
+    billing_retry_at: ColumnType<Date | null, never, Date | null>;
     events_pruned_through: ColumnType<string, never, string | number>;
     stash_seen_at: ColumnType<Date | null, never, Date>;
+    staff: ColumnType<boolean, never, boolean>;
   };
   events: {
     id: Generated<string>;
@@ -92,6 +102,8 @@ export interface Tables {
       string | null | undefined,
       string | null
     >;
+    /** Its join tickets say it never signs for the person. */
+    hands_only: ColumnType<boolean, boolean | undefined, boolean>;
   };
   challenges: { nonce: string; user_id: string; expires_at: Date };
   host_sign_ins: {
@@ -202,6 +214,203 @@ export interface Tables {
     body: Buffer;
     attempts: ColumnType<number, never, number>;
     retry_at: ColumnType<Date | null, never, Date | null>;
+  };
+  vaults: {
+    user_id: string;
+    generation: ColumnType<number, never, number>;
+    recovery_key: string;
+    recovery_wrap: string;
+    rotate: ColumnType<boolean, never, boolean>;
+    created_by: string;
+    created_at: CreatedAt;
+    rotated_at: ColumnType<Date | null, never, Date>;
+  };
+  vault_keys: {
+    user_id: string;
+    host_key: string;
+    generation: number;
+    wrapped: string;
+    wrapped_by: string;
+    created_at: ColumnType<Date, never, Date>;
+  };
+  vault_entries: {
+    id: string;
+    user_id: string;
+    plugin: string;
+    generation: number;
+    sealed: string;
+    revision: number;
+    updated_by: string;
+    updated_at: ColumnType<Date, never, Date>;
+    created_at: CreatedAt;
+  };
+  vault_uses: {
+    id: Generated<string>;
+    user_id: string;
+    entry_id: string;
+    plugin: string;
+    host_key: string;
+    actor: string;
+    count: number;
+    first_at: ColumnType<Date, string, string>;
+    last_at: ColumnType<Date, string, string>;
+  };
+  mod_counters: {
+    user_id: string;
+    seq: ColumnType<string, never, number>;
+    sealed_bytes: ColumnType<string, never, number>;
+    cleared_seq: ColumnType<string, never, never>;
+    file_bytes: ColumnType<string, never, number>;
+  };
+  mod_files: {
+    user_id: string;
+    mod_id: string;
+    file_id: string;
+    stored_as: string;
+    size: ColumnType<string, number, never>;
+    stored_by: string;
+    stored_at: CreatedAt;
+  };
+  mod_documents: {
+    user_id: string;
+    mod_id: string;
+    doc_id: string;
+    generation: number;
+    sealed: string;
+    removed: boolean;
+    revision: number;
+    seq: ColumnType<string, number, number>;
+    updated_by: string;
+    updated_at: ColumnType<Date, never, Date>;
+  };
+  mod_purges: {
+    user_id: string;
+    seq: ColumnType<string, number, never>;
+    mod_id: string;
+    purged_by: string;
+    purged_at: CreatedAt;
+  };
+  orgs: {
+    id: Generated<string>;
+    name: string;
+    created_by: string;
+    created_at: CreatedAt;
+  };
+  org_users: {
+    id: Generated<string>;
+    org_id: string;
+    user_id: string;
+    role: OrgRole;
+    invited_by: string | null;
+    joined_at: CreatedAt;
+  };
+  org_invites: {
+    id: Generated<string>;
+    org_id: string;
+    role: OrgRole;
+    token_hash: string;
+    invited_by: string;
+    created_at: CreatedAt;
+    expires_at: Date;
+    accepted_by: ColumnType<string | null, never, string>;
+    accepted_at: ColumnType<Date | null, never, Date>;
+    revoked_at: ColumnType<Date | null, never, Date>;
+  };
+  billing_customers: {
+    id: Generated<string>;
+    user_id: string | null;
+    org_id: string | null;
+    provider: string;
+    provider_customer_id: string | null;
+    paid_by: ColumnType<string | null, never, string | null>;
+    created_at: CreatedAt;
+  };
+  billing_people: {
+    provider: string;
+    user_id: string;
+    provider_customer_id: string;
+    created_at: CreatedAt;
+  };
+  billing_checkouts: {
+    provider: string;
+    provider_checkout_id: string;
+    customer_id: string;
+    opened_by: string;
+    provider_customer_id: string;
+    product: BillingProductId;
+    interval: BillingInterval;
+    quantity: number;
+    created_at: CreatedAt;
+  };
+  subscriptions: {
+    id: Generated<string>;
+    customer_id: string;
+    provider_subscription_id: string;
+    product: BillingProductId;
+    interval: BillingInterval;
+    quantity: number;
+    status: SubscriptionStatus;
+    current_period_end: Date;
+    cancel_at_period_end: boolean;
+    started_at: Date;
+    ended_at: Date | null;
+    next_product: BillingProductId | null;
+    next_interval: BillingInterval | null;
+    next_quantity: number | null;
+    provider_updated_at: Date;
+    seats_cut_to: Generated<number | null>;
+    seats_cut_at: Generated<Date | null>;
+  };
+  invoices: {
+    id: Generated<string>;
+    customer_id: string;
+    provider_subscription_id: string;
+    provider_payment_id: string;
+    lines: ColumnType<InvoiceLine[], string, never>;
+    reason: InvoiceReason;
+    amount: ColumnType<string, number, number>;
+    currency: string;
+    status: InvoiceStatus;
+    at: Date;
+    refund_requested_at: Date | null;
+    refunded_at: Date | null;
+  };
+  billing_events: {
+    provider: string;
+    event_id: string;
+    type: string;
+    received_at: CreatedAt;
+  };
+  billing_strays: {
+    provider: string;
+    provider_id: string;
+    created_at: CreatedAt;
+  };
+  plan_gifts: {
+    user_id: string;
+    plan: "pro";
+    given_at: CreatedAt;
+    ends_at: Date;
+  };
+  billing_held_sales: {
+    provider: string;
+    provider_subscription_id: string;
+    provider_checkout_id: string;
+    created_at: CreatedAt;
+  };
+  billing_calls: {
+    id: Generated<string>;
+    provider: string;
+    action: "cancel_now" | "cancel_at_period_end" | "refund";
+    subscription: ColumnType<
+      Record<string, unknown> | null,
+      string | null,
+      never
+    >;
+    provider_payment_id: string | null;
+    attempts: ColumnType<number, never, number>;
+    retry_at: ColumnType<Date, never, Date>;
+    created_at: CreatedAt;
   };
   audit: {
     id: Generated<string>;

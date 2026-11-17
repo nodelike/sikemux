@@ -1,22 +1,29 @@
 // Where SigNoz lives, how this machine signs in to it, and the Keychain
 // entries that hold the secret. An API key sits under the same Keychain
 // service the `signoz` shell CLI reads, so either can use a key the other
-// saved. A signed-in session keeps only its refresh token there.
+// saved. A signed-in session keeps its access and refresh tokens there.
 
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::http::{self, AddressProblem, PlainHttp};
 use sikemux_plugin_api::keychain_service;
-use sikemux_plugin_api::process;
 use sikemux_plugin_api::store::{self, Secrets};
 
 use crate::error::{SignozError, SignozResult};
 
+/// How the plugin signs in to SigNoz: a session from an email and password, or an API key.
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthMode {
+    #[default]
+    Session,
+    ApiKey,
+}
+
 /// The signoz CLI's own entry, which every build shares with it.
 pub const API_KEYS: Secrets = Secrets::new("signoz-api");
 pub const SESSIONS: Secrets = Secrets::new(keychain_service!("sikemux-signoz-session"));
-
-pub use sikemux_plugin_signoz_views::AuthMode;
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +43,7 @@ pub struct SignozConfig {
 
 pub fn load(data_dir: &Path) -> SignozResult<SignozConfig> {
     let config: SignozConfig = store::load(data_dir)?;
-    Ok(match process::user_environment::var("SIGNOZ_URL") {
+    Ok(match sikemux_process::user_environment::var("SIGNOZ_URL") {
         Some(url) if !url.trim().is_empty() => with_url_override(config, &url),
         _ => config,
     })
@@ -59,24 +66,18 @@ fn with_url_override(config: SignozConfig, raw: &str) -> SignozConfig {
 
 pub fn validate_url(raw: &str) -> SignozResult<String> {
     let trimmed = raw.trim().trim_end_matches('/');
-    let url = url::Url::parse(trimmed)
-        .map_err(|_| SignozError::BadArg("the SigNoz URL is not a URL".into()))?;
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(SignozError::BadArg(
-            "leave credentials out of the URL".into(),
-        ));
-    }
-    let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-    match url.scheme() {
-        "https" => {}
-        "http" if local => {}
-        _ => {
-            return Err(SignozError::BadArg(
-                "SigNoz must be reached over HTTPS, or HTTP on this machine".into(),
-            ))
+    match http::base_url(trimmed, PlainHttp::OnThisMachine) {
+        Ok(_) => Ok(trimmed.to_string()),
+        Err(AddressProblem::NotAnAddress) => {
+            Err(SignozError::BadArg("the SigNoz URL is not a URL".into()))
         }
+        Err(AddressProblem::HoldsCredentials) => Err(SignozError::BadArg(
+            "leave credentials out of the URL".into(),
+        )),
+        Err(AddressProblem::Scheme) => Err(SignozError::BadArg(
+            "SigNoz must be reached over HTTPS, or HTTP on this machine".into(),
+        )),
     }
-    Ok(trimmed.to_string())
 }
 
 /// Keychain entries are named after the host, so two SigNoz instances never
@@ -88,27 +89,38 @@ pub fn account_for(url: &str) -> String {
         .unwrap_or_else(|| "signoz".into())
 }
 
-pub fn validate_account(raw: &str) -> SignozResult<String> {
-    let account = raw.trim();
-    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-');
-    if account.is_empty() || account.len() > 128 || !account.chars().all(allowed) {
-        return Err(SignozError::BadArg(
-            "the Keychain account is letters, digits, dots, dashes and underscores".into(),
-        ));
-    }
-    Ok(account.to_string())
-}
-
-pub fn keychain_write(secrets: Secrets, account: &str, secret: &str) -> SignozResult<()> {
-    let account = validate_account(account)?;
-    Ok(secrets.write(&account, secret)?)
-}
-
 pub fn env_api_key() -> Option<String> {
-    process::user_environment::var("SIGNOZ_API_KEY")
+    sikemux_process::user_environment::var("SIGNOZ_API_KEY")
         .map(|key| key.trim().to_string())
         .filter(|key| !key.is_empty())
 }
+
+impl sikemux_plugin_api::vault::Whole for SignozConfig {
+    fn identity(&self) -> Option<String> {
+        let shared_with_cli = self.auth == AuthMode::ApiKey && !self.owns_key;
+        (!self.url.is_empty() && !self.account.is_empty() && !shared_with_cli)
+            .then(|| format!("{}|{}", self.url, self.account))
+    }
+
+    fn label(&self) -> String {
+        if self.email.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{} on {}", self.email, self.url)
+        }
+    }
+
+    fn secrets(&self) -> Vec<(Secrets, String)> {
+        let kept = match self.auth {
+            AuthMode::Session => SESSIONS,
+            AuthMode::ApiKey => API_KEYS,
+        };
+        vec![(kept, self.account.clone())]
+    }
+}
+
+pub static BOOK: sikemux_plugin_api::vault::Single<SignozConfig> =
+    sikemux_plugin_api::vault::Single::new("config.json");
 
 #[cfg(test)]
 mod tests {
@@ -130,12 +142,6 @@ mod tests {
     fn names_keychain_entries_after_the_host() {
         assert_eq!(account_for("https://logs.example.com"), "logs.example.com");
         assert_eq!(account_for("http://localhost:3301"), "localhost");
-    }
-
-    #[test]
-    fn keeps_keychain_arguments_to_safe_characters() {
-        assert!(validate_account("work").is_ok());
-        assert!(validate_account("a b").is_err());
     }
 
     #[test]

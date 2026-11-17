@@ -32,7 +32,6 @@ export function useShareIntake() {
   }, []);
 }
 
-/** Goes back to the app that shared. */
 export function leaveToSharer() {
   stashNative?.leave?.();
 }

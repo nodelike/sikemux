@@ -1,18 +1,19 @@
+import { english, type Say } from "../lib/say";
 import { tokenCount } from "./contextUsage";
-import { toolKind, toolTarget } from "./toolLabels";
+import { toolKind } from "./toolLabels";
 import { callCount } from "./toolView";
-import type { AsyncTask, ChatPart, ChatRows, SubagentCard, WorkflowAgent } from "./types";
+import type { AsyncTask, ChatPart, SubagentCard, WorkflowAgent } from "../wire.generated";
 
 const MAX_DETAIL_CHARS = 120_000;
 
-export function formatDetail(value: unknown): string {
+export function formatDetail(value: unknown, say: Say = english): string {
     let formatted: string;
     try {
         formatted = JSON.stringify(value, null, 2) ?? String(value);
     } catch {
         formatted = String(value);
     }
-    return formatted.length > MAX_DETAIL_CHARS ? `${formatted.slice(0, MAX_DETAIL_CHARS)}\n… output truncated` : formatted;
+    return formatted.length > MAX_DETAIL_CHARS ? `${formatted.slice(0, MAX_DETAIL_CHARS)}\n${say("… output truncated")}` : formatted;
 }
 
 /* An attachment arrives as bytes and a type, with nothing naming it, so the
@@ -37,28 +38,22 @@ export function decodedFenceName(info: string): string {
 
 export type PartGroup = { id: string; tools: Extract<ChatPart, { kind: "tool" }>[] } | { id: string; part: ChatPart };
 
-/* Consecutive calls share one group, except a page an agent showed, which is
-   part of its reply rather than a step towards it. */
+/* Consecutive calls share one group, except a page or GIF the agent showed, which draws in
+   the call's place and is part of its reply rather than a step towards it. */
 export function groupParts(parts: ChatPart[]): PartGroup[] {
     const groups: PartGroup[] = [];
     for (const part of parts) {
         const last = groups.at(-1);
-        if (part.kind !== "tool" || part.page) groups.push({ id: part.id, part });
+        if (part.kind !== "tool" || part.page || part.gif) groups.push({ id: part.id, part });
         else if (last && "tools" in last) last.tools.push(part);
         else groups.push({ id: part.id, tools: [part] });
     }
     return groups;
 }
 
-export const isReply = (part: ChatPart) => part.kind === "text" || part.kind === "content";
-
-/* A page the agent showed and a subagent still at work stay in view when the turn around them folds. */
-export const outlivesFold = (part: ChatPart) =>
-    (part.kind === "tool" && part.page !== undefined) || (part.kind === "subagent" && part.subagent.state === "running");
-
-/** The parts a message shows: all of them, or once the work before `from` is folded away, the reply and what outlives the fold. */
-export function shownParts(parts: ChatPart[], from: number): ChatPart[] {
-    return from > 0 ? parts.filter((part, index) => (index >= from && isReply(part)) || outlivesFold(part)) : parts;
+/** The parts a message shows: all of them, or once its turn's work is folded away, those the core keeps in view. */
+export function shownParts(parts: ChatPart[], shown: readonly number[] | null): ChatPart[] {
+    return shown === null ? parts : parts.filter((_, index) => shown.includes(index));
 }
 
 export const SUBAGENT_WORDS: Readonly<Record<SubagentCard["state"], string>> = {
@@ -89,16 +84,16 @@ export function subagentTask(task: string): string {
 
 /* What a subagent is up to: the call it made last says more than the prose it
    wrote before starting. */
-export function subagentActivity(subagent: SubagentCard): string {
-    if (subagent.lastTool) return `${toolKind(subagent.lastTool)} ${toolTarget(subagent.lastTool)}`.trim();
+export function subagentActivity(subagent: SubagentCard, say: Say = english): string {
+    if (subagent.lastTool) return `${toolKind(subagent.lastTool, say)} ${subagent.lastTool.row.target}`.trim();
     return subagentTask(subagent.task);
 }
 
 /* A task whose description repeats its name would print the same words twice,
    once in each voice, so the detail takes the first thing that says more. */
-export function taskDetail(task: AsyncTask): string | undefined {
+export function taskDetail(task: AsyncTask, say: Say = english): string | undefined {
     const detail = [task.summary, task.description, task.lastToolName, task.taskType].find((text) => text && text !== task.name);
-    return [task.owner && `from ${task.owner}`, detail].filter(Boolean).join(" · ") || undefined;
+    return [task.owner && say("from {owner}", { owner: task.owner }), detail].filter(Boolean).join(" · ") || undefined;
 }
 
 /* A running agent says what it is doing; one that ended says which phase it was in. */
@@ -108,18 +103,24 @@ export function workflowAgentDetail(agent: WorkflowAgent): string | undefined {
     return agent.phase;
 }
 
-export function workflowAgentCost(agent: WorkflowAgent): string | undefined {
-    const cost = [agent.tokens && `${tokenCount(agent.tokens)} tokens`, agent.toolCalls && `${agent.toolCalls} tools`];
+export function workflowAgentCost(agent: WorkflowAgent, say: Say = english): string | undefined {
+    const cost = [
+        agent.tokens && say("{count} tokens", { count: tokenCount(agent.tokens) }),
+        agent.toolCalls && say("{count} tools", { count: agent.toolCalls }),
+    ];
     return cost.filter(Boolean).join(" · ") || undefined;
 }
 
-export function workflowAgentCount(agents: WorkflowAgent[]): string {
+export function workflowAgentCount(agents: WorkflowAgent[], say: Say = english): string {
     const finished = agents.filter((agent) => agent.state === "completed" || agent.state === "failed").length;
-    return `${finished}/${agents.length} ${agents.length === 1 ? "agent" : "agents"}`;
+    return agents.length === 1 ? say("{finished}/1 agent", { finished }) : say("{finished}/{count} agents", { finished, count: agents.length });
 }
 
-export function subagentCost(subagent: SubagentCard): string | undefined {
-    const cost = [subagent.tokens && `${tokenCount(subagent.tokens)} tokens`, subagent.calls > 0 && callCount(subagent.calls)];
+export function subagentCost(subagent: SubagentCard, say: Say = english): string | undefined {
+    const cost = [
+        subagent.tokens && say("{count} tokens", { count: tokenCount(subagent.tokens) }),
+        subagent.calls > 0 && callCount(subagent.calls, say),
+    ];
     return cost.filter(Boolean).join(" · ") || undefined;
 }
 
@@ -135,12 +136,4 @@ export function groupTasks(tasks: AsyncTask[]): [string, AsyncTask[]][] {
         else groups.set(kind, [task]);
     }
     return [...groups];
-}
-
-/** Every subagent card the chat holds, by its session. */
-export function subagentCards(chat: Pick<ChatRows, "messages" | "subagentRows" | "runningSubagents">): Map<string, SubagentCard> {
-    const cards = new Map(chat.runningSubagents.map((card) => [card.sessionId, card]));
-    for (const rows of [chat.messages, ...Object.values(chat.subagentRows)])
-        for (const message of rows) for (const part of message.parts) if (part.kind === "subagent") cards.set(part.subagent.sessionId, part.subagent);
-    return cards;
 }

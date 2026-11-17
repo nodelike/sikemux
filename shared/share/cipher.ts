@@ -35,7 +35,7 @@ export function toBase64Url(bytes: Uint8Array): string {
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** AES-256-GCM through the browser's own crypto, for the Mac and the web app. */
+/** AES-256-GCM through the browser's own crypto, for the web app. */
 export function webCipher(link: ShareLink): ShareCipher {
     const aad = new TextEncoder().encode(shareAad(link.id));
     const key = crypto.subtle.importKey("raw", fromBase64Url(link.key), "AES-GCM", false, ["encrypt", "decrypt"]);

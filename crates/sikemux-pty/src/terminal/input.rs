@@ -2,7 +2,7 @@
 //! encodes them, under the modes the program turned on.
 
 use alacritty_terminal::term::TermMode;
-use sikemux_wire::grid::{Mods, MouseAction, MouseButton, TerminalInput};
+use sikemux_wire::terminal::{Mods, MouseAction, MouseButton, TerminalInput};
 
 use super::Terminal;
 use crate::user_shell::configured_shell;
@@ -209,7 +209,6 @@ fn reads_powershell(shell: &str) -> Option<bool> {
 }
 
 impl Terminal {
-    /// The bytes to write to the program for `input`, if it takes any.
     pub fn encode(&self, input: &TerminalInput) -> Vec<u8> {
         let mode = *self.term.mode();
         let mut out = Vec::new();

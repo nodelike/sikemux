@@ -46,7 +46,7 @@ extension Simulator {
 final class SimulatorAccessibilityCommands: AccessibilityOperations {
 
   private static let coreSimulatorBridgeServiceName = "com.apple.CoreSimulator.bridge"
-  private static let springBoardServiceName = "com.apple.SpringBoard"
+  private static let emptyReads = EmptyReads()
 
   private weak var simulator: Simulator?
 
@@ -150,19 +150,16 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     do {
       element = try await dispatcher.platformElement(withRequest: request, simulator: simulator)
     } catch AccessibilityError.noTranslationObject where remediationPermitted {
-      // On the frontmost path a nil translation usually means SpringBoard (the provider of the
-      // frontmost application) is down. Re-label the error when we can confirm that; a probe
-      // failure or a live reading keeps the original .noTranslationObject (e.g. a genuine
-      // invalid point or a transient mid-respawn).
-      let springBoardRunning = (try? await resolvedLaunchCtl(simulator).serviceIsRunning(named: Self.springBoardServiceName)) ?? true
-      if !springBoardRunning {
-        throw AccessibilityError.springBoardNotRunning
+      if Self.emptyReads.bridgeLooksStuck(simulator.udid) {
+        simulator.logger.log("Frontmost accessibility reads have come back empty for \(EmptyReads.stuckAfter) seconds; restarting \(Self.coreSimulatorBridgeServiceName) to recover.")
+        try await remediateSpringBoard(forSimulator: simulator)
       }
       throw AccessibilityError.noTranslationObject
     }
     if !remediationPermitted {
       return AccessibilityElement(element: element, request: request, dispatcher: dispatcher, simulator: simulator)
     }
+    Self.emptyReads.answered(simulator.udid)
     let requiresRemediation = try await remediationRequired(forSimulator: simulator, element: element, dispatcher: dispatcher)
     if !requiresRemediation {
       return AccessibilityElement(element: element, request: request, dispatcher: dispatcher, simulator: simulator)
@@ -182,14 +179,13 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     if !frame.equalTo(.zero) {
       return false
     }
-    // A zero-framed root is stale unless its owning pid is still a live launchd service.
-    // A launchctl failure is treated as "not live" so recovery is still attempted.
+    // A zero-framed root is stale once its owning process has exited. Simulator processes are host
+    // processes, so the host answers that at once, where launchctl in a busy device takes seconds.
     let pid = element.axTranslationPid
-    let pidIsLive = (try? await resolvedLaunchCtl(simulator).processIsRunning(withProcessIdentifier: pid)) ?? false
-    if pidIsLive {
+    if pid > 0 && kill(pid, 0) == 0 {
       return false
     }
-    simulator.logger.log("Frontmost accessibility hierarchy is stale: the root element has a zero frame and its owning pid \(pid) is no longer a registered launchd service. SpringBoard has crashed and CoreSimulator's \(Self.coreSimulatorBridgeServiceName) is still bound to the dead pid; restarting \(Self.coreSimulatorBridgeServiceName) to recover.")
+    simulator.logger.log("Frontmost accessibility hierarchy is stale: the root element has a zero frame and its owning pid \(pid) has exited. SpringBoard has crashed and CoreSimulator's \(Self.coreSimulatorBridgeServiceName) is still bound to the dead pid; restarting \(Self.coreSimulatorBridgeServiceName) to recover.")
     return true
   }
 
@@ -199,5 +195,36 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     } catch {
       throw AccessibilityError.springBoardRemediationFailed(serviceName: Self.coreSimulatorBridgeServiceName)
     }
+  }
+}
+
+/// The simulator's accessibility bridge can stop answering for good, seen after a read made while the
+/// device was still booting: every frontmost read then comes back empty until the bridge restarts.
+private final class EmptyReads: @unchecked Sendable {
+  static let stuckAfter: TimeInterval = 5
+  private static let restartEvery: TimeInterval = 60
+
+  private let lock = NSLock()
+  private var emptySince: [String: Date] = [:]
+  private var lastRestart: [String: Date] = [:]
+
+  /// Notes an empty read, and says whether reads have been empty long enough to restart the bridge.
+  func bridgeLooksStuck(_ udid: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    let now = Date()
+    let since = emptySince[udid] ?? now
+    emptySince[udid] = since
+    guard now.timeIntervalSince(since) >= Self.stuckAfter else { return false }
+    if let last = lastRestart[udid], now.timeIntervalSince(last) < Self.restartEvery { return false }
+    lastRestart[udid] = now
+    emptySince[udid] = nil
+    return true
+  }
+
+  func answered(_ udid: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    emptySince[udid] = nil
   }
 }

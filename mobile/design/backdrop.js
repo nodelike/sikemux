@@ -1,60 +1,57 @@
 // The device screens' backdrop, drawn with the phone's own shaders and presets
 // from mobile/app/src/ui/Backdrop.tsx, once, then laid behind every device screen.
-import { ditheringFragmentShader, getShaderColorFromString, imageDitheringFragmentShader } from '@paper-design/shaders';
+import { getShaderColorFromString } from '@paper-design/shaders';
 
-import { vertexShaderSource } from '../app/src/ui/vertexShader.generated';
+import {
+  copyFragmentShader,
+  coverVertexShader,
+  glowMap,
+  grainFragmentShader,
+  pictureFragmentShader,
+  readPicture,
+} from '../app/src/ui/backdropShaders';
 
 const WIDTH = 390;
 const HEIGHT = 844;
 const RATIO = 2;
 const INK = '#e7e5ef';
+const ACCENT = '#a277ff';
 const SHADER_DOT = '#19191e';
 const STILL_MS = 2500;
 const STORE = 'sikemux-design-backdrop';
 const PANE_PICTURE = '/pane.jpg';
 
 function preset(picture) {
-  const sizing = { u_originX: 0.5, u_originY: 0.5, u_worldWidth: 0, u_worldHeight: 0, u_rotation: 0, u_offsetX: 0, u_offsetY: 0 };
   const clear = [0, 0, 0, 0];
+  // The Mac's own look, in the theme's inks; the page's mask fades it, so the shader covers the band whole.
   if (picture) {
-    const ink = getShaderColorFromString(INK);
     return {
-      fragment: imageDitheringFragmentShader,
+      fragment: pictureFragmentShader,
       band: 0.6,
-      strength: 0.38,
+      strength: 1,
       uniforms: {
-        ...sizing,
-        u_colorBack: clear,
-        u_colorFront: ink,
-        u_colorHighlight: ink,
-        u_originalColors: true,
-        u_inverted: false,
-        u_type: 4,
-        u_pxSize: 2,
-        u_colorSteps: 4,
-        u_fit: 2,
-        u_scale: 1,
-        u_imageAspectRatio: picture.naturalWidth / picture.naturalHeight,
+        u_aspect: picture.naturalWidth / picture.naturalHeight,
+        u_dotSize: 2,
+        u_pattern: 8,
+        u_contrast: 0,
+        u_brightness: 0,
+        u_glow: 0.4,
+        u_ownColours: 0,
+        u_full: 1,
+        u_strength: 0.6,
+        u_dark: clear,
+        u_middle: getShaderColorFromString(ACCENT),
+        u_light: getShaderColorFromString(INK),
         u_image: 0,
-        u_time: 0,
+        u_glowMap: 1,
       },
     };
   }
   return {
-    fragment: ditheringFragmentShader,
+    fragment: grainFragmentShader,
     band: 0.5,
     strength: 0.85,
-    uniforms: {
-      ...sizing,
-      u_colorBack: clear,
-      u_colorFront: getShaderColorFromString(SHADER_DOT),
-      u_shape: 1,
-      u_type: 4,
-      u_pxSize: 3,
-      u_fit: 0,
-      u_scale: 2.4,
-      u_time: (STILL_MS * 0.5) / 1000,
-    },
+    uniforms: { u_ink: getShaderColorFromString(SHADER_DOT), u_time: STILL_MS / 1000 },
   };
 }
 
@@ -73,7 +70,7 @@ function render(picture) {
   canvas.height = Math.round(HEIGHT * band) * RATIO;
   const gl = canvas.getContext('webgl2', { premultipliedAlpha: true, preserveDrawingBuffer: true });
   const program = gl.createProgram();
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertexShaderSource));
+  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, coverVertexShader));
   gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragment));
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
@@ -89,7 +86,7 @@ function render(picture) {
     const location = gl.getUniformLocation(program, name);
     if (!location) continue;
     if (typeof value === 'boolean') gl.uniform1i(location, value ? 1 : 0);
-    else if (name === 'u_image') gl.uniform1i(location, value);
+    else if (name === 'u_image' || name === 'u_glowMap') gl.uniform1i(location, value);
     else if (typeof value === 'number') gl.uniform1f(location, value);
     else if (value.length === 2) gl.uniform2fv(location, value);
     else gl.uniform4fv(location, value);
@@ -102,6 +99,19 @@ function render(picture) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, picture);
+    const copy = gl.createProgram();
+    gl.attachShader(copy, compile(gl, gl.VERTEX_SHADER, coverVertexShader));
+    gl.attachShader(copy, compile(gl, gl.FRAGMENT_SHADER, copyFragmentShader));
+    gl.linkProgram(copy);
+    const glow = glowMap(uniforms.u_aspect, 0.4, (width, height) => readPicture(gl, copy, width, height));
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, glow.width, glow.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, glow.pixels);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.useProgram(program);
+    gl.viewport(0, 0, canvas.width, canvas.height);
   }
   gl.clearColor(0, 0, 0, 0);
   gl.enable(gl.BLEND);

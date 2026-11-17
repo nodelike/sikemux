@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use flate2::read::GzDecoder;
 use gpui_kit::{App, Global, Image, ImageFormat};
-use sikemux_wire::protocol::{AgentFace, AgentGroup};
+use sikemux_view::workspace::AgentFace;
+use sikemux_wire::protocol::AgentGroup;
 
 include!(concat!(env!("OUT_DIR"), "/faces.rs"));
 

@@ -10,13 +10,13 @@ use std::sync::{mpsc, Arc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::cli::protocol::{HarnessRequest, CORE_REPLY_TIMEOUT};
-use crate::protocol::WindowCall;
+use crate::cli::protocol::HarnessRequest;
 
 use super::plugins::{self, Gated};
 use super::questions;
 use super::Core;
-use sikemux_wire::questions::QuestionChoice;
+use sikemux_plugin_api::vault::{as_caller, Caller};
+use sikemux_view::questions::QuestionChoice;
 
 /// A development build keeps entries of its own, so it never reads or deletes the
 /// installed app's.
@@ -35,8 +35,6 @@ const SERVICE: &str = "sikemux-approval-test";
 enum Does {
     /// Runs the tool's method as the agent called it.
     Approve,
-    /// Opens the plugin's pane on the call, to change it before it runs.
-    Edit,
     Decline,
 }
 
@@ -54,17 +52,13 @@ struct Proposal {
     header: String,
     text: String,
     choices: Vec<Offered>,
-    /// Where the plugin's pane opens to change the call; needed by an `edit` choice.
-    #[serde(default)]
-    edit: Option<String>,
 }
 
-/// The part of a call that may hold a password: what the agent called it with, and the
-/// place its plugin's pane opens to change it.
+/// The part of a call that may hold a password: what the agent called it with.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Held {
     arguments: Value,
-    edit: Option<String>,
+    caller: Caller,
 }
 
 /// A call waiting on the person, kept with its question; what it holds is kept apart.
@@ -77,6 +71,13 @@ pub(crate) struct Approval {
     does: Vec<Does>,
     #[serde(skip)]
     held: Option<Arc<Held>>,
+}
+
+impl Approval {
+    /// The choice that runs the call, by its place among the question's choices.
+    pub(crate) fn approving(&self) -> Option<usize> {
+        (self.does.iter()).position(|does| matches!(does, Does::Approve))
+    }
 }
 
 impl fmt::Debug for Approval {
@@ -156,7 +157,6 @@ impl Keeper {
         }
     }
 
-    /// Forgets what was kept for the question `id`, which is gone.
     pub(crate) fn forget(&mut self, id: &str) {
         self.kept.remove(id);
         if let Some(sender) = &self.sender {
@@ -192,6 +192,7 @@ pub(crate) async fn propose(
     request: &HarnessRequest,
     gated: Gated,
     arguments: Value,
+    caller: Caller,
 ) -> Result<Value, String> {
     let agent_id = request
         .agent_id
@@ -211,18 +212,13 @@ pub(crate) async fn propose(
         .iter()
         .map(|offered| offered.does)
         .collect();
-    if does.contains(&Does::Edit) && proposal.edit.is_none() {
-        return Err(format!(
-            "{} offered an edit with nowhere to make it",
-            gated.plugin
-        ));
-    }
     let choices = proposal
         .choices
         .into_iter()
         .map(|offered| QuestionChoice {
             label: offered.label,
             detail: offered.detail,
+            picture: None,
             recommended: false,
         })
         .collect();
@@ -230,10 +226,7 @@ pub(crate) async fn propose(
         plugin: gated.plugin,
         method: gated.method,
         does,
-        held: Some(Arc::new(Held {
-            arguments,
-            edit: proposal.edit,
-        })),
+        held: Some(Arc::new(Held { arguments, caller })),
     };
     questions::put_to_person(
         core,
@@ -265,27 +258,19 @@ pub(crate) async fn settle(
     };
     match choice.and_then(|choice| approval.does.get(choice)) {
         Some(Does::Approve) => {
-            let done = plugins::call(core, plugin, method, held()?.arguments.clone())
-                .await
-                .map_err(|failure| failure.message)?;
+            let held = held()?;
+            let done = as_caller(
+                held.caller.clone(),
+                plugins::call(core, plugin, method, held.arguments.clone()),
+            )
+            .await
+            .map_err(|failure| failure.message)?;
             plugins::tell_agents_if_theirs(core, plugin);
             plugins::wrote(core, plugin, method, &Value::Null);
             Ok(match done {
                 Value::String(said) => format!("The person approved it. {said}"),
                 _ => "The person approved it, and it is done.".to_owned(),
             })
-        }
-        Some(Does::Edit) => {
-            let open = WindowCall::OpenPlugin {
-                plugin: plugin.clone(),
-                at: held()?.edit.clone().unwrap_or_default(),
-            };
-            let call = core
-                .window
-                .call(open, "change it in its form", false, None)?;
-            let late = "Sikemux's window did not open the form; try again.".to_owned();
-            super::harness::answer_of(core, call, CORE_REPLY_TIMEOUT, late).await?;
-            Ok("The person opened it in Sikemux to change it first; nothing is done until they save it there.".to_owned())
         }
         Some(Does::Decline) | None => Ok("The person turned it down; nothing was done.".to_owned()),
     }

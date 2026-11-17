@@ -1,27 +1,27 @@
 //! A run of tool calls in a chat: each call's row as the core worked it out,
 //! and what the call changed or printed once the reader opens it.
 
-use sikemux_wire::chat::ToolStatus;
+use crate::ui::Clicks;
+use sikemux_view::chat::ToolStatus;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Instant;
 
 use gpui::{Context, Render};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, relative, Action, AnyElement, App, ClipboardItem, Div, ElementId, HighlightStyle,
+    div, px, relative, AnyElement, App, ClipboardItem, Div, ElementId, FontWeight, HighlightStyle,
     Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, StyledText, Window,
 };
 use gpui_transcript::{FileKind, FilePress};
-use sikemux_wire::chat::{
-    ChatPart, DiffLine, DiffSummary, OutputSummary, ToolAction, ToolCall, ToolDetail, ToolRow,
+use sikemux_view::chat::{
+    ChatPart, DiffLine, DiffSummary, OutputPage, OutputSummary, ToolAction, ToolCall, ToolDetail,
+    ToolIntent, ToolRow,
 };
 
 use super::Drawn;
 use crate::core::ChatAsk;
-use crate::editor::OpenAt;
 use crate::icons::Icon;
 use crate::motion;
 use crate::picture::{self, Picture};
@@ -33,8 +33,8 @@ use crate::ui::clock::{self, Slot};
 use crate::ui::shimmer::shimmer;
 use crate::ui::time;
 
-/// An output longer than this opens on its first lines, and the reader asks for the rest.
-const OUTPUT_FOLD_LINES: usize = 12;
+/// An output longer than this opens on its last lines, and the reader asks for the rest.
+const OUTPUT_TAIL_LINES: usize = 8;
 /// Unchanged lines kept either side of a change; the rest fold into a gap the reader opens.
 const DIFF_CONTEXT: usize = 3;
 /// A diff taller than this scrolls inside its card.
@@ -51,8 +51,6 @@ pub struct Opened {
     calls: HashSet<String>,
     /// Outputs shown whole and diffs shown with every unchanged line, by call.
     whole: HashSet<String>,
-    /// Diffs the reader folded under their file's head, by call.
-    folded: HashSet<String>,
     /// Where each diff that scrolls inside its card is scrolled to, by call.
     scrolls: RefCell<HashMap<String, ScrollHandle>>,
     details: HashMap<String, Asked>,
@@ -67,6 +65,11 @@ struct Asked {
 }
 
 impl Opened {
+    /// Whether the reader opened or closed the run starting at `head`, if they touched it.
+    pub fn run_open(&self, head: &str) -> Option<bool> {
+        self.runs.get(head).copied()
+    }
+
     /// The open call this part is, when its detail was asked for before it ended, to ask again.
     pub fn stale(&self, part: &ChatPart) -> Option<String> {
         let ChatPart::Tool { tool, ended_at, .. } = part else {
@@ -183,7 +186,6 @@ impl<'a> Call<'a> {
     }
 }
 
-/// Whole seconds, as a running call counts them.
 /// The seconds since `started`, after `before` already spent, which the clock counts on in
 /// place without drawing the transcript again.
 fn running_for(key: String, started: u64, before: u64) -> AnyElement {
@@ -224,17 +226,17 @@ pub(super) fn word(row: &ToolRow) -> &str {
         return word;
     }
     match row.action {
-        ToolAction::Read => "read",
-        ToolAction::Edit => "edit",
-        ToolAction::Delete => "delete",
-        ToolAction::Move => "move",
-        ToolAction::Search => "search",
-        ToolAction::Execute => "run",
-        ToolAction::Think => "think",
-        ToolAction::Fetch => "fetch",
-        ToolAction::SwitchMode => "mode",
+        ToolAction::Read => t!("read"),
+        ToolAction::Edit => t!("edit"),
+        ToolAction::Delete => t!("delete"),
+        ToolAction::Move => t!("move"),
+        ToolAction::Search => t!("search"),
+        ToolAction::Execute => t!("run"),
+        ToolAction::Think => t!("think"),
+        ToolAction::Fetch => t!("fetch"),
+        ToolAction::SwitchMode => t!("mode"),
         ToolAction::Mcp => "mcp",
-        ToolAction::Other => "tool",
+        ToolAction::Other => t!("tool"),
     }
 }
 
@@ -363,9 +365,12 @@ pub fn run(
         .get(&key)
         .copied()
         .unwrap_or(live || current.is_some());
-    let count = calls.len();
+    let count: u64 = calls.iter().map(|call| call.tool.row.calls()).sum();
     let said = current.and_then(|call| call.tool.description.clone());
-    let calls_said = format!("{count} tool {}", if count == 1 { "call" } else { "calls" });
+    let calls_said = match count {
+        1 => t!("1 tool call").to_owned(),
+        count => t!("{count} tool calls", count = count),
+    };
     let label = match (&said, current.is_some()) {
         (Some(said), _) => div()
             .min_w_0()
@@ -399,8 +404,8 @@ pub fn run(
         .items_center()
         .gap(SPACE_2)
         .max_w_full()
-        .font_family(theme::UI)
-        .rounded(theme::RADIUS_2)
+        .font_family(theme::ui_font())
+        .rounded(theme::radius_2())
         .cursor_pointer()
         .hover(move |sum| sum.bg(hover).text_color(ink))
         .child(label)
@@ -409,13 +414,13 @@ pub fn run(
                 div()
                     .flex_none()
                     .text_color(looks.faint)
-                    .child(format!("{count} calls")),
+                    .child(t!("{count} calls", count = count)),
             )
         })
         .children(time.map(|time| {
             div()
                 .flex_none()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_color(looks.quiet)
                 .child(time)
         }))
@@ -424,7 +429,7 @@ pub fn run(
             open,
             looks.quiet,
         )))
-        .on_click({
+        .clicks({
             let key = key.clone();
             move |_, _, cx| {
                 reader.update(cx, |reading, cx| {
@@ -453,7 +458,7 @@ pub fn run(
     );
     let body = (shown > 0.).then(|| {
         let rows = calls.iter().enumerate().map(|(ix, call)| {
-            let row = row(call, ix + 1 == count, kind, looks, window, cx);
+            let row = row(call, ix + 1 == calls.len(), kind, looks, window, cx);
             let id = &call.tool.tool_call_id;
             if !arriving.contains(id) {
                 return row;
@@ -476,8 +481,7 @@ pub fn run(
         )
     });
     let run = div()
-        .my(px(7.))
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .child(div().flex().child(sum))
         .children(body);
@@ -486,6 +490,66 @@ pub fn run(
     }
     let key = SharedString::from(format!("run-arrive:{key}"));
     motion::arriving(key, motion::ROW_ARRIVAL, run).into_any_element()
+}
+
+/// Opens a call's detail or closes it, asking the core for it the first time.
+fn toggle_detail(
+    call: &Call,
+    looks: &Drawn,
+) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
+    let id = call.tool.tool_call_id.clone();
+    let reader = looks.reader.clone();
+    let (bench, agent, ended) = (looks.bench.clone(), looks.agent.clone(), call.ended);
+    move |_, _, cx| {
+        let ask = reader.update(cx, |reading, cx| {
+            cx.notify();
+            reading.tools.toggle(&id, ended)
+        });
+        if ask {
+            let tool = id.clone();
+            bench
+                .update(cx, |bench, _| {
+                    bench.ask_chat(ChatAsk::Detail {
+                        agent: agent.clone(),
+                        tool,
+                    })
+                })
+                .ok();
+        }
+    }
+}
+
+/// A call's detail unfolding under its line while the reader has it open.
+fn opened_detail(
+    call: &Call,
+    open: bool,
+    looks: &Drawn,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    let id = &call.tool.tool_call_id;
+    let shown = motion::follow(
+        ElementId::Name(format!("call-fold:{id}").into()),
+        if open { 1. } else { 0. },
+        if open {
+            motion::UNFOLD
+        } else {
+            motion::FOLD_AWAY
+        },
+        window,
+        cx,
+    );
+    (shown > 0.).then(|| {
+        let detail = detail(call, looks, cx);
+        motion::folded(
+            ElementId::Name(format!("call-body:{id}").into()),
+            shown,
+            detail,
+            window,
+            cx,
+        )
+        .into_any_element()
+    })
 }
 
 /// One call: a tick off the run's spine, its icon and word in the colour of what
@@ -506,7 +570,7 @@ fn row(
     let tint = tint(call, looks);
     let target = (!row.target.is_empty()).then(|| target(row, running, &id, looks, cx));
     let elapsed = if call.status() == ToolStatus::Cancelled {
-        Some("stopped".into_any_element())
+        Some(t!("stopped").into_any_element())
     } else if running {
         call.started
             .map(|started| running_for(format!("call-seconds:{id}"), started, 0))
@@ -539,6 +603,7 @@ fn row(
                         .child(format!("−{}", diff.dels)),
                 )
         }))
+        .children(row.times.map(|times| format!("×{times}")))
         .children(elapsed)
         .when(opens, |end| {
             let shown = div()
@@ -568,7 +633,7 @@ fn row(
                 .bottom_0()
                 .left(px(13.))
                 .right_0()
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .when(opens, |fill| {
                     fill.group_hover(group.clone(), |fill| fill.bg(looks.hover))
                 }),
@@ -591,25 +656,7 @@ fn row(
         )
         .children(target)
         .child(end);
-    let reader = looks.reader.clone();
-    let (bench, agent, ended) = (looks.bench.clone(), looks.agent.clone(), call.ended);
-    let toggle = move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
-        let ask = reader.update(cx, |reading, cx| {
-            cx.notify();
-            reading.tools.toggle(&id, ended)
-        });
-        if ask {
-            let tool = id.clone();
-            bench
-                .update(cx, |bench, _| {
-                    bench.ask_chat(ChatAsk::Detail {
-                        agent: agent.clone(),
-                        tool,
-                    })
-                })
-                .ok();
-        }
-    };
+    let toggle = toggle_detail(call, looks);
     let node = div()
         .id(group.clone())
         .group(group)
@@ -618,29 +665,58 @@ fn row(
         .flex_col()
         .child(spine(last, looks))
         .child(line)
-        .when(opens, |node| node.cursor_pointer().on_click(toggle));
-    let shown = motion::follow(
-        ElementId::Name(format!("call-fold:{}", call.tool.tool_call_id).into()),
-        if open { 1. } else { 0. },
-        if open {
-            motion::UNFOLD
-        } else {
-            motion::FOLD_AWAY
-        },
-        window,
-        cx,
-    );
-    let node = node.when(shown > 0., |node| {
-        let detail = detail(call, looks, cx);
-        node.child(motion::folded(
-            ElementId::Name(format!("call-body:{}", call.tool.tool_call_id).into()),
-            shown,
-            detail,
-            window,
-            cx,
-        ))
-    });
+        .when(opens, |node| node.clicks(toggle));
+    let node = node.children(opened_detail(call, open, looks, window, cx));
     node.into_any_element()
+}
+
+/// The agents the call reached, each as the chip prose draws it, then what it said of them:
+/// for an agent it started, the task in full ink and the model it runs on.
+fn agent_pills(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Option<Div> {
+    if row.agents.is_empty() {
+        return None;
+    }
+    let bench = looks.bench.upgrade()?;
+    let from = bench.read(cx).chat_target(&looks.agent);
+    let names = row
+        .target
+        .split(", ")
+        .map(|name| name.trim_start_matches('@'));
+    let pills = (row.agents.iter().zip(names)).map(|(agent, name)| {
+        let mark = looks.mark_of(agent, &looks.provider, TEXT_2XS + 1., cx);
+        super::agent_pill_of(agent, name, mark, TEXT_2XS, from.clone(), &looks.bench, cx)
+    });
+    let started = row.intent == ToolIntent::Start;
+    let words = |said: Div| match started {
+        true => said
+            .font_family(theme::ui_font())
+            .text_size(theme::ui_text(TEXT_XS)),
+        false => said,
+    };
+    let detail = row.detail.clone().map(|detail| {
+        let said = words(div().ml(px(MONO_CHAR)).min_w_0().truncate());
+        match (started, running) {
+            (true, true) => said.child(shimmer(format!("target:{id}:task"), detail)),
+            (true, false) => said.text_color(looks.ink).child(detail),
+            (false, _) => said.text_color(looks.quiet).child(detail),
+        }
+    });
+    let model = (row.model.as_deref()).filter(|_| started).map(|model| {
+        words(div())
+            .flex_none()
+            .text_color(looks.quiet)
+            .child(format!("· {}", ui::model_name(model)))
+    });
+    Some(
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .children(pills)
+            .children(detail)
+            .children(model),
+    )
 }
 
 /// Where the call reached, in its row: a file it names opens as a file the chat names does,
@@ -648,6 +724,9 @@ fn row(
 fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Div {
     let ink = if running { looks.quiet } else { looks.ink };
     let text = row.target.as_str();
+    if let Some(pills) = agent_pills(row, running, id, looks, cx) {
+        return pills;
+    }
     if running && !text.is_empty() {
         return div()
             .min_w_0()
@@ -703,9 +782,8 @@ fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Di
                     .id(SharedString::from(format!("target:{id}")))
                     .flex_none()
                     .text_color(looks.accent)
-                    .cursor_pointer()
                     .hover(|link| link.underline())
-                    .on_click({
+                    .clicks({
                         let open = open.clone();
                         move |event, window, cx| {
                             cx.stop_propagation();
@@ -748,8 +826,8 @@ fn web_link(text: &str) -> Option<std::ops::Range<usize>> {
 }
 
 /// Copies `text`, without opening or closing the row it sits in.
-fn copy(id: String, what: &str, text: String) -> ui::IconButton {
-    ui::IconButton::new(SharedString::from(id), Icon::Copy, format!("Copy {what}"))
+fn copy(id: String, label: &'static str, text: String) -> ui::IconButton {
+    ui::IconButton::new(SharedString::from(id), Icon::Copy, label)
         .glyph(12.)
         .width(22.)
         .on_click(move |_, _, cx| {
@@ -760,7 +838,7 @@ fn copy(id: String, what: &str, text: String) -> ui::IconButton {
 
 /// The run's spine down the left of a row, and the tick that joins the row to it;
 /// the last row's turns the corner instead.
-fn spine(last: bool, looks: &Drawn) -> Div {
+pub(super) fn spine(last: bool, looks: &Drawn) -> Div {
     let (spine, tick) = (looks.tints.spine, looks.tints.tick);
     if last {
         return div()
@@ -769,8 +847,8 @@ fn spine(last: bool, looks: &Drawn) -> Div {
             .left_0()
             .w(px(9.))
             .h(px(11.5))
-            .border_l_1()
-            .border_b_1()
+            .border_l(crate::theme::border())
+            .border_b(crate::theme::border())
             .border_color(spine)
             .rounded_bl(px(4.));
     }
@@ -801,18 +879,16 @@ fn spine(last: bool, looks: &Drawn) -> Div {
 }
 
 /// What an opened call did: its change, the command and what it printed, or why it failed.
-fn detail(call: &Call, looks: &Drawn, cx: &App) -> AnyElement {
+fn detail(call: &Call, looks: &Drawn, cx: &mut App) -> AnyElement {
     let id = &call.tool.tool_call_id;
     let asked = looks.reading.tools.details.get(id);
     let held = asked.and_then(|asked| asked.detail.as_ref());
     let body = if call.diff.is_some() {
-        held.and_then(|held| held.diff.as_ref()).map(|diff| {
-            diff_body(id, &diff.path, diff.adds, diff.dels, &diff.lines, looks, cx)
-                .into_any_element()
-        })
+        held.and_then(|held| held.diff.as_ref())
+            .map(|diff| diff_body(id, &diff.lines, looks).into_any_element())
     } else if call.command().is_some() || call.output.is_some() {
         let picture = asked.and_then(|asked| asked.picture.clone());
-        Some(terminal(call, held, picture, looks).into_any_element())
+        Some(terminal(call, held, picture, looks, cx).into_any_element())
     } else {
         call.failure.map(|failure| {
             div()
@@ -831,124 +907,65 @@ fn detail(call: &Call, looks: &Drawn, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn boxed(looks: &Drawn) -> Div {
+/// A quiet sunken surface for what a call printed or changed, set in the mono face.
+fn well(looks: &Drawn) -> Div {
     div()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .border_1()
-        .border_color(looks.tints.line_soft)
-        .rounded(theme::RADIUS_2)
-        .bg(looks.tints.well)
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .line_height(crate::theme::ui_text(17.))
+        .rounded(px(8.))
+        .bg(looks.tints.sunken)
+        .font_family(theme::mono_font())
+        .text_size(crate::theme::ui_text(TEXT_XS))
 }
 
-/// A command and what it printed, the way a terminal would have shown them.
+/// What a command printed: its exit code and size, then its last lines, the rest a click away.
 fn terminal(
     call: &Call,
     held: Option<&ToolDetail>,
     picture: Option<Picture>,
     looks: &Drawn,
+    cx: &mut App,
 ) -> Div {
     let id = call.tool.tool_call_id.clone();
     let output = held.and_then(|held| held.output.as_ref());
     let whole = looks.reading.tools.whole.contains(&id);
-    let text = output.map_or("", |output| output.text.as_str());
-    let lines: Vec<&str> = if text.is_empty() {
-        Vec::new()
+    let text = output.map_or("", |output| output.text.trim_end_matches('\n'));
+    let count = if text.is_empty() {
+        0
     } else {
-        text.split('\n').collect()
+        text.split('\n').count()
     };
-    let folds = lines.len() > OUTPUT_FOLD_LINES;
-    let shown = if folds && !whole {
-        lines[..OUTPUT_FOLD_LINES].join("\n")
-    } else {
-        text.to_owned()
+    let folds = count > OUTPUT_TAIL_LINES;
+    let shown = match folds && !whole {
+        true => {
+            let from = text
+                .rmatch_indices('\n')
+                .nth(OUTPUT_TAIL_LINES - 1)
+                .map_or(0, |(at, _)| at + 1);
+            &text[from..]
+        }
+        false => text,
     };
-    let rule = looks.tints.line_soft;
-    let command = call.command().map(|command| {
-        div()
-            .flex()
-            .gap(px(7.))
-            .pl(px(9.))
-            .pr(px(5.))
-            .py(px(5.))
-            .child(div().flex_none().text_color(looks.tints.ran).child("$"))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .text_color(looks.ink)
-                    .child(command.to_owned()),
-            )
-            .child(copy(
-                format!("copy-command:{id}"),
-                "command",
-                command.to_owned(),
-            ))
+    let exit = (call.status() == ToolStatus::Failed).then(|| {
+        match call.output.and_then(|output| output.exit_code) {
+            Some(code) => t!("exit {code}", code = code),
+            None => t!("failed").to_owned(),
+        }
     });
-    let shot = picture.map(|picture| {
-        div().p(SPACE_1).child(picture::thumb(
-            SharedString::from(format!("shot:{id}")),
-            picture,
-            px(300.),
-            px(440.),
-            looks.bench.clone(),
-            looks.quiet,
-        ))
+    let lines = (count > 0).then(|| match count {
+        1 => t!("1 line").to_owned(),
+        count => t!("{count} lines", count = count),
     });
-    let printed = output
-        .filter(|_| !shown.is_empty() || shot.is_none())
-        .map(|_| {
-            if shown.is_empty() {
-                return div()
-                    .px(px(9.))
-                    .py(px(5.))
-                    .text_size(crate::theme::ui_text(TEXT_3XS))
-                    .text_color(looks.faint)
-                    .child("No output");
-            }
-            div()
-                .relative()
-                .pl(px(9.))
-                .pr(px(30.))
-                .pt(SPACE_1H)
-                .pb(px(7.))
-                .text_color(looks.quiet)
-                .child(
-                    div()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(crate::ui::selectable::selectable(
-                            SharedString::from(format!("output:{id}")),
-                            shown,
-                            [],
-                        )),
-                )
-                .child(div().absolute().top(px(2.)).right(px(4.)).child(copy(
-                    format!("copy-output:{id}"),
-                    "output",
-                    text.to_owned(),
-                )))
-        });
     let more = folds.then(|| {
-        let (reader, hover) = (looks.reader.clone(), looks.hover);
-        let label = if whole {
-            "Show fewer lines".to_owned()
-        } else {
-            format!("Show all {} lines", lines.len())
-        };
+        let (reader, id, quiet, ink) = (looks.reader.clone(), id.clone(), looks.quiet, looks.ink);
+        let key = id.clone();
         div()
             .id(SharedString::from(format!("more:{id}")))
-            .h(px(22.))
-            .pl(px(9.))
+            .ml_auto()
             .flex()
             .items_center()
-            .text_size(crate::theme::ui_text(TEXT_3XS))
-            .text_color(looks.faint)
-            .cursor_pointer()
-            .hover(move |more| more.bg(hover))
-            .on_click(move |_, _, cx| {
+            .gap(px(5.))
+            .text_color(quiet)
+            .hover(move |more| more.text_color(ink))
+            .clicks(move |_, _, cx| {
                 cx.stop_propagation();
                 reader.update(cx, |reading, cx| {
                     if !reading.tools.whole.remove(&id) {
@@ -957,101 +974,161 @@ fn terminal(
                     cx.notify();
                 });
             })
-            .child(label)
+            .child(chevron(format!("more-chevron:{key}"), whole, quiet))
+            .child(if whole {
+                t!("Show less")
+            } else {
+                t!("Show all")
+            })
     });
-    let cut = output.is_some_and(|output| output.cut) && (!folds || whole);
-    let exit = call
-        .output
-        .and_then(|output| output.exit_code)
-        .filter(|_| call.status() == ToolStatus::Failed);
-    let mut parts: Vec<AnyElement> = command
-        .into_iter()
-        .map(IntoElement::into_any_element)
-        .collect();
-    parts.extend(shot.map(IntoElement::into_any_element));
-    parts.extend(printed.map(IntoElement::into_any_element));
-    parts.extend(more.map(IntoElement::into_any_element));
-    if cut {
-        parts.push(
+    let head = div()
+        .h(px(26.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .children(exit.map(|exit| {
             div()
-                .px(px(9.))
-                .py(px(5.))
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(looks.faint)
-                .child("The rest of the output was not kept")
-                .into_any_element(),
-        );
-    }
-    let ruled = parts.into_iter().enumerate().map(|(ix, part)| {
-        div()
-            .when(ix > 0, |part| part.border_t_1().border_color(rule))
-            .child(part)
+                .px(px(7.))
+                .py(px(1.))
+                .rounded(px(10.))
+                .bg(looks.tints.failed_ground)
+                .font_family(theme::mono_font())
+                .text_size(crate::theme::ui_text(TEXT_2XS))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(looks.tints.failed_ink)
+                .child(exit)
+        }))
+        .children(lines.map(|lines| div().text_color(looks.faint).child(lines)))
+        .children(more);
+    let page = output.and_then(|output| output.page.as_ref());
+    let shot = picture.map(|picture| shot_card(&id, picture, page, looks, cx));
+    let printed = output.filter(|_| !shown.is_empty()).map(|_| {
+        well(looks)
+            .relative()
+            .mt(px(4.))
+            .pl(px(12.))
+            .pr(px(30.))
+            .py(px(10.))
+            .line_height(relative(1.7))
+            .text_color(looks.tints.printed)
+            .child(
+                div()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(crate::ui::selectable::selectable(
+                        SharedString::from(format!("output:{id}")),
+                        shown.to_owned(),
+                        [],
+                    )),
+            )
+            .child(div().absolute().top(px(6.)).right(px(6.)).child(copy(
+                format!("copy-output:{id}"),
+                t!("Copy output"),
+                text.to_owned(),
+            )))
     });
-    boxed(looks).children(ruled).children(exit.map(|code| {
+    let quiet_note = |words: &'static str| {
         div()
-            .px(px(9.))
-            .pb(SPACE_1H)
+            .pt(px(4.))
             .text_size(crate::theme::ui_text(TEXT_3XS))
-            .text_color(looks.tints.failed)
-            .child(format!("exit {code}"))
-    }))
+            .text_color(looks.faint)
+            .child(words)
+    };
+    let silent = output.is_some() && text.is_empty() && shot.is_none();
+    let cut = output.is_some_and(|output| output.cut) && (!folds || whole);
+    div()
+        .flex()
+        .flex_col()
+        .child(head)
+        .children(shot)
+        .children(printed)
+        .when(silent, |body| body.child(quiet_note(t!("No output"))))
+        .when(cut, |body| {
+            body.child(quiet_note(t!("The rest of the output was not kept")))
+        })
 }
 
-/// The lines a change made, numbered, with the lines around it and a gap for the rest.
-fn diff_body(
+/// A screenshot with the page it shows under it, its site's icon, title and address.
+fn shot_card(
     id: &str,
-    path: &str,
-    adds: u64,
-    dels: u64,
-    lines: &[DiffLine],
+    picture: Picture,
+    page: Option<&OutputPage>,
     looks: &Drawn,
-    cx: &App,
+    cx: &mut App,
 ) -> Div {
-    let open = OpenAt {
-        path: PathBuf::from(path),
-        line: lines
-            .iter()
-            .find(|line| line.sign != " ")
-            .and_then(|line| line.new_line.or(line.old_line))
-            .map_or(0, |line| line.saturating_sub(1) as u32),
-        column: None,
-    };
-    let whole = looks.reading.tools.whole.contains(id);
-    let folded = looks.reading.tools.folded.contains(id);
-    let shown = looks.files.borrow().shown(path);
-    let opens: ui::Opens =
-        Box::new(move |window, cx| window.dispatch_action(open.boxed_clone(), cx));
-    let (reader, folding) = (looks.reader.clone(), id.to_owned());
-    let head = ui::file_head(format!("diff:{id}"), &shown, !folded, Some(opens), cx)
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            reader.update(cx, |reading, cx| {
-                if !reading.tools.folded.remove(&folding) {
-                    reading.tools.folded.insert(folding.clone());
-                }
-                cx.notify();
-            });
-        })
-        .child(
+    let thumb = picture::thumb(
+        SharedString::from(format!("shot:{id}")),
+        picture,
+        px(300.),
+        px(440.),
+        looks.bench.clone(),
+        looks.quiet,
+        cx,
+    );
+    let meta = page.map(|page| {
+        let site = url::Url::parse(&page.url)
+            .ok()
+            .and_then(|url| {
+                url.host_str()
+                    .map(|host| host.trim_start_matches("www.").to_owned())
+            })
+            .unwrap_or_else(|| page.url.clone());
+        let asks = looks
+            .bench
+            .upgrade()
+            .map(|bench| bench.read(cx).asks.clone());
+        let icon = super::site_icon(&page.url, true, Icon::Globe, asks.as_ref(), Tokens::get(cx));
+        let title = (!page.title.is_empty()).then(|| {
             div()
-                .flex()
-                .gap(px(5.))
-                .pr(px(1.))
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .child(
-                    div()
-                        .text_color(looks.tints.added)
-                        .child(format!("+{adds}")),
-                )
-                .child(
-                    div()
-                        .text_color(looks.tints.deleted_line)
-                        .child(format!("−{dels}")),
-                ),
-        );
-    if folded {
-        return div().child(head);
-    }
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .text_color(looks.ink)
+                .font_weight(FontWeight::MEDIUM)
+                .child(page.title.clone())
+        });
+        div()
+            .h(px(30.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(7.))
+            .border_t(crate::theme::border())
+            .border_color(looks.line)
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .child(div().flex_none().child(icon))
+            .children(title)
+            .child(
+                div()
+                    .flex_none()
+                    .ml_auto()
+                    .font_family(theme::mono_font())
+                    .text_size(crate::theme::ui_text(TEXT_2XS))
+                    .text_color(looks.faint)
+                    .child(site),
+            )
+    });
+    div().pt(SPACE_1).flex().child(
+        div()
+            .flex()
+            .flex_col()
+            .max_w(px(300.))
+            .rounded(px(8.))
+            .overflow_hidden()
+            .border(crate::theme::border())
+            .border_color(looks.line)
+            .bg(looks.tints.sunken)
+            .child(thumb)
+            .children(meta),
+    )
+}
+
+/// The lines a change made, with their old and new numbers, a +/− gutter and the lines around
+/// them; the unchanged rest folds into a row the reader opens.
+fn diff_body(id: &str, lines: &[DiffLine], looks: &Drawn) -> impl IntoElement {
+    let whole = looks.reading.tools.whole.contains(id);
     let keep = kept(lines, if whole { usize::MAX } else { DIFF_CONTEXT });
     let mut body: Vec<AnyElement> = Vec::new();
     let mut gap = 0;
@@ -1069,7 +1146,6 @@ fn diff_body(
     if gap > 0 {
         body.push(diff_gap(id, gap, looks));
     }
-    let t = Tokens::get(cx);
     let scroll = looks
         .reading
         .tools
@@ -1079,29 +1155,21 @@ fn diff_body(
         .or_default()
         .clone();
     let held = scroll.clone();
-    div().child(head).child(
-        div()
-            .id(SharedString::from(format!("diff-body:{id}")))
-            .max_h(px(DIFF_MOST_HEIGHT))
-            .overflow_y_scroll()
-            .track_scroll(&scroll)
-            .on_scroll(move |_, _, cx| {
-                let (at, most) = (held.offset().y, held.max_offset().y);
-                if most > px(0.) && at <= px(0.) && at >= -most {
-                    cx.stop_propagation();
-                }
-            })
-            .py(px(3.))
-            .flex()
-            .flex_col()
-            .border_1()
-            .border_color(t.border)
-            .rounded_b(theme::RADIUS_2)
-            .bg(t.surface)
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .line_height(crate::theme::ui_text(17.))
-            .children(body),
-    )
+    well(looks)
+        .id(SharedString::from(format!("diff-body:{id}")))
+        .max_h(px(DIFF_MOST_HEIGHT))
+        .overflow_y_scroll()
+        .track_scroll(&scroll)
+        .on_scroll(move |_, _, cx| {
+            let (at, most) = (held.offset().y, held.max_offset().y);
+            if most > px(0.) && at <= px(0.) && at >= -most {
+                cx.stop_propagation();
+            }
+        })
+        .flex()
+        .flex_col()
+        .line_height(relative(1.85))
+        .children(body)
 }
 
 /// Which lines are within `context` of a change.
@@ -1118,47 +1186,61 @@ fn kept(lines: &[DiffLine], context: usize) -> Vec<bool> {
     keep
 }
 
+/// The two number columns and the sign's, before a diff line's text.
+const DIFF_NUMBER_WIDTH: f32 = 34.;
+const DIFF_SIGN_WIDTH: f32 = 18.;
+
 fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
-    let (reader, id, hover) = (looks.reader.clone(), id.to_owned(), looks.hover);
+    let (reader, id, quiet, ink) = (looks.reader.clone(), id.to_owned(), looks.quiet, looks.ink);
     div()
         .id(SharedString::from(format!("gap:{id}:{gap}")))
-        .h(px(20.))
-        .pl(px(42.))
+        .h(px(28.))
+        .pl(px(DIFF_NUMBER_WIDTH * 2. + DIFF_SIGN_WIDTH))
         .flex()
         .items_center()
-        .text_size(crate::theme::ui_text(TEXT_3XS))
-        .text_color(looks.faint)
-        .cursor_pointer()
-        .hover(move |gap| gap.bg(hover))
-        .on_click(move |_, _, cx| {
+        .gap(px(6.))
+        .font_family(theme::ui_font())
+        .text_color(quiet)
+        .hover(move |gap| gap.text_color(ink))
+        .clicks(move |_, _, cx| {
             cx.stop_propagation();
             reader.update(cx, |reading, cx| {
                 reading.tools.whole.insert(id.clone());
                 cx.notify();
             });
         })
-        .child(format!(
-            "{gap} unchanged {}",
-            if gap == 1 { "line" } else { "lines" }
-        ))
+        .child(ui::icon(Icon::Chevron, 10.))
+        .child(match gap {
+            1 => t!("1 more line").to_owned(),
+            gap => t!("{gap} more lines", gap = gap),
+        })
         .into_any_element()
 }
 
 fn diff_line(line: &DiffLine, looks: &Drawn) -> AnyElement {
     let tints = &looks.tints;
-    let (ground, sign, mark) = match line.sign.as_str() {
-        "+" => (Some(tints.added_ground), tints.added, tints.added_mark),
+    let (ground, sign, ink, number, mark) = match line.sign.as_str() {
+        "+" => (
+            Some(tints.added_ground),
+            tints.added,
+            tints.added_ink,
+            tints.added_number,
+            tints.added_mark,
+        ),
         "-" => (
             Some(tints.deleted_ground),
             tints.deleted_line,
+            tints.deleted_ink,
+            tints.deleted_number,
             tints.deleted_mark,
         ),
-        _ => (None, looks.faint, tints.added_mark),
-    };
-    let number = if line.sign == "+" {
-        line.new_line
-    } else {
-        line.old_line
+        _ => (
+            None,
+            looks.faint,
+            looks.quiet,
+            tints.gutter,
+            tints.added_mark,
+        ),
     };
     let marked = line
         .mark
@@ -1173,29 +1255,33 @@ fn diff_line(line: &DiffLine, looks: &Drawn) -> AnyElement {
             },
         )
     }));
+    let column = |at: Option<u64>| {
+        div()
+            .w(px(DIFF_NUMBER_WIDTH))
+            .flex_none()
+            .pr(SPACE_2)
+            .flex()
+            .justify_end()
+            .text_size(crate::theme::ui_text(TEXT_2XS))
+            .text_color(number)
+            .children(at.map(|n| n.to_string()))
+    };
     div()
         .flex()
         .whitespace_nowrap()
         .when_some(ground, |line, ground| line.bg(ground))
+        .child(column(line.old_line))
+        .child(column(line.new_line))
         .child(
             div()
-                .w(px(30.))
+                .w(px(DIFF_SIGN_WIDTH))
                 .flex_none()
-                .pr(SPACE_2)
                 .flex()
-                .justify_end()
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(looks.faint)
-                .children(number.map(|n| n.to_string())),
-        )
-        .child(
-            div()
-                .w(px(12.))
-                .flex_none()
+                .justify_center()
                 .text_color(sign)
-                .child(line.sign.clone()),
+                .when(line.sign != " ", |gutter| gutter.child(line.sign.clone())),
         )
-        .child(div().min_w_0().text_color(looks.ink).child(text))
+        .child(div().min_w_0().pr(SPACE_2).text_color(ink).child(text))
         .into_any_element()
 }
 

@@ -2,15 +2,13 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { Asset } from 'expo-media-library';
 
-import type { LibraryPhoto } from './library';
+import { isDrawnType } from '@shared/lib/imagePaths';
+import { translate } from '@/i18n';
 import type { Attachment } from './uploads';
 
 /** A photo is sent no larger than this on its longest side, which agents read at full detail. */
 const LONGEST_EDGE = 2048;
-/** Pictures the transcript can draw from this phone; others are sent as files. */
-const DRAWN = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 let picks = 0;
 const nextId = () => `pick-${(picks += 1)}`;
@@ -35,7 +33,6 @@ export async function pickPhotos(limit: number): Promise<Attachment[]> {
     selectionLimit: limit,
     quality: 1,
     exif: false,
-    preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
   });
   if (result.canceled) return [];
   const photos: Attachment[] = [];
@@ -44,26 +41,9 @@ export async function pickPhotos(limit: number): Promise<Attachment[]> {
   return photos;
 }
 
-/** Photos chosen in the app's own gallery, in the order they were chosen. */
-export async function libraryPhotos(chosen: readonly LibraryPhoto[]): Promise<Attachment[]> {
-  const photos: Attachment[] = [];
-  for (const { id, width, height, filename } of chosen) {
-    const asset = new Asset(id);
-    photos.push(
-      await asJpeg({
-        uri: await asset.getUri(),
-        width: width ?? (await asset.getWidth()),
-        height: height ?? (await asset.getHeight()),
-        name: filename,
-      }),
-    );
-  }
-  return photos;
-}
-
 export async function takePhoto(): Promise<Attachment[]> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
-  if (!permission.granted) throw new Error('Sikemux has no access to the camera; allow it in Settings');
+  if (!permission.granted) throw new Error(translate('Sikemux has no access to the camera; allow it in Settings'));
   const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, exif: false });
   if (result.canceled) return [];
   return [await asJpeg(fromPicker(result.assets[0]))];
@@ -96,7 +76,7 @@ export async function pickFiles(limit: number): Promise<Attachment[]> {
     const mime = asset.mimeType ?? 'application/octet-stream';
     return {
       id: nextId(),
-      kind: DRAWN.has(mime) ? 'image' : 'file',
+      kind: isDrawnType(mime) ? 'image' : 'file',
       name: asset.name,
       mime,
       uri: asset.uri,

@@ -1,7 +1,6 @@
 //! Skills every agent Sikemux starts can use, kept only in Sikemux, and the
 //! person's own skills in each agent's global folder, which can move in.
 
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
@@ -10,7 +9,15 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
+use sikemux_agents::skills::Skill;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::skill_library::Located;
+use sikemux_calls::skill_library::Named;
+use sikemux_calls::skill_library::NewSkill;
+use sikemux_calls::skill_library::SkillsOverview;
+use sikemux_calls::skill_library::Source;
+use sikemux_calls::Call;
 
 use crate::core;
 use crate::settings::rows;
@@ -21,6 +28,27 @@ use crate::theme::{
 use crate::ui;
 use crate::workbench::Workbench;
 
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(
+        crate::settings::index::Page::Skills,
+        "Skills",
+        "skill SKILL.md library claude codex opencode pi omp hermes grok global own move",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Skills,
+        "Skills",
+        "Add a skill",
+        "new create install git folder",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Skills,
+        "Skills",
+        "Your own skills",
+        "global folder move adopt",
+    ),
+];
+
 #[derive(Clone, Copy, PartialEq)]
 enum Form {
     Create,
@@ -28,7 +56,7 @@ enum Form {
 }
 
 pub struct Fields {
-    overview: Option<Value>,
+    overview: Option<SkillsOverview>,
     form: Option<Form>,
     name: Entity<InputState>,
     description: Entity<InputState>,
@@ -46,16 +74,19 @@ impl Fields {
     pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("deploy-preview"));
         let description = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("What it does and when an agent should use it")
+            InputState::new(window, cx)
+                .placeholder(t!("What it does and when an agent should use it"))
         });
-        let body = cx
-            .new(|cx| TextareaState::new(window, cx).placeholder("The instructions, in markdown"));
+        let body = cx.new(|cx| {
+            TextareaState::new(window, cx).placeholder(t!("The instructions, in markdown"))
+        });
         let source = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("A folder with a SKILL.md, or a Git URL")
+            InputState::new(window, cx).placeholder(t!("A folder with a SKILL.md, or a Git URL"))
         });
         let subfolder = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Folder inside the repository, if the skill is not at its root")
+            InputState::new(window, cx).placeholder(t!(
+                "Folder inside the repository, if the skill is not at its root"
+            ))
         });
         let typing = vec![
             super::super::follow_typing(bench, &name, cx),
@@ -90,7 +121,9 @@ fn change_fields<R>(
 pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let overview = core::request(&asks, "skillsOverview", json!({})).await;
+        let overview = core::Target::here(&asks)
+            .request_typed::<call::SkillsOverview>(NoParams {})
+            .await;
         let _ = bench.update(cx, |bench, cx| {
             if let Ok(overview) = overview {
                 change_fields(bench, cx, |fields, _| fields.overview = Some(overview));
@@ -132,22 +165,24 @@ fn show(
     });
 }
 
-/// Runs `method`; a failure stays on the row `at`, and `after` runs once it worked.
-fn run(
+/// Runs the call `C`; a failure stays on the row `at`, and `after` runs once it worked.
+fn run<C: Call + 'static>(
     bench: &mut Workbench,
     at: String,
-    method: &'static str,
-    params: Value,
+    params: C::Params,
     after: impl FnOnce(&mut Fields) + 'static,
     cx: &mut Context<Workbench>,
-) {
+) where
+    C::Params: serde::Serialize,
+    C::Answer: serde::de::DeserializeOwned + 'static,
+{
     change_fields(bench, cx, |fields, _| {
         fields.busy = true;
         fields.failure = None;
     });
-    let asks = bench.asks.clone();
+    let asked = core::Target::here(&bench.asks).request_typed::<C>(params);
     cx.spawn(async move |bench, cx| {
-        let answer = core::request(&asks, method, params).await;
+        let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
             change_fields(bench, cx, |fields, _| {
                 fields.busy = false;
@@ -167,32 +202,26 @@ fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         return;
     };
     let text = |input: &Entity<InputState>| input.read(cx).value().trim().to_owned();
-    let (method, params) = match fields.form {
-        Some(Form::Create) => (
-            "createSkill",
-            json!({
-                "name": text(&fields.name),
-                "description": fields.description.read(cx).value().to_string(),
-                "body": fields.body.read(cx).value().to_string(),
-            }),
-        ),
+    let closes = |fields: &mut Fields| fields.form = None;
+    match fields.form {
+        Some(Form::Create) => {
+            let skill = NewSkill {
+                name: text(&fields.name),
+                description: fields.description.read(cx).value().to_string(),
+                body: fields.body.read(cx).value().to_string(),
+            };
+            run::<call::CreateSkill>(bench, "form".into(), skill, closes, cx);
+        }
         Some(Form::Install) => {
             let subfolder = text(&fields.subfolder);
-            (
-                "installSkill",
-                json!({ "source": text(&fields.source), "subfolder": Some(subfolder).filter(|folder| !folder.is_empty()) }),
-            )
+            let from = Source {
+                source: text(&fields.source),
+                subfolder: Some(subfolder).filter(|folder| !folder.is_empty()),
+            };
+            run::<call::InstallSkill>(bench, "form".into(), from, closes, cx);
         }
-        None => return,
-    };
-    run(
-        bench,
-        "form".into(),
-        method,
-        params,
-        |fields| fields.form = None,
-        cx,
-    );
+        None => {}
+    }
 }
 
 fn choose_folder(_: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -259,7 +288,7 @@ fn row(label: String, line: AnyElement, controls: impl IntoElement, t: &Tokens) 
         .gap(SPACE_3)
         .px(SPACE_4)
         .py(SPACE_2H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             div()
@@ -293,36 +322,25 @@ pub fn render(
             .filter(|(on, _)| on == at)
             .map(|(_, message)| message.clone())
     };
-    let skills: Vec<&Value> = fields
-        .overview
-        .as_ref()
-        .and_then(|overview| overview["skills"].as_array())
-        .into_iter()
-        .flatten()
-        .collect();
-    let clashes: Vec<&str> = fields
-        .overview
-        .as_ref()
-        .and_then(|overview| overview["clashes"].as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect();
-    let library = fields
-        .overview
-        .as_ref()
-        .and_then(|overview| overview["library"].as_str())
+    let overview = fields.overview.as_ref();
+    let skills: &[Skill] = overview.map_or(&[], |overview| &overview.skills);
+    let clashes: &[String] = overview.map_or(&[], |overview| &overview.clashes);
+    let library = overview
+        .map(|overview| overview.library.to_string_lossy().into_owned())
         .unwrap_or_default();
     let busy = fields.busy;
 
     let listed = skills.iter().map(|skill| {
-        let name = skill["name"].as_str().unwrap_or_default().to_owned();
-        let description = skill["description"].as_str().unwrap_or_default();
-        let path = PathBuf::from(skill["path"].as_str().unwrap_or_default());
+        let name = skill.name.clone();
+        let description = &skill.description;
+        let path = skill.path.clone();
         let line = match failed(&format!("remove:{name}")) {
             Some(message) => about(message, true, cx),
-            None if clashes.contains(&name.as_str()) => about(
-                format!("{description} One of your own skills has this name too."),
+            None if clashes.contains(&name) => about(
+                format!(
+                    "{description} {}",
+                    t!("One of your own skills has this name too.")
+                ),
                 false,
                 cx,
             ),
@@ -334,7 +352,7 @@ pub fn render(
             .gap(SPACE_2)
             .child(button(
                 format!("skill-reveal-{name}"),
-                ui::SHOW_IN_FILES,
+                crate::i18n::tr(ui::SHOW_IN_FILES),
                 ui::Variant::Outline,
                 false,
                 this,
@@ -342,17 +360,16 @@ pub fn render(
             ))
             .child(button(
                 format!("skill-remove-{name}"),
-                "Remove",
+                t!("Remove"),
                 ui::Variant::Outline,
                 busy,
                 this,
                 Rc::new(move |bench, _, cx| {
                     let name = removing.clone();
-                    run(
+                    run::<call::RemoveSkill>(
                         bench,
                         format!("remove:{name}"),
-                        "removeSkill",
-                        json!({ "name": name }),
+                        Named { name },
                         |_| {},
                         cx,
                     )
@@ -374,16 +391,16 @@ pub fn render(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
-                        .child("New skill"),
+                        .child(t!("New skill")),
                 )
                 .children(failed("form").map(|message| about(message, true, cx)))
                 .child(ui::Field::new(&fields.name))
                 .child(ui::Field::new(&fields.description))
                 .child(
                     div()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.line)
-                        .rounded(theme::RADIUS_2)
+                        .rounded(theme::radius_2())
                         .text_size(crate::theme::ui_text(TEXT_XS))
                         .child(Textarea::new(&fields.body).h(px(140.)).bordered(false)),
                 )
@@ -394,7 +411,7 @@ pub fn render(
                         .gap(SPACE_2)
                         .child(button(
                             "skill-cancel".into(),
-                            "Cancel",
+                            t!("Cancel"),
                             ui::Variant::Outline,
                             busy,
                             this,
@@ -402,7 +419,7 @@ pub fn render(
                         ))
                         .child(button(
                             "skill-create".into(),
-                            "Create",
+                            t!("Create"),
                             ui::Variant::Primary,
                             busy || !ready,
                             this,
@@ -423,7 +440,7 @@ pub fn render(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
-                        .child("Install a skill"),
+                        .child(t!("Install a skill")),
                 )
                 .children(failed("form").map(|message| about(message, true, cx)))
                 .child(
@@ -433,7 +450,7 @@ pub fn render(
                         .child(div().flex_1().child(ui::Field::new(&fields.source).mono()))
                         .child(button(
                             "skill-choose".into(),
-                            "Choose folder",
+                            t!("Choose folder"),
                             ui::Variant::Outline,
                             false,
                             this,
@@ -450,7 +467,7 @@ pub fn render(
                         .gap(SPACE_2)
                         .child(button(
                             "skill-cancel".into(),
-                            "Cancel",
+                            t!("Cancel"),
                             ui::Variant::Outline,
                             busy,
                             this,
@@ -458,7 +475,11 @@ pub fn render(
                         ))
                         .child(button(
                             "skill-install".into(),
-                            if busy { "Installing…" } else { "Install" },
+                            if busy {
+                                t!("Installing…")
+                            } else {
+                                t!("Install")
+                            },
                             ui::Variant::Primary,
                             busy || source.is_empty(),
                             this,
@@ -470,18 +491,18 @@ pub fn render(
         None => {
             let line = match (fields.overview.is_some(), skills.is_empty()) {
                 (false, _) => String::new(),
-                (true, true) => format!("None yet. They are kept in {library}"),
-                (true, false) => format!("Kept in {library}"),
+                (true, true) => t!("None yet. They are kept in {library}", library = library),
+                (true, false) => t!("Kept in {library}", library = library),
             };
             row(
-                "Add a skill".into(),
+                t!("Add a skill").into(),
                 about(line, false, cx),
                 div()
                     .flex()
                     .gap(SPACE_2)
                     .child(button(
                         "skill-install-open".into(),
-                        "Install…",
+                        t!("Install…"),
                         ui::Variant::Outline,
                         false,
                         this,
@@ -489,7 +510,7 @@ pub fn render(
                     ))
                     .child(button(
                         "skill-new".into(),
-                        "New skill",
+                        t!("New skill"),
                         ui::Variant::Primary,
                         false,
                         this,
@@ -502,40 +523,34 @@ pub fn render(
     };
 
     let skills_section = rows::section(
-        "Skills",
-        (!skills.is_empty()).then(|| format!("{} in Sikemux", skills.len()).into()),
-        Some("Skills every agent Sikemux starts can use, in a terminal or a chat. They live only in Sikemux: the same agents run elsewhere never see them. Agents can make them too, with the skills tool. A new skill loads in the next session.".into()),
+        n!("Skills"),
+        (!skills.is_empty()).then(|| t!("{count} in Sikemux", count = skills.len()).into()),
+        Some(t!("Skills every agent Sikemux starts can use, in a terminal or a chat. They live only in Sikemux: the same agents run elsewhere never see them. Agents can make them too, with the skills tool. A new skill loads in the next session.").into()),
         lit("Skills"),
         div().children(listed).child(form),
         cx,
     );
 
-    let own: Vec<(String, String, Value)> = fields
-        .overview
-        .as_ref()
-        .and_then(|overview| overview["own"].as_array())
+    let own: Vec<(&str, String, &Skill)> = overview
         .into_iter()
-        .flatten()
+        .flat_map(|overview| &overview.own)
         .flat_map(|own| {
-            let agent = own["agent"].as_str().unwrap_or_default().to_owned();
-            let folder = own["folder"].as_str().unwrap_or_default().to_owned();
-            own["skills"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .map(move |skill| (agent.clone(), folder.clone(), skill))
+            let folder = own.folder.to_string_lossy().into_owned();
+            let agent = own.agent.as_str();
+            own.skills
+                .iter()
+                .map(move |skill| (agent, folder.clone(), skill))
         })
         .collect();
     let own_section = (!own.is_empty()).then(|| {
         let rows_of_own = own.iter().map(|(agent, folder, skill)| {
-            let name = skill["name"].as_str().unwrap_or_default().to_owned();
-            let path = skill["path"].as_str().unwrap_or_default().to_owned();
+            let name = skill.name.clone();
+            let path = skill.path.to_string_lossy().into_owned();
             let moving = fields.moving.as_deref() == Some(path.as_str());
             let line = match failed(&format!("move:{path}")) {
                 Some(message) => about(message, true, cx),
-                None if moving => about(format!("Moves it out of {folder}, so {agent} outside Sikemux no longer has it."), false, cx),
-                None => about(format!("{agent} · {}", skill["description"].as_str().unwrap_or_default()), false, cx),
+                None if moving => about(t!("Moves it out of {folder}, so {agent} outside Sikemux no longer has it.", folder = folder, agent = agent), false, cx),
+                None => about(format!("{agent} · {}", skill.description), false, cx),
             };
             let controls: AnyElement = match moving {
                 true => {
@@ -543,18 +558,18 @@ pub fn render(
                     div()
                         .flex()
                         .gap(SPACE_2)
-                        .child(button(format!("skill-move-cancel-{path}"), "Cancel", ui::Variant::Outline, false, this, Rc::new(|bench, _, cx| {
+                        .child(button(format!("skill-move-cancel-{path}"), t!("Cancel"), ui::Variant::Outline, false, this, Rc::new(|bench, _, cx| {
                             change_fields(bench, cx, |fields, _| fields.moving = None);
                         })))
-                        .child(button(format!("skill-move-{path}"), "Move", ui::Variant::Primary, busy, this, Rc::new(move |bench, _, cx| {
+                        .child(button(format!("skill-move-{path}"), t!("Move"), ui::Variant::Primary, busy, this, Rc::new(move |bench, _, cx| {
                             let path = moved.clone();
-                            run(bench, format!("move:{path}"), "adoptSkill", json!({ "path": path }), |fields| fields.moving = None, cx)
+                            run::<call::AdoptSkill>(bench, format!("move:{path}"), Located { path: path.into() }, |fields| fields.moving = None, cx)
                         })))
                         .into_any_element()
                 }
                 false => {
                     let asked = path.clone();
-                    button(format!("skill-move-ask-{path}"), "Move into Sikemux", ui::Variant::Outline, false, this, Rc::new(move |bench, _, cx| {
+                    button(format!("skill-move-ask-{path}"), t!("Move into Sikemux"), ui::Variant::Outline, false, this, Rc::new(move |bench, _, cx| {
                         change_fields(bench, cx, |fields, _| fields.moving = Some(asked.clone()));
                     }))
                     .into_any_element()
@@ -563,9 +578,9 @@ pub fn render(
             row(name, line, controls, &t)
         });
         rows::section(
-            "Your own skills",
+            n!("Your own skills"),
             None,
-            Some("Skills in each agent's global folder. Agents load these inside and outside Sikemux, and Sikemux leaves them alone unless you move one in.".into()),
+            Some(t!("Skills in each agent's global folder. Agents load these inside and outside Sikemux, and Sikemux leaves them alone unless you move one in.").into()),
             false,
             div().children(rows_of_own),
             cx,

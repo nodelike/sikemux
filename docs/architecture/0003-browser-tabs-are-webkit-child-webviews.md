@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Decision date: 2026-09-17
+- Amended: 2026-10-16, by [ADR 0015](./0015-one-browser-per-account-seen-from-every-device.md): the
+  browser belongs to the account and runs on one host; the desktop app there keeps drawing its
+  tabs as WebKit views
 
 ## Context
 
@@ -17,7 +20,7 @@ focus, captchas failing. It was also slow to open and heavy to run.
   Linux) that `sikemux-browser` adds to the app's window. The app only says where
   the tab should sit.
 - Agents drive tabs through the harness methods (`browser.*`, declared in
-  `browser/tools.json`), which act through a script injected into the page.
+  `tools/tools.json`), which act through a script injected into the page.
 - Chromium, Electron and CEF are not options for the app or its browser. The
   browser stays on the system WebKit.
 

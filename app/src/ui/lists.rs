@@ -1,3 +1,5 @@
+use crate::ui::Clicks;
+use gpui_kit::ListState;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -10,11 +12,11 @@ use gpui_kit::{
 use smallvec::SmallVec;
 
 use super::controls::OnClick;
-use super::{caps, icon, mark_box, meta, text};
+use super::{caps, icon, mark_box, meta, mono, text};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_SM, TEXT_XS,
+    radius_2, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_XS,
 };
 
 /// The hover group a row puts itself in, for a glyph in it that follows its text.
@@ -58,8 +60,11 @@ pub struct Row {
     glided: bool,
     compact: bool,
     centered: bool,
+    /// Its height, for a row taller than the rail's.
+    height: Option<f32>,
     subtitle: Option<AnyElement>,
     detail: Option<SharedString>,
+    detail_tip: Option<SharedString>,
     status: Option<AnyElement>,
     right: f32,
     /// The trailing room the row keeps while the pointer is over the hover group named, for
@@ -83,8 +88,10 @@ impl Row {
             glided: false,
             compact: false,
             centered: false,
+            height: None,
             subtitle: None,
             detail: None,
+            detail_tip: None,
             status: None,
             right: 8.,
             hover_right: None,
@@ -104,6 +111,12 @@ impl Row {
     /// A note after the title that gives way first when the row is narrow.
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    /// The whole of what the detail says in short, shown when the pointer rests on it.
+    pub fn detail_tip(mut self, tip: impl Into<SharedString>) -> Self {
+        self.detail_tip = Some(tip.into());
         self
     }
 
@@ -220,17 +233,22 @@ impl RenderOnce for Row {
             self.right
         };
         let on_click = self.on_click;
+        let detail_id = ElementId::NamedChild(Arc::new(self.id.clone()), "detail".into());
+        let detail_tip = self.detail_tip;
         BaseButton::new(self.id)
             .group(ROW)
             .selected(self.chosen)
             .accessibility_label(self.title.clone())
             .relative()
             .w_full()
-            .h(px(match (two_lines, self.compact) {
-                (true, _) => 40.,
-                (false, true) => 27.,
-                (false, false) => 28.,
-            }))
+            .h(px(crate::theme::dense(
+                match (self.height, two_lines, self.compact) {
+                    (Some(height), ..) => height,
+                    (None, true, _) => 40.,
+                    (None, false, true) => 27.,
+                    (None, false, false) => 28.,
+                },
+            )))
             .pl(px(4. + (20. - self.slot) / 2.))
             .pr(px(right))
             .when_some(self.hover_right, |row, (group, room)| {
@@ -246,7 +264,7 @@ impl RenderOnce for Row {
                     row.items_center()
                 }
             })
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_color(ink)
             .bg(tint)
             .on_hover(keep_over)
@@ -294,7 +312,13 @@ impl RenderOnce for Row {
                     .whitespace_nowrap()
                     .text_ellipsis();
                 detail.style().flex_shrink = Some(100.);
-                detail
+                match detail_tip {
+                    Some(tip) => detail
+                        .id(detail_id)
+                        .tooltip(super::tooltip(tip))
+                        .into_any_element(),
+                    None => detail.into_any_element(),
+                }
             }))
             .children(self.trailing)
             .children(self.status.map(|status| {
@@ -326,6 +350,9 @@ pub struct Group {
     toolbar: Option<AnyElement>,
     empty: SharedString,
     first: bool,
+    fold: Option<(bool, OnClick)>,
+    total: Option<usize>,
+    counted: bool,
     rows: SmallVec<[AnyElement; 8]>,
 }
 
@@ -337,6 +364,9 @@ impl Group {
             toolbar: None,
             empty: empty.into(),
             first: false,
+            fold: None,
+            total: None,
+            counted: false,
             rows: SmallVec::new(),
         }
     }
@@ -357,6 +387,23 @@ impl Group {
         self.first = true;
         self
     }
+
+    /// Its heading folds the rows away, or brings them back, on a click; folded, it says how
+    /// many rows it holds.
+    pub fn folds(
+        mut self,
+        folded: bool,
+        toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.fold = Some((folded, Rc::new(toggle)));
+        self
+    }
+
+    /// How many rows it has in all, when it holds only some of them; folded, it says that.
+    pub fn total(mut self, total: Option<usize>) -> Self {
+        self.total = total;
+        self
+    }
 }
 
 impl ParentElement for Group {
@@ -367,27 +414,48 @@ impl ParentElement for Group {
 
 impl RenderOnce for Group {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let border = Tokens::get(cx).border;
+        let t = Tokens::get(cx).clone();
         let empty = self.rows.is_empty();
+        let folded = self.fold.as_ref().is_some_and(|(folded, _)| *folded);
+        let count = self.rows.len().max(self.total.unwrap_or(0));
+        let heading = div()
+            .id(SharedString::from(format!("group-{}", self.label)))
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .pt(SPACE_1)
+            .pr(SPACE_1H)
+            .pb(SPACE_1H)
+            .pl(SPACE_2)
+            .rounded(radius_2())
+            .child(caps(self.label, cx).flex_none())
+            .when((folded || self.counted) && count > 0, |heading| {
+                heading.child(
+                    mono(count.to_string(), TEXT_2XS, cx)
+                        .flex_none()
+                        .text_color(t.text_tertiary),
+                )
+            })
+            .child(div().flex_1().h(px(1.)).bg(t.border))
+            .children(self.actions)
+            .when_some(self.fold, |heading, (folded, toggle)| {
+                heading
+                    .hover(move |style| style.bg(t.surface_hover))
+                    .clicks(move |event, window, cx| toggle(event, window, cx))
+                    .child(motion::turn(
+                        format!("group-fold-{}", self.label),
+                        motion::fold_angle(!folded),
+                        motion::LANE_FOLD,
+                        icon(Icon::Chevron, 11.).text_color(t.text_tertiary),
+                    ))
+            });
         div()
             .flex()
             .flex_col()
             .when(!self.first, |group| group.mt(SPACE_4))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .pt(SPACE_1)
-                    .pr(SPACE_1H)
-                    .pb(SPACE_1H)
-                    .pl(SPACE_2)
-                    .child(caps(self.label, cx).flex_none())
-                    .child(div().flex_1().h(px(1.)).bg(border))
-                    .children(self.actions),
-            )
-            .children(self.toolbar)
-            .when(empty, |group| {
+            .child(heading)
+            .when(!folded, |group| group.children(self.toolbar))
+            .when(empty && !folded, |group| {
                 group.child(
                     div().p(SPACE_3).child(
                         text(self.empty, TEXT_XS, FontWeight::NORMAL)
@@ -395,7 +463,7 @@ impl RenderOnce for Group {
                     ),
                 )
             })
-            .children(self.rows)
+            .when(!folded, |group| group.children(self.rows))
     }
 }
 
@@ -413,6 +481,8 @@ pub struct Tab {
     glided: bool,
     /// A preview tab, which the next file opened replaces, draws its label slanted.
     italic: bool,
+    label_width: f32,
+    width: Option<f32>,
     on_click: Option<OnClick>,
     on_close: Option<OnClick>,
 }
@@ -429,9 +499,23 @@ impl Tab {
             active: false,
             glided: false,
             italic: false,
+            label_width: 160.,
+            width: None,
             on_click: None,
             on_close: None,
         }
+    }
+
+    /// The widest the label draws before it ends in an ellipsis.
+    pub fn label_width(mut self, width: f32) -> Self {
+        self.label_width = width;
+        self
+    }
+
+    /// The widest the whole tab draws; its label goes when too little of it would show.
+    pub fn width(mut self, width: Option<f32>) -> Self {
+        self.width = width;
+        self
     }
 
     pub fn mark(mut self, mark: impl IntoElement) -> Self {
@@ -527,36 +611,72 @@ impl RenderOnce for Tab {
                 .when(hidden, |way| way.opacity(0.))
                 .child(element)
         };
-        let room = self.note.is_none()
+        let closable = self.note.is_none()
             && self.counts.is_none()
             && self.tail.is_none()
             && self.on_close.is_some();
+        let beside = |shown: bool, wide: f32| if shown { wide + 8. } else { 0. };
+        let marks = beside(self.mark.is_some(), 22.)
+            + beside(self.tail.is_some(), 20.)
+            + beside(self.counts.is_some(), 22.);
+        let label_drawn = match closable && self.width.is_some() {
+            true => f32::from(super::text_width(
+                &self.label,
+                TEXT_XS,
+                FontWeight::MEDIUM,
+                window,
+                cx,
+            ))
+            .min(self.label_width),
+            false => self.label_width,
+        };
+        let tight = (self.width).is_some_and(|width| width - 8. - 26. - marks < label_drawn);
+        let end_with = |room: bool| match (self.tail.is_some(), room) {
+            (true, _) => 3.,
+            (false, true) => 26.,
+            (false, false) => 8.,
+        };
+        let resting = 8. + end_with(closable && !tight) + marks;
+        let titled = self
+            .width
+            .is_none_or(|width| width - resting >= LEAST_LABEL);
+        // A tab too narrow for its whole label keeps no room for the close button at rest; under
+        // the pointer the button takes its room from the label, so the tab keeps its width.
+        let trade = closing.is_some() && tight && titled;
+        let end = end_with(closable && (!tight || trade));
+        let label_most = match trade {
+            true => (label_drawn - (end_with(true) - end_with(false))).max(0.),
+            false => self.label_width,
+        };
         div()
             .id(wrap_id)
             .relative()
             .flex_none()
-            .h(px(26.))
-            .min_w(px(120.))
+            .h(px(tab_height()))
+            .min_w(px(self.width.map_or(120., |width| width.min(120.))))
+            .when_some(self.width.filter(|_| titled), |tab, width| {
+                tab.max_w(px(width))
+            })
             .flex()
             .items_center()
             .gap(SPACE_1)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .bg(tint)
             .text_color(ink)
-            .when(!self.active, |tab| tab.border_1().border_color(edge))
+            .when(!self.active, |tab| {
+                tab.border(crate::theme::border()).border_color(edge)
+            })
             .on_hover(keep_over)
             .child(
                 BaseButton::new(self.id)
                     .selected(self.active)
                     .accessibility_label(self.label.clone())
                     .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
                     .h_full()
                     .pl(SPACE_2)
-                    .pr(px(match (self.tail.is_some(), room) {
-                        (true, _) => 3.,
-                        (false, true) => 26.,
-                        (false, false) => 8.,
-                    }))
+                    .pr(px(end))
                     .flex()
                     .items_center()
                     .justify_start()
@@ -565,13 +685,16 @@ impl RenderOnce for Tab {
                         tab.on_click(move |event, window, cx| handler(event, window, cx))
                     })
                     .children(self.mark.map(|mark| mark_box(22., mark)))
-                    .child(
-                        text(self.label, TEXT_XS, FontWeight::MEDIUM)
-                            .max_w(px(160.))
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .when(self.italic, |label| label.italic()),
-                    )
+                    .when(titled, |tab| {
+                        tab.child(
+                            text(self.label, TEXT_XS, FontWeight::MEDIUM)
+                                .min_w_0()
+                                .max_w(px(label_most))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .when(self.italic, |label| label.italic()),
+                        )
+                    })
                     .children(
                         self.note
                             .map(|note| makes_way(meta(note, cx).pr(SPACE_1).into_any_element())),
@@ -592,13 +715,21 @@ impl RenderOnce for Tab {
                     .items_center()
                     .child(close_button(
                         close_id,
-                        format!("Close {label}"),
+                        t!("Close {label}", label = label),
                         move |event, window, cx| close(event, window, cx),
                         cx,
                     ))
             }))
     }
 }
+
+/// How tall a tab draws in the worn theme's density.
+pub fn tab_height() -> f32 {
+    crate::theme::dense(26.)
+}
+
+/// The least of a tab's label worth drawing; under it the tab shows only its marks.
+const LEAST_LABEL: f32 = 36.;
 
 /// The hover group a close button puts its glyph in, so the glyph reddens with it.
 const CLOSE: &str = "tab-close";
@@ -620,7 +751,7 @@ pub fn close_button(
         .flex()
         .items_center()
         .justify_center()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_color(t.text_tertiary)
         .hover(move |style| {
             style.text_color(t.danger).bg(gpui_kit::Hsla {
@@ -639,55 +770,22 @@ pub fn close_button(
         )
 }
 
-/// A row of tabs over a page, the chosen one underlined in ink, with what acts on the page
-/// at its end.
-pub fn page_tabs(
-    tabs: impl IntoIterator<Item = gpui_kit::Stateful<gpui_kit::Div>>,
-    end: Option<AnyElement>,
-) -> gpui_kit::Div {
-    div()
-        .flex_none()
-        .px(SPACE_4)
-        .flex()
-        .items_center()
-        .gap(px(18.))
-        .children(tabs)
-        .children(end.map(|end| div().ml_auto().child(end)))
-}
-
-/// One tab of a page's row: its glyph and name, then how many it holds or how it stands.
-pub fn page_tab(
-    id: &str,
-    glyph: Icon,
-    label: &'static str,
-    mark: Option<AnyElement>,
-    on: bool,
-    cx: &App,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx).clone();
-    div()
-        .id(SharedString::from(format!("{id}-{label}")))
-        .h(px(34.))
-        .flex()
-        .items_center()
-        .gap(SPACE_1H)
-        .border_b_2()
-        .border_color(if on {
-            t.text_primary
-        } else {
-            gpui_kit::transparent_black()
-        })
-        .text_size(crate::theme::ui_text(TEXT_SM))
-        .text_color(if on { t.text_primary } else { t.text_secondary })
-        .cursor_pointer()
-        .when(!on, |tab| {
-            tab.hover(move |tab| tab.text_color(t.text_primary))
-        })
-        .child(super::icon(glyph, 13.).text_color(if on {
-            t.text_primary
-        } else {
-            t.text_tertiary
-        }))
-        .child(label)
-        .children(mark)
+/// Tells `list` only the run of `old` that `new` replaced, so what is in view stays put.
+pub(crate) fn relist<T: PartialEq>(list: &ListState, old: &[T], new: &[T]) {
+    if list.item_count() != old.len() {
+        list.reset(new.len());
+        return;
+    }
+    let start = old
+        .iter()
+        .zip(new)
+        .take_while(|(old, new)| old == new)
+        .count();
+    let end = old[start..]
+        .iter()
+        .rev()
+        .zip(new[start..].iter().rev())
+        .take_while(|(old, new)| old == new)
+        .count();
+    list.splice(start..old.len() - end, new.len() - start - end);
 }

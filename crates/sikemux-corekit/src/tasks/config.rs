@@ -1,0 +1,1909 @@
+//! A project's `sikemux.json`: the actions, tasks, preview and worktree hooks
+//! it declares, checked before anything in it may run.
+
+use std::collections::HashSet;
+use std::io::ErrorKind;
+use std::path::Path;
+use std::sync::LazyLock;
+
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+
+use super::checkout;
+
+pub const CONFIG_FILE: &str = "sikemux.json";
+pub const CONFIG_VERSION: u64 = 1;
+
+const ROOT_FIELDS: &[&str] = &[
+    "version",
+    "$schema",
+    "icon",
+    "actions",
+    "tasks",
+    "preview",
+    "worktree",
+    "generate",
+    "check",
+    "fastCheck",
+    "landChecks",
+    "reservoir",
+    "roles",
+    "planFirst",
+    "ship",
+    "heavy",
+    "ports",
+    "env",
+    "resources",
+];
+const ACTION_FIELDS: &[&str] = &[
+    "id",
+    "label",
+    "description",
+    "command",
+    "placement",
+    "contexts",
+    "keybinding",
+];
+const ROLE_FIELDS: &[&str] = &["name", "charter", "every"];
+const MAX_ROLES: usize = 16;
+const MAX_ROLE_NAME_CHARS: usize = 64;
+const MAX_ROLE_CHARTER_CHARS: usize = 4000;
+const MAX_ROLE_EVERY: u64 = 100_000;
+const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env", "port", "needs"];
+const PREVIEW_FIELDS: &[&str] = &["url", "command"];
+const WORKTREE_FIELDS: &[&str] = &["onCreate", "onSettle", "onRemove"];
+const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
+const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
+const MAX_OUTPUTS: usize = 50;
+const MAX_PLAN_FIRST: usize = 50;
+const MAX_SHIP: usize = 50;
+const HEAVY_FIELDS: &[&str] = &["command", "final", "light", "needs"];
+const MAX_HEAVY: usize = 50;
+const CHECK_FIELDS: &[&str] = &["ci"];
+const LAND_CHECK_FIELDS: &[&str] = &["label", "command", "fix", "format", "when"];
+const MAX_LAND_CHECKS: usize = 20;
+const MAX_WORKFLOWS: usize = 20;
+const MAX_CONFIG_BYTES: usize = 256 * 1024;
+const MAX_ACTIONS: usize = 100;
+const MAX_TASKS: usize = 100;
+const MAX_HOOKS: usize = 20;
+const MAX_TASK_ENV_ENTRIES: usize = 128;
+const MAX_TASK_ENV_VALUE_LENGTH: usize = 8_192;
+const MAX_TASK_ENV_TOTAL_LENGTH: usize = 65_536;
+const UNSAFE_ENVIRONMENT_KEYS: &[&str] = &["__proto__", "constructor", "prototype"];
+const KEYBINDING_MODIFIERS: &[&str] = &["Meta", "Ctrl", "Alt", "Shift"];
+const KEYBINDING_PRIMARY_MODIFIERS: &[&str] = &["Meta", "Ctrl", "Alt"];
+const PHYSICAL_KEY_CODES: &[&str] = &[
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "Backquote",
+    "Backslash",
+    "Backspace",
+    "BracketLeft",
+    "BracketRight",
+    "Comma",
+    "ContextMenu",
+    "Delete",
+    "End",
+    "Enter",
+    "Equal",
+    "Escape",
+    "Help",
+    "Home",
+    "Insert",
+    "IntlBackslash",
+    "IntlRo",
+    "IntlYen",
+    "Minus",
+    "PageDown",
+    "PageUp",
+    "Pause",
+    "Period",
+    "PrintScreen",
+    "Quote",
+    "ScrollLock",
+    "Semicolon",
+    "Slash",
+    "Space",
+    "Tab",
+];
+
+static PATTERNED_KEY_CODE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Numpad(?:[0-9]|Add|Comma|Decimal|Divide|Enter|Equal|Multiply|Subtract))$",
+    )
+    .expect("key code pattern")
+});
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionPlacement {
+    Background,
+    Terminal,
+    Split,
+    Popup,
+    Replace,
+}
+
+impl ActionPlacement {
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "background" => Self::Background,
+            "terminal" => Self::Terminal,
+            "split" => Self::Split,
+            "popup" => Self::Popup,
+            "replace" => Self::Replace,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CommandContext {
+    Project,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAction {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub command: String,
+    pub placement: ActionPlacement,
+    /// Empty makes the action available throughout its project.
+    pub contexts: Vec<CommandContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keybinding: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTask {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+    /// Relative to the project, with `/` separators; `.` is the project itself.
+    pub cwd: String,
+    #[serde(with = "env_map")]
+    pub env: Vec<(String, String)>,
+    /// The port it listens on in the project's own folder; it gets `PORT`, and its id names a
+    /// port of each checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// What it holds while it runs, of the project's resources, waiting until all are free.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPreview {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeHook {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeConfig {
+    pub on_create: Vec<WorktreeHook>,
+    /// Run in an agent's worktree once nothing works there any more, such as to remove its
+    /// build output.
+    pub on_settle: Vec<WorktreeHook>,
+    /// Run in a checkout before its folder is deleted, such as to drop its database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_remove: Vec<WorktreeHook>,
+}
+
+/// What makes the files a project commits but builds from its other files,
+/// and which files they are, so the core keeps them up to date on its own.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateConfig {
+    pub command: String,
+    pub outputs: Vec<String>,
+}
+
+/// A field a project may also set to `false`: none, and none worked out in
+/// its place. Left out, the core works one out itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Stated<T> {
+    Off,
+    Given(T),
+}
+
+impl<T> Stated<T> {
+    pub fn given(&self) -> Option<&T> {
+        match self {
+            Stated::Off => None,
+            Stated::Given(value) => Some(value),
+        }
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Stated<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Either<T> {
+            Off(bool),
+            Given(T),
+        }
+        match Either::deserialize(deserializer)? {
+            Either::Off(false) => Ok(Stated::Off),
+            Either::Off(true) => Err(serde::de::Error::custom("only false turns this off")),
+            Either::Given(value) => Ok(Stated::Given(value)),
+        }
+    }
+}
+
+impl<T: Serialize> Serialize for Stated<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Stated::Off => serializer.serialize_bool(false),
+            Stated::Given(value) => value.serialize(serializer),
+        }
+    }
+}
+
+/// What proves the project sound.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ProjectCheck {
+    /// A command run on each commit on the project's branch, as committed.
+    Command(String),
+    /// The code host's CI on each pushed commit: every workflow named must pass.
+    Ci { ci: Vec<String> },
+}
+
+impl ProjectCheck {
+    /// The check as an agent or the person is told of it.
+    pub fn label(&self) -> String {
+        match self {
+            ProjectCheck::Command(command) => format!("`{command}`"),
+            ProjectCheck::Ci { ci } => format!("CI ({})", ci.join(", ")),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConfig {
+    pub version: u64,
+    /// A hint for editors; never fetched.
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    /// An image path relative to the project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    pub actions: Vec<ProjectAction>,
+    pub tasks: Vec<ProjectTask>,
+    /// The page the project serves, which the core also opens itself to show
+    /// a change to its pages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<Stated<ProjectPreview>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generate: Option<Box<GenerateConfig>>,
+    /// What proves the project sound: on each commit, and on a card's change
+    /// when its pull request has no CI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check: Option<Stated<ProjectCheck>>,
+    /// A quicker command run on each commit in place of a `check` command, which
+    /// then runs less often. Its environment has `SIKEMUX_CHECK_SEED`, to pick a
+    /// sample by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fast_check: Option<String>,
+    /// Quick commands a land must pass before it goes on the branch, each run only
+    /// when the land changes a path it lists.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub land_checks: Vec<LandCheck>,
+    /// A command that lists what is left to do, one JSON item per line, which Auto keeps a
+    /// limited number of on the board as cards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reservoir: Option<String>,
+    /// Agents Auto starts again and again as commits land, each for a standing job.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<ProjectRole>,
+    /// Paths whose change is planned before it starts, beside the ones every
+    /// project has, such as migrations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_first: Option<PathGlobs>,
+    /// The project's own commands that leave this machine, such as
+    /// `make deploy`, which an agent runs only once the person allows it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ship: Vec<String>,
+    /// The project's heavy commands, which wait their turn on the host beside the built-in
+    /// ones. An empty list turns the line off for the project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heavy: Option<Vec<HeavyCommand>>,
+    /// Names to the port each has in the project's own folder; every other checkout gets one
+    /// of its own ten per name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<(String, u16)>,
+    /// What everything started in a checkout gets, with `{port.<name>}`, `{checkout}` and
+    /// `{root}` filled in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
+    pub env: Vec<(String, String)>,
+    /// What only so many agents use at once, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<super::resources::Resource>,
+}
+
+impl ProjectConfig {
+    /// Each port name with the port it has in the project's own folder: `ports` first, then
+    /// each process with a port, as listed.
+    pub fn port_names(&self) -> Vec<(&str, u16)> {
+        let named = self.ports.iter().map(|(name, port)| (name.as_str(), *port));
+        let tasks = (self.tasks.iter()).filter_map(|task| Some((task.id.as_str(), task.port?)));
+        named.chain(tasks).collect()
+    }
+}
+
+/// A command that waits its turn on the host: the program and its first words.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct HeavyCommand {
+    pub command: String,
+    /// Run before a commit, so it goes ahead of other waiting runs.
+    #[serde(rename = "final", default, skip_serializing_if = "std::ops::Not::not")]
+    pub before_commit: bool,
+    /// Kept out of the line, even when the built-in list has it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub light: bool,
+    /// What it holds while it runs, of the project's resources.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<String>,
+}
+
+/// A standing job in a project: what its agent keeps up, and how many commits land between runs.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ProjectRole {
+    pub name: String,
+    pub charter: String,
+    pub every: u32,
+}
+
+/// A quick command a land must pass, run in a checkout at the land with the changed files
+/// that match `when` as its arguments.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LandCheck {
+    pub label: String,
+    pub command: String,
+    /// Run in its place to bring the files it checks up to date; the land queue commits what it
+    /// changes on top of the land rather than sending the land back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+    /// Reads a file on standard input, with its path as `$1`, and writes it formatted;
+    /// `git_commit` commits what it writes in place of what was written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    pub when: PathGlobs,
+}
+
+/// Project-relative path patterns, such as `server/**`, kept as written and
+/// read once into a matcher.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct PathGlobs {
+    pub patterns: Vec<String>,
+    #[serde(skip)]
+    pub set: globset::GlobSet,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfigErrorCode {
+    InvalidJson,
+    InvalidType,
+    MissingField,
+    UnknownField,
+    UnsupportedVersion,
+    InvalidValue,
+    DuplicateId,
+    LimitExceeded,
+    ReadFailed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigError {
+    /// Where in the file, as `$.tasks[0].cwd`.
+    pub path: String,
+    pub code: ConfigErrorCode,
+    pub message: String,
+}
+
+/// What is wrong with an invalid `sikemux.json`, in one line.
+pub fn invalid_words(errors: &[ConfigError]) -> String {
+    format!(
+        "sikemux.json is invalid: {}",
+        errors
+            .iter()
+            .map(|error| format!("{} {}", error.path, error.message))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    )
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustSummary {
+    pub requires_approval: bool,
+    pub executable_entries: usize,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ConfigLoad {
+    Absent {
+        path: String,
+    },
+    Invalid {
+        path: String,
+        errors: Vec<ConfigError>,
+        /// Present when the file was read, so a changed invalid file can still be told apart.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fingerprint: Option<String>,
+    },
+    Valid {
+        path: String,
+        config: Box<ProjectConfig>,
+        fingerprint: String,
+        trust: TrustSummary,
+        /// Fields this build does not know, often ones a newer build added. They are skipped, not refused.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<ConfigError>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustCommand {
+    pub label: String,
+    pub command: String,
+}
+
+/// Reads and checks `<project>/sikemux.json`.
+pub fn load(project: &Path) -> ConfigLoad {
+    let file = project.join(CONFIG_FILE);
+    let path = file.to_string_lossy().into_owned();
+    let source = match std::fs::read(&file) {
+        Ok(source) => source,
+        Err(error) if error.kind() == ErrorKind::NotFound => return ConfigLoad::Absent { path },
+        Err(error) => {
+            return ConfigLoad::Invalid {
+                path,
+                errors: vec![issue(
+                    "$",
+                    ConfigErrorCode::ReadFailed,
+                    format!("Could not read {CONFIG_FILE}: {error}"),
+                )],
+                fingerprint: None,
+            };
+        }
+    };
+    let fingerprint = fingerprint(&source);
+    if source.len() > MAX_CONFIG_BYTES {
+        return ConfigLoad::Invalid {
+            path,
+            errors: vec![issue(
+                "$",
+                ConfigErrorCode::LimitExceeded,
+                format!(
+                    "Project configuration must be {} KiB or smaller.",
+                    MAX_CONFIG_BYTES / 1024
+                ),
+            )],
+            fingerprint: Some(fingerprint),
+        };
+    }
+    let parsed = std::str::from_utf8(&source)
+        .map_err(|error| error.to_string())
+        .and_then(|text| serde_json::from_str::<Value>(text).map_err(|error| error.to_string()));
+    let value = match parsed {
+        Ok(value) => value,
+        Err(detail) => {
+            return ConfigLoad::Invalid {
+                path,
+                errors: vec![issue(
+                    "$",
+                    ConfigErrorCode::InvalidJson,
+                    format!("Invalid JSON: {detail}"),
+                )],
+                fingerprint: Some(fingerprint),
+            };
+        }
+    };
+    match validate(&value) {
+        Ok((config, warnings)) => {
+            let trust = trust_summary(&config);
+            ConfigLoad::Valid {
+                path,
+                config: Box::new(config),
+                fingerprint,
+                trust,
+                warnings,
+            }
+        }
+        Err(errors) => ConfigLoad::Invalid {
+            path,
+            errors,
+            fingerprint: Some(fingerprint),
+        },
+    }
+}
+
+/// Checks a parsed file, collecting every problem rather than stopping at the first. Unknown
+/// fields come back as warnings beside the config, so an older build still reads a newer file.
+pub fn validate(value: &Value) -> Result<(ProjectConfig, Vec<ConfigError>), Vec<ConfigError>> {
+    let Some(root) = value.as_object() else {
+        return Err(vec![issue(
+            "$",
+            ConfigErrorCode::InvalidType,
+            "Project configuration must be a JSON object.",
+        )]);
+    };
+    let mut errors = Vec::new();
+    note_unknown_fields(root, ROOT_FIELDS, "$", &mut errors);
+    let version = root.get("version");
+    if version.and_then(Value::as_f64) != Some(CONFIG_VERSION as f64) {
+        errors.push(match version {
+            None => issue(
+                "$.version",
+                ConfigErrorCode::MissingField,
+                format!("Version is required. The current version is {CONFIG_VERSION}."),
+            ),
+            Some(version) => issue(
+                "$.version",
+                ConfigErrorCode::UnsupportedVersion,
+                format!(
+                    "Unsupported project configuration version “{}”; expected {CONFIG_VERSION}.",
+                    version
+                ),
+            ),
+        });
+    }
+    let schema = bounded_optional(
+        root.get("$schema"),
+        "$.$schema",
+        "Schema URL",
+        2_048,
+        &mut errors,
+    );
+    let icon = parse_icon(root.get("icon"), &mut errors);
+    let actions = parse_actions(root.get("actions"), &mut errors);
+    let resources = super::resources::parse(root.get("resources"), &mut errors);
+    let tasks = parse_tasks(root.get("tasks"), &resources, &mut errors);
+    let preview = parse_preview(root.get("preview"), &mut errors);
+    let worktree = parse_worktree(root.get("worktree"), &mut errors);
+    let generate = parse_generate(root.get("generate"), &mut errors);
+    let check = parse_check(root.get("check"), &mut errors);
+    let fast_check = parse_fast_check(root.get("fastCheck"), check.as_ref(), &mut errors);
+    let land_checks = parse_land_checks(root.get("landChecks"), &mut errors);
+    let reservoir = root
+        .get("reservoir")
+        .and_then(|value| parse_command(Some(value), "$.reservoir", &mut errors));
+    let roles = parse_roles(root.get("roles"), &mut errors);
+    let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
+    let ship = parse_ship(root.get("ship"), &mut errors);
+    let heavy = root
+        .get("heavy")
+        .map(|value| parse_heavy(value, &resources, &mut errors));
+    let ports = checkout::parse_ports(root.get("ports"), &mut errors);
+    let env = parse_task_env(root.get("env"), "$.env", &mut errors);
+    let (warnings, mut errors): (Vec<_>, Vec<_>) =
+        (errors.into_iter()).partition(|error| error.code == ConfigErrorCode::UnknownField);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    let config = ProjectConfig {
+        version: CONFIG_VERSION,
+        schema,
+        icon,
+        actions,
+        tasks,
+        preview,
+        worktree,
+        generate,
+        check,
+        fast_check,
+        land_checks,
+        reservoir,
+        roles,
+        plan_first,
+        ship,
+        heavy,
+        ports,
+        env,
+        resources,
+    };
+    checkout::check_names(root, &config, &mut errors);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok((config, warnings))
+}
+
+/// Whether the nearest `sikemux.json` at or above `dir` names `resources`, read alone so a tool
+/// list is quick to make.
+pub fn names_resources_near(dir: &Path) -> bool {
+    let Some(source) = dir
+        .ancestors()
+        .find_map(|dir| std::fs::read(dir.join(CONFIG_FILE)).ok())
+    else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&source)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("resources")?
+                .as_object()
+                .map(|named| !named.is_empty())
+        })
+        .unwrap_or(false)
+}
+
+/// The `heavy` list of the nearest `sikemux.json` at or above `dir`, read alone so a command
+/// asks it quickly. None when no file states one; a list that is not valid counts as none.
+pub fn heavy_near(dir: &Path) -> Option<Vec<HeavyCommand>> {
+    let source = dir
+        .ancestors()
+        .find_map(|dir| std::fs::read(dir.join(CONFIG_FILE)).ok())?;
+    let value: Value = serde_json::from_slice(&source).ok()?;
+    let mut errors = Vec::new();
+    let resources = super::resources::parse(value.get("resources"), &mut errors);
+    let heavy = parse_heavy(value.get("heavy")?, &resources, &mut errors);
+    errors.is_empty().then_some(heavy)
+}
+
+pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
+    let actions = config.actions.len();
+    let tasks = config.tasks.len();
+    let previews = usize::from(preview_command(config).is_some());
+    let hooks = config.worktree.as_ref().map_or(0, |worktree| {
+        worktree.on_create.len() + worktree.on_settle.len() + worktree.on_remove.len()
+    });
+    let mut reasons = Vec::new();
+    if actions > 0 {
+        reasons.push(format!(
+            "{actions} project {}",
+            if actions == 1 { "action" } else { "actions" }
+        ));
+    }
+    if tasks > 0 {
+        reasons.push(format!(
+            "{tasks} project {}",
+            if tasks == 1 { "process" } else { "processes" }
+        ));
+    }
+    if previews > 0 {
+        reasons.push("a preview command".to_owned());
+    }
+    if hooks > 0 {
+        reasons.push(format!(
+            "{hooks} worktree-create {}",
+            if hooks == 1 { "hook" } else { "hooks" }
+        ));
+    }
+    let generates = usize::from(config.generate.is_some());
+    if generates > 0 {
+        reasons.push("a command that regenerates committed files".to_owned());
+    }
+    let checks = usize::from(matches!(
+        config.check,
+        Some(Stated::Given(ProjectCheck::Command(_)))
+    )) + usize::from(config.fast_check.is_some())
+        + config.land_checks.len();
+    if checks > 0 {
+        reasons.push("a check command".to_owned());
+    }
+    let reservoirs = usize::from(config.reservoir.is_some());
+    if reservoirs > 0 {
+        reasons.push("a command that fills the board".to_owned());
+    }
+    let roles = config.roles.len();
+    if roles > 0 {
+        reasons.push(format!(
+            "{roles} standing {}",
+            if roles == 1 { "role" } else { "roles" }
+        ));
+    }
+    let environments = usize::from(!config.env.is_empty());
+    if environments > 0 {
+        reasons.push("an environment for everything started in it".to_owned());
+    }
+    let executable_entries =
+        actions + tasks + previews + hooks + generates + checks + reservoirs + roles + environments;
+    TrustSummary {
+        requires_approval: executable_entries > 0,
+        executable_entries,
+        reasons,
+    }
+}
+
+/// "sha256:<hex>" of the file's bytes.
+pub fn fingerprint(source: &[u8]) -> String {
+    format!("sha256:{}", hex::encode(Sha256::digest(source)))
+}
+
+/// The one spelling the app records a shortcut in, or none when it is not a
+/// shortcut an action may take.
+pub fn normalize_keybinding(value: &str) -> Option<String> {
+    let mut parts: Vec<&str> = value.split('+').collect();
+    let code = parts.pop()?;
+    if code.is_empty() || !is_physical_key_code(code) || parts.is_empty() {
+        return None;
+    }
+    let mut modifiers = Vec::new();
+    for modifier in parts {
+        if !KEYBINDING_MODIFIERS.contains(&modifier) || modifiers.contains(&modifier) {
+            return None;
+        }
+        modifiers.push(modifier);
+    }
+    if !KEYBINDING_PRIMARY_MODIFIERS
+        .iter()
+        .any(|primary| modifiers.contains(primary))
+    {
+        return None;
+    }
+    let mut ordered: Vec<&str> = KEYBINDING_MODIFIERS
+        .iter()
+        .copied()
+        .filter(|modifier| modifiers.contains(modifier))
+        .collect();
+    ordered.push(code);
+    Some(ordered.join("+"))
+}
+
+/// The commands a person approves when they trust the file.
+pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
+    let actions = config.actions.iter().map(|action| TrustCommand {
+        label: format!("Action · {}", action.label),
+        command: action.command.clone(),
+    });
+    let tasks = config.tasks.iter().map(|task| TrustCommand {
+        label: format!("Process · {}", task.label),
+        command: task_command_line(task),
+    });
+    let preview = preview_command(config).map(|command| TrustCommand {
+        label: "Preview".to_owned(),
+        command: command.to_owned(),
+    });
+    let hooks = config.worktree.iter().flat_map(|worktree| {
+        let created = (worktree.on_create.iter()).map(|hook| ("New worktree", hook));
+        let settled = (worktree.on_settle.iter()).map(|hook| ("Worktree settles", hook));
+        let removed = (worktree.on_remove.iter()).map(|hook| ("Checkout removed", hook));
+        created
+            .chain(settled)
+            .chain(removed)
+            .map(|(when, hook)| TrustCommand {
+                label: format!("{when} · {}", hook.label),
+                command: hook.command.clone(),
+            })
+    });
+    let environment = (!config.env.is_empty()).then(|| TrustCommand {
+        label: "Environment".to_owned(),
+        command: (config.env.iter())
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(" "),
+    });
+    let reservoir = config.reservoir.iter().map(|command| TrustCommand {
+        label: "Reservoir".to_owned(),
+        command: command.clone(),
+    });
+    let roles = config.roles.iter().map(|role| TrustCommand {
+        label: format!("Standing role · {}", role.name),
+        command: role.charter.clone(),
+    });
+    (actions.chain(tasks).chain(preview).chain(hooks))
+        .chain(environment)
+        .chain(reservoir)
+        .chain(roles)
+        .collect()
+}
+
+fn preview_command(config: &ProjectConfig) -> Option<&str> {
+    config
+        .preview
+        .as_ref()?
+        .given()?
+        .command
+        .as_deref()
+        .filter(|command| !command.is_empty())
+}
+
+fn task_command_line(task: &ProjectTask) -> String {
+    let mut words = Vec::new();
+    if task.cwd != "." {
+        words.push(format!("cd {} &&", task.cwd));
+    }
+    words.extend(
+        task.env
+            .iter()
+            .map(|(name, value)| format!("{name}={value}")),
+    );
+    words.push(task.command.clone());
+    words.join(" ")
+}
+
+fn issue(
+    path: impl Into<String>,
+    code: ConfigErrorCode,
+    message: impl Into<String>,
+) -> ConfigError {
+    ConfigError {
+        path: path.into(),
+        code,
+        message: message.into(),
+    }
+}
+
+fn note_unknown_fields(
+    record: &Map<String, Value>,
+    allowed: &[&str],
+    path: &str,
+    errors: &mut Vec<ConfigError>,
+) {
+    for key in record.keys() {
+        if !allowed.contains(&key.as_str()) {
+            errors.push(issue(
+                format!("{path}.{key}"),
+                ConfigErrorCode::UnknownField,
+                format!("Unknown field “{key}”."),
+            ));
+        }
+    }
+}
+
+fn bounded_required(
+    value: Option<&Value>,
+    path: &str,
+    label: &str,
+    max_length: usize,
+    errors: &mut Vec<ConfigError>,
+) -> Option<String> {
+    let Some(Value::String(text)) = value else {
+        let code = if value.is_none() {
+            ConfigErrorCode::MissingField
+        } else {
+            ConfigErrorCode::InvalidType
+        };
+        errors.push(issue(path, code, format!("{label} must be a string.")));
+        return None;
+    };
+    let normalized = text.trim();
+    if normalized.is_empty() {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidValue,
+            format!("{label} cannot be empty."),
+        ));
+        return None;
+    }
+    if normalized.chars().count() > max_length {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::LimitExceeded,
+            format!("{label} must be {max_length} characters or fewer."),
+        ));
+        return None;
+    }
+    if normalized.contains('\0') {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidValue,
+            format!("{label} cannot contain a null byte."),
+        ));
+        return None;
+    }
+    Some(normalized.to_owned())
+}
+
+fn bounded_optional(
+    value: Option<&Value>,
+    path: &str,
+    label: &str,
+    max_length: usize,
+    errors: &mut Vec<ConfigError>,
+) -> Option<String> {
+    value?;
+    bounded_required(value, path, label, max_length, errors)
+}
+
+fn parse_id(value: Option<&Value>, path: &str, errors: &mut Vec<ConfigError>) -> Option<String> {
+    let id = bounded_required(value, path, "ID", 64, errors)?;
+    if !is_project_id(&id) {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidValue,
+            "ID must start with a letter or number and contain only letters, numbers, dots, dashes, or underscores.",
+        ));
+        return None;
+    }
+    Some(id)
+}
+
+fn parse_command(
+    value: Option<&Value>,
+    path: &str,
+    errors: &mut Vec<ConfigError>,
+) -> Option<String> {
+    bounded_required(value, path, "Command", 8_000, errors)
+}
+
+fn note_id(
+    ids: &mut HashSet<String>,
+    id: Option<&String>,
+    path: &str,
+    kind: &str,
+    errors: &mut Vec<ConfigError>,
+) {
+    let Some(id) = id else { return };
+    if !ids.insert(id.clone()) {
+        errors.push(issue(
+            format!("{path}.id"),
+            ConfigErrorCode::DuplicateId,
+            format!("{kind} ID “{id}” is duplicated."),
+        ));
+    }
+}
+
+fn parse_keybinding(
+    value: Option<&Value>,
+    path: &str,
+    errors: &mut Vec<ConfigError>,
+) -> Option<String> {
+    let binding = bounded_optional(value, path, "Keybinding", 100, errors)?;
+    let normalized = normalize_keybinding(&binding);
+    if normalized.is_none() {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidValue,
+            "Keybinding must contain Meta, Ctrl, or Alt plus one supported physical key code, with optional Shift.",
+        ));
+    }
+    normalized
+}
+
+fn parse_actions(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<ProjectAction> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Some(candidates) = value.as_array() else {
+        errors.push(issue(
+            "$.actions",
+            ConfigErrorCode::InvalidType,
+            "Actions must be an array.",
+        ));
+        return Vec::new();
+    };
+    if candidates.len() > MAX_ACTIONS {
+        errors.push(issue(
+            "$.actions",
+            ConfigErrorCode::LimitExceeded,
+            format!("At most {MAX_ACTIONS} actions are allowed."),
+        ));
+    }
+    let mut actions = Vec::new();
+    let mut ids = HashSet::new();
+    for (index, candidate) in candidates.iter().take(MAX_ACTIONS).enumerate() {
+        let path = format!("$.actions[{index}]");
+        let Some(candidate) = candidate.as_object() else {
+            errors.push(issue(
+                path,
+                ConfigErrorCode::InvalidType,
+                "Action must be an object.",
+            ));
+            continue;
+        };
+        note_unknown_fields(candidate, ACTION_FIELDS, &path, errors);
+        let id = parse_id(candidate.get("id"), &format!("{path}.id"), errors);
+        let label = bounded_required(
+            candidate.get("label"),
+            &format!("{path}.label"),
+            "Label",
+            120,
+            errors,
+        );
+        let description = bounded_optional(
+            candidate.get("description"),
+            &format!("{path}.description"),
+            "Description",
+            240,
+            errors,
+        )
+        .unwrap_or_default();
+        let command = parse_command(candidate.get("command"), &format!("{path}.command"), errors);
+
+        let mut placement = ActionPlacement::Terminal;
+        if let Some(raw) = candidate.get("placement") {
+            match raw.as_str().and_then(ActionPlacement::parse) {
+                Some(parsed) => placement = parsed,
+                None => errors.push(issue(
+                    format!("{path}.placement"),
+                    ConfigErrorCode::InvalidValue,
+                    "Placement must be background, terminal, split, popup, or replace.",
+                )),
+            }
+        }
+
+        let mut contexts = Vec::new();
+        if let Some(raw) = candidate.get("contexts") {
+            match raw.as_array() {
+                None => errors.push(issue(
+                    format!("{path}.contexts"),
+                    ConfigErrorCode::InvalidType,
+                    "Contexts must be an array.",
+                )),
+                Some(list) => {
+                    for (context_index, context) in list.iter().enumerate() {
+                        if context.as_str() != Some("project") {
+                            errors.push(issue(
+                                format!("{path}.contexts[{context_index}]"),
+                                ConfigErrorCode::InvalidValue,
+                                "Project action context must be \"project\".",
+                            ));
+                        } else if !contexts.contains(&CommandContext::Project) {
+                            contexts.push(CommandContext::Project);
+                        }
+                    }
+                }
+            }
+        }
+
+        let keybinding = parse_keybinding(
+            candidate.get("keybinding"),
+            &format!("{path}.keybinding"),
+            errors,
+        );
+        note_id(&mut ids, id.as_ref(), &path, "Action", errors);
+        if let (Some(id), Some(label), Some(command)) = (id, label, command) {
+            actions.push(ProjectAction {
+                id,
+                label,
+                description,
+                command,
+                placement,
+                contexts,
+                keybinding,
+            });
+        }
+    }
+    actions
+}
+
+fn parse_task_cwd(value: Option<&Value>, path: &str, errors: &mut Vec<ConfigError>) -> String {
+    let cwd = bounded_optional(value, path, "Process working directory", 512, errors)
+        .unwrap_or_else(|| ".".to_owned());
+    let slashed = cwd.replace('\\', "/");
+    let trimmed = slashed.trim_end_matches('/');
+    let normalized = if trimmed.is_empty() { "." } else { trimmed };
+    let leaves_project = normalized.chars().any(is_control_character)
+        || normalized.starts_with('/')
+        || has_drive_prefix(normalized)
+        || normalized.starts_with("~/")
+        || normalized
+            .split('/')
+            .any(|part| part.is_empty() || part == ".." || (part == "." && normalized != "."));
+    if leaves_project {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidValue,
+            "Process working directory must stay within the project and contain no dot segments.",
+        ));
+        return ".".to_owned();
+    }
+    normalized.to_owned()
+}
+
+fn parse_task_env(
+    value: Option<&Value>,
+    path: &str,
+    errors: &mut Vec<ConfigError>,
+) -> Vec<(String, String)> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Some(record) = value.as_object() else {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidType,
+            "Process environment must be an object of string values.",
+        ));
+        return Vec::new();
+    };
+    let keys: Vec<&str> = record.keys().map(String::as_str).collect();
+    if keys.len() > MAX_TASK_ENV_ENTRIES {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::LimitExceeded,
+            format!("Process environment may contain at most {MAX_TASK_ENV_ENTRIES} entries."),
+        ));
+    }
+    let mut total_length = 0;
+    let mut env = Vec::new();
+    for key in keys.into_iter().take(MAX_TASK_ENV_ENTRIES) {
+        let entry_path = format!("{path}.{key}");
+        if !is_environment_key(key) || UNSAFE_ENVIRONMENT_KEYS.contains(&key) {
+            errors.push(issue(
+                entry_path,
+                ConfigErrorCode::InvalidValue,
+                "Environment variable names must use letters, numbers, and underscores.",
+            ));
+            continue;
+        }
+        let Some(raw) = record.get(key).and_then(Value::as_str) else {
+            errors.push(issue(
+                entry_path,
+                ConfigErrorCode::InvalidType,
+                "Environment variable values must be strings.",
+            ));
+            continue;
+        };
+        if raw.contains('\0') {
+            errors.push(issue(
+                entry_path,
+                ConfigErrorCode::InvalidValue,
+                "Environment variable values cannot contain a null byte.",
+            ));
+            continue;
+        }
+        let length = raw.chars().count();
+        if length > MAX_TASK_ENV_VALUE_LENGTH {
+            errors.push(issue(
+                entry_path,
+                ConfigErrorCode::LimitExceeded,
+                format!("Environment variable values must be {MAX_TASK_ENV_VALUE_LENGTH} characters or fewer."),
+            ));
+            continue;
+        }
+        total_length += key.chars().count() + length;
+        if total_length > MAX_TASK_ENV_TOTAL_LENGTH {
+            errors.push(issue(
+                path,
+                ConfigErrorCode::LimitExceeded,
+                format!("Process environment must be {MAX_TASK_ENV_TOTAL_LENGTH} characters or fewer in total."),
+            ));
+            break;
+        }
+        env.push((key.to_owned(), raw.to_owned()));
+    }
+    env
+}
+
+fn parse_tasks(
+    value: Option<&Value>,
+    resources: &[super::resources::Resource],
+    errors: &mut Vec<ConfigError>,
+) -> Vec<ProjectTask> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Some(candidates) = value.as_array() else {
+        errors.push(issue(
+            "$.tasks",
+            ConfigErrorCode::InvalidType,
+            "tasks must be an array of processes.",
+        ));
+        return Vec::new();
+    };
+    if candidates.len() > MAX_TASKS {
+        errors.push(issue(
+            "$.tasks",
+            ConfigErrorCode::LimitExceeded,
+            format!("At most {MAX_TASKS} processes are allowed."),
+        ));
+    }
+    let mut tasks = Vec::new();
+    let mut ids = HashSet::new();
+    for (index, candidate) in candidates.iter().take(MAX_TASKS).enumerate() {
+        let path = format!("$.tasks[{index}]");
+        let Some(candidate) = candidate.as_object() else {
+            errors.push(issue(
+                path,
+                ConfigErrorCode::InvalidType,
+                "A process must be an object.",
+            ));
+            continue;
+        };
+        note_unknown_fields(candidate, TASK_FIELDS, &path, errors);
+        let id = parse_id(candidate.get("id"), &format!("{path}.id"), errors);
+        let label = bounded_required(
+            candidate.get("label"),
+            &format!("{path}.label"),
+            "Label",
+            120,
+            errors,
+        );
+        let command = parse_command(candidate.get("command"), &format!("{path}.command"), errors);
+        let cwd = parse_task_cwd(candidate.get("cwd"), &format!("{path}.cwd"), errors);
+        let env = parse_task_env(candidate.get("env"), &format!("{path}.env"), errors);
+        let port = checkout::parse_port(candidate.get("port"), &format!("{path}.port"), errors);
+        let needs = super::resources::parse_needs(
+            candidate.get("needs"),
+            &format!("{path}.needs"),
+            resources,
+            errors,
+        );
+        note_id(&mut ids, id.as_ref(), &path, "Process", errors);
+        if let (Some(id), Some(label), Some(command)) = (id, label, command) {
+            tasks.push(ProjectTask {
+                id,
+                label,
+                command,
+                cwd,
+                env,
+                port,
+                needs,
+            });
+        }
+    }
+    tasks
+}
+
+fn parse_preview(
+    value: Option<&Value>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<Stated<ProjectPreview>> {
+    let record = match value? {
+        Value::Bool(false) => return Some(Stated::Off),
+        Value::Object(record) => record,
+        _ => {
+            errors.push(issue(
+                "$.preview",
+                ConfigErrorCode::InvalidType,
+                "Preview must be an object, or false.",
+            ));
+            return None;
+        }
+    };
+    note_unknown_fields(record, PREVIEW_FIELDS, "$.preview", errors);
+    let url = bounded_optional(
+        record.get("url"),
+        "$.preview.url",
+        "Preview URL",
+        2_048,
+        errors,
+    );
+    let command = bounded_optional(
+        record.get("command"),
+        "$.preview.command",
+        "Command",
+        8_000,
+        errors,
+    );
+    if url.is_none() && command.is_none() {
+        errors.push(issue(
+            "$.preview",
+            ConfigErrorCode::MissingField,
+            "Preview must define at least a URL or command.",
+        ));
+        return None;
+    }
+    if let Some(url) = &url {
+        match url::Url::parse(&checkout::sample(url)) {
+            Ok(parsed) => {
+                if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                    errors.push(issue(
+                        "$.preview.url",
+                        ConfigErrorCode::InvalidValue,
+                        "Preview URL must use HTTP or HTTPS.",
+                    ));
+                }
+                if !parsed.username().is_empty()
+                    || parsed
+                        .password()
+                        .is_some_and(|password| !password.is_empty())
+                {
+                    errors.push(issue(
+                        "$.preview.url",
+                        ConfigErrorCode::InvalidValue,
+                        "Preview URL cannot contain embedded credentials.",
+                    ));
+                }
+            }
+            Err(_) => {
+                errors.push(issue(
+                    "$.preview.url",
+                    ConfigErrorCode::InvalidValue,
+                    "Preview URL must be an absolute URL.",
+                ));
+            }
+        }
+    }
+    Some(Stated::Given(ProjectPreview { url, command }))
+}
+
+fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<WorktreeConfig> {
+    let Some(record) = value?.as_object() else {
+        errors.push(issue(
+            "$.worktree",
+            ConfigErrorCode::InvalidType,
+            "Worktree configuration must be an object.",
+        ));
+        return None;
+    };
+    note_unknown_fields(record, WORKTREE_FIELDS, "$.worktree", errors);
+    Some(WorktreeConfig {
+        on_create: parse_hooks(record, "onCreate", errors),
+        on_settle: parse_hooks(record, "onSettle", errors),
+        on_remove: parse_hooks(record, "onRemove", errors),
+    })
+}
+
+fn parse_hooks(
+    record: &Map<String, Value>,
+    field: &str,
+    errors: &mut Vec<ConfigError>,
+) -> Vec<WorktreeHook> {
+    let at = format!("$.worktree.{field}");
+    let Some(listed) = record.get(field) else {
+        return Vec::new();
+    };
+    let Some(candidates) = listed.as_array() else {
+        errors.push(issue(
+            &at,
+            ConfigErrorCode::InvalidType,
+            format!("{field} must be an array."),
+        ));
+        return Vec::new();
+    };
+    if candidates.len() > MAX_HOOKS {
+        errors.push(issue(
+            &at,
+            ConfigErrorCode::LimitExceeded,
+            format!("At most {MAX_HOOKS} worktree hooks are allowed."),
+        ));
+    }
+    let mut hooks = Vec::new();
+    let mut ids = HashSet::new();
+    for (index, candidate) in candidates.iter().take(MAX_HOOKS).enumerate() {
+        let path = format!("{at}[{index}]");
+        let Some(candidate) = candidate.as_object() else {
+            errors.push(issue(
+                path,
+                ConfigErrorCode::InvalidType,
+                "Worktree hook must be an object.",
+            ));
+            continue;
+        };
+        note_unknown_fields(candidate, HOOK_FIELDS, &path, errors);
+        let id = parse_id(candidate.get("id"), &format!("{path}.id"), errors);
+        let label = bounded_optional(
+            candidate.get("label"),
+            &format!("{path}.label"),
+            "Label",
+            120,
+            errors,
+        )
+        .or_else(|| id.clone());
+        let command = parse_command(candidate.get("command"), &format!("{path}.command"), errors);
+        note_id(&mut ids, id.as_ref(), &path, "Worktree hook", errors);
+        if let (Some(id), Some(label), Some(command)) = (id, label, command) {
+            hooks.push(WorktreeHook { id, label, command });
+        }
+    }
+    hooks
+}
+
+fn parse_check(
+    value: Option<&Value>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<Stated<ProjectCheck>> {
+    let record = match value? {
+        Value::Bool(false) => return Some(Stated::Off),
+        Value::String(_) => {
+            return parse_command(value, "$.check", errors)
+                .map(|command| Stated::Given(ProjectCheck::Command(command)));
+        }
+        Value::Object(record) => record,
+        _ => {
+            errors.push(issue(
+                "$.check",
+                ConfigErrorCode::InvalidType,
+                "Check must be a command, an object naming the CI workflows that count, or false.",
+            ));
+            return None;
+        }
+    };
+    note_unknown_fields(record, CHECK_FIELDS, "$.check", errors);
+    let Some(listed) = record.get("ci").and_then(Value::as_array) else {
+        errors.push(issue(
+            "$.check.ci",
+            ConfigErrorCode::MissingField,
+            "ci must list the CI workflows that have to pass.",
+        ));
+        return None;
+    };
+    if listed.is_empty() || listed.len() > MAX_WORKFLOWS {
+        errors.push(issue(
+            "$.check.ci",
+            ConfigErrorCode::LimitExceeded,
+            format!("ci must list between 1 and {MAX_WORKFLOWS} workflows."),
+        ));
+        return None;
+    }
+    let ci: Vec<String> = listed
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            bounded_required(
+                Some(name),
+                &format!("$.check.ci[{index}]"),
+                "Workflow",
+                200,
+                errors,
+            )
+        })
+        .collect();
+    (ci.len() == listed.len()).then_some(Stated::Given(ProjectCheck::Ci { ci }))
+}
+
+fn parse_fast_check(
+    value: Option<&Value>,
+    check: Option<&Stated<ProjectCheck>>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<String> {
+    value?;
+    if !matches!(check, Some(Stated::Given(ProjectCheck::Command(_)))) {
+        errors.push(issue(
+            "$.fastCheck",
+            ConfigErrorCode::MissingField,
+            "fastCheck needs a check command beside it, which it stands in for on most commits.",
+        ));
+        return None;
+    }
+    parse_command(value, "$.fastCheck", errors)
+}
+
+fn parse_generate(
+    value: Option<&Value>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<Box<GenerateConfig>> {
+    let Some(record) = value?.as_object() else {
+        errors.push(issue(
+            "$.generate",
+            ConfigErrorCode::InvalidType,
+            "Generate must be an object.",
+        ));
+        return None;
+    };
+    note_unknown_fields(record, GENERATE_FIELDS, "$.generate", errors);
+    let command = parse_command(record.get("command"), "$.generate.command", errors);
+    let Some(listed) = record.get("outputs").and_then(Value::as_array) else {
+        errors.push(issue(
+            "$.generate.outputs",
+            ConfigErrorCode::MissingField,
+            "outputs must list the files the command writes.",
+        ));
+        return None;
+    };
+    if listed.is_empty() || listed.len() > MAX_OUTPUTS {
+        errors.push(issue(
+            "$.generate.outputs",
+            ConfigErrorCode::LimitExceeded,
+            format!("outputs must list between 1 and {MAX_OUTPUTS} files."),
+        ));
+        return None;
+    }
+    let mut outputs = Vec::new();
+    for (index, output) in listed.iter().enumerate() {
+        let path = format!("$.generate.outputs[{index}]");
+        let Some(output) = bounded_required(Some(output), &path, "Output", 512, errors) else {
+            continue;
+        };
+        let normalized = output.replace('\\', "/");
+        if normalized.starts_with('/')
+            || has_drive_prefix(&normalized)
+            || normalized
+                .split('/')
+                .any(|part| matches!(part, "" | "." | ".."))
+        {
+            errors.push(issue(
+                path,
+                ConfigErrorCode::InvalidValue,
+                "Each output must be a normalized project-relative file path without dot segments.",
+            ));
+            continue;
+        }
+        outputs.push(normalized);
+    }
+    Some(Box::new(GenerateConfig {
+        command: command?,
+        outputs,
+    }))
+}
+
+fn parse_roles(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<ProjectRole> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let listed = match value {
+        Value::Array(listed) if listed.len() <= MAX_ROLES => listed,
+        _ => {
+            errors.push(issue(
+                "$.roles",
+                ConfigErrorCode::InvalidValue,
+                format!("roles must list at most {MAX_ROLES} roles."),
+            ));
+            return Vec::new();
+        }
+    };
+    let mut names = HashSet::new();
+    (listed.iter().enumerate())
+        .filter_map(|(index, role)| {
+            let path = format!("$.roles[{index}]");
+            parse_role(role, &path, &mut names, errors)
+        })
+        .collect()
+}
+
+fn parse_role(
+    value: &Value,
+    path: &str,
+    names: &mut HashSet<String>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<ProjectRole> {
+    let Some(record) = value.as_object() else {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidType,
+            "A role must be an object with a name, a charter and every.",
+        ));
+        return None;
+    };
+    note_unknown_fields(record, ROLE_FIELDS, path, errors);
+    let name = bounded_required(
+        record.get("name"),
+        &format!("{path}.name"),
+        "Role name",
+        MAX_ROLE_NAME_CHARS,
+        errors,
+    );
+    let charter = bounded_required(
+        record.get("charter"),
+        &format!("{path}.charter"),
+        "Role charter",
+        MAX_ROLE_CHARTER_CHARS,
+        errors,
+    );
+    let every = record.get("every").and_then(Value::as_u64);
+    let every = every.filter(|every| (1..=MAX_ROLE_EVERY).contains(every));
+    if every.is_none() {
+        errors.push(issue(
+            format!("{path}.every"),
+            ConfigErrorCode::InvalidValue,
+            format!("every must be a whole number of commits from 1 to {MAX_ROLE_EVERY}."),
+        ));
+    }
+    let name = name?;
+    if !names.insert(name.clone()) {
+        errors.push(issue(
+            format!("{path}.name"),
+            ConfigErrorCode::InvalidValue,
+            "Each role needs a name of its own.",
+        ));
+        return None;
+    }
+    Some(ProjectRole {
+        name,
+        charter: charter?,
+        every: u32::try_from(every?).ok()?,
+    })
+}
+
+fn parse_heavy(
+    value: &Value,
+    resources: &[super::resources::Resource],
+    errors: &mut Vec<ConfigError>,
+) -> Vec<HeavyCommand> {
+    let listed = match value {
+        Value::Array(listed) if listed.len() <= MAX_HEAVY => listed,
+        _ => {
+            errors.push(issue(
+                "$.heavy",
+                ConfigErrorCode::InvalidValue,
+                format!("heavy must list at most {MAX_HEAVY} commands."),
+            ));
+            return Vec::new();
+        }
+    };
+    (listed.iter().enumerate())
+        .filter_map(|(index, entry)| {
+            let path = format!("$.heavy[{index}]");
+            let Some(entry) = entry.as_object() else {
+                errors.push(issue(
+                    &path,
+                    ConfigErrorCode::InvalidType,
+                    "A heavy command must be an object with a command.",
+                ));
+                return None;
+            };
+            note_unknown_fields(entry, HEAVY_FIELDS, &path, errors);
+            let flag = |name: &str, errors: &mut Vec<ConfigError>| match entry.get(name) {
+                None => false,
+                Some(Value::Bool(set)) => *set,
+                Some(_) => {
+                    errors.push(issue(
+                        format!("{path}.{name}"),
+                        ConfigErrorCode::InvalidType,
+                        format!("{name} must be true or false."),
+                    ));
+                    false
+                }
+            };
+            let before_commit = flag("final", errors);
+            let light = flag("light", errors);
+            let needs = super::resources::parse_needs(
+                entry.get("needs"),
+                &format!("{path}.needs"),
+                resources,
+                errors,
+            );
+            let command = bounded_required(
+                entry.get("command"),
+                &format!("{path}.command"),
+                "Command",
+                512,
+                errors,
+            )?;
+            Some(HeavyCommand {
+                command,
+                before_commit,
+                light,
+                needs,
+            })
+        })
+        .collect()
+}
+
+fn parse_ship(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let listed = match value {
+        Value::Array(listed) if !listed.is_empty() && listed.len() <= MAX_SHIP => listed,
+        _ => {
+            errors.push(issue(
+                "$.ship",
+                ConfigErrorCode::InvalidValue,
+                format!("ship must list between 1 and {MAX_SHIP} commands."),
+            ));
+            return Vec::new();
+        }
+    };
+    (listed.iter().enumerate())
+        .filter_map(|(index, command)| {
+            let path = format!("$.ship[{index}]");
+            bounded_required(Some(command), &path, "Command", 512, errors)
+        })
+        .collect()
+}
+
+fn parse_plan_first(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<PathGlobs> {
+    parse_globs(value?, "$.planFirst", "planFirst", MAX_PLAN_FIRST, errors)
+}
+
+fn parse_globs(
+    value: &Value,
+    at: &str,
+    name: &str,
+    max: usize,
+    errors: &mut Vec<ConfigError>,
+) -> Option<PathGlobs> {
+    let listed = match value {
+        Value::Array(listed) if !listed.is_empty() && listed.len() <= max => listed,
+        _ => {
+            errors.push(issue(
+                at,
+                ConfigErrorCode::InvalidValue,
+                format!("{name} must list between 1 and {max} path patterns."),
+            ));
+            return None;
+        }
+    };
+    let mut patterns = Vec::new();
+    let mut set = globset::GlobSetBuilder::new();
+    for (index, pattern) in listed.iter().enumerate() {
+        let path = format!("{at}[{index}]");
+        let Some(pattern) = bounded_required(Some(pattern), &path, "Pattern", 512, errors) else {
+            continue;
+        };
+        let normalized = pattern.replace('\\', "/");
+        let relative = !normalized.starts_with('/')
+            && !has_drive_prefix(&normalized)
+            && !normalized.split('/').any(|part| part == "..");
+        match globset::Glob::new(&normalized) {
+            Ok(glob) if relative => {
+                set.add(glob);
+                patterns.push(normalized);
+            }
+            _ => errors.push(issue(
+                path,
+                ConfigErrorCode::InvalidValue,
+                "Each pattern must be a project-relative path pattern, such as server/**.",
+            )),
+        }
+    }
+    let set = set.build().ok()?;
+    (!patterns.is_empty()).then_some(PathGlobs { patterns, set })
+}
+
+fn parse_land_checks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<LandCheck> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let listed = match value {
+        Value::Array(listed) if listed.len() <= MAX_LAND_CHECKS => listed,
+        _ => {
+            errors.push(issue(
+                "$.landChecks",
+                ConfigErrorCode::InvalidValue,
+                format!("landChecks must list at most {MAX_LAND_CHECKS} checks."),
+            ));
+            return Vec::new();
+        }
+    };
+    (listed.iter().enumerate())
+        .filter_map(|(index, check)| {
+            let at = format!("$.landChecks[{index}]");
+            let Some(record) = check.as_object() else {
+                errors.push(issue(
+                    &at,
+                    ConfigErrorCode::InvalidType,
+                    "Each land check must be an object with a label, a command and when.",
+                ));
+                return None;
+            };
+            note_unknown_fields(record, LAND_CHECK_FIELDS, &at, errors);
+            let label = bounded_required(
+                record.get("label"),
+                &format!("{at}.label"),
+                "Label",
+                80,
+                errors,
+            );
+            let command = parse_command(record.get("command"), &format!("{at}.command"), errors);
+            let fix = (record.get("fix"))
+                .and_then(|fix| parse_command(Some(fix), &format!("{at}.fix"), errors));
+            let format = (record.get("format"))
+                .and_then(|format| parse_command(Some(format), &format!("{at}.format"), errors));
+            let when = match record.get("when") {
+                Some(when) => {
+                    parse_globs(when, &format!("{at}.when"), "when", MAX_PLAN_FIRST, errors)
+                }
+                None => {
+                    errors.push(issue(
+                        format!("{at}.when"),
+                        ConfigErrorCode::MissingField,
+                        "when must list the paths whose change runs the check.",
+                    ));
+                    None
+                }
+            };
+            Some(LandCheck {
+                label: label?,
+                command: command?,
+                fix,
+                format,
+                when: when?,
+            })
+        })
+        .collect()
+}
+
+fn parse_icon(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<String> {
+    let icon = bounded_optional(value, "$.icon", "Icon path", 512, errors)?;
+    let normalized = icon.replace('\\', "/");
+    if normalized.starts_with('/')
+        || has_drive_prefix(&normalized)
+        || normalized.starts_with("~/")
+        || normalized
+            .split('/')
+            .any(|part| part == ".." || part == ".")
+    {
+        errors.push(issue(
+            "$.icon",
+            ConfigErrorCode::InvalidValue,
+            "Icon must be a normalized project-relative path without dot segments.",
+        ));
+        return None;
+    }
+    Some(normalized)
+}
+
+fn is_physical_key_code(value: &str) -> bool {
+    PATTERNED_KEY_CODE.is_match(value) || PHYSICAL_KEY_CODES.contains(&value)
+}
+
+fn is_project_id(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphanumeric())
+        && value.len() <= 64
+        && characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+}
+
+fn is_environment_key(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+fn is_control_character(character: char) -> bool {
+    matches!(u32::from(character), 0..=31 | 127..=159)
+}
+
+fn has_drive_prefix(path: &str) -> bool {
+    matches!(path.as_bytes(), [letter, b':', b'/', ..] if letter.is_ascii_alphabetic())
+}
+
+mod env_map {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::collections::BTreeMap;
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<(String, String)>, D::Error> {
+        Ok(BTreeMap::<String, String>::deserialize(deserializer)?
+            .into_iter()
+            .collect())
+    }
+
+    pub fn serialize<S: Serializer>(
+        env: &[(String, String)],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(env.iter().map(|(name, value)| (name, value)))
+    }
+}
+
+#[cfg(test)]
+mod reading_back {
+    use super::*;
+
+    #[test]
+    fn a_config_with_nothing_optional_reads_back_as_clients_get_it() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("sikemux.json"),
+            r#"{ "version": 1, "tasks": [{ "id": "dev", "label": "Dev", "command": "make dev" }] }"#,
+        )
+        .unwrap();
+        let answer = serde_json::to_value(load(project.path())).unwrap();
+        let read: ConfigLoad = serde_json::from_value(answer).unwrap();
+        let ConfigLoad::Valid { config, .. } = read else {
+            panic!("a valid file reads back as one");
+        };
+        assert_eq!(config.tasks[0].id, "dev");
+    }
+}

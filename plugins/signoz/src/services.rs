@@ -1,13 +1,64 @@
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::{Narrows, Scope};
 use crate::query;
-pub use sikemux_plugin_signoz_views::{ErrorGroup, Operation, Overview, Point, ServiceHealth};
+
+/// Unix milliseconds and a value.
+pub type Point = (u64, f64);
+
+/// One service in one environment, as SigNoz counts its entry spans.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceHealth {
+    pub service: String,
+    pub environment: Option<String>,
+    pub calls: u64,
+    pub errors: u64,
+    pub error_rate: f64,
+    pub p99_ms: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Overview {
+    pub calls: u64,
+    pub errors: u64,
+    pub error_rate: f64,
+    pub per_minute: f64,
+    pub p99_ms: f64,
+    pub p50_ms: f64,
+    pub requests: Vec<Point>,
+    pub failures: Vec<Point>,
+    pub p99: Vec<Point>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Operation {
+    pub name: String,
+    pub calls: u64,
+    pub errors: u64,
+    pub error_rate: f64,
+    pub p99_ms: f64,
+    pub p50_ms: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorGroup {
+    /// The message with its numbers and ids blanked, so one failure is one row.
+    pub pattern: String,
+    /// The most frequent message behind the pattern, as written.
+    pub sample: String,
+    pub count: u64,
+    pub first_seen: u64,
+    pub last_seen: u64,
+}
 
 const MAX_ROWS: u32 = 500;
 const MAX_OPERATIONS: u32 = 100;

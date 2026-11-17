@@ -1,10 +1,11 @@
 // Which project a call is about, the people GitLab names, and the projects and
 // branches an account can see. A GitLab project sits in a group that may sit in
-// other groups, so the owner the Git pane names can hold slashes.
+// other groups, so an owner can hold slashes.
 
 use std::path::Path;
 
 use serde::Deserialize;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::{Repo, RepoListing};
 
@@ -12,13 +13,7 @@ use crate::client;
 use crate::error::{GitlabError, GitlabResult};
 
 fn valid_segment(segment: &str) -> bool {
-    !segment.is_empty()
-        && segment.len() <= 255
-        && segment != "."
-        && segment != ".."
-        && segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    answers::valid_name(segment, 255)
 }
 
 fn valid_owner(owner: &str) -> bool {
@@ -51,7 +46,6 @@ impl ApiPath for RepoRef {
     }
 }
 
-/// A person as GitLab describes them.
 #[derive(Deserialize, Default, Clone, Debug)]
 pub struct User {
     pub id: Option<u64>,
@@ -74,26 +68,14 @@ pub fn slug(repo: &Repo) -> String {
     format!("{}/{}", repo.owner, repo.name)
 }
 
-/// The project a git remote points at, in any of the ways a remote can be
-/// written: scp-like `git@host:group/project.git`, or an `https`, `ssh` or `git` URL.
 pub fn from_remote(remote: &str) -> Option<Repo> {
-    let remote = remote.trim();
-    let (host, path) = if let Some((_, rest)) = remote.split_once("://") {
-        let rest = rest.split_once('@').map_or(rest, |(_, after)| after);
-        let (authority, path) = rest.split_once('/')?;
-        (authority.split(':').next()?.to_string(), path.to_string())
-    } else {
-        let rest = remote.split_once('@').map_or(remote, |(_, after)| after);
-        let (host, path) = rest.split_once(':')?;
-        (host.to_string(), path.to_string())
-    };
-    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    let (host, path) = answers::split_remote(remote)?;
     let (owner, name) = path.rsplit_once('/')?;
-    if host.is_empty() || !valid_owner(owner) || !valid_segment(name) {
+    if !valid_owner(owner) || !valid_segment(name) {
         return None;
     }
     Some(Repo {
-        host: host.to_ascii_lowercase(),
+        host,
         owner: owner.to_string(),
         name: name.to_string(),
     })
@@ -167,7 +149,7 @@ struct ProjectDetail {
 }
 
 pub async fn default_branch(data_dir: &Path, repo: &RepoRef) -> GitlabResult<String> {
-    let detail: ProjectDetail = client::get(data_dir, &repo.path("")?, &[]).await?;
+    let detail: ProjectDetail = client::API.get(data_dir, &repo.path("")?, &[]).await?;
     detail
         .default_branch
         .ok_or_else(|| GitlabError::NotFound("the project has no default branch yet".into()))

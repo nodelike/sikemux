@@ -1,13 +1,16 @@
 //! What every settings page is made of: sections under a heading, and rows
 //! with a name, a line about them, and the control that changes them.
 
+use sikemux_view::prefs::PreferenceChange;
+use std::cell::RefCell;
+
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::IndexPath;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Div, Entity, FontWeight, Global, Hsla,
-    IntoElement, ParentElement, SharedString, Styled, Subscription, Window,
+    IntoElement, ParentElement, Pixels, SharedString, Styled, Subscription, Window,
 };
 
 use crate::theme::{
@@ -22,6 +25,13 @@ use crate::workbench::Workbench;
 pub struct Shown(pub &'static str);
 
 impl Global for Shown {}
+
+/// The sections a page drew this frame, in order, so a search's hit scrolls to the one that
+/// drew rather than counting the page's list, some of whose sections show only at times.
+#[derive(Default)]
+pub struct Drawn(pub RefCell<Vec<SharedString>>);
+
+impl Global for Drawn {}
 
 /// The fill under a section's card: the theme's ground, held back enough that the
 /// pane's picture still shows around the cards while their words stay readable over it.
@@ -55,6 +65,9 @@ pub fn section_with(
 ) -> AnyElement {
     let t = Tokens::get(cx);
     let title: SharedString = title.into();
+    if let Some(drawn) = cx.try_global::<Drawn>() {
+        drawn.0.borrow_mut().push(title.clone());
+    }
     let named = cx
         .try_global::<Shown>()
         .is_none_or(|shown| shown.0 != title.as_ref());
@@ -82,12 +95,19 @@ pub fn section_with(
                             .gap(SPACE_2)
                             .when(named, |line| {
                                 line.child(
-                                    ui::text(title, TEXT_SM, FontWeight::SEMIBOLD)
-                                        .text_color(t.text_primary),
+                                    ui::text(
+                                        crate::i18n::tr(&title).to_owned(),
+                                        TEXT_SM,
+                                        FontWeight::SEMIBOLD,
+                                    )
+                                    .whitespace_nowrap()
+                                    .text_color(t.text_primary),
                                 )
                             })
                             .children(meta.map(|meta| {
                                 div()
+                                    .min_w_0()
+                                    .truncate()
                                     .text_size(crate::theme::ui_text(TEXT_2XS_H))
                                     .text_color(t.text_tertiary)
                                     .child(meta)
@@ -113,13 +133,16 @@ pub fn section_with(
         } else {
             card_fill(cx)
         })
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .when(headed, |card| card.child(heading))
         .child(
             div()
-                .when(headed, |body| body.border_t_1().border_color(t.line_soft))
+                .when(headed, |body| {
+                    body.border_t(crate::theme::border())
+                        .border_color(t.line_soft)
+                })
                 .child(div().mb(px(-1.)).flex().flex_col().child(body)),
         )
         .into_any_element()
@@ -135,9 +158,9 @@ pub fn card(flash: bool, body: impl IntoElement, cx: &App) -> AnyElement {
         } else {
             card_fill(cx)
         })
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .child(body)
         .into_any_element()
 }
@@ -160,15 +183,77 @@ pub fn row_with(
     control: impl IntoElement,
     cx: &App,
 ) -> Div {
-    let t = Tokens::get(cx);
+    let about = about.map(|about| about_line(about, Tokens::get(cx).text_tertiary));
+    row_parts(mark, label.into(), about, control, cx)
+}
+
+/// The line under a row's name, in `color`.
+pub fn about_line(about: SharedString, color: Hsla) -> AnyElement {
     div()
+        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+        .line_height(crate::theme::ui_text(TEXT_LG))
+        .text_color(color)
+        .child(about)
+        .into_any_element()
+}
+
+/// How narrow a row's name and its line may get before the control moves under them, so a line such
+/// as an agent's release never breaks inside a number.
+const NAME_ROOM: Pixels = px(210.);
+
+/// A row whose name and line under it are drawn by the page. The name keeps its width;
+/// where the row is too narrow, the control moves under it.
+pub fn row_parts(
+    mark: Option<AnyElement>,
+    label: impl IntoElement,
+    about: Option<AnyElement>,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
+    laid_out(mark, label, about, control, false, cx)
+}
+
+/// A row whose name and line under it end in an ellipsis where the row is too narrow, so its
+/// control always keeps its place.
+pub fn row_keeping_control(
+    mark: Option<AnyElement>,
+    label: impl Into<SharedString>,
+    about: Option<SharedString>,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
+    let t = Tokens::get(cx);
+    let about = about.map(|about| {
+        div()
+            .truncate()
+            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+            .line_height(crate::theme::ui_text(TEXT_LG))
+            .text_color(t.text_tertiary)
+            .child(about)
+            .into_any_element()
+    });
+    let label = div().truncate().child(label.into());
+    laid_out(mark, label, about, control, true, cx)
+}
+
+fn laid_out(
+    mark: Option<AnyElement>,
+    label: impl IntoElement,
+    about: Option<AnyElement>,
+    control: impl IntoElement,
+    name_gives_way: bool,
+    cx: &App,
+) -> Div {
+    let t = Tokens::get(cx);
+    let named = div()
         .flex()
         .items_center()
         .gap(SPACE_4)
-        .px(SPACE_4)
-        .py(px(11.))
-        .border_b_1()
-        .border_color(t.line_soft)
+        .flex_grow(1.)
+        .map(|named| match name_gives_way {
+            true => named.min_w_0(),
+            false => named.flex_basis(NAME_ROOM).min_w(NAME_ROOM),
+        })
         .children(mark)
         .child(
             div()
@@ -179,29 +264,39 @@ pub fn row_with(
                 .gap(SPACE_0)
                 .child(
                     div()
+                        .whitespace_nowrap()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
-                        .child(label.into()),
+                        .child(label),
                 )
-                .children(about.map(|about| {
-                    div()
-                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
-                        .line_height(crate::theme::ui_text(TEXT_LG))
-                        .text_color(t.text_tertiary)
-                        .child(about)
-                })),
-        )
-        .child(div().flex_none().child(control))
+                .children(about),
+        );
+    div()
+        .flex()
+        .when(!name_gives_way, |row| row.flex_wrap())
+        .items_center()
+        .gap(SPACE_4)
+        .px(SPACE_4)
+        .py(px(11.))
+        .border_b(crate::theme::border())
+        .border_color(t.line_soft)
+        .child(named)
+        .child(div().flex_none().ml_auto().child(control))
 }
 
-/// A switch that sets the boolean preference `key`.
-pub fn switch(id: &'static str, key: &'static str, on: bool, this: &Entity<Workbench>) -> Switch {
+/// A switch that sets a boolean preference, as `change` says.
+pub fn switch(
+    id: &'static str,
+    change: fn(bool) -> PreferenceChange,
+    on: bool,
+    this: &Entity<Workbench>,
+) -> Switch {
     let this = this.clone();
     Switch::new(id)
         .checked(on)
         .on_change(move |on: &bool, _: &mut Window, cx: &mut App| {
             let on = *on;
-            this.update(cx, |bench, _| super::set(bench, key, on))
+            this.update(cx, |bench, _| super::set(bench, change(on)))
         })
 }
 
@@ -249,6 +344,21 @@ impl Choice {
         Self {
             state,
             _picked: picked,
+        }
+    }
+
+    /// Whether the one showing is other than the one at `chosen`.
+    pub fn strays_from(&self, chosen: usize, cx: &App) -> bool {
+        self.state.read(cx).selected_index(cx).map(|at| at.row) != Some(chosen)
+    }
+
+    /// Shows the one at `chosen` once run, as when it was picked somewhere else.
+    pub fn show(&self, chosen: usize) -> impl FnOnce(&mut Window, &mut App) {
+        let state = self.state.clone();
+        move |window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_selected_index(Some(IndexPath::new(chosen)), window, cx)
+            })
         }
     }
 

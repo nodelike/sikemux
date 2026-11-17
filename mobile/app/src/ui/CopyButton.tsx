@@ -1,25 +1,31 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+
+import { useT } from '@/i18n';
 
 import { haptics } from './haptics';
 import { Icon } from './Icon';
-import { useColors } from './theme';
+import { fonts, useColors } from './theme';
 
 const COPIED_MS = 1200;
 
-/** Copies `value`, and shows a check for a moment once it has. */
 export function CopyButton({
   value,
   label,
   size = 13,
   style,
+  worded = false,
 }: {
   value: string;
+  /** What the button says to a screen reader, whole: "Copy message". */
   label: string;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  /** Says Copy beside the icon, and Copied once it has copied, as a code block's pill does. */
+  worded?: boolean;
 }) {
+  const t = useT();
   const colors = useColors();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -36,14 +42,23 @@ export function CopyButton({
         });
       }}
       hitSlop={10}
-      style={({ pressed }) => [styles.button, style, pressed && { backgroundColor: colors.active }]}
+      style={({ pressed }) => [worded ? styles.worded : styles.button, style, pressed && { backgroundColor: colors.active }]}
       accessibilityRole="button"
-      accessibilityLabel={copied ? 'Copied' : `Copy ${label}`}>
-      <Icon name={copied ? 'IconCheck' : 'IconCopy'} size={size} color={copied ? colors.ink : colors.inkFaint} />
+      accessibilityLabel={copied ? t('Copied') : label}>
+      <Icon
+        name={copied ? 'IconCheck' : 'IconCopy'}
+        size={size}
+        color={copied ? colors.ink : worded ? colors.secondary : colors.inkFaint}
+      />
+      {worded ? (
+        <Text style={[styles.word, { color: copied ? colors.ink : colors.secondary }]}>{copied ? t('Copied') : t('Copy')}</Text>
+      ) : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  worded: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 26, paddingHorizontal: 9, borderRadius: 7 },
+  word: { fontFamily: fonts.uiMedium, fontSize: 11.5 },
 });

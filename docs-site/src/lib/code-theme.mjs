@@ -1,19 +1,7 @@
-const highlight = {
-  keyword: "#a277ff",
-  string: "#61ffca",
-  comment: "#6d6a7c",
-  number: "#ffca85",
-  function: "#ff6ac1",
-  type: "#ffca85",
-  variable: "#e7e5ef",
-  property: "#82d9ff",
-  tag: "#ff6ac1",
-  operator: "#8b8898",
-  link: "#61ffca",
-  invalid: "#ff6767",
-  meta: "#8b8898",
-  heading: "#a277ff",
-};
+import defaultPalette from "../../../shared/chat/defaultPalette.json" with { type: "json" };
+
+// The app's palette, with comments brighter so they read on this site's ground.
+const highlight = { ...defaultPalette.theme.highlight, comment: "#6d6a7c" };
 
 export const auraNoir = {
   name: "aura-noir",

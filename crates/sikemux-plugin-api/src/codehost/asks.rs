@@ -5,7 +5,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
-use crate::PluginError;
+use crate::ServiceError;
 
 /// An id given as a number or as text, kept as text.
 fn id_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
@@ -28,9 +28,9 @@ fn id_text_if_any<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<S
 }
 
 /// `id` as the number a host's API takes.
-pub fn numeric(id: &str) -> Result<u64, PluginError> {
+pub fn numeric<S>(id: &str) -> Result<u64, ServiceError<S>> {
     id.parse()
-        .map_err(|_| PluginError::bad_params(format!("`{id}` is not an id")))
+        .map_err(|_| ServiceError::BadArg(format!("`{id}` is not an id")))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -123,6 +123,29 @@ pub struct RunQuery {
     pub per_page: Option<u32>,
 }
 
+/// A request a code host's webhook sent about CI, with the secret the hook was made with.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiEvent {
+    /// What the host says the request is about, such as GitHub's `X-GitHub-Event`.
+    pub event: String,
+    /// The host's signature of the body, such as GitHub's `X-Hub-Signature-256`.
+    #[serde(default)]
+    pub signature: Option<String>,
+    pub secret: String,
+    pub body: String,
+}
+
+/// Has a repository's CI events sent to `url`, signed with `secret`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiHookAdd {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub url: String,
+    pub secret: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunRef {
@@ -156,7 +179,7 @@ pub struct Rerun {
 pub struct JobRef {
     #[serde(flatten)]
     pub repo: RepoRef,
-    #[serde(deserialize_with = "id_text")]
+    #[serde(alias = "stepId", deserialize_with = "id_text")]
     pub job_id: String,
     /// The run the job is in, for a host that names a job only within it.
     #[serde(default, deserialize_with = "id_text_if_any")]
@@ -172,16 +195,30 @@ pub struct RerunJob {
     pub debug: bool,
 }
 
-/// The lines of a job's log to hand back: the last `tail`, or those matching `grep`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExcerptQuery {
     #[serde(flatten)]
     pub job: JobRef,
+    #[serde(flatten)]
+    pub pick: LinePick,
+}
+
+/// The lines of a log to hand back: the last `tail`, those from `from` to
+/// `to`, or those matching `grep` with `context` lines around each.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinePick {
     #[serde(default)]
     pub tail: Option<usize>,
     #[serde(default)]
     pub grep: Option<String>,
+    #[serde(default)]
+    pub context: Option<usize>,
+    #[serde(default)]
+    pub from: Option<u64>,
+    #[serde(default)]
+    pub to: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -227,6 +264,12 @@ pub struct PullQuery {
     pub page: Option<u32>,
     #[serde(default)]
     pub per_page: Option<u32>,
+    /// Only pull requests opened by this login.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// Only pull requests from this branch.
+    #[serde(default)]
+    pub head: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -348,6 +391,16 @@ pub struct NewPull {
     pub close_branch: bool,
 }
 
+/// A picture or recording on this machine for the host to keep beside a repository's pull
+/// requests, under `name`, so a description can show it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PictureFile {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub path: String,
+    pub name: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PullEdit {
     #[serde(flatten)]
@@ -437,9 +490,4 @@ pub struct InboxQuery {
     pub all: bool,
     #[serde(default)]
     pub per_page: Option<u32>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NotificationRef {
-    pub id: String,
 }

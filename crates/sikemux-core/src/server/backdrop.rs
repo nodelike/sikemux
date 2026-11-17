@@ -1,42 +1,93 @@
 //! What devices draw behind their panes: the host's grain, and the picture in its place, taken
 //! from the person's preferences so that no app has to send it.
 
-use std::sync::Arc;
+use crate::server::changed::ChangedCore;
+use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
+use crate::server::ServerCore;
+use sikemux_view::prefs::{PaneBackdrop, PaneColours, Preferences};
+use sikemux_view::theme::Palette;
+use sikemux_view::workspace::{BackdropLook, LookReply};
 
+use super::workspace::BackdropImage;
 use super::Core;
-use crate::protocol::BackdropImage;
+use crate::server::changed::What;
 
 /// Publishes the backdrop the preferences describe, shrinking a newly chosen picture first.
-pub(crate) fn follow(core: &Arc<Core>) {
-    let preferences = core.preferences.get();
-    let texture = preferences.pane_shader;
-    let Some(path) = preferences.pane_image.filter(|_| texture) else {
-        publish(core, texture, None);
+pub(crate) fn follow(core: &Core) {
+    let Some(core) = core.arc() else {
         return;
     };
-    let core = core.clone();
+    let preferences = core.shown_preferences();
+    let texture = preferences.pane_backdrop != PaneBackdrop::None;
+    let picture = preferences.pane_backdrop == PaneBackdrop::Picture;
+    let Some(path) = preferences.pane_image.filter(|_| picture) else {
+        publish(&core, texture, None);
+        return;
+    };
     tokio::task::spawn_blocking(move || {
         let id = picture_id(&path);
-        if id.is_some() && id == core.workspaces.backdrop_image_id() {
+        if id.is_some() && id == core.workspaces().backdrop_image_id() {
             return;
         }
         let image = id.and_then(|id| shrunk(&path, id));
-        let now = core.preferences.get();
-        if now.pane_shader && now.pane_image.as_deref() == Some(path.as_str()) {
+        let now = core.shown_preferences();
+        if now.pane_backdrop == PaneBackdrop::Picture
+            && now.pane_image.as_deref() == Some(path.as_str())
+        {
             publish(&core, true, image);
         }
     });
 }
 
+/// How the host's panes draw their backdrop, with the inks a themed picture takes resolved.
+pub(crate) fn look(preferences: &Preferences, palette: &Palette) -> BackdropLook {
+    let tokens = &palette.tokens;
+    let worn = &palette.backdrop;
+    let strength = match preferences.pane_backdrop {
+        PaneBackdrop::Picture | PaneBackdrop::None => preferences.pane_strength,
+        _ => (preferences.pane_strength * worn.look.strength).min(worn.most),
+    };
+    let inks = match preferences.pane_colours {
+        PaneColours::Custom => (0..3)
+            .map(|at| preferences.pane_inks.get(at).cloned())
+            .collect(),
+        PaneColours::Theme | PaneColours::Picture => {
+            vec![None, Some(tokens.accent.clone()), Some(tokens.ink.clone())]
+        }
+    };
+    BackdropLook {
+        strength,
+        inks,
+        own_colours: preferences.pane_colours == PaneColours::Picture,
+        pattern: preferences.pane_pattern,
+        dot_size: preferences.pane_dot_size,
+        contrast: preferences.pane_contrast,
+        brightness: preferences.pane_brightness,
+        glow: preferences.pane_glow,
+        glow_size: preferences.pane_glow_size,
+        coverage: preferences.pane_coverage,
+    }
+}
+
+pub(crate) fn host_look(core: &Core) -> LookReply {
+    let preferences = core.preferences().get();
+    LookReply::Look {
+        texture: preferences.pane_backdrop != PaneBackdrop::None,
+        look: look(&preferences, &core.look().palette()),
+        picture: core.workspaces().backdrop_image(),
+    }
+}
+
 fn publish(core: &Core, texture: bool, image: Option<BackdropImage>) {
-    match core.workspaces.publish_backdrop(texture, image) {
-        Ok(()) => core.view_changed(),
+    match core.workspaces().publish_backdrop(texture, image) {
+        Ok(()) => core.changed(What::View),
         Err(error) => eprintln!("sikemux core: the pane picture is not sent to devices: {error}"),
     }
 }
 
 /// Names the picture as it is on disk now, so a device fetches it again only once it changes.
-fn picture_id(path: &str) -> Option<String> {
+pub(crate) fn picture_id(path: &str) -> Option<String> {
     use sha2::{Digest, Sha256};
     let metadata = std::fs::metadata(path).ok()?;
     let modified = metadata
@@ -53,7 +104,7 @@ fn picture_id(path: &str) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn shrunk(path: &str, id: String) -> Option<BackdropImage> {
     use base64::Engine;
-    use std::process::Command;
+    use sikemux_process::command::Command;
     use std::time::Duration;
 
     /// A phone draws the picture across its width at most a few times over; past this it only

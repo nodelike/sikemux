@@ -38,9 +38,9 @@ R2_BUCKET=sikemux-backups
 Objects are named `sikemux/YYYY/MM/DD/sikemux-<UTC time>.dump.age`: a `pg_dump` custom-format
 archive, encrypted. After each upload the script checks the stored size and MD5 match, then
 deletes backups older than 30 days. Any failure fails the unit; read it with
-`journalctl -u sikemux-backup`. Nothing alerts on a failed run yet, so the monthly drill is
-also the check that backups are still being made: it fails if the newest one is over two days
-old.
+`journalctl -u sikemux-backup`. `sikemux-watch.timer` posts to Discord's #alerts when the last
+run failed or started more than 26 hours ago, and the monthly drill also fails if the newest
+backup is over two days old.
 
 R2 deletes old backups on its own too, in case the script stops running. The bucket has a
 lifecycle rule `expire-backups`: prefix `sikemux/`, delete objects 30 days after upload, and

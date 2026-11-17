@@ -1,9 +1,10 @@
 import { useAuth } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
 
-import { api, formatDay, problemText, signedInToken } from "./api.ts";
+import { formatDay } from "@shared/lib/format";
+import { api, problemText, signedInToken } from "./api.ts";
 
-export type AccountState =
+type AccountState =
   | { state: "loading" }
   /** How long a deletion stays restorable is unknown when the account could not be read. */
   | { state: "active"; restorableDays?: number }
@@ -13,6 +14,7 @@ export type AccountState =
 export function useAccountState(ready: boolean) {
   const { isSignedIn, getToken } = useAuth();
   const [account, setAccount] = useState<AccountState>({ state: "loading" });
+  const [staff, setStaff] = useState(false);
 
   useEffect(() => {
     if (!ready || !isSignedIn) return;
@@ -22,6 +24,7 @@ export function useAccountState(ready: boolean) {
         const token = await signedInToken(getToken, "see your account");
         const read = await api(token).getAccount();
         if (!current) return;
+        setStaff(read.staff);
         setAccount(
           read.status === "deleting" && read.deletesAt
             ? { state: "deleting", deletesAt: read.deletesAt }
@@ -40,7 +43,7 @@ export function useAccountState(ready: boolean) {
     (restorableDays: number) => setAccount({ state: "active", restorableDays }),
     [],
   );
-  return { account, restored };
+  return { account, staff, restored };
 }
 
 export function RestoreAccount({

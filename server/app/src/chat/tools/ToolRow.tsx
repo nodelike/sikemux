@@ -1,14 +1,24 @@
-import {
-  type ComponentType,
-  memo,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ComponentType, memo, useContext, useRef, useState } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import {
   IconActivity,
+  IconAgents,
+  IconAws,
+  IconBoard,
+  IconBolt,
+  IconCheck,
+  IconCommit,
+  IconCube,
+  IconFilePlus,
+  IconFlask,
+  IconGit,
+  IconImage,
+  IconPush,
+  IconRundeck,
+  IconServer,
+  IconShare,
+  IconTimer,
+  IconUser,
   IconAgent,
   IconBook,
   IconCamera,
@@ -69,6 +79,15 @@ import {
   IconWrench,
   Logo,
 } from "@shared/ui/Icons";
+import bitbucketMark from "../../../../../app/assets/icons/bitbucket.svg";
+import forgejoMark from "../../../../../app/assets/icons/forgejo.svg";
+import giteaMark from "../../../../../app/assets/icons/gitea.svg";
+import githubMark from "../../../../../app/assets/icons/github.svg";
+import gitlabMark from "../../../../../app/assets/icons/gitlab.svg";
+import jiraMark from "../../../../../app/assets/icons/jira.svg";
+import linearMark from "../../../../../app/assets/icons/linear.svg";
+import slackMark from "../../../../../app/assets/icons/slack.svg";
+import vercelMark from "../../../../../app/assets/icons/vercel.svg";
 import { ChatFileRef, useFileRef } from "../files/FileRef";
 import { openLink, ToolDetailContext } from "../transcript/chatAgent";
 import { ChatImage } from "../files/ChatImage";
@@ -76,29 +95,51 @@ import { DiffBody } from "./DiffView";
 import { LiveSeconds } from "../transcript/LiveSeconds";
 import { Shimmer } from "../ui/Shimmer";
 import { useCutOff } from "../transcript/useCutOff";
+import { toolKind, toolRunning, toolUrl } from "@shared/chat/toolLabels";
+import { useToolDetail } from "@shared/chat/useToolDetail";
 import {
-  toolDetail,
-  toolKind,
-  toolPath,
-  toolRunning,
-  toolTarget,
-  toolUrl,
-} from "@shared/chat/toolLabels";
-import {
+  OUTPUT_FOLD_LINES,
   toolElapsed,
   toolIconName,
-  toolRowKind,
   type ToolIconName,
 } from "@shared/chat/toolView";
 import { attachmentName } from "@shared/chat/transcript";
-import type {
-  ChatPart,
-  ToolCall,
-  ToolDetail,
-  ToolOutput,
-} from "@shared/chat/types";
+import type { ChatPart, ToolCall, ToolOutput } from "@shared/wire.generated";
+
+/** A service's own mark, in its own colours, from the Mac's icons. */
+function brandMark(src: string): ComponentType<{ size?: number }> {
+  return function BrandMark({ size = 14 }: { size?: number }) {
+    return <img src={src} width={size} height={size} alt="" />;
+  };
+}
 
 const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
+  agents: IconAgents,
+  aws: IconAws,
+  board: IconBoard,
+  bolt: IconBolt,
+  check: IconCheck,
+  commit: IconCommit,
+  cube: IconCube,
+  "file-plus": IconFilePlus,
+  flask: IconFlask,
+  git: IconGit,
+  image: IconImage,
+  push: IconPush,
+  rundeck: IconRundeck,
+  server: IconServer,
+  share: IconShare,
+  timer: IconTimer,
+  user: IconUser,
+  bitbucket: brandMark(bitbucketMark),
+  forgejo: brandMark(forgejoMark),
+  gitea: brandMark(giteaMark),
+  github: brandMark(githubMark),
+  gitlab: brandMark(gitlabMark),
+  jira: brandMark(jiraMark),
+  linear: brandMark(linearMark),
+  slack: brandMark(slackMark),
+  vercel: brandMark(vercelMark),
   activity: IconActivity,
   agent: IconAgent,
   book: IconBook,
@@ -186,8 +227,6 @@ function ToolTarget({ text }: { text: string }) {
   );
 }
 
-const OUTPUT_FOLD_LINES = 12;
-
 /* A command and what it printed, the way a terminal would have shown them. */
 function ToolTerminal({
   command,
@@ -259,47 +298,27 @@ function ToolTerminal({
   );
 }
 
-/* The row keeps only how the call went; what it did comes from the core once the row is opened. */
-function useToolDetail(
-  open: boolean,
-  part: Extract<ChatPart, { kind: "tool" }>,
-): ToolDetail | null {
-  const fetch = useContext(ToolDetailContext);
-  const [detail, setDetail] = useState<ToolDetail | null>(null);
-  const wanted = open && (part.diff !== undefined || part.output !== undefined);
-  const id = part.tool.toolCallId;
-  useEffect(() => {
-    if (!wanted || !fetch) return;
-    let live = true;
-    fetch(id).then(
-      (fetched) => {
-        if (live) setDetail(fetched);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, [wanted, fetch, id, part.endedAt]);
-  return detail;
-}
-
 export const ToolRow = memo(function ToolRow({
   part,
 }: {
   part: Extract<ChatPart, { kind: "tool" }>;
 }) {
   const [open, setOpen] = useState(false);
-  const shown = useToolDetail(open, part);
+  const read = useContext(ToolDetailContext);
+  const { detail: shown } = useToolDetail(
+    read,
+    part,
+    open && (part.diff !== undefined || part.output !== undefined),
+  );
   const targetRef = useRef<HTMLSpanElement>(null);
   const tool = part.tool;
-  const rowKind = toolRowKind(tool);
+  const rowKind = tool.row.action;
   const { diff, output, failure } = part;
   const status = tool.status ?? "pending";
   const running = toolRunning(tool);
-  const file = useFileRef(toolPath(tool));
-  const target = toolTarget(tool);
-  const detail = toolDetail(tool);
+  const file = useFileRef(tool.row.path);
+  const target = tool.row.target;
+  const detail = tool.row.detail;
   const linked = !file && toolUrl(target) !== null;
   const command = tool.kind === "execute" ? tool.title.trim() : null;
   /* The row holds one line of a command, so the whole of it is worth

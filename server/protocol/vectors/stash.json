@@ -1,0 +1,12 @@
+{
+  "description": "What every sender of a stash upload agrees on: the API, the phone, its share extension and the core. Each language's tests read this file.",
+  "maxFileBytes": 26214400,
+  "maxText": 16000,
+  "headers": {
+    "name": "x-stash-name",
+    "note": "x-stash-note",
+    "target": "x-stash-target",
+    "prompt": "x-stash-prompt"
+  },
+  "encoded": ["name", "note", "target"]
+}

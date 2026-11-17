@@ -9,8 +9,9 @@ import {
   workflowAgentCount,
   workflowAgentDetail,
 } from '@shared/chat/transcript';
-import type { WorkflowAgent } from '@shared/chat/types';
-import { queuedLabel } from '@shared/chat/queuedMessages';
+import type { WorkflowAgent } from '@shared/wire.generated';
+import { queuedLabel } from '@/chat/queuedMessages';
+import { useT } from '@/i18n';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { SectionLabel } from '@/ui/list';
@@ -20,7 +21,7 @@ import { Shimmer } from '@/ui/Shimmer';
 import { Dot, Working } from '@/devices/AgentMarks';
 import { fonts, mixed, type Palette, useColors, useStyles } from '@/ui/theme';
 import { counted } from '@/devices/words';
-import { liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
+import { handoffDetail, handoffTitle, liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
 
 const TASK_ICONS: Readonly<Record<string, IconName>> = { shell: 'IconCommand', workflow: 'IconWorkflow' };
 
@@ -31,10 +32,6 @@ function TaskIcon({ kind, color, size = 12 }: { kind: string; color: string; siz
 /** Past this many kinds the strip drops the words and keeps the counts. */
 const WORDED = 3;
 
-/**
- * One line docked on the composer saying what is still going: subagents, background tasks by
- * kind, waiting messages and the plan's progress. A tap opens all of it.
- */
 /** How long the strip shows one live thing before it turns to the next. */
 const TURN_MS = 3200;
 
@@ -64,13 +61,20 @@ function PieceIcon({ piece, provider }: { piece: StripPiece; provider: string })
   const colors = useColors();
   if (piece.task) return <TaskIcon kind={piece.task} color={colors.inkDim} />;
   if (piece.key === 'subagents') return <AgentIcon provider={provider} size={12} />;
-  return <Icon name={piece.key === 'queued' ? 'IconClock' : 'IconCheck'} size={12} color={colors.inkDim} />;
+  if (piece.agent) return <AgentIcon provider={piece.agent} size={12} />;
+  const icon: IconName = piece.key === 'guests' ? 'IconLink' : piece.key === 'queued' ? 'IconClock' : 'IconCheck';
+  return <Icon name={icon} size={12} color={colors.inkDim} />;
 }
 
+/**
+ * One line docked on the composer saying what is still going: subagents, background tasks by
+ * kind, waiting messages and the plan's progress. A tap opens all of it.
+ */
 export function LiveStrip({ work, provider, onOpen }: { work: LiveWork; provider: string; onOpen: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const { pieces, lines, working } = liveStrip(work);
+  const t = useT();
+  const { pieces, lines, working } = liveStrip(work, t);
   const line = useTurns(lines.length);
   const worded = !lines.length && pieces.length <= WORDED;
   return (
@@ -78,7 +82,7 @@ export function LiveStrip({ work, provider, onOpen }: { work: LiveWork; provider
       onPress={onOpen}
       style={({ pressed }) => [styles.strip, pressed && { backgroundColor: colors.raised }]}
       accessibilityRole="button"
-      accessibilityLabel={`${pieces.map((piece) => `${piece.count} ${piece.word}`).join(', ')}. Show`}>
+      accessibilityLabel={t('{pieces}. Show', { pieces: pieces.map((piece) => `${piece.count} ${piece.word}`).join(', ') })}>
       {working ? <Working /> : null}
       {lines.length ? (
         <Animated.View style={[styles.live, { opacity: line.shown }]}>
@@ -204,6 +208,9 @@ export function LiveSheet({
   onStopTask,
   onSteer,
   onDrop,
+  onSendGuest,
+  onDismissGuest,
+  onLeaveOutHandoff,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -217,24 +224,58 @@ export function LiveSheet({
   onStopTask: (taskId: string) => void;
   onSteer: (ids: string[]) => void;
   onDrop: (id: string) => void;
+  onSendGuest: (id: string) => void;
+  onDismissGuest: (id: string) => void;
+  onLeaveOutHandoff: () => void;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const t = useT();
   const done = work.plan.filter((entry) => entry.status === 'completed').length;
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.sheet}>
+        {work.handoff ? (
+          <>
+            <SectionLabel>{t('handoff')}</SectionLabel>
+            <Line
+              mark={<AgentIcon provider={work.handoff.from} size={16} />}
+              title={handoffTitle(work.handoff, provider, t)}
+              detail={handoffDetail(work.handoff, t)}
+              end={
+                canAct ? (
+                  <SmallButton
+                    label={t('Leave out')}
+                    onPress={onLeaveOutHandoff}
+                    accessibilityLabel={t('Send the next message without the handoff')}
+                  />
+                ) : null
+              }
+            />
+          </>
+        ) : null}
         {work.subagents.length ? (
           <>
-            <SectionLabel count={work.subagents.length}>{counted('subagent', work.subagents.length)}</SectionLabel>
+            <SectionLabel count={work.subagents.length}>{work.subagents.length === 1 ? t('subagent') : t('subagents')}</SectionLabel>
             {work.subagents.map((subagent) => (
               <Line
                 key={subagent.sessionId}
                 mark={<AgentIcon provider={provider} size={16} />}
                 title={subagent.name}
-                detail={subagentActivity(subagent)}
-                cost={subagentCost(subagent)}
-                end={<Working />}
+                detail={subagentActivity(subagent, t)}
+                cost={subagentCost(subagent, t)}
+                end={
+                  canAct && subagent.canStop ? (
+                    <SmallButton
+                      label={t('Stop')}
+                      busy={stopping.has(subagent.sessionId)}
+                      onPress={() => onStopTask(subagent.sessionId)}
+                      accessibilityLabel={t('Stop {name}', { name: subagent.name })}
+                    />
+                  ) : (
+                    <Working />
+                  )
+                }
               />
             ))}
           </>
@@ -247,15 +288,15 @@ export function LiveSheet({
                 <Line
                   mark={<TaskIcon kind={kind} size={15} color={task.state === 'paused' ? colors.warn : colors.inkDim} />}
                   title={task.name}
-                  detail={task.state === 'paused' ? 'paused' : taskDetail(task)}
-                  cost={task.agents?.length ? workflowAgentCount(task.agents) : undefined}
+                  detail={task.state === 'paused' ? t('paused') : taskDetail(task, t)}
+                  cost={task.agents?.length ? workflowAgentCount(task.agents, t) : undefined}
                   end={
                     canAct && task.canStop ? (
                       <SmallButton
-                        label="Stop"
+                        label={t('Stop')}
                         busy={stopping.has(task.asyncTaskId)}
                         onPress={() => onStopTask(task.asyncTaskId)}
-                        accessibilityLabel={`Stop ${task.name}`}
+                        accessibilityLabel={t('Stop {name}', { name: task.name })}
                       />
                     ) : null
                   }
@@ -268,7 +309,7 @@ export function LiveSheet({
                     mark={<AgentIcon provider={provider} size={16} />}
                     title={agent.label}
                     detail={workflowAgentDetail(agent)}
-                    cost={workflowAgentCost(agent)}
+                    cost={workflowAgentCost(agent, t)}
                     end={<WorkflowAgentMark state={agent.state} />}
                   />
                 ))}
@@ -276,6 +317,38 @@ export function LiveSheet({
             ))}
           </Fragment>
         ))}
+        {work.guests.length ? (
+          <>
+            <SectionLabel count={work.guests.length}>{t('from guests')}</SectionLabel>
+            {work.guests.map((guest) => (
+              <Line
+                key={guest.id}
+                mark={<Icon name="IconLink" size={15} color={colors.inkDim} />}
+                title={guest.name ? t('{name} · guest', { name: guest.name }) : t('Guest')}
+                detail={guest.text}
+                end={
+                  canAct ? (
+                    <>
+                      <SmallButton
+                        label={t('Send')}
+                        onPress={() => onSendGuest(guest.id)}
+                        accessibilityLabel={t("Send the guest's message to the agent")}
+                      />
+                      <Pressable
+                        onPress={() => onDismissGuest(guest.id)}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.drop, pressed && { backgroundColor: colors.active }]}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("Dismiss the guest's message")}>
+                        <Icon name="IconClose" size={11} color={colors.inkDim} />
+                      </Pressable>
+                    </>
+                  ) : null
+                }
+              />
+            ))}
+          </>
+        ) : null}
         {work.queued.length ? (
           <>
             <SectionLabel
@@ -283,13 +356,13 @@ export function LiveSheet({
               action={
                 steerable && work.queued.length > 1 ? (
                   <SmallButton
-                    label="Steer all"
+                    label={t('Steer all')}
                     onPress={() => onSteer(work.queued.map((held) => held.id))}
-                    accessibilityLabel="Steer the running turn with every queued message"
+                    accessibilityLabel={t('Steer the running turn with every queued message')}
                   />
                 ) : null
               }>
-              queued
+              {t('queued')}
             </SectionLabel>
             {work.queued.map((held) => {
               const files = held.paths.length;
@@ -299,14 +372,14 @@ export function LiveSheet({
                   key={held.id}
                   mark={<Icon name="IconClock" size={15} color={colors.inkDim} />}
                   title={label}
-                  detail={held.text && files ? `${files} ${counted('file', files)}` : undefined}
+                  detail={held.text && files ? (files === 1 ? t('1 file') : t('{count} files', { count: files })) : undefined}
                   end={
                     <>
                       {steerable ? (
                         <SmallButton
-                          label="Steer"
+                          label={t('Steer')}
                           onPress={() => onSteer([held.id])}
-                          accessibilityLabel={`Steer the running turn with ${label}`}
+                          accessibilityLabel={t('Steer the running turn with {label}', { label })}
                         />
                       ) : null}
                       <Pressable
@@ -314,7 +387,7 @@ export function LiveSheet({
                         hitSlop={8}
                         style={({ pressed }) => [styles.drop, pressed && { backgroundColor: colors.active }]}
                         accessibilityRole="button"
-                        accessibilityLabel={`Drop ${label} from the queue`}>
+                        accessibilityLabel={t('Drop {label} from the queue', { label })}>
                         <Icon name="IconClose" size={11} color={colors.inkDim} />
                       </Pressable>
                     </>
@@ -326,7 +399,9 @@ export function LiveSheet({
         ) : null}
         {work.plan.length ? (
           <>
-            <SectionLabel action={<Text style={styles.progress}>{`${done} of ${work.plan.length}`}</Text>}>plan</SectionLabel>
+            <SectionLabel action={<Text style={styles.progress}>{t('{index} of {count}', { index: done, count: work.plan.length })}</Text>}>
+              {t('plan')}
+            </SectionLabel>
             {work.plan.map((entry, index) => (
               <View key={index} style={styles.step}>
                 <View style={styles.stepMark}>

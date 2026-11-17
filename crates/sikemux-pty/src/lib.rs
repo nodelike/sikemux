@@ -1,8 +1,12 @@
 pub mod agent_detection;
 pub mod error;
 pub mod launch;
+pub mod master;
 pub mod output_log;
 pub mod process;
+pub mod program_status;
+#[cfg(all(test, windows))]
+mod pseudoconsole_output;
 pub mod screen;
 pub mod shell;
 pub mod shell_protocol;

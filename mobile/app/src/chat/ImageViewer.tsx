@@ -1,29 +1,18 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { problem as problemOf } from '@/core/problem';
 import { LockCover } from '@/lock/LockScreen';
+import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, radius, useColors, useStyles } from '@/ui/theme';
+import { imageType } from '@shared/lib/imagePaths';
 import { useHostFile } from './hostFiles';
 
-const MIME: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  heic: 'image/heic',
-  heif: 'image/heif',
-  bmp: 'image/bmp',
-  tif: 'image/tiff',
-  tiff: 'image/tiff',
-};
-
-/** A picture a call returned is held as text; the share sheet and the folder picker both want a file. */
+/** A picture a call returned is held as text; the folder picker wants a file. */
 function onDisk(uri: string, name: string): string {
   const data = /^data:[^,]*;base64,/.exec(uri);
   if (!data) return uri;
@@ -32,25 +21,19 @@ function onDisk(uri: string, name: string): string {
   return file.uri;
 }
 
-/** iOS's share sheet carries Save Image and Save to Files; Android saves into a folder the person picks, needing no storage access. */
-async function save(shown: string, name: string): Promise<boolean> {
+/** Saves into a folder the person picks, needing no storage access. */
+async function save(shown: string, name: string) {
   const uri = onDisk(shown, name);
-  if (Platform.OS === 'ios') {
-    const result = await Share.share({ url: uri });
-    return result.action === Share.sharedAction;
-  }
   const folder = await Directory.pickDirectoryAsync();
-  const extension = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
-  const copy = folder.createFile(name, MIME[extension] ?? 'application/octet-stream');
+  const copy = folder.createFile(name, imageType(name) ?? 'application/octet-stream');
   copy.write(await new File(uri).bytes());
-  return true;
 }
 
-/** A picture a message carried, over the whole screen, to look at closely and save. */
 export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; name: string; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -59,12 +42,10 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
     setSaving(true);
     setProblem(null);
     save(uri, name)
-      .then((done) => {
-        if (done) haptics.success();
-      })
+      .then(() => haptics.success())
       .catch((error: unknown) => {
         const message = problemOf(error);
-        if (!/cancel/i.test(message)) setProblem(`Could not save it: ${message}`);
+        if (!/cancel/i.test(message)) setProblem(t('Could not save it: {message}', { message }));
       })
       .finally(() => setSaving(false));
   };
@@ -87,7 +68,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
           )}
         </ScrollView>
         <View style={[styles.bar, { paddingTop: insets.top + 8 }]}>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.control} accessibilityRole="button" accessibilityLabel="Close">
+          <Pressable onPress={onClose} hitSlop={10} style={styles.control} accessibilityRole="button" accessibilityLabel={t('Close')}>
             <Icon name="IconClose" size={16} color={colors.ink} />
           </Pressable>
           <Text style={styles.name} numberOfLines={1} ellipsizeMode="middle">
@@ -99,7 +80,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
             hitSlop={10}
             style={[styles.control, (!uri || saving) && { opacity: 0.5 }]}
             accessibilityRole="button"
-            accessibilityLabel={`Save ${name}`}>
+            accessibilityLabel={t('Save {name}', { name })}>
             {saving ? <ActivityIndicator size="small" color={colors.ink} /> : <Icon name="IconDownload" size={16} color={colors.ink} />}
           </Pressable>
         </View>

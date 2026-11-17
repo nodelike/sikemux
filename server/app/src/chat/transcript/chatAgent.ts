@@ -1,27 +1,19 @@
 import { createContext } from "react";
-import type { Agent } from "../agents/agent";
-import type { ChatMessage, SubagentCard, ToolDetail } from "@shared/chat/types";
+import type { AgentType } from "@shared/agents/catalog";
+import type { Subagents } from "@shared/chat/subagents";
+import type { ToolDetail } from "@shared/wire.generated";
 
-export const ChatAgentContext = createContext<{
-  id: string;
-  type: Agent["type"];
-}>({ id: "", type: "claude" });
+export const ChatAgentContext = createContext<AgentType>("agent");
 
-/** Every subagent card the chat holds, and each subagent's own rows, by its session. */
-export const ChatSubagentsContext = createContext<{
-  cards: ReadonlyMap<string, SubagentCard>;
-  rows: Readonly<Record<string, ChatMessage[]>>;
-}>({ cards: new Map(), rows: {} });
+export const ChatSubagentsContext = createContext<Subagents>({
+  card: () => undefined,
+  rows: {},
+});
 
-/** Fetches what a tool call did, line by line, for a row opened to show it; none where nothing can be asked. */
+/** Fetches what a tool call did, line by line, for a row opened to show it. */
 export const ToolDetailContext = createContext<
-  ((toolCallId: string) => Promise<ToolDetail>) | null
->(null);
-
-/** Scrolls the transcript as the reader asked, for a wheel turned over a page, which the transcript never sees. */
-export const ReaderScrollContext = createContext<(deltaY: number) => void>(
-  () => {},
-);
+  (toolCallId: string) => Promise<ToolDetail>
+>(() => Promise.resolve({}));
 
 const OPENABLE = new Set(["http:", "https:", "mailto:"]);
 

@@ -1,23 +1,56 @@
 {
   "id": "sikemux.rundeck",
   "name": "Rundeck",
-  "version": "0.1.0",
-  "sikemux": ">=0.4",
   "callTimeoutSecs": 65,
-  "views": {
-    "treeView": { "everySecs": 300 },
-    "jobsView": { "everySecs": 30 },
-    "jobView": { "everySecs": 20 },
-    "activityView": { "everySecs": 30 },
-    "deployView": { "everySecs": 60 },
-    "planView": { "everySecs": 10 },
-    "executionView": { "everySecs": 60 },
-    "deployTargetView": { "everySecs": 60 },
-    "catalogView": { "everySecs": 300 },
-    "optionValues": { "everySecs": 60 }
+  "accountMethods": ["login", "signInWithToken", "signOut"],
+  "tokenForm": {
+    "method": "signInWithToken",
+    "lede": "Tools for your agents to find, run and follow Rundeck jobs.",
+    "fields": [
+      {
+        "name": "url",
+        "label": "Rundeck server",
+        "placeholder": "https://rundeck.example.com"
+      },
+      {
+        "name": "token",
+        "label": "API token",
+        "placeholder": "Your Rundeck API token",
+        "secret": true
+      }
+    ],
+    "checks": [
+      {
+        "name": "allow_insecure_private_http",
+        "label": "Allow plain HTTP on a private network"
+      }
+    ],
+    "otherWay": {
+      "method": "login",
+      "offer": "Use a username and password instead",
+      "back": "Use an API token instead",
+      "fields": [
+        {
+          "name": "url",
+          "label": "Rundeck server",
+          "placeholder": "https://rundeck.example.com"
+        },
+        {
+          "name": "user",
+          "label": "Username",
+          "placeholder": "Your Rundeck username"
+        },
+        {
+          "name": "password",
+          "label": "Password",
+          "placeholder": "Your Rundeck password",
+          "secret": true,
+          "exact": true
+        }
+      ]
+    }
   },
-  "writes": ["run", "agentRun", "abort", "setLists"],
-  "accountMethods": ["login", "loginWithToken", "logout"],
+  "family": {"name": "rundeck", "description": "Rundeck jobs and their runs."},
   "tools": [
     {
       "name": "rundeck_projects",
@@ -39,7 +72,7 @@
       "name": "rundeck_run",
       "row": {"verb": "run", "kind": "execute", "icon": "run", "target": ["{job}"], "detail": ["{project}"]},
       "method": "agentRun",
-      "description": "Run a job and wait up to 50s for it to end: status, duration, url, last log lines. Still running? rundeck_execution with wait.",
+      "description": "Run a job and wait up to 50s for it to end: status, duration, url, last log lines. Still running? rundeck execution with wait.",
       "properties": {
         "job": { "type": "string", "description": "Its id or group/name path." },
         "project": { "type": "string", "description": "Where to find job. Default: every project." },

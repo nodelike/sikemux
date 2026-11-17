@@ -2,22 +2,47 @@ import Foundation
 
 extension DeviceView {
     static let empty = DeviceView(
-        workspace: Workspace(projects: [], launchers: []), sessions: [], chats: [], attentions: [],
-        inbox: Inbox(items: [], working: 0, agents: [], rollup: nil),
-        faceStyle: FaceStyle(motion: true)
+        workspace: Workspace(projects: [], launchers: [], palette: [:]), attentions: [],
+        inbox: Inbox(items: [], working: 0, agents: [], rollup: nil), calls: [], now: nil,
+        faceStyle: FaceStyle(motion: true), load: nil
     )
 }
 
-/// The marks beside a row and in the closed island's right wing.
 enum Mark: Hashable {
     case needs, working, done, failed, idle
+    /// A ring filling as a wait on CI or the checks runs, once its length is known, and the
+    /// timer of any other wait.
+    case waiting, timer
+    /// A hollow ring: the turn stopped short.
+    case stopped
+
+    /// The mark for how an agent's turn stands, as the core sends it; none for a state this
+    /// build does not know, or a finished turn the person has seen.
+    init?(turn: TurnState) {
+        switch turn.state {
+        case .working: self = .working
+        case .waiting: self = turn.wait.map(Mark.fills) == true ? .waiting : .timer
+        case .needsYou: self = .needs
+        case .done:
+            if turn.seen == true { return nil }
+            self = .done
+        case .failed: self = .failed
+        case .stopped: self = .stopped
+        case .unknown: return nil
+        }
+    }
+
+    /// Whether a wait shows the ring: one on CI or the checks whose length is known.
+    static func fills(_ wait: TurnWait) -> Bool {
+        (wait.kind == .ci || wait.kind == .check) && (wait.expectedMs ?? 0) > 0
+    }
 }
 
-/// One group on the closed island's right wing.
 enum Rollup: Hashable {
+    /// The calls waiting on the person, which stand in for needs you while there are any.
+    case calls
     case mark(Mark)
     case subagents
-    case shells
 
     /// Totals show their count even at one; a state shows it only past one.
     func showsCount(_ count: Int) -> Bool {
@@ -26,7 +51,6 @@ enum Rollup: Hashable {
     }
 }
 
-/// A permission an agent waits on, with the person's choices.
 struct Ask: Equatable {
     let attentionId: String
     /// The command it wants to run, or what the tool call is called when it is not a command.
@@ -47,52 +71,53 @@ struct Ask: Equatable {
     }
 }
 
-/// One row of the island: an inbox item with how the core shows its agent.
+/// One row of the island: an open agent as the core shows it, with what the inbox says about it, or an item of an
+/// agent on another host.
 struct Entry: Identifiable, Equatable {
-    let item: InboxItem
-    /// How the core shows the item's agent, while it is open here.
+    let item: InboxItem?
     let agent: AgentShown?
-    let project: String
     let ask: Ask?
     var question: AgentQuestion? = nil
-    /// The attempt its agent is retrying a failed request on, 0 when it did not say.
-    var reconnecting: Int? = nil
 
-    var id: String { item.id }
-    var provider: String { item.cli ?? "" }
-    var title: String { agent?.title ?? item.title ?? item.card?.title ?? item.what }
+    var id: String { item?.id ?? "agent:\(agent?.agentId ?? "")" }
+    var agentId: String? { agent?.agentId ?? item?.agentId }
+    var name: String? { item?.name ?? agent?.name }
+    var provider: String { item?.cli ?? agent?.cli ?? "" }
+    var project: String { item?.projectName ?? agent?.projectName ?? "" }
+    /// The workspace project it is in, by id, which tells apart two projects of one name.
+    var projectId: String? { agent?.project ?? item?.project }
+    /// What the core says its row leads with; an agent the inbox has nothing about goes by its title.
+    var title: String { item?.heading ?? agent?.title ?? "" }
+    /// The attempt its agent is retrying a failed request on, 0 when it did not say.
+    var reconnecting: Int? { agent?.reconnecting }
     /// Subagents, and shells or monitors, its agent still has going.
     var subagents: Int { agent?.subagents ?? 0 }
     var tasks: Int { agent?.tasks ?? 0 }
-    /// When a trigger next wakes its agent, shown only while the agent waits.
-    var nextTrigger: Date? {
-        guard mark == .idle || mark == .done, let at = agent?.nextTrigger else { return nil }
-        return Date(timeIntervalSince1970: Double(at) / 1000)
-    }
+    var inLine: InLine? { agent?.line }
     /// When its agent was last named with `@` or messaged by another agent.
     var calledAt: Int? { agent?.calledAt }
-    var isChat: Bool { item.agentId != nil && item.session == nil && item.cli != nil }
-    var since: Date? { item.at > 0 ? Date(timeIntervalSince1970: Double(item.at) / 1000) : nil }
+    /// It is its project's chief, @Chief.
+    var isChief: Bool { agent?.chief == true }
+    var isChat: Bool { agentId != nil && session == nil && !provider.isEmpty }
+    var session: Int? { agent?.session ?? item?.session }
+    var since: Date? { item.map { Date(timeIntervalSince1970: Double($0.at) / 1000) } }
 
     var mark: Mark {
-        switch agent?.group {
-        case .blocked: return .needs
-        case .working: return .working
-        case .done: return item.kind == .failed ? .failed : .done
-        case .idle: return .idle
-        case .unknown, nil: break
+        if let agent {
+            return agent.turn.flatMap(Mark.init(turn:)) ?? .idle
         }
-        return switch item.tier {
+        return switch item?.tier {
         case .needs: .needs
         case .progress: .working
-        case .review, .finished: item.kind == .failed ? .failed : .done
-        case .unknown: .idle
+        case .review, .finished: item?.kind == .failed ? .failed : .done
+        case .unknown, nil: .idle
         }
     }
 
     /// What the item says, and for a question why it reached the person rather than its lead.
     var what: String {
-        [item.what, question?.viaNote].compactMap { $0 }.joined(separator: " · ")
+        [item?.about == nil ? nil : item?.what, question?.viaNote]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -106,49 +131,67 @@ func agentName(_ provider: String) -> String {
 }
 
 extension DeviceView {
-    private func projectName(_ value: String?) -> String {
-        guard let value, !value.isEmpty else { return "" }
-        if let project = workspace.projects.first(where: { $0.id == value || $0.path == value }) {
-            return project.name
-        }
-        return URL(fileURLWithPath: value).lastPathComponent
+    /// The load against the cores and agents' builds while this Mac is overloaded, as its row says them.
+    var busy: String? {
+        guard let load, load.overloaded == true else { return nil }
+        let builds = load.builds?.count ?? 0
+        let average = load.loadAverage.map { "load \($0) on \(load.cores) cores" }
+        let counted = builds == 0 ? nil : builds == 1 ? "1 build" : "\(builds) builds"
+        return [average, counted].compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// Every open agent once, in the order the core lists them on every device, each with what the inbox says about it
+    /// What about a host on the account needs the person, each its own row above the agents.
+    var hostAlerts: [Entry] {
+        inbox.items.filter { $0.kind == .hostAlert }.map { Entry(item: $0, agent: nil, ask: nil) }
+    }
+
+    /// Every open agent in the main list once, in the order the core lists them on every device, each with what the inbox says about it
     /// and the question it asks from `questions`. Agents on other hosts the inbox lists follow; items that are not about
     /// an agent are left out.
     func entries(_ questions: [AgentQuestion]) -> [Entry] {
-        let listed = Set(inbox.agents.map(\.agentId))
+        let agents = inbox.agents.filter { $0.snoozedUntil == nil && $0.settledAt == nil }
+        let hidden = Set(inbox.agents.map(\.agentId)).subtracting(agents.map(\.agentId))
+        let listed = Set(agents.map(\.agentId))
         var seen = Set<String>()
-        let others = inbox.items.compactMap(\.agentId).filter { !listed.contains($0) && seen.insert($0).inserted }
-        return (inbox.agents.map(\.agentId) + others).compactMap { agentId in
-            let agent = inbox.agents.first { $0.agentId == agentId }
-            guard let item = inbox.items.first(where: { $0.agentId == agentId }) ?? idleItem(agentId) else { return nil }
+        let others = inbox.items.compactMap(\.agentId)
+            .filter { !listed.contains($0) && !hidden.contains($0) && seen.insert($0).inserted }
+        let entries = (agents.map(\.agentId) + others).map { agentId in
+            let item = inbox.items.first { $0.agentId == agentId }
             return Entry(
                 item: item,
-                agent: agent,
-                project: projectName(item.project),
-                ask: attentions.first { $0.id == item.requestId }.map(Ask.init),
-                question: questions.first { $0.id == item.questionId },
-                reconnecting: chats.first { $0.agentId == agentId }?.reconnecting
+                agent: agents.first { $0.agentId == agentId },
+                ask: attentions.first { $0.id == item?.requestId }.map(Ask.init),
+                question: questions.first { $0.id == item?.questionId }
             )
         }
+        return byProject(entries)
     }
 
-    private func idleItem(_ agentId: String) -> InboxItem? {
-        if let chat = chats.first(where: { $0.agentId == agentId }) {
-            return InboxItem(
-                id: "agent:\(agentId)", tier: .unknown, kind: .unknown, agentId: agentId, name: chat.name, cli: chat.provider,
-                project: chat.cwd, title: nil, what: "", detail: nil, at: 0,
-                session: nil, card: nil, requestId: nil, questionId: nil, url: nil
-            )
+    /// The entries project by project, each project's @Chief first and its agents after it in
+    /// the order given, projects in the order of how the core says they stand: needs you, then at
+    /// work, then the rest, each in the order the core lists them. Entries of no listed project
+    /// follow, as they were.
+    func byProject(_ entries: [Entry]) -> [Entry] {
+        let projects = workspace.projects
+        func belongs(_ entry: Entry, _ project: ProjectInfo) -> Bool { entry.projectId == project.id }
+        func rank(_ project: ProjectInfo) -> Int {
+            switch project.standing {
+            case .needsYou: 0
+            case .atWork: 1
+            default: 2
+            }
         }
-        guard let session = sessions.first(where: { $0.agentId == agentId }) else { return nil }
-        return InboxItem(
-            id: "agent:\(agentId)", tier: .unknown, kind: .unknown, agentId: agentId, name: session.agentName,
-            cli: session.agentType, project: session.project, title: nil, what: "", detail: nil, at: 0,
-            session: session.id, card: nil, requestId: nil, questionId: nil, url: nil
-        )
+        let ranked = projects.enumerated()
+            .filter { _, project in entries.contains { belongs($0, project) } }
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map(\.element)
+        var ordered: [Entry] = []
+        for project in ranked {
+            let mine = entries.filter { belongs($0, project) }
+            ordered += mine.filter(\.isChief) + mine.filter { !$0.isChief }
+        }
+        let placed = Set(ordered.map(\.id))
+        return ordered + entries.filter { !placed.contains($0.id) }
     }
 }
 

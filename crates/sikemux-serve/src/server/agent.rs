@@ -1,0 +1,628 @@
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use portable_pty::ExitStatus;
+use serde::{Deserialize, Serialize};
+use sikemux_process::sync::{Locked, Shared};
+use sikemux_pty::agent_detection::{
+    AgentDetection, AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain,
+    DetectionInput, ManifestRegistry,
+};
+use sikemux_pty::program_status::{ProgramStatus, ReportedState};
+
+use sikemux_wire::protocol::{AgentState, AgentStateEvent, Event};
+
+use super::connection::blocking;
+use super::session::Session;
+use super::{Core, CoreResult};
+
+const ACTIVITY_SETTLE: Duration = Duration::from_secs(2);
+const MAX_REPORTED_MESSAGE_CHARS: usize = 120;
+/// How long an agent at rest must keep printing before that counts as a turn
+/// it began by itself rather than a redraw of its screen.
+const OUTPUT_MAKES_A_TURN: Duration = Duration::from_secs(5);
+
+fn sequence() -> &'static AtomicU64 {
+    static NEXT: OnceLock<AtomicU64> = OnceLock::new();
+    NEXT.get_or_init(|| {
+        let micros = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_micros() as u64)
+            .unwrap_or(1);
+        AtomicU64::new(micros.max(1))
+    })
+}
+
+/// Every agent's events share one ordering, so a late event from a replaced
+/// terminal never overwrites a newer one. It starts from the clock so a core
+/// that restarts under a running app keeps counting upwards.
+fn next_sequence() -> u64 {
+    sequence().fetch_add(1, Ordering::AcqRel)
+}
+
+/// A chat's state, from the core that runs it, so it reads the same in every
+/// app whether or not one has the chat open. A chat's permission requests
+/// already notify, so its state stays out of the notices.
+pub fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState) {
+    core.changed(What::Agents);
+    let event = Event::AgentState(AgentStateEvent {
+        agent_id: agent_id.to_owned(),
+        state,
+        sequence: next_sequence(),
+        source: "chat".into(),
+        confidence: "high".into(),
+        reason: "the chat's turn as the core runs it".into(),
+        matched_rule: None,
+    });
+    core.changed(What::ChatState(&event));
+}
+
+pub fn sequence_mark() -> u64 {
+    sequence().load(Ordering::Acquire)
+}
+
+pub fn continue_sequence(mark: u64) {
+    sequence().fetch_max(mark, Ordering::AcqRel);
+}
+
+/// The part of an agent's activity a replacement core carries on from.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRecord {
+    armed: bool,
+    state: u8,
+    silenced: bool,
+    last_published: u64,
+    idle_confirmations: u8,
+}
+
+/// What the core infers about an agent running in a terminal, so its state is
+/// known even while no client is looking at it.
+pub struct AgentActivity {
+    agent_id: String,
+    kind: Option<AgentKind>,
+    armed: AtomicBool,
+    state: AtomicU8,
+    /// The program says its own state over OSC 7501, so its screen is not read.
+    reports_itself: AtomicBool,
+    /// Set by an explicit kill: a replacement may already be running, so this
+    /// one must not report anything more.
+    silenced: AtomicBool,
+    last_published: AtomicU64,
+    idle_confirmations: AtomicU8,
+    /// Advances whenever submitted input or output changes what the screen
+    /// may say, so detection runs only when there is something new to read.
+    revision: AtomicU64,
+    last_detection_fingerprint: AtomicU64,
+    last_detection_revision: AtomicU64,
+    last_output_ms: AtomicU64,
+    /// When the output an agent at rest has been printing without a pause began.
+    resting_output_since_ms: AtomicU64,
+    /// Held while a state change and its event go out, so two threads publishing at once
+    /// can't send their events in the opposite order to their changes.
+    publishing: Mutex<()>,
+}
+
+impl AgentActivity {
+    pub fn new(
+        agent_id: Option<&str>,
+        agent_type: Option<&str>,
+        initial_prompt_submitted: bool,
+    ) -> Option<Self> {
+        let agent_id = agent_id.filter(|id| !id.is_empty())?;
+        Some(Self {
+            agent_id: agent_id.to_string(),
+            kind: agent_type.and_then(AgentKind::from_label),
+            armed: AtomicBool::new(initial_prompt_submitted),
+            state: AtomicU8::new(AgentState::Unknown as u8),
+            reports_itself: AtomicBool::new(false),
+            silenced: AtomicBool::new(false),
+            last_published: AtomicU64::new(0),
+            idle_confirmations: AtomicU8::new(0),
+            revision: AtomicU64::new(0),
+            last_detection_fingerprint: AtomicU64::new(0),
+            last_detection_revision: AtomicU64::new(0),
+            last_output_ms: AtomicU64::new(0),
+            resting_output_since_ms: AtomicU64::new(0),
+            publishing: Mutex::new(()),
+        })
+    }
+
+    pub fn record(&self) -> AgentRecord {
+        AgentRecord {
+            armed: self.armed.load(Ordering::Acquire),
+            state: self.state.load(Ordering::Acquire),
+            silenced: self.silenced.load(Ordering::Acquire),
+            last_published: self.last_published.load(Ordering::Acquire),
+            idle_confirmations: self.idle_confirmations.load(Ordering::Acquire),
+        }
+    }
+
+    /// The screen is read again on the next poll, as the rules may differ.
+    pub fn restored(
+        agent_id: Option<&str>,
+        agent_type: Option<&str>,
+        record: &AgentRecord,
+    ) -> Option<Self> {
+        let activity = Self::new(agent_id, agent_type, record.armed)?;
+        activity.state.store(record.state, Ordering::Release);
+        activity.silenced.store(record.silenced, Ordering::Release);
+        activity
+            .last_published
+            .store(record.last_published, Ordering::Release);
+        activity
+            .idle_confirmations
+            .store(record.idle_confirmations, Ordering::Release);
+        activity.revision.store(1, Ordering::Release);
+        Some(activity)
+    }
+
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    pub fn kind(&self) -> Option<AgentKind> {
+        self.kind
+    }
+
+    fn state_now(&self) -> AgentState {
+        AgentState::from_u8(self.state.load(Ordering::Acquire))
+    }
+
+    /// Its state is known: the core reads its kind's screens, or it says it.
+    fn readable(&self) -> bool {
+        self.kind.is_some() || self.reports_itself()
+    }
+
+    fn reports_itself(&self) -> bool {
+        self.reports_itself.load(Ordering::Acquire)
+    }
+
+    /// What it was last published doing, for an agent whose state is known.
+    pub fn state(&self) -> Option<AgentState> {
+        self.readable().then(|| self.state_now())
+    }
+
+    /// It is at work on a turn, or waits on the person in the middle of one.
+    pub fn busy(&self) -> bool {
+        self.state_now().busy()
+    }
+
+    /// Its screen shows it waiting for a prompt.
+    pub fn idle(&self) -> bool {
+        self.readable() && self.state_now() == AgentState::Idle
+    }
+
+    pub fn silence(&self) {
+        self.silenced.store(true, Ordering::Release);
+    }
+
+    pub fn note_parsed(&self) {
+        self.revision.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn invalidate_detection(&self) {
+        self.last_detection_fingerprint.store(0, Ordering::Release);
+        self.last_detection_revision.store(0, Ordering::Release);
+    }
+
+    fn publish(
+        &self,
+        core: &Core,
+        next: AgentState,
+        source: &str,
+        confidence: &str,
+        reason: impl Into<String>,
+        matched_rule: Option<String>,
+    ) {
+        if self.silenced.load(Ordering::Acquire) {
+            return;
+        }
+        let reason = reason.into();
+        let fingerprint =
+            event_fingerprint(next, source, confidence, &reason, matched_rule.as_deref());
+        let previous = {
+            let _publishing = self.publishing.locked();
+            if self.last_published.swap(fingerprint, Ordering::AcqRel) == fingerprint {
+                return;
+            }
+            let previous = AgentState::from_u8(self.state.swap(next as u8, Ordering::AcqRel));
+            core.changed(What::Event(&Event::AgentState(AgentStateEvent {
+                agent_id: self.agent_id.clone(),
+                state: next,
+                sequence: next_sequence(),
+                source: source.into(),
+                confidence: confidence.into(),
+                reason,
+                matched_rule,
+            })));
+            previous
+        };
+        let busy = previous.busy();
+        (core.above().agent_moved)(
+            core,
+            &self.agent_id,
+            next,
+            busy,
+            source != "activity",
+            self.last_output_ms.load(Ordering::Acquire),
+        );
+        if next != previous {
+            core.changed(What::Agents);
+        }
+    }
+}
+
+pub fn publish_start(core: &Core, agent: &AgentActivity) {
+    if agent.kind.is_none() {
+        return;
+    }
+    if agent.armed.load(Ordering::Acquire) {
+        agent.publish(
+            core,
+            AgentState::Working,
+            "activity",
+            "high",
+            "initial prompt submitted",
+            None,
+        );
+    } else {
+        agent.publish(
+            core,
+            AgentState::Idle,
+            "process",
+            "high",
+            "agent ready; no prompt submitted",
+            None,
+        );
+    }
+}
+
+pub fn submits_line(bytes: &[u8]) -> bool {
+    bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n'))
+}
+
+pub fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
+    let Some(agent) = session.agent.as_ref() else {
+        return;
+    };
+    if !submits_line(bytes) {
+        return;
+    }
+    agent.armed.store(true, Ordering::Release);
+    session
+        .last_activity_ms
+        .store(core.uptime_ms(), Ordering::Relaxed);
+    agent.idle_confirmations.store(0, Ordering::Release);
+    agent.revision.fetch_add(1, Ordering::AcqRel);
+    if agent.reports_itself() {
+        return;
+    }
+    agent.publish(
+        core,
+        AgentState::Working,
+        "activity",
+        "high",
+        "command submitted",
+        None,
+    );
+}
+
+/// Startup banners and the first paint are output but not work. An agent
+/// stays ready until a submitted line arms it. Output from an agent at rest is
+/// a redraw, such as Claude's after each turn, unless it keeps going or its
+/// screen shows it at work.
+pub fn note_output(core: &Core, agent: &AgentActivity) {
+    if agent.kind.is_none() || !agent.armed.load(Ordering::Acquire) || agent.reports_itself() {
+        return;
+    }
+    agent.idle_confirmations.store(0, Ordering::Release);
+    let now = core.uptime_ms();
+    let previous = agent.last_output_ms.swap(now, Ordering::AcqRel);
+    if !agent.busy() {
+        if now.saturating_sub(previous) >= ACTIVITY_SETTLE.as_millis() as u64 {
+            agent.resting_output_since_ms.store(now, Ordering::Release);
+        }
+        let since = agent.resting_output_since_ms.load(Ordering::Acquire);
+        if now.saturating_sub(since) < OUTPUT_MAKES_A_TURN.as_millis() as u64 {
+            return;
+        }
+    }
+    agent.publish(
+        core,
+        AgentState::Working,
+        "activity",
+        "medium",
+        "agent produced output",
+        None,
+    );
+}
+
+pub fn note_exit(core: &Core, agent: &AgentActivity, status: Option<&ExitStatus>) {
+    if !agent.readable() {
+        return;
+    }
+    let reason = match status {
+        None => "agent process stopped; exit status unavailable".to_string(),
+        Some(status) if status.success() => "agent process stopped".to_string(),
+        Some(status) => status.signal().map_or_else(
+            || format!("agent process stopped with code {}", status.exit_code()),
+            |signal| format!("agent process stopped from signal {signal}"),
+        ),
+    };
+    agent.publish(core, AgentState::Stopped, "process", "high", reason, None);
+}
+
+/// What a program's own OSC 7501 reports come to, or None once it cleared
+/// them all.
+pub struct ProgramReport(Option<(AgentState, String)>);
+
+impl ProgramReport {
+    pub fn of(status: Option<&ProgramStatus>) -> Self {
+        let Some((status, record)) = status.and_then(|status| Some((status, status.headline()?)))
+        else {
+            return Self(None);
+        };
+        let state = match record.state {
+            ReportedState::Working => AgentState::Working,
+            ReportedState::Blocked => AgentState::Blocked,
+            ReportedState::Idle | ReportedState::Done | ReportedState::Error => AgentState::Idle,
+        };
+        let mut reason = format!(
+            "{} reports {}",
+            status.app_of(record).unwrap_or("the program"),
+            record.state.word()
+        );
+        if let Some(on) = record.blocked_on {
+            reason.push_str(" on ");
+            reason.push_str(on.word());
+        }
+        if let Some(msg) = record.msg.as_deref() {
+            reason.push_str(": ");
+            reason.extend(
+                msg.chars()
+                    .filter(|ch| !invisible_formatting(*ch))
+                    .take(MAX_REPORTED_MESSAGE_CHARS),
+            );
+        }
+        Self(Some((state, reason)))
+    }
+}
+
+/// Text direction overrides and zero-width marks, which could make a
+/// program's message read as something else.
+fn invisible_formatting(ch: char) -> bool {
+    matches!(ch, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
+}
+
+/// A program that reports its own state is taken at its word; once it
+/// clears every report its screen is read again.
+pub fn note_program_status(core: &Core, agent: &AgentActivity, report: ProgramReport) {
+    let Some((state, reason)) = report.0 else {
+        agent.reports_itself.store(false, Ordering::Release);
+        agent.invalidate_detection();
+        agent.revision.fetch_add(1, Ordering::AcqRel);
+        return;
+    };
+    agent.reports_itself.store(true, Ordering::Release);
+    agent.idle_confirmations.store(0, Ordering::Release);
+    agent.publish(core, state, "program", "high", reason, None);
+}
+
+fn detection_input<'a>(recent: &'a str, title: &'a str) -> DetectionInput<'a> {
+    if title.is_empty() {
+        DetectionInput::screen(recent)
+    } else {
+        DetectionInput {
+            recent_screen: recent,
+            osc_title: title,
+            osc_progress: "",
+        }
+    }
+}
+
+/// Whether the agent in `session` takes a prompt typed in now: its screen
+/// shows it waiting for one, read afresh, as what was last published may be
+/// a moment behind a permission prompt. One that has had no prompt yet must
+/// also have gone quiet with its prompt box in sight, as it may still be
+/// starting or asking the person something first.
+pub fn takes_prompt(core: &Core, session: &Session) -> bool {
+    let Some(agent) = session.agent.as_ref().filter(|agent| agent.idle()) else {
+        return false;
+    };
+    if agent.reports_itself() {
+        return true;
+    }
+    let Some(detection) = screen_now(core, session) else {
+        return false;
+    };
+    if agent.armed.load(Ordering::Acquire) {
+        return !matches!(
+            detection.state,
+            AgentDetectionState::Working | AgentDetectionState::Blocked
+        );
+    }
+    let quiet = core
+        .uptime_ms()
+        .saturating_sub(session.last_activity_ms.load(Ordering::Relaxed))
+        >= ACTIVITY_SETTLE.as_millis() as u64;
+    quiet
+        && matches!(detection.state, AgentDetectionState::Idle)
+        && detection.fallback_reason.is_none()
+}
+
+/// Whether the agent's screen shows it asking the person something now, such
+/// as for a permission.
+pub fn asks_now(core: &Core, session: &Session) -> bool {
+    if let Some(agent) = session
+        .agent
+        .as_ref()
+        .filter(|agent| agent.reports_itself())
+    {
+        return agent.state_now() == AgentState::Blocked;
+    }
+    screen_now(core, session)
+        .is_some_and(|detection| matches!(detection.state, AgentDetectionState::Blocked))
+}
+
+fn screen_now(core: &Core, session: &Session) -> Option<AgentDetection> {
+    let kind = session.agent.as_ref()?.kind?;
+    let (recent, title) = screen_text(session);
+    let registry = core.detection().read_locked();
+    Some(registry.detect(kind, detection_input(&recent, &title)))
+}
+
+pub fn screen_text(session: &Session) -> (String, String) {
+    let screen = session.screen.locked();
+    (screen.terminal.contents(), screen.window_title.clone())
+}
+
+/// Reads a settled agent screen and publishes what it shows. Runs a few times
+/// a second for every session.
+pub fn poll(core: &Core, session: &Session, now: u64) {
+    let Some(agent) = session.agent.as_ref() else {
+        return;
+    };
+    let Some(kind) = agent.kind else {
+        return;
+    };
+    if agent.reports_itself() {
+        return;
+    }
+    if !agent.armed.load(Ordering::Acquire)
+        || now.saturating_sub(session.last_activity_ms.load(Ordering::Relaxed))
+            < ACTIVITY_SETTLE.as_millis() as u64
+    {
+        return;
+    }
+    let revision = agent.revision.load(Ordering::Acquire);
+    if agent.last_detection_revision.load(Ordering::Acquire) == revision {
+        return;
+    }
+    let (recent, title) = screen_text(session);
+    let fingerprint = semantic_fingerprint(revision, &recent, &title);
+    if agent.last_detection_fingerprint.load(Ordering::Acquire) == fingerprint {
+        return;
+    }
+    let detection = core
+        .detection()
+        .read_locked()
+        .detect(kind, detection_input(&recent, &title));
+    if detection.skip_state_update {
+        agent
+            .last_detection_fingerprint
+            .store(fingerprint, Ordering::Release);
+        agent
+            .last_detection_revision
+            .store(revision, Ordering::Release);
+        return;
+    }
+    let next = AgentState::from(detection.state);
+    if next == AgentState::Idle {
+        let confirmations = agent.idle_confirmations.fetch_add(1, Ordering::AcqRel) + 1;
+        if confirmations < 2 {
+            return;
+        }
+    } else {
+        agent.idle_confirmations.store(0, Ordering::Release);
+    }
+    let source = if detection.fallback_reason.is_some() {
+        "fallback"
+    } else {
+        "screen"
+    };
+    let confidence = match detection.confidence {
+        DetectionConfidence::Authoritative | DetectionConfidence::Strong => "high",
+        DetectionConfidence::Fallback => "low",
+    };
+    let reason = detection_reason(&detection);
+    agent.publish(
+        core,
+        next,
+        source,
+        confidence,
+        reason,
+        detection.matched_rule,
+    );
+    agent
+        .last_detection_fingerprint
+        .store(fingerprint, Ordering::Release);
+    agent
+        .last_detection_revision
+        .store(revision, Ordering::Release);
+}
+
+/// How the agent's detection rules read its screen now.
+pub async fn explain_of(core: Arc<Core>, agent_id: String) -> CoreResult<DetectionExplain> {
+    let target = core
+        .agent_session(&agent_id)
+        .ok_or("invalid argument: agent has no live terminal")?;
+    blocking(move || explain(&core.detection().read_locked(), &target)).await
+}
+
+fn explain(registry: &ManifestRegistry, session: &Session) -> CoreResult<DetectionExplain> {
+    let kind = session
+        .agent
+        .as_ref()
+        .and_then(AgentActivity::kind)
+        .ok_or("invalid argument: terminal has no known agent type")?;
+    let (recent, title) = screen_text(session);
+    Ok(registry.explain(kind, detection_input(&recent, &title)))
+}
+
+fn semantic_fingerprint(revision: u64, screen: &str, title: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    revision.hash(&mut hasher);
+    screen.hash(&mut hasher);
+    title.hash(&mut hasher);
+    // Zero means "never evaluated".
+    hasher.finish().max(1)
+}
+
+fn event_fingerprint(
+    state: AgentState,
+    source: &str,
+    confidence: &str,
+    reason: &str,
+    matched_rule: Option<&str>,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    state.hash(&mut hasher);
+    source.hash(&mut hasher);
+    confidence.hash(&mut hasher);
+    reason.hash(&mut hasher);
+    matched_rule.hash(&mut hasher);
+    hasher.finish().max(1)
+}
+
+fn detection_reason(detection: &AgentDetection) -> String {
+    if let Some(fallback) = detection.fallback_reason.as_deref() {
+        return format!("agent detection fallback: {fallback}");
+    }
+    let Some(rule) = detection.matched_rule.as_deref() else {
+        return format!(
+            "agent screen evaluated with manifest {}",
+            detection.manifest_version
+        );
+    };
+    let evidence = &detection.evidence;
+    let visible = if evidence.visible_blocker {
+        "visible blocker"
+    } else if evidence.visible_working {
+        "visible working status"
+    } else if evidence.visible_idle {
+        "visible idle prompt"
+    } else {
+        "screen evidence"
+    };
+    match evidence.region.as_deref() {
+        Some(region) => format!("manifest rule {rule} matched {visible} in {region}"),
+        None => format!("manifest rule {rule} matched {visible}"),
+    }
+}

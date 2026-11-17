@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatAttachment, MobileError, type ConnectionLike } from '@sikemux/native';
 
-import type { ChatChange, ChatMessage, PermissionAsk } from '@shared/chat/types';
-import type { ChatInfo, ChatState } from '@/core/protocol';
+import type { ChatChange, ChatMessage, PermissionAsk, ChatInfo, ChatState } from '@shared/wire.generated';
 import type { ChatDelivery } from '@/devices/hub';
 import { ChatSession } from './session';
 import type { Attachment } from './uploads';
@@ -154,8 +153,8 @@ describe('a chat session', () => {
     drawFrame();
     expect(texts(session)).toEqual(['one']);
 
-    session.hostSaw(info('stopped'), []);
-    session.hostSaw(info('ready'), []);
+    session.hostSaw(info('stopped'));
+    session.hostSaw(info('ready'));
     await settle();
     expect(first.attachChat.mock.calls[1][1]).toEqual({ feed: FEED, seq: 3n });
   });
@@ -225,26 +224,6 @@ describe('a chat session', () => {
     const [[id, unsent]] = [...session.snapshot().unsent];
     expect(unsent.state).toBe('failed');
     expect(session.snapshot().view.messages.at(-1)?.id).toBe(id);
-  });
-
-  it('shows only the permission requests the host still waits on', async () => {
-    const { session, deliver, startAt, drawFrame } = harness();
-    const connection = fakeConnection(live([], 3, { running: true, permissions: [asking('old'), asking('open')] }));
-    session.hold(connection as unknown as ConnectionLike);
-    await settle();
-    const ids = () => session.snapshot().permissions.map((request) => request.requestId);
-    expect(ids()).toEqual(['old', 'open']);
-
-    session.hostSaw(info('ready'), ['open']);
-    expect(ids()).toEqual(['open']);
-
-    startAt(3);
-    deliver(headSet({ permissions: [asking('old'), asking('open'), asking('new')] }));
-    drawFrame();
-    expect(ids()).toEqual(['open', 'new']);
-    vi.setSystemTime(Date.now() + 3000);
-    session.hostSaw(info('ready'), ['open', 'other']);
-    expect(ids()).toEqual(['open']);
   });
 
   it('keeps a failed answer apart from the agent', async () => {
@@ -423,13 +402,13 @@ describe('a chat session', () => {
     const { session } = harness();
     const connection = fakeConnection(live([], 0));
     session.hold(connection as unknown as ConnectionLike);
-    session.hostSaw(info('asleep'), []);
+    session.hostSaw(info('asleep'));
     await settle();
-    session.hostSaw(info('ready'), []);
+    session.hostSaw(info('ready'));
     expect(connection.attachChat).toHaveBeenCalledTimes(1);
 
-    session.hostSaw(undefined, []);
-    session.hostSaw(info('ready'), []);
+    session.hostSaw(undefined);
+    session.hostSaw(info('ready'));
     await settle();
     expect(connection.attachChat).toHaveBeenCalledTimes(2);
     expect(connection.detachChat).toHaveBeenCalledTimes(1);

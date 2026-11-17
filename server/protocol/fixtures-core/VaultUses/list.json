@@ -1,0 +1,14 @@
+{
+  "uses": [
+    {
+      "entryId": "9b2f4c1a7e3d5068b1c2d3e4f5a6b7c8",
+      "plugin": "sikemux.github",
+      "hostKey": "a3f1c2d4e5b60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "hostName": "mini",
+      "actor": "@Otter",
+      "count": 3,
+      "firstAt": "2026-11-11T09:00:00.000Z",
+      "lastAt": "2026-11-11T09:28:00.000Z"
+    }
+  ]
+}

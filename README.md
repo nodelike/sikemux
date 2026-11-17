@@ -2,15 +2,19 @@
 
 # Sikemux
 
-**The IDE for you and your coding agents.**
+**Out of Claude? The chat carries on in Codex.**
 
-Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 25 MB native app.
+And see which agent needs you, on your Mac, the notch or your phone.
+
+A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs and Linux.
 
 ![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
 [![Latest release](https://img.shields.io/github/v/release/nodelike/sikemux?display_name=tag)](https://github.com/nodelike/sikemux/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-a277ff)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/UKfmHpF9kX)
 [![Website](https://img.shields.io/badge/website-sikemux.com-a277ff)](https://sikemux.com)
+[![Docs](https://img.shields.io/badge/docs-docs.sikemux.com-a277ff)](https://docs.sikemux.com)
 
 </div>
 
@@ -20,106 +24,47 @@ Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, lo
 curl -fsSL https://sikemux.com/install | sh
 ```
 
-On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (x86_64: the `.deb` or `.rpm`, or the AppImage in `~/Applications`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
-
-Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 25 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
-
-On x86_64 Linux, the `.deb`, `.rpm` and `.AppImage` are in the same release:
+Or on a Mac with Homebrew:
 
 ```bash
-sudo apt install ./Sikemux_<version>_amd64.deb      # Debian, Ubuntu
-sudo dnf install ./Sikemux-<version>-1.x86_64.rpm   # Fedora
-chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
+brew install --cask nodelike/tap/sikemux
 ```
 
-The AppImage keeps itself up to date. The `.deb` and `.rpm` are updated by the installer: when a new release is out, **Settings → About** shows the line to run.
-
-On a Linux server with no screen, the same line offers to install just the core, for x86_64 or arm64, and sign it in to your account. To skip the question:
+On a headless server, install just the core:
 
 ```bash
 curl -fsSL https://sikemux.com/install | sh -s -- --host
 ```
 
-## What's inside
+macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, Arch package and AppImage are also on [Releases](https://github.com/nodelike/sikemux/releases/latest).
 
-- **Projects** with a code editor, terminals, Git, and search, all in one working directory
-- **Coding agents**: Claude, Codex, Hermes, Pi and OpenCode, several at once, each with its own browser tabs, and one list of every agent and recent chat across your open projects
-- **Chats that know your work**: `@` attaches project files, `#` hands over GitHub, GitLab or Bitbucket issues and pull requests, and an optional worktree gives a chat its own branch. Terminal selections, problems, logs and pull request lines can be sent to any agent
-- **Nothing stops when you quit**: terminals, agents and tasks keep running in the background and come back where they were. Quit and Stop Everything (`⌥⌘Q`) ends them
-- **Panels** for AWS, GitHub, GitLab, Bitbucket, Jira, Rundeck, SigNoz and Bruno, and a database client for PostgreSQL, MySQL and SQLite that your agents can query too
-- **Hosts**: this host, every host on your account and the SSH hosts you have open, in one list. Chats and terminals run on whichever you pick, with no SSH, and **Install Sikemux here** turns an SSH host into one of them in a click
-- Nine themes and a custom theme editor
+## Why Sikemux
 
-The [website](https://sikemux.com) has the full tour.
+- **Every agent, side by side.** Claude, Codex, OpenCode, Hermes, Pi and Muse, several at once, each with its own browser tabs.
+- **Agents that see your work.** `@` an agent, `#` an issue, `!` a PR, `+` a file, `&` something from the stash, hand over a terminal selection or a log. Give a chat its own worktree.
+- **Your tools, already wired.** GitHub, GitLab, Jira, Linear, Slack, Vercel, AWS, your databases. Sign in once; every agent can use them.
+- **Nothing stops when you quit.** Terminals, agents and processes keep running and come back where you left them.
+- **Any machine.** Run chats and terminals on any host on your account. Turn an SSH host into one in a click.
+- **A real editor around it.** Code editor, terminals, Git and search, with 450+ themes.
 
-## Project config
+## Is it free?
 
-Check a `sikemux.json` into a project to add actions, tasks, and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
+Yes. Sikemux is free and MIT-licensed, and it needs no account on your own computer. It runs the Claude Code, Codex and other subscriptions you already pay for, or free models if you have none. We don't resell models or take a cut.
 
-```json
-{
-  "version": 1,
-  "actions": [
-    {
-      "id": "check",
-      "label": "Run checks",
-      "command": "pnpm check",
-      "placement": "terminal",
-      "contexts": ["project"]
-    }
-  ],
-  "tasks": [{ "id": "dev", "label": "Dev server", "command": "pnpm dev" }],
-  "preview": { "url": "http://localhost:5173", "command": "pnpm dev" }
-}
-```
-
-Agents can start, read, and stop these tasks through Sikemux's MCP tools or the `sikemux tool` CLI. Tasks and their runs live in Sikemux's background process, so agents can read and stop them, and wait on their events, while the window is closed. [`browser/SIKEMUX_GUIDE.md`](browser/SIKEMUX_GUIDE.md) describes the protocol.
-
-## CLI
-
-Install the `sikemux` launcher from Settings → Command line.
-
-```bash
-sikemux .
-sikemux src/App.tsx:42:5
-```
-
-## Shortcuts
-
-| Key   | Action                        |     | Key   | Action                   |
-| ----- | ----------------------------- | --- | ----- | ------------------------ |
-| `⌘N`  | New agent                     |     | `⌘T`  | New terminal             |
-| `⌘⇧N` | Choose or resume an agent     |     | `⌘D`  | Split pane               |
-| `⌘J`  | Show or hide the agent's desk |     | `⌘P`  | Open file                |
-| `⌘O`  | Open project                  |     | `⌘⇧P` | Command deck             |
-| `⌘⇧S` | Connect to an SSH host        |     | `⌘,`  | Settings                 |
-| `⌘Q`  | Quit, leaving work running    |     | `⌥⌘Q` | Quit and Stop Everything |
-
-Settings → Keyboard lists and rebinds every shortcut.
+**How does it stay alive?** Nothing is for sale today. Sikemux is built by people who use it all day. If we charge later, it will be for things that cost us money to run, such as a machine we host for your agents, sync between your computers, and team features. The app you download stays free and MIT, and the licence means nobody can take that back, us included.
 
 ## Build from source
 
-You need [Rust](https://www.rust-lang.org/tools/install), Node.js 22+, and [pnpm](https://pnpm.io/).
+Needs [Rust](https://www.rust-lang.org/tools/install), Node.js 22+ and [pnpm](https://pnpm.io/).
 
 ```bash
-git clone git@github.com:nodelike/sikemux.git
-cd sikemux
+git clone git@github.com:nodelike/sikemux.git && cd sikemux
 pnpm install
-make dev     # builds and opens Sikemux Dev, beside the installed app
-make build   # Apple Silicon app and DMG
-make check   # every quality gate
+make dev     # Sikemux Dev, beside the installed app
 ```
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers the project layout and checks. [docs/releasing.md](docs/releasing.md) covers publishing.
-
-## Community
-
-Ask for help and follow releases on [Discord](https://discord.gg/UKfmHpF9kX). Issues and pull requests are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout and checks.
 
 ## License
 
-[FSL-1.1-MIT](LICENSE) © nodelike
-
-Sikemux is free to use, modify and self-host, at home or at work. You may not offer it, or a fork of it, as a competing product. Each release becomes MIT two years after it ships.
-
-"Sikemux" and its logo are trademarks of nodelike. Forks must use a different name and logo.
+[MIT](LICENSE) © nodelike. "Sikemux" and its logo are trademarks of nodelike.

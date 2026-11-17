@@ -3,20 +3,24 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
-    CommitRef, CommitsQuery, FilesQuery, Merge, NewPull, NewReview, PatchQuery, PullEdit,
-    PullQuery, PullRef, RepoRef, SetPullState,
+    CommitRef, CommitsQuery, FilesQuery, Merge, NewPull, NewReview, PullEdit, PullQuery, PullRef,
+    RepoRef, SetPullState,
 };
 use sikemux_plugin_api::codehost::{
-    ChangedFile, Comment, CommitAuthor, Pull, PullCommit, Review, TimelineItem,
+    ChangedFile, Comment, CommitAuthor, Pull, PullCommit, PullStage, Review, TimelineItem,
 };
+use sikemux_plugin_api::http::Read;
+use sikemux_plugin_api::Service;
 
 use crate::client;
-use crate::error::{BitbucketError, BitbucketResult};
+use crate::error::{Bitbucket, BitbucketError, BitbucketResult};
 use crate::repo::{self, avatar_of, login_of, Links, Place, User};
 
 #[derive(Deserialize, Default)]
@@ -74,11 +78,11 @@ struct PullRow {
 }
 
 /// `closed` covers a pull request declined or superseded.
-fn state_of(raw: &str) -> &'static str {
+fn state_of(raw: &str) -> PullStage {
     match raw {
-        "OPEN" => "open",
-        "MERGED" => "merged",
-        _ => "closed",
+        "OPEN" => PullStage::Open,
+        "MERGED" => PullStage::Merged,
+        _ => PullStage::Closed,
     }
 }
 
@@ -112,7 +116,7 @@ fn pull_of(repo: &RepoRef, row: PullRow) -> Pull {
         number: row.id,
         title: row.title,
         body: row.description.unwrap_or_default(),
-        state: state_of(&row.state).into(),
+        state: state_of(&row.state),
         draft: row.draft,
         author: login_of(row.author.as_ref()),
         avatar_url: avatar_of(row.author.as_ref()),
@@ -198,39 +202,58 @@ fn states_for(state: &str) -> &'static [&'static str] {
     }
 }
 
+/// Bitbucket's filter for the author and branch asked about, if any.
+fn filter_of(input: &PullQuery) -> Option<String> {
+    let quoted = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+    let author = input.author.as_deref().map(|author| {
+        let author = quoted(author);
+        format!("(author.nickname = {author} OR author.display_name = {author})")
+    });
+    let head = input
+        .head
+        .as_deref()
+        .map(|head| format!("source.branch.name = {}", quoted(head)));
+    let terms: Vec<String> = author.into_iter().chain(head).collect();
+    (!terms.is_empty()).then(|| terms.join(" AND "))
+}
+
+/// A page of pull requests without their descriptions, which can run to tens
+/// of thousands of characters each; `pull` reads one whole.
 pub async fn list(data_dir: &Path, input: PullQuery) -> BitbucketResult<Vec<Pull>> {
     let mut query: Vec<(&str, String)> = states_for(input.state.as_deref().unwrap_or("open"))
         .iter()
         .map(|state| ("state", state.to_string()))
         .collect();
-    query.push(("pagelen", "50".into()));
+    let per_page = input.per_page.unwrap_or(50).clamp(1, 50);
+    query.push(("pagelen", per_page.to_string()));
+    query.push(("page", input.page.unwrap_or(1).max(1).to_string()));
     query.push(("sort", "-updated_on".into()));
+    if let Some(filter) = filter_of(&input) {
+        query.push(("q", filter));
+    }
     let rows: Vec<PullRow> =
         client::get_all(data_dir, &input.repo.path("/pullrequests")?, &query, 1).await?;
     Ok(rows
         .into_iter()
-        .map(|row| pull_of(&input.repo, row))
+        .map(|row| Pull {
+            body: String::new(),
+            ..pull_of(&input.repo, row)
+        })
         .collect())
 }
 
 /// The pull requests that hold the commit `sha`, the merged one first.
 pub async fn of_commit(data_dir: &Path, input: CommitRef) -> BitbucketResult<Vec<Pull>> {
-    if !input.sha.chars().all(|c| c.is_ascii_hexdigit()) || input.sha.len() < 7 {
-        return Err(BitbucketError::BadArg(format!(
-            "`{}` is not a commit hash",
-            input.sha
-        )));
-    }
-    let path = input
-        .repo
-        .path(&format!("/commit/{}/pullrequests", input.sha))?;
+    let path = input.repo.path(&format!(
+        "/commit/{}/pullrequests",
+        answers::commit_hash(&input.sha)?
+    ))?;
     let rows: Vec<PullRow> = client::get_all(data_dir, &path, &[], 1).await?;
-    let mut pulls: Vec<Pull> = rows
-        .into_iter()
-        .map(|row| pull_of(&input.repo, row))
-        .collect();
-    pulls.sort_by_key(|pull| pull.state != "merged");
-    Ok(pulls)
+    Ok(answers::merged_first(
+        rows.into_iter()
+            .map(|row| pull_of(&input.repo, row))
+            .collect(),
+    ))
 }
 
 fn pull_path(repo: &RepoRef, number: u64, rest: &str) -> BitbucketResult<String> {
@@ -269,13 +292,16 @@ async fn full_hash(data_dir: &Path, repo: &RepoRef, short: &str) -> BitbucketRes
     if short.len() >= 40 || !short.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(short.to_string());
     }
-    let commit: Commit =
-        client::get(data_dir, &repo.path(&format!("/commit/{short}"))?, &[]).await?;
+    let commit: Commit = client::API
+        .get(data_dir, &repo.path(&format!("/commit/{short}"))?, &[])
+        .await?;
     Ok(commit.hash.unwrap_or_else(|| short.to_string()))
 }
 
 async fn row(data_dir: &Path, repo: &RepoRef, number: u64) -> BitbucketResult<PullRow> {
-    client::get(data_dir, &pull_path(repo, number, "")?, &[]).await
+    client::API
+        .get(data_dir, &pull_path(repo, number, "")?, &[])
+        .await
 }
 
 pub async fn get(data_dir: &Path, input: PullRef) -> BitbucketResult<PullWithBuilds> {
@@ -310,113 +336,6 @@ pub async fn get(data_dir: &Path, input: PullRef) -> BitbucketResult<PullWithBui
     pull.deletions = Some(stats.iter().map(|stat| stat.lines_removed).sum());
     pull.changed_files = Some(stats.len() as u64);
     Ok(PullWithBuilds { pull, builds })
-}
-
-const PATCH_LINES: usize = 400;
-const MAX_PATCH_LINES: usize = 1000;
-const PATCH_BYTES: usize = 32 * 1024;
-
-fn cut_at_char(text: &str, most: usize) -> &str {
-    text.get(..text.floor_char_boundary(most))
-        .unwrap_or_default()
-}
-
-/// Up to `lines` lines of `patch` from `offset`, and at most `PATCH_BYTES` of
-/// them, with a note whenever any of the patch is left out.
-fn window(patch: &str, offset: usize, lines: Option<usize>) -> (String, Option<String>) {
-    let all: Vec<&str> = patch.split('\n').collect();
-    let total = all.len();
-    if offset >= total {
-        return (
-            String::new(),
-            Some(format!(
-                "The patch has {total} lines; offset {offset} is past its end."
-            )),
-        );
-    }
-    let most = lines.unwrap_or(PATCH_LINES).clamp(1, MAX_PATCH_LINES);
-    let mut shown = String::new();
-    let mut end = offset;
-    let mut line_cut = false;
-    for line in all.iter().skip(offset).take(most) {
-        let room = PATCH_BYTES.saturating_sub(shown.len() + 1);
-        if line.len() > room {
-            if end == offset {
-                shown.push_str(cut_at_char(line, room));
-                line_cut = true;
-                end += 1;
-            }
-            break;
-        }
-        if end > offset {
-            shown.push('\n');
-        }
-        shown.push_str(line);
-        end += 1;
-    }
-    if offset == 0 && end == total && !line_cut {
-        return (shown, None);
-    }
-    let mut note = format!("Lines {}-{end} of {total}.", offset + 1);
-    if line_cut {
-        note.push_str(&format!(
-            " Line {end} was cut at {} KB.",
-            PATCH_BYTES / 1024
-        ));
-    }
-    if end < total {
-        note.push_str(&format!(
-            " {} more lines left out: pass offset {end} for the next part, or run git diff locally.",
-            total - end
-        ));
-    }
-    (shown, Some(note))
-}
-
-fn is_named(file: &ChangedFile, path: &str) -> bool {
-    file.path == path || file.previous_path.as_deref() == Some(path)
-}
-
-/// The files to answer with, carrying the patches `query` asks for.
-fn pick(files: Vec<ChangedFile>, query: &PatchQuery) -> BitbucketResult<Vec<ChangedFile>> {
-    if query.full_patches {
-        return Ok(files);
-    }
-    if let Some(unknown) = query
-        .paths
-        .iter()
-        .find(|path| !files.iter().any(|file| is_named(file, path)))
-    {
-        return Err(BitbucketError::BadArg(format!(
-            "`{unknown}` is not among the files this pull request changes"
-        )));
-    }
-    Ok(files
-        .into_iter()
-        .filter_map(|mut file| {
-            if query.paths.is_empty() {
-                file.patch = None;
-                return Some(file);
-            }
-            if !query.paths.iter().any(|path| is_named(&file, path)) {
-                return None;
-            }
-            match file.patch.take() {
-                Some(patch) => {
-                    let (shown, note) = window(&patch, query.offset, query.lines);
-                    file.patch = Some(shown);
-                    file.note = note;
-                }
-                None => {
-                    file.note = Some(
-                        "Bitbucket shows no patch for this file: it is binary or only renamed. Run git diff locally."
-                            .into(),
-                    );
-                }
-            }
-            Some(file)
-        })
-        .collect())
 }
 
 /// Each file's hunks out of one unified diff, keyed by the path it ends up
@@ -481,7 +400,7 @@ pub async fn files(data_dir: &Path, input: FilesQuery) -> BitbucketResult<Vec<Ch
     let diff_path = pull_path(&pull.repo, pull.number, "/diff")?;
     let (stats, diff) = futures::try_join!(
         diffstat(data_dir, &pull.repo, pull.number),
-        client::get_text(data_dir, &diff_path, &[])
+        client::API.get_text(data_dir, &diff_path, &[])
     )?;
     let mut patches = patches_of(&diff);
     let files = stats
@@ -492,7 +411,7 @@ pub async fn files(data_dir: &Path, input: FilesQuery) -> BitbucketResult<Vec<Ch
             file
         })
         .collect();
-    pick(files, &query)
+    answers::pick_patches(files, &query, "pull request")
 }
 
 #[derive(Deserialize)]
@@ -672,13 +591,14 @@ pub async fn comments(data_dir: &Path, input: PullRef) -> BitbucketResult<Vec<Co
 
 pub async fn add_comment(data_dir: &Path, pull: &PullRef, body: &str) -> BitbucketResult<()> {
     let path = pull_path(&pull.repo, pull.number, "/comments")?;
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &path,
-        &json!({ "content": { "raw": body } }),
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &path,
+            &json!({ "content": { "raw": body } }),
+        )
+        .await?;
     Ok(())
 }
 
@@ -824,16 +744,94 @@ fn merge_body(input: &Merge) -> BitbucketResult<Value> {
     Ok(Value::Object(body))
 }
 
+/// How long a queued merge is followed. With a 30-second request on top it
+/// stays inside the plugin's two-minute call.
+const MERGE_WAIT: Duration = Duration::from_secs(60);
+const MERGE_POLL: Duration = Duration::from_secs(2);
+
+/// What one answer about a merge says.
+enum Merging {
+    Done(Box<PullRow>),
+    /// Bitbucket took the merge on and gave the address to follow it at.
+    Queued(String),
+    Pending,
+}
+
+#[derive(Deserialize)]
+struct MergeTask {
+    task_status: String,
+    merge_result: Option<PullRow>,
+}
+
+/// Reads the merge's own answer and the task-status answers that follow a
+/// queued one: a refusal is Bitbucket's error, never an empty success.
+fn merging(status: StatusCode, location: Option<&str>, body: &[u8]) -> BitbucketResult<Merging> {
+    if !status.is_success() {
+        return Err(Bitbucket::refused(status, body, None));
+    }
+    if status == StatusCode::ACCEPTED {
+        return match location.filter(|task| task.starts_with(client::BASE)) {
+            Some(task) => Ok(Merging::Queued(task.to_string())),
+            None => Err(BitbucketError::Response(
+                "Bitbucket took the merge on without saying where to follow it".into(),
+            )),
+        };
+    }
+    let answer: Value = serde_json::from_slice(body)?;
+    if answer.get("task_status").is_none() {
+        return done(serde_json::from_value(answer)?);
+    }
+    let task: MergeTask = serde_json::from_value(answer)?;
+    match (task.task_status.as_str(), task.merge_result) {
+        ("PENDING", _) => Ok(Merging::Pending),
+        ("SUCCESS", Some(row)) => done(row),
+        (other, _) => Err(BitbucketError::Api(format!(
+            "Bitbucket's merge ended {other}: {}",
+            client::error_message(body).unwrap_or_else(|| String::from_utf8_lossy(body).into())
+        ))),
+    }
+}
+
+fn done(row: PullRow) -> BitbucketResult<Merging> {
+    if row.state != "MERGED" {
+        return Err(BitbucketError::Api(format!(
+            "Bitbucket answered the merge but #{} is still {}",
+            row.id, row.state
+        )));
+    }
+    Ok(Merging::Done(Box::new(row)))
+}
+
+async fn merge_answer(
+    data_dir: &Path,
+    method: Method,
+    path: &str,
+    query: &[(&str, String)],
+    body: Option<&Value>,
+) -> BitbucketResult<Merging> {
+    let answer = client::API
+        .send(data_dir, method, path, query, body, Read::ALL)
+        .await?;
+    let location = answer
+        .headers
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok());
+    merging(answer.status, location, &answer.bytes)
+}
+
 /// Bitbucket's merge takes no expected head, so the head is checked first.
 /// That leaves a moment in which a push can still slip in, which is the most
-/// its API allows.
-pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
+/// its API allows. The merge runs in Bitbucket's background and is followed
+/// until it lands, so the answer is the merged pull request or why it failed.
+pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<Pull> {
     let sha = input
         .sha
         .as_deref()
         .ok_or_else(|| BitbucketError::BadArg("missing field `sha`".into()))?;
     let body = merge_body(&input)?;
-    let current = row(data_dir, &input.pull.repo, input.pull.number).await?;
+    let repo = &input.pull.repo;
+    let number = input.pull.number;
+    let current = row(data_dir, repo, number).await?;
     let head = current.source.commit.hash.unwrap_or_default();
     if head.is_empty() || !sha.starts_with(&head) {
         return Err(BitbucketError::Http {
@@ -841,15 +839,44 @@ pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
             message: "the branch has moved since you looked; read the new commits first".into(),
         });
     }
-    let path = pull_path(&input.pull.repo, input.pull.number, "/merge")?;
-    match client::post_empty(data_dir, &path, Some(&body)).await {
+    let path = pull_path(repo, number, "/merge")?;
+    let asked = merge_answer(
+        data_dir,
+        Method::POST,
+        &path,
+        &[("async", "true".into())],
+        Some(&body),
+    )
+    .await;
+    let mut task = match asked {
         Err(BitbucketError::Http {
             status: 400,
             message,
         }) if message.to_ascii_lowercase().contains("strategy") => {
-            Err(BitbucketError::MergeMethod(message))
+            return Err(BitbucketError::MergeMethod(message))
         }
-        outcome => outcome,
+        Err(error) => return Err(error),
+        Ok(Merging::Done(row)) => return Ok(pull_of(repo, *row)),
+        Ok(Merging::Queued(task)) => task,
+        Ok(Merging::Pending) => {
+            return Err(BitbucketError::Response(
+                "Bitbucket answered the merge with a task status but no task".into(),
+            ))
+        }
+    };
+    let deadline = Instant::now() + MERGE_WAIT;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(BitbucketError::Api(format!(
+                "Bitbucket queued the merge of #{number} and it has not finished; read the pull request before merging again"
+            )));
+        }
+        tokio::time::sleep(MERGE_POLL).await;
+        match merge_answer(data_dir, Method::GET, &task, &[], None).await? {
+            Merging::Done(row) => return Ok(pull_of(repo, *row)),
+            Merging::Queued(next) => task = next,
+            Merging::Pending => {}
+        }
     }
 }
 
@@ -862,13 +889,14 @@ pub async fn create(data_dir: &Path, input: NewPull) -> BitbucketResult<Pull> {
         "draft": input.draft,
         "close_source_branch": input.close_branch,
     });
-    let row: PullRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/pullrequests")?,
-        &body,
-    )
-    .await?;
+    let row: PullRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/pullrequests")?,
+            &body,
+        )
+        .await?;
     Ok(pull_of(&input.repo, row))
 }
 
@@ -893,7 +921,9 @@ pub async fn edit(data_dir: &Path, input: PullEdit) -> BitbucketResult<Pull> {
     }
     let body = Value::Object(body);
     let path = pull_path(&input.pull.repo, input.pull.number, "")?;
-    let row: PullRow = client::send_json(data_dir, Method::PUT, &path, &body).await?;
+    let row: PullRow = client::API
+        .send_json(data_dir, Method::PUT, &path, &body)
+        .await?;
     Ok(pull_of(&input.pull.repo, row))
 }
 
@@ -905,7 +935,7 @@ pub async fn set_state(data_dir: &Path, input: SetPullState) -> BitbucketResult<
         ));
     }
     let path = pull_path(&input.pull.repo, input.pull.number, "/decline")?;
-    client::post_empty(data_dir, &path, None).await
+    client::API.write(data_dir, Method::POST, &path, None).await
 }
 
 /// A verdict and a comment are separate things on Bitbucket, so a review
@@ -923,7 +953,9 @@ pub async fn review(data_dir: &Path, input: NewReview) -> BitbucketResult<()> {
     };
     if let Some(action) = action {
         let path = pull_path(&input.pull.repo, input.pull.number, action)?;
-        client::post_empty(data_dir, &path, None).await?;
+        client::API
+            .write(data_dir, Method::POST, &path, None)
+            .await?;
     }
     if !input.body.trim().is_empty() {
         add_comment(data_dir, &input.pull, &input.body).await?;
@@ -977,6 +1009,53 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_answers_the_merged_pull_request_or_bitbucket_s_error_never_nothing() {
+        let merged = br#"{"type":"pullrequest","id":2712,"title":"t","state":"MERGED",
+            "created_on":"2026-11-16T10:00:00Z","updated_on":"2026-11-16T11:22:00Z",
+            "merge_commit":{"hash":"9f1c2b3"},"closed_by":{"nickname":"ada"}}"#;
+        let Ok(Merging::Done(row)) = merging(StatusCode::OK, None, merged) else {
+            panic!("a 200 is the merged pull request");
+        };
+        assert_eq!(pull_of(&repo(), *row).state, PullStage::Merged);
+
+        let task = "https://api.bitbucket.org/2.0/repositories/ws/web/pullrequests/2712/merge/task-status/8a1e2c3d";
+        assert!(matches!(
+            merging(StatusCode::ACCEPTED, Some(task), b""),
+            Ok(Merging::Queued(queued)) if queued == task
+        ));
+        let still_open = br#"{"type":"pullrequest","id":2712,"title":"t","state":"OPEN",
+            "created_on":"2026-11-16T10:00:00Z","updated_on":"2026-11-16T11:22:00Z"}"#;
+        assert!(merging(StatusCode::OK, None, still_open).is_err());
+        assert!(merging(StatusCode::ACCEPTED, None, b"").is_err());
+        assert!(merging(StatusCode::ACCEPTED, Some("https://evil.example/task"), b"").is_err());
+
+        let pending = br#"{"task_status":"PENDING","links":{"self":{"href":"x"}}}"#;
+        assert!(matches!(
+            merging(StatusCode::OK, None, pending),
+            Ok(Merging::Pending)
+        ));
+        let done = format!(
+            r#"{{"task_status":"SUCCESS","merge_result":{}}}"#,
+            String::from_utf8_lossy(merged)
+        );
+        assert!(matches!(
+            merging(StatusCode::OK, None, done.as_bytes()),
+            Ok(Merging::Done(_))
+        ));
+
+        let refused = br#"{"type":"error","error":{"message":"You can't merge until you resolve all merge checks.","fields":{"merge_checks":["Requires 2 approvals"]}}}"#;
+        let Err(error) = merging(StatusCode::BAD_REQUEST, None, refused) else {
+            panic!("a refusal is an error");
+        };
+        assert!(
+            error.to_string().contains("Requires 2 approvals"),
+            "{error}"
+        );
+        let failed = br#"{"task_status":"FAILED"}"#;
+        assert!(merging(StatusCode::OK, None, failed).is_err());
+    }
+
+    #[test]
     fn a_merged_pull_request_reads_as_merged_and_a_declined_one_as_closed() {
         let merged = pull_of(
             &repo(),
@@ -987,7 +1066,7 @@ mod tests {
                 "merge_commit": { "hash": "abc123" }
             })),
         );
-        assert_eq!(merged.state, "merged");
+        assert_eq!(merged.state, PullStage::Merged);
         assert_eq!(merged.merged_at.as_deref(), Some("2026-01-02T00:00:00Z"));
         assert_eq!(merged.merged_by.as_deref(), Some("ada"));
         assert_eq!(merged.merge_commit_sha.as_deref(), Some("abc123"));
@@ -997,7 +1076,7 @@ mod tests {
                 json!({ "id": 5, "title": "t", "state": "DECLINED", "created_on": "x", "updated_on": "y" }),
             ),
         );
-        assert_eq!(declined.state, "closed");
+        assert_eq!(declined.state, PullStage::Closed);
         assert!(declined.merged_at.is_none());
     }
 
@@ -1041,73 +1120,6 @@ mod tests {
         );
     }
 
-    fn changed(path: &str, patch: Option<&str>) -> ChangedFile {
-        ChangedFile {
-            path: path.into(),
-            status: "modified".into(),
-            additions: 1,
-            deletions: 1,
-            previous_path: None,
-            patch: patch.map(Into::into),
-            note: None,
-        }
-    }
-
-    fn asking(paths: &[&str]) -> PatchQuery {
-        PatchQuery {
-            paths: paths.iter().map(|path| path.to_string()).collect(),
-            ..PatchQuery::default()
-        }
-    }
-
-    #[test]
-    fn lists_the_files_without_their_patches_by_default() {
-        let mut renamed = changed("new.rs", Some("@@ -1 +1 @@\n-a\n+b"));
-        renamed.status = "renamed".into();
-        renamed.previous_path = Some("old.rs".into());
-        let listed = pick(
-            vec![renamed, changed("b.rs", Some("@@"))],
-            &PatchQuery::default(),
-        )
-        .unwrap();
-        assert!(listed
-            .iter()
-            .all(|file| file.patch.is_none() && file.note.is_none()));
-        assert_eq!(
-            serde_json::to_value(&listed[0]).unwrap(),
-            json!({ "path": "new.rs", "status": "renamed", "additions": 1, "deletions": 1, "previousPath": "old.rs" })
-        );
-        assert_eq!(
-            serde_json::to_value(&listed[1]).unwrap(),
-            json!({ "path": "b.rs", "status": "modified", "additions": 1, "deletions": 1 })
-        );
-    }
-
-    #[test]
-    fn named_paths_come_back_alone_with_their_patches() {
-        let files = vec![
-            changed("a.rs", Some("@@ -1 +1 @@\n-a\n+b")),
-            changed("b.rs", Some("@@")),
-            changed("logo.png", None),
-        ];
-        let picked = pick(files.clone(), &asking(&["a.rs", "logo.png"])).unwrap();
-        assert_eq!(picked.len(), 2);
-        assert_eq!(picked[0].patch.as_deref(), Some("@@ -1 +1 @@\n-a\n+b"));
-        assert_eq!(picked[0].note, None);
-        assert!(picked[1].patch.is_none());
-        assert!(picked[1].note.as_deref().unwrap().contains("git diff"));
-
-        assert!(matches!(
-            pick(files.clone(), &asking(&["missing.rs"])),
-            Err(BitbucketError::BadArg(_))
-        ));
-        let full = PatchQuery {
-            full_patches: true,
-            ..PatchQuery::default()
-        };
-        assert_eq!(pick(files.clone(), &full).unwrap(), files);
-    }
-
     #[test]
     fn a_diffstat_row_names_the_file_and_any_old_path() {
         let stat: DiffStat = serde_json::from_value(json!({
@@ -1126,70 +1138,6 @@ mod tests {
                 .unwrap();
         let gone = changed_file(gone).unwrap();
         assert_eq!((gone.path.as_str(), gone.previous_path), ("gone.rs", None));
-    }
-
-    #[test]
-    fn reads_the_patch_arguments_beside_the_pull_request() {
-        let query: FilesQuery = serde_json::from_value(json!({
-            "owner": "a", "name": "b", "number": 3, "paths": ["x.rs"], "offset": 400, "lines": 50,
-        }))
-        .unwrap();
-        assert_eq!(query.pull.number, 3);
-        assert_eq!(query.patches.paths, ["x.rs"]);
-        assert_eq!((query.patches.offset, query.patches.lines), (400, Some(50)));
-        assert!(!query.patches.full_patches);
-        let view: FilesQuery = serde_json::from_value(
-            json!({ "owner": "a", "name": "b", "number": 3, "fullPatches": true }),
-        )
-        .unwrap();
-        assert!(view.patches.full_patches);
-    }
-
-    #[test]
-    fn a_rename_is_found_by_its_old_path_too() {
-        let mut renamed = changed("new.rs", Some("@@"));
-        renamed.previous_path = Some("old.rs".into());
-        let picked = pick(vec![renamed, changed("b.rs", None)], &asking(&["old.rs"])).unwrap();
-        assert_eq!(picked.len(), 1);
-        assert_eq!(picked[0].path, "new.rs");
-    }
-
-    #[test]
-    fn a_long_patch_is_cut_and_says_how_to_read_the_rest() {
-        let patch: Vec<String> = (1..=1000).map(|line| format!("+line {line}")).collect();
-        let patch = patch.join("\n");
-        let (shown, note) = window(&patch, 0, None);
-        assert_eq!(shown.lines().count(), PATCH_LINES);
-        assert_eq!(shown.lines().last(), Some("+line 400"));
-        assert_eq!(
-            note.as_deref(),
-            Some("Lines 1-400 of 1000. 600 more lines left out: pass offset 400 for the next part, or run git diff locally.")
-        );
-
-        let (shown, note) = window(&patch, 990, None);
-        assert_eq!(shown.lines().next(), Some("+line 991"));
-        assert_eq!(note.as_deref(), Some("Lines 991-1000 of 1000."));
-
-        let (shown, _) = window(&patch, 0, Some(5));
-        assert_eq!(shown.lines().count(), 5);
-
-        let (shown, note) = window(&patch, 5000, None);
-        assert!(shown.is_empty());
-        assert!(note.unwrap().contains("past its end"));
-    }
-
-    #[test]
-    fn a_patch_stops_at_its_byte_budget() {
-        let wide = format!("+{}", "é".repeat(PATCH_BYTES));
-        let patch = format!("@@ -1 +1 @@\n{wide}\n+after");
-        let (shown, note) = window(&patch, 0, None);
-        assert_eq!(shown, "@@ -1 +1 @@");
-        assert!(note.unwrap().contains("pass offset 1"));
-
-        let (shown, note) = window(&patch, 1, None);
-        assert!(shown.len() <= PATCH_BYTES);
-        assert!(shown.starts_with("+é"));
-        assert!(note.unwrap().contains("Line 2 was cut at 32 KB"));
     }
 
     #[test]
@@ -1276,13 +1224,5 @@ mod tests {
             None,
         );
         assert!(pushed.is_none());
-    }
-
-    #[test]
-    fn only_merge_commits_squashes_and_fast_forwards_are_offered() {
-        assert_eq!(strategy_of("merge").ok(), Some("merge_commit"));
-        assert_eq!(strategy_of("squash").ok(), Some("squash"));
-        assert_eq!(strategy_of("fast_forward").ok(), Some("fast_forward"));
-        assert!(strategy_of("rebase").is_err());
     }
 }

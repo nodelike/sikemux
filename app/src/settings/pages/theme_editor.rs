@@ -9,10 +9,14 @@ use gpui_kit::{
     SharedString, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
-use sikemux_wire::changed::Topic;
+use sikemux_calls::call;
+use sikemux_calls::themes::ThemePaletteParams;
+use sikemux_calls::themes::{ThemeIdParams, ThemeParams};
+use sikemux_calls::wallpaper::PixelsParams;
 
-use crate::core::{self, Ask, Watch};
+use crate::core::Target;
 use crate::icons::Icon;
+use crate::reads::Read;
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -29,91 +33,89 @@ type Group = (
     &'static [(&'static str, &'static str)],
 );
 
-/// Each group of a theme's colours: its key in the theme, its name, a line on what it
-/// colours, and its colours by key and name.
 const GROUPS: [Group; 4] = [
     (
         "chrome",
-        "Interface",
-        "Window chrome, rails, accents.",
+        n!("Interface"),
+        n!("Window chrome, rails, accents."),
         &[
-            ("bg", "background"),
-            ("bgDim", "background dim"),
-            ("bgRaised", "background raised"),
-            ("ink", "text"),
-            ("inkDim", "text dim"),
-            ("inkMuted", "text muted"),
-            ("acc", "accent"),
-            ("accLine", "accent border"),
-            ("accDim", "accent wash"),
-            ("line", "border"),
-            ("hl", "row highlight"),
-            ("danger", "danger"),
+            ("bg", n!("background")),
+            ("bgDim", n!("background dim")),
+            ("bgRaised", n!("background raised")),
+            ("ink", n!("text")),
+            ("inkDim", n!("text dim")),
+            ("inkMuted", n!("text muted")),
+            ("acc", n!("accent")),
+            ("accLine", n!("accent border")),
+            ("accDim", n!("accent wash")),
+            ("line", n!("border")),
+            ("hl", n!("row highlight")),
+            ("danger", n!("danger")),
         ],
     ),
     (
         "editor",
-        "Editor",
-        "Code surface, caret, gutters.",
+        n!("Editor"),
+        n!("Code surface, caret, gutters."),
         &[
-            ("fg", "foreground"),
-            ("bg", "background"),
-            ("caret", "caret"),
-            ("selection", "selection"),
-            ("activeLine", "active line"),
-            ("gutter", "gutter"),
-            ("gutterActive", "gutter active"),
-            ("indent", "indent guide"),
-            ("indentActive", "indent active"),
+            ("fg", n!("foreground")),
+            ("bg", n!("background")),
+            ("caret", n!("caret")),
+            ("selection", n!("selection")),
+            ("activeLine", n!("active line")),
+            ("gutter", n!("gutter")),
+            ("gutterActive", n!("gutter active")),
+            ("indent", n!("indent guide")),
+            ("indentActive", n!("indent active")),
         ],
     ),
     (
         "highlight",
-        "Syntax",
-        "Token colours in the code editor.",
+        n!("Syntax"),
+        n!("Token colours in the code editor."),
         &[
-            ("keyword", "keyword"),
-            ("string", "string"),
-            ("comment", "comment"),
-            ("number", "number"),
-            ("function", "function"),
-            ("type", "type"),
-            ("variable", "variable"),
-            ("property", "property"),
-            ("tag", "tag"),
-            ("operator", "operator"),
-            ("link", "link"),
-            ("invalid", "invalid"),
-            ("meta", "meta"),
-            ("heading", "heading"),
+            ("keyword", n!("keyword")),
+            ("string", n!("string")),
+            ("comment", n!("comment")),
+            ("number", n!("number")),
+            ("function", n!("function")),
+            ("type", n!("type")),
+            ("variable", n!("variable")),
+            ("property", n!("property")),
+            ("tag", n!("tag")),
+            ("operator", n!("operator")),
+            ("link", n!("link")),
+            ("invalid", n!("invalid")),
+            ("meta", n!("meta")),
+            ("heading", n!("heading")),
         ],
     ),
     (
         "terminal",
-        "Terminal",
-        "The terminal's 16 colours, with its cursor and selection.",
+        n!("Terminal"),
+        n!("The terminal's 16 colours, with its cursor and selection."),
         &[
-            ("background", "background"),
-            ("foreground", "foreground"),
-            ("cursor", "cursor"),
-            ("cursorAccent", "cursor text"),
-            ("selectionBackground", "selection"),
-            ("black", "black"),
-            ("red", "red"),
-            ("green", "green"),
-            ("yellow", "yellow"),
-            ("blue", "blue"),
-            ("magenta", "magenta"),
-            ("cyan", "cyan"),
-            ("white", "white"),
-            ("brightBlack", "bright black"),
-            ("brightRed", "bright red"),
-            ("brightGreen", "bright green"),
-            ("brightYellow", "bright yellow"),
-            ("brightBlue", "bright blue"),
-            ("brightMagenta", "bright magenta"),
-            ("brightCyan", "bright cyan"),
-            ("brightWhite", "bright white"),
+            ("background", n!("background")),
+            ("foreground", n!("foreground")),
+            ("cursor", n!("cursor")),
+            ("cursorAccent", n!("cursor text")),
+            ("selectionBackground", n!("selection")),
+            ("black", n!("black")),
+            ("red", n!("red")),
+            ("green", n!("green")),
+            ("yellow", n!("yellow")),
+            ("blue", n!("blue")),
+            ("magenta", n!("magenta")),
+            ("cyan", n!("cyan")),
+            ("white", n!("white")),
+            ("brightBlack", n!("bright black")),
+            ("brightRed", n!("bright red")),
+            ("brightGreen", n!("bright green")),
+            ("brightYellow", n!("bright yellow")),
+            ("brightBlue", n!("bright blue")),
+            ("brightMagenta", n!("bright magenta")),
+            ("brightCyan", n!("bright cyan")),
+            ("brightWhite", n!("bright white")),
         ],
     ),
 ];
@@ -193,13 +195,13 @@ fn preview(bench: &Workbench, cx: &mut Context<Workbench>) {
     let Some(draft) = editor(bench, cx).map(|editor| editor.draft.clone()) else {
         return;
     };
-    let asks = bench.asks.clone();
+    let Ok(theme) = serde_json::from_value(draft) else {
+        return;
+    };
+    let asked =
+        Target::here(&bench.asks).request_typed::<call::ThemePalette>(ThemePaletteParams { theme });
     cx.spawn(async move |_, cx| {
-        let Ok(palette) = core::request(&asks, "themePalette", json!({ "theme": draft })).await
-        else {
-            return;
-        };
-        let Ok(palette) = serde_json::from_value(palette) else {
+        let Ok(palette) = asked.await else {
             return;
         };
         cx.update(|cx| {
@@ -213,10 +215,7 @@ fn preview(bench: &Workbench, cx: &mut Context<Workbench>) {
 
 /// Wears the picked theme again, ending a preview.
 pub fn wear_picked(bench: &Workbench) {
-    let _ = bench.asks.send(Ask::Watch(
-        "theme",
-        Watch::new("theme", json!({}), &[Topic::Preferences]),
-    ));
+    Target::here(&bench.asks).watch_plain(Read::Theme);
 }
 
 /// Makes the fields of group `group` for the draft as it is now.
@@ -295,7 +294,7 @@ fn open(
 ) {
     let base = original["name"].as_str().unwrap_or_default().to_owned();
     let name = cx.new(|cx| {
-        let mut input = InputState::new(window, cx).placeholder("theme name");
+        let mut input = InputState::new(window, cx).placeholder(t!("theme name"));
         input.set_value(
             draft["name"].as_str().unwrap_or_default().to_owned(),
             window,
@@ -335,10 +334,14 @@ fn open(
 pub fn customize(bench: &Workbench, id: String, window: &mut Window, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
-        let Ok(palette) = core::request(&asks, "theme", json!({ "id": id })).await else {
+        let asked =
+            Target::here(&asks).request_typed::<call::Theme>(Some(ThemeParams { id: Some(id) }));
+        let Ok(palette) = asked.await else {
             return;
         };
-        let original = palette["theme"].clone();
+        let Ok(original) = serde_json::to_value(palette.theme) else {
+            return;
+        };
         let mut draft = original.clone();
         draft["id"] = json!(new_id());
         draft["name"] = json!(format!(
@@ -354,20 +357,24 @@ pub fn customize(bench: &Workbench, id: String, window: &mut Window, cx: &mut Co
 
 /// Edits one of the person's own themes.
 pub fn edit(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(theme) = bench
-        .preferences()
-        .custom_themes
-        .clone()
-        .into_iter()
-        .find(|theme| theme.id == id)
-    else {
-        return;
-    };
-    let theme = serde_json::to_value(theme).unwrap_or_default();
-    open(bench, theme.clone(), theme, false, window, cx);
+    let asks = bench.asks.clone();
+    let id = id.to_owned();
+    cx.spawn_in(window, async move |bench, cx| {
+        let asked =
+            Target::here(&asks).request_typed::<call::Theme>(Some(ThemeParams { id: Some(id) }));
+        let Ok(Ok(theme)) = asked
+            .await
+            .map(|palette| serde_json::to_value(palette.theme))
+        else {
+            return;
+        };
+        let _ = bench.update_in(cx, |bench, window, cx| {
+            open(bench, theme.clone(), theme, false, window, cx)
+        });
+    })
+    .detach();
 }
 
-/// A picture a theme can be drawn from.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picture {
     Wallpaper,
@@ -411,8 +418,9 @@ pub fn from_picture(
                     Picture::Wallpaper => format!("{name} wallpaper"),
                     Picture::PaneImage => name,
                 };
-                let asked = json!({ "name": name, "pixels": pixels });
-                core::request(&asks, "themeFromPixels", asked).await.ok()
+                let asked = Target::here(&asks)
+                    .request_typed::<call::ThemeFromPixels>(PixelsParams { name, pixels });
+                asked.await.ok()
             }
             None => None,
         };
@@ -420,12 +428,12 @@ pub fn from_picture(
             change_appearance(bench, cx, |appearance, _| appearance.reading = None);
             if unread {
                 let note = match picture {
-                    Picture::Wallpaper => "This wallpaper's format can't be read.",
-                    Picture::PaneImage => "This pane image's format can't be read.",
+                    Picture::Wallpaper => t!("This wallpaper's format can't be read."),
+                    Picture::PaneImage => t!("This pane image's format can't be read."),
                 };
                 bench.notify(crate::toast::error(note), cx);
             }
-            if let Some(original) = theme {
+            if let Some(Ok(original)) = theme.map(serde_json::to_value) {
                 let mut draft = original.clone();
                 draft["id"] = json!(new_id());
                 open(bench, draft, original, true, window, cx);
@@ -436,22 +444,24 @@ pub fn from_picture(
 }
 
 /// Takes away one of the person's own themes, going back to the default one when it was worn.
-pub fn delete(bench: &Workbench, id: &str) {
-    let preferences = bench.preferences();
-    let kept: Vec<_> = preferences
-        .custom_themes
-        .clone()
-        .into_iter()
-        .filter(|theme| theme.id != id)
-        .collect();
-    crate::settings::set(
-        bench,
-        "customThemes",
-        serde_json::to_value(kept).unwrap_or_default(),
-    );
-    if preferences.theme_id == id {
-        crate::settings::set(bench, "themeId", "aura-noir");
-    }
+pub fn delete(bench: &Workbench, id: &str, cx: &mut Context<Workbench>) {
+    let asked = Target::here(&bench.asks)
+        .request_typed::<call::DeleteTheme>(ThemeIdParams { id: id.to_owned() });
+    told(asked, cx);
+}
+
+/// Shows why the core refused a theme the person saved or deleted.
+fn told<E: std::fmt::Display + 'static>(
+    asked: impl std::future::Future<Output = Result<(), E>> + 'static,
+    cx: &mut Context<Workbench>,
+) {
+    cx.spawn(async move |bench, cx| {
+        if let Err(error) = asked.await {
+            let said = error.to_string();
+            let _ = bench.update(cx, |bench, cx| bench.notify(crate::toast::error(said), cx));
+        }
+    })
+    .detach();
 }
 
 fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
@@ -471,24 +481,17 @@ fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         .unwrap_or("custom theme")
         .to_owned();
     draft["name"] = json!(named);
-    let id = draft["id"].as_str().unwrap_or_default().to_owned();
-    let mut themes: Vec<Value> = bench
-        .preferences()
-        .custom_themes
-        .clone()
-        .into_iter()
-        .filter_map(|theme| serde_json::to_value(theme).ok())
-        .collect();
-    match themes.iter_mut().find(|theme| theme["id"] == id.as_str()) {
-        Some(theme) => *theme = draft,
-        None => themes.push(draft),
+    match serde_json::from_value(draft) {
+        Ok(theme) => {
+            let asked = Target::here(&bench.asks)
+                .request_typed::<call::SaveTheme>(ThemePaletteParams { theme });
+            told(asked, cx);
+        }
+        Err(error) => eprintln!("sikemux: the theme being edited is not a theme: {error}"),
     }
-    crate::settings::set(bench, "customThemes", Value::Array(themes));
-    crate::settings::set(bench, "themeId", id);
     change_appearance(bench, cx, |appearance, _| appearance.editor = None);
 }
 
-/// Shows group `group`'s colours.
 fn show_group(
     bench: &mut Workbench,
     group: usize,
@@ -563,20 +566,20 @@ fn sample(draft: &Value) -> AnyElement {
                 .flex_col()
                 .gap(SPACE_0)
                 .p(SPACE_3)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(theme::color(
                     draft["editor"]["bg"].as_str().unwrap_or_default(),
                 ))
                 .text_color(theme::color(
                     draft["editor"]["fg"].as_str().unwrap_or_default(),
                 ))
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .child(
                     div()
                         .italic()
                         .text_color(paint("comment"))
-                        .child("// fork a base, tweak, save"),
+                        .child(t!("// fork a base, tweak, save")),
                 )
                 .child(
                     div()
@@ -597,7 +600,7 @@ fn sample(draft: &Value) -> AnyElement {
                 .flex()
                 .gap(SPACE_0)
                 .p(SPACE_1H)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(theme::color(
                     draft["terminal"]["background"].as_str().unwrap_or_default(),
                 ))
@@ -635,10 +638,19 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         ui::Segmented::new(
             "theme-groups",
             vec![
-                (Icon::Window, SharedString::from(GROUPS[0].1)),
-                (Icon::Editor, SharedString::from(GROUPS[1].1)),
-                (Icon::Code, SharedString::from(GROUPS[2].1)),
-                (Icon::Terminal, SharedString::from(GROUPS[3].1)),
+                (
+                    Icon::Window,
+                    SharedString::from(crate::i18n::tr(GROUPS[0].1)),
+                ),
+                (
+                    Icon::Editor,
+                    SharedString::from(crate::i18n::tr(GROUPS[1].1)),
+                ),
+                (Icon::Code, SharedString::from(crate::i18n::tr(GROUPS[2].1))),
+                (
+                    Icon::Terminal,
+                    SharedString::from(crate::i18n::tr(GROUPS[3].1)),
+                ),
             ],
             editor.group,
         )
@@ -656,7 +668,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
             div()
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
-                .child(format!("based on {}", editor.base)),
+                .child(t!("based on {base}", base = editor.base)),
         );
     let head = div()
         .flex()
@@ -665,14 +677,14 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .gap(SPACE_2)
         .child(button(
             "theme-dark",
-            if dark { "Dark" } else { "Light" },
+            if dark { t!("Dark") } else { t!("Light") },
             ui::Variant::Outline,
             this,
             |bench, _, cx| toggle_dark(bench, cx),
         ))
         .child(button(
             "theme-reset",
-            "Reset",
+            t!("Reset"),
             ui::Variant::Outline,
             this,
             reset,
@@ -680,7 +692,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .child(
             button(
                 "theme-cancel",
-                "Cancel",
+                t!("Cancel"),
                 ui::Variant::Outline,
                 this,
                 |bench, _, cx| close(bench, cx),
@@ -690,7 +702,11 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .child(
             button(
                 "theme-save",
-                if editor.new { "Save theme" } else { "Update" },
+                if editor.new {
+                    t!("Save theme")
+                } else {
+                    t!("Update")
+                },
                 ui::Variant::Primary,
                 this,
                 |bench, _, cx| save(bench, cx),
@@ -719,7 +735,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
                             div()
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(t.text_tertiary)
-                                .child(field.label),
+                                .child(crate::i18n::tr(field.label)),
                         )
                         .child(ui::Field::new(&field.text).mono()),
                 )
@@ -729,16 +745,16 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .flex_col()
         .gap(SPACE_3)
         .p(SPACE_4)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.line_soft)
         .child(named)
         .child(head)
         .child(sample(&editor.draft))
         .child(tabs)
-        .child(div().text_size(crate::theme::ui_text(TEXT_2XS_H)).text_color(t.text_tertiary).child(hint))
+        .child(div().text_size(crate::theme::ui_text(TEXT_2XS_H)).text_color(t.text_tertiary).child(crate::i18n::tr(hint)))
         .child(grid)
         .child(rows::note(
-            "Any CSS colour works in the text box: use rgba(…) for a translucent wash. The picker sets hex.",
+            t!("Any CSS colour works in the text box: use rgba(…) for a translucent wash. The picker sets hex."),
             cx,
         ))
         .into_any_element()
@@ -753,9 +769,10 @@ mod wallpaper {
     /// How many pixels across the wallpaper is shrunk to before its colours are read.
     const SIZE: u32 = 160;
 
-    /// Whether this desktop says where its wallpaper is: the Mac does, and on Linux GNOME.
+    /// Whether this desktop says where its wallpaper is: the Mac and Windows do, and on Linux
+    /// GNOME.
     pub fn offered() -> bool {
-        cfg!(target_os = "macos")
+        cfg!(any(target_os = "macos", windows))
             || (cfg!(target_os = "linux")
                 && std::env::var("XDG_CURRENT_DESKTOP")
                     .is_ok_and(|desktop| desktop.split(':').any(|name| name == "GNOME")))
@@ -775,8 +792,31 @@ mod wallpaper {
         {
             gnome::path()
         }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        None
+        #[cfg(windows)]
+        {
+            windows_path()
+        }
+    }
+
+    #[cfg(windows)]
+    fn windows_path() -> Option<PathBuf> {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SystemParametersInfoW, SPI_GETDESKWALLPAPER,
+        };
+        let mut path = [0u16; 260];
+        // SAFETY: the call writes at most as many UTF-16 units as it is told the buffer holds.
+        let read = unsafe {
+            SystemParametersInfoW(
+                SPI_GETDESKWALLPAPER,
+                path.len() as u32,
+                path.as_mut_ptr().cast(),
+                0,
+            )
+        };
+        let length = path.iter().position(|&unit| unit == 0)?;
+        (read != 0 && length > 0)
+            .then(|| PathBuf::from(std::ffi::OsString::from_wide(&path[..length])))
     }
 
     /// GNOME keeps a light and a dark wallpaper, worn by the colour scheme it is set to.
@@ -870,8 +910,8 @@ mod wallpaper {
             .arg(path)
             .arg("--out")
             .arg(out.path())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(sikemux_process::command::Stdio::null())
+            .stderr(sikemux_process::command::Stdio::null())
             .status()
             .ok()?;
         if !shrunk.success() {

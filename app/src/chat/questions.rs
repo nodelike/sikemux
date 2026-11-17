@@ -6,10 +6,12 @@ use super::*;
 use std::future::Future;
 use std::pin::Pin;
 
-use sikemux_core::server::{call, AnswerParams, AnswersParams};
+use sikemux_calls::call;
+use sikemux_calls::questions::AnswerParams;
+use sikemux_calls::questions::AnswersParams;
 
 use crate::theme::{
-    SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
+    SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 
 /// The person's answers on their way to the core, which the questions they answer wait on.
@@ -56,8 +58,6 @@ impl From<Ask> for Answering {
 #[derive(Clone)]
 pub struct Question {
     pub asked: AgentQuestion,
-    /// The account host whose agent asks, by its key; none for this host's own.
-    pub(crate) host: Option<String>,
 }
 
 impl std::ops::Deref for Question {
@@ -68,59 +68,32 @@ impl std::ops::Deref for Question {
     }
 }
 
-impl Chats {
-    /// Keeps the questions the core listed: this host's, or with `host_read` those of the
-    /// account host `host` in front.
-    pub fn questions_read(&mut self, value: Value, host_read: bool, host: Option<String>) {
-        match serde_json::from_value::<Vec<AgentQuestion>>(value) {
-            Ok(asked) => {
-                let questions = asked.into_iter().map(|asked| Question {
-                    asked,
-                    host: host.clone(),
-                });
-                if host_read {
-                    self.host_questions = questions.collect();
-                } else {
-                    self.questions = questions.collect();
-                }
-            }
-            Err(error) => eprintln!("sikemux: the core's questions do not read: {error}"),
-        }
-        self.questions.retain(|question| question.host.is_none());
-        self.questions.extend(self.host_questions.iter().cloned());
-    }
-}
-
 impl Question {
-    /// Who asked and what, while `agent_id` waits on the person's answer.
-    pub(crate) fn open_from(&self, agent_id: &str) -> Option<(&str, &str)> {
-        self.of(agent_id, QuestionState::Open)
-            .then_some((&self.name, &self.text))
-    }
-
     pub fn of(&self, agent: &str, state: QuestionState) -> bool {
         self.agent_id == agent && self.state == state
     }
 
-    /// Whether the person can answer it in `agent`'s chat: it waits on them, or the agent went
-    /// on assuming an answer they may still change.
+    /// Whether the person can answer it in `agent`'s chat.
     pub fn asks(&self, agent: &str) -> bool {
-        self.of(agent, QuestionState::Open) || self.of(agent, QuestionState::Assumed)
+        self.of(agent, QuestionState::Open)
     }
 
     pub(super) fn title(&self, ix: usize, count: usize) -> String {
         match &self.header {
             Some(header) => header.clone(),
-            None if count > 1 => format!("Question {}", ix + 1),
-            None => "Question".into(),
+            None if count > 1 => t!("Question {number}", number = ix + 1),
+            None => t!("Question").into(),
         }
     }
 }
 
 pub(super) enum Answer {
     Choice(usize),
-    Choices(Vec<usize>),
-    Text(String),
+    Text {
+        text: String,
+        paths: Vec<String>,
+        context: Vec<ChatContext>,
+    },
 }
 
 /// An answer picked for an open question, and what the dock shows was picked; empty for a secret.
@@ -131,7 +104,8 @@ pub(super) struct Pick {
 
 /// Hands a key's action to the question on show; one it does not take goes on to the draft.
 /// The keys the open question on show takes: its choices by number and the arrows, and with
-/// `all`, space to tick and return to pick, which only the chat itself takes.
+/// `all`, return to pick, which only the chat itself takes. They are bound
+/// under `QuestionDock`, which `keyed` must name in its key context.
 pub fn question_keys<E: InteractiveElement + FluentBuilder>(
     keyed: E,
     agent: &str,
@@ -139,7 +113,6 @@ pub fn question_keys<E: InteractiveElement + FluentBuilder>(
     bench: &WeakEntity<Workbench>,
 ) -> E {
     keyed
-        .key_context("QuestionDock")
         .on_action(pressed(
             agent,
             |choose: &Choose| Press::Choose(choose.0),
@@ -150,9 +123,7 @@ pub fn question_keys<E: InteractiveElement + FluentBuilder>(
         .on_action(pressed(agent, |_: &PreviousQuestion| Press::Left, bench))
         .on_action(pressed(agent, |_: &NextQuestion| Press::Right, bench))
         .when(all, |keyed| {
-            keyed
-                .on_action(pressed(agent, |_: &Tick| Press::Tick, bench))
-                .on_action(pressed(agent, |_: &Confirm| Press::Pick, bench))
+            keyed.on_action(pressed(agent, |_: &Confirm| Press::Pick, bench))
         })
 }
 
@@ -168,7 +139,7 @@ pub(super) fn waiting_answers(
     let t = Tokens::get(cx).clone();
     let label = live::Label {
         key: "answered".into(),
-        word: "answered".into(),
+        word: t!("answered").into(),
         count: answered.len(),
         folds: false,
         folded: false,
@@ -179,7 +150,7 @@ pub(super) fn waiting_answers(
     .draw(agent, cx);
     let rows = answered.iter().map(|question| {
         let answer = match question.secret {
-            true => "Kept private".to_owned(),
+            true => t!("Kept private").to_owned(),
             false => question.answer.clone().unwrap_or_default(),
         };
         div()
@@ -256,19 +227,13 @@ pub(super) fn questions(
                 );
                 cx.notify();
             }))
-            .child(
-                match (
-                    count,
-                    open.iter().all(|question| question.assumption.is_some()),
-                ) {
-                    (_, true) => "ASSUMED",
-                    (1, false) => "QUESTION",
-                    _ => "QUESTIONS",
-                },
-            )
+            .child(match count {
+                1 => t!("QUESTION"),
+                _ => t!("QUESTIONS"),
+            })
             .child(
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_color(t.text_tertiary)
                     .child(count.to_string()),
             )
@@ -288,21 +253,21 @@ pub(super) fn questions(
     Some(body)
 }
 
-pub(super) fn asking(
+/// A tab for each open question, the one on show chosen; a click shows another.
+fn question_tabs(
     agent: &str,
     chat: &Chat,
     open: &[&Question],
     current: &Question,
     t: &Tokens,
     cx: &mut Context<Workbench>,
-) -> impl IntoElement {
+) -> Vec<AnyElement> {
     let count = open.len();
     let edge = Hsla {
         a: 0.06,
         ..t.text_primary
     };
-    let tabs: Vec<_> = open
-        .iter()
+    open.iter()
         .enumerate()
         .map(|(ix, question)| {
             let on = question.id == current.id;
@@ -313,7 +278,7 @@ pub(super) fn asking(
                     .into_any_element()
             } else {
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_3XS))
                     .text_color(t.text_disabled)
                     .child((ix + 1).to_string())
@@ -327,19 +292,19 @@ pub(super) fn asking(
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .map(|tab| {
                     if on {
                         tab.bg(t.surface_chosen).text_color(t.text_primary)
                     } else {
-                        tab.border_1()
+                        tab.border(crate::theme::border())
                             .border_color(edge)
                             .text_color(t.text_secondary)
                     }
                 })
                 .hover(move |style| style.bg(hover))
-                .on_click(cx.listener(move |bench, _, _, cx| {
+                .on_click(cx.listener(move |bench, _, window, cx| {
                     bench.answer(
                         &agent,
                         |chat, _| {
@@ -348,87 +313,93 @@ pub(super) fn asking(
                         },
                         cx,
                     );
+                    bench.focus_answer(&agent, window, cx);
                     cx.notify();
                 }))
                 .child(mark)
                 .child(div().min_w_0().truncate().child(question.title(ix, count)))
+                .into_any_element()
         })
-        .collect();
+        .collect()
+}
+
+/// Sends every open question's answer, once each has one.
+fn send_button(
+    agent: &str,
+    ready: bool,
+    sending: bool,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> impl IntoElement {
+    let edge = Hsla {
+        a: 0.06,
+        ..t.text_primary
+    };
+    let agent = agent.to_owned();
+    BaseButton::new("questions-send")
+        .disabled(!ready || sending)
+        .h(px(22.))
+        .px(SPACE_2)
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(SPACE_1H)
+        .rounded(theme::radius_2())
+        .text_size(crate::theme::ui_text(TEXT_2XS))
+        .map(|send| {
+            if ready {
+                send.bg(t.surface_chosen).text_color(t.text_primary)
+            } else {
+                send.border(crate::theme::border())
+                    .border_color(edge)
+                    .text_color(t.text_disabled)
+            }
+        })
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            bench.answer(
+                &agent,
+                |chat, open| chat.send_answers(open).map(Into::into),
+                cx,
+            );
+            cx.notify();
+        }))
+        .child(t!("Send"))
+        .child(
+            div()
+                .pl(SPACE_1H)
+                .border_l(crate::theme::border())
+                .border_color(t.line)
+                .text_size(crate::theme::ui_text(9.5))
+                .text_color(t.text_disabled)
+                .child("⌘↵"),
+        )
+}
+
+pub(super) fn asking(
+    agent: &str,
+    chat: &Chat,
+    open: &[&Question],
+    current: &Question,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> impl IntoElement {
+    let count = open.len();
+    let tabs = question_tabs(agent, chat, open, current, t, cx);
     let ready = open
         .iter()
         .all(|question| chat.picks.contains_key(&question.id));
     let sending = chat.sending_answers();
-    let send = (count > 1 || current.multi).then(|| {
-        let agent = agent.to_owned();
-        BaseButton::new("questions-send")
-            .disabled(!ready || sending)
-            .h(px(22.))
-            .px(SPACE_2)
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .rounded(theme::RADIUS_2)
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .map(|send| {
-                if ready {
-                    send.bg(t.surface_chosen).text_color(t.text_primary)
-                } else {
-                    send.border_1()
-                        .border_color(edge)
-                        .text_color(t.text_disabled)
-                }
-            })
-            .on_click(cx.listener(move |bench, _, _, cx| {
-                bench.answer(
-                    &agent,
-                    |chat, open| chat.send_answers(open).map(Into::into),
-                    cx,
-                );
-                cx.notify();
-            }))
-            .child("Send")
-            .child(
-                div()
-                    .pl(SPACE_1H)
-                    .border_l_1()
-                    .border_color(t.line)
-                    .text_size(crate::theme::ui_text(9.5))
-                    .text_color(t.text_disabled)
-                    .child("⌘↵"),
-            )
-    });
-    let fine = current.assumption.is_some().then(|| {
-        let (agent, id) = (agent.to_owned(), current.id.clone());
-        BaseButton::new("question-fine")
-            .disabled(sending)
-            .h(px(22.))
-            .px(SPACE_2)
-            .flex()
-            .items_center()
-            .rounded(theme::RADIUS_2)
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .bg(t.surface_chosen)
-            .text_color(t.text_primary)
-            .on_click(cx.listener(move |bench, _, _, cx| {
-                let fine = AnswerParams {
-                    id: id.clone(),
-                    fine: true,
-                    ..AnswerParams::default()
-                };
-                bench.ask_answering(&agent, Answers::One(fine), cx);
-            }))
-            .child("Fine")
-    });
+    let send = (count > 1).then(|| send_button(agent, ready, sending, t, cx));
     let fold = {
         let agent = agent.to_owned();
         let hover = t.surface_hover;
         BaseButton::new("questions-fold")
-            .accessibility_label("Fold the questions away")
+            .accessibility_label(t!("Fold the questions away"))
             .size(px(22.))
             .flex()
             .items_center()
             .justify_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .hover(move |style| style.bg(hover))
             .on_click(cx.listener(move |bench, _, _, cx| {
                 bench.answer(
@@ -462,14 +433,10 @@ pub(super) fn asking(
                 .overflow_hidden()
                 .children(tabs),
         )
-        .children(fine)
         .children(send)
         .child(fold);
     let mut asked = current.text.clone();
     let plain = asked.len();
-    if current.multi {
-        asked.push_str(" Pick any.");
-    }
     if let Some(via) = &current.via_note {
         asked.push_str(&format!(" · {via}"));
     }
@@ -489,21 +456,6 @@ pub(super) fn asking(
             asked.clone(),
             [(plain..asked.len(), faint)],
         ));
-    let assumed = current.assumption.as_ref().map(|assumption| {
-        let lead = format!("{} went on assuming ", current.name);
-        let said = format!("{lead}{assumption}");
-        div()
-            .px(SPACE_3)
-            .pb(SPACE_1)
-            .text_size(crate::theme::ui_text(TEXT_XS_H))
-            .line_height(relative(1.5))
-            .text_color(t.text_secondary)
-            .child(crate::ui::selectable::selectable(
-                SharedString::from(format!("question-assumed-{}", current.id)),
-                said,
-                [(0..lead.len(), faint)],
-            ))
-    });
     let picked = chat.picks.get(&current.id);
     let cursor = chat
         .cursor
@@ -512,7 +464,6 @@ pub(super) fn asking(
         .map(|(_, at)| *at);
     let chosen = |ix: usize| match picked.map(|pick| &pick.answer) {
         Some(Answer::Choice(choice)) => *choice == ix,
-        Some(Answer::Choices(choices)) => choices.contains(&ix),
         _ => false,
     };
     let mut choices: Vec<AnyElement> = current
@@ -521,10 +472,7 @@ pub(super) fn asking(
         .enumerate()
         .map(|(ix, choice)| {
             let (agent, id) = (agent.to_owned(), current.id.clone());
-            let key = match current.multi {
-                true => tick(chosen(ix), t),
-                false => radio(chosen(ix), t),
-            };
+            let key = radio(chosen(ix), t);
             let number = ui::kbd((ix + 1).to_string(), cx)
                 .line_height(crate::theme::ui_text(19.))
                 .into_any_element();
@@ -539,7 +487,7 @@ pub(super) fn asking(
                 )
                 .when(choice.recommended, |label| {
                     label.child(
-                        ui::text("recommended", TEXT_2XS, FontWeight::NORMAL)
+                        ui::text(t!("recommended"), TEXT_2XS, FontWeight::NORMAL)
                             .text_color(t.text_disabled),
                     )
                 });
@@ -572,7 +520,7 @@ pub(super) fn asking(
         })
         .collect();
     if let Some(Pick {
-        answer: Answer::Text(_),
+        answer: Answer::Text { .. },
         shown,
     }) = picked.filter(|_| !current.secret)
     {
@@ -602,7 +550,6 @@ pub(super) fn asking(
         .flex_col()
         .child(head)
         .child(text)
-        .children(assumed)
         .when(!choices.is_empty(), |body| {
             body.child(
                 div()
@@ -636,7 +583,7 @@ pub(super) fn answer_row(
         .pr(SPACE_2)
         .flex()
         .items_start()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .when(chosen, |row| row.bg(t.surface_chosen))
         .when(!chosen && cursor, |row| row.bg(t.surface_hover))
         .text_color(if chosen {
@@ -662,7 +609,7 @@ pub(super) fn answer_row(
 }
 
 /// The ring of a choice on a question that takes one.
-pub(super) fn radio(on: bool, t: &Tokens) -> AnyElement {
+pub(crate) fn radio(on: bool, t: &Tokens) -> AnyElement {
     div()
         .mt(px(3.5))
         .size(px(12.))
@@ -670,7 +617,7 @@ pub(super) fn radio(on: bool, t: &Tokens) -> AnyElement {
         .items_center()
         .justify_center()
         .rounded_full()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(match on {
             true => t.text_primary,
             false => Hsla {
@@ -684,125 +631,106 @@ pub(super) fn radio(on: bool, t: &Tokens) -> AnyElement {
         .into_any_element()
 }
 
-/// The box of a choice on a question that takes several.
-pub(super) fn tick(on: bool, t: &Tokens) -> AnyElement {
-    let tick = div()
-        .mt(px(3.5))
-        .size(px(12.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(3.));
-    match on {
-        true => tick
-            .bg(t.text_primary)
-            .child(ui::icon(Icon::Check, 9.).text_color(t.surface_sunken)),
-        false => tick.border_1().border_color(Hsla {
-            a: 0.3,
-            ..t.text_primary
-        }),
-    }
-    .into_any_element()
+/// One answer in a thread of answered questions: what was typed, or that it was kept private,
+/// and the files sent with it.
+pub(super) struct Answered<'a> {
+    pub question: &'a str,
+    pub answer: &'a str,
+    pub secret: bool,
+    pub files: Vec<AnyElement>,
 }
 
-/// An answer to a question as one text: what was typed, the files attached to it, then any context.
-pub(super) fn answer_text(text: &str, paths: &[String], context: &[ChatContext]) -> String {
-    let attached = (!paths.is_empty()).then(|| {
-        let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
-        format!("Attached:\n{}", listed.join("\n"))
-    });
-    let context = context
-        .iter()
-        .map(|item| format!("{}:\n{}", item.title, item.text));
-    std::iter::once(text.to_owned())
-        .chain(attached)
-        .chain(context)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-/// A question as it reads once answered: who asked, when not the chat's own agent, its words,
-/// and the answer, or only that it was answered when the answer is a secret.
-pub(super) fn answered_question(
-    asker: Option<(&str, &str)>,
-    question: &str,
-    answer: &str,
-    secret: bool,
-    t: &Tokens,
+/// The questions an agent asked and the person's answers, as the conversation they were: each
+/// question in the asker's bubble at the left, its mark on the first, and the answer in the
+/// person's bubble at the right. A teammate's questions say who asked above them.
+pub(super) fn answered_questions(
+    mark: AnyElement,
+    asker: Option<&str>,
+    answers: Vec<Answered>,
+    looks: &Looks,
 ) -> gpui_kit::Div {
-    let bold = HighlightStyle {
-        color: Some(t.text_primary),
-        font_weight: Some(FontWeight::SEMIBOLD),
-        ..Default::default()
-    };
-    let asked = match asker {
-        Some((cli, name)) => div()
+    let asked_by = asker.map(|name| {
+        div()
+            .pl(px(ASKER_MARK + 10.))
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(looks.quiet)
+            .child(format!("@{name}"))
+    });
+    let mut mark = Some(mark);
+    let pairs = answers.into_iter().map(|answered| {
+        let face = match mark.take() {
+            Some(mark) => div().mt(px(13.)).child(mark),
+            None => div().w(px(ASKER_MARK)),
+        };
+        let question = div()
+            .min_w_0()
+            .px(px(14.))
+            .py(SPACE_2H)
+            .rounded(rows::BUBBLE_RADIUS)
+            .rounded_bl(SPACE_1H)
+            .border(crate::theme::border())
+            .border_color(looks.line)
+            .bg(looks.asked)
+            .text_color(looks.ink)
+            .child(answered.question.to_owned());
+        let said = if answered.secret {
+            Some(div().text_color(looks.quiet).child(t!("Kept private")))
+        } else {
+            (!answered.answer.is_empty()).then(|| {
+                div()
+                    .text_color(looks.ink)
+                    .child(answered.answer.to_owned())
+            })
+        };
+        let files = (!answered.files.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .justify_end()
+                .items_end()
+                .gap(SPACE_2)
+                .children(answered.files)
+        });
+        div()
             .flex()
-            .items_center()
-            .gap(px(7.))
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .text_color(t.text_tertiary)
-            .child(ui::mark(cli, 14.))
+            .flex_col()
+            .gap(SPACE_1H)
             .child(
-                StyledText::new(format!("{name} asked you"))
-                    .with_highlights([(0..name.len(), bold)]),
-            ),
-        None => div()
-            .text_size(crate::theme::ui_text(TEXT_3XS))
-            .text_color(t.text_disabled)
-            .child("QUESTION"),
-    };
-    let (icon, answered) = if secret {
-        (
-            Icon::Shield,
-            div().text_color(t.text_tertiary).child("Kept private"),
-        )
-    } else {
-        (
-            Icon::Check,
-            div().text_color(t.text_primary).child(answer.to_owned()),
-        )
-    };
+                div()
+                    .max_w(relative(0.78))
+                    .flex()
+                    .items_start()
+                    .gap(px(10.))
+                    .child(face.flex_none())
+                    .child(question),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap(SPACE_1H)
+                    .children(files)
+                    .children(said.map(|said| {
+                        div()
+                            .max_w(relative(0.78))
+                            .child(rows::bubble(looks).child(said))
+                    })),
+            )
+    });
     div()
         .w_full()
         .flex()
         .flex_col()
-        .border_1()
-        .border_color(t.border)
-        .rounded(theme::RADIUS_3)
-        .bg(t.surface_composer)
-        .child(div().px(SPACE_3).pt(px(9.)).child(asked))
-        .child(
-            div()
-                .px(SPACE_3)
-                .pt(SPACE_1)
-                .pb(SPACE_2H)
-                .text_size(crate::theme::ui_text(13.5))
-                .line_height(relative(1.5))
-                .text_color(t.text_primary)
-                .child(question.to_owned()),
-        )
-        .child(
-            div()
-                .px(SPACE_3)
-                .py(SPACE_2)
-                .flex()
-                .items_start()
-                .gap(SPACE_2)
-                .border_t_1()
-                .border_color(t.border)
-                .text_size(crate::theme::ui_text(TEXT_SM))
-                .line_height(relative(1.45))
-                .child(
-                    ui::icon(icon, 12.)
-                        .flex_none()
-                        .mt(px(3.))
-                        .text_color(t.text_tertiary),
-                )
-                .child(answered.min_w_0()),
-        )
+        .gap(SPACE_1H)
+        .text_size(crate::theme::ui_text(TEXT_MD))
+        .line_height(relative(1.6))
+        .children(asked_by)
+        .children(pairs)
 }
+
+/// How wide the asker's mark is beside its first question.
+pub(super) const ASKER_MARK: f32 = 16.;
 
 /// The questions the agent put to the person, answered from its chat.
 impl Chat {
@@ -883,7 +811,7 @@ impl Chat {
     }
 
     /// A key the question on show takes while nothing is written: a number picks, the
-    /// arrows move, Space ticks, Enter picks, moves on or sends. Says whether it took it.
+    /// arrows move, Enter picks, moves on or sends. Says whether it took it.
     pub fn press(&mut self, press: Press, open: &[&Question]) -> (bool, Option<Answers>) {
         let Some(current) = self
             .current(open)
@@ -891,10 +819,9 @@ impl Chat {
         else {
             return (false, None);
         };
-        let (id, count, multi, cursor) = (
+        let (id, count, cursor) = (
             current.id.clone(),
             current.choices.len(),
-            current.multi,
             self.cursor_at(current),
         );
         let ready = open
@@ -920,13 +847,6 @@ impl Chat {
                 self.cursor = None;
                 (true, None)
             }
-            Press::Tick if multi && count > 0 => (true, self.choose(&id, cursor, open)),
-            Press::Pick if multi => match self.picks.contains_key(&id) {
-                false if count > 0 => (true, self.choose(&id, cursor, open)),
-                false => (false, None),
-                true if ready => (true, self.send_answers(open)),
-                true => (true, self.move_on(&id, open)),
-            },
             Press::Pick => {
                 let already = matches!(self.picks.get(&id).map(|pick| &pick.answer), Some(Answer::Choice(choice)) if *choice == cursor);
                 if ready && (already || count == 0) {
@@ -945,7 +865,7 @@ impl Chat {
         }
     }
 
-    /// Picks a choice, or on a question that takes several, ticks or unticks it.
+    /// Picks a choice.
     pub fn choose(&mut self, id: &str, choice: usize, open: &[&Question]) -> Option<Answers> {
         let question = open.iter().find(|question| question.id == id)?;
         let label = |ix: &usize| {
@@ -954,43 +874,11 @@ impl Chat {
                 .get(*ix)
                 .map_or("", |choice| choice.label.as_str())
         };
-        if !question.multi {
-            return self.pick(
-                id,
-                Pick {
-                    answer: Answer::Choice(choice),
-                    shown: label(&choice).to_owned(),
-                },
-                open,
-            );
-        }
-        let mut ticked = match self.picks.remove(id) {
-            Some(Pick {
-                answer: Answer::Choices(ticked),
-                ..
-            }) => ticked,
-            _ => Vec::new(),
+        let pick = Pick {
+            answer: Answer::Choice(choice),
+            shown: label(&choice).to_owned(),
         };
-        match ticked.iter().position(|held| *held == choice) {
-            Some(at) => {
-                ticked.remove(at);
-            }
-            None => {
-                ticked.push(choice);
-                ticked.sort_unstable();
-            }
-        }
-        if !ticked.is_empty() {
-            let shown = ticked.iter().map(label).collect::<Vec<_>>().join(", ");
-            self.picks.insert(
-                id.to_owned(),
-                Pick {
-                    answer: Answer::Choices(ticked),
-                    shown,
-                },
-            );
-        }
-        None
+        self.pick(id, pick, open)
     }
 
     /// Sends every open question's answer together, once each has one.
@@ -1012,14 +900,15 @@ impl Chat {
                         choice: Some(*choice),
                         ..AnswerParams::default()
                     },
-                    Answer::Choices(choices) => AnswerParams {
+                    Answer::Text {
+                        text,
+                        paths,
+                        context,
+                    } => AnswerParams {
                         id,
-                        choices: Some(choices.clone()),
-                        ..AnswerParams::default()
-                    },
-                    Answer::Text(answer) => AnswerParams {
-                        id,
-                        answer: Some(answer.clone()),
+                        answer: Some(text.clone()),
+                        paths: paths.clone(),
+                        context: context.clone(),
                         ..AnswerParams::default()
                     },
                 })
@@ -1030,26 +919,91 @@ impl Chat {
 }
 
 impl Workbench {
+    /// Gives each question in the front chat its own draft: what was typed for the question
+    /// left is kept, and the one now on show gets back its unsent words or its typed answer.
+    pub fn follow_question_drafts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(agent) = self.agent().map(|agent| agent.id) else {
+            return;
+        };
+        let open: Vec<&Question> = self
+            .feeds
+            .questions_outside_calls()
+            .filter(|question| question.asks(&agent))
+            .collect();
+        let Some(chat) = self.chats.open.get_mut(&agent) else {
+            return;
+        };
+        let now = chat
+            .current(&open)
+            .filter(|question| !question.secret && !chat.is_folded(&open))
+            .map(|question| question.id.clone());
+        if now == chat.drafted_for {
+            return;
+        }
+        let was = std::mem::replace(&mut chat.drafted_for, now.clone());
+        let (Some(was), Some(now)) = (was, now) else {
+            return;
+        };
+        let Some(draft) = chat
+            .composer
+            .as_ref()
+            .map(|composing| composing.draft.clone())
+        else {
+            return;
+        };
+        let typed = draft.read(cx).value().to_string();
+        let answered = |chat: &Chat, id: &str| match chat.picks.get(id).map(|pick| &pick.answer) {
+            Some(Answer::Text { text, .. }) => Some(text.clone()),
+            _ => None,
+        };
+        if typed.trim().is_empty() || answered(chat, &was).as_deref() == Some(typed.as_str()) {
+            chat.typed.remove(&was);
+        } else {
+            chat.typed.insert(was, typed.clone());
+        }
+        let shown = (chat.typed.remove(&now))
+            .or_else(|| answered(chat, &now))
+            .unwrap_or_default();
+        if shown != typed {
+            draft.update(cx, |draft, cx| draft.set_value(shown, window, cx));
+            self.typed_draft(&agent, cx);
+        }
+    }
+}
+
+impl Workbench {
+    /// Hands the keys back to `agent`'s draft after a click on a question, so typing answers
+    /// it and ⌘↵ sends.
+    fn focus_answer(&self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let draft = (self.chats.open.get(agent))
+            .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()));
+        if let Some(draft) = draft {
+            draft.read(cx).focus_handle(cx).focus(window, cx);
+        }
+    }
+
     /// The chat in front while its question asks and nothing else holds the keys, as when the
     /// person clicked away from every field, so the question takes its keys from anywhere.
-    pub fn asking_freely(&self, window: &Window) -> Option<String> {
+    pub fn asking_freely(&self, window: &Window, cx: &App) -> Option<String> {
         if !self.keys.focus.is_focused(window) {
             return None;
         }
-        self.front_asks()
+        self.front_asks(cx)
     }
 
     /// The chat in front, while it shows a question its keys answer.
-    pub fn front_asks(&self) -> Option<String> {
+    pub fn front_asks(&self, cx: &App) -> Option<String> {
         let agent = self.agent()?;
         let chat = self.chats.open.get(&agent.id)?;
         let open: Vec<&Question> = self
-            .chats
-            .questions
-            .iter()
+            .feeds
+            .questions_outside_calls()
             .filter(|question| question.asks(&agent.id))
             .collect();
-        let asking = chat.current(&open).is_some() && !chat.is_folded(&open);
+        let asking = chat.current(&open).is_some() && !chat.is_folded(&open)
+            || self
+                .keyed_call(chat.target.place(), &agent.id, cx)
+                .is_some();
         (asking && !chat.sending_answers()).then_some(agent.id)
     }
 

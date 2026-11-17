@@ -2,6 +2,17 @@
 //! listed as they arrive, the chosen one previewed in place, and every match replaced
 //! once the person has seen how many.
 
+use crate::ui::Clicks;
+use crate::workbench::actions;
+use gpui_kit::component::input::AnyInputState;
+use sikemux_calls::call;
+use sikemux_calls::search::ReplaceParams;
+use sikemux_calls::search::SearchParams;
+use sikemux_calls::search::WindowParams;
+use sikemux_calls::streams::SearchStreamParams;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -18,33 +29,26 @@ use gpui_kit::{
     KeyDownEvent, ListAlignment, ListState, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, StyledText, Subscription, Task, WeakEntity, Window,
 };
-use serde_json::{json, Value};
-use sikemux_core::server::search::{
-    FileWindow, ReplaceResults, SearchFile, SearchHit, SearchOptions, SearchSummary,
-};
+use serde_json::Value;
+use sikemux_calls::search::FileWindow;
+use sikemux_calls::search::ReplaceResults;
+use sikemux_calls::search::SearchFile;
+use sikemux_calls::search::SearchFound;
+use sikemux_calls::search::SearchHit;
+use sikemux_calls::search::SearchOptions;
+use sikemux_calls::search::SearchSummary;
 
 use crate::core::{Streaming, Target};
 use crate::editor::OpenAt;
 use crate::icons::Icon;
 use crate::syntax::{self, LineRuns};
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
     SPACE_5, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_XS,
 };
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
-
-/// Brings the project's Search tab forward with its query in hand, opening one when it
-/// has none.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "search.global")]
-pub struct FocusSearch;
-
-/// The same, from the shortcut that picks the Search tab among the project's surfaces.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "window.search")]
-pub struct FocusSearchWindow;
 
 actions!(search, [ShowReplace]);
 
@@ -81,7 +85,6 @@ enum Row {
     Hit { file: usize, hit: usize },
 }
 
-/// The fields the person types into.
 struct Fields {
     find: Entity<InputState>,
     replace: Entity<InputState>,
@@ -178,8 +181,8 @@ impl SearchPane {
                 cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
             };
             let fields = Fields {
-                find: field("find in project", window, cx),
-                replace: field("replace with…", window, cx),
+                find: field(t!("find in project"), window, cx),
+                replace: field(t!("replace with…"), window, cx),
                 include: field("src/**/*.ts", window, cx),
                 exclude: field("**/*.test.ts", window, cx),
             };
@@ -283,19 +286,21 @@ impl SearchPane {
         self.status = Status::Searching;
         self.relist();
         cx.notify();
-        let params =
-            json!({ "project": self.project, "query": self.query, "options": self.options });
-        self.core.stream("searchStream", params)
+        let search = SearchParams {
+            project: self.project.clone(),
+            query: self.query.clone(),
+            options: self.options.clone(),
+        };
+        self.core
+            .stream::<call::SearchStream>(|stream| SearchStreamParams { stream, search })
     }
 
     fn found(&mut self, items: Vec<Value>, cx: &mut Context<Self>) {
         for item in items {
-            if let Some(file) = item.get("file") {
-                if let Ok(file) = serde_json::from_value::<SearchFile>(file.clone()) {
-                    self.files.push(file);
-                }
-            } else if let Some(summary) = item.get("summary") {
-                self.summary = serde_json::from_value(summary.clone()).ok();
+            match serde_json::from_value(item) {
+                Ok(SearchFound::File(file)) => self.files.push(file),
+                Ok(SearchFound::Summary(summary)) => self.summary = Some(summary),
+                Err(error) => eprintln!("sikemux: a search answer did not read: {error}"),
             }
         }
         self.relist();
@@ -314,7 +319,7 @@ impl SearchPane {
                 rows.extend((0..file.matches.len()).map(|hit| Row::Hit { file: index, hit }));
             }
         }
-        crate::git::relist(&self.list, &self.rows, &rows);
+        crate::ui::relist(&self.list, &self.rows, &rows);
         self.rows = rows;
         if let Some((path, hit)) = &self.chosen {
             let valid = self
@@ -339,7 +344,6 @@ impl SearchPane {
         cx.notify();
     }
 
-    /// Moves the chosen match by `step` among the listed ones.
     fn step(&mut self, step: isize, cx: &mut Context<Self>) {
         let hits: Vec<(usize, usize, usize)> = self
             .rows
@@ -385,12 +389,14 @@ impl SearchPane {
             .join(&path)
             .to_string_lossy()
             .into_owned();
-        let params = json!({ "path": full, "line": line, "before": BEFORE, "after": AFTER });
-        let answer = self.core.request("fileWindow", params);
+        let answer = self.core.request_typed::<call::FileWindow>(WindowParams {
+            path: full,
+            line,
+            before: BEFORE,
+            after: AFTER,
+        });
         self._reading = cx.spawn(async move |pane, cx| {
-            let window = answer.await.and_then(|window| {
-                serde_json::from_value::<FileWindow>(window).map_err(|error| error.to_string())
-            });
+            let window = answer.await;
             pane.update(cx, |pane, cx| {
                 match window {
                     Ok(window) => {
@@ -403,7 +409,13 @@ impl SearchPane {
                         pane.windows.truncate(WINDOWS_KEPT);
                         pane.colour_window(cx);
                     }
-                    Err(error) => pane.error = Some(format!("could not load {path}: {error}")),
+                    Err(error) => {
+                        pane.error = Some(t!(
+                            "could not load {path}: {error}",
+                            path = path,
+                            error = error
+                        ))
+                    }
                 }
                 cx.notify();
             })
@@ -473,12 +485,17 @@ impl SearchPane {
             }
         }
         self.replacing = true;
-        let params = json!({ "project": self.project, "query": self.query, "replace": self.replace, "options": self.options, "dryRun": dry_run });
-        let answer = self.core.request("searchReplace", params);
-        cx.spawn_in(window, async move |pane, cx| {
-            let results = answer.await.and_then(|results| {
-                serde_json::from_value::<ReplaceResults>(results).map_err(|error| error.to_string())
+        let answer = self
+            .core
+            .request_typed::<call::SearchReplace>(ReplaceParams {
+                project: self.project.clone(),
+                query: self.query.clone(),
+                replace: self.replace.clone(),
+                options: self.options.clone(),
+                dry_run,
             });
+        cx.spawn_in(window, async move |pane, cx| {
+            let results = answer.await;
             pane.update_in(cx, |pane, window, cx| {
                 pane.replacing = false;
                 match results {
@@ -490,7 +507,7 @@ impl SearchPane {
                     }
                     Err(error) => {
                         pane.previewed = None;
-                        let note = toast::error(format!("replace failed: {error}"));
+                        let note = toast::error(t!("replace failed: {error}", error = error));
                         window.push_notification(note.autohide(false), cx);
                     }
                 }
@@ -517,15 +534,18 @@ impl SearchPane {
                     .into_owned()
             })
             .collect();
-        let (shown, more) = match unsaved.len() {
+        Some(match unsaved.len() {
             0 => return None,
-            count if count > 3 => (&unsaved[..3], format!(" and {} more", count - 3)),
-            _ => (&unsaved[..], String::new()),
-        };
-        Some(format!(
-            "Save or close unsaved files before replacing: {}{more}",
-            shown.join(", ")
-        ))
+            count if count > 3 => t!(
+                "Save or close unsaved files before replacing: {files} and {more} more",
+                files = unsaved[..3].join(", "),
+                more = count - 3
+            ),
+            _ => t!(
+                "Save or close unsaved files before replacing: {files}",
+                files = unsaved.join(", ")
+            ),
+        })
     }
 
     fn replaced_with(&mut self, results: ReplaceResults) {
@@ -589,23 +609,24 @@ impl SearchPane {
 /// What a replace did, as a note: how many matches in how many files, and how many
 /// files it skipped.
 fn replaced(results: &ReplaceResults) -> Notification {
-    let matches = if results.match_count == 1 {
-        "match"
-    } else {
-        "matches"
+    let (matches, files) = (results.match_count, results.file_count);
+    let said = match (matches == 1, files == 1) {
+        (true, true) => t!("replaced 1 match in 1 file").to_owned(),
+        (true, false) => t!("replaced 1 match in {files} files", files = files),
+        (false, true) => t!("replaced {matches} matches in 1 file", matches = matches),
+        (false, false) => t!(
+            "replaced {matches} matches in {files} files",
+            matches = matches,
+            files = files
+        ),
     };
-    let files = if results.file_count == 1 {
-        "file"
-    } else {
-        "files"
-    };
-    let said = format!(
-        "replaced {} {matches} in {} {files}",
-        results.match_count, results.file_count
-    );
     match results.errors.len() {
         0 => toast::success(said),
-        skipped => toast::info(format!("{said} · {skipped} skipped")),
+        skipped => toast::info(t!(
+            "{said} · {skipped} skipped",
+            said = said,
+            skipped = skipped
+        )),
     }
 }
 
@@ -662,7 +683,7 @@ impl Render for SearchPane {
             .size_full()
             .flex()
             .flex_col()
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_color(t.text_secondary)
             .on_key_down(cx.listener(Self::key))
             .on_action(cx.listener(Self::show_replace))
@@ -678,7 +699,7 @@ impl Render for SearchPane {
                             .h_full()
                             .flex()
                             .flex_col()
-                            .border_r_1()
+                            .border_r(crate::theme::border())
                             .border_color(t.border)
                             .child(head(self, cx))
                             .child(results(self, cx)),
@@ -701,7 +722,7 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
             .accessibility_label(tip)
             .tooltip(ui::tooltip(tip))
             .py(SPACE_0)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(if on {
                 t.text_primary
             } else {
@@ -768,39 +789,40 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
     let replace_label = if pane.replacing {
         "…".to_owned()
     } else if let Some(previewed) = &pane.previewed {
-        format!("commit {}", previewed.match_count)
+        t!("commit {count}", count = previewed.match_count)
     } else if matches > 0 {
-        format!("preview {matches}")
+        t!("preview {count}", count = matches)
     } else {
-        "preview".to_owned()
+        t!("preview").to_owned()
     };
     let replace_tip = match &pane.previewed {
-        Some(previewed) => format!(
-            "Commit {} replacements across {} files",
-            previewed.match_count, previewed.file_count
+        Some(previewed) => t!(
+            "Commit {matches} replacements across {files} files",
+            matches = previewed.match_count,
+            files = previewed.file_count
         ),
-        None if can_replace => "Preview replacements".to_owned(),
-        None => "Run a search first".to_owned(),
+        None if can_replace => t!("Preview replacements").to_owned(),
+        None => t!("Run a search first").to_owned(),
     };
     div()
         .flex_none()
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .child(
             row()
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     BaseButton::new("search-replace-open")
                         .accessibility_label(if pane.replace_open {
-                            "Hide replace"
+                            t!("Hide replace")
                         } else {
-                            "Show replace"
+                            t!("Show replace")
                         })
                         .tooltip(ui::tooltip(if pane.replace_open {
-                            "Hide replace"
+                            t!("Hide replace")
                         } else {
-                            "Show replace"
+                            t!("Show replace")
                         }))
                         .w(px(14.))
                         .h(px(18.))
@@ -846,21 +868,21 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                         .child(toggle(
                             "search-case",
                             "Aa",
-                            "Match case",
+                            t!("Match case"),
                             pane.options.case_sensitive,
                             |pane, cx| pane.toggle(|options| &mut options.case_sensitive, cx),
                         ))
                         .child(toggle(
                             "search-word",
                             "ab",
-                            "Whole word",
+                            t!("Whole word"),
                             pane.options.whole_word,
                             |pane, cx| pane.toggle(|options| &mut options.whole_word, cx),
                         ))
                         .child(toggle(
                             "search-regex",
                             ".*",
-                            "Regex",
+                            t!("Regex"),
                             pane.options.is_regex,
                             |pane, cx| pane.toggle(|options| &mut options.is_regex, cx),
                         )),
@@ -869,7 +891,7 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
         .when(pane.replace_open, |head| {
             head.child(
                 row()
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.border)
                     .child(div().w(px(14.)).flex_none())
                     .child(mark(div().child("↻").into_any_element(), t.live))
@@ -884,22 +906,22 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
             )
         })
         .when(pane.scope_open, |head| {
-            head.child(scope_field("in", &fields.include))
-                .child(scope_field("not", &fields.exclude))
+            head.child(scope_field(t!("in"), &fields.include))
+                .child(scope_field(t!("not"), &fields.exclude))
         })
         .child(
             row()
                 .when(pane.scope_open, |row| {
-                    row.border_t_1().border_color(t.border)
+                    row.border_t(crate::theme::border()).border_color(t.border)
                 })
                 .py(SPACE_1H)
                 .child(toggle(
                     "search-scope",
                     "…",
                     if pane.scope_open {
-                        "Hide file scope"
+                        t!("Hide file scope")
                     } else {
-                        "Files to include / exclude"
+                        t!("Files to include / exclude")
                     },
                     pane.scope_open,
                     |pane, cx| {
@@ -919,18 +941,20 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                         .when(pane.stale, |stats| {
                             stats.child(
                                 BaseButton::new("search-stale")
-                                    .accessibility_label("Files changed on disk — rerun the search")
-                                    .tooltip(ui::tooltip(
-                                        "Files changed on disk — rerun the search",
+                                    .accessibility_label(t!(
+                                        "Files changed on disk — rerun the search"
                                     ))
+                                    .tooltip(ui::tooltip(t!(
+                                        "Files changed on disk — rerun the search"
+                                    )))
                                     .mr(SPACE_0)
                                     .pr(SPACE_1H)
-                                    .border_b_1()
+                                    .border_b(crate::theme::border())
                                     .border_color(t.warn.opacity(0.5))
                                     .text_color(t.warn)
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .on_click(cx.listener(|pane, _, _, cx| pane.rerun(cx)))
-                                    .child("stale ↻"),
+                                    .child(t!("stale ↻")),
                             )
                         })
                         .map(|stats| match summary {
@@ -950,11 +974,13 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                                 )
                                 .child(div().ml(SPACE_1).child(format!("{}ms", summary.elapsed_ms)))
                                 .when(summary.truncated, |stats| {
-                                    stats.child(div().ml(SPACE_1).text_color(t.warn).child("trunc"))
+                                    stats.child(
+                                        div().ml(SPACE_1).text_color(t.warn).child(t!("trunc")),
+                                    )
                                 })
                                 .when(summary.cancelled, |stats| {
                                     stats.child(
-                                        div().ml(SPACE_1).text_color(t.warn).child("partial"),
+                                        div().ml(SPACE_1).text_color(t.warn).child(t!("partial")),
                                     )
                                 }),
                             None => stats.child("·"),
@@ -968,7 +994,7 @@ fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
                             .tooltip(ui::tooltip(replace_tip))
                             .disabled(!can_replace)
                             .py(SPACE_0)
-                            .border_b_1()
+                            .border_b(crate::theme::border())
                             .border_color(if !can_replace {
                                 gpui_kit::transparent_black()
                             } else if commit {
@@ -1019,28 +1045,30 @@ fn results(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
             .into_any_element()
     };
     if pane.status == Status::Failed {
-        let error = pane.error.clone().unwrap_or_else(|| "search failed".into());
-        let error = if error.contains("invalid") {
-            format!("invalid regex: {error}")
-        } else {
-            error
-        };
+        let error = pane
+            .error
+            .clone()
+            .unwrap_or_else(|| t!("search failed").into());
         return notice(error, None, t.danger);
     }
     if pane.query.trim().is_empty() {
         return notice(
-            "Search across your project".into(),
-            Some("Enter a word, symbol, or pattern above. Expand Replace to edit matching text."),
+            t!("Search across your project").into(),
+            Some(t!(
+                "Enter a word, symbol, or pattern above. Expand Replace to edit matching text."
+            )),
             t.text_tertiary,
         );
     }
     if pane.rows.is_empty() && pane.status == Status::Searching {
-        return notice("searching…".into(), None, t.text_tertiary);
+        return notice(t!("searching…").into(), None, t.text_tertiary);
     }
     if pane.rows.is_empty() {
         return notice(
-            format!("No matches for “{}”", pane.query),
-            Some("Try a shorter term or adjust the case, pattern, and file filters above."),
+            t!("No matches for “{query}”", query = pane.query),
+            Some(t!(
+                "Try a shorter term or adjust the case, pattern, and file filters above."
+            )),
             t.text_tertiary,
         );
     }
@@ -1080,7 +1108,7 @@ fn file_header(
     div()
         .id(SharedString::from(format!("search-file:{}", file.path)))
         .w_full()
-        .h(px(HEADER_HEIGHT))
+        .h(px(crate::theme::dense(HEADER_HEIGHT)))
         .pl(SPACE_2)
         .pr(SPACE_3)
         .flex()
@@ -1090,11 +1118,11 @@ fn file_header(
         .cursor_pointer()
         .hover(move |row| row.bg(t.surface_hover))
         .tooltip(ui::tooltip(if collapsed {
-            "Expand file"
+            t!("Expand file")
         } else {
-            "Collapse file"
+            t!("Collapse file")
         }))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             folding.update(cx, |pane, cx| {
                 if !pane.collapsed.remove(&path) {
                     pane.collapsed.insert(path.clone());
@@ -1182,12 +1210,12 @@ fn hit_row(
     div()
         .id(SharedString::from(format!("search-hit:{}:{at}", file.path)))
         .w_full()
-        .h(px(HIT_HEIGHT))
+        .h(px(crate::theme::dense(HIT_HEIGHT)))
         .pl(SPACE_5)
         .pr(SPACE_3)
         .flex()
         .items_center()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(if chosen {
             t.text_primary
@@ -1202,7 +1230,7 @@ fn hit_row(
                 row.hover(move |row| row.bg(t.surface_hover).text_color(t.text_primary))
             }
         })
-        .on_click(move |event, window, cx| {
+        .clicks(move |event, window, cx| {
             let path = path.clone();
             choosing.update(cx, |pane, cx| {
                 window.focus(&pane.focus, cx);
@@ -1260,17 +1288,17 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
             .into_any_element()
     };
     if pane.query.trim().is_empty() {
-        return notice("preview will appear here");
+        return notice(t!("preview will appear here"));
     }
     if pane.files.is_empty() {
         return notice(if pane.status == Status::Searching {
-            "searching…"
+            t!("searching…")
         } else {
-            "nothing to preview"
+            t!("nothing to preview")
         });
     }
     let Some((file, hit, at)) = pane.chosen_hit() else {
-        return notice("no match selected");
+        return notice(t!("no match selected"));
     };
     let (dir, name) = match file.path.rsplit_once('/') {
         Some((dir, name)) => (format!("{dir}/"), name.to_owned()),
@@ -1288,10 +1316,14 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
             && hit.line < shown.window.start_line + shown.window.doc.lines().count().max(1) as u32
     });
     let body: AnyElement = match shown {
-        None => notice("loading…"),
+        None => notice(t!("loading…")),
         Some(shown) => window_lines(shown, hit, &t),
     };
-    let tip = format!("Open {} at line {}", file.path, hit.line);
+    let tip = t!(
+        "Open {path} at line {line}",
+        path = file.path,
+        line = hit.line
+    );
     div()
         .size_full()
         .flex()
@@ -1307,7 +1339,7 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
                 .items_center()
                 .justify_start()
                 .gap(SPACE_2)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .bg(gpui_kit::hsla(0., 0., 0., 0.22))
                 .text_size(crate::theme::ui_text(TEXT_2XS))
@@ -1331,11 +1363,11 @@ fn preview(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
                         .ml_auto()
                         .flex()
                         .text_color(t.text_tertiary)
-                        .child(format!(
-                            "line {} · {} of {}",
-                            hit.line,
-                            at + 1,
-                            file.matches.len()
+                        .child(t!(
+                            "line {line} · {at} of {count}",
+                            line = hit.line,
+                            at = at + 1,
+                            count = file.matches.len()
                         ))
                         .when(!pane.replace.is_empty(), |meta| {
                             meta.child(
@@ -1439,12 +1471,72 @@ fn foot(cx: &App) -> Div {
         .gap(SPACE_3H)
         .px(SPACE_3)
         .py(px(5.))
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_3XS_H))
         .text_color(t.text_tertiary)
-        .child(hint("⏎".into(), "open"))
-        .child(hint("tab".into(), "replace"))
-        .child(hint("⌘⏎".into(), "replace all"))
-        .children(crate::keymap::hint("search.global", cx).map(|keys| hint(keys, "focus")))
+        .child(hint("⏎".into(), t!("open")))
+        .child(hint("tab".into(), t!("replace")))
+        .child(hint("⌘⏎".into(), t!("replace all")))
+        .children(
+            crate::keymap::hint(actions::FocusSearch::ID, cx).map(|keys| hint(keys, t!("focus"))),
+        )
+}
+
+impl Workbench {
+    /// Makes the Search pane when the project's Search tab comes to the front.
+    pub(crate) fn search_pane(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        let project = project.path.to_string_lossy().into_owned();
+        let target = self.target();
+        if self.search.as_ref().is_some_and(|pane| {
+            let pane = pane.read(cx);
+            pane.project == project && pane.place() == target.place()
+        }) {
+            return;
+        }
+        let bench = cx.weak_entity();
+        self.search = Some(cx.new(|cx| SearchPane::new(target, project, bench, cx)));
+    }
+
+    /// Brings the project's Search tab to the front with the keyboard in its find field,
+    /// opening one when it has none, and searching for what is selected, as on the Mac.
+    pub(crate) fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        self.open_in_front(OpenTab::new(
+            At::project(&project.id),
+            PaneKind::Search,
+            project.path.to_string_lossy(),
+        ));
+        let seed = self.selection(window, cx);
+        self.search_pane(cx);
+        if let Some(search) = self.search.clone() {
+            search.update(cx, |search, cx| search.focus_find(seed, window, cx));
+        }
+    }
+
+    /// The first line of the text selected where the keyboard is: a field or file, or a chat.
+    pub(crate) fn selection(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<String> {
+        let selected = match window.focused_input(cx) {
+            Some(AnyInputState::Input(state)) => Some(state.read(cx).selected_text().to_string()),
+            Some(AnyInputState::Textarea(state)) => {
+                Some(state.read(cx).selected_text().to_string())
+            }
+            Some(AnyInputState::Editor(state)) => Some(state.read(cx).selected_text().to_string()),
+            _ => self
+                .chats
+                .open
+                .values()
+                .find_map(|chat| chat.transcript.read(cx).focused_selection(window))
+                .or_else(|| Some(gpui_kit::base::TextSelection::selected_text(window, cx))),
+        }?;
+        selected
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .map(str::to_owned)
+    }
 }

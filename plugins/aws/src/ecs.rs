@@ -1,7 +1,8 @@
-// ECS — clusters, services, tasks, task definitions, and the per-task /
-// per-service log configuration the UI uses to jump straight to CloudWatch.
+// ECS — clusters, services, tasks and task definitions.
 
+use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::error::{AwsError, AwsResult};
 
@@ -11,8 +12,7 @@ use crate::common::{aws_json, cli_value, describe_in_chunks, last_segment, Targe
 const ECS_DESCRIBE_CHUNK: usize = 10;
 const MAX_TASKS: &str = "100";
 const SERVICE_EVENTS: usize = 10;
-
-// ---- clusters ------------------------------------------------------------
+const CLUSTERS_AT_ONCE: usize = 4;
 
 #[derive(Serialize, Clone)]
 pub struct EcsCluster {
@@ -70,8 +70,6 @@ pub(crate) async fn clusters(target: &Target) -> AwsResult<Vec<EcsCluster>> {
         })
         .collect())
 }
-
-// ---- services ------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,6 +196,60 @@ pub(crate) async fn services(target: &Target, cluster: &str) -> AwsResult<Vec<Ec
 }
 
 #[derive(Serialize)]
+pub struct InCluster<T> {
+    cluster: String,
+    #[serde(flatten)]
+    found: T,
+}
+
+/// The services named like `wanted` in every cluster, or the one whole when only one is.
+pub(crate) async fn find_service(target: &Target, wanted: &str) -> AwsResult<Value> {
+    #[derive(Deserialize)]
+    struct ArnList {
+        #[serde(rename = "clusterArns")]
+        cluster_arns: Vec<String>,
+    }
+    let list: ArnList = aws_json(target, &["ecs", "list-clusters"]).await?;
+    let clusters: Vec<String> = list
+        .cluster_arns
+        .iter()
+        .map(|arn| last_segment(arn))
+        .collect();
+    let mut listed: Vec<Vec<EcsService>> = Vec::with_capacity(clusters.len());
+    for some in clusters.chunks(CLUSTERS_AT_ONCE) {
+        listed.extend(try_join_all(some.iter().map(|cluster| services(target, cluster))).await?);
+    }
+    let lowered = wanted.to_lowercase();
+    let mut found: Vec<InCluster<EcsService>> = clusters
+        .into_iter()
+        .zip(listed)
+        .flat_map(|(cluster, services)| {
+            services
+                .into_iter()
+                .filter(|service| service.name.to_lowercase().contains(&lowered))
+                .map(move |found| InCluster {
+                    cluster: cluster.clone(),
+                    found,
+                })
+        })
+        .collect();
+    match found.len() {
+        0 => Err(AwsError::NotFound(format!(
+            "No ECS service in any cluster has {wanted} in its name."
+        ))),
+        1 => {
+            let only = found.remove(0);
+            let detail = service(target, &only.cluster, &only.found.name).await?;
+            Ok(serde_json::to_value(InCluster {
+                cluster: only.cluster,
+                found: detail,
+            })?)
+        }
+        _ => Ok(json!({ "services": found })),
+    }
+}
+
+#[derive(Serialize)]
 pub struct EcsServiceDetail {
     name: String,
     status: Option<String>,
@@ -321,8 +373,6 @@ async fn describe_service(
         .next()
         .ok_or_else(|| AwsError::NotFound(format!("No service {service} in cluster {cluster}.")))
 }
-
-// ---- tasks ---------------------------------------------------------------
 
 #[derive(Serialize, Clone)]
 pub struct EcsTask {
@@ -477,8 +527,6 @@ pub(crate) async fn tasks(
         })
         .collect())
 }
-
-// ---- task definitions ---------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -649,105 +697,7 @@ pub(crate) async fn task_definition(target: &Target, name: &str) -> AwsResult<Ec
     })
 }
 
-// ---- log configuration --------------------------------------------------
-//
 // For the `awslogs` driver a specific task's stream is
 // `<prefix>/<container>/<taskId>`. We expose service-level (group only) and
 // task-level (group + stream) resolutions so the UI can hop straight to the
 // right CloudWatch view.
-
-#[derive(Serialize, Clone)]
-pub struct EcsTaskLog {
-    log_group: String,
-    log_stream: String,
-    container_name: String,
-    region: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-pub struct EcsServiceLog {
-    log_group: String,
-    container_name: String,
-    region: Option<String>,
-}
-
-fn no_awslogs() -> AwsError {
-    AwsError::BadArg("no container with awslogs driver")
-}
-
-pub(crate) async fn service_log_config(
-    target: &Target,
-    cluster: &str,
-    service: &str,
-) -> AwsResult<EcsServiceLog> {
-    let described = describe_service(target, cluster, service).await?;
-    let td_arn = described
-        .task_definition
-        .ok_or(AwsError::BadArg("service has no taskDefinition"))?;
-    let td = describe_task_definition(target, &td_arn).await?;
-    td.container_definitions
-        .iter()
-        .find_map(|c| {
-            let (log_group, region, _) = c.awslogs()?;
-            Some(EcsServiceLog {
-                log_group,
-                container_name: c.name.clone(),
-                region,
-            })
-        })
-        .ok_or_else(no_awslogs)
-}
-
-pub(crate) async fn task_log_config(
-    target: &Target,
-    cluster: &str,
-    task_arn: &str,
-) -> AwsResult<EcsTaskLog> {
-    #[derive(Deserialize)]
-    struct Resp {
-        tasks: Vec<Task>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Task {
-        task_definition_arn: Option<String>,
-    }
-    let resp: Resp = aws_json(
-        target,
-        &[
-            "ecs",
-            "describe-tasks",
-            "--cluster",
-            cli_value(cluster)?,
-            "--tasks",
-            cli_value(task_arn)?,
-        ],
-    )
-    .await?;
-    let td_arn = resp
-        .tasks
-        .into_iter()
-        .next()
-        .ok_or(AwsError::BadArg("task not found"))?
-        .task_definition_arn
-        .ok_or(AwsError::BadArg("no taskDefinitionArn"))?;
-    let task_id = last_segment(task_arn);
-
-    let td = describe_task_definition(target, &td_arn).await?;
-    td.container_definitions
-        .iter()
-        .find_map(|c| {
-            let (log_group, region, prefix) = c.awslogs()?;
-            let log_stream = match prefix.filter(|prefix| !prefix.is_empty()) {
-                Some(prefix) => format!("{prefix}/{}/{task_id}", c.name),
-                None => format!("{}/{task_id}", c.name),
-            };
-            Some(EcsTaskLog {
-                log_group,
-                log_stream,
-                container_name: c.name.clone(),
-                region,
-            })
-        })
-        .ok_or_else(no_awslogs)
-}

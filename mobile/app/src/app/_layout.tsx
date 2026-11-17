@@ -14,20 +14,21 @@ import { resourceCache } from '@clerk/expo/resource-cache';
 
 import { CLERK_PUBLISHABLE_KEY } from '@/account/config';
 import { tokenCache } from '@/account/tokenCache';
-import { useAccountHostsFeed, useAccountSequence, useConnectArrivals } from '@/account/session';
+import { useAccountHostsFeed, useAccountSequence } from '@/account/session';
+import { useHostJoins } from '@/devices/hostJoins';
 import { goOffline } from '@/phone/identity';
 import { useDevices } from '@/devices/hub';
 import { lockFor, useLock } from '@/lock/lock';
 import { LockCover, LockScreen } from '@/lock/LockScreen';
 import { NotificationsOffer } from '@/notify/NotificationsOffer';
-import { useNotificationResponses } from '@/notify/responses';
 import { currentRelays, useUpdateRequired } from '@/network/network';
 import { useOverTheAirUpdates } from '@/updates/overTheAir';
 import { Crashed } from '@/ui/Crashed';
+import { appReady, useCrashReportsAccount, withCrashReports } from '@/crashes/reports';
 import { Unreachable } from '@/account/Unreachable';
-import { useShareExtension } from '@/stash/extension';
 import { useShareIntake } from '@/stash/incoming';
 import { useStashFeed } from '@/stash/store';
+import { useGlanceFeed } from '@/glance/glance';
 import { UpdateRequired } from '@/network/UpdateRequired';
 import { backdropUnderStack } from '@/ui/Backdrop';
 import { swipeOptions } from '@/ui/swipeStack';
@@ -43,7 +44,9 @@ export const ErrorBoundary = Crashed;
 /** How long the splash waits for the account before saying it can't be reached. */
 const ACCOUNT_WAIT_MS = 10_000;
 
-export default function RootLayout() {
+export default withCrashReports(RootLayout);
+
+function RootLayout() {
   const colors = useColors();
   // Phones have the fonts built in; only a browser, which runs the showcase, loads them.
   const [loaded, failed] = useFonts(
@@ -94,7 +97,8 @@ export default function RootLayout() {
 
 /** The screens, once the account and the paired hosts are known; the splash stays up until then. */
 function Routes({ background }: { background: string }) {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  useCrashReportsAccount(userId);
   const devices = useDevices();
   const ready = isLoaded && (!isSignedIn || devices.loaded);
   const [late, setLate] = useState(false);
@@ -107,7 +111,9 @@ function Routes({ background }: { background: string }) {
   }, [ready]);
 
   useEffect(() => {
-    if (ready || late) SplashScreen.hideAsync().catch(() => {});
+    if (!ready && !late) return;
+    SplashScreen.hideAsync().catch(() => {});
+    appReady();
   }, [ready, late]);
 
   useEffect(() => {
@@ -125,7 +131,6 @@ function Routes({ background }: { background: string }) {
             <SwipeStack.Protected guard={!!isSignedIn}>
               {/* A host's screen paints its own ground, which fades as the screen leaves. */}
               <SwipeStack.Screen name="device/[core]" options={{ cardStyle: { backgroundColor: 'transparent' } }} />
-              <SwipeStack.Screen name="join" />
               <SwipeStack.Screen name="host-sign-in" />
               <SwipeStack.Screen name="share/[id]" />
               <SwipeStack.Screen name="stash" />
@@ -143,7 +148,6 @@ function Routes({ background }: { background: string }) {
           <Stack.Screen name="index" />
           <Stack.Protected guard={!!isSignedIn}>
             <Stack.Screen name="device/[core]" />
-            <Stack.Screen name="join" />
             <Stack.Screen name="host-sign-in" />
             <Stack.Screen name="share/[id]" />
             <Stack.Screen name="stash" />
@@ -153,19 +157,12 @@ function Routes({ background }: { background: string }) {
       {!isSignedIn || lock.phase === 'open' ? (
         <>
           <NotificationsOffer />
-          <NotificationResponses />
           {isSignedIn ? <ShareIntake /> : null}
         </>
       ) : null}
       {isSignedIn ? <LockCover /> : null}
     </>
   );
-}
-
-/** Mounted with the screens while they show, so a tapped card opens its chat, and answers it, only once the app is unlocked. */
-function NotificationResponses() {
-  useNotificationResponses();
-  return null;
 }
 
 /** Mounted while signed in and unlocked, so a share opens its sheet only then. */
@@ -179,7 +176,7 @@ function PhoneOnAccount() {
   useAccountSequence();
   useAccountHostsFeed();
   useStashFeed();
-  useShareExtension();
-  useConnectArrivals();
+  useGlanceFeed();
+  useHostJoins();
   return null;
 }

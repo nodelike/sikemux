@@ -1,22 +1,27 @@
-import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
+import { createContext, Fragment, memo, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { fencedDiff } from '@shared/chat/diff';
-import { namesWholePath } from '@shared/chat/filePath';
 import { decodedFenceName } from '@shared/chat/transcript';
 import { safeWebUrl } from '@shared/lib/urls';
 import { tableSource } from '@shared/markdown/tableSource';
 import type { MdElement, MdNode } from '@shared/markdown/types';
 import { visibleText } from '@shared/markdown/visible';
+import { WHY_URI, whyChip } from '@shared/chat/why';
+import { useT, type Translate } from '@/i18n';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
+import type { IconName } from '@/ui/icons.generated';
 import { openLink } from '@/ui/prompt';
-import { fonts, italic, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { fonts, italic, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { keepTouch } from '@/ui/Sideways';
 import { DiffRow, SidewaysRows } from './Diff';
 import type { FoundCode, FoundNode } from './found';
 import { FileRef, hostImagePath, LinkedImage, namesFile } from './FileRef';
 import { ImageViewerHost } from './ImageViewer';
 import type { Fading } from './reveal';
+import { WhyChipsContext, WhyChipText } from './WhyChip';
+import { NamedWords } from '@/devices/Crew';
 
 type Table = Extract<MdElement, { t: 'table' }>;
 
@@ -32,12 +37,47 @@ export function plainBlocks(text: string): MdElement[] {
 /** A link the phone opens: the web links the Mac would open, and mail. */
 const openable = (url: string) => safeWebUrl(url) ?? (/^mailto:/i.test(url) ? url : null);
 
+const SERVICES: [string[], IconName][] = [
+  [['github.com'], 'IconGithub'],
+  [['bitbucket.org'], 'IconBitbucket'],
+  [['atlassian.net'], 'IconJira'],
+  [['gitlab.com'], 'IconGitlab'],
+  [['codeberg.org'], 'IconForgejo'],
+  [['gitea.com'], 'IconGitea'],
+  [['linear.app'], 'IconLinear'],
+  [['vercel.com', 'vercel.app'], 'IconVercel'],
+  [['slack.com'], 'IconSlack'],
+  [['aws.amazon.com', 'amazonaws.com'], 'IconAws'],
+  [['grok.com'], 'IconGrok'],
+  [['apple.com'], 'IconApple'],
+  [['play.google.com'], 'IconGoogleplay'],
+];
+
+/** The mark of the service a web link leads to, as the Mac puts it before the link. */
+function serviceMark(url: string): IconName | undefined {
+  const host = /^https?:\/\/([^/?#:]+)/i.exec(url)?.[1]?.toLowerCase();
+  if (!host) return undefined;
+  return SERVICES.find(([domains]) => domains.some((domain) => host === domain || host.endsWith(`.${domain}`)))?.[1];
+}
+
 function Link({ url, children, styles }: { url: string; children: ReactNode; styles: Styles }) {
+  const mark = serviceMark(url);
   return (
     <Text style={styles.link} onPress={() => openLink(url)} accessibilityRole="link">
+      {mark ? (
+        <Text style={styles.mark}>
+          <Icon name={mark} size={12} color={styles.link.color} />{' '}
+        </Text>
+      ) : null}
       {children}
     </Text>
   );
+}
+
+/** A `why` link as the Mac draws it: the chip the core checked, or nothing for one it did not. */
+function WhyLink({ href }: { href: string }) {
+  const chip = whyChip(useContext(WhyChipsContext), href);
+  return chip ? <WhyChipText chip={chip} /> : null;
 }
 
 type Ink = { styles: Styles; paths: boolean };
@@ -63,7 +103,8 @@ function FoundIn({ code, styles }: { code: FoundCode; styles: Styles }) {
 
 function inline(node: MdNode, key: number, ink: Ink): ReactNode {
   const { styles, paths } = ink;
-  if (typeof node === 'string') return <Fragment key={key}>{node}</Fragment>;
+  if (typeof node === 'string')
+    return node.includes('@') ? <NamedWords key={key} text={node} size={15} /> : <Fragment key={key}>{node}</Fragment>;
   const found = foundOf(node);
   if (found) {
     return (
@@ -109,6 +150,12 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
           {inlines(node.c, ink)}
         </Text>
       );
+    case 'faint':
+      return (
+        <Text key={key} style={styles.faint}>
+          {inlines(node.c, ink)}
+        </Text>
+      );
     case 'br':
       return <Fragment key={key}>{'\n'}</Fragment>;
     case 'fnref':
@@ -130,6 +177,7 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
       );
     }
     case 'a': {
+      if (node.href.startsWith(WHY_URI)) return <WhyLink key={key} href={node.href} />;
       const label = inlines(node.c, { styles, paths: false });
       const url = openable(node.href);
       if (url)
@@ -140,7 +188,7 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
         );
       const image = hostImagePath(node.href);
       if (image) return <LinkedImage key={key} path={image} label={label} />;
-      if (namesWholePath(node.href)) return <FileRef key={key} raw={node.href} label={label} look="link" />;
+      if (node.file) return <FileRef key={key} raw={node.href} label={label} look="link" />;
       return <Fragment key={key}>{label}</Fragment>;
     }
     default:
@@ -185,7 +233,13 @@ function withFading(nodes: readonly MdNode[], fading: Fading | undefined, style:
   );
 }
 
-const HEADING_SIZES = [20, 18, 16.5];
+/** Headings as the Mac's editorial reply sets them, against the text's size: ### reads as a spaced-capital label. */
+const HEADING_SCALES = [1.52, 1.24, 0.72];
+/** The room above a heading that follows other blocks, against the text's size. */
+const HEADING_ROOM = [0.61, 1.5, 0.4];
+
+/** How deep a list sits inside other lists; only the outermost one's bullets take the accent. */
+const ListDepth = createContext(0);
 
 /* A table cell is sized from its text up front, so a wide table lays out in one pass
    and scrolls sideways in its own box instead of measuring every cell. */
@@ -198,10 +252,6 @@ const CELL_MAX = 240;
 
 const COPY_ROOM = 28;
 
-/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
-   scroller's own content takes it before the message's press handler can. */
-const keepTouch = () => true;
-
 function columnWidths(table: Table): number[] {
   return table.align.map((_, column) => {
     let text = visibleText(table.head?.[column] ?? []).length * HEAD_CHAR;
@@ -212,6 +262,7 @@ function columnWidths(table: Table): number[] {
 }
 
 function TableView({ table, style, styles }: { table: Table; style: StyleProp<TextStyle>; styles: Styles }) {
+  const t = useT();
   const widths = useMemo(() => columnWidths(table), [table]);
   const source = useMemo(() => tableSource(table), [table]);
   const cell = (nodes: readonly MdNode[], column: number, head: boolean) => (
@@ -249,27 +300,48 @@ function TableView({ table, style, styles }: { table: Table; style: StyleProp<Te
           ))}
         </View>
       </ScrollView>
-      <CopyButton value={source} label="table" size={12} style={styles.tableCopy} />
+      <CopyButton value={source} label={t('Copy table')} size={12} style={styles.tableCopy} />
     </View>
   );
 }
 
+const SHELLS = ['console', 'terminal', 'shell-session', 'shellsession', 'sh-session', 'fish', 'nu', 'ksh', 'csh', 'tcsh'];
+const COMMANDS = ['sh', 'bash', 'zsh', 'shell'];
+
+/** What a block without a file name is called, and whether its lines are numbered: commands to type are a Terminal. */
+function codeTitle(lang: string, text: string, t: Translate): { title: string; numbered: boolean } {
+  const lower = lang.toLowerCase();
+  if (lang ? SHELLS.includes(lower) || COMMANDS.includes(lower) : text.startsWith('$ ')) return { title: t('Terminal'), numbered: false };
+  return { title: lang || t('Code'), numbered: true };
+}
+
 /**
- * A fence as the Mac draws it: a title bar with the file it quotes and its copy button, then the code,
- * or a patch's rows tinted by sign with the changed words marked.
+ * A fence as the Mac draws it: one card headed by the file it shows, its folder quiet beside it, and a Copy pill,
+ * then the code with its lines numbered, or a patch's rows tinted by sign with the changed words marked.
  */
-function CodeBlock({ lang, text, styles }: { lang: string; text: string; styles: Styles }) {
+function CodeBlock({ lang, name, text, styles }: { lang: string; name?: string; text: string; styles: Styles }) {
   const colors = useColors();
+  const t = useT();
   const patch = useMemo(() => (text ? fencedDiff(text, lang || undefined) : null), [text, lang]);
-  const name = lang ? decodedFenceName(lang) : '';
+  const code = text.replace(/\n$/, '');
+  const named = name ? { title: name, numbered: true } : codeTitle(lang ? decodedFenceName(lang) : '', code, t);
+  const cut = name ? name.lastIndexOf('/') : -1;
+  const [folder, file] = cut > 0 ? [named.title.slice(0, cut), named.title.slice(cut + 1)] : [null, named.title];
+  const lines = named.numbered && code.includes('\n') ? code.split('\n').length : 0;
   return (
     <View style={styles.code}>
-      <View style={styles.codeTitle}>
-        {name ? <Icon name="IconFile" size={11} color={colors.inkFaint} /> : null}
-        <Text style={styles.codeName} numberOfLines={1}>
-          {name}
+      <View style={styles.codeHead}>
+        <Icon name={named.numbered ? 'IconFile' : 'IconTerminal'} size={13} color={colors.inkFaint} />
+        <Text style={styles.codeFile} numberOfLines={1}>
+          {file}
         </Text>
-        <CopyButton value={text.replace(/\n$/, '')} label="code" size={12} />
+        {folder ? (
+          <Text style={styles.codeFolder} numberOfLines={1} ellipsizeMode="head">
+            {folder}
+          </Text>
+        ) : null}
+        <View style={styles.codeFill} />
+        <CopyButton value={code} label={t('Copy code')} worded style={styles.pill} />
       </View>
       {patch ? (
         <SidewaysRows>
@@ -278,10 +350,16 @@ function CodeBlock({ lang, text, styles }: { lang: string; text: string; styles:
           ))}
         </SidewaysRows>
       ) : (
-        <ScrollView horizontal contentContainerStyle={styles.codePad} showsHorizontalScrollIndicator={false}>
-          <View onStartShouldSetResponder={keepTouch}>
+        <ScrollView
+          horizontal
+          contentContainerStyle={[styles.codePad, lines > 0 && styles.codePadNumbered]}
+          showsHorizontalScrollIndicator={false}>
+          <View onStartShouldSetResponder={keepTouch} style={styles.codeLines}>
+            {lines > 0 ? (
+              <Text style={[styles.codeText, styles.gutter]}>{Array.from({ length: lines }, (_, index) => index + 1).join('\n')}</Text>
+            ) : null}
             <Text style={styles.codeText} selectable>
-              {text}
+              {code}
             </Text>
           </View>
         </ScrollView>
@@ -342,42 +420,56 @@ function ListView({
   styles: Styles;
   fading?: Fading;
 }) {
+  const depth = useContext(ListDepth);
+  const t = useT();
   return (
-    <View style={styles.list}>
-      {items.map((item, index) => {
-        if (typeof item === 'string' || item.t !== 'li') return null;
-        const tail = index === items.length - 1 ? fading : undefined;
-        return (
-          <View key={index} style={styles.item}>
-            {item.checked === undefined ? (
-              <Text style={[style, styles.marker]}>{first === undefined ? '•' : `${first + index}.`}</Text>
-            ) : (
-              <View style={[styles.box, item.checked && styles.boxOn]} accessibilityLabel={item.checked ? 'done' : 'not done'}>
-                {item.checked ? <Icon name="IconCheck" size={11} color={styles.boxTick.color} /> : null}
-              </View>
-            )}
-            <Contents nodes={item.c} style={[style, item.checked === true && styles.done]} styles={styles} fading={tail} />
-          </View>
-        );
-      })}
-    </View>
+    <ListDepth.Provider value={depth + 1}>
+      <View style={styles.list}>
+        {items.map((item, index) => {
+          if (typeof item === 'string' || item.t !== 'li') return null;
+          const tail = index === items.length - 1 ? fading : undefined;
+          return (
+            <View key={index} style={styles.item}>
+              {item.checked === undefined ? (
+                first === undefined ? (
+                  <Text style={[style, styles.bullet, depth > 0 && styles.nestedBullet]}>•</Text>
+                ) : (
+                  <Text style={[style, styles.number]}>{String(first + index).padStart(2, '0')}</Text>
+                )
+              ) : (
+                <View style={[styles.box, item.checked && styles.boxOn]} accessibilityLabel={item.checked ? t('done') : t('not done')}>
+                  {item.checked ? <Icon name="IconCheck" size={11} color={styles.boxTick.color} /> : null}
+                </View>
+              )}
+              <Contents nodes={item.c} style={[style, item.checked === true && styles.done]} styles={styles} fading={tail} />
+            </View>
+          );
+        })}
+      </View>
+    </ListDepth.Provider>
   );
 }
 
 function Details({ block, style, styles }: { block: Extract<MdElement, { t: 'details' }>; style: StyleProp<TextStyle>; styles: Styles }) {
   const colors = useColors();
   const [open, setOpen] = useState(block.open === true);
+  const t = useT();
   return (
     <View style={styles.details}>
       <Pressable onPress={() => setOpen(!open)} style={styles.summary} accessibilityRole="button" accessibilityState={{ expanded: open }}>
         <View style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}>
           <Icon name="IconChevron" size={10} color={colors.inkFaint} />
         </View>
-        <Text style={[style, styles.bold]}>{block.summary || 'Details'}</Text>
+        <Text style={[style, styles.bold]}>{block.summary || t('Details')}</Text>
       </Pressable>
       {open ? <Blocks blocks={block.c as MdElement[]} style={style} styles={styles} /> : null}
     </View>
   );
+}
+
+/** A label's words in capitals, as the Mac sets a ### heading. */
+function capitals(nodes: readonly MdNode[]): string {
+  return visibleText(nodes as MdElement[]).toUpperCase();
 }
 
 /** One block, drawn again only when the core changed it, so a streaming message redraws just its tail. */
@@ -386,28 +478,42 @@ const BlockView = memo(function BlockView({
   style,
   styles,
   fading,
+  first = true,
+  lead = false,
 }: {
   block: MdElement;
   style: StyleProp<TextStyle>;
   styles: Styles;
   fading?: Fading;
+  /** Nothing stands above it, so a heading needs no room over it. */
+  first?: boolean;
+  /** The paragraph straight under the text's title, set a touch larger. */
+  lead?: boolean;
 }) {
   switch (block.t) {
     case 'pre':
-      return <CodeBlock lang={block.lang ?? ''} text={block.v} styles={styles} />;
-    case 'h':
+      return <CodeBlock lang={block.lang ?? ''} name={block.name} text={block.v} styles={styles} />;
+    case 'h': {
+      const size = StyleSheet.flatten(style)?.fontSize ?? 14.5;
+      const scale = HEADING_SCALES[block.l - 1];
+      const label = block.l === 3;
       return (
         <Text
           style={[
             style,
             styles.bold,
-            block.l <= HEADING_SIZES.length && { fontSize: HEADING_SIZES[block.l - 1], lineHeight: HEADING_SIZES[block.l - 1] * 1.35 },
+            scale !== undefined && { fontSize: size * scale, lineHeight: size * scale * (label ? 1.6 : 1.3) },
+            block.l === 1 && styles.title,
+            block.l === 2 && styles.section,
+            label && styles.label,
+            !first && { marginTop: size * (HEADING_ROOM[block.l - 1] ?? 0.4) },
           ]}
           accessibilityRole="header"
           selectable>
-          {withFading(block.c, fading, style, styles)}
+          {label ? capitals(block.c) : withFading(block.c, fading, style, styles)}
         </Text>
       );
+    }
     case 'ul':
       return <ListView items={block.c} style={style} styles={styles} fading={fading} />;
     case 'ol':
@@ -415,7 +521,7 @@ const BlockView = memo(function BlockView({
     case 'quote':
       return (
         <View style={styles.quote}>
-          <Blocks blocks={block.c as MdElement[]} style={[style, styles.quoteText]} styles={styles} fading={fading} />
+          <Blocks blocks={block.c as MdElement[]} style={[style, italic]} styles={styles} fading={fading} />
         </View>
       );
     case 'hr':
@@ -433,7 +539,7 @@ const BlockView = memo(function BlockView({
       return <Details block={block} style={style} styles={styles} />;
     case 'p':
       return (
-        <Text style={style} selectable>
+        <Text style={[style, lead && { fontSize: (StyleSheet.flatten(style)?.fontSize ?? 14.5) * 1.07 }]} selectable>
           {withFading(block.c, fading, style, styles)}
         </Text>
       );
@@ -460,7 +566,15 @@ function Blocks({
   return (
     <View style={styles.stack}>
       {blocks.map((block, index) => (
-        <BlockView key={index} block={block} style={style} styles={styles} fading={index === blocks.length - 1 ? fading : undefined} />
+        <BlockView
+          key={index}
+          block={block}
+          style={style}
+          styles={styles}
+          fading={index === blocks.length - 1 ? fading : undefined}
+          first={index === 0}
+          lead={block.t === 'p' && index > 0 && blocks[index - 1].t === 'h' && (blocks[index - 1] as { l: number }).l === 1}
+        />
       ))}
     </View>
   );
@@ -478,9 +592,9 @@ export function Markdown({ blocks, style, fading }: { blocks: readonly MdElement
 
 const makeStyles = (colors: Palette) =>
   StyleSheet.create({
-    stack: { gap: 10 },
+    stack: { gap: 12 },
     contents: { flex: 1, gap: 8 },
-    list: { gap: 10 },
+    list: { gap: 6 },
     note: { fontSize: 10, lineHeight: 14, color: colors.accent },
     footnote: { fontSize: 12.5, color: colors.secondary },
     details: { gap: 8 },
@@ -489,24 +603,33 @@ const makeStyles = (colors: Palette) =>
     found: { backgroundColor: translucent(colors.accent, 0.34), color: colors.ink },
     foundCurrent: { backgroundColor: colors.accent, color: colors.sunken },
     bold: { fontFamily: fonts.uiSemibold, color: colors.ink },
-    link: { color: colors.accent },
+    link: {
+      color: mixed(colors.accent, colors.ink, 0.5),
+      textDecorationLine: 'underline',
+      textDecorationColor: translucent(mixed(colors.accent, colors.ink, 0.5), 0.4),
+    },
     item: { flexDirection: 'row', gap: 8, paddingLeft: 2 },
     marker: { color: colors.tertiary, minWidth: 14 },
-    code: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.sunken, overflow: 'hidden' },
-    codeTitle: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      height: 26,
-      paddingLeft: 10,
-      paddingRight: 1,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    codeName: { flex: 1, fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
-    codePad: { paddingHorizontal: 12, paddingVertical: 9 },
-    codeText: { fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 17, color: colors.ink },
+    mark: { textDecorationLine: 'none' },
+    bullet: { minWidth: 14, paddingLeft: 4, color: colors.accent },
+    nestedBullet: { color: colors.inkDim },
+    number: { minWidth: 20, fontFamily: fonts.mono, fontSize: 11, fontWeight: '500', color: colors.accent },
+    title: { letterSpacing: -0.33 },
+    section: { letterSpacing: -0.18 },
+    label: { letterSpacing: 1.67, color: colors.inkDim },
+    code: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised, overflow: 'hidden' },
+    codeHead: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingLeft: 14, paddingRight: 8 },
+    codeFile: { flexShrink: 0, maxWidth: '60%', fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
+    codeFolder: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 11.5, color: colors.inkFaint },
+    codeFill: { flex: 1 },
+    pill: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.overlay },
+    codePad: { paddingLeft: 16, paddingRight: 16, paddingBottom: 14 },
+    codePadNumbered: { paddingLeft: 0 },
+    codeLines: { flexDirection: 'row' },
+    gutter: { width: 24, marginRight: 16, textAlign: 'right', color: mixed(colors.inkFaint, colors.raised, 0.5) },
+    codeText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 20, color: colors.ink },
     strike: { textDecorationLine: 'line-through', color: colors.tertiary },
+    faint: { color: colors.tertiary },
     box: {
       width: 15,
       height: 15,
@@ -521,8 +644,7 @@ const makeStyles = (colors: Palette) =>
     boxOn: { borderColor: colors.borderSelected, backgroundColor: colors.selected },
     boxTick: { color: colors.accent },
     done: { color: colors.tertiary },
-    quote: { paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: colors.borderStrong },
-    quoteText: { color: colors.secondary },
+    quote: { paddingLeft: 16, borderLeftWidth: 2, borderLeftColor: colors.accent },
     rule: { height: StyleSheet.hairlineWidth, marginVertical: 4, backgroundColor: colors.borderStrong },
     table: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
     row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border },

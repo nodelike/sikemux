@@ -5,8 +5,8 @@ const shared = globalThis as { sikemuxAppState?: Set<Listener> };
 const appStateListeners = (shared.sikemuxAppState ??= new Set<Listener>());
 
 export const Platform = {
-  OS: 'ios' as 'ios' | 'android',
-  select: <T>(choices: { ios?: T; android?: T; default?: T }): T | undefined => choices.ios ?? choices.default,
+  OS: 'android' as 'android' | 'web',
+  select: <T>(choices: { android?: T; web?: T; default?: T }): T | undefined => choices.android ?? choices.default,
 };
 
 export const AppState = {

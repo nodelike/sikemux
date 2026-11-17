@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth, useUser } from '@clerk/expo';
 import { nativeApplicationVersion, nativeBuildVersion } from 'expo-application';
 import * as Updates from 'expo-updates';
 
-import { ApiProblem, removePhone } from '@/account/api';
+import { accountIsStaff, ApiProblem, removePhone } from '@/account/api';
 import { Avatar } from '@/account/Avatar';
 import { providerName } from '@/account/providers';
 import { signOutHere } from '@/account/leave';
@@ -16,6 +16,7 @@ import { shortKey } from '@/devices/paired';
 import { versionFromBuild } from '@/network/versions';
 import { phoneName } from '@/phone/name';
 import { LockRow } from '@/lock/LockRow';
+import { type Translate, useT } from '@/i18n';
 import { NotificationsRow } from '@/notify/NotificationsRow';
 import { stopPush } from '@/notify/token';
 import { Icon } from '@/ui/Icon';
@@ -24,17 +25,14 @@ import { Sheet } from '@/ui/Sheet';
 import { restartToUpdate, useUpdateWaiting } from '@/updates/overTheAir';
 import { fonts, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 
-const VERSION = versionLabel(versionFromBuild(nativeBuildVersion) ?? nativeApplicationVersion, process.env.EXPO_PUBLIC_COMMIT ?? null, {
-  id: Updates.updateId,
-  createdAt: Updates.createdAt,
-  embedded: Updates.isEmbeddedLaunch,
-});
+const INSTALLED = versionFromBuild(nativeBuildVersion) ?? nativeApplicationVersion;
+const RUNNING = { id: Updates.updateId, createdAt: Updates.createdAt, embedded: Updates.isEmbeddedLaunch };
 
-/** Who is signed in, this phone as the account knows it, and signing out. */
 export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  const t = useT();
   const { signOut, getToken } = useAuth();
   const { user } = useUser();
   const id = useDeviceId();
@@ -42,10 +40,18 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
   const updateWaiting = useUpdateWaiting();
   const [leaving, setLeaving] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState<string>();
+  const [staff, setStaff] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    accountIsStaff(() => getToken())
+      .then(setStaff)
+      .catch(() => {});
+  }, [visible, getToken]);
   const provider = providerName(user?.externalAccounts[0]?.provider);
   const name = user?.fullName?.trim() || undefined;
   const email = user?.primaryEmailAddress?.emailAddress;
-  const how = `Signed in with ${provider ?? 'email'}`;
+  const version = versionLabel(INSTALLED, process.env.EXPO_PUBLIC_COMMIT ?? null, RUNNING, t);
+  const how = provider ? t('Signed in with {provider}', { provider }) : t('Signed in with email');
 
   /** Takes the notification token and then the phone off the account first, so hosts hear of it; when that fails, it asks before leaving them there. */
   const leave = async (anyway = false) => {
@@ -57,7 +63,7 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
         await removePhone(() => getToken());
       } catch (error) {
         setLeaving(false);
-        setUnconfirmed(whyNotConfirmed(error));
+        setUnconfirmed(whyNotConfirmed(error, t));
         return;
       }
     }
@@ -80,7 +86,7 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
         <Avatar size={44} />
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>
-            {name ?? email ?? 'Signed in'}
+            {name ?? email ?? t('Signed in')}
           </Text>
           {name && email ? (
             <Text style={type.meta} numberOfLines={1}>
@@ -95,14 +101,17 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
         <View style={{ flex: 1 }}>
           <Text style={styles.phoneName}>{phoneName()}</Text>
           <Text style={type.meta}>
-            This phone{id ? ' · ' : ''}
+            {t('This phone')}
+            {id ? ' · ' : ''}
             {id ? <Text style={type.mono}>{shortKey(id)}</Text> : null}
           </Text>
-          {status?.step === 'failed' ? <Text style={styles.problem}>Not on your account yet: {status.problem}</Text> : null}
+          {status?.step === 'failed' ? (
+            <Text style={styles.problem}>{t('Not on your account yet: {problem}', { problem: status.problem })}</Text>
+          ) : null}
         </View>
         {status?.step === 'failed' ? (
           <Pressable onPress={retryRegistration} accessibilityRole="button" hitSlop={8}>
-            <Text style={styles.action}>Try again</Text>
+            <Text style={styles.action}>{t('Try again')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -111,13 +120,15 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
       {unconfirmed ? (
         <>
           <Text style={styles.noteTitle}>{unconfirmed}</Text>
-          <Text style={[styles.note, styles.noteAfterTitle]}>This phone stays on your account until removed at app.sikemux.com.</Text>
+          <Text style={[styles.note, styles.noteAfterTitle]}>
+            {t('This phone stays on your account until removed at app.sikemux.com.')}
+          </Text>
           <View style={styles.choices}>
-            <Button title="Try again" disabled={leaving} onPress={() => void leave()} />
+            <Button title={t('Try again')} disabled={leaving} onPress={() => void leave()} />
             <Button
               kind="danger"
               icon="IconLogOut"
-              title={leaving ? 'Signing out…' : 'Sign out anyway'}
+              title={leaving ? t('Signing out…') : t('Sign out anyway')}
               disabled={leaving}
               onPress={() => void leave(true)}
             />
@@ -127,7 +138,7 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
         <Button
           kind="danger"
           icon="IconLogOut"
-          title={leaving ? 'Signing out…' : 'Sign out'}
+          title={leaving ? t('Signing out…') : t('Sign out')}
           disabled={leaving}
           onPress={() => void leave()}
           style={styles.signOut}
@@ -141,20 +152,23 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
         disabled={leaving}
         style={styles.link}
         accessibilityRole="button">
-        <Text style={styles.linkText}>Delete account…</Text>
+        <Text style={styles.linkText}>{t('Delete account…')}</Text>
       </Pressable>
       {updateWaiting ? (
         <Pressable onPress={restartToUpdate} style={styles.link} accessibilityRole="button">
-          <Text style={[styles.linkText, styles.update]}>Restart to update</Text>
+          <Text style={[styles.linkText, styles.update]}>{t('Restart to update')}</Text>
         </Pressable>
       ) : null}
-      <Text style={styles.version}>Sikemux {VERSION}</Text>
+      <Text style={styles.version}>
+        Sikemux {version}
+        {staff ? ' · staff' : ''}
+      </Text>
     </Sheet>
   );
 }
 
-function whyNotConfirmed(error: unknown): string {
-  return error instanceof ApiProblem && !error.unreachable ? error.message : "Can't reach Sikemux";
+function whyNotConfirmed(error: unknown, t: Translate): string {
+  return error instanceof ApiProblem && !error.unreachable ? error.message : t("Can't reach Sikemux");
 }
 
 const makeStyles = (colors: Palette) => {

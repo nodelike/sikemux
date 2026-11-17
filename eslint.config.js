@@ -4,19 +4,6 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  {
-    ignores: [
-      "coverage/**",
-      "dist/**",
-      "node_modules/**",
-      "app/**",
-      "crates/**",
-      "helpers/**",
-      "packaging/**",
-      "plugins/**",
-      "target/**",
-    ],
-  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -39,6 +26,19 @@ export default tseslint.config(
       "no-useless-escape": "off",
       "no-empty": "off",
       "no-dupe-else-if": "off",
+    },
+  },
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      globals: { ...globals.browser, ...globals.node },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
 );

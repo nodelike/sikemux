@@ -1,10 +1,4 @@
 // Profile discovery and identity/SSO-login surface.
-//
-//   profiles     — parse ~/.aws/{config,credentials}, classify
-//   resolve      — which profile and region an agent's call runs as
-//   identity     — `sts get-caller-identity`, 60s per-process cache
-//   status       — whether the profile agents start on can sign in
-//   sso_login    — `aws sso login` (spawn-and-wait)
 
 use std::collections::HashMap;
 use std::fs;
@@ -14,16 +8,11 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use sikemux_plugin_api::process;
-use sikemux_plugin_api::process::sync::Locked;
 use sikemux_plugin_api::{PluginContext, SignInStatus};
+use sikemux_process::sync::Locked;
 
 use crate::common::{classify_cli_err, run_aws_cli_async, Target};
 use crate::error::{AwsError, AwsResult};
-
-// ============================================================
-// profile discovery
-// ============================================================
 
 #[derive(Serialize, Clone, Copy, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -47,17 +36,9 @@ pub struct AwsProfile {
 
 /// Where the AWS CLI looks, so the profiles listed are the ones it can use.
 fn aws_file(variable: &str, default: &str) -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok();
-    match process::user_environment::var(variable).filter(|path| !path.is_empty()) {
-        Some(path) => Some(expand_home(&path, home.as_deref())),
-        None => Some(PathBuf::from(home?).join(".aws").join(default)),
-    }
-}
-
-fn expand_home(path: &str, home: Option<&str>) -> PathBuf {
-    match (path.strip_prefix("~/"), home) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ => PathBuf::from(path),
+    match sikemux_process::user_environment::var(variable).filter(|path| !path.is_empty()) {
+        Some(path) => Some(sikemux_process::paths::expand_home(&path)),
+        None => Some(sikemux_process::paths::home()?.join(".aws").join(default)),
     }
 }
 
@@ -69,10 +50,10 @@ fn credentials_path() -> Option<PathBuf> {
     aws_file("AWS_SHARED_CREDENTIALS_FILE", "credentials")
 }
 
-/// Parse an INI-style AWS config. Supports `[profile X]`, `[default]`, and
-/// `[sso-session Y]`. Returns `(profile_blocks, sso_session_blocks)`.
 type IniBlocks = HashMap<String, HashMap<String, String>>;
 
+/// Parses an INI-style AWS config with `[profile X]`, `[default]` and `[sso-session Y]`
+/// blocks. Returns `(profile_blocks, sso_session_blocks)`.
 fn parse_ini(content: &str) -> (IniBlocks, IniBlocks) {
     let mut profiles: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut sessions: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -128,7 +109,7 @@ fn classify(p: &HashMap<String, String>) -> AwsKind {
 
 /// Whether this computer looks set up for AWS at all, so agents elsewhere are not offered the tools.
 pub(crate) fn aws_in_use() -> bool {
-    use sikemux_plugin_api::process::user_environment::{find_executable, var};
+    use sikemux_process::user_environment::{find_executable, var};
     [config_path(), credentials_path()]
         .into_iter()
         .flatten()
@@ -138,29 +119,13 @@ pub(crate) fn aws_in_use() -> bool {
         || find_executable(&crate::common::aws_bin()).is_some()
 }
 
-#[derive(Serialize)]
-pub struct AwsSetup {
-    cli: bool,
-    homebrew: bool,
-}
-
-/// What the pane needs before it can offer profiles: the CLI, and Homebrew to install it with.
-pub(crate) fn setup() -> AwsSetup {
-    use sikemux_plugin_api::process::user_environment::find_executable;
-    let bin = crate::common::aws_bin();
-    AwsSetup {
-        cli: std::path::Path::new(&bin).is_file() || find_executable(&bin).is_some(),
-        homebrew: find_executable("brew").is_some(),
-    }
-}
-
 /// The profile and region a call runs as: the one asked for, else the one
 /// agents start on, else `default`. Several others and no choice is an error
 /// that lists them.
 pub(crate) async fn resolve(ctx: &PluginContext, asked: Target) -> AwsResult<Target> {
     let known = profiles().await;
     let names = || known.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
-    let env = |name| process::user_environment::var(name).filter(|v| !v.is_empty());
+    let env = |name| sikemux_process::user_environment::var(name).filter(|v| !v.is_empty());
     let profile = match asked.profile {
         Some(profile) if known.iter().any(|p| p.name == profile) => Some(profile),
         Some(profile) => return Err(AwsError::UnknownProfile(profile, names())),
@@ -247,10 +212,6 @@ pub(crate) fn profile_names() -> Vec<String> {
         .map(|profile| profile.name)
         .collect()
 }
-
-// ============================================================
-// caller identity (cached)
-// ============================================================
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -360,14 +321,15 @@ pub(crate) struct Signed {
     account: Option<String>,
 }
 
-/// Whether AWS calls work as the profile the AWS pane shows.
+/// Whether AWS calls work as the profile picked to sign in with.
 pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
-    let Some(profile) = crate::agent_profile::pane_profile(ctx) else {
+    let Some(profile) = crate::agent_profile::account_profile(ctx) else {
         return SignInStatus {
             configured: false,
             ok: false,
             auth_failed: false,
             message: None,
+            signed_in_as: None,
             details: Signed {
                 profile: None,
                 account: None,
@@ -375,22 +337,21 @@ pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
         };
     };
     let id = identity(Target::named(&profile), false).await;
-    let profile = Some(profile);
     SignInStatus {
         configured: true,
         ok: id.status == AwsStatus::Authed,
         auth_failed: matches!(id.status, AwsStatus::Expired | AwsStatus::NoCredentials),
         message: id.message,
+        signed_in_as: Some(match &id.account {
+            Some(account) => format!("{profile} ({account})"),
+            None => profile.clone(),
+        }),
         details: Signed {
-            profile,
+            profile: Some(profile),
             account: id.account,
         },
     }
 }
-
-// ============================================================
-// SSO login
-// ============================================================
 
 #[derive(Serialize, Clone)]
 pub struct AwsLoginResult {
@@ -416,23 +377,5 @@ pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
             stdout: String::new(),
             stderr: e.to_string(),
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_path_from_the_shell_may_start_at_home() {
-        assert_eq!(
-            expand_home("~/work/aws-config", Some("/Users/me")),
-            PathBuf::from("/Users/me/work/aws-config")
-        );
-        assert_eq!(
-            expand_home("/etc/aws/config", Some("/Users/me")),
-            PathBuf::from("/etc/aws/config")
-        );
-        assert_eq!(expand_home("~/x", None), PathBuf::from("~/x"));
     }
 }

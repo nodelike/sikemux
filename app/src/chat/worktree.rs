@@ -5,12 +5,16 @@
 use std::rc::Rc;
 
 use gpui_kit::{Context, Window};
-use sikemux_core::server::{call, ForAgent, ForAgentParams, WorktreeDefaultParams};
+use sikemux_calls::call;
+use sikemux_calls::preferences::WorktreeDefaultParams;
+use sikemux_calls::worktree::AgentWorktreeParams;
+use sikemux_calls::worktree::MadeAgentWorktree;
+use sikemux_view::workspace::ProjectInfo;
 
 use super::{Chat, ComposeStage};
 use crate::core::ChatAsk;
 use crate::workbench::Workbench;
-use crate::worktree_switch::{Flip, Switch};
+use crate::worktrees::switch::{Flip, Switch};
 
 impl Workbench {
     /// The worktree switch `agent`'s composer strip shows, and what flipping it does.
@@ -23,7 +27,7 @@ impl Workbench {
             .iter()
             .find(|project| project.id == saved.project)?;
         let chat = self.chats.open.get(agent);
-        let started = saved.resume_id.is_some() || chat.is_none_or(|chat| !chat.is_empty(cx));
+        let started = saved.resume_id.is_some() || chat.is_none_or(|chat| !chat.is_new(cx));
         let preparing = chat
             .and_then(|chat| chat.composer.as_ref())
             .and_then(|composing| match &composing.stage {
@@ -31,7 +35,7 @@ impl Workbench {
                 _ => None,
             });
         let on = project.worktree_default;
-        let switch = crate::worktree_switch::state(
+        let switch = crate::worktrees::switch::state(
             saved.worktree.as_ref(),
             project.git.is_some(),
             started,
@@ -39,17 +43,21 @@ impl Workbench {
             on,
             self.home_at(self.chat_target(agent).place()).as_deref(),
         )?;
+        Some((switch, self.flip_worktree_default(project, on)))
+    }
+
+    /// Turns the worktree switch of new chats in `project` the other way, from `on`.
+    pub fn flip_worktree_default(&self, project: &ProjectInfo, on: bool) -> Flip {
         let folder = project.path.to_string_lossy().into_owned();
         let asks = self.asks.clone();
-        let flip: Flip = Rc::new(move |_, _| {
+        Rc::new(move |_, _| {
             let _ = asks.send(crate::core::typed_call::<call::SetWorktreeDefault>(
                 WorktreeDefaultParams {
                     project: folder.clone(),
                     on: !on,
                 },
             ));
-        });
-        Some((switch, flip))
+        })
     }
 
     /// Whether `agent`'s next message first has the core make it a worktree.
@@ -70,16 +78,17 @@ impl Workbench {
             return;
         };
         composing.stage = ComposeStage::Worktree {
-            step: "Creating worktree".into(),
+            step: t!("Creating worktree").into(),
             sends: false,
         };
         composing.refusal = None;
-        let made =
-            (self.chat_target(agent)).request_typed::<call::CreateAgentWorktree>(ForAgentParams {
+        let made = (self.chat_target(agent)).request_typed::<call::CreateAgentWorktree>(
+            AgentWorktreeParams {
                 agent_id: agent.to_owned(),
                 message,
                 repo: None,
-            });
+            },
+        );
         let agent = agent.to_owned();
         cx.spawn(async move |bench, cx| {
             let made = made.await;
@@ -94,7 +103,7 @@ impl Workbench {
     fn worktree_made(
         &mut self,
         agent: &str,
-        made: Result<ForAgent, String>,
+        made: Result<MadeAgentWorktree, String>,
         cx: &mut Context<Self>,
     ) {
         let Some(composing) = self
@@ -106,10 +115,14 @@ impl Workbench {
             return;
         };
         let refused = match &made {
-            Err(error) => Some(format!("Could not create a worktree: {error}")),
+            Err(error) => Some(t!("Could not create a worktree: {error}", error = error)),
             Ok(made) => made.setup_error.as_ref().map(|error| {
                 let path = made.worktree.path.display();
-                format!("{error}. The worktree is kept at {path}; send again to start there.")
+                t!(
+                    "{error}. The worktree is kept at {path}; send again to start there.",
+                    error = error,
+                    path = path
+                )
             }),
         };
         match refused {
@@ -119,7 +132,7 @@ impl Workbench {
             }
             None => {
                 composing.stage = ComposeStage::Worktree {
-                    step: "Starting the agent in the worktree".into(),
+                    step: t!("Starting the agent in the worktree").into(),
                     sends: true,
                 };
                 self.ask_chat(ChatAsk::Attach {
@@ -170,7 +183,7 @@ impl Workbench {
 impl Chat {
     fn ready_in_worktree(&self) -> bool {
         self.state.as_ref().is_some_and(|head| {
-            head.connection == sikemux_wire::chat::ChatConnection::Ready && !head.running
+            head.connection == sikemux_view::chat::ChatConnection::Ready && !head.running
         })
     }
 }

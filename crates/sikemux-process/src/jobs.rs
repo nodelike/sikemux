@@ -119,6 +119,7 @@ mod owner {
             tokens,
             held_back: 0,
             hold_back: 0,
+            lost: 0,
         };
         let (tell, told) = mpsc::channel();
         memory_pressure::watch(move |pressure| {
@@ -156,6 +157,8 @@ mod owner {
         /// compilers run at once.
         held_back: usize,
         hold_back: usize,
+        /// Jobs out that no holder accounted for at the last check.
+        lost: usize,
     }
 
     impl Pool {
@@ -191,20 +194,24 @@ mod owner {
 
         /// Puts back the jobs a build took and never returned, as one killed
         /// mid-build does. A job is lost when more are out than the processes
-        /// still holding the pool could account for.
-        fn refill(&self, out: usize) {
-            if out == 0 {
-                return;
-            }
-            let Some(holders) = super::platform::holders(&self.path) else {
-                return;
+        /// still holding the pool account for, at two checks in a row, so a
+        /// job taken just as the holders are counted is not put back twice.
+        fn refill(&mut self, out: usize) {
+            let lost = match out {
+                0 => 0,
+                _ => match super::platform::holders(&self.path) {
+                    Some(holders) => out.saturating_sub(
+                        holders
+                            .into_iter()
+                            .filter(|pid| *pid != std::process::id())
+                            .map(held_by)
+                            .sum(),
+                    ),
+                    None => 0,
+                },
             };
-            let accounted: usize = holders
-                .into_iter()
-                .filter(|pid| *pid != std::process::id())
-                .map(held_by)
-                .sum();
-            self.put(out.saturating_sub(accounted));
+            self.put(lost.min(self.lost));
+            self.lost = lost;
         }
 
         fn put(&self, count: usize) {
@@ -230,13 +237,15 @@ mod owner {
         }
     }
 
-    /// The most jobs `pid` can hold: one for each child it runs past the one
-    /// it runs on its own job, or for a process with no children, one for
-    /// each thread a compiler adds while it generates code.
+    /// The jobs `pid` holds: one for each child it runs past the one it runs
+    /// on its own job, or for a process with no children, one for each code
+    /// generating thread a compiler runs past its first.
     fn held_by(pid: u32) -> usize {
-        const COMPILER_THREADS_AT_REST: usize = 3;
+        // rustc's main, Ctrl-C and compiler threads, then the jobserver helper
+        // and the coordinator it starts with its first code generating thread.
+        const COMPILER_THREADS_BEFORE_A_SECOND_JOB: usize = 6;
         match super::platform::children(pid) {
-            0 => super::platform::threads(pid).saturating_sub(COMPILER_THREADS_AT_REST),
+            0 => super::platform::threads(pid).saturating_sub(COMPILER_THREADS_BEFORE_A_SECOND_JOB),
             children => children - 1,
         }
     }

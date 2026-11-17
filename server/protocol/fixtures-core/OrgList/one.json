@@ -1,0 +1,14 @@
+{
+  "orgs": [
+    {
+      "id": "0b6e3f1c-8d2a-4f5e-9c7b-1a2d3e4f5a6b",
+      "name": "Acme",
+      "role": "owner",
+      "seats": {
+        "held": 2,
+        "limit": 5
+      },
+      "createdAt": "2026-11-16T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[package]
+name = "sikemux-board"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# For the tests of the core built on this crate.
+testing = []
+
+[dependencies]
+sikemux-repo = { path = "../sikemux-repo" }
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+url = "2"
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-calls = { path = "../sikemux-calls" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-fold = { path = "../sikemux-fold" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

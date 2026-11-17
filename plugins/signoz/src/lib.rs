@@ -1,12 +1,4 @@
 // SigNoz: logs, service health and traces for the projects Sikemux has open.
-//
-//   config    — where SigNoz is, and the key in the Keychain the shell CLI shares
-//   client    — the HTTP client, size limits, and SigNoz's error shapes
-//   query     — v5 query_range builders, filter quoting, and time windows
-//   logs      — search, and a tail that polls for new lines
-//   services  — health per service, and one service's charts, endpoints and errors
-//   traces    — every span of one trace, ordered for a waterfall
-//   agent     — which method each of the agent's tools reaches
 
 mod agent;
 mod auth;
@@ -20,29 +12,42 @@ mod logs;
 mod query;
 mod services;
 mod traces;
-mod views;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use reqwest::Method;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
-    SignInStatus, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, SignInStatus,
+    SignedInAs,
 };
-use sikemux_plugin_signoz_views::Where;
 
+use crate::config::AuthMode;
 use crate::error::{SignozError, SignozResult};
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Signoz {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
+/// Which SigNoz the plugin is signed in to, and as whom.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Where {
+    pub url: String,
+    pub auth: AuthMode,
+    pub email: String,
+    pub key_from_environment: bool,
+    pub version: Option<String>,
 }
 
-struct Signoz {
-    manifest: Manifest,
+sikemux_plugin_api::plugin!(Signoz);
+
+impl SignedInAs for Where {
+    fn signed_in_as(&self) -> Option<String> {
+        let server = self
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        (!server.is_empty()).then(|| server.to_owned())
+    }
 }
 
 type Status = SignInStatus<Where>;
@@ -50,7 +55,7 @@ type Status = SignInStatus<Where>;
 async fn status(data_dir: &Path) -> Status {
     let config = match auth::load(data_dir).await {
         Ok(config) => config,
-        Err(error) => return status_of(false, Where::default(), Some(error)),
+        Err(error) => return Status::checked(false, Where::default(), &Err::<(), _>(error)),
     };
     let mut found = Where {
         url: config.url.clone(),
@@ -60,7 +65,7 @@ async fn status(data_dir: &Path) -> Status {
         version: None,
     };
     if config.url.is_empty() {
-        return status_of(false, found, None);
+        return Status::checked(false, found, &Err::<(), _>(SignozError::Unconfigured));
     }
     found.version = client::send(
         &auth::Credentials::anonymous(&config.url),
@@ -80,29 +85,8 @@ async fn status(data_dir: &Path) -> Status {
         query::window(Some(1)),
         json!({ "signal": "logs", "limit": 1 }),
     );
-    let check = client::query_range(data_dir, &probe).await.err();
-    status_of(true, found, check)
-}
-
-/// A credential that is missing or that SigNoz turns down needs signing in again.
-fn status_of(configured: bool, found: Where, error: Option<SignozError>) -> Status {
-    Status {
-        configured,
-        ok: configured && error.is_none(),
-        auth_failed: matches!(
-            error,
-            Some(
-                SignozError::Unconfigured
-                    | SignozError::Auth(_)
-                    | SignozError::Http {
-                        status: 401 | 403,
-                        ..
-                    }
-            )
-        ),
-        message: error.map(|error| error.to_string()),
-        details: found,
-    }
+    let check = client::query_range(data_dir, &probe).await;
+    Status::checked(true, found, &check)
 }
 
 /// Whether a call could find a credential, judged without the Keychain.
@@ -116,8 +100,8 @@ async fn signed_in(data_dir: &Path, outcome: SignozResult<()>) -> Result<Value, 
 }
 
 impl Plugin for Signoz {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&config::BOOK)
     }
 
     fn call<'a>(
@@ -131,7 +115,6 @@ impl Plugin for Signoz {
             let (method, input) = agent::route(method, input)?;
             match method {
                 "status" => reply(status(data_dir).await),
-                "inspect" => answer(auth::inspect(data_dir, params(input)?)).await,
                 "signIn" => {
                     signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await
                 }
@@ -140,10 +123,8 @@ impl Plugin for Signoz {
                 }
                 "signOut" => answer(auth::sign_out(data_dir)).await,
                 "searchLogs" => answer(logs::search(data_dir, params(input)?)).await,
-                "logVolume" => answer(logs::volume(data_dir, params(input)?)).await,
                 "dashboards" => answer(dashboards::list(data_dir)).await,
                 "dashboard" => answer(dashboards::get(data_dir, params(input)?)).await,
-                "panel" => answer(dashboards::panel(data_dir, params(input)?)).await,
                 "dashboardPanel" => answer(dashboards::saved_panel(data_dir, params(input)?)).await,
                 "services" => answer(services::health(data_dir, params(input)?)).await,
                 "serviceOverview" => answer(services::overview(data_dir, params(input)?)).await,
@@ -153,30 +134,6 @@ impl Plugin for Signoz {
                 "searchTraces" => answer(traces::search(data_dir, params(input)?)).await,
                 "fieldKeys" => answer(fields::keys(data_dir, params(input)?)).await,
                 "fieldValues" => answer(fields::values(data_dir, params(input)?)).await,
-                "servicesView" => answer(views::services_view(data_dir, params(input)?)).await,
-                "serviceView" => answer(views::service_view(data_dir, params(input)?)).await,
-                "logsView" => answer(views::logs_view(data_dir, params(input)?)).await,
-                "volumeView" => answer(views::volume_view(data_dir, params(input)?)).await,
-                "tracesView" => answer(views::traces_view(data_dir, params(input)?)).await,
-                "traceView" => answer(views::trace_view(data_dir, params(input)?)).await,
-                "dashboardsView" => answer(views::dashboards_view(data_dir)).await,
-                "dashboardView" => answer(views::dashboard_view(data_dir, params(input)?)).await,
-                "panelView" => answer(views::panel_view(data_dir, params(input)?)).await,
-                _ => Err(PluginError::unknown_method(method)),
-            }
-        })
-    }
-
-    fn stream<'a>(
-        &'a self,
-        ctx: &'a PluginContext,
-        method: &'a str,
-        input: Value,
-        sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        Box::pin(async move {
-            match method {
-                "tailLogs" => logs::tail(ctx.data_dir(), params(input)?, sink).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })
@@ -194,14 +151,6 @@ impl Plugin for Signoz {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.signoz"
-        );
-    }
 
     #[test]
     fn only_a_saved_address_with_a_credential_can_answer_an_agent() {
@@ -236,7 +185,7 @@ mod live {
         (PluginContext::new(dir.clone()), dir)
     }
 
-    async fn reads_everything(plugin: &Arc<dyn Plugin>, ctx: &PluginContext) {
+    async fn reads_everything(plugin: &std::sync::Arc<dyn Plugin>, ctx: &PluginContext) {
         let services = plugin
             .call(ctx, "services", json!({ "minutes": 15 }))
             .await
@@ -292,12 +241,6 @@ mod live {
             .expect("clock")
             .as_millis() as u64;
 
-        let volume = plugin
-            .call(ctx, "logVolume", json!({ "minutes": 15, "buckets": 30 }))
-            .await
-            .expect("log volume");
-        assert!(volume.as_array().is_some_and(|buckets| buckets.len() >= 30));
-
         let dashboards = plugin
             .call(ctx, "dashboards", Value::Null)
             .await
@@ -308,23 +251,12 @@ mod live {
                 .call(ctx, "dashboard", json!({ "id": summary["id"] }))
                 .await
                 .expect("dashboard");
-            let variables: serde_json::Map<String, Value> = dashboard["variables"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|variable| {
-                    (
-                        variable["name"].as_str().unwrap_or_default().to_string(),
-                        variable["selected"].clone(),
-                    )
-                })
-                .collect();
             for panel in dashboard["panels"].as_array().expect("panels") {
                 if panel["drawable"] != true {
                     continue;
                 }
                 let data = plugin
-                    .call(ctx, "panel", json!({ "kind": panel["kind"], "query": panel["query"], "variables": variables, "minutes": 60 }))
+                    .call(ctx, "dashboardPanel", json!({ "dashboardId": summary["id"], "panelId": panel["id"], "minutes": 60 }))
                     .await;
                 assert!(
                     data.is_ok(),
@@ -347,13 +279,17 @@ mod live {
                     "start": now - 60 * 60_000,
                     "end": now,
                     "limit": 5,
-                    "view": "pane",
                 }),
             )
             .await
             .expect("filtered logs");
+        let shared = &filtered["shared"]["attributes"]["status"];
         for line in filtered["lines"].as_array().expect("lines") {
-            assert_eq!(line["attributes"]["status"], json!(503), "{line}");
+            let status = match &line["attributes"]["status"] {
+                Value::Null => shared,
+                own => own,
+            };
+            assert_eq!(status, &json!(503), "{line}");
         }
         let page = plugin
             .call(
@@ -381,14 +317,6 @@ mod live {
                 .expect("trace");
             assert_eq!(trace["traceId"], trace_id);
         }
-        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let sink = StreamSink::new(move |item| sender.send(item).is_ok());
-        let tail = plugin.stream(ctx, "tailLogs", json!({ "minutes": 5, "limit": 3 }), sink);
-        let first = tokio::select! {
-            item = receiver.recv() => item,
-            _ = tail => None,
-        };
-        assert!(first.expect("the tail sends its backlog")["error"].is_null());
     }
 
     #[tokio::test]
@@ -399,12 +327,14 @@ mod live {
             return;
         };
         let (ctx, dir) = scratch("key");
-        let plugin = plugin().expect("plugin loads");
-        let inspection = plugin
-            .call(&ctx, "inspect", json!({ "url": url }))
-            .await
-            .expect("inspect");
-        assert!(inspection["version"].is_string(), "{inspection}");
+        let plugin = plugin();
+        let inspection = auth::inspect(
+            ctx.data_dir(),
+            serde_json::from_value(json!({ "url": url })).expect("reads"),
+        )
+        .await
+        .expect("inspect");
+        assert!(inspection.version.is_some());
         let status = plugin
             .call(&ctx, "useApiKey", json!({ "url": url, "account": account }))
             .await
@@ -433,12 +363,14 @@ mod live {
             return;
         };
         let (ctx, dir) = scratch("session");
-        let plugin = plugin().expect("plugin loads");
-        let inspection = plugin
-            .call(&ctx, "inspect", json!({ "url": url, "email": email }))
-            .await
-            .expect("inspect");
-        assert_eq!(inspection["accountExists"], true, "{inspection}");
+        let plugin = plugin();
+        let inspection = auth::inspect(
+            ctx.data_dir(),
+            serde_json::from_value(json!({ "url": url, "email": email })).expect("reads"),
+        )
+        .await
+        .expect("inspect");
+        assert_eq!(inspection.account_exists, Some(true));
         let status = plugin
             .call(
                 &ctx,

@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 
+import { useT } from '@/i18n';
 import { Button } from '@/ui/controls';
 import { PromptGlyph } from '@/ui/prompt';
 import { Sheet } from '@/ui/Sheet';
@@ -11,6 +12,7 @@ import { notificationsSupported, turnOn } from './switch';
 /** Asked once, after the first host lets a signed-in phone in, since notifications reach it through the account. */
 export function NotificationsOffer() {
   const styles = useStyles(makeStyles);
+  const t = useT();
   const { isSignedIn, getToken } = useAuth();
   const offered = useOffered();
   const visible = offered && !!isSignedIn && notificationsSupported;
@@ -29,11 +31,11 @@ export function NotificationsOffer() {
     <Sheet visible={visible} onClose={closeOffer}>
       <View style={styles.head}>
         <PromptGlyph icon="IconInbox" small />
-        <Text style={styles.title}>Turn on notifications?</Text>
+        <Text style={styles.title}>{t('Turn on notifications?')}</Text>
       </View>
       <View style={styles.choices}>
-        <Button title="Not now" onPress={notNow} style={styles.choice} />
-        <Button kind="primary" title="Turn on" onPress={accept} style={styles.choice} />
+        <Button title={t('Not now')} onPress={notNow} style={styles.choice} />
+        <Button kind="primary" title={t('Turn on')} onPress={accept} style={styles.choice} />
       </View>
     </Sheet>
   );

@@ -8,27 +8,50 @@
 //! - `stream N` sends N pieces of text;
 //! - `ask` asks permission to run a command and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an
-//!   interrupt;
+//!   interrupt; `hold PATH` waits for as long as that file exists;
 //! - `count` says how many messages the person sent before this one;
 //! - `limit` fails the way Claude Code does when the account is out of usage;
+//! - `question` asks three questions, or `question {...}` asks the AskUserQuestion input given;
+//! - `suggest WORDS` says `Done.` and, started with `--prompt-suggestions`, predicts WORDS next;
+//! - `apps N` says a line and calls the `counter` server's `show_counter` N times, then says it
+//!   is done, a tool that
+//!   names an MCP App's page, after saying at the turn's start that it hosts MCP Apps as Claude
+//!   Code 2.1.301 does; `tools N` does the same with `count`, a tool with no page, for a chat
+//!   as long with no apps. With `FAKE_CLAUDE_APP_CALLS` set, each tool an app calls is
+//!   written to that file, a line each;
 //! - anything else is echoed back.
 //!
 //! `FAKE_CLAUDE_SCRIPT` names a JSON file of replies for recorded demos, each
 //! `{ "when": "words in the prompt", "steps": [...] }`, a step being
 //! `{ "think": "..." }`, `{ "say": "..." }` or `{ "say_file": "reply.md" }`
 //! (beside the script), streamed a word at a time at `perSecond` (30), or
-//! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`. While
+//! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`, failing with
+//! `"error": true`, its call named `"id"` when a later step must point at it, or
+//! `{ "send": {...}, "ms": 0 }`, a message sent as it is, such as a task starting or ending, or
+//! `{ "ask": {...} }`, which asks the AskUserQuestion input given and waits for the answer. A tool step
+//! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
+//! its input, as the agent's tools server would, and answers with what they said. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
 //! pauses follow that time rather than the real one, so a recording that
 //! draws slower than real time still sees the reply arrive at a steady pace.
+//!
+//! Sikemux's ask for a handoff note is echoed like any prompt, but held like `hold` with
+//! `FAKE_CLAUDE_NOTE=hold`, and never answered, even on an interrupt, with
+//! `FAKE_CLAUDE_NOTE=deaf`. `FAKE_CLAUDE_REFUSE_MODE` names a permission mode it refuses to
+//! go to, `FAKE_CLAUDE_MUTE_MODE` one it never answers the ask for, and `FAKE_CLAUDE_CONTEXT`
+//! how many tokens each of its model calls reads (10).
 //!
 //! With `FAKE_CLAUDE_OUT_OF_USAGE=1` every prompt fails as `limit` does. A
 //! message under an id the transcript already has is dropped, as Claude Code
 //! drops it.
 //!
 //! A model change is answered the way Claude Code does, with a message saying
-//! so. `FAKE_CLAUDE_SETTINGS_MODEL` names the model its settings choose, and
+//! so. `FAKE_CLAUDE_MODEL` names the model its messages say wrote them (`fake`),
+//! `FAKE_CLAUDE_SETTINGS_MODEL` the model its settings choose, and
 //! `FAKE_CLAUDE_MODELS`, a JSON list, the models it lists in place of its own.
+//!
+//! Asked once with `--print`, it keeps what it was sent in `fake-claude-asked.txt` where it runs
+//! and answers with nothing, or for an `initialize` with the models it lists, as Claude Code does.
 //!
 //! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
 //! `fake-account.json`, or a signed-out status when there is none, and a usage
@@ -37,7 +60,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -45,14 +68,52 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
+/// What Claude Code says it can do when it hosts MCP Apps.
+const APP_CAPABILITIES: [&str; 3] = [
+    "mcp_tool_ui_meta_v1",
+    "mcp_read_resource_v1",
+    "mcp_call_result_not_for_model_v1",
+];
+const APP_URI: &str = "ui://counter/app.html";
+/// A small app such as a server ships: it shows the call's count with a moving bar, and its
+/// button, which it presses once as it opens, calls the server's `add_one`.
+const APP_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;padding:14px 16px;font:13px var(--font-sans,system-ui);color:var(--color-text-primary,#eee);background:var(--color-background-primary,#1b1b1f)}
+.n{font-size:28px;font-weight:600;margin:2px 0 8px}.bar{height:6px;border-radius:3px;background:var(--color-border-primary,#333);overflow:hidden}
+.bar i{display:block;height:100%;width:40%;background:var(--color-ring-primary,#a277ff);animation:go 1.6s ease-in-out infinite alternate}
+@keyframes go{from{transform:translateX(-40%)}to{transform:translateX(190%)}}
+button{margin-top:10px;font:inherit;padding:5px 10px;border-radius:6px;border:1px solid var(--color-border-primary,#333);background:transparent;color:inherit}
+</style></head><body><div>Counter</div><div class="n" id="n">…</div><div class="bar"><i></i></div><button id="b">Add one</button> <span id="s"></span>
+<script>
+let next=0;const waiting={};
+const ask=(method,params)=>new Promise((done,fail)=>{const id=++next;waiting[id]={done,fail};parent.postMessage({jsonrpc:"2.0",id,method,params},"*")});
+const tell=(method,params)=>parent.postMessage({jsonrpc:"2.0",method,params},"*");
+addEventListener("message",(event)=>{const m=event.data;if(!m||m.jsonrpc!=="2.0")return;
+if(m.id&&waiting[m.id]&&!m.method){m.error?waiting[m.id].fail(m.error):waiting[m.id].done(m.result);delete waiting[m.id];return}
+if(m.method==="ui/notifications/tool-result"){const v=m.params.structuredContent;document.getElementById("n").textContent=v?v.count:"?"}});
+document.getElementById("b").onclick=async()=>{try{const r=await ask("tools/call",{name:"add_one",arguments:{}});document.getElementById("s").textContent="added "+r.structuredContent.added}catch(e){document.getElementById("s").textContent="refused"}};
+ask("ui/initialize",{protocolVersion:"2026-01-26",appInfo:{name:"counter",version:"1"},appCapabilities:{}}).then(()=>{tell("ui/notifications/initialized",{});tell("ui/notifications/size-changed",{height:document.body.scrollHeight});document.getElementById("b").click()});
+</script></body></html>"#;
+
 struct Claude {
     out: Mutex<std::io::Stdout>,
     waiting: Mutex<HashMap<String, Sender<Value>>>,
     interrupted: AtomicBool,
+    /// Started with `--prompt-suggestions`, so it predicts the next prompt after a turn.
+    suggesting: bool,
+    /// How many times an app called `add_one`.
+    added: AtomicUsize,
     session_id: String,
     transcript: PathBuf,
     /// The newest record of the conversation, which the next one follows.
     leaf: Mutex<Option<String>>,
+}
+
+fn context() -> u64 {
+    std::env::var("FAKE_CLAUDE_CONTEXT")
+        .ok()
+        .and_then(|tokens| tokens.parse().ok())
+        .unwrap_or(10)
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> {
@@ -118,7 +179,7 @@ impl Claude {
         self.waiting.locked().insert(id.clone(), answer);
         self.send(json!({ "type": "control_request", "request_id": id, "request": request }));
         answered
-            .recv_timeout(Duration::from_secs(30))
+            .recv_timeout(Duration::from_secs(600))
             .unwrap_or(Value::Null)
     }
 
@@ -126,7 +187,7 @@ impl Claude {
         self.send(json!({
             "type": "stream_event",
             "parent_tool_use_id": null,
-            "event": { "type": "message_start", "message": { "id": message_id, "model": "fake", "usage": { "input_tokens": 10, "output_tokens": 1 } } },
+            "event": { "type": "message_start", "message": { "id": message_id, "model": model(), "usage": { "input_tokens": context(), "output_tokens": 1 } } },
         }));
         self.send(json!({
             "type": "stream_event",
@@ -137,7 +198,7 @@ impl Claude {
             "type": "assistant",
             "uuid": uuid::Uuid::new_v4().to_string(),
             "parent_tool_use_id": null,
-            "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": text }], "usage": { "input_tokens": 10, "output_tokens": 5 } },
+            "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": text }], "usage": { "input_tokens": 10, "output_tokens": 5 } },
         });
         self.record(assistant.clone());
         self.send(assistant);
@@ -151,7 +212,7 @@ impl Claude {
             "stop_reason": if error.is_some() { Value::Null } else { json!("end_turn") },
             "user_message_uuid": prompt,
             "total_cost_usd": 0.01,
-            "modelUsage": { "fake": { "contextWindow": 200000 } },
+            "modelUsage": { model(): { "contextWindow": 200000 } },
         });
         if let Some(error) = error {
             result["result"] = json!(error);
@@ -182,6 +243,15 @@ impl Claude {
 
     fn turn(&self, uuid: &str, text: &str) {
         self.interrupted.store(false, Ordering::Release);
+        let text = match std::env::var("FAKE_CLAUDE_NOTE").as_deref() {
+            Ok(held) if text.starts_with("Sikemux is about to carry this chat on") => match held {
+                "deaf" => loop {
+                    std::thread::sleep(Duration::from_secs(60));
+                },
+                _ => "hold 600000",
+            },
+            _ => text,
+        };
         self.send(json!({ "type": "command_lifecycle", "command_uuid": uuid, "state": "started" }));
         let message_id = format!("msg-{uuid}");
         if let Some(steps) = scripted_reply(text) {
@@ -197,7 +267,7 @@ impl Claude {
                 self.send(json!({
                     "type": "stream_event",
                     "parent_tool_use_id": null,
-                    "event": { "type": "message_start", "message": { "id": message_id, "model": "fake" } },
+                    "event": { "type": "message_start", "message": { "id": message_id, "model": model() } },
                 }));
                 let mut said = String::new();
                 for index in 0..count {
@@ -213,7 +283,7 @@ impl Claude {
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
-                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": said }] },
+                    "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": said }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
@@ -235,7 +305,7 @@ impl Claude {
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
-                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": "back online" }] },
+                    "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": "back online" }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
@@ -255,10 +325,27 @@ impl Claude {
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
-                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": "back" }] },
+                    "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": "back" }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
+                self.finish(uuid, None);
+            }
+            "shell" => {
+                // It runs as an agent does, on the PATH the core gave it, shim first.
+                #[allow(clippy::disallowed_methods)]
+                let ran = std::process::Command::new("sh")
+                    .args(["-c", text.trim_start()["shell".len()..].trim()])
+                    .output();
+                let said = match ran {
+                    Ok(ran) => format!(
+                        "{}{}",
+                        String::from_utf8_lossy(&ran.stdout),
+                        String::from_utf8_lossy(&ran.stderr)
+                    ),
+                    Err(error) => error.to_string(),
+                };
+                self.say(&message_id, &said);
                 self.finish(uuid, None);
             }
             "ask" => {
@@ -276,7 +363,8 @@ impl Claude {
                 self.finish(uuid, None);
             }
             "question" => {
-                let input = json!({ "questions": [
+                let given = text.trim_start()["question".len()..].trim();
+                let input = serde_json::from_str(given).unwrap_or_else(|_| json!({ "questions": [
                     { "question": "Which database should the cache use?", "header": "Cache store", "options": [
                         { "label": "Redis (recommended)", "description": "Fast, and already running here" },
                         { "label": "SQLite", "description": "No server to keep up" }
@@ -285,7 +373,7 @@ impl Claude {
                         { "label": "Unit tests" }, { "label": "Clippy" }, { "label": "Format" }
                     ] },
                     { "question": "What is the database password?", "header": "Password", "isSecret": true }
-                ] });
+                ] }));
                 self.ask(json!({ "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": input, "tool_use_id": format!("toolu-{uuid}"), "permission_suggestions": [] }));
                 self.say(&message_id, "asked");
                 self.finish(uuid, None);
@@ -298,7 +386,7 @@ impl Claude {
                 );
                 let assistant = |id: String, parent: Option<&str>, content: Value| {
                     json!({ "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
-                        "message": { "id": id, "model": "fake", "role": "assistant", "content": content } })
+                        "message": { "id": id, "model": model(), "role": "assistant", "content": content } })
                 };
                 let result = |parent: Option<&str>, tool: &str, said: &str| {
                     json!({ "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
@@ -330,10 +418,14 @@ impl Claude {
                 self.finish(uuid, None);
             }
             "hold" => {
-                let ms: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(1000);
+                let word = words.next();
+                let ms: Option<u64> = word.and_then(|n| n.parse().ok());
+                let gate = word.filter(|_| ms.is_none());
                 self.say(&format!("{message_id}-a"), "holding");
-                let until = Instant::now() + Duration::from_millis(ms);
-                while Instant::now() < until {
+                let until = Instant::now() + Duration::from_millis(ms.unwrap_or(1000));
+                while gate.map_or(Instant::now() < until, |gate| {
+                    std::path::Path::new(gate).exists()
+                }) {
                     if self.interrupted.load(Ordering::Acquire) {
                         self.finish(uuid, Some("[Request interrupted by user]"));
                         return;
@@ -341,6 +433,41 @@ impl Claude {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 self.say(&format!("{message_id}-b"), "held");
+                self.finish(uuid, None);
+            }
+            "apps" | "tools" => {
+                let count: usize = words.next().and_then(|n| n.parse().ok()).unwrap_or(1);
+                let tool = if verb == "apps" {
+                    "show_counter"
+                } else {
+                    "count"
+                };
+                self.send(json!({ "type": "system", "subtype": "init", "capabilities": APP_CAPABILITIES }));
+                for at in 1..=count {
+                    let id = format!("{message_id}-{at}");
+                    self.say(&format!("{id}-said"), &format!("Call {at} of {count}."));
+                    let tool_id = format!("toolu_{}_{at}", uuid.replace('-', ""));
+                    let assistant = json!({
+                        "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
+                        "message": { "id": id, "model": model(), "role": "assistant",
+                            "content": [{ "type": "tool_use", "id": tool_id, "name": format!("mcp__counter__{tool}"), "input": { "at": at } }] },
+                        "tool_use_meta": [{ "id": tool_id, "server_display_name": "counter", "tool_name": tool }],
+                    });
+                    self.record(assistant.clone());
+                    self.send(assistant);
+                    let said = format!("{{\"count\":{at}}}");
+                    let result = json!({
+                        "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
+                        "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tool_id, "content": said }] },
+                        "tool_use_result": { "content": said, "structuredContent": { "count": at } },
+                    });
+                    self.record(result.clone());
+                    self.send(result);
+                }
+                self.say(
+                    &format!("{message_id}-done"),
+                    &format!("Made {count} calls."),
+                );
                 self.finish(uuid, None);
             }
             "count" => {
@@ -351,6 +478,18 @@ impl Claude {
                     .count();
                 self.say(&message_id, &format!("{earlier} earlier"));
                 self.finish(uuid, None);
+            }
+            "suggest" => {
+                self.say(&message_id, "Done.");
+                self.finish(uuid, None);
+                if self.suggesting {
+                    let suggestion: Vec<&str> = words
+                        .take_while(|word| !word.starts_with("sikemux://"))
+                        .collect();
+                    self.send(
+                        json!({ "type": "prompt_suggestion", "suggestion": suggestion.join(" ") }),
+                    );
+                }
             }
             "limit" => {
                 let resets_at = sikemux_process::clock::epoch_secs() + 3600;
@@ -377,18 +516,33 @@ impl Claude {
         for (at, step) in steps.iter().enumerate() {
             let id = format!("{message_id}-{at}");
             let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
+            if let Some(input) = step.get("ask") {
+                self.ask(json!({ "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": input, "tool_use_id": format!("toolu-{uuid}-{at}"), "permission_suggestions": [] }));
+                continue;
+            }
+            if let Some(message) = step.get("send") {
+                self.send(message.clone());
+                clock.wait(step["ms"].as_f64().unwrap_or(0.));
+                continue;
+            }
             if let Some(name) = step["tool"].as_str() {
-                let tool_id = format!("toolu-{uuid}-{at}");
+                let tool_id = step["id"]
+                    .as_str()
+                    .map_or_else(|| format!("toolu-{uuid}-{at}"), str::to_owned);
                 self.send(json!({
                     "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
-                    "message": { "id": id, "model": "fake", "role": "assistant",
+                    "message": { "id": id, "model": model(), "role": "assistant",
                         "content": [{ "type": "tool_use", "id": tool_id, "name": name, "input": step["input"] }] },
                 }));
+                let result = match step["call"].as_str() {
+                    Some(method) => sikemux_tool(method, &step["input"]),
+                    None => step["result"].as_str().unwrap_or_default().to_owned(),
+                };
                 clock.wait(step["ms"].as_f64().unwrap_or(600.));
                 self.send(json!({
                     "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
                     "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tool_id,
-                        "content": step["result"].as_str().unwrap_or_default() }] },
+                        "content": result, "is_error": step["error"].as_bool().unwrap_or(false) }] },
                 }));
                 continue;
             }
@@ -402,7 +556,7 @@ impl Claude {
             };
             self.send(json!({
                 "type": "stream_event", "parent_tool_use_id": null,
-                "event": { "type": "message_start", "message": { "id": id, "model": "fake" } },
+                "event": { "type": "message_start", "message": { "id": id, "model": model() } },
             }));
             for piece in said.split_inclusive(char::is_whitespace) {
                 let delta = if kind == "text" {
@@ -425,7 +579,7 @@ impl Claude {
             };
             let assistant = json!({
                 "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
-                "message": { "id": id, "model": "fake", "role": "assistant", "content": [block] },
+                "message": { "id": id, "model": model(), "role": "assistant", "content": [block] },
             });
             self.record(assistant.clone());
             self.send(assistant);
@@ -437,15 +591,25 @@ impl Claude {
     fn control(&self, request_id: &str, request: &Value) {
         let response = match request["subtype"].as_str() {
             Some("initialize") => json!({
-                "models": std::env::var("FAKE_CLAUDE_MODELS")
-                    .ok()
-                    .and_then(|models| serde_json::from_str::<Value>(&models).ok())
-                    .unwrap_or_else(|| json!([
-                        { "value": "default", "resolvedModel": "fake", "displayName": "Default", "description": "Fake", "supportsEffort": true, "supportedEffortLevels": ["low", "high"] },
-                        { "value": "small", "resolvedModel": "fake-small", "displayName": "Small", "description": "Smaller" },
-                    ])),
+                "models": models(),
                 "commands": [{ "name": "review", "description": "Review the change", "argumentHint": "" }],
             }),
+            Some("set_permission_mode")
+                if std::env::var("FAKE_CLAUDE_REFUSE_MODE").ok().as_deref()
+                    == request["mode"].as_str() =>
+            {
+                self.send(json!({
+                    "type": "control_response",
+                    "response": { "subtype": "error", "request_id": request_id, "error": "Cannot set permission mode" },
+                }));
+                return;
+            }
+            Some("set_permission_mode")
+                if std::env::var("FAKE_CLAUDE_MUTE_MODE").ok().as_deref()
+                    == request["mode"].as_str() =>
+            {
+                return;
+            }
             Some("interrupt") => {
                 self.interrupted.store(true, Ordering::Release);
                 json!({ "still_queued": [] })
@@ -465,6 +629,29 @@ impl Claude {
             Some("get_settings") => json!({
                 "effective": { "model": std::env::var("FAKE_CLAUDE_SETTINGS_MODEL").ok() },
             }),
+            Some("mcp_status") => json!({ "mcpServers": [{
+                "name": "counter", "status": "connected",
+                "tools": [
+                    { "name": "show_counter", "annotations": { "readOnly": true }, "_meta": { "ui": { "resourceUri": APP_URI } } },
+                    { "name": "add_one", "annotations": {}, "_meta": { "ui": { "resourceUri": APP_URI, "visibility": ["app"] } } },
+                    { "name": "count", "annotations": { "readOnly": true } },
+                ],
+            }] }),
+            Some("mcp_read_resource") if request["uri"] == APP_URI => json!({
+                "contents": [{ "uri": APP_URI, "mimeType": "text/html;profile=mcp-app", "text": APP_PAGE }],
+            }),
+            Some("mcp_call") => {
+                let at = self.added.fetch_add(1, Ordering::AcqRel) + 1;
+                if let Some(log) = std::env::var_os("FAKE_CLAUDE_APP_CALLS") {
+                    let line = format!("{}\n", request["tool"].as_str().unwrap_or_default());
+                    let _ = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(log)
+                        .and_then(|mut file| file.write_all(line.as_bytes()));
+                }
+                json!({ "content": [{ "type": "text", "text": format!("Added, now {at}") }], "structuredContent": { "added": at } })
+            }
             Some("get_usage") => account_file("fake-usage.json")
                 .unwrap_or_else(|| json!({ "rate_limits_available": false })),
             _ => json!({}),
@@ -489,6 +676,38 @@ fn scripted_reply(prompt: &str) -> Option<Vec<Value>> {
             .then(|| reply["steps"].as_array().cloned())
             .flatten()
     })
+}
+
+/// The model its messages say wrote them: `FAKE_CLAUDE_MODEL`, or `fake`.
+fn model() -> String {
+    std::env::var("FAKE_CLAUDE_MODEL").unwrap_or_else(|_| "fake".to_owned())
+}
+
+/// What one of Sikemux's own tools answers `method` with, over the endpoint Sikemux handed
+/// this agent.
+fn sikemux_tool(method: &str, params: &Value) -> String {
+    use sikemux_process::vars;
+    let Some(endpoint) = std::env::var_os(vars::CLI_ENDPOINT) else {
+        return "Sikemux handed this agent no tools".to_owned();
+    };
+    let project = std::env::current_dir()
+        .map(|cwd| cwd.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let agent = std::env::var(vars::TOOLS_AGENT_ID).ok();
+    match sikemux_core::cli::client::attempt(
+        std::path::Path::new(&endpoint),
+        &project,
+        agent.as_deref(),
+        method,
+        params,
+        std::time::Duration::from_secs(60),
+    ) {
+        Ok(answer) => answer.to_string(),
+        Err(
+            sikemux_core::cli::client::Failure::NotSent(error)
+            | sikemux_core::cli::client::Failure::Sent(error),
+        ) => error,
+    }
 }
 
 /// A file named beside `FAKE_CLAUDE_SCRIPT`.
@@ -538,12 +757,44 @@ fn account_file(name: &str) -> Option<Value> {
     serde_json::from_slice(&std::fs::read(folder.join(name)).ok()?).ok()
 }
 
+fn models() -> Value {
+    std::env::var("FAKE_CLAUDE_MODELS")
+        .ok()
+        .and_then(|models| serde_json::from_str::<Value>(&models).ok())
+        .unwrap_or_else(|| json!([
+            { "value": "default", "resolvedModel": "fake", "displayName": "Default", "description": "Fake", "supportsEffort": true, "supportedEffortLevels": ["low", "high"] },
+            { "value": "small", "resolvedModel": "fake-small", "displayName": "Small", "description": "Smaller" },
+        ]))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args[1..] == ["auth", "status", "--json"] {
         let status =
             account_file("fake-account.json").unwrap_or_else(|| json!({ "loggedIn": false }));
         println!("{status}");
+        return;
+    }
+    if args.iter().any(|arg| arg == "--print") {
+        let mut asked = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut asked);
+        let initialize = asked
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|line| line["request"]["subtype"] == "initialize");
+        if let Some(asked) = initialize {
+            let answer = json!({ "subtype": "success", "request_id": asked["request_id"], "response": { "models": models() } });
+            println!(
+                "{}",
+                json!({ "type": "control_response", "response": answer })
+            );
+            return;
+        }
+        let _ = std::fs::write("fake-claude-asked.txt", &asked);
+        println!(
+            "{}",
+            json!({ "type": "result", "subtype": "success", "result": "{}" })
+        );
         return;
     }
     let resume = flag(&args, "resume");
@@ -562,6 +813,8 @@ fn main() {
         out: Mutex::new(std::io::stdout()),
         waiting: Mutex::new(HashMap::new()),
         interrupted: AtomicBool::new(false),
+        suggesting: args.iter().any(|arg| arg == "--prompt-suggestions"),
+        added: AtomicUsize::new(0),
         session_id,
         transcript,
         leaf: Mutex::new(None),

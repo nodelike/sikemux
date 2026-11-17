@@ -1,4 +1,4 @@
-import type { Factor } from '@protocol/account';
+import type { Factor } from '@shared/account/account';
 
 /** The proof being asked for, while the server wants a sign-in from the last ten minutes. */
 export type Verify = { factor: Factor; entry: string; checking: boolean; problem?: string };

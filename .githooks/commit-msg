@@ -1,3 +1,6 @@
 #!/usr/bin/env bash
 # Agents sign their commits as co-authors; commits here credit only people.
-perl -0pi -e 's/^(co-authored-by:.*(claude|anthropic\.com).*|.*generated with \[?claude code.*)\n//gim; s/\s+\z/\n/' "$1"
+# shellcheck source=/dev/null
+source "$(dirname "$0")/../scripts/credit-pattern.sh"
+export CLAUDE_CREDIT
+perl -0pi -e 's/^.*(?:$ENV{CLAUDE_CREDIT}).*\n//gim; s/\s+\z/\n/' "$1"

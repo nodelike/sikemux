@@ -1,9 +1,17 @@
 //! Triggers an agent sets: each, when its time comes, once or again and again, sends the
-//! agent's own chat a prompt, and goes when the chat closes, or adds a card to its project's
-//! board, which Auto carries when it is on, and stays until it is removed. A webhook trigger fires
-//! on each request to its address instead of at a time.
+//! agent's own chat a prompt, or adds a card to its project's board, which Auto carries when it
+//! is on, and stays until it is removed. A webhook trigger fires on each request to its address
+//! instead of at a time, and one on a mod's collection when a document there is added or changed.
+//! A chat's triggers pause while it is closed and go on when it is taken up
+//! again. The core also watches CI after each push an agent makes, with no trigger_add.
 
-use std::collections::VecDeque;
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::chat_state::ChatParts;
+use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
+pub use sikemux_calls::triggers::{HoldTriggerParams, TriggerParams};
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -11,16 +19,30 @@ use serde_json::{json, Value};
 use sikemux_fold::trigger as fired;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
+use sikemux_view::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
+use sikemux_view::memory::Learned;
+use sikemux_view::playbook::RunsAlone;
+use sikemux_view::turn::{TurnWait, TurnWaitKind};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use super::board::goal::learned;
 use super::chat::reset::{calendar, when, WallClock, Zone};
 use super::kept::Kept;
 use super::messages;
 use super::wake::Wake;
+use super::workspace::{Held, HeldChat};
 use super::Core;
 use crate::cli::protocol::HarnessRequest;
+
+mod check;
+mod ci;
+mod on_mod;
+mod park;
+mod rundeck;
+
+pub(crate) use ci::{ci_moved, waiting_on_ci};
+pub(crate) use on_mod::{written as mod_written, Written as ModWritten};
 
 const FILE: &str = "triggers.json";
 const MAX_PER_AGENT: usize = 20;
@@ -37,6 +59,8 @@ const LATE_GRACE_MS: u64 = 15 * 60 * 1000;
 const MAX_REQUEST_BYTES: usize = 24 * 1024;
 /// How many webhook requests are remembered, so one the server sends again is not taken twice.
 const SEEN_REQUESTS: usize = 512;
+/// How many requests a webhook trigger keeps while its chat is closed; past that the oldest go.
+const MAX_HELD_REQUESTS: usize = 10;
 const WEEKDAYS: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -55,6 +79,97 @@ struct Trigger {
     /// The webhook on the accounts server whose requests fire it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     hook_id: Option<String>,
+    /// The closed chat it waits for, to go on in whichever agent takes that chat up again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    paused: Option<HeldChat>,
+    /// The CI it fires once it ends; its `next_at` is only when it looks again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ci: Option<ci::CiWatch>,
+    /// The run or agent it fires on once it ends or does what it waits for; its time is only
+    /// when it gives up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    park: Option<park::Park>,
+    /// The Rundeck run it fires on once it ends; its time is only when it looks again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rundeck: Option<rundeck::RundeckRun>,
+    /// The command whose output, when it changes, is what makes a repeating trigger fire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    check: Option<check::Check>,
+    /// The mod's collection whose changed documents fire it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    watch: Option<on_mod::Watch>,
+    /// When the person paused it; it skips its times until they resume it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stopped: Option<u64>,
+    /// The agent that set it up, in which chat turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    set: Option<Learned>,
+    /// Requests to its webhook that came while its chat was closed, oldest first, sent once the
+    /// chat is taken up again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    held: Vec<FiredRequest>,
+    /// How many requests came while its chat was closed past the most it keeps.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    dropped: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+impl Trigger {
+    /// Whether it waits instead of firing: its chat is closed, or the person paused it.
+    fn rests(&self) -> bool {
+        self.paused.is_some() || self.stopped.is_some()
+    }
+
+    fn waits_in_line(&self) -> bool {
+        self.park.as_ref().is_some_and(park::Park::waits_in_line)
+    }
+
+    /// Whether it prompts the open chat `agent_id`. The core's watch after a push is none of the
+    /// chat's own, so it neither keeps the chat open nor counts as a wait the chat set.
+    fn prompts(&self, agent_id: &str) -> bool {
+        self.board.is_none()
+            && self.paused.is_none()
+            && self.agent_id == agent_id
+            && !self.after_push()
+    }
+
+    fn after_push(&self) -> bool {
+        self.ci.as_ref().is_some_and(ci::CiWatch::after_push)
+    }
+
+    fn ends_with_chat(&self) -> bool {
+        self.board.is_none() && self.paused.is_none() && !self.after_push()
+    }
+
+    fn shown(&self) -> ChatTrigger {
+        ChatTrigger {
+            id: self.id,
+            title: self.title.clone(),
+            when: self.when.clone(),
+            next_at: self.shown_next_at(),
+        }
+    }
+
+    /// When it is shown to fire next: never for CI, and for a Rundeck run when it gives up.
+    fn shown_next_at(&self) -> Option<u64> {
+        match (&self.ci, &self.rundeck) {
+            (Some(_), _) => None,
+            (_, Some(run)) => Some(run.gives_up_at),
+            _ => self.next_at,
+        }
+    }
+}
+
+struct Due {
+    firing: Vec<Firing>,
+    /// Triggers that look at what they wait on before firing.
+    looking: Vec<u64>,
+    /// Triggers given a new next time, or ended, without firing now.
+    moved: Vec<Trigger>,
+    next: Option<u64>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -69,26 +184,41 @@ pub(crate) struct Triggers {
     state: Mutex<Saved>,
     pub(crate) wake: Wake,
     seen: Mutex<VecDeque<String>>,
+    watched: Mutex<HashSet<String>>,
+    /// Mod triggers gathering a burst of changes before they fire.
+    gathering: Mutex<HashSet<u64>>,
 }
 
 /// A trigger whose time came, and whether it was due long before the core could send it.
 struct Firing {
     trigger: Trigger,
-    late_since: Option<u64>,
+    late: Option<Late>,
     last: bool,
     /// The webhook request that fired it.
     request: Option<FiredRequest>,
 }
 
+/// Why a trigger fires after its time, and when that was.
+enum Late {
+    HostOff(u64),
+    ChatClosed(u64),
+    /// A webhook request that came while the chat was closed, and how many more came and were
+    /// dropped.
+    Held(u32),
+}
+
 impl Triggers {
     pub(crate) fn new(data_dir: Option<&std::path::Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
-        let state = Mutex::new(kept.load());
+        let saved: Saved = kept.load();
+        let watched = Mutex::new(on_mod::watched(&saved));
         Self {
             kept,
-            state,
+            state: Mutex::new(saved),
             wake: Wake::default(),
             seen: Mutex::default(),
+            watched,
+            gathering: Mutex::default(),
         }
     }
 
@@ -105,9 +235,10 @@ impl Triggers {
         true
     }
 
-    /// The chat's triggers, soonest first, as its clients show them.
+    /// The chat's triggers, soonest first, as its clients show them. A wait in line is left
+    /// out, since the chat's waiting line shows it.
     pub(crate) fn shown(&self, agent_id: &str) -> Vec<ChatTrigger> {
-        self.shown_where(|trigger| trigger.board.is_none() && trigger.agent_id == agent_id)
+        self.shown_where(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line())
     }
 
     /// The triggers that add cards to the project's board, soonest first.
@@ -121,58 +252,224 @@ impl Triggers {
             .triggers
             .iter()
             .filter(|trigger| keep(trigger))
-            .map(|trigger| ChatTrigger {
-                id: trigger.id,
-                title: trigger.title.clone(),
-                when: trigger.when.clone(),
-                next_at: trigger.next_at,
-            })
+            .map(Trigger::shown)
             .collect();
         shown.sort_by_key(|trigger| trigger.next_at.unwrap_or(u64::MAX));
         shown
     }
 
-    /// When the soonest trigger that prompts the agent's chat fires.
+    /// When the soonest trigger that prompts the agent's chat fires at a time. A CI trigger
+    /// fires when its CI ends, so its time is only when it looks again.
     pub(crate) fn next_at(&self, agent_id: &str) -> Option<u64> {
         let state = self.state.locked();
         state
             .triggers
             .iter()
-            .filter(|trigger| trigger.board.is_none() && trigger.agent_id == agent_id)
+            .filter(|trigger| {
+                trigger.prompts(agent_id)
+                    && trigger.ci.is_none()
+                    && trigger.park.is_none()
+                    && trigger.rundeck.is_none()
+            })
             .filter_map(|trigger| trigger.next_at)
             .min()
+    }
+
+    /// What the agent's chat waits on of the wakes it set itself to carry its work on: CI first,
+    /// else its soonest one-time timer, which it has waited on since `rested_at`, else a
+    /// repeating trigger with a check that has not fired yet. A repeating trigger without one,
+    /// or whose check has fired, is automation and a paused one waits on nothing, so neither is
+    /// a wait.
+    pub(crate) fn wait_of(
+        &self,
+        agent_id: &str,
+        rested_at: u64,
+        expected: impl Fn(&str) -> Option<u64>,
+    ) -> Option<TurnWait> {
+        let state = self.state.locked();
+        let mine = || {
+            (state.triggers.iter()).filter(|trigger| trigger.prompts(agent_id) && !trigger.rests())
+        };
+        if let Some(trigger) = mine().find(|trigger| trigger.ci.is_some()) {
+            return trigger.ci.as_ref().map(|ci| TurnWait {
+                kind: TurnWaitKind::Ci,
+                what: trigger.title.clone(),
+                started_at: ci.since(),
+                expected_ms: expected(&ci.waits_on()),
+                until: None,
+                place: None,
+                by: None,
+                agent: None,
+                agents: Vec::new(),
+            });
+        }
+        if let Some((trigger, park)) =
+            mine().find_map(|trigger| Some((trigger, trigger.park.as_ref()?)))
+        {
+            return Some(TurnWait {
+                kind: park.kind(),
+                what: trigger.title.clone(),
+                started_at: park.since,
+                expected_ms: park.waits_on().and_then(|on| expected(&on)),
+                until: None,
+                place: None,
+                by: None,
+                agent: park.agent().map(str::to_owned),
+                agents: park.agent().map(str::to_owned).into_iter().collect(),
+            });
+        }
+        let soonest = mine()
+            .filter(|trigger| matches!(trigger.when, TriggerWhen::Once { .. }))
+            .filter_map(|trigger| Some((trigger, trigger.next_at?)))
+            .min_by_key(|(_, at)| *at);
+        let Some((trigger, at)) = soonest else {
+            let trigger = mine()
+                .filter(|trigger| trigger.check.as_ref().is_some_and(|check| !check.fired()))
+                .min_by_key(|trigger| trigger.set.as_ref().map(|set| set.at))?;
+            return Some(TurnWait {
+                kind: TurnWaitKind::Watch,
+                what: trigger.title.clone(),
+                started_at: trigger.set.as_ref().map_or(rested_at, |set| set.at),
+                expected_ms: None,
+                until: None,
+                place: None,
+                by: None,
+                agent: None,
+                agents: Vec::new(),
+            });
+        };
+        Some(TurnWait {
+            kind: TurnWaitKind::Timer,
+            what: trigger.title.clone(),
+            started_at: rested_at.min(at),
+            expected_ms: None,
+            until: Some(at),
+            place: None,
+            by: None,
+            agent: None,
+            agents: Vec::new(),
+        })
+    }
+
+    /// How many triggers prompt the open chat `agent_id`.
+    pub(crate) fn count(&self, agent_id: &str) -> u32 {
+        let state = self.state.locked();
+        let mine = state
+            .triggers
+            .iter()
+            .filter(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line());
+        mine.count() as u32
+    }
+
+    /// The titles of the triggers that prompt the open chat `agent_id`.
+    pub(crate) fn titles(&self, agent_id: &str) -> Vec<String> {
+        (self.state.locked().triggers.iter())
+            .filter(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line())
+            .map(|trigger| trigger.title.clone())
+            .collect()
+    }
+
+    /// Whether any trigger waits for a closed chat.
+    fn any_paused(&self) -> bool {
+        let state = self.state.locked();
+        state
+            .triggers
+            .iter()
+            .any(|trigger| trigger.paused.is_some())
+    }
+
+    /// The closed chats paused triggers wait for, each with its triggers soonest first.
+    pub(crate) fn held(&self) -> Held {
+        let state = self.state.locked();
+        let mut held: Held = Vec::new();
+        for trigger in &state.triggers {
+            let Some(chat) = &trigger.paused else {
+                continue;
+            };
+            match held.iter_mut().find(|(kept, _)| kept.id() == chat.id()) {
+                Some((_, triggers)) => triggers.push(trigger.shown()),
+                None => held.push((chat.clone(), vec![trigger.shown()])),
+            }
+        }
+        for (_, triggers) in &mut held {
+            triggers.sort_by_key(|trigger| trigger.next_at.unwrap_or(u64::MAX));
+        }
+        held
     }
 
     fn change<T>(&self, change: impl FnOnce(&mut Saved) -> T) -> T {
         let mut state = self.state.locked();
         let out = change(&mut state);
         self.kept.save(&*state);
+        *self.watched.locked() = on_mod::watched(&state);
         drop(state);
         self.wake.now();
         out
     }
 
     /// Takes out the triggers whose time has come, moving repeating ones on
-    /// to their next time, and says when the next one left is due.
-    fn take_due(&self, now: u64) -> (Vec<Firing>, Option<u64>) {
+    /// to their next time.
+    fn take_due(&self, now: u64) -> Due {
         let mut state = self.state.locked();
         let mut firing = Vec::new();
+        let mut looking = Vec::new();
+        let mut moved = Vec::new();
         let mut changed = false;
         state.triggers.retain_mut(|trigger| {
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
                 return true;
             };
+            if trigger.rests() {
+                return true;
+            }
             changed = true;
+            if let Some(watch) = &trigger.ci {
+                looking.push(trigger.id);
+                trigger.next_at = Some(now + watch.look_again_ms());
+                return true;
+            }
+            if let Some(run) = &trigger.rundeck {
+                if now < run.gives_up_at {
+                    looking.push(trigger.id);
+                    trigger.next_at = Some((now + rundeck::LOOK_AGAIN_MS).min(run.gives_up_at));
+                    return true;
+                }
+                let mut timed_out = trigger.clone();
+                timed_out.prompt = format!("{}\n\n{}", trigger.prompt, run.timed_out(now));
+                firing.push(Firing {
+                    trigger: timed_out,
+                    late: None,
+                    last: true,
+                    request: None,
+                });
+                return false;
+            }
+            if let Some(park) = &trigger.park {
+                let mut timed_out = trigger.clone();
+                timed_out.prompt = format!("{}\n\n{}", trigger.prompt, park.timed_out(now));
+                firing.push(Firing {
+                    trigger: timed_out,
+                    late: None,
+                    last: true,
+                    request: None,
+                });
+                return false;
+            }
             let late = now.saturating_sub(due) > LATE_GRACE_MS;
             let next = next_after(&trigger.when, due, now);
             let last = next.is_none();
-            if !late || last {
+            if trigger.check.is_some() {
+                looking.push(trigger.id);
+                moved.push(trigger.clone());
+            } else if !late || last {
                 firing.push(Firing {
                     trigger: trigger.clone(),
-                    late_since: late.then_some(due),
+                    late: late.then_some(Late::HostOff(due)),
                     last,
                     request: None,
                 });
+            } else {
+                moved.push(trigger.clone());
             }
             trigger.next_at = next;
             next.is_some()
@@ -183,19 +480,24 @@ impl Triggers {
         let next = state
             .triggers
             .iter()
+            .filter(|trigger| !trigger.rests())
             .filter_map(|trigger| trigger.next_at)
             .min();
-        (firing, next)
+        Due {
+            firing,
+            looking,
+            moved,
+            next,
+        }
     }
 
-    /// The chats with triggers that prompt them.
     fn agents(&self) -> Vec<String> {
         let mut agents: Vec<String> = self
             .state
             .locked()
             .triggers
             .iter()
-            .filter(|trigger| trigger.board.is_none())
+            .filter(|trigger| trigger.ends_with_chat())
             .map(|trigger| trigger.agent_id.clone())
             .collect();
         agents.sort();
@@ -206,9 +508,12 @@ impl Triggers {
 
 /// When a trigger that was due at `due` fires next after `now`; none for one that fired its
 /// only time.
-fn next_after(when: &TriggerWhen, due: u64, now: u64) -> Option<u64> {
+pub(crate) fn next_after(when: &TriggerWhen, due: u64, now: u64) -> Option<u64> {
     match when {
-        TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } => None,
+        TriggerWhen::Once { .. }
+        | TriggerWhen::Webhook { .. }
+        | TriggerWhen::Ci { .. }
+        | TriggerWhen::Mod { .. } => None,
         TriggerWhen::Every { seconds } => {
             let step = seconds * 1000;
             let behind = now.saturating_sub(due) / step + 1;
@@ -237,30 +542,145 @@ fn next_daily(minute: u32, weekdays: &[u8], now: u64) -> Option<u64> {
         })
 }
 
+/// Pauses the triggers of a chat that is closing, until it is taken up again. A chat with no
+/// session to take up never comes back, so its triggers go.
+pub(crate) fn pause(core: &Core, agent_id: &str, chat: Option<HeldChat>) {
+    if core.triggers().count(agent_id) == 0 {
+        return;
+    }
+    let gone = core.triggers().change(|state| {
+        let mine = |trigger: &Trigger| trigger.prompts(agent_id);
+        if let Some(chat) = &chat {
+            for trigger in state.triggers.iter_mut().filter(|trigger| mine(trigger)) {
+                trigger.paused = Some(chat.clone());
+            }
+            return Vec::new();
+        }
+        let (gone, kept) = std::mem::take(&mut state.triggers)
+            .into_iter()
+            .partition(|trigger| mine(trigger));
+        state.triggers = kept;
+        gone
+    });
+    gone.iter().for_each(|trigger| unhook(core, trigger));
+    core.changed(What::View);
+}
+
+/// Gives the paused triggers of each chat taken up again to the agent holding it now. A
+/// repeating one skips the times that passed while it was closed; a one-off that came due
+/// fires once.
+pub(crate) fn resume(core: &Arc<Core>) {
+    if !core.triggers().any_paused() {
+        return;
+    }
+    let holders = core.workspaces().holders();
+    let now = epoch_ms();
+    let (resumed, missed, held) = core.triggers().change(|state| {
+        let (mut resumed, mut missed, mut held) = (Vec::new(), Vec::new(), Vec::new());
+        state.triggers.retain_mut(|trigger| {
+            let chat = trigger.paused.as_ref().map(HeldChat::id);
+            let Some(holder) = chat.and_then(|chat| holders.get(&chat)) else {
+                return true;
+            };
+            trigger.agent_id = holder.clone();
+            trigger.paused = None;
+            let dropped = std::mem::take(&mut trigger.dropped);
+            let requests = std::mem::take(&mut trigger.held);
+            held.extend(
+                requests
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, request)| Firing {
+                        trigger: trigger.clone(),
+                        late: Some(Late::Held(if index == 0 { dropped } else { 0 })),
+                        last: false,
+                        request: Some(request),
+                    }),
+            );
+            resumed.push(trigger.clone());
+            if trigger.watch.is_some() {
+                return true;
+            }
+            if trigger.ci.is_some() || trigger.rundeck.is_some() {
+                trigger.next_at = Some(now);
+                return true;
+            }
+            if trigger.park.is_some() {
+                return true;
+            }
+            let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
+                return true;
+            };
+            trigger.next_at = next_after(&trigger.when, due, now);
+            if trigger.next_at.is_some() {
+                return true;
+            }
+            missed.push(Firing {
+                trigger: trigger.clone(),
+                late: Some(Late::ChatClosed(due)),
+                last: true,
+                request: None,
+            });
+            false
+        });
+        (resumed, missed, held)
+    });
+    for trigger in &resumed {
+        show(core, trigger);
+    }
+    if resumed.iter().any(|trigger| trigger.park.is_some()) {
+        core.harness().changed();
+    }
+    for trigger in &resumed {
+        if trigger.watch.as_ref().is_some_and(on_mod::Watch::waiting) {
+            on_mod::gather(core, trigger.id);
+        }
+    }
+    for firing in missed {
+        tokio::spawn(fire(core.clone(), firing));
+    }
+    if !held.is_empty() {
+        let core = core.clone();
+        tokio::spawn(async move {
+            for firing in held {
+                fire(core.clone(), firing).await;
+            }
+        });
+    }
+}
+
 /// Sends what came due, closes the triggers of chats that are gone, and waits for the next.
 pub(crate) fn settle(core: &Arc<Core>) {
     let gone: Vec<String> = core
-        .triggers
+        .triggers()
         .agents()
         .into_iter()
-        .filter(|agent_id| core.workspaces.closed(agent_id))
+        .filter(|agent_id| core.workspaces().closed(agent_id))
         .collect();
     if !gone.is_empty() {
-        let closed = core.triggers.change(|state| {
+        let closed = core.triggers().change(|state| {
             let (closed, kept) = std::mem::take(&mut state.triggers)
                 .into_iter()
-                .partition(|trigger| trigger.board.is_none() && gone.contains(&trigger.agent_id));
+                .partition(|trigger| trigger.ends_with_chat() && gone.contains(&trigger.agent_id));
             state.triggers = kept;
             closed
         });
         closed.iter().for_each(|trigger| unhook(core, trigger));
     }
-    let (firing, next) = core.triggers.take_due(epoch_ms());
+    let Due {
+        firing,
+        looking,
+        moved,
+        next,
+    } = core.triggers().take_due(epoch_ms());
     if let Some(next) = next {
-        core.triggers.wake.at(next);
+        core.triggers().wake.at(next);
     }
-    for firing in &firing {
-        show(core, &firing.trigger);
+    for id in looking {
+        tokio::spawn(look(core.clone(), id));
+    }
+    for trigger in firing.iter().map(|firing| &firing.trigger).chain(&moved) {
+        show(core, trigger);
     }
     for firing in firing {
         tokio::spawn(fire(core.clone(), firing));
@@ -274,21 +694,35 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
             None => trigger.prompt.clone(),
         };
-        if let Err(error) = super::board::add_for_trigger(&core, project, &trigger.title, &details)
-        {
-            eprintln!(
+        match super::board::add_for_trigger(&core, project, trigger.id, &trigger.title, &details) {
+            Ok(Some((card, task))) => {
+                super::board::hand_off::take_up(core.clone(), project.clone(), card, task).await
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!(
                 "sikemux core: trigger {} added no card to {project}'s board: {error}",
                 trigger.id
-            );
+            ),
         }
         return;
     }
     let mut prompt = trigger.prompt.clone();
-    if let Some(due) = firing.late_since {
-        prompt.push_str(&format!(
+    match firing.late {
+        Some(Late::HostOff(due)) => prompt.push_str(&format!(
             "\n\n(This was due {}, while this host was off.)",
             when(due)
-        ));
+        )),
+        Some(Late::ChatClosed(due)) => prompt.push_str(&format!(
+            "\n\n(This was due {}, while this chat was closed.)",
+            when(due)
+        )),
+        Some(Late::Held(0)) => prompt.push_str("\n\n(This request came while this chat was closed.)"),
+        Some(Late::Held(dropped)) => prompt.push_str(&format!(
+            "\n\n(This request came while this chat was closed. {dropped} earlier {} came too and {} dropped, as a closed chat keeps only the last {MAX_HELD_REQUESTS}.)",
+            if dropped == 1 { "one" } else { "ones" },
+            if dropped == 1 { "was" } else { "were" },
+        )),
+        None => {}
     }
     let text = fired::text(&TriggerFired {
         title: trigger.title.clone(),
@@ -301,8 +735,12 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             "It fires on each request to its address; trigger_remove {} stops it.",
             trigger.id
         ),
+        (false, None) if trigger.watch.is_some() => format!(
+            "It fires again on the next changes; trigger_remove {} stops it.",
+            trigger.id
+        ),
         (false, None) => core
-            .triggers
+            .triggers()
             .shown(&trigger.agent_id)
             .iter()
             .find(|shown| shown.id == trigger.id)
@@ -334,38 +772,168 @@ async fn fire(core: Arc<Core>, firing: Firing) {
     }
 }
 
+/// Has the trigger `id` look at what it waits on, and fire if that calls for it.
+async fn look(core: Arc<Core>, id: u64) {
+    let (checks, rundeck) = {
+        let state = core.triggers().state.locked();
+        let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
+        trigger.map_or((false, false), |trigger| {
+            (trigger.check.is_some(), trigger.rundeck.is_some())
+        })
+    };
+    match (checks, rundeck) {
+        (true, _) => check::look(core, id).await,
+        (_, true) => rundeck::look(core, id).await,
+        _ => ci::look(core, id).await,
+    }
+}
+
 /// Tells the clients of the trigger's chat or board what triggers it has now, and every
 /// device's view when the chat's next one fires.
 fn show(core: &Core, trigger: &Trigger) {
+    core.changed(What::Read(super::changed::Topic::Playbook));
+    super::hosts::route::rows_moved(core);
     if let Some(project) = &trigger.board {
         super::board::triggers_changed(core, project);
         return;
     }
-    if let Some(feed) = core.chats.heard(&trigger.agent_id) {
-        feed.set_triggers(core.triggers.shown(&trigger.agent_id));
+    if let Some(feed) = core.chats().heard(&trigger.agent_id) {
+        feed.set_triggers(core.triggers().shown(&trigger.agent_id));
     }
-    core.view_changed();
-}
-
-fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {
-    request
-        .agent_id
-        .clone()
-        .ok_or_else(|| format!("{tool} needs the calling agent's id"))
+    core.changed(What::View);
 }
 
 pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = caller(request, "trigger_add")?;
+    let agent_id = crate::server::caller::agent_of(request, "trigger_add")?;
     let params = &request.params;
     let title = text(params, "title", MAX_TITLE_CHARS)?;
     let prompt = text(params, "prompt", MAX_PROMPT_CHARS)?;
     let board = match params.get("board") {
         None | Some(Value::Null) | Some(Value::Bool(false)) => None,
-        Some(Value::Bool(true)) => Some(super::board::caller_project(core, request)),
+        Some(Value::Bool(true)) => Some(crate::server::caller::project_of(core, request)),
         Some(_) => return Err("board must be a boolean".into()),
     };
     let now = epoch_ms();
+    let ci = match params.get("ci") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(on)) if !on.trim().is_empty() => {
+            if board.is_some()
+                || given(params, "webhook")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A CI trigger prompts this chat once CI ends, so give it no time, webhook or board".into());
+            }
+            let (watch, shown) = ci::watch(core, &request.project, on.trim()).await?;
+            if let ci::Ci::Ended(said, _) = ci::ended(core, &watch).await? {
+                return Ok(
+                    json!({ "ended": said, "note": "It already ended, so no trigger was set." }),
+                );
+            }
+            Some((watch, shown))
+        }
+        Some(_) => return Err("ci must be a commit, a branch or a CI run's address or id".into()),
+    };
+    let park = match park::asked(params) {
+        false => None,
+        true => {
+            if ci.is_some()
+                || board.is_some()
+                || given(params, "webhook")
+                || given(params, "check")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A process or agent trigger prompts this chat once what it waits on happens, so give it only until and timeout, no time, ci, check, webhook or board".into());
+            }
+            let timeout = park::timeout(params)?;
+            match park::set(core, request).await? {
+                park::Parked::Already(said) => {
+                    return Ok(
+                        json!({ "happened": said, "note": "It already happened, so no trigger was set." }),
+                    )
+                }
+                park::Parked::Waits(park, shown) => Some((park, shown, now + timeout * 1000)),
+            }
+        }
+    };
+    let rundeck = match params.get("rundeck") {
+        None | Some(Value::Null) => None,
+        Some(on) => {
+            if ci.is_some()
+                || park.is_some()
+                || board.is_some()
+                || given(params, "webhook")
+                || given(params, "check")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A Rundeck trigger prompts this chat once its run ends, so give it only timeout, no time, ci, process, agent, check, webhook or board".into());
+            }
+            let gives_up_at = now + park::timeout(params)? * 1000;
+            match rundeck::asked(core, on, now, gives_up_at).await? {
+                rundeck::Asked::Ended(said) => {
+                    return Ok(
+                        json!({ "ended": said, "note": "It already ended, so no trigger was set." }),
+                    )
+                }
+                rundeck::Asked::Waits(run, shown) => Some((run, shown)),
+            }
+        }
+    };
+    let check = match params.get("check") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(command)) if !command.trim().is_empty() => {
+            if !given(params, "every") && !given(params, "daily") {
+                return Err("A check runs each time a repeating trigger comes due, so give it every or daily".into());
+            }
+            let dir = board.clone().unwrap_or_else(|| request.project.clone());
+            Some(check::Check::first(command.trim().to_owned(), dir).await?)
+        }
+        Some(_) => return Err("check must be a shell command".into()),
+    };
+    let watch = match params.get("mod") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(on)) => {
+            if ci.is_some()
+                || park.is_some()
+                || given(params, "webhook")
+                || given(params, "check")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A mod trigger fires when a document in its collection is added or changed, so give it no time, ci, process, agent, check or webhook".into());
+            }
+            Some(on_mod::Watch::asked(core, on.trim(), params.get("where"))?)
+        }
+        Some(_) => {
+            return Err(
+                "mod must be a mod's id and one of its collections, such as posts/drafts".into(),
+            )
+        }
+    };
+    if watch.is_none() && given(params, "where") {
+        return Err("where goes with mod".into());
+    }
     let (rule, next_at, hook_id) = match params.get("webhook") {
+        _ if watch.is_some() => {
+            let on = watch.as_ref().map(on_mod::Watch::on).unwrap_or_default();
+            (TriggerWhen::Mod { on }, None, None)
+        }
+        _ if park.is_some() => {
+            let at = park.as_ref().map_or(now, |(_, _, at)| *at);
+            (TriggerWhen::Once { at }, Some(at), None)
+        }
+        _ if rundeck.is_some() => {
+            let at = rundeck.as_ref().map_or(now, |(run, _)| run.gives_up_at);
+            (
+                TriggerWhen::Once { at },
+                Some(now + rundeck::LOOK_AGAIN_MS),
+                None,
+            )
+        }
+        _ if ci.is_some() => {
+            let (look_again, shown) = (ci.as_ref())
+                .map(|(watch, shown)| (watch.look_again_ms(), shown.clone()))
+                .unwrap_or_default();
+            (TriggerWhen::Ci { on: shown }, Some(now + look_again), None)
+        }
         Some(Value::Bool(true)) => {
             if TIMES.iter().any(|key| given(params, key)) {
                 return Err("A webhook trigger fires on each request, so give it no time".into());
@@ -385,7 +953,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }
         Some(_) => return Err("webhook must be a boolean".into()),
     };
-    let added = core.triggers.change(|state| {
+    let added = core.triggers().change(|state| {
         let (own, most, whose) = match &board {
             Some(project) => (
                 state
@@ -400,7 +968,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
                 state
                     .triggers
                     .iter()
-                    .filter(|trigger| trigger.board.is_none() && trigger.agent_id == agent_id)
+                    .filter(|trigger| trigger.prompts(&agent_id))
                     .count(),
                 MAX_PER_AGENT,
                 "This chat",
@@ -426,6 +994,16 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             when: rule,
             next_at,
             hook_id: hook_id.clone(),
+            paused: None,
+            ci: ci.map(|(watch, _)| watch),
+            park: park.clone().map(|(park, _, _)| park),
+            rundeck: rundeck.clone().map(|(run, _)| run),
+            check,
+            watch: watch.clone(),
+            stopped: None,
+            set: Some(learned(core, Some(&agent_id))),
+            held: Vec::new(),
+            dropped: 0,
         };
         state.triggers.push(trigger.clone());
         Ok(trigger)
@@ -441,12 +1019,35 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }
     };
     show(core, &trigger);
+    if trigger.ci.is_some() {
+        super::codehost::ci::start(core);
+    }
     let what = match &trigger.board {
         Some(_) => "it adds a card to this project's board, titled as the trigger with its prompt as the details, which Auto carries when it is on. It stays after this chat closes.",
         None => "it sends this chat its prompt, as a message you read like any other.",
     };
     let mut answer = json!({ "trigger": trigger.id });
+    if let Some((_, shown, at)) = &park {
+        answer["note"] = format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into();
+        return Ok(answer);
+    }
+    if let Some((_, shown)) = &rundeck {
+        answer["note"] = format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into();
+        return Ok(answer);
+    }
+    if let Some(check) = &trigger.check {
+        answer["check"] = check.said().into();
+    }
     match (&trigger.when, next_at) {
+        (TriggerWhen::Ci { on }, _) => {
+            answer["note"] = format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into();
+        }
+        (TriggerWhen::Mod { on }, _) => {
+            answer["note"] = format!("Each time anyone but you adds or changes documents in {on}{}, {what} The documents are named, a few seconds of changes at once; read them with mod_read.", match watch.as_ref().is_some_and(on_mod::Watch::filtered) {
+                true => " that match where",
+                false => "",
+            }).into();
+        }
         (TriggerWhen::Webhook { url }, _) => {
             answer["url"] = url.clone().into();
             answer["note"] = format!("Each time something posts to url, {what} The request comes with it, marked as untrusted. Anyone with the url can fire it, so give it only to the service that needs it.").into();
@@ -454,7 +1055,11 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         (_, Some(next)) => {
             answer["next"] = when(next).into();
             answer["nextAt"] = next.into();
-            answer["note"] = format!("When it fires, {what}").into();
+            answer["note"] = match &trigger.check {
+                Some(_) => format!("Each time it comes due its check runs, and only when the check says something other than the last time, {what} check holds what it says now."),
+                None => format!("When it fires, {what}"),
+            }
+            .into();
         }
         (_, None) => {}
     }
@@ -462,9 +1067,9 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
 }
 
 pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = caller(request, "trigger_list")?;
-    let project = super::board::caller_project(core, request);
-    let state = core.triggers.state.locked();
+    let agent_id = crate::server::caller::agent_of(request, "trigger_list")?;
+    let project = crate::server::caller::project_of(core, request);
+    let state = core.triggers().state.locked();
     let mut triggers: Vec<&Trigger> = state
         .triggers
         .iter()
@@ -489,8 +1094,8 @@ pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, 
 }
 
 pub(crate) fn remove_by_agent(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = caller(request, "trigger_remove")?;
-    let project = super::board::caller_project(core, request);
+    let agent_id = crate::server::caller::agent_of(request, "trigger_remove")?;
+    let project = crate::server::caller::project_of(core, request);
     let id = request
         .params
         .get("trigger")
@@ -512,8 +1117,307 @@ pub(crate) fn remove_by_agent(core: &Arc<Core>, request: &HarnessRequest) -> Res
 fn yours(trigger: &Trigger, agent_id: &str, project: &str) -> bool {
     match &trigger.board {
         Some(board) => board == project,
-        None => trigger.agent_id == agent_id,
+        None => trigger.prompts(agent_id),
     }
+}
+
+/// Pauses trigger `id` at the person's word, or resumes it. A repeating one skips the times
+/// that passed while it was paused; a one-off that came due fires once it is resumed.
+pub(crate) fn hold(core: &Arc<Core>, params: HoldTriggerParams) -> bool {
+    let now = epoch_ms();
+    let held = core.triggers().change(|state| {
+        let trigger = state
+            .triggers
+            .iter_mut()
+            .find(|trigger| trigger.id == params.trigger)?;
+        match params.paused {
+            true => trigger.stopped = trigger.stopped.or(Some(now)),
+            false if trigger.stopped.take().is_some() => {
+                if let Some(due) = trigger.next_at.filter(|due| *due <= now) {
+                    trigger.next_at = next_after(&trigger.when, due, now).or(Some(now));
+                }
+            }
+            false => {}
+        }
+        Some(trigger.clone())
+    });
+    let Some(trigger) = held else {
+        return false;
+    };
+    show(core, &trigger);
+    true
+}
+
+/// What runs in `project` with nobody asking: the triggers its chats and its board set,
+/// soonest first.
+pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
+    let state = core.triggers().state.locked();
+    let mut lines: Vec<(Option<u64>, RunsAlone)> = state
+        .triggers
+        .iter()
+        .filter(|trigger| match &trigger.board {
+            Some(board) => board == project,
+            None => core
+                .names()
+                .get(&trigger.agent_id)
+                .is_some_and(|named| named.project == project),
+        })
+        .map(|trigger| {
+            let line = RunsAlone::Trigger {
+                id: trigger.id,
+                title: trigger.title.clone(),
+                when: trigger.when.clone(),
+                next_at: trigger.shown_next_at(),
+                set: trigger.set.clone().map(Box::new),
+                paused: trigger.stopped,
+            };
+            (trigger.next_at, line)
+        })
+        .collect();
+    lines.sort_by_key(|(next, _)| next.unwrap_or(u64::MAX));
+    lines.into_iter().map(|(_, line)| line).collect()
+}
+
+/// Parks `agent_id` on its heavy command `command`, run in `cwd` of `project`, until its turn
+/// on the host comes, replacing a park on the same command it had.
+pub(crate) fn park_in_line(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    cwd: &str,
+    command: &str,
+) {
+    line_left(core, agent_id, cwd, command);
+    let now = epoch_ms();
+    let at = now + park::DEFAULT_TIMEOUT_SECONDS * 1000;
+    let park = park::Park::in_line(core, project, cwd, command);
+    let trigger = core.triggers().change(|state| {
+        state.next_id += 1;
+        let trigger = Trigger {
+            id: state.next_id,
+            agent_id: agent_id.to_owned(),
+            board: None,
+            title: format!("{command} in line"),
+            prompt: format!("Your turn for `{command}` came on this host."),
+            when: TriggerWhen::Once { at },
+            next_at: Some(at),
+            hook_id: None,
+            paused: None,
+            ci: None,
+            park: Some(park),
+            rundeck: None,
+            check: None,
+            watch: None,
+            stopped: None,
+            set: Some(learned(core, Some(agent_id))),
+            held: Vec::new(),
+            dropped: 0,
+        };
+        state.triggers.push(trigger.clone());
+        trigger
+    });
+    show(core, &trigger);
+}
+
+/// Parks `agent_id` until the thing `name` of `project`, shown as `label`, is free for it,
+/// replacing a park on the same thing it had.
+pub(crate) fn park_for_thing(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    name: &str,
+    label: &str,
+) {
+    let mine = |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_thing(project, name))
+    };
+    remove_where(core, mine);
+    let at = epoch_ms() + park::DEFAULT_TIMEOUT_SECONDS * 1000;
+    let park = park::Park::for_thing(core, project, name);
+    let trigger = core.triggers().change(|state| {
+        state.next_id += 1;
+        let trigger = Trigger {
+            id: state.next_id,
+            agent_id: agent_id.to_owned(),
+            board: None,
+            title: label.to_owned(),
+            prompt: format!("{label} is free for you now."),
+            when: TriggerWhen::Once { at },
+            next_at: Some(at),
+            hook_id: None,
+            paused: None,
+            ci: None,
+            park: Some(park),
+            rundeck: None,
+            check: None,
+            watch: None,
+            stopped: None,
+            set: Some(learned(core, Some(agent_id))),
+            held: Vec::new(),
+            dropped: 0,
+        };
+        state.triggers.push(trigger.clone());
+        trigger
+    });
+    show(core, &trigger);
+}
+
+/// Wakes `agent_id`, parked on the thing `name` of `project`, now that it is free for it.
+pub(crate) fn in_use_freed(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    name: &str,
+    label: &str,
+) {
+    let parked = |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_thing(project, name))
+    };
+    let Some(mut trigger) = remove_where(core, parked) else {
+        return;
+    };
+    trigger.prompt = format!(
+        "{label} is free for you now. Call hold with \"{name}\" to take it: Sikemux keeps it for you {} s, then hands it to the next in line.",
+        super::line::ROOM_KEPT_MS / 1000
+    );
+    tokio::spawn(fire(
+        core.clone(),
+        Firing {
+            trigger,
+            late: None,
+            last: true,
+            request: None,
+        },
+    ));
+}
+
+/// Wakes `agent_id`, parked on its heavy command `command` run in `cwd`, now that its turn came.
+pub(crate) fn line_turn_came(core: &Arc<Core>, agent_id: &str, cwd: &str, command: &str) {
+    let parked = |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_line(cwd, command))
+    };
+    let Some(mut trigger) = remove_where(core, parked) else {
+        return;
+    };
+    trigger.prompt = format!(
+        "Your turn for `{command}` came on this host. Run it again now, in {cwd}: the host keeps room for it for {} s, then gives the room to the next in line.",
+        super::line::ROOM_KEPT_MS / 1000
+    );
+    tokio::spawn(fire(
+        core.clone(),
+        Firing {
+            trigger,
+            late: None,
+            last: true,
+            request: None,
+        },
+    ));
+}
+
+/// Takes away the park `agent_id` had on its heavy command `command` run in `cwd`, which it
+/// runs again now.
+pub(crate) fn line_left(core: &Arc<Core>, agent_id: &str, cwd: &str, command: &str) {
+    remove_where(core, |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_line(cwd, command))
+    });
+}
+
+/// Removes the triggers on the mod `mod_id`'s collections, as the mod goes.
+pub(crate) fn mod_removed(core: &Arc<Core>, mod_id: &str) {
+    if !core.triggers().watched.locked().contains(mod_id) {
+        return;
+    }
+    let on_it = |trigger: &Trigger| {
+        trigger
+            .watch
+            .as_ref()
+            .is_some_and(|watch| watch.is_on(mod_id))
+    };
+    let gone: Vec<Trigger> = core.triggers().change(|state| {
+        let (gone, kept) = std::mem::take(&mut state.triggers)
+            .into_iter()
+            .partition(on_it);
+        state.triggers = kept;
+        gone
+    });
+    gone.iter().for_each(|trigger| show(core, trigger));
+}
+
+/// Commits `agents` made went to the remote from `dir`, with `tip` the newest, so the core
+/// watches the CI on it for them.
+pub(crate) fn pushed(core: &super::Core, dir: &std::path::Path, agents: &[String], tip: &str) {
+    let (Some(core), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) else {
+        return;
+    };
+    let (dir, agents, tip) = (
+        dir.to_string_lossy().into_owned(),
+        agents.to_vec(),
+        tip.to_owned(),
+    );
+    runtime.spawn(async move {
+        if let Some(watch) = ci::after_push(&core, dir, agents, tip).await {
+            watch_after_push(&core, watch);
+        }
+    });
+}
+
+/// Keeps one watch per pushed run, and one per agent: a newer push of an agent's stands for
+/// the CI of its older ones.
+fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
+    let now = epoch_ms();
+    core.triggers().change(|state| {
+        let mut same_run = None;
+        for (at, trigger) in state.triggers.iter_mut().enumerate() {
+            let Some(other) = trigger.ci.as_mut().filter(|other| other.after_push()) else {
+                continue;
+            };
+            match other.same_run(&watch) {
+                true => same_run = Some(at),
+                false if other.same_repo(&watch) => other.forget(watch.pushed_by()),
+                false => {}
+            }
+        }
+        match same_run {
+            Some(at) => {
+                if let Some(other) = state.triggers[at].ci.as_mut() {
+                    other.join(watch.pushed_by());
+                }
+            }
+            None if state.triggers.len() < MAX_TRIGGERS => {
+                state.next_id += 1;
+                state.triggers.push(Trigger {
+                    id: state.next_id,
+                    agent_id: watch.pushed_by()[0].clone(),
+                    board: None,
+                    title: format!("CI after the push of {}", watch.shown()),
+                    prompt: String::new(),
+                    when: TriggerWhen::Ci { on: watch.shown() },
+                    next_at: Some(now + watch.look_again_ms()),
+                    hook_id: None,
+                    paused: None,
+                    ci: Some(watch),
+                    park: None,
+                    rundeck: None,
+                    check: None,
+                    watch: None,
+                    stopped: None,
+                    set: None,
+                    held: Vec::new(),
+                    dropped: 0,
+                });
+            }
+            None => {}
+        }
+        state.triggers.retain(|trigger| {
+            !(trigger.ci.as_ref()).is_some_and(|ci| ci.after_push() && ci.pushed_by().is_empty())
+        });
+    });
+    core.changed(What::Read(super::changed::Topic::Playbook));
+    super::codehost::ci::start(core);
 }
 
 /// Removes trigger `id` at the person's word, saying whether there was one.
@@ -522,7 +1426,7 @@ pub(crate) fn remove(core: &Arc<Core>, id: u64) -> bool {
 }
 
 fn remove_where(core: &Arc<Core>, matches: impl Fn(&Trigger) -> bool) -> Option<Trigger> {
-    let removed = core.triggers.change(|state| {
+    let removed = core.triggers().change(|state| {
         let at = state.triggers.iter().position(&matches)?;
         Some(state.triggers.remove(at))
     })?;
@@ -533,7 +1437,7 @@ fn remove_where(core: &Arc<Core>, matches: impl Fn(&Trigger) -> bool) -> Option<
 
 /// Puts the chat's triggers in its feed, as it starts or wakes.
 pub(crate) fn seed(core: &Core, feed: &super::chat::feed::Feed, agent_id: &str) {
-    feed.set_triggers(core.triggers.shown(agent_id));
+    feed.set_triggers(core.triggers().shown(agent_id));
 }
 
 fn text(params: &Value, key: &str, max: usize) -> Result<String, String> {
@@ -550,9 +1454,8 @@ fn text(params: &Value, key: &str, max: usize) -> Result<String, String> {
 }
 
 /// Takes a gone trigger's webhook off the accounts server, so its address stops taking requests.
-fn unhook(core: &Arc<Core>, trigger: &Trigger) {
-    if let Some(hook_id) = trigger.hook_id.clone() {
-        let core = core.clone();
+fn unhook(core: &Core, trigger: &Trigger) {
+    if let (Some(hook_id), Some(core)) = (trigger.hook_id.clone(), core.arc()) {
         tokio::spawn(async move {
             if let Err(error) = super::hooks::remove_hook(&core, &hook_id).await {
                 eprintln!("sikemux core: webhook {hook_id} was not taken off the accounts server: {error}");
@@ -657,12 +1560,14 @@ pub(crate) struct HookDelivery {
 
 /// Takes a webhook's request: fires its trigger with the request, once however often the server
 /// sends it. A request for a trigger that is gone is taken and dropped, and its webhook removed.
+/// One for a trigger paused with its chat waits for the chat to be taken up again, up to the most
+/// it keeps; one for a trigger the person paused is dropped.
 pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), String> {
-    if !core.triggers.first_time(&delivery.delivery_id) {
+    if !core.triggers().first_time(&delivery.delivery_id) {
         return Ok(());
     }
     let trigger = core
-        .triggers
+        .triggers()
         .state
         .locked()
         .triggers
@@ -676,9 +1581,26 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         );
         return Ok(());
     };
+    if trigger.paused.is_some() && trigger.stopped.is_none() {
+        let request = fired_request(delivery);
+        core.triggers().change(|state| {
+            let Some(kept) = (state.triggers.iter_mut()).find(|kept| kept.id == trigger.id) else {
+                return;
+            };
+            kept.held.push(request);
+            if kept.held.len() > MAX_HELD_REQUESTS {
+                kept.held.remove(0);
+                kept.dropped += 1;
+            }
+        });
+        return Ok(());
+    }
+    if trigger.rests() {
+        return Ok(());
+    }
     let firing = Firing {
         trigger,
-        late_since: None,
+        late: None,
         last: false,
         request: Some(fired_request(delivery)),
     };
@@ -708,5 +1630,18 @@ fn fired_request(delivery: HookDelivery) -> FiredRequest {
             .collect(),
         body,
         body_tree: None,
+    }
+}
+
+impl super::part::Part for Triggers {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        if !waiting_on_ci(core).is_empty() {
+            super::codehost::ci::start(core);
+        }
+        on_mod::gather_waiting(core);
+        vec![
+            super::part::on_wake(core, |core| &core.triggers().wake, settle),
+            tokio::spawn(park::serve(core.clone())),
+        ]
     }
 }

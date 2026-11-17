@@ -1,0 +1,119 @@
+Project shop {
+  database_type: 'PostgreSQL'
+  Note: 'The storefront: who buys, what they buy, and how it reaches them'
+}
+
+TableGroup people [color: #7c6cf2] {
+  customers
+  addresses
+}
+
+TableGroup catalog [color: #2fa37a] {
+  products
+  variants
+  categories
+  inventory
+}
+
+TableGroup orders [color: #e0864a] {
+  orders
+  order_items
+  payments
+  shipments
+  refunds
+}
+
+Table customers {
+  id uuid [pk]
+  email varchar [unique, not null]
+  name varchar
+  created_at timestamptz [default: `now()`]
+}
+
+Table addresses {
+  id uuid [pk]
+  customer_id uuid [not null]
+  line1 varchar [not null]
+  city varchar
+  country char(2) [note: 'ISO 3166 code']
+}
+
+Table categories {
+  id serial [pk, increment]
+  parent_id int
+  name varchar [not null]
+}
+
+Table products {
+  id uuid [pk]
+  category_id int
+  title varchar [not null]
+  description text
+  published bool [default: false]
+}
+
+Table variants {
+  id uuid [pk]
+  product_id uuid [not null]
+  sku varchar [unique, not null]
+  price_cents int [not null, note: 'Before tax, in the store currency']
+}
+
+Table inventory {
+  variant_id uuid [pk]
+  on_hand int [default: 0]
+  reserved int [default: 0]
+}
+
+Table orders {
+  id uuid [pk]
+  customer_id uuid [not null]
+  address_id uuid
+  status varchar [default: 'cart']
+  total_cents int
+  placed_at timestamptz
+}
+
+Table order_items {
+  id uuid [pk]
+  order_id uuid [not null]
+  variant_id uuid [not null]
+  quantity int [not null]
+  price_cents int [note: 'Price when the order was placed']
+}
+
+Table payments {
+  id uuid [pk]
+  order_id uuid [not null]
+  provider varchar
+  amount_cents int [not null]
+  captured_at timestamptz
+}
+
+Table shipments {
+  id uuid [pk]
+  order_id uuid [not null]
+  carrier varchar
+  tracking varchar [unique]
+  shipped_at timestamptz
+}
+
+Table refunds {
+  id uuid [pk]
+  payment_id uuid [not null]
+  amount_cents int [not null]
+  reason text
+}
+
+Ref: addresses.customer_id > customers.id
+Ref: orders.customer_id > customers.id
+Ref: orders.address_id > addresses.id
+Ref: categories.parent_id > categories.id
+Ref: products.category_id > categories.id
+Ref: variants.product_id > products.id
+Ref: inventory.variant_id - variants.id
+Ref: order_items.order_id > orders.id
+Ref: order_items.variant_id > variants.id
+Ref: payments.order_id > orders.id
+Ref: shipments.order_id > orders.id
+Ref: refunds.payment_id > payments.id

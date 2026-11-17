@@ -10,8 +10,9 @@
 //! with a permission request, `stream N` with N words, and anything else by
 //! echoing it, markdown and all. `FAKE_PROVIDER=claude` with
 //! `sikemux-fake-claude` in its place also answers `question` with three
-//! questions for the person, one of them secret, and `delegate` with a
-//! subagent that reads a file. `FAKE_MODE=workspace-write`
+//! questions for the person, one of them secret, `delegate` with a
+//! subagent that reads a file, and `shell <command>` by running it as an agent
+//! would, shim and all, so point PATH at fake deploy tools first. `FAKE_MODE=workspace-write`
 //! has the agent ask before it acts, and `FAKE_MENTION=<agent id>` names that
 //! agent with `@` in every prompt, for the core to describe. `FAKE_PROJECT=<folder>`
 //! opens the chat in that folder's project rather than the temporary folder's.
@@ -22,6 +23,7 @@
 //! `FAKE_PROFILES=<JSON list>` gives the agent those accounts instead, one of them `fake`,
 //! the one the chat starts on, such as two with their own `configPath`.
 
+use sikemux_wire::protocol::ask;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -43,8 +45,8 @@ async fn run() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("where is sikemux-fake-acp-agent?"))?;
     let (client, _events) = CoreClient::connect(&socket).await?;
-    client.register_window().await?;
-    let provider = std::env::var("FAKE_PROVIDER").unwrap_or("opencode".into());
+    client.ask(ask::RegisterWindow).await?;
+    let provider = std::env::var("FAKE_PROVIDER").unwrap_or("omp".into());
     let profile = json!({ "id": "fake", "name": "Fake", "provider": provider, "accent": "#a277ff", "executablePath": agent });
     let profiles = match std::env::var("FAKE_PROFILES") {
         Ok(listed) => serde_json::from_str::<Vec<serde_json::Value>>(&listed)?,
@@ -58,7 +60,11 @@ async fn run() -> anyhow::Result<()> {
         .file_name()
         .map_or("tmp".into(), |name| name.to_string_lossy().into_owned());
     let project = json!({ "id": name, "name": name, "path": folder });
-    client.call("addProject", project).await?;
+    let added = client.call("addProject", project).await?;
+    let name = added["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("the core named no project"))?
+        .to_owned();
     let (chat, _) = client
         .start_chat(format!("{provider}:fake"), name.clone(), None)
         .await?;
@@ -77,7 +83,12 @@ async fn run() -> anyhow::Result<()> {
     if let Ok(mode) = std::env::var("FAKE_MODE") {
         std::thread::sleep(Duration::from_secs(2));
         let mode = PermissionMode::parse(&mode).map_err(anyhow::Error::msg)?;
-        client.acp_set_permission_mode(chat.clone(), mode).await?;
+        client
+            .ask(ask::AcpSetPermissionMode {
+                agent_id: chat.clone(),
+                mode,
+            })
+            .await?;
     }
     let mentions: Vec<ChatContext> = std::env::var("FAKE_MENTION")
         .into_iter()
@@ -93,7 +104,13 @@ async fn run() -> anyhow::Result<()> {
         .map_or(Duration::from_secs(2), Duration::from_millis);
     for prompt in args {
         client
-            .acp_prompt(chat.clone(), None, prompt, Vec::new(), mentions.clone())
+            .ask(ask::AcpPrompt {
+                agent_id: chat.clone(),
+                message_id: None,
+                text: prompt,
+                paths: Vec::new(),
+                context: mentions.clone(),
+            })
             .await?;
         std::thread::sleep(pause);
     }

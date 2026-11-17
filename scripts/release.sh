@@ -10,9 +10,9 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="${1:-}"
 NOTES="${2:-}"
-PUBLISH="${RELEASE_PUBLISH:-0}"
+PUBLISH=0
 NOTARIZED="${RELEASE_NOTARIZED:-0}"
-CHANNEL="${RELEASE_CHANNEL:-stable}"
+CHANNEL=stable
 STAGE=all
 options=("${@:3}")
 for ((i = 0; i < ${#options[@]}; i++)); do
@@ -44,13 +44,9 @@ if [[ "$NOTARIZED" != "0" && "$NOTARIZED" != "1" ]]; then
   echo "RELEASE_NOTARIZED must be 0 or 1" >&2
   exit 2
 fi
-if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "nightly" ]]; then
-  echo "RELEASE_CHANNEL must be stable or nightly" >&2
-  exit 2
-fi
 VERSION_WITHOUT_BUILD="${VERSION%%+*}"
-if [[ "$CHANNEL" == "nightly" && "$VERSION_WITHOUT_BUILD" != *-* ]]; then
-  echo "Nightly releases require a prerelease semver such as 0.4.0-nightly.1" >&2
+if [[ "$CHANNEL" == "nightly" && "$VERSION_WITHOUT_BUILD" != *-nightly.* ]]; then
+  echo "Nightly releases require a version such as 0.4.0-nightly.1" >&2
   exit 2
 fi
 if [[ "$CHANNEL" == "stable" && "$VERSION_WITHOUT_BUILD" == *-* ]]; then
@@ -58,9 +54,9 @@ if [[ "$CHANNEL" == "stable" && "$VERSION_WITHOUT_BUILD" == *-* ]]; then
   exit 2
 fi
 
-SIGNING_VARS=(TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_SIGNING_IDENTITY
-  APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
-  APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD)
+# shellcheck source=scripts/release-shape.sh
+source "$ROOT/scripts/release-shape.sh"
+SIGNING_VARS=("${SIGNING_SECRETS[@]}" APPLE_SIGNING_IDENTITY)
 # Load local signing configuration without printing it. Explicit environment
 # values win over .env values.
 for name in "${SIGNING_VARS[@]}"; do
@@ -113,7 +109,10 @@ done
 if [[ "$NOTARIZED" == "1" ]]; then
   [[ -x /usr/sbin/spctl && -x /usr/bin/xcrun ]] || fail "Gatekeeper and Xcode tools are required for a notarized release"
 fi
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] || fail "working tree must be clean"
+# A nightly's version and notes are stamped onto main's files by scripts/stamp-nightly.sh before it runs.
+STAMPED=()
+[[ "$CHANNEL" == "nightly" ]] && STAMPED=(':!package.json' ':!Cargo.toml' ':!Cargo.lock' ':!RELEASE_NOTES.md')
+[[ -z "$(git status --porcelain --untracked-files=all -- . ${STAMPED[@]+"${STAMPED[@]}"})" ]] || fail "working tree must be clean"
 # Stable ships from a release line so a hotfix can go out while main runs ahead.
 # A tag build checks out a detached commit, so the check is which branches hold it.
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -142,9 +141,7 @@ package_version() {
   '
 }
 CARGO_VER="$(package_version sikemux-host <<<"$CARGO_METADATA")" || fail "could not read the core's version"
-GPUI_VER="$(package_version sikemux-gpui <<<"$CARGO_METADATA")" || fail "could not read the GPUI app's version"
-[[ "$PKG_VER" == "$CARGO_VER" && "$PKG_VER" == "$GPUI_VER" ]] || \
-  fail "current versions disagree (package=$PKG_VER cargo=$CARGO_VER gpui=$GPUI_VER)"
+[[ "$PKG_VER" == "$CARGO_VER" ]] || fail "current versions disagree (package=$PKG_VER cargo=$CARGO_VER)"
 CURRENT_VERSION="$PKG_VER" NEXT_VERSION="$VERSION" node - <<'NODE' || fail "version must not be less than $PKG_VER"
 const parse = (value) => {
   const [, major, minor, patch, prerelease] = value.match(/^(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+.*)?$/);
@@ -186,9 +183,14 @@ if [[ "$STAGE" == "all" ]]; then
       fail "Apple notarization credentials are not configured"
     fi
   else
-    # shellcheck disable=SC2034 # signing() hands it to the signing steps
-    SIGNING_APPLE_SIGNING_IDENTITY=-
-    echo "! Community release: updater-signed and ad-hoc code signed, but not Apple-notarized." >&2
+    identity="$(signing_value APPLE_SIGNING_IDENTITY)"
+    if [[ -n "$identity" ]] && /usr/bin/security find-identity -v -p codesigning | grep -Fq "\"$identity\""; then
+      echo "! Signed as $identity but not Apple-notarized." >&2
+    else
+      # shellcheck disable=SC2034 # signing() hands it to the signing steps
+      SIGNING_APPLE_SIGNING_IDENTITY=-
+      echo "! Community release: updater-signed and ad-hoc code signed, without the shared keychain." >&2
+    fi
   fi
 fi
 # The Release workflow checks the tag and the GitHub release before it builds.
@@ -197,19 +199,13 @@ if [[ "$PUBLISH" == "1" ]]; then
   export SIKEMUX_USAGE_REPORTING=app
 fi
 
-if [[ "${RELEASE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
-  if [[ "$NOTARIZED" == "1" ]]; then mode="notarized"; else mode="community"; fi
-  echo "✓ Release preflight passed ($mode mode)"
-  exit 0
-fi
-
 if [[ "$VERSION" == "$PKG_VER" ]]; then
   echo "✓ Preflight passed; using prepared version $VERSION"
 else
   echo "✓ Preflight passed; bumping version to $VERSION"
 fi
 BACKUP="$(mktemp -d)"
-FILES=(package.json Cargo.toml Cargo.lock app/Cargo.toml latest.json)
+FILES=(package.json Cargo.toml Cargo.lock latest.json)
 for file in "${FILES[@]}"; do
   if [[ -e "$file" ]]; then mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; fi
 done
@@ -250,15 +246,14 @@ path = pathlib.Path("package.json")
 data = json.loads(path.read_text())
 data["version"] = version
 path.write_text(json.dumps(data, indent=2) + "\n")
-for name in ("Cargo.toml", "app/Cargo.toml"):
-    path = pathlib.Path(name)
-    text = path.read_text()
-    updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
-    if count != 1:
-        raise SystemExit(f"could not update {name} package version")
-    path.write_text(updated)
+path = pathlib.Path("Cargo.toml")
+text = path.read_text()
+updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
+if count != 1:
+    raise SystemExit("could not update the workspace version")
+path.write_text(updated)
 PY
-# Cargo.lock records the workspace version and the sidecar builds with --locked,
+# Cargo.lock records the workspace version and the core builds with --locked,
 # so the bump has to reach the lock file or the build fails partway through.
 if [[ "$VERSION" != "$PKG_VER" ]]; then
   cargo metadata --offline --format-version 1 >/dev/null \
@@ -269,28 +264,29 @@ snapshot_expected
 BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP="$BUNDLE/macos/${APP_NAME}.app"
-HOST="$(rustc -vV | sed -n 's/^host: //p')"
-VOICE="$ROOT/packaging/binaries/sikemux-voice-$HOST"
-SIM="$ROOT/packaging/binaries/sikemux-sim-$HOST"
+HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 # Remove stale outputs before the one release build. Their absence afterwards
 # is stronger evidence of freshness than directory mtimes, which do not change
 # when a bundler updates files in place.
 if [[ "$STAGE" == "all" || "$STAGE" == "helpers" ]]; then
-  rm -f "$VOICE" "$SIM"
-  echo "→ Building the voice and simulator helpers for v$VERSION"
-  node "$ROOT/scripts/build-voice-helper.mjs"
-  node "$ROOT/scripts/build-sim-helper.mjs"
+  rm -f "${HELPERS[@]}"
+  echo "→ Building the published helpers for v$VERSION"
+  for helper in "${PUBLISHED_HELPERS[@]}"; do
+    node "$ROOT/scripts/build-${helper#sikemux-}-helper.mjs"
+  done
 fi
 if [[ "$STAGE" == "all" ]]; then
-  signing "$ROOT/scripts/sign-helper.sh" "$VOICE" "$SIM"
+  signing "$ROOT/scripts/sign-helper.sh" "${HELPERS[@]}"
 fi
 if [[ "$STAGE" != "helpers" ]]; then
-  [[ -x "$VOICE" && -x "$SIM" ]] || fail "the signed voice and simulator helpers are missing"
+  for helper in "${HELPERS[@]}"; do
+    [[ -x "$helper" ]] || fail "the signed $(basename "$helper") is missing"
+  done
   rm -rf "$APP" "$BUNDLE/macos/${APP_NAME}.app.tar.gz" "$BUNDLE/macos/${APP_NAME}.app.tar.gz.sig" "$BUNDLE/dmg"
   echo "→ Building v$VERSION"
   step=all
   [[ "$STAGE" == "compile" || "$STAGE" == "package" ]] && step="$STAGE"
-  BUILD_STEP="$step" REQUIRE_VALID_SIGNATURE=1 PREBUILT_HELPERS=1 "$ROOT/scripts/build-mac.sh"
+  BUILD_STEP="$step" FROM_RELEASE=1 "$ROOT/scripts/build-mac.sh"
   [[ "$STAGE" == "compile" || -d "$APP" ]] || fail "app bundle was not produced"
 fi
 if [[ "$STAGE" == "all" ]]; then

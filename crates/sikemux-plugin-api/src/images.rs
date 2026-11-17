@@ -66,7 +66,6 @@ fn moved_to<S: Service>(response: &Response, from: &Url) -> Result<Url, ServiceE
         .ok_or_else(|| ServiceError::Response("the image moved to no address".into()))
 }
 
-/// A successful answer read as an image.
 pub async fn read_image<S: Service>(response: Response) -> Result<String, ServiceError<S>> {
     let kind = response
         .headers()

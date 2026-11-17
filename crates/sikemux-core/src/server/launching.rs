@@ -3,49 +3,105 @@
 //! chats alike. Every chat, however it starts, passes through here or
 //! [`own_tools`].
 
-use std::path::PathBuf;
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::chat_state::ChatParts;
+use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
+use crate::server::ServerCore;
+use serde::Deserialize;
+pub use sikemux_calls::launching::{SessionTaken, SmartPickParams, StartParams};
+use sikemux_view::prefs::PreferenceChange;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::agent_accounts::allocate::Aim;
 use crate::agent_catalog::AgentKind;
-use crate::cli::protocol::TOOLS_OFFER_ENV;
 use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
 use crate::launch::tools::Tools;
 use crate::launch::{AgentSpec, PermissionMode};
-use crate::protocol::{
-    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, RequestId, SessionId,
-    SpawnTarget, TerminalSpawn, WAKE_WAIT,
-};
+use crate::sessions::roots::account_root;
 use serde_json::{json, Value};
+use sikemux_fold::UpdateKind;
 use sikemux_process::vars;
 use sikemux_pty::launch::{LaunchKind, PtyAgentProfile, PtyContext, PtyDirectCommand};
+use sikemux_view::workspace::WorkspaceAgent;
+use sikemux_wire::protocol::{
+    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, LaunchIdentity, RequestId,
+    SessionId, SpawnTarget, TerminalSpawn, WAKE_WAIT,
+};
 
 use super::chat;
 use super::connection::{blocking, ClientConn};
-use super::workspace::{launcher_of, ChatChoice, ResumeChoice, SessionChoice};
+use super::model_proxy::Grant as ModelGrant;
+use super::prepare::{prepare_task, prepare_terminal};
+use super::session::PendingStart;
+use super::workspace::{
+    launcher_of, new_agent, ChatChoice, LauncherId, ResumeChoice, SessionChoice,
+};
 use super::{lifecycle, Core, CoreError, CoreResult};
+use crate::launch::providers::MODEL_TOKEN_SLOT;
 
 /// Where this core's agents reach their tools; none for a core without a
 /// tool endpoint.
 pub(crate) fn tools(core: &Core) -> Option<Tools> {
-    let config = &core.listening.get()?.config;
+    let config = &core.config();
     Some(Tools {
-        executable: std::env::current_exe().ok()?.canonicalize().ok()?,
+        executable: sikemux_process::files::real_path(std::env::current_exe().ok()?).ok()?,
         endpoint: config.cli_endpoint.clone()?,
         data_dir: config.data_dir.clone(),
     })
 }
 
-/// Gives a terminal agent its tools, its account and the hosted model
-/// providers' keys. A launch that cannot be told about the tools still runs.
-pub(crate) async fn terminal_agent(core: &Arc<Core>, spawn: &mut TerminalSpawn) {
+/// The folder under the data folder each agent keeps its temporary files in.
+const TEMP_FOLDERS: &str = "temp";
+
+/// Points an agent's temporary files at a folder of its own on disk where `/tmp` is held in
+/// memory, as on many Linux hosts, so they take no memory from builds. Claude Code reads
+/// `CLAUDE_CODE_TMPDIR`, not `TMPDIR`.
+fn own_temp(core: &Core, agent_id: &str) -> Vec<(String, String)> {
+    if !sikemux_process::machine::tmp_in_memory() {
+        return Vec::new();
+    }
+    let Some(folder) = (core.config().data_dir.as_ref())
+        .map(|data| data.join(TEMP_FOLDERS).join(agent_id))
+        .filter(|folder| std::fs::create_dir_all(folder).is_ok())
+    else {
+        return Vec::new();
+    };
+    let folder = folder.to_string_lossy().into_owned();
+    vec![
+        ("CLAUDE_CODE_TMPDIR".to_owned(), folder.clone()),
+        ("TMPDIR".to_owned(), folder),
+    ]
+}
+
+/// Deletes the temporary files a closed agent left.
+pub(crate) fn clear_temp(core: &Core, agent_id: &str) {
+    if let Some(data) = core.config().data_dir.as_ref() {
+        let _ = std::fs::remove_dir_all(data.join(TEMP_FOLDERS).join(agent_id));
+    }
+}
+
+/// Gives a terminal agent its tools, its account and the connected model providers, and
+/// answers with what keeps its token for them good. A launch that cannot be told about the
+/// tools still runs.
+pub(crate) async fn terminal_agent(
+    core: &Arc<Core>,
+    spawn: &mut TerminalSpawn,
+) -> Option<ModelGrant> {
     let (Some(command), Some(context)) = (spawn.direct_command.as_mut(), spawn.context.as_ref())
     else {
-        return;
+        return None;
     };
-    let Some(agent_type) = context.agent_type.clone() else {
-        return;
-    };
+    let agent_type = context.agent_type.clone()?;
+    if let Some(agent_id) = context.agent_id.as_deref() {
+        spawn.env.extend(own_temp(core, agent_id));
+    }
     if let (Some(agent_id), Some(tools)) = (context.agent_id.as_deref(), tools(core)) {
         match tools
             .terminal(agent_id, &agent_type, &command.program)
@@ -68,14 +124,33 @@ pub(crate) async fn terminal_agent(core: &Arc<Core>, spawn: &mut TerminalSpawn) 
     };
     let program = command.program.clone();
     let owner = core.clone();
+    let mut listed: BTreeMap<String, String> = spawn.env.clone().into_iter().collect();
     let launch = blocking(move || {
-        let providers = owner.workspaces.provider_keys(&spec.provider);
-        Ok(spec.launch(program.into(), providers))
+        let mut unused_args = Vec::new();
+        let told = owner
+            .workspaces()
+            .list_connected(&spec.provider, &mut listed, &mut unused_args);
+        if let Err(error) = told {
+            eprintln!("sikemux core: {error}");
+        }
+        Ok((spec.launch(program.into(), BTreeMap::new()), listed))
     })
     .await;
-    if let Ok(launch) = launch {
-        spawn.env.extend(launch.env);
+    let Ok((launch, mut listed)) = launch else {
+        return None;
+    };
+    spawn.env.extend(launch.env);
+    let grant = core
+        .model_proxy()
+        .grant(core, &mut listed, &mut [], None)
+        .inspect_err(|error| eprintln!("sikemux core: {error}"))
+        .ok()
+        .flatten();
+    if grant.is_none() {
+        listed.retain(|_, value| !value.contains(MODEL_TOKEN_SLOT));
     }
+    spawn.env.extend(listed);
+    grant
 }
 
 /// Starts a terminal agent as its record says, on its saved session and the
@@ -103,7 +178,7 @@ pub(crate) async fn start_terminal(
 pub(crate) fn show_terminals(core: &Arc<Core>, agent_ids: &[String]) {
     for agent_id in agent_ids {
         let ended = core
-            .workspaces
+            .workspaces()
             .agent(agent_id)
             .is_some_and(|agent| agent.terminal)
             && running_terminal(core, agent_id).is_none();
@@ -122,7 +197,7 @@ pub(crate) fn show_terminals(core: &Arc<Core>, agent_ids: &[String]) {
 
 /// The agent's terminal, unless it ended or is being stopped.
 fn running_terminal(core: &Core, agent_id: &str) -> Option<SessionId> {
-    let pty = core.workspaces.agent(agent_id)?.pty_id?;
+    let pty = core.workspaces().agent(agent_id)?.pty_id?;
     core.session(pty)
         .filter(|session| session.is_running() && !session.is_killed())
         .map(|_| pty)
@@ -134,23 +209,31 @@ async fn launch_terminal(
     (cols, rows): (u16, u16),
     continues: Option<Continuation>,
 ) -> CoreResult<SessionId> {
-    let agent = core
-        .workspaces
-        .agent(agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
+    super::worktree::agent::restore(core, agent_id).await?;
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
     if agent.resume_id.is_none() {
         super::session_watch::note_launch(core, &agent).await;
     }
-    let project = core.workspaces.project_info(&agent.project);
-    let book = core.workspaces.accounts().unwrap_or_default();
+    let project = core.workspaces().project_info(&agent.project);
+    let book = core.workspaces().accounts().unwrap_or_default();
     let profile = agent.profile_id.as_deref().and_then(|id| book.profile(id));
     let run = TerminalRun {
         resume_id: agent.resume_id.as_deref(),
-        permission_mode: PermissionMode::parse(&agent.permission_mode)?,
+        permission_mode: agent.permission_mode,
         model: agent.model.as_deref(),
         effort: agent.effort.as_deref(),
     };
     let cwd = agent.cwd.to_string_lossy().into_owned();
+    let env = match AgentKind::from_name(&agent.provider) {
+        Some(AgentKind::Claude) => {
+            let config_path = profile.and_then(|profile| profile.config_path.as_deref());
+            let root = account_root(AgentKind::Claude, config_path, &BTreeMap::new());
+            chat::terminal_cache_env(&agent.cwd, root.as_deref())
+                .into_iter()
+                .collect()
+        }
+        _ => Default::default(),
+    };
     let spawn = TerminalSpawn {
         cols,
         rows,
@@ -178,33 +261,44 @@ async fn launch_terminal(
             initial_prompt_submitted: false,
             shell_integration: false,
         }),
-        env: Default::default(),
+        env,
         continues,
     };
     let target = Box::new(SpawnTarget::Terminal(spawn));
-    let pending =
-        super::connection::spawn(core.clone(), core.launch_identity(), target, None).await?;
+    let pending = self::spawn(core.clone(), core.launch_identity(), target, None).await?;
     let id = pending.id();
     pending.start(core);
-    core.workspaces.edit_agent(agent_id, |agent| {
+    core.workspaces().edit_agent(agent_id, |agent| {
         agent.pty_id = Some(id);
         agent.terminal = true;
         agent.asleep = false;
     })?;
+    core.workspaces().woke(agent_id);
     Ok(id)
 }
 
-/// Gives a chat about to start the tools that are its own: those the launch
-/// offers in its environment, and only for its agent.
+/// Gives a chat about to start the tools that are its own, only for its agent.
 pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
     launch
         .env
         .insert(vars::AGENT_ID.into(), launch.agent_id.clone());
+    let temp = own_temp(core, &launch.agent_id);
+    launch.env.extend(temp);
     let Some(tools) = tools(core) else {
         return;
     };
-    let offer = launch.env.get(TOOLS_OFFER_ENV).map(String::as_str);
-    match tools.chat_server(&launch.agent_id, offer) {
+    if AgentKind::from_name(&launch.provider) == Some(AgentKind::Pi) {
+        match tools.pi_extension() {
+            Ok(path) => {
+                launch.env.insert(
+                    vars::PI_EXTENSION.into(),
+                    path.to_string_lossy().into_owned(),
+                );
+            }
+            Err(error) => eprintln!("sikemux core: {error}"),
+        }
+    }
+    match tools.chat_server(&launch.agent_id) {
         Ok(server) => launch.mcp_servers = vec![server],
         Err(error) => {
             eprintln!("sikemux core: Sikemux tools are unavailable to this chat: {error}")
@@ -233,7 +327,6 @@ pub(crate) async fn own_home(core: &Core, launch: &mut ChatLaunch) -> bool {
     true
 }
 
-/// A chat to start: on which launcher, where, and how.
 pub(crate) struct Launch {
     pub agent_id: String,
     pub launcher: String,
@@ -258,9 +351,10 @@ pub(crate) struct Launch {
 pub(crate) async fn start(
     core: &Arc<Core>,
     by: Option<&Arc<ClientConn>>,
-    chosen: Launch,
+    mut chosen: Launch,
 ) -> CoreResult<Arc<chat::Chat>> {
-    let launcher = core.workspaces.launcher(&chosen.launcher)?;
+    let notice = place(core, &mut chosen).await;
+    let launcher = core.workspaces().launcher(&chosen.launcher)?;
     let program = match chosen.program {
         Some(program) => program,
         None => launcher.agent.program().await?,
@@ -271,7 +365,7 @@ pub(crate) async fn start(
     let (cwd, model_provider, model) = (chosen.cwd, chosen.model_provider, chosen.model);
     let mut launch = blocking(move || {
         owner
-            .workspaces
+            .workspaces()
             .chat_launch(&launcher, program, &cwd, model_provider.as_deref(), model)
             .map_err(CoreError::from)
     })
@@ -282,13 +376,137 @@ pub(crate) async fn start(
         launch.permission_mode = mode;
     }
     launch.effort = chosen.effort;
-    launch.account = chosen.account;
     launch.fallbacks = chosen.fallbacks;
-    let started = chat::begin(core, launch, by, Some(launcher_id), waits_for_person)?;
-    core.broadcast_local(&Event::ChatBegun {
+    // The launcher set the folder the agent runs in; the account chosen for it moves it there.
+    if let Some(account) = chosen.account {
+        launch = chat::on_account(&launch.provider.clone(), &launch, &account);
+    }
+    let starting = chat::Starting {
+        waits_for_person,
+        briefed: false,
+        notice,
+    };
+    if let Some(session) = launch.resume_id.as_deref() {
+        chat::unshelve(core, &launch.agent_id, Some(session)).await;
+    }
+    let started = chat::begin_as(core, launch, by, Some(launcher_id), starting)?;
+    core.changed(What::Event(&Event::ChatBegun {
         chat: started.info(),
-    });
+    }));
     Ok(started)
+}
+
+/// The account smart accounts would start a new chat of `launcher` in `project` on, and why, so a
+/// client can say it before the chat exists. None when the launcher names its account or smart
+/// accounts would not pick one.
+pub(crate) async fn smart_pick(
+    core: &Arc<Core>,
+    params: SmartPickParams,
+) -> CoreResult<Option<sikemux_view::chat::AccountMove>> {
+    let kind = LauncherId::parse(&params.launcher).kind.to_owned();
+    let mut chosen = Launch {
+        agent_id: String::new(),
+        launcher: params.launcher,
+        cwd: core.workspaces().project_path(&params.project)?,
+        permission_mode: None,
+        model: core
+            .workspaces()
+            .model_pick(&kind)
+            .and_then(|pick| pick.model),
+        model_provider: None,
+        effort: None,
+        resume_id: None,
+        account: None,
+        fallbacks: Vec::new(),
+        program: None,
+        waits_for_person: true,
+    };
+    Ok(place(core, &mut chosen)
+        .await
+        .map(|notice| sikemux_view::chat::AccountMove {
+            label: notice["label"].as_str().unwrap_or_default().to_owned(),
+            from: None,
+            reason: sikemux_view::chat::MoveReason::Chosen,
+            placed: notice["why"].as_str().map(str::to_owned),
+        }))
+}
+
+/// Puts a chat that names only its agent on the account smart accounts picks for it, and
+/// answers what the chat says of that once its agent is up. A chat that names its account, as
+/// one the person picked or one woken on the account it ran on, keeps it. One shown to the person
+/// before its agent starts is placed at once, on the readings already kept.
+async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
+    let named = LauncherId::parse(&chosen.launcher);
+    if named.account.is_some() || chosen.account.is_some() || chosen.model_provider.is_some() {
+        return None;
+    }
+    let kind = named.kind.to_owned();
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let accounts = (book.clone().with_built_ins().profiles.iter())
+        .filter(|profile| profile.provider == kind)
+        .count();
+    if !book.smart || accounts < 2 {
+        return None;
+    }
+    let freshening = super::agent_accounts::freshen(core.clone(), book.clone(), kind.clone());
+    match chosen.waits_for_person {
+        true => drop(tokio::spawn(freshening)),
+        false => freshening.await,
+    }
+    let (log, cwd) = (
+        core.activity_log().clone(),
+        chosen.cwd.to_string_lossy().into_owned(),
+    );
+    let typical_tokens = blocking(move || Ok(log.typical_chat_tokens(&cwd)))
+        .await
+        .ok()
+        .flatten();
+    let chat = super::agent_accounts::Placing {
+        model: model_of(core, &book, &kind, chosen.model.clone()),
+        typical_tokens,
+        cwd: Some(chosen.cwd.clone()),
+    };
+    let placed = super::agent_accounts::placement(&book, &kind, &chat, Aim::Soonest, |_| true)?;
+    let id = LauncherId::on(&kind, &placed.id).to_string();
+    let launcher = core
+        .workspaces()
+        .launcher(&id)
+        .ok()
+        .filter(|found| found.id == id)?;
+    chosen.launcher = id;
+    let label = book
+        .with_built_ins()
+        .profile(&placed.id)
+        .map_or(launcher.label, |profile| profile.name.clone());
+    Some(json!({
+        "sessionUpdate": UpdateKind::AccountSwitched,
+        "account": placed.id,
+        "label": label,
+        "reason": "placed",
+        "why": placed.why,
+    }))
+}
+
+/// The model a new chat of `kind` will run: the one chosen, else the agent's own default as its
+/// settings name it, else the one its last session started on. None when all that says is
+/// "default".
+fn model_of(
+    core: &Core,
+    book: &crate::agent_accounts::Book,
+    kind: &str,
+    chosen: Option<String>,
+) -> Option<String> {
+    let config_path = (book.clone().with_built_ins().profile(&book.chosen(kind)))
+        .and_then(|profile| profile.config_path.clone());
+    chosen
+        .or_else(|| {
+            crate::agent_accounts::defaults::configured_default_model(kind, config_path.as_deref())
+        })
+        .or_else(|| {
+            let options = core.workspaces().agent_options(kind)?;
+            crate::acp::pickers::current_choice(&json!({ "configOptions": options }), "model")
+        })
+        .filter(|model| !model.eq_ignore_ascii_case("default"))
 }
 
 /// Starts an agent of the workspace as its record says, on its saved
@@ -300,8 +518,9 @@ pub(crate) async fn start_agent(
     agent_id: &str,
     waits_for_person: bool,
 ) -> CoreResult<Arc<chat::Chat>> {
+    super::worktree::agent::restore(core, agent_id).await?;
     let kept = core
-        .workspaces
+        .workspaces()
         .kept_launch(agent_id)
         .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
     let agent = kept.agent;
@@ -309,7 +528,7 @@ pub(crate) async fn start_agent(
         agent_id: agent.id.clone(),
         launcher: launcher_of(&agent),
         cwd: agent.cwd,
-        permission_mode: Some(PermissionMode::parse(&agent.permission_mode)?),
+        permission_mode: Some(agent.permission_mode),
         model: agent.model,
         model_provider: agent.model_provider,
         effort: agent.effort,
@@ -331,18 +550,27 @@ pub(crate) async fn start_saved(
     waits_for_person: bool,
 ) -> CoreResult<()> {
     lifecycle::ensure_running(core, agent_id, waits_for_person).await?;
-    let started = core.chats.running(agent_id)?;
+    let started = core.chats().running(agent_id)?;
     if started.unstarted() {
         return Ok(());
     }
     chat::until_started(core, started).await.map(drop)
 }
 
+/// Answers [`StartParams`]: starts the agent as its record says, anew when it asks to be.
+pub(crate) async fn start_asked(core: &Arc<Core>, params: StartParams) -> CoreResult<()> {
+    let waiting = (core.chats().running(&params.agent_id)).is_ok_and(|chat| chat.unstarted());
+    if params.again && waiting {
+        core.chats().stop(&params.agent_id);
+    }
+    start_saved(core, &params.agent_id, params.waits_for_person).await
+}
+
 /// Wakes an agent on its saved session: in its terminal for one that runs there, otherwise
 /// its chat, answering once it is ready.
 pub(crate) async fn wake(core: &Arc<Core>, agent_id: String) -> CoreResult<()> {
     if core
-        .workspaces
+        .workspaces()
         .agent(&agent_id)
         .is_some_and(|agent| agent.terminal)
     {
@@ -380,15 +608,75 @@ pub(crate) fn start_chat(
     });
 }
 
-/// Takes up an agent's session again in the project it ran in, recent or not, and
-/// answers the agent that holds it once its session is ready.
-pub(crate) async fn resume_session(core: &Arc<Core>, session: SessionChoice) -> CoreResult<Value> {
-    let choice = core
-        .workspaces
-        .session_choice(session, &core.chats.list())?;
+pub(crate) async fn resume_session(
+    core: &Arc<Core>,
+    session: SessionChoice,
+) -> CoreResult<SessionTaken> {
+    let choice =
+        core.workspaces()
+            .session_choice(session, &core.chats().list(), &core.triggers().held())?;
     let project = choice.project.clone();
     let (agent_id, _) = start_new(core, None, choice).await?;
-    Ok(json!({ "agentId": agent_id, "project": project }))
+    Ok(SessionTaken { agent_id, project })
+}
+
+/// The agent `agent_id`, open: itself while it is, else the session it ran taken up again as
+/// from Recent, on the account it ran on, or the agent that already has that session open.
+/// A session the saved ones no longer list is still taken up from what the agent's record
+/// keeps, and the chat says so if its CLI cannot load it.
+pub(crate) async fn reopen_agent(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
+    let taken = take_up_again(core, agent_id.clone()).await?;
+    super::now::reopened(core, &agent_id);
+    Ok(taken)
+}
+
+/// The person takes a closed agent up again, which counts as their writing to it, so it stays
+/// open the hour it would after they did.
+pub(crate) async fn person_reopens(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
+    let taken = reopen_agent(core, agent_id).await?;
+    core.seen().person_wrote(&taken.agent_id);
+    Ok(taken)
+}
+
+async fn take_up_again(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
+    let project_of = |agent: &str| core.workspaces().agent_projects().remove(agent);
+    if let Some(project) = project_of(&agent_id) {
+        return Ok(SessionTaken { agent_id, project });
+    }
+    let ran = (core.names().ran_session(&agent_id))
+        .ok_or_else(|| CoreError::from("Sikemux no longer keeps which session it ran"))?;
+    let saved = {
+        let (core, session, cli) = (core.clone(), ran.session_id.clone(), ran.provider.clone());
+        blocking(move || super::saved::locate(&core, &session, Some(&cli)).map_err(Into::into))
+            .await
+            .ok()
+    };
+    if let Some((open, _)) = saved.as_ref().and_then(|saved| saved.open.clone()) {
+        let project = match project_of(&open) {
+            Some(project) => project,
+            None => core.workspaces().project_holding(&ran.project)?.0,
+        };
+        return Ok(SessionTaken {
+            agent_id: open,
+            project,
+        });
+    }
+    let mut choice = (core.workspaces()).ran_choice(
+        &ran,
+        (saved.as_ref()).map(|saved| (saved.title.as_str(), saved.project.as_path())),
+        &core.chats().list(),
+        &core.triggers().held(),
+    )?;
+    choice.title = choice.title.or(ran.title);
+    let project = choice.project.clone();
+    let (agent_id, _) = start_new(core, None, choice).await?;
+    Ok(SessionTaken { agent_id, project })
+}
+
+/// Starts a new chat that waits for the person, and answers with its agent.
+pub(crate) async fn start_waiting(core: &Arc<Core>, choice: ChatChoice) -> CoreResult<String> {
+    let (agent_id, _) = start_new(core, None, choice).await?;
+    Ok(agent_id)
 }
 
 /// The provider a saved session of `kind` last ran on, and its model unless `model` is
@@ -406,7 +694,7 @@ async fn resumed_on(
     let last = blocking(move || {
         Ok(
             crate::sessions::last_model(agent, &session).and_then(|(provider, last_model)| {
-                let provider = core.workspaces.providers()?.named_by_agent(&provider)?;
+                let provider = core.workspaces().providers()?.named_by_agent(&provider)?;
                 Some((provider.id.clone(), last_model))
             }),
         )
@@ -417,42 +705,66 @@ async fn resumed_on(
     }
 }
 
-async fn start_new(
+pub(crate) async fn start_new(
     core: &Arc<Core>,
     client: Option<&Arc<ClientConn>>,
     choice: ChatChoice,
 ) -> CoreResult<(String, ChatStart)> {
-    let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
-    let kind = choice
-        .launcher
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .to_owned();
-    let project = core.workspaces.project_path(&choice.project)?;
-    let (cwd, worktree) = match choice.cwd {
-        Some(cwd) => blocking(move || Ok(super::worktree::agent::resumed_in(cwd, project))).await?,
-        None => (project, None),
+    let kind = LauncherId::parse(&choice.launcher).kind.to_owned();
+    let agent_id = match &choice.resume_id {
+        Some(session) => (core.names()).returning_id(Some(&kind), session, core.open_agents()),
+        None => crate::server::names::new_agent_id(),
     };
-    if let Some(launcher) = core.workspaces.terminal_launcher(&choice.launcher) {
-        let agent = json!({
-            "id": agent_id,
-            "provider": kind,
-            "project": choice.project,
-            "cwd": cwd,
-            "title": kind,
-            "permissionMode": choice
-                .permission_mode
-                .map_or(launcher.permission_mode, |mode| mode.as_str().to_owned()),
-            "profileId": launcher.id.strip_prefix(&format!("{kind}:")),
-            "resumeId": choice.resume_id,
-            "worktree": worktree,
-            "terminal": true,
-        });
-        let Value::Object(agent) = agent else {
-            unreachable!("an object literal")
-        };
-        core.workspaces.put_agent(agent)?;
+    let project = core.workspaces().project_path(&choice.project)?;
+    let was = (choice.resume_id.is_some())
+        .then(|| core.workspaces().closed_agent(&agent_id))
+        .flatten();
+    let mut choice = choice;
+    if let Some(was) = &was {
+        choice.permission_mode = choice.permission_mode.or(Some(was.permission_mode));
+        choice.effort = choice.effort.or(was.effort.clone());
+    }
+    let branch = (was.as_ref())
+        .and_then(|was| was.worktree.as_ref())
+        .map(|tree| tree.branch.clone());
+    let cwd = (choice.cwd.clone()).or_else(|| was.as_ref().map(|was| was.cwd.clone()));
+    let _reopening = match &cwd {
+        Some(cwd) => Some(super::worktree::removal::reopening(core, cwd).await),
+        None => None,
+    };
+    let resumed = match cwd {
+        Some(cwd) => Some(
+            blocking(move || Ok(super::worktree::agent::resumed_in(&cwd, branch.as_deref())?))
+                .await?,
+        ),
+        None => None,
+    };
+    let (cwd, worktree) = resumed.as_ref().map_or((project, None), |resumed| {
+        (resumed.cwd.clone(), resumed.worktree.clone())
+    });
+    let terminal = (core.workspaces().terminal_launcher(&choice.launcher)).or_else(|| {
+        (choice.terminal)
+            .then(|| core.workspaces().launcher(&choice.launcher).ok())
+            .flatten()
+    });
+    if let Some(launcher) = terminal {
+        core.workspaces().put_agent(WorkspaceAgent {
+            profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
+            resume_id: choice.resume_id,
+            worktree,
+            terminal: true,
+            ..new_agent(
+                agent_id.clone(),
+                kind.clone(),
+                choice.project,
+                cwd,
+                choice.permission_mode.unwrap_or(launcher.permission_mode),
+            )
+        })?;
+        super::workspace::retitle(core, &agent_id, choice.title, false);
+        if let Some(resumed) = &resumed {
+            super::worktree::agent::set_up_made_again(core, &agent_id, resumed);
+        }
         let size = super::spare::opening_size(core);
         if let Err(error) = start_terminal(core, &agent_id, size, None).await {
             super::workspace::close_gone(core, std::slice::from_ref(&agent_id));
@@ -461,9 +773,13 @@ async fn start_new(
         remember_kind(core, &kind);
         return Ok((agent_id, not_started()));
     }
+    let pick = (choice.resume_id.is_none())
+        .then(|| core.workspaces().model_pick(&kind))
+        .flatten()
+        .unwrap_or_default();
     let (model_provider, model) = match &choice.resume_id {
         Some(session) => resumed_on(core, &kind, session.clone(), choice.model).await,
-        None => (None, choice.model),
+        None => (None, choice.model.or(pick.model)),
     };
     let chosen = Launch {
         agent_id: agent_id.clone(),
@@ -472,7 +788,7 @@ async fn start_new(
         permission_mode: choice.permission_mode,
         model,
         model_provider,
-        effort: choice.effort,
+        effort: choice.effort.or(pick.effort),
         resume_id: choice.resume_id,
         account: None,
         fallbacks: Vec::new(),
@@ -481,9 +797,16 @@ async fn start_new(
     };
     let started = start(core, client, chosen).await?;
     super::workspace::retitle(core, &agent_id, choice.title, false);
-    if let Some(worktree) = worktree {
-        core.workspaces
+    if let Some(mut worktree) = worktree {
+        super::ports::checkout::claim(core, &mut worktree);
+        core.workspaces()
             .edit_agent(&agent_id, |agent| agent.worktree = Some(worktree))?;
+    }
+    if let Some(resumed) = &resumed {
+        super::worktree::agent::set_up_made_again(core, &agent_id, resumed);
+    }
+    if let Some(was) = was {
+        put_back(core, was);
     }
     remember_kind(core, &kind);
     if started.unstarted() {
@@ -496,6 +819,33 @@ async fn start_new(
             Err(error)
         }
     }
+}
+
+/// Gives an agent taken up again what it had when it closed and its session does not keep: its
+/// place under its lead or beside the chat it asked aside of, while that is open, and the
+/// person's name and labels for it.
+pub(crate) fn put_back(core: &Core, was: WorkspaceAgent) {
+    let open = |agent: &Option<String>| {
+        agent
+            .clone()
+            .filter(|agent| core.workspaces().agent(agent).is_some())
+    };
+    let (lead, side_of) = (open(&was.lead), open(&was.side_of));
+    let put = core.workspaces().edit_agent(&was.id, |agent| {
+        agent.lead = agent.lead.take().or(lead);
+        agent.side_of = agent.side_of.take().or(side_of);
+        agent.tags = was.tags.clone();
+        agent.keep_alive = was.keep_alive;
+        if was.renamed {
+            agent.title = was.title.clone();
+            agent.renamed = true;
+        }
+    });
+    if let Err(error) = put {
+        eprintln!("sikemux core: a reopened agent did not get back what it had: {error}");
+    }
+    core.workspaces().reopened(&was.id);
+    super::now::reopened(core, &was.id);
 }
 
 /// What a client starting an agent hears before its chat session has begun, or of an
@@ -511,13 +861,13 @@ fn not_started() -> ChatStart {
 /// Keeps the kind of agent a chat was started as, so a project with no agent of its own
 /// starts its next chat as that kind.
 fn remember_kind(core: &Core, kind: &str) {
-    if core.preferences.get().last_agent_type.as_deref() == Some(kind) {
+    if core.preferences().get().last_agent_type.as_deref() == Some(kind) {
         return;
     }
-    if core.preferences.set("lastAgentType", kind.into()).is_ok() {
-        core.changes
-            .changed(super::changed::Topic::Preferences, None, None);
-        core.view_changed();
+    if let Err(error) =
+        super::preferences::set(core, PreferenceChange::LastAgentType(Some(kind.into())))
+    {
+        eprintln!("sikemux core: the kind of agent last started was not kept: {error}");
     }
 }
 
@@ -528,8 +878,95 @@ pub(crate) fn resume_chat(
     request_id: RequestId,
     choice: ResumeChoice,
 ) {
-    match core.workspaces.resume_choice(choice, &core.chats.list()) {
+    match core
+        .workspaces()
+        .resume_choice(choice, &core.chats().list(), &core.triggers().held())
+    {
         Ok(choice) => start_chat(core, client, request_id, choice),
         Err(error) => client.respond(request_id, Err(error)),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TerminalParams {
+    agent_id: String,
+    cols: u16,
+    rows: u16,
+}
+
+/// Starts the agent's terminal at the size the app shows it.
+pub(crate) async fn start_terminal_at(
+    core: &Arc<Core>,
+    params: TerminalParams,
+) -> CoreResult<Value> {
+    let size = (params.cols, params.rows);
+    let pty = start_terminal(core, &params.agent_id, size, None).await?;
+    Ok(json!({ "ptyId": pty }))
+}
+
+pub(crate) async fn spawn(
+    core: Arc<Core>,
+    launch: LaunchIdentity,
+    mut target: Box<SpawnTarget>,
+    started_by: Option<String>,
+) -> CoreResult<PendingStart> {
+    let mut model_grant = None;
+    if let SpawnTarget::Terminal(spawn) = target.as_mut() {
+        core.spares().note_size(spawn.cols, spawn.rows);
+        model_grant = terminal_agent(&core, spawn).await;
+    }
+    blocking(move || {
+        let mut prepared = match *target {
+            SpawnTarget::Terminal(mut spawn) => {
+                let folder = spawn.cwd.clone().or_else(|| {
+                    spawn
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.project.clone())
+                        .filter(|project| !project.is_empty())
+                });
+                if let Some(folder) = &folder {
+                    give_agent_environment(&core, folder, &mut spawn.env);
+                    super::ports::checkout::give(&core, Path::new(folder), &mut spawn.env);
+                }
+                let resumed = super::activity_log::resumed_by(&spawn);
+                let prepared = prepare_terminal(&launch, spawn)?;
+                let owner = &prepared.owner;
+                if let Some(resumed) = resumed {
+                    super::activity_log::terminal_launched(&core, owner, resumed);
+                }
+                if let (Some(agent_id), Some(folder)) = (&owner.agent_id, folder) {
+                    core.name_agent(
+                        agent_id,
+                        std::path::Path::new(&folder),
+                        owner.agent_type.as_deref(),
+                        None,
+                    );
+                }
+                prepared
+            }
+            SpawnTarget::Task { mut request } => {
+                give_agent_environment(&core, &request.cwd, &mut request.env);
+                super::ports::checkout::give(&core, Path::new(&request.cwd), &mut request.env);
+                prepare_task(&launch, request)?
+            }
+        };
+        prepared.owner.started_by = started_by;
+        prepared.model_grant =
+            model_grant.map(|grant| Box::new(grant) as super::session::ModelGrant);
+        super::session::spawn_session(&core, prepared)
+    })
+    .await
+}
+
+fn give_agent_environment(
+    core: &Core,
+    folder: &str,
+    env: &mut std::collections::HashMap<String, String>,
+) {
+    let given = super::plugins::agent_environment(core, std::path::Path::new(folder));
+    for (key, value) in given {
+        env.entry(key).or_insert(value);
     }
 }

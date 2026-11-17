@@ -1,12 +1,5 @@
 // Slack: read a thread a person shares, search, reply, and say who someone is,
-// for the person in a pane of their own and for their agents as tools.
-//
-//   config — the workspaces signed in here, and their tokens in the Keychain
-//   client — the HTTP client, the token, and Slack's `ok: false` answers
-//   auth   — signing in with a token, and the status of each workspace
-//   text   — message links, and Slack's markup as markdown
-//   slack  — channels, history, threads, search, posts and people
-//   views  — a thread as the pane shows it, with what an agent is handed of it
+// as tools for the person's agents.
 
 mod auth;
 mod client;
@@ -14,28 +7,16 @@ mod config;
 mod error;
 mod slack;
 mod text;
-mod views;
-
-use std::sync::Arc;
 
 use serde_json::Value;
-use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
-};
+use sikemux_plugin_api::store;
+use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Slack {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Slack {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Slack);
 
 impl Plugin for Slack {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
+    fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
+        Some(&config::BOOK)
     }
 
     fn call<'a>(
@@ -53,10 +34,6 @@ impl Plugin for Slack {
                     reply(auth::status(data_dir).await)
                 }
                 "signOut" => answer(auth::sign_out(data_dir, params(input)?)).await,
-                "setDefault" => answer(auth::set_default(data_dir, params(input)?)).await,
-                "channelsView" => answer(slack::channels_view(data_dir, params(input)?)).await,
-                "historyView" => answer(slack::history_view(data_dir, params(input)?)).await,
-                "threadView" => answer(views::thread_view(data_dir, params(input)?)).await,
                 "thread" => answer(slack::thread(data_dir, params(input)?)).await,
                 "search" => answer(slack::search(data_dir, params(input)?)).await,
                 "post" => answer(slack::post(data_dir, params(input)?)).await,
@@ -66,23 +43,13 @@ impl Plugin for Slack {
         })
     }
 
-    fn stream<'a>(
-        &'a self,
-        _ctx: &'a PluginContext,
-        method: &'a str,
-        _input: Value,
-        _sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        Box::pin(async move { Err(PluginError::unknown_method(method)) })
-    }
-
     /// Slack is not tied to a repository, so its tools are offered wherever a workspace is signed in.
     fn offers_agent_tools<'a>(
         &'a self,
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir())?.workspaces.is_empty()) })
+        Box::pin(async move { Ok(store::has_account::<config::SlackConfig>(ctx.data_dir())) })
     }
 }
 
@@ -99,7 +66,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out_and_offers_no_tools() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = scratch("status");
         let status = plugin
             .call(&ctx, "status", Value::Null)
@@ -110,30 +77,26 @@ mod tests {
             (Some(false), Some(false))
         );
         let error = plugin
-            .call(&ctx, "channelsView", json!({}))
+            .call(&ctx, "search", json!({ "query": "deploy" }))
             .await
             .expect_err("signed out");
-        assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::Unconfigured
+        );
         assert!(!plugin.offers_agent_tools(&ctx, &[]).await.expect("answers"));
     }
 
     #[tokio::test]
     async fn a_token_that_is_not_slacks_is_refused_before_asking_slack() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let error = plugin
             .call(&scratch("token"), "signIn", json!({ "token": "glpat-abc" }))
             .await
             .expect_err("refused");
-        assert_eq!(error.category, sikemux_plugin_api::Category::BadParams);
-    }
-
-    #[tokio::test]
-    async fn an_unknown_method_is_refused() {
-        let plugin = plugin().expect("plugin loads");
-        let error = plugin
-            .call(&scratch("unknown"), "nonsense", Value::Null)
-            .await
-            .expect_err("refused");
-        assert_eq!(error.category, sikemux_plugin_api::Category::UnknownMethod);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::BadParams
+        );
     }
 }

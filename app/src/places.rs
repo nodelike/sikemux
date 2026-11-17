@@ -1,38 +1,20 @@
 //! Shortcuts that move between places and the surfaces of the one in front: closing
 //! a project or host, going back to the last one, jumping between projects and hosts,
-//! and bringing forward a project's files, agents, terminals or board.
+//! and bringing forward a project's files, agents or terminals.
 
+use crate::workbench::actions;
 use gpui_kit::{App, Context, Window};
-use serde_json::json;
-use sikemux_wire::protocol::{Pane, PaneKind, ProjectInfo};
+use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_view::workspace::ProjectInfo;
 
+use crate::core::Target;
+use crate::hosts::Place;
 use crate::tabs;
-use crate::workbench::{RailPage, Strip, Workbench};
-
-/// Defines unit actions named by today's command ids.
-macro_rules! commands {
-    ($($(#[$doc:meta])* $name:ident = $id:literal,)*) => {$(
-        $(#[$doc])*
-        #[derive(Clone, Default, PartialEq, gpui::Action)]
-        #[action(name = $id)]
-        pub struct $name;
-    )*};
-}
-
-commands! {
-    /// Closes the project or host in front, asking first when it would stop agents at
-    /// work or lose unsaved files.
-    ClosePlace = "session.close",
-    /// Goes back to the project or host in front before this one.
-    LastPlace = "session.lastUsed",
-    /// Jumps from the projects to the hosts, or back.
-    NextGroup = "session.nextGroup",
-    /// The tab rail's terminals.
-    FocusTerminals = "session.command",
-    FocusFiles = "window.files",
-    FocusAgents = "window.agents",
-    FocusBoard = "window.board",
-}
+use crate::workbench::{Strip, Workbench};
+use sikemux_calls::call;
+use sikemux_calls::workspace::CloseAgentsParams;
+use sikemux_calls::workspace::RemoveProjectParams;
+use sikemux_view::prefs::TabRailPage;
 
 impl Workbench {
     /// Notes the place in front, keeping the one before it for [`LastPlace`].
@@ -85,50 +67,51 @@ impl Workbench {
                 .cloned(),
         };
         if let Some(project) = project {
-            self.close_project(project, cx);
+            self.close_project(self.place(), project, cx);
         }
     }
 
     /// Stops offering a project, asking first when agents are at work in it or files are unsaved.
-    pub fn close_project(&mut self, project: ProjectInfo, cx: &mut Context<Self>) {
-        if self.projects().len() < 2 {
+    pub fn close_project(&mut self, place: Place, project: ProjectInfo, cx: &mut Context<Self>) {
+        if self
+            .view_at(&place)
+            .is_none_or(|view| view.workspace.projects.len() < 2)
+        {
             return;
         }
         let working = self
-            .agents_of(&project.id)
+            .agents_at(&place, &project.id)
             .iter()
             .filter(|agent| agent.busy)
             .count();
         let unsaved = self
             .editors
             .read(cx)
-            .unsaved_under(&self.place(), &project.path)
+            .unsaved_under(&place, &project.path)
             .count();
-        let path = project.path.to_string_lossy().into_owned();
-        let close =
-            move |bench: &mut Workbench| bench.call("removeProject", json!({ "path": path }));
+        let path = project.path.clone();
+        let close = move |bench: &mut Workbench| {
+            Target::new(&bench.asks, place.clone())
+                .call_typed::<call::RemoveProject>(RemoveProjectParams { path: path.clone() })
+        };
         if working == 0 && unsaved == 0 {
             return close(self);
         }
         let mut lost = Vec::new();
-        if working > 0 {
-            lost.push(format!(
-                "{working} agent{} at work stop{}",
-                if working == 1 { "" } else { "s" },
-                if working == 1 { "s" } else { "" }
-            ));
+        match working {
+            0 => {}
+            1 => lost.push(t!("1 agent at work stops.").to_owned()),
+            count => lost.push(t!("{count} agents at work stop.", count = count)),
         }
-        if unsaved > 0 {
-            lost.push(format!(
-                "{unsaved} unsaved file{} {} lost",
-                if unsaved == 1 { "" } else { "s" },
-                if unsaved == 1 { "is" } else { "are" }
-            ));
+        match unsaved {
+            0 => {}
+            1 => lost.push(t!("1 unsaved file is lost.").to_owned()),
+            count => lost.push(t!("{count} unsaved files are lost.", count = count)),
         }
         self.confirm(
-            format!("Close {}?", project.name),
-            format!("{}.", lost.join(", and ")),
-            "Close",
+            t!("Close {name}?", name = project.name),
+            lost.join(" "),
+            t!("Close"),
             true,
             move |bench, yes, _, _| {
                 if yes {
@@ -149,7 +132,7 @@ impl Workbench {
         });
         match file {
             Some((strip, tab)) => self.activate_tab(&strip, &tab),
-            None => self.open_rail_on(RailPage::Files, cx),
+            None => self.open_rail_on(TabRailPage::Files, cx),
         }
     }
 
@@ -158,7 +141,7 @@ impl Workbench {
         let Some(strip @ Strip::Project(_)) = self.strip() else {
             return;
         };
-        self.open_rail_on(RailPage::Agents, cx);
+        self.open_rail_on(TabRailPage::Agents, cx);
         let in_front = self
             .tab()
             .and_then(|tab| tabs::first_view(&tab.pane))
@@ -175,17 +158,7 @@ impl Workbench {
             .map(|tab| tab.id.clone());
         match agent {
             Some(tab) => self.activate_tab(&strip, &tab),
-            None => crate::keymap::dispatch("agent.choose", window, cx),
-        }
-    }
-
-    pub fn focus_board(&self, cx: &mut App) {
-        if let Some(project) = self.project() {
-            self.take_keys_when_shown(crate::workbench::TakesKeys::Board, cx);
-            self.call_in_front(
-                "openTab",
-                json!({ "project": project.id, "kind": "board", "target": project.path.to_string_lossy() }),
-            );
+            None => crate::keymap::dispatch(actions::ChooseAgent::ID, window, cx),
         }
     }
 
@@ -226,19 +199,22 @@ impl Workbench {
         };
         let tab_id = tab.id.clone();
         let close = move |bench: &mut Workbench| match split {
-            true => bench.close_pane(&strip, &tab_id, &pane),
+            true => bench.close_pane(&bench.target(), &strip, &tab_id, &pane),
             false => bench.close_tabs(&strip, std::slice::from_ref(&tab_id)),
         };
         if kind == PaneKind::Agent {
-            let title = format!(
-                "Close {}?",
-                self.saved_title(&target)
-                    .unwrap_or_else(|| "the agent".to_owned())
+            let title = t!(
+                "Close {name}?",
+                name = self
+                    .saved_title(&target)
+                    .unwrap_or_else(|| t!("the agent").to_owned())
             );
             return self.ask_to_stop(vec![target], title, cx, move |bench, workers| {
                 close(bench);
                 if !workers.is_empty() {
-                    bench.call("closeAgents", json!({ "agentIds": workers }));
+                    bench
+                        .target()
+                        .call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
                 }
             });
         }
@@ -246,8 +222,7 @@ impl Workbench {
     }
 
     fn saved_title(&self, agent: &str) -> Option<String> {
-        self.view
-            .as_ref()?
+        self.this_view()?
             .workspace
             .agents
             .iter()
@@ -255,8 +230,7 @@ impl Workbench {
             .map(|saved| saved.title.clone())
     }
 
-    /// Opens the tab rail on `page`.
-    pub fn open_rail_on(&mut self, page: RailPage, cx: &mut Context<Self>) {
+    pub fn open_rail_on(&mut self, page: TabRailPage, cx: &mut Context<Self>) {
         if !self.rails.tab_open {
             self.rails.tab_open = true;
             self.keep_rails(cx);

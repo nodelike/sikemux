@@ -1,16 +1,31 @@
 {
   "id": "sikemux.jira",
   "name": "Jira",
-  "version": "0.1.0",
-  "sikemux": ">=0.4",
-  "views": {
-    "listView": { "everySecs": 30 },
-    "issueView": { "everySecs": 30 },
-    "boardView": { "everySecs": 30 },
-    "spacesView": { "everySecs": 300 }
-  },
-  "writes": ["comment", "transition", "assign", "setTask", "moveIssue", "create", "edit", "link", "worklog"],
   "accountMethods": ["signIn", "signInWithBrowser", "signOut"],
+  "tokenForm": {
+    "method": "signIn",
+    "lede": "Tools for your agents to search, read and update your Jira issues.",
+    "fields": [
+      {
+        "name": "site",
+        "label": "Jira site",
+        "placeholder": "your-team.atlassian.net"
+      },
+      {
+        "name": "email",
+        "label": "Atlassian account email",
+        "placeholder": "you@example.com"
+      },
+      {
+        "name": "token",
+        "label": "API token",
+        "placeholder": "ATATT…",
+        "secret": true
+      }
+    ],
+    "tokenPage": "https://id.atlassian.com/manage-profile/security/api-tokens"
+  },
+  "family": {"name": "jira", "description": "Jira issues."},
   "tools": [
     {
       "name": "jira_search",

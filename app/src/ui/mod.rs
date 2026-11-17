@@ -9,16 +9,22 @@ mod file_card;
 pub mod find_bar;
 mod floats;
 pub mod grain;
+pub mod keyed;
+pub mod list_picker;
 mod lists;
+mod model_name;
 pub mod moving_face;
+pub mod numbers;
 mod pane;
 pub mod path;
 mod select;
 pub mod selectable;
 pub mod shimmer;
 pub mod sign_in;
+pub(crate) mod slice_state;
 mod state_mark;
 pub mod time;
+pub mod yolo;
 
 pub use controls::{Button, Field, IconButton, Segmented, Toggle, Variant};
 pub use dialog::{Cheatsheet, Choice, Choices, Confirm, Prompt, Section};
@@ -26,41 +32,74 @@ pub use dock::{shell as dock_shell, DockMenu, DockRow, DockScope};
 pub use file_card::{file_head, Opens};
 pub use find_bar::FindBar;
 pub use floats::{
-    card_tooltip, float, menu, menu_button, split_button, tooltip, MenuRow, SplitMenu, FLOAT_INSET,
-    PANEL_INSET,
+    card_tooltip, float, menu, menu_button, tooltip, MenuRow, FLOAT_INSET, PANEL_INSET,
 };
-pub use lists::{
-    close_button, gives_way, hover_actions, page_tab, page_tabs, Group, Row, Tab, ROW,
-};
-pub use pane::{pane, plain_pane, PaneHeader, AGENT_INSET};
-pub use select::{marked_select, select, Pick};
-pub use state_mark::status_mark;
+pub use gpui_clicks::Clicks;
+pub(crate) use lists::relist;
+pub use lists::{close_button, gives_way, hover_actions, tab_height, Group, Row, Tab, ROW};
+pub use model_name::model_name;
+pub use pane::{floating_panel, notice_bar, pane, pane_frame, PaneHeader, AGENT_INSET};
+pub use select::{select, Pick};
+pub use state_mark::{status_mark, turn_mark, turn_time};
 
 use std::f32::consts::TAU;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, img, point, px, svg, AnyElement, App, Context, Div, ElementId, FontFallbacks,
-    FontWeight, HighlightStyle, Hsla, IntoElement, ParentElement, PathBuilder, Render,
-    SharedString, Styled, StyledText, Svg, Window,
+    canvas, div, img, point, px, svg, AnyElement, App, Context, Div, ElementId, FontWeight,
+    HighlightStyle, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder, Render,
+    SharedString, Stateful, Styled, StyledText, Svg, Window,
 };
 
-use sikemux_wire::protocol::{AgentFace, AgentGroup};
+use sikemux_view::workspace::AgentFace;
+use sikemux_wire::protocol::AgentGroup;
 
 use crate::icons::{self, Icon};
 use crate::theme::{self, Tokens, TEXT_2XS, TEXT_LG};
 
+/// Draws the window again once this frame is done. A layout that learns its size while painting
+/// needs this: GPUI ignores a refresh asked for mid-frame, which left such layouts stale.
+pub fn redraw_after_paint(window: &Window, cx: &mut App) {
+    window.defer(cx, |window, _| window.refresh());
+}
+
 /// What a menu calls showing a file in the system's file manager.
 pub const REVEAL: &str = if cfg!(target_os = "macos") {
-    "Reveal in Finder"
+    n!("Reveal in Finder")
 } else {
-    "Show in Files"
+    n!("Show in Files")
 };
 pub const SHOW_IN_FILES: &str = if cfg!(target_os = "macos") {
-    "Show in Finder"
+    n!("Show in Finder")
 } else {
-    "Show in Files"
+    n!("Show in Files")
 };
+
+pub const DISCORD: &str = "https://discord.gg/UKfmHpF9kX";
+
+/// One quiet line that opens Sikemux's Discord, where people ask for help.
+pub fn discord_link(id: impl Into<ElementId>, size: f32, cx: &App) -> Stateful<Div> {
+    let t = Tokens::get(cx).clone();
+    div()
+        .id(id)
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px((size * 0.45).round()))
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .text_size(theme::ui_text(size))
+        .text_color(t.text_tertiary)
+        .group("discord-link")
+        .hover(move |link| link.text_color(t.text_primary))
+        .clicks(|_, _, cx| cx.open_url(DISCORD))
+        .child(
+            icon(Icon::Discord, size)
+                .text_color(t.text_tertiary)
+                .group_hover("discord-link", move |icon| icon.text_color(t.text_primary)),
+        )
+        .child(t!("Questions? Ask on Discord"))
+}
 
 pub fn icon(icon: Icon, size: f32) -> Svg {
     svg().path(icon.path()).size(px(size)).flex_none()
@@ -69,7 +108,7 @@ pub fn icon(icon: Icon, size: f32) -> Svg {
 /// A mark at `size`: a picture as it is drawn, or a glyph in `tint`.
 pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
     if glyph.is_picture() {
-        img(glyph.path())
+        img(icons::sharp_picture(glyph, size))
             .size(px(size))
             .flex_none()
             .into_any_element()
@@ -79,6 +118,11 @@ pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
 }
 
 /// An agent's mark at `size`, in its brand colour.
+/// A project's chief's mark, `size` across in place of a face: Sikemux's own purple S.
+pub fn chief_mark(size: f32) -> AnyElement {
+    mark_box(size, mark("sikemux", size * 1.2)).into_any_element()
+}
+
 pub fn mark(provider: &str, size: f32) -> AnyElement {
     picture(icons::agent(provider), size, theme::brand(provider))
 }
@@ -177,6 +221,24 @@ pub fn agent_mark(
     }
 }
 
+/// An agent's mark held still whatever it is doing, for a list long enough that its faces moving
+/// would cost more than they say.
+pub fn still_mark(
+    provider: &str,
+    face: Option<&AgentFace>,
+    group: AgentGroup,
+    size: f32,
+    cx: &App,
+) -> AnyElement {
+    match face.and_then(|face| crate::faces::image(face, group, cx)) {
+        Some(image) => gpui_kit::img(image)
+            .size(px(size))
+            .flex_none()
+            .into_any_element(),
+        None => mark(provider, size),
+    }
+}
+
 /// Someone's initials on a colour of their own, picked by `key` when there is one, else
 /// their name, as today's history and code host draw people without a picture.
 pub fn initials(name: &str, key: &str, size: f32, cx: &App) -> Div {
@@ -209,6 +271,19 @@ pub fn initials(name: &str, key: &str, size: f32, cx: &App) -> Div {
         .child(initials)
 }
 
+/// A page's site icon, or a filled square in its place while the page has none.
+pub fn favicon(icon: Option<std::sync::Arc<gpui_kit::Image>>, size: f32, cx: &App) -> AnyElement {
+    match icon {
+        Some(icon) => img(icon).size(px(size)).flex_none().into_any_element(),
+        None => div()
+            .size(px(size))
+            .flex_none()
+            .rounded(theme::radius_1())
+            .bg(Tokens::get(cx).text_disabled)
+            .into_any_element(),
+    }
+}
+
 /// A square that centres what it holds, so marks of any drawing line up.
 pub fn mark_box(size: f32, child: impl IntoElement) -> Div {
     div()
@@ -229,6 +304,32 @@ pub fn text(value: impl Into<SharedString>, size: f32, weight: FontWeight) -> Di
         .child(value.into())
 }
 
+/// How wide `value` draws as `text` sets it at `size` and `weight`.
+pub fn text_width(
+    value: &SharedString,
+    size: f32,
+    weight: FontWeight,
+    window: &mut Window,
+    cx: &App,
+) -> gpui_kit::Pixels {
+    let run = gpui_kit::TextRun {
+        len: value.len(),
+        font: gpui_kit::Font {
+            weight,
+            ..gpui_kit::font(crate::theme::ui_font())
+        },
+        color: Tokens::get(cx).text_primary,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let size = crate::theme::ui_text(size).to_pixels(window.rem_size());
+    window
+        .text_system()
+        .shape_line(value.clone(), size, &[run], None)
+        .width
+}
+
 /// What a row says about itself after its title: 11px in the tertiary ink.
 pub fn meta(value: impl Into<SharedString>, cx: &App) -> Div {
     text(value, TEXT_2XS, FontWeight::NORMAL).text_color(Tokens::get(cx).text_tertiary)
@@ -237,11 +338,10 @@ pub fn meta(value: impl Into<SharedString>, cx: &App) -> Div {
 /// What the machine says: the mono face, with tabular figures and its icon glyphs.
 pub fn mono(value: impl Into<SharedString>, size: f32, cx: &App) -> Div {
     let mut mono = text(value, size, FontWeight::NORMAL)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .font_features(theme::tabular())
         .text_color(Tokens::get(cx).text_tertiary);
-    mono.text_style().font_fallbacks =
-        Some(FontFallbacks::from_fonts(vec![theme::MONO_ICONS.into()]));
+    mono.text_style().font_fallbacks = theme::mono().fallbacks;
     mono
 }
 
@@ -296,9 +396,25 @@ pub fn found_with(value: impl Into<SharedString>, query: &str, mark: HighlightSt
 /// A shortcut as the system draws key names.
 pub fn kbd(keys: impl Into<SharedString>, cx: &App) -> Div {
     text(keys, TEXT_2XS, FontWeight::MEDIUM)
-        .font_family(theme::KBD)
+        .font_family(theme::kbd_font())
         .line_height(crate::theme::ui_text(TEXT_2XS))
         .text_color(Tokens::get(cx).text_tertiary)
+}
+
+/// A shortcut in a key's box, sunken under the text around it.
+pub fn keycap(keys: impl Into<SharedString>, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    kbd(keys, cx)
+        .flex_none()
+        .px(theme::SPACE_1H)
+        .py(px(1.))
+        .line_height(theme::ui_text(theme::TEXT_SM))
+        .flex()
+        .justify_center()
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .bg(t.surface_sunken)
+        .rounded(theme::radius_1())
 }
 
 /// A rounded frame over the shell, as the rails and panes are.
@@ -309,9 +425,9 @@ pub fn panel(cx: &App) -> Div {
         .flex_col()
         .overflow_hidden()
         .when(!crate::see_through::clear(cx), |panel| panel.bg(t.surface))
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
 }
 
 /// How something reachable stands, as its 7px dot says.
@@ -343,6 +459,15 @@ pub fn dot(tone: Tone, cx: &App) -> Div {
         }
         Tone::Failed => dot.bg(t.danger),
     }
+}
+
+/// The spinner a row of running work ends on.
+pub fn working(size: f32, tint: Hsla) -> AnyElement {
+    use gpui_kit::component::Sizable;
+    gpui_kit::component::spinner::Spinner::new()
+        .with_size(px(size))
+        .color(tint)
+        .into_any_element()
 }
 
 /// A ring `size` across, filled clockwise from the top in its tint as far as the percent,

@@ -22,7 +22,6 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// endpoint has gone stale; past it the device dials again from a fresh one.
 const REDIAL_TIMEOUT: Duration = Duration::from_secs(6);
 
-/// The endpoint and the hosts it has reached.
 struct Online {
     endpoint: Endpoint,
     generation: u64,
@@ -131,10 +130,15 @@ impl Device {
         sign_registration(&self.key, nonce, user_id)
     }
 
+    /// Where `host` is found: through the relays this device is on.
+    pub fn addr(&self, host: PublicKey) -> EndpointAddr {
+        host_addr(host, &self.relays)
+    }
+
     /// Hands the host the ticket names the hello, and waits while the person
     /// there decides. An allowed device is paired with the host.
     pub async fn join(&self, host: PublicKey, hello: &JoinHello) -> Result<JoinReply, JoinError> {
-        self.join_at(host_addr(host, &self.relays), hello).await
+        self.join_at(self.addr(host), hello).await
     }
 
     /// Like [`Self::join`], at an address known some other way.
@@ -160,7 +164,7 @@ impl Device {
         host: PublicKey,
         sink: Arc<dyn EventSink>,
     ) -> Result<(CoreClient, Connection), ClientError> {
-        self.connect_to(host_addr(host, &self.relays), sink).await
+        self.connect_to(self.addr(host), sink).await
     }
 
     /// Like [`Self::connect`], at an address known some other way.
@@ -215,6 +219,7 @@ impl Device {
                 Ok(Ok(opened)) => opened,
                 Ok(Err(
                     error @ (ClientError::Core(_)
+                    | ClientError::Refused { .. }
                     | ClientError::VersionMismatch { .. }
                     | ClientError::NotPaired),
                 )) => return Err(Dial::Final(error)),
@@ -231,7 +236,6 @@ impl Device {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Whether the device was taken off the network.
     pub fn is_closed(&self) -> bool {
         self.lock().closed
     }

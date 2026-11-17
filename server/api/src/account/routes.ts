@@ -1,82 +1,84 @@
-import type { Account, AccountDeletion, PushApp } from "@sikemux/protocol";
+import type { Services } from "../app.ts";
+import type { Account, AccountDeletion } from "@sikemux/protocol";
 import { Hono } from "hono";
 
-import {
-  isWeb,
-  requireIdentity,
-  requireRecentSignIn,
-  type AuthEnv,
-  type Verifier,
-} from "../auth.ts";
-import type { Database } from "../db.ts";
+import type { AuthEnv } from "../auth.ts";
+import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
 import { notFound, readOptionalBody } from "../http.ts";
-import { limit, type RateLimiter } from "../limits.ts";
-import { revokeAppleSignIn, type AppleSignIn } from "./apple.ts";
-import type { ClerkBackend } from "./clerk.ts";
+import { perUser } from "../limits.ts";
+import { planOf } from "../billing/allowance.ts";
+import { endDeletedBilling } from "../billing/deleted.ts";
+import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
+import { isStaff } from "./staff.ts";
 
-export function accountRoutes(
-  { db }: Database,
-  verifier: Verifier,
-  limiter: RateLimiter,
-  clerk: ClerkBackend | null,
-  apple: AppleSignIn | null,
-  app: PushApp,
-) {
+export function accountRoutes({
+  database: { db },
+  verifier,
+  limiter,
+  clerk,
+  appleSignIn: apple,
+  push: { app },
+  billing: { provider },
+}: Pick<
+  Services,
+  | "database"
+  | "verifier"
+  | "limiter"
+  | "clerk"
+  | "appleSignIn"
+  | "push"
+  | "billing"
+>) {
   return new Hono<AuthEnv>()
     .use(requireIdentity(verifier, db, { allowDeleted: true }))
     .get("/", async (c) => {
       const { userId } = c.get("identity");
       const user = await db
         .selectFrom("users")
-        .select(["deleted_at", "purge_after"])
+        .select(["deleted_at", "purge_after", "staff"])
         .where("id", "=", userId)
         .executeTakeFirst();
+      const plan = await planOf(db, userId);
       const body: Account =
         user?.deleted_at && user.purge_after
           ? {
               status: "deleting",
               deletesAt: user.purge_after.toISOString(),
               restorableDays: PURGE_AFTER_DAYS,
+              staff: user.staff,
+              plan,
             }
-          : { status: "active", restorableDays: PURGE_AFTER_DAYS };
+          : {
+              status: "active",
+              restorableDays: PURGE_AFTER_DAYS,
+              staff: user?.staff ?? false,
+              plan,
+            };
       return c.json(body);
     })
-    .post(
-      "/restore",
-      limit<AuthEnv>(
-        limiter,
-        "restore-account",
-        10,
-        (c) => c.get("identity").userId,
-      ),
-      async (c) => {
-        const identity = c.get("identity");
-        if (!(await restoreAccount(db, identity.userId)))
-          throw notFound(
-            "The account is already deleted and can no longer be restored.",
-          );
-        c.get("log").info("restored an account");
-        const body: Account = {
-          status: "active",
-          restorableDays: PURGE_AFTER_DAYS,
-        };
-        return c.json(body);
-      },
-    )
+    .post("/restore", perUser(limiter, "restore-account", 10), async (c) => {
+      const identity = c.get("identity");
+      if (!(await restoreAccount(db, identity.userId)))
+        throw notFound(
+          "The account is already deleted and can no longer be restored.",
+        );
+      c.get("log").info("restored an account");
+      const body: Account = {
+        status: "active",
+        restorableDays: PURGE_AFTER_DAYS,
+        staff: await isStaff(db, identity.userId),
+        plan: await planOf(db, identity.userId),
+      };
+      return c.json(body);
+    })
     .delete(
       "/",
-      limit<AuthEnv>(
-        limiter,
-        "delete-account",
-        10,
-        (c) => c.get("identity").userId,
-      ),
+      perUser(limiter, "delete-account", 10),
       requireRecentSignIn(),
       async (c) => {
         const identity = c.get("identity");
         const request = await readOptionalBody(c, "AccountDeletionRequest");
-
         const deletion = await markDeleted(db, {
           userId: identity.userId,
           actor: `user:${identity.userId}`,
@@ -85,6 +87,7 @@ export function accountRoutes(
         });
         const log = c.get("log");
         log.info({ at: deletion.requestedAt }, "deleted an account");
+        await endDeletedBilling(db, provider, log, identity.userId);
         await revokeAppleSignIn(db, apple, clerk, log, {
           userId: identity.userId,
           code: request?.appleAuthorizationCode,

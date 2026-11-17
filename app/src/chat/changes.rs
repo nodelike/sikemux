@@ -3,7 +3,7 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_wire::chat::{ChatChange, ChatHead, ChatMessage, ChatPart, ChatView};
+use sikemux_view::chat::{ChatChange, ChatHead, ChatMessage, ChatPart, ChatView};
 
 /// Some fields of a `T`, each read already, put in place in turn.
 pub type Fields<T> = Vec<Field<T>>;
@@ -57,7 +57,6 @@ impl Changed {
     }
 }
 
-/// Reads the list of `ChatChange`s the core sent.
 pub fn read(changes: Value) -> Result<Vec<Changed>, String> {
     let changes: Vec<ChatChange> =
         serde_json::from_value(changes).map_err(|error| error.to_string())?;
@@ -162,6 +161,7 @@ named_fields!(head_field, ChatHead {
     "sessionId" => session_id,
     "connection" => connection,
     "running" => running,
+    "activity" => activity,
     "turned" => turned,
     "permissionMode" => permission_mode,
     "changingMode" => changing_mode,
@@ -172,21 +172,37 @@ named_fields!(head_field, ChatHead {
     "stopReason" => stop_reason,
     "title" => title,
     "usage" => usage,
+    "compactions" => compactions,
+    "placed" => placed,
     "plan" => plan,
     "commands" => commands,
     "capabilities" => capabilities,
     "setup" => setup,
     "model" => model,
+    "modelsUnread" => models_unread,
     "effort" => effort,
+    "speed" => speed,
+    "sessionMode" => session_mode,
     "permissions" => permissions,
     "tasks" => tasks,
     "runningSubagents" => running_subagents,
     "queued" => queued,
+    "guests" => guests,
     "triggers" => triggers,
     "earlierLost" => earlier_lost,
     "ended" => ended,
     "activeTool" => active_tool,
+    "suggestion" => suggestion,
+    "handoff" => handoff,
+    "expiredCache" => expired_cache,
     "draft" => draft,
+    "goal" => goal,
+    "turn" => turn,
+    "chief" => chief,
+    "chiefHears" => chief_hears,
+    "away" => away,
+    "shown" => shown,
+    "results" => results,
 });
 
 named_fields!(row_field, ChatMessage {
@@ -196,12 +212,16 @@ named_fields!(row_field, ChatMessage {
     "parts" => parts,
     "attachments" => attachments,
     "context" => context,
+    "spans" => spans,
     "letters" => letters,
     "sentAt" => sent_at,
     "endedAt" => ended_at,
     "opensTurn" => opens_turn,
     "meta" => meta,
     "fold" => fold,
-    "reactions" => reactions,
+    "team" => team,
+    "chips" => chips,
+    "leftOut" => left_out,
     "fromEvent" => from_event,
+    "ask" => ask,
 });

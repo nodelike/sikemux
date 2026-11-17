@@ -2,8 +2,6 @@ import { twinkle, type BuddyPack, type BuddyShape, type BuddyState } from "./sha
 
 const MOTION: Record<BuddyState, string> = { idle: "", working: "bd-bob", waiting: "bd-hop", done: "", error: "bd-shake" };
 
-/** The whole-body motion a state plays; the Mac runs it on the drawing as a whole, where the compositor can take it. */
-export const bodyMotion = (state: BuddyState): string => MOTION[state];
 export const FULL_BOX = "0 0 24 24";
 const PAD = 0.7;
 
@@ -20,7 +18,7 @@ export const measuredDrawing = (pack: BuddyPack, shape: BuddyShape): string => `
 const boxes = new Map<string, string>();
 
 /* Shapes fill different parts of their 24×24 box, so each is cropped to its own drawing and every buddy fills the slot it is given. */
-export function buddyBox(pack: BuddyPack, shape: BuddyShape): string {
+function buddyBox(pack: BuddyPack, shape: BuddyShape): string {
     const key = `${pack.id}/${shape.id}`;
     const known = boxes.get(key);
     if (known) return known;

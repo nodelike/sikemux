@@ -15,6 +15,7 @@ import android.text.Spanned
 import android.text.style.TypefaceSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import java.net.URLEncoder
 
@@ -29,6 +30,7 @@ class Notifier(private val context: Context) {
         NotificationChannel(NEEDS_YOU, "Agents that need you", NotificationManager.IMPORTANCE_HIGH),
         NotificationChannel(FINISHED, "Finished work", NotificationManager.IMPORTANCE_DEFAULT),
         NotificationChannel(PROBLEMS, "Problems", NotificationManager.IMPORTANCE_DEFAULT),
+        NotificationChannel(AT_WORK, "Agents at work", NotificationManager.IMPORTANCE_LOW),
       ),
     )
   }
@@ -46,12 +48,24 @@ class Notifier(private val context: Context) {
       .setContentIntent(open(card.collapseId, card.url))
       .setExtras(extras(card))
       .setTimeoutAfter(left)
-    if (card.answerable) {
+    val options = card.options.orEmpty()
+    if (card.callId != null && options.isNotEmpty()) {
+      // A call of taste: its options as buttons, the asker's pick first, then a field for the person's own words.
+      // Android shows three buttons at most.
+      // Below Android 12 a button cannot ask for the phone's lock, so each one opens the app, as Allow does there.
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        options.take(2).forEach { builder.addAction(answerCall(card, it.id, it.label)) }
+        builder.addAction(replyCall(card))
+      } else {
+        options.take(2).forEach { builder.addAction(opens(card, it.label)) }
+        builder.addAction(opens(card, SOMETHING_ELSE))
+      }
+    } else if (card.answerable) {
       builder.addAction(answer(card, card.rejectOptionId!!, "Reject", authenticated = false))
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         builder.addAction(answer(card, card.allowOptionId!!, "Allow", authenticated = true))
       } else {
-        builder.addAction(NotificationCompat.Action.Builder(0, "Allow", open(card.collapseId, card.url)).build())
+        builder.addAction(opens(card, "Allow"))
       }
     }
     post(card.collapseId, builder)
@@ -121,7 +135,26 @@ class Notifier(private val context: Context) {
     return builder
   }
 
-  private fun post(tag: String, builder: NotificationCompat.Builder) {
+  /** The agents at work across hosts, held in the shade until none works or needs the person. */
+  fun showAgents(title: String, text: String?, url: String?) {
+    val builder = NotificationCompat.Builder(context, AT_WORK)
+      .setSmallIcon(smallIcon())
+      .setOngoing(true)
+      .setSilent(true)
+      .setOnlyAlertOnce(true)
+      .setShowWhen(false)
+      .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+      .setContentTitle(title)
+      .setContentText(text)
+      .setProgress(0, 0, true)
+      .setContentIntent(open(AT_WORK, url))
+    color()?.let { builder.setColor(it) }
+    post(AT_WORK, builder, AGENTS_ID)
+  }
+
+  fun cancelAgents() = manager.cancel(AT_WORK, AGENTS_ID)
+
+  private fun post(tag: String, builder: NotificationCompat.Builder, id: Int = ID) {
     ensureChannels()
     if (!manager.areNotificationsEnabled()) return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -129,7 +162,7 @@ class Notifier(private val context: Context) {
     ) {
       return
     }
-    manager.notify(tag, ID, builder.build())
+    manager.notify(tag, id, builder.build())
   }
 
   private fun text(card: NotificationCard): CharSequence {
@@ -202,6 +235,55 @@ class Notifier(private val context: Context) {
       .build()
   }
 
+  private fun callIntent(card: NotificationCard, option: String?): Intent =
+    Intent(context, AnswerReceiver::class.java).apply {
+      action = AnswerReceiver.ACTION
+      data = Uri.parse(answerData(card.collapseId, option ?: "words"))
+      putExtra(AnswerReceiver.TAG, card.collapseId)
+      putExtra(AnswerReceiver.HOST, card.hostKey)
+      putExtra(AnswerReceiver.HOST_NAME, card.hostName)
+      putExtra(AnswerReceiver.AGENT, card.agentId)
+      putExtra(AnswerReceiver.CALL, card.callId)
+      option?.let { putExtra(AnswerReceiver.OPTION, it) }
+      putExtra(AnswerReceiver.URL, card.url)
+    }
+
+  private fun opens(card: NotificationCard, title: String): NotificationCompat.Action =
+    NotificationCompat.Action.Builder(0, title, open(card.collapseId, card.url)).build()
+
+  /** One of a call's options, answered from the card without opening the app. */
+  private fun answerCall(card: NotificationCard, option: String, title: String): NotificationCompat.Action {
+    val pending = PendingIntent.getBroadcast(
+      context,
+      0,
+      callIntent(card, option),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    // Asks for the phone's lock first, as Allow does: nothing answers a call from a locked phone.
+    return NotificationCompat.Action.Builder(0, title, pending)
+      .setAuthenticationRequired(true)
+      .setShowsUserInterface(false)
+      .build()
+  }
+
+  /** Something else…: a field on the card for the person's own answer to the call. */
+  private fun replyCall(card: NotificationCard): NotificationCompat.Action {
+    val input = RemoteInput.Builder(AnswerReceiver.WORDS).setLabel(REPLY).build()
+    // A reply's words are added to the intent by the system, so it must stay mutable.
+    val pending = PendingIntent.getBroadcast(
+      context,
+      0,
+      callIntent(card, null),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+    )
+    return NotificationCompat.Action.Builder(0, SOMETHING_ELSE, pending)
+      .addRemoteInput(input)
+      .setAllowGeneratedReplies(false)
+      .setAuthenticationRequired(true)
+      .setShowsUserInterface(false)
+      .build()
+  }
+
   private fun smallIcon(): Int {
     val icon = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
     return if (icon != 0) icon else context.applicationInfo.icon
@@ -217,12 +299,17 @@ class Notifier(private val context: Context) {
     const val FINISHED = "finished"
     const val PROBLEMS = "problems"
     const val ID = 7
+    private const val AT_WORK = "at-work"
+    private const val AGENTS_ID = 8
     const val SETTLED_MS = 4_000L
 
     /** Longer than the answer's own time limit, so a card left saying it is sending goes when the app died sending it. */
     const val SENDING_MS = AnswerService.TIMEOUT_MS + 5_000L
     const val SCHEME_META = "com.nodelike.sikemux.scheme"
     private const val HOST_SCHEME = "sikemux://"
+    /** The words on a call's reply button and field, as `shared/calls/words.ts` holds them. */
+    private const val SOMETHING_ELSE = "Something else…"
+    private const val REPLY = "Reply"
     private const val EXTRA_HOST = "sikemux.host"
     private const val EXTRA_AGENT = "sikemux.agent"
     private const val EXTRA_KIND = "sikemux.kind"

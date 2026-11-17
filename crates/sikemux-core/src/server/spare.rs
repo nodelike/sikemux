@@ -3,18 +3,23 @@
 //! opens on a prompt instead of waiting on the person's rc files. At most one
 //! runs, and one nobody takes is stopped after a while.
 
+use crate::server::device_view::DeviceViewCore;
+use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
+use crate::server::ServerCore;
+pub use sikemux_calls::spare::{NewTerminal, SshParams};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use crate::protocol::{SessionId, SpawnTarget, TerminalSpawn};
+use sikemux_wire::protocol::{SessionId, SpawnTarget, TerminalSpawn};
 use sikemux_wire::pty::launch::{LaunchKind, PtyContext};
 
-use super::layout::At;
 use super::wake::Wake;
 use super::{session, Core, CoreError, CoreResult};
+use sikemux_view::layout::At;
 
 /// How long the front project and the terminal size stay put before a shell
 /// starts, so a burst of changes starts one.
@@ -91,7 +96,6 @@ impl Spares {
         }
     }
 
-    /// The project in front may have changed.
     pub(crate) fn front_changed(&self) {
         self.changed(&mut self.held.locked());
     }
@@ -104,11 +108,11 @@ impl Spares {
 
 /// The shell started for `project`, for a new terminal there to take over.
 pub(crate) fn take(core: &Core, params: TakeParams) -> Option<Taken> {
-    let mut held = core.spares.held.locked();
+    let mut held = core.spares().held.locked();
     let fits = held.spare.as_ref()?.project == params.project
         && Some(held.spare.as_ref()?.size) == held.size;
     let spare = held.spare.take().filter(|_| fits)?;
-    core.spares.changed(&mut held);
+    core.spares().changed(&mut held);
     Some(Taken {
         id: spare.id,
         window_id: spare.window_id,
@@ -121,9 +125,9 @@ pub(crate) fn take(core: &Core, params: TakeParams) -> Option<Taken> {
 pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let front = front_project(core);
-    let mut held = core.spares.held.locked();
+    let mut held = core.spares().held.locked();
     if now < held.changed_at + SETTLE_MS {
-        core.spares.wake.at(held.changed_at + SETTLE_MS);
+        core.spares().wake.at(held.changed_at + SETTLE_MS);
         return;
     }
     let wanted = front.zip(held.size);
@@ -134,7 +138,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let idle_until = spare.started_at.max(held.changed_at) + IDLE_LIMIT_MS;
         let stale = now >= idle_until;
         if fits && !stale {
-            core.spares.wake.at(idle_until);
+            core.spares().wake.at(idle_until);
             return;
         }
         let id = spare.id;
@@ -193,11 +197,11 @@ async fn start(
         Ok(id) => id,
         Err(error) => {
             eprintln!("sikemux core: a spare shell did not start: {error}");
-            core.spares.held.locked().starting = None;
+            core.spares().held.locked().starting = None;
             return;
         }
     };
-    let mut held = core.spares.held.locked();
+    let mut held = core.spares().held.locked();
     held.starting = None;
     held.spare = Some(Spare {
         project,
@@ -208,11 +212,9 @@ async fn start(
         started_at: epoch_ms(),
     });
     drop(held);
-    core.spares.wake.now();
+    core.spares().wake.now();
 }
 
-/// Starts a shell in a project's folder, as a terminal of that project, and
-/// types `startup` into it.
 async fn shell(
     core: &Arc<Core>,
     project: &str,
@@ -256,7 +258,7 @@ async fn terminal(
     };
     let target = Box::new(SpawnTarget::Terminal(spawn));
     let pending =
-        super::connection::spawn(core.clone(), core.launch_identity(), target, None).await?;
+        super::launching::spawn(core.clone(), core.launch_identity(), target, None).await?;
     let id = pending.id();
     pending.start(core);
     Ok(id)
@@ -264,16 +266,7 @@ async fn terminal(
 
 /// The size a terminal opened by the core starts at: the last one a client gave.
 pub(crate) fn opening_size(core: &Core) -> (u16, u16) {
-    core.spares.held.locked().size.unwrap_or((80, 24))
-}
-
-#[derive(Deserialize)]
-pub(crate) struct NewTerminal {
-    #[serde(default)]
-    project: String,
-    /// Opens it among the terminals of no project, in the home folder.
-    #[serde(default)]
-    terminals: bool,
+    core.spares().held.locked().size.unwrap_or((80, 24))
 }
 
 /// Opens a terminal tab in `project` on the shell started ahead when it fits,
@@ -297,10 +290,11 @@ pub(crate) async fn show_terminals(core: &Arc<Core>) -> CoreResult<()> {
 }
 
 async fn home_shell(core: &Arc<Core>) -> CoreResult<SessionId> {
-    shell_at_home(core, "terminals".into(), "Terminals".into(), None).await
+    shell_at_home(core, "terminals".into(), String::new(), None).await
 }
 
-/// A shell in the home folder, named for the strip it shows in, typing `startup` when given.
+/// A shell in the home folder typing `startup` when given. One with no name and no startup is
+/// plain, so the rail numbers it among the terminals.
 async fn shell_at_home(
     core: &Arc<Core>,
     session_id: String,
@@ -312,8 +306,8 @@ async fn shell_at_home(
         session_name,
         session_kind: LaunchKind::Command,
         project: None,
-        window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
-        pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
+        window_id: Some(super::layout::window_id()),
+        pane_id: Some(super::layout::view_id()),
         agent_id: None,
         agent_type: None,
         initial_prompt_submitted: false,
@@ -338,8 +332,8 @@ pub(crate) async fn project_shell(core: &Arc<Core>, project: &str) -> CoreResult
     let (path, name) = project_folder(core, project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
     let size = opening_size(core);
-    let window_id = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let pane_id = format!("pane-{}", uuid::Uuid::new_v4().simple());
+    let window_id = super::layout::window_id();
+    let pane_id = super::layout::view_id();
     shell(
         core,
         project,
@@ -364,7 +358,6 @@ pub(crate) async fn command_terminal(
     super::layout::show_terminal(core, At::project(&project), id, Some(title))
 }
 
-/// A new shell in `project`'s folder running `startup`.
 pub(crate) async fn command_shell(
     core: &Arc<Core>,
     project: &str,
@@ -372,8 +365,8 @@ pub(crate) async fn command_shell(
 ) -> CoreResult<SessionId> {
     let (path, name) = project_folder(core, project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
-    let window_id = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let pane_id = format!("pane-{}", uuid::Uuid::new_v4().simple());
+    let window_id = super::layout::window_id();
+    let pane_id = super::layout::view_id();
     let size = opening_size(core);
     shell(
         core,
@@ -385,19 +378,6 @@ pub(crate) async fn command_shell(
         Some(startup),
     )
     .await
-}
-
-#[derive(Deserialize)]
-pub(crate) struct SshParams {
-    host: String,
-}
-
-impl SshParams {
-    pub(crate) fn new(host: &str) -> Self {
-        Self {
-            host: host.to_owned(),
-        }
-    }
 }
 
 /// Opens a terminal tab connected to `host`, by its alias in the person's
@@ -442,48 +422,53 @@ pub(crate) async fn setup_shell(
     host: &str,
     startup: String,
 ) -> CoreResult<SessionId> {
-    let context = PtyContext {
-        session_id: format!("ssh:{host}"),
-        session_name: host.to_owned(),
-        session_kind: LaunchKind::Setup,
-        project: None,
-        window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
-        pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
-        agent_id: None,
-        agent_type: None,
-        initial_prompt_submitted: false,
-        shell_integration: false,
-    };
+    let context = to_host(host, LaunchKind::Setup);
     terminal(core, opening_size(core), None, context, Some(startup)).await
 }
 
-async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
-    let context = PtyContext {
+/// A terminal on `host` over ssh, in a window and pane of its own.
+fn to_host(host: &str, session_kind: LaunchKind) -> PtyContext {
+    PtyContext {
         session_id: format!("ssh:{host}"),
         session_name: host.to_owned(),
-        session_kind: LaunchKind::Ssh,
+        session_kind,
         project: None,
-        window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
-        pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
+        window_id: Some(super::layout::window_id()),
+        pane_id: Some(super::layout::view_id()),
         agent_id: None,
         agent_type: None,
         initial_prompt_submitted: false,
         shell_integration: false,
-    };
+    }
+}
+
+async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
+    let context = to_host(host, LaunchKind::Ssh);
     terminal(core, opening_size(core), None, context, None).await
 }
 
 /// Stops the shell started ahead, as before the core hands itself over.
+#[cfg(unix)]
 pub(crate) fn discard(core: &Arc<Core>) {
-    let spare = core.spares.held.locked().spare.take();
+    let spare = core.spares().held.locked().spare.take();
     if let Some(spare) = spare {
         stop(core, spare.id);
     }
 }
 
-fn stop(core: &Arc<Core>, id: SessionId) {
+pub(crate) fn stop(core: &Arc<Core>, id: SessionId) {
     if let Some(target) = core.take_session_for_kill(id) {
         let core = core.clone();
         tokio::task::spawn_blocking(move || session::kill(&core, &target));
+    }
+}
+
+impl super::part::Part for Spares {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::on_wake(
+            core,
+            |core| &core.spares().wake,
+            settle,
+        )]
     }
 }

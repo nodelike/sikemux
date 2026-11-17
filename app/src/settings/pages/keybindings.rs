@@ -1,5 +1,7 @@
 //! Every command's keys, and recording new ones.
 
+use crate::ui::Clicks;
+use sikemux_view::prefs::PreferenceChange;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -7,12 +9,14 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Animation, AnimationExt, AnyElement, App, AppContext, Context, Entity,
-    InteractiveElement, IntoElement, Keystroke, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window,
+    InteractiveElement, IntoElement, Keystroke, ParentElement, SharedString, Styled, Subscription,
+    Window,
 };
 
 use crate::icons::Icon;
-use crate::keymap::{self, Shortcut};
+use crate::keymap::{self, Keeps, Shortcut};
+use crate::settings::index::Page::Keyboard;
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -20,6 +24,13 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[section(
+    Keyboard,
+    "Shortcuts",
+    "keybindings hotkeys keys keyboard remap",
+)];
 
 /// The filter, the command whose keys are being recorded, and what the last change did.
 pub struct Fields {
@@ -47,7 +58,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     });
     let filter = cx.new(|cx| {
         let mut input =
-            InputState::new(window, cx).placeholder("Filter by name, description or key");
+            InputState::new(window, cx).placeholder(t!("Filter by name, description or key"));
         if let Some(label) = jump {
             input.set_value(label, window, cx);
         }
@@ -76,11 +87,7 @@ fn change_fields<R>(
 fn change(bench: &Workbench, edit: impl FnOnce(&mut BTreeMap<String, Option<String>>)) {
     let mut overrides = bench.preferences().keybinding_overrides.clone();
     edit(&mut overrides);
-    crate::settings::set(
-        bench,
-        "keybindingOverrides",
-        serde_json::to_value(overrides).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::KeybindingOverrides(overrides));
 }
 
 fn say(bench: &mut Workbench, message: String, cx: &mut Context<Workbench>) {
@@ -104,14 +111,26 @@ fn record(bench: &mut Workbench, id: &'static str, cx: &mut Context<Workbench>) 
     });
     say(
         bench,
-        "Press a shortcut. Backspace clears it; Escape cancels.".into(),
+        t!("Press a shortcut. Backspace clears it; Escape cancels.").into(),
         cx,
     );
 }
 
 fn keys_label(keys: Option<&str>) -> SharedString {
     keys.and_then(keymap::label)
-        .unwrap_or_else(|| "Unassigned".into())
+        .unwrap_or_else(|| t!("Unassigned").into())
+}
+
+/// Every key a command runs by, as the filter reads them.
+fn keys_text(keys: &[String]) -> String {
+    match keys {
+        [] => keys_label(None).to_string(),
+        keys => keys
+            .iter()
+            .map(|keys| keys_label(Some(keys.as_str())).to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
 }
 
 /// Binds the recorded command to the keys pressed, unless they cannot take it.
@@ -127,12 +146,13 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
         return;
     };
     match keystroke.key.as_str() {
-        "escape" => return stop(bench, "Change cancelled.".into(), cx),
+        "escape" => return stop(bench, t!("Change cancelled.").into(), cx),
         "backspace" | "delete" => {
             change(bench, |overrides| {
                 overrides.insert(id.to_owned(), None);
             });
-            return stop(bench, format!("{} is now unassigned.", shortcut.label), cx);
+            let name = crate::i18n::tr(shortcut.label);
+            return stop(bench, t!("{name} is now unassigned.", name = name), cx);
         }
         _ => {}
     }
@@ -142,48 +162,65 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
     let shown = keys_label(Some(&keys));
     if !keymap::has_modifier(&keys) {
         let which = match cfg!(target_os = "macos") {
-            true => "Command, Control or Option",
-            false => "Control or Alt",
+            true => t!("Command, Control or Option"),
+            false => t!("Control or Alt"),
         };
         return say(
             bench,
-            format!("Add {which}: Shift alone only changes what a key types."),
+            t!(
+                "Add {which}: Shift alone only changes what a key types.",
+                which = which
+            ),
             cx,
         );
     }
     if let Some(what) = keymap::reserved(&keys) {
         return say(
             bench,
-            format!("{shown} is {what}, which stays where it is."),
+            t!(
+                "{keys} is {what}, which stays where it is.",
+                keys = shown,
+                what = crate::i18n::tr(what)
+            ),
             cx,
         );
     }
     let overrides = bench.preferences().keybinding_overrides.clone();
     let taken = keymap::shortcuts()
         .iter()
-        .find(|other| other.id != id && other.keys(&overrides).as_deref() == Some(keys.as_str()))
+        .find(|other| other.id != id && other.keys(&overrides).contains(&keys))
         .map(|other| other.label);
     if let Some(other) = taken {
         return say(
             bench,
-            format!("{shown} is already assigned to “{other}”."),
+            t!(
+                "{keys} is already assigned to “{other}”.",
+                keys = shown,
+                other = crate::i18n::tr(other)
+            ),
             cx,
         );
     }
-    let option_only = keys.starts_with("Alt+");
+    let kept = keymap::kept(&keys);
     change(bench, |overrides| {
         overrides.insert(id.to_owned(), Some(keys));
     });
+    let name = crate::i18n::tr(shortcut.label);
     stop(
         bench,
-        format!(
-            "{} changed to {shown}.{}",
-            shortcut.label,
-            match option_only {
-                true => " It stays with the terminal or text field while you type in one.",
-                false => "",
-            }
-        ),
+        match kept {
+            Some(Keeps::Typing) => t!(
+                "{name} changed to {keys}. It stays with the terminal or text field while you type in one.",
+                name = name,
+                keys = shown
+            ),
+            Some(Keeps::Shell) => t!(
+                "{name} changed to {keys}. It stays with the terminal while you type in one.",
+                name = name,
+                keys = shown
+            ),
+            None => t!("{name} changed to {keys}.", name = name, keys = shown),
+        },
         cx,
     );
 }
@@ -212,9 +249,9 @@ fn keycap(
         .flex()
         .items_center()
         .justify_center()
-        .border_1()
-        .rounded(theme::RADIUS_2)
-        .font_family(theme::MONO)
+        .border(crate::theme::border())
+        .rounded(theme::radius_2())
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .cursor_pointer()
         .map(|cap| match (listening, keys.is_some()) {
@@ -222,7 +259,7 @@ fn keycap(
                 .border_color(t.border_selected)
                 .bg(t.surface_selected)
                 .text_color(t.accent)
-                .child(div().flex().child("press keys").child(caret)),
+                .child(div().flex().child(t!("press keys")).child(caret)),
             (false, filled) => cap
                 .border_color(t.border)
                 .bg(t.surface)
@@ -234,7 +271,7 @@ fn keycap(
                 .hover(|style| style.border_color(t.border_strong))
                 .child(keys_label(keys)),
         })
-        .on_click(move |_, _, cx| this.update(cx, |bench, cx| record(bench, id, cx)))
+        .clicks(move |_, _, cx| this.update(cx, |bench, cx| record(bench, id, cx)))
         .into_any_element()
 }
 
@@ -257,9 +294,9 @@ pub fn render(
         query.is_empty()
             || format!(
                 "{} {} {}",
-                shortcut.label,
-                shortcut.detail,
-                keys_label(shortcut.keys(&overrides).as_deref())
+                crate::i18n::tr(shortcut.label),
+                crate::i18n::tr(shortcut.detail),
+                keys_text(&shortcut.keys(&overrides))
             )
             .to_lowercase()
             .contains(&query)
@@ -276,13 +313,22 @@ pub fn render(
         let count = listed.len();
         let listed = listed.into_iter().map(|shortcut| {
             let keys = shortcut.keys(&overrides);
+            let in_terminal = keys.get(1).map(|keys| {
+                div()
+                    .text_size(crate::theme::ui_text(TEXT_2XS))
+                    .text_color(t.text_tertiary)
+                    .child(t!(
+                        "{keys} in a terminal",
+                        keys = keys_label(Some(keys.as_str()))
+                    ))
+            });
             let changed = overrides.contains_key(shortcut.id);
             let reset = changed.then(|| {
                 let this = this.clone();
                 ui::IconButton::new(
                     SharedString::from(format!("keycap-reset-{}", shortcut.id)),
                     Icon::Refresh,
-                    format!("Reset {}", shortcut.label),
+                    t!("Reset {name}", name = crate::i18n::tr(shortcut.label)),
                 )
                 .small()
                 .on_click(move |_, _, cx| {
@@ -290,10 +336,14 @@ pub fn render(
                         change(bench, |overrides| {
                             overrides.remove(shortcut.id);
                         });
-                        let restored = keys_label(shortcut.default_keys());
+                        let restored = keys_label(shortcut.default_keys().first().copied());
                         say(
                             bench,
-                            format!("{} restored to {restored}.", shortcut.label),
+                            t!(
+                                "{name} restored to {keys}.",
+                                name = crate::i18n::tr(shortcut.label),
+                                keys = restored
+                            ),
                             cx,
                         );
                     })
@@ -301,16 +351,17 @@ pub fn render(
             });
             rows::row_with(
                 None,
-                shortcut.label,
-                Some(shortcut.detail.into()),
+                crate::i18n::tr(shortcut.label),
+                Some(crate::i18n::tr(shortcut.detail).into()),
                 div()
                     .flex()
                     .items_center()
                     .gap(SPACE_1)
+                    .children(in_terminal)
                     .children(reset)
                     .child(keycap(
                         shortcut,
-                        keys.as_deref(),
+                        keys.first().map(String::as_str),
                         recording == Some(shortcut.id),
                         this,
                         &t,
@@ -334,7 +385,7 @@ pub fn render(
                             div()
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(t.text_secondary)
-                                .child(*category),
+                                .child(crate::i18n::tr(category)),
                         )
                         .child(
                             div()
@@ -352,7 +403,7 @@ pub fn render(
     let changed = overrides.len();
     let reset_all = {
         let this = this.clone();
-        ui::Button::new("keycap-reset-all", "Reset all", ui::Variant::Outline)
+        ui::Button::new("keycap-reset-all", t!("Reset all"), ui::Variant::Outline)
             .icon(Icon::Refresh)
             .disabled(changed == 0)
             .on_click(move |_, _, cx| {
@@ -360,7 +411,7 @@ pub fn render(
                     change(bench, BTreeMap::clear);
                     stop(
                         bench,
-                        "All shortcuts restored to their defaults.".into(),
+                        t!("All shortcuts restored to their defaults.").into(),
                         cx,
                     );
                 })
@@ -371,7 +422,7 @@ pub fn render(
         .items_center()
         .gap(SPACE_2)
         .p(SPACE_4)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             div()
@@ -382,14 +433,14 @@ pub fn render(
     let message = fields
         .message
         .clone()
-        .unwrap_or_else(|| "Select any keycap to record a replacement.".into());
+        .unwrap_or_else(|| t!("Select any keycap to record a replacement.").into());
     let status = div()
         .flex()
         .items_center()
         .gap(SPACE_2)
         .px(SPACE_4)
         .py(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
@@ -405,9 +456,9 @@ pub fn render(
         )
         .child(message);
     let system = match cfg!(target_os = "macos") {
-        true => "macOS may keep system-reserved combinations before Sikemux can receive them.",
+        true => t!("macOS may keep system-reserved combinations before Sikemux can receive them."),
         false => {
-            "Your desktop may keep system-reserved combinations before Sikemux can receive them."
+            t!("Your desktop may keep system-reserved combinations before Sikemux can receive them.")
         }
     };
     let body = div()
@@ -415,13 +466,23 @@ pub fn render(
         .child(status)
         .children(groups)
         .when(nothing, |body| {
-            body.child(rows::note(format!("No commands match “{}”.", query), cx))
+            body.child(rows::note(
+                t!("No commands match “{query}”.", query = query),
+                cx,
+            ))
         })
         .child(rows::note(system, cx));
     vec![rows::section(
-        "Shortcuts",
-        Some(format!("{} commands · {changed} changed", shortcuts.len()).into()),
-        Some("Select a keycap, then press a new combination. Conflicts are blocked.".into()),
+        n!("Shortcuts"),
+        Some(
+            t!(
+                "{count} commands · {changed} changed",
+                count = shortcuts.len(),
+                changed = changed
+            )
+            .into(),
+        ),
+        Some(t!("Select a keycap, then press a new combination. Conflicts are blocked.").into()),
         lit("Shortcuts"),
         body,
         cx,

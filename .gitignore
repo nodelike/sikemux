@@ -8,6 +8,7 @@ data/
 /target/
 packaging/icons/build/
 packaging/binaries/
+helpers/notch/.build/
 helpers/voice/.build/
 helpers/sim/.build/
 helpers/sim/Frameworks/
@@ -28,10 +29,25 @@ marketing/
 graphify-out/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-helpers/notch/.build/
 
 # Research notes, kept local only.
 docs/research/
 
 # Scratch renders of film/film.sh
 /film/out/
+
+# Written by scripts/generate-wire-types.mjs, which each client's build runs first.
+/shared/wire.generated.ts
+/helpers/notch/Sources/NotchKit/Wire.generated.swift
+/mobile/ios/Sikemux/Core/Wire.generated.swift
+/mobile/ios/Shared/Notify/Card.generated.swift
+/mobile/ios/Shared/Glance/Glance.generated.swift
+/mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt
+
+# Written by scripts/generate-notch-{icons,sources}.mjs, which the notch's build and
+# mobile/ios/scripts/build-core.sh run first.
+/helpers/notch/Sources/NotchKit/Icons.generated.swift
+/helpers/notch/Sources/NotchKit/Settings.generated.swift
+/helpers/notch/Sources/NotchKit/Theme.generated.swift
+/helpers/notch/Sources/NotchKit/Buddies.generated.swift
+/mobile/ios/Sikemux/UI/PhoneIcons.generated.swift

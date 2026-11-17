@@ -1,0 +1,22 @@
+# The top bar's bell holds the calls of every project, each card naming where it waits.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+project storefront shop
+chat Wren
+title "Cache the product pages"
+say "question {\"questions\":[{\"question\":\"Which store should the product page cache use?\",\"header\":\"Cache store\",\"options\":[{\"label\":\"Redis (recommended)\",\"description\":\"Fast, shared by every app server, already running in staging\"},{\"label\":\"SQLite\",\"description\":\"No server to keep up, one file per app server\"}]}]}"
+project marketing line-shop
+chat Cleo
+title "Draft the launch post"
+say "question {\"questions\":[{\"question\":\"Post the launch on Tuesday or Thursday?\",\"header\":\"Launch day\",\"options\":[{\"label\":\"Tuesday (recommended)\",\"description\":\"Lands before the newsletter goes out\"},{\"label\":\"Thursday\",\"description\":\"Two more days to film the demo\"}]}]}"
+settle 8
+front Wren
+settle 2
+click "Calls"
+move 700,820 0.3
+settle 2
+zoom 500,30,530,640
+settle 1
+snap calls-everywhere

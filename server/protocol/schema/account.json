@@ -61,10 +61,21 @@
           "description": "How many days a deleted account can still be restored: deletesAt is this long after the deletion.",
           "type": "integer",
           "minimum": 1
+        },
+        "staff": {
+          "$ref": "#/$defs/Staff"
+        },
+        "plan": {
+          "description": "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
+          "$ref": "billing.json#/$defs/PlanId"
         }
       },
-      "required": ["status", "restorableDays"],
+      "required": ["status", "restorableDays", "staff", "plan"],
       "additionalProperties": false
+    },
+    "Staff": {
+      "description": "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
+      "type": "boolean"
     },
     "AccountProfile": {
       "description": "The name, email and picture the account signed in with, for a host to show who it belongs to.",
@@ -82,9 +93,12 @@
           "type": ["string", "null"],
           "format": "uri",
           "maxLength": 2048
+        },
+        "staff": {
+          "$ref": "#/$defs/Staff"
         }
       },
-      "required": ["email", "name", "imageUrl"],
+      "required": ["email", "name", "imageUrl", "staff"],
       "additionalProperties": false
     }
   }

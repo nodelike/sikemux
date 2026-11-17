@@ -105,7 +105,7 @@
     "fixture": {
       "instructions": "# Web research\n\nFor any web search or research, use the signed-in Grok (grok.com) in the Sikemux browser through the sikemux-tools `browser_*` tools. Do not use the built-in WebSearch or WebFetch. Open it in a tab of your own, never one the person is using, and give subagents that need to research the same instruction.\n",
       "files": {
-        "src-tauri/crates/sikemux-gpui/src/settings/window.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub fn settings_window(pages: Vec<&'static str>, current: usize) -> impl IntoElement {\n    div()\n        .flex()\n        .child(div().w(px(200.0)).children(pages.iter().map(|page| div().h(px(28.0)).child(*page))))\n        .child(div().flex_1().child(pages[current]))\n}\n"
+        "app/src/settings/window.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub fn settings_window(pages: Vec<&'static str>, current: usize) -> impl IntoElement {\n    div()\n        .flex()\n        .child(div().w(px(200.0)).children(pages.iter().map(|page| div().h(px(28.0)).child(*page))))\n        .child(div().flex_1().child(pages[current]))\n}\n"
       },
       "pages": [
         {

@@ -33,7 +33,6 @@ impl std::error::Error for LoopbackError {}
 
 pub type LoopbackResult<T> = Result<T, LoopbackError>;
 
-/// Where the service sends the browser back to, for the callback at `path`.
 pub fn redirect_uri(path: &str) -> String {
     format!("http://localhost:{PORT}{path}")
 }
@@ -66,13 +65,15 @@ pub enum Finish {
     Redirect { done: String, refused: String },
 }
 
-/// Where the browser comes back to with a code.
 pub struct Callback {
     v4: TcpListener,
     v6: Option<TcpListener>,
     redirect_uri: String,
     path: &'static str,
     finish: Finish,
+    /// A page this machine serves the browser first, at its own path, such as one that posts a
+    /// form to the service.
+    start: Option<(&'static str, String)>,
     relayed: Mutex<Option<UnboundedReceiver<String>>>,
 }
 
@@ -164,11 +165,25 @@ impl Callback {
             redirect_uri,
             path,
             finish,
+            start: None,
             relayed: Mutex::new(Some(relayed)),
         }
     }
 
-    /// Where the service sends the browser back to.
+    /// Serves `page` as it is at `path`, for the browser to open before it goes to the service.
+    pub fn serving(mut self, path: &'static str, page: String) -> Self {
+        self.start = Some((path, page));
+        self
+    }
+
+    pub fn address_of(&self, path: &str) -> String {
+        let base = self
+            .redirect_uri
+            .strip_suffix(self.path)
+            .unwrap_or_default();
+        format!("{base}{path}")
+    }
+
     pub fn redirect_uri(&self) -> &str {
         &self.redirect_uri
     }
@@ -209,6 +224,10 @@ impl Callback {
             else {
                 continue;
             };
+            if let Some((_, page)) = self.start.as_ref().filter(|(at, _)| is_path(&target, at)) {
+                respond_page(&mut stream, page).await;
+                continue;
+            }
             match answer_of(&target, self.path, state) {
                 None => respond(&mut stream, "404 Not Found", "Nothing here.").await,
                 Some(Answer::Stray) => {
@@ -302,6 +321,19 @@ fn answer_of(target: &str, path: &str, state: &str) -> Option<Answer> {
 async fn redirect(stream: &mut TcpStream, location: &str) {
     let reply = format!(
         "HTTP/1.1 303 See Other\r\nlocation: {location}\r\ncontent-length: 0\r\ncache-control: no-store\r\nconnection: close\r\n\r\n"
+    );
+    stream.write_all(reply.as_bytes()).await.ok();
+    stream.shutdown().await.ok();
+}
+
+fn is_path(target: &str, path: &str) -> bool {
+    target.split('?').next() == Some(path)
+}
+
+async fn respond_page(stream: &mut TcpStream, page: &str) {
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{page}",
+        page.len()
     );
     stream.write_all(reply.as_bytes()).await.ok();
     stream.shutdown().await.ok();

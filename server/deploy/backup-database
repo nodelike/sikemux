@@ -52,7 +52,7 @@ if [ -n "${STASH_DIR:-}" ]; then
   rclone sync "$STASH_DIR" "r2:$R2_BUCKET/stash/files" --ignore-existing --exclude '.*' \
     --backup-dir "r2:$R2_BUCKET/stash/deleted/$(date -u +%Y-%m-%d)"
   rclone delete --min-age "$prune_older_than" "r2:$R2_BUCKET/stash/deleted"
-  age --encrypt --recipients-file "$recipients" <"${STASH_KEY_FILE:?STASH_KEY_FILE is not set}" |
-    rclone rcat "r2:$R2_BUCKET/stash/key.age"
+  age --encrypt --recipients-file "$recipients" <"${STASH_KEY_FILE:?STASH_KEY_FILE is not set}" >"$work/key.age"
+  rclone copyto "$work/key.age" "r2:$R2_BUCKET/stash/key.age"
   echo "kept $(rclone lsf --files-only "r2:$R2_BUCKET/stash/files" | wc -l | tr -d ' ') stashed files"
 fi

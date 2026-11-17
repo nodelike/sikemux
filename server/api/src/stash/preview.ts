@@ -6,7 +6,7 @@ import https from "node:https";
 import type { StashLink, StashPreview } from "@sikemux/protocol";
 
 const TIMEOUT_MS = 5_000;
-/** Pages read at once, across every request and the backfill; past this a page is not read. */
+/** Pages read at once, across every request; past this a page is not read. */
 const READS_AT_ONCE = 8;
 const MAX_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 3;
@@ -42,7 +42,7 @@ for (const [network, prefix] of [
   blockedV6.addSubnet(network, prefix, "ipv6");
 
 /** Whether `address` is on the public internet, not this machine, a private network or a special range. */
-export function isPublicAddress(address: string): boolean {
+function isPublicAddress(address: string): boolean {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
   if (mapped) return isPublicAddress(mapped);
   if (isIPv4(address)) return !blockedV4.check(address, "ipv4");
@@ -195,7 +195,7 @@ function attributes(tag: string): Map<string, string> {
 }
 
 /** What a page says about itself in its title and meta tags. */
-export function readPreview(html: string, url: URL): StashPreview {
+function readPreview(html: string, url: URL): StashPreview {
   const bodyAt = html.search(/<body[\s>]/i);
   const head = bodyAt < 0 ? html : html.slice(0, bodyAt);
   const meta = new Map<string, string>();

@@ -12,11 +12,12 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "bitbucket", "database", "forgejo", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
+forgejo = ["dep:sikemux-plugin-forgejo"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
-bruno = ["dep:sikemux-plugin-bruno"]
+googleplay = ["dep:sikemux-plugin-googleplay"]
 database = ["dep:sikemux-plugin-database"]
 github = ["dep:sikemux-plugin-github"]
 jira = ["dep:sikemux-plugin-jira"]
@@ -29,19 +30,25 @@ vercel = ["dep:sikemux-plugin-vercel"]
 # release.
 fake-plugins = []
 
-[build-dependencies]
-sha2 = "0.11"
-hex = "0.4"
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
 uuid = { version = "1", features = ["v4", "v7"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+reqwest = { version = "0.13", default-features = false }
+sentry = { version = "0.49", default-features = false, features = ["contexts", "debug-images", "minidump", "release-health", "reqwest", "rustls-no-provider"] }
+log = "0.4"
+sha2 = "0.11"
+sikemux-buildinfo = { path = "../sikemux-buildinfo" }
+sikemux-client = { path = "../sikemux-client" }
 sikemux-core = { path = "../sikemux-core" }
+sikemux-hostkit = { path = "../sikemux-hostkit" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-process = { path = "../sikemux-process" }
@@ -49,10 +56,11 @@ sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-plugin-aws = { path = "../../plugins/aws", optional = true }
 sikemux-plugin-bitbucket = { path = "../../plugins/bitbucket", optional = true }
+sikemux-plugin-forgejo = { path = "../../plugins/forgejo", optional = true }
 sikemux-plugin-gitlab = { path = "../../plugins/gitlab", optional = true }
-sikemux-plugin-bruno = { path = "../../plugins/bruno", optional = true }
 sikemux-plugin-database = { path = "../../plugins/database", optional = true }
 sikemux-plugin-github = { path = "../../plugins/github", optional = true }
+sikemux-plugin-googleplay = { path = "../../plugins/googleplay", optional = true }
 sikemux-plugin-jira = { path = "../../plugins/jira", optional = true }
 sikemux-plugin-linear = { path = "../../plugins/linear", optional = true }
 sikemux-plugin-rundeck = { path = "../../plugins/rundeck", optional = true }
@@ -63,11 +71,17 @@ sikemux-plugin-vercel = { path = "../../plugins/vercel", optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+backtrace = "0.3"
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-trust = { path = "../sikemux-trust" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile = "3"
+sikemux-agents = { path = "../sikemux-agents" }
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"

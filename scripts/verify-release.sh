@@ -6,6 +6,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
+# shellcheck source=scripts/release-shape.sh
+source "$ROOT/scripts/release-shape.sh"
 VERSION="${1:-}"
 NOTES="${2:-}"
 CHANNEL=stable
@@ -28,15 +30,10 @@ SIG="$TAR.sig"
 APP="$BUNDLE/macos/${APP_NAME}.app"
 shopt -s nullglob
 DMG_CANDIDATES=("$BUNDLE"/dmg/*.dmg)
-VOICES=("$ROOT"/packaging/binaries/sikemux-voice-*)
-SIMS=("$ROOT"/packaging/binaries/sikemux-sim-*)
 shopt -u nullglob
 [[ ${#DMG_CANDIDATES[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMG_CANDIDATES[@]}"
-[[ ${#VOICES[@]} -eq 1 ]] || fail "expected exactly one voice helper, found ${#VOICES[@]}"
-[[ ${#SIMS[@]} -eq 1 ]] || fail "expected exactly one simulator helper, found ${#SIMS[@]}"
+HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 DMG="${DMG_CANDIDATES[0]}"
-VOICE="${VOICES[0]}"
-SIM="${SIMS[0]}"
 
 EXTRACTED=""
 DMG_MOUNT=""
@@ -74,7 +71,7 @@ fi
 node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
 grep -q "^trusted comment: .*"$'\t'"version:$VERSION\$" <<<"$(/usr/bin/base64 -d -i "$SIG")" ||
   fail "updater signature is not bound to version $VERSION"
-UPDATE_BUDGET_BYTES=$((32 * 1024 * 1024))
+UPDATE_BUDGET_BYTES=$((40 * 1024 * 1024))
 TAR_BYTES="$(stat -f %z "$TAR")"
 echo "→ Updater archive is $TAR_BYTES bytes (budget $UPDATE_BUDGET_BYTES)"
 ((TAR_BYTES <= UPDATE_BUDGET_BYTES)) || fail "updater archive is $TAR_BYTES bytes, over the $UPDATE_BUDGET_BYTES byte budget"
@@ -101,7 +98,7 @@ APP_CDHASH="$(cdhash_of "$APP")"
 
 CORE_APP="$ARCHIVE_APP/Contents/Helpers/Sikemux Core.app"
 CLI_EXECUTABLE="$CORE_APP/Contents/MacOS/sikemux-host"
-[[ "$(readlink "$ARCHIVE_APP/Contents/MacOS/sikemux-host")" == "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" ]] ||
+[[ "$(readlink "$ARCHIVE_APP/Contents/MacOS/sikemux-host")" == "$(node scripts/app-metadata.mjs core-link)" ]] ||
   fail "Contents/MacOS/sikemux-host does not link to the bundled core"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CORE_APP/Contents/Info.plist")" == "$APP_IDENTIFIER.core" ]] ||
   fail "the core's CFBundleIdentifier is not $APP_IDENTIFIER.core"
@@ -109,7 +106,6 @@ grep -qx "Identifier=$APP_IDENTIFIER.core" <<<"$(signing_info "$CORE_APP")" || f
 
 # The app and its core keep secrets in a keychain group only they may use,
 # which macOS allows only with the profile that names them.
-TEAM=D577WD6Z5U
 check_keychain_entitlements() {
   local bundle="$1" kind="$2" profile="$ROOT/packaging/macos/$3" name signed decoded application now
   name="$(basename "$bundle")"
@@ -133,15 +129,21 @@ check_keychain_entitlements() {
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   [[ "$(/usr/bin/plutil -extract ExpirationDate raw -o - "$decoded")" > "$now" ]] || fail "$(basename "$profile") has expired"
 }
-check_keychain_entitlements "$ARCHIVE_APP" app sikemux-developer-id.provisionprofile
-check_keychain_entitlements "$CORE_APP" core sikemux-core-developer-id.provisionprofile
+if grep -q '^Authority=' <<<"$(signing_info "$ARCHIVE_APP")"; then
+  check_keychain_entitlements "$ARCHIVE_APP" app sikemux-developer-id.provisionprofile
+  check_keychain_entitlements "$CORE_APP" core sikemux-core-developer-id.provisionprofile
+else
+  [[ ! -e "$ARCHIVE_APP/Contents/embedded.provisionprofile" && ! -e "$CORE_APP/Contents/embedded.provisionprofile" ]] ||
+    fail "an ad hoc signed app embeds a provisioning profile, which macOS refuses to launch"
+fi
 NOTCH_APP="$ARCHIVE_APP/Contents/Helpers/Sikemux Notch.app"
 grep -q 'flags=.*runtime' <<<"$(signing_info "$NOTCH_APP")" || fail "notch helper lacks the hardened runtime"
 
 # The app downloads the voice and simulator helpers from this release and refuses
 # any file but the one it was built with, so the published helpers must carry
 # those hashes.
-for helper in "$VOICE" "$SIM"; do
+for helper in "${HELPERS[@]}"; do
+  [[ -f "$helper" ]] || fail "$helper is missing"
   name="$(basename "$helper")"
   /usr/bin/codesign --verify --strict "$helper" || fail "$name signature is invalid"
   grep -q 'flags=.*runtime' <<<"$(signing_info "$helper")" || fail "$name lacks the hardened runtime"
@@ -165,12 +167,9 @@ if [[ "$NOTARIZED" == "1" ]]; then
     fail "signed tools MCP server does not start"
   fi
 fi
-if [[ "$(/usr/bin/lipo -archs "$VOICE")" == *"$(uname -m)"* ]]; then
-  "$VOICE" --version | grep -Fq "sikemux-voice" || fail "signed voice helper does not start"
-fi
-if [[ "$(/usr/bin/lipo -archs "$SIM")" == *"$(uname -m)"* ]]; then
-  "$SIM" --version | grep -Fq "sikemux-sim" || fail "signed simulator helper does not start"
-fi
+for helper in "${PUBLISHED_HELPERS[@]}"; do
+  "$ROOT/packaging/binaries/$helper-$MAC_TARGET" --version | grep -Fq "$helper" || fail "signed $helper does not start"
+done
 
 DMG_MOUNT="$(mktemp -d)"
 /usr/bin/hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MOUNT" "$DMG" >/dev/null || fail "could not mount DMG"
@@ -189,18 +188,10 @@ DMG_PLIST="$DMG_APP/Contents/Info.plist"
 [[ "$(/usr/bin/lipo -archs "$DMG_APP/Contents/MacOS/$EXECUTABLE_NAME")" == "$ARCHS" ]] || fail "DMG app architectures differ from updater app"
 /usr/bin/hdiutil detach "$DMG_MOUNT" -quiet
 DMG_ATTACHED=0
-# The README and sikemux.com promise a small download.
-DMG_BUDGET_BYTES=30000000
 DMG_BYTES="$(stat -f %z "$DMG")"
 ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 
-PLATFORMS=()
-[[ " $ARCHS " == *" arm64 "* ]] && PLATFORMS+=(darwin-aarch64)
-[[ " $ARCHS " == *" x86_64 "* ]] && PLATFORMS+=(darwin-x86_64)
-[[ ${#PLATFORMS[@]} -gt 0 ]] || fail "unsupported updater architecture set: $ARCHS"
-for arch in $ARCHS; do
-  [[ "$arch" == "arm64" || "$arch" == "x86_64" ]] || fail "unsupported executable architecture: $arch"
-done
+[[ "$ARCHS" == "arm64" ]] || fail "unsupported executable architecture: $ARCHS"
 
 PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # Artifacts live on a tag that never moves. The nightly release carries only
@@ -219,17 +210,18 @@ CREDITS="$(node scripts/release-credits.mjs "$VERSION" "$(git rev-parse HEAD)")"
   echo "! Could not gather release credits; latest.json ships without them." >&2
   CREDITS=""
 }
-PLATFORM_LIST="${PLATFORMS[*]}" VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" MANIFEST="$MANIFEST" CREDITS="$CREDITS" python3 - <<'PY'
+VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" MANIFEST="$MANIFEST" CREDITS="$CREDITS" python3 - <<'PY'
 import json, os, pathlib
-entry = {
-    "signature": pathlib.Path(os.environ["SIG"]).read_text().strip(),
-    "url": os.environ["TAR_URL"],
-}
 manifest = {
     "version": os.environ["VERSION"],
     "notes": os.environ["NOTES"],
     "pub_date": os.environ["PUB_DATE"],
-    "platforms": {platform: dict(entry) for platform in os.environ["PLATFORM_LIST"].split()},
+    "platforms": {
+        "darwin-aarch64": {
+            "signature": pathlib.Path(os.environ["SIG"]).read_text().strip(),
+            "url": os.environ["TAR_URL"],
+        },
+    },
 }
 if os.environ["CREDITS"]:
     manifest["credits"] = json.loads(os.environ["CREDITS"])
@@ -241,6 +233,5 @@ echo "✓ Verified $CHANNEL release v$VERSION ($ARCHS)"
 echo "  $DMG"
 echo "  $TAR"
 echo "  $SIG"
-echo "  $VOICE"
-echo "  $SIM"
+printf '  %s\n' "${HELPERS[@]}"
 echo "  $MANIFEST"

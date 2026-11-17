@@ -3,6 +3,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
+import { translate } from '@/i18n';
 
 /** How long the app may be away before it asks again, as password managers allow a quick switch to another app. */
 export const AWAY_MS = 60_000;
@@ -12,7 +13,7 @@ export const AWAY_MS = 60_000;
  * locked: waiting for Face ID, Touch ID or the passcode.
  * `opened` turns true the first time the app shows itself after it starts. `on` is the person's choice, off until they turn it on.
  */
-export type LockState = { phase: 'open' | 'covered' | 'locked'; asking: boolean; opened: boolean; on: boolean };
+type LockState = { phase: 'open' | 'covered' | 'locked'; asking: boolean; opened: boolean; on: boolean };
 
 const ITEM = 'sikemux.lock';
 const guarded = Platform.OS !== 'web';
@@ -32,7 +33,11 @@ const waiting = new Set<() => void>();
 const chosen: Promise<void> = guarded
   ? SecureStore.getItemAsync(ITEM)
       .then((stored) => set({ on: stored === 'on' }))
-      .catch((error: unknown) => console.warn('sikemux: could not read whether the lock is on', error))
+      .catch((error: unknown) => {
+        // A choice that can't be read keeps the app locked, as Face ID or the passcode still opens it.
+        console.warn('sikemux: could not read whether the lock is on', error);
+        set({ on: true });
+      })
   : Promise.resolve();
 
 function set(next: Partial<LockState>) {
@@ -47,6 +52,12 @@ function open() {
   leftAt = undefined;
   set({ phase: active() || !lock.get().on ? 'open' : 'covered', asking: false, opened: true });
 }
+
+/** Whether the person turned the lock on, so nothing outside the app shows what agents work on. */
+export const lockOn = () => lock.get().on;
+/** Nothing covers the app: it is in front and, with the lock on, unlocked. */
+export const lockOpen = () => lock.get().phase === 'open';
+export const onLockChange = (listener: () => void) => lock.subscribe(listener);
 
 export function useLock(): LockState {
   return useExternalValue(lock);
@@ -75,7 +86,7 @@ export async function lockFor(account: boolean) {
 export async function unlock(): Promise<void> {
   if (!locked || lock.get().asking || !active()) return;
   set({ asking: true });
-  const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock Sikemux' }).catch(() => null);
+  const result = await LocalAuthentication.authenticateAsync({ promptMessage: translate('Unlock Sikemux') }).catch(() => null);
   // A phone without a passcode has nothing to ask for, and anyone holding it already has everything on it.
   if (result?.success || result?.error === 'passcode_not_set' || result?.error === 'not_enrolled') {
     open();
@@ -87,7 +98,7 @@ export async function unlock(): Promise<void> {
 /** Turns the lock on once the person passes the prompt, so it is known to work; answers why when it can't. */
 export async function turnLockOn(): Promise<string | undefined> {
   set({ asking: true });
-  const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Lock Sikemux' }).catch(() => null);
+  const result = await LocalAuthentication.authenticateAsync({ promptMessage: translate('Lock Sikemux') }).catch(() => null);
   set({ asking: false });
   if (!result) return undefined;
   if (!result.success)
@@ -98,8 +109,8 @@ export async function turnLockOn(): Promise<string | undefined> {
 }
 
 export async function turnLockOff() {
-  await SecureStore.deleteItemAsync(ITEM);
   set({ on: false });
+  await SecureStore.deleteItemAsync(ITEM).catch((error: unknown) => console.warn('sikemux: could not forget that the lock is on', error));
 }
 
 function changed(next: AppStateStatus) {

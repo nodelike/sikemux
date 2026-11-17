@@ -1,18 +1,17 @@
 //! The theme palette: every theme, each worn by the window while it is
 //! highlighted, and the person's own put back when they leave without one.
 
+use crate::core::Target;
 use gpui_kit::{Context, SharedString, Window};
-use serde_json::json;
-use sikemux_wire::theme::{Palette, ThemeSource, ThemeSummary};
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::themes::ThemeParams;
+use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
-use crate::core;
 use crate::palette::{Row, Spec};
 use crate::theme;
 use crate::workbench::Workbench;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "theme.switch")]
-pub struct SwitchTheme;
 
 const ID: &str = "theme.switch";
 
@@ -20,19 +19,25 @@ fn rows(themes: Vec<ThemeSummary>) -> Vec<Row> {
     let mut themes = themes;
     themes.sort_by_key(|summary| match summary.source {
         ThemeSource::Custom => 0,
-        ThemeSource::Sikemux => 1,
-        ThemeSource::Ghostty => 2,
+        ThemeSource::Omarchy => 1,
+        ThemeSource::Sikemux => 2,
+        ThemeSource::Ghostty => 3,
     });
     themes
         .into_iter()
         .map(|summary| {
             let group = match summary.source {
-                ThemeSource::Custom => "Yours",
+                ThemeSource::Custom => t!("Yours"),
+                ThemeSource::Omarchy => "Omarchy",
                 ThemeSource::Sikemux => "Sikemux",
                 ThemeSource::Ghostty => "Ghostty",
             };
             Row::new(summary.id, summary.name)
-                .meta(if summary.dark { "dark" } else { "light" })
+                .meta(if summary.dark {
+                    t!("dark")
+                } else {
+                    t!("light")
+                })
                 .group(group)
         })
         .collect()
@@ -41,24 +46,18 @@ fn rows(themes: Vec<ThemeSummary>) -> Vec<Row> {
 impl Workbench {
     pub fn toggle_theme_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let current: SharedString = self.preferences().theme_id.clone().into();
-        let spec = Spec::new(ID, "pick a theme…", Vec::new(), |row, bench, _, _| {
-            bench.call(
-                "setPreference",
-                json!({ "key": "themeId", "value": row.key.to_string() }),
-            );
+        let spec = Spec::new(ID, t!("pick a theme…"), Vec::new(), |row, bench, _, _| {
+            crate::settings::set(bench, PreferenceChange::ThemeId(row.key.to_string()));
         })
         .start(current)
-        .empty("reading themes…")
+        .empty(t!("reading themes…"))
         .width(440.)
         .browse(|row, bench, _, cx| bench.wear_theme(Some(row.key.clone()), cx))
         .cancel(|bench, _, cx| bench.wear_theme(None, cx));
         self.toggle_palette(spec, window, cx);
-        let listed = core::request(&self.asks, "themes", json!({}));
+        let listed = Target::here(&self.asks).request_typed::<call::Themes>(NoParams {});
         cx.spawn(async move |this, cx| {
             let Ok(themes) = listed.await else {
-                return;
-            };
-            let Ok(themes) = serde_json::from_value::<Vec<ThemeSummary>>(themes) else {
                 return;
             };
             let _ = this.update(cx, |bench, cx| {
@@ -78,12 +77,11 @@ impl Workbench {
 
     /// Draws the window in theme `id`, or in the person's own theme again.
     fn wear_theme(&self, id: Option<SharedString>, cx: &mut Context<Self>) {
-        let worn = core::request(&self.asks, "theme", json!({ "id": id.as_deref() }));
+        let worn = Target::here(&self.asks).request_typed::<call::Theme>(Some(ThemeParams {
+            id: id.as_ref().map(ToString::to_string),
+        }));
         cx.spawn(async move |this, cx| {
             let Ok(palette) = worn.await else {
-                return;
-            };
-            let Ok(palette) = serde_json::from_value::<Palette>(palette) else {
                 return;
             };
             let _ = this.update(cx, |bench, cx| {

@@ -6,6 +6,7 @@ import type {
 
 import { isPort, settingsFrom } from "../env.ts";
 import { CHANNELS } from "../updates/update.ts";
+import { FLAGS_OFF } from "./flags.ts";
 
 const APP_VERSION =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
@@ -62,5 +63,6 @@ export function readNetwork(
       ios: versions("ios"),
       android: versions("android"),
     },
+    flags: { off: FLAGS_OFF },
   };
 }

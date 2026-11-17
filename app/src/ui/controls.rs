@@ -6,20 +6,23 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, ClickEvent, ElementId, Entity, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Radians, RenderOnce, SharedString, StatefulInteractiveElement,
-    Styled, Transformation, Window,
+    IntoElement, ParentElement, Pixels, Radians, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Transformation, Window,
 };
 
 use super::{icon, kbd, text};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_SM,
+    radius_2, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_SM,
     TEXT_XS,
 };
 
 pub type OnClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 type OnSelect = Rc<dyn Fn(&usize, &mut Window, &mut App)>;
+
+/// The height of a header's controls: buttons, a small field and a row of choices.
+pub const TOOLBAR_HEIGHT: f32 = 28.;
 
 /// How much of its colour an icon button keeps while it can't be pressed, low enough to tell
 /// at a glyph's size from one that can.
@@ -39,6 +42,8 @@ pub struct IconButton {
     disabled: bool,
     turned: f32,
     tint: Option<Hsla>,
+    thumb: bool,
+    radius: Option<Pixels>,
     label: SharedString,
     on_click: Option<OnClick>,
 }
@@ -58,6 +63,8 @@ impl IconButton {
             disabled: false,
             turned: 0.,
             tint: None,
+            thumb: false,
+            radius: None,
             label: label.into(),
             on_click: None,
         }
@@ -66,6 +73,18 @@ impl IconButton {
     /// Drawn in `tint` on a wash of it, as the mic while it listens.
     pub fn tint(mut self, tint: Hsla) -> Self {
         self.tint = Some(tint);
+        self
+    }
+
+    /// One of a switch's choices: pressed, it is lifted on an agent pill's fill, and at rest its
+    /// glyph takes the pill's quieter ink.
+    pub fn thumb(mut self) -> Self {
+        self.thumb = true;
+        self
+    }
+
+    pub fn radius(mut self, radius: Pixels) -> Self {
+        self.radius = Some(radius);
         self
     }
 
@@ -78,6 +97,12 @@ impl IconButton {
     /// Turns the glyph by `radians`, as a chevron pointing back.
     pub fn turned(mut self, radians: f32) -> Self {
         self.turned = radians;
+        self
+    }
+
+    /// Drawn in the text's tertiary ink rather than the quieter icon ink, to match words beside it.
+    pub fn quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
         self
     }
 
@@ -130,10 +155,10 @@ impl IconButton {
 impl RenderOnce for IconButton {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = Tokens::get(cx);
-        let enabled = if self.quiet {
-            t.icon_quiet
-        } else {
-            t.text_tertiary
+        let enabled = match (self.thumb, self.quiet) {
+            (true, _) => t.text_secondary,
+            (false, true) => t.icon_quiet,
+            (false, false) => t.text_tertiary,
         };
         let rest = match self.disabled {
             true => Hsla {
@@ -142,7 +167,12 @@ impl RenderOnce for IconButton {
             },
             false => enabled,
         };
-        let (hover, primary, chosen) = (t.surface_hover, t.text_primary, t.surface_chosen);
+        let chosen = if self.thumb {
+            t.surface_raised
+        } else {
+            t.surface_chosen
+        };
+        let (hover, primary) = (t.surface_hover, t.text_primary);
         let (hover, primary) = if self.disabled {
             (Hsla::transparent_black(), rest)
         } else {
@@ -177,7 +207,7 @@ impl RenderOnce for IconButton {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(RADIUS_2)
+            .rounded(self.radius.unwrap_or_else(radius_2))
             .text_color(ink)
             .bg(wash)
             .on_hover(keep_over)
@@ -219,11 +249,17 @@ pub enum Variant {
     Primary,
     /// A dashed box for adding something that is not there yet.
     Dashed,
+    /// Text alone until the pointer is over it, for an action a row keeps but rarely needs.
+    Ghost,
 }
 
 /// A labelled button, optionally with a leading icon and a trailing shortcut.
+const SIZED_ROUNDING: f32 = 0.2;
+
 #[derive(IntoElement)]
 pub struct Button {
+    solid: Option<(Hsla, Hsla)>,
+    sized: Option<(f32, f32, f32)>,
     id: ElementId,
     label: SharedString,
     icon: Option<Icon>,
@@ -236,6 +272,7 @@ pub struct Button {
     trail: Option<AnyElement>,
     tooltip: Option<SharedString>,
     wide: bool,
+    mouse_only: bool,
 }
 
 /// A button can open a popover; it looks the same open or closed.
@@ -252,6 +289,8 @@ impl Selectable for Button {
 impl Button {
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, variant: Variant) -> Self {
         Self {
+            solid: None,
+            sized: None,
             id: id.into(),
             label: label.into(),
             icon: None,
@@ -264,6 +303,7 @@ impl Button {
             trail: None,
             tooltip: None,
             wide: false,
+            mouse_only: false,
         }
     }
 
@@ -273,8 +313,27 @@ impl Button {
         self
     }
 
+    /// Takes no keyboard focus, so neither Tab nor Enter or Space can reach it; a pointer and
+    /// VoiceOver's press still click it.
+    pub fn mouse_only(mut self, mouse_only: bool) -> Self {
+        self.mouse_only = mouse_only;
+        self
+    }
+
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Drawn before the label in place of an icon, for one in a colour of its own.
+    pub fn lead(mut self, lead: impl IntoElement) -> Self {
+        self.lead = Some(lead.into_any_element());
+        self
+    }
+
+    /// Drawn after the label.
+    pub fn trail(mut self, trail: impl IntoElement) -> Self {
+        self.trail = Some(trail.into_any_element());
         self
     }
 
@@ -284,21 +343,21 @@ impl Button {
         self
     }
 
+    /// A borderless fill that hides what is behind it, for a button on a busy ground.
+    pub fn solid(mut self, rest: Hsla, hovered: Hsla) -> Self {
+        self.solid = Some((rest, hovered));
+        self
+    }
+
+    /// Its height, side padding and text size, for a button set larger or smaller than the rest.
+    pub fn sized(mut self, height: f32, padding: f32, text: f32) -> Self {
+        self.sized = Some((height, padding, text));
+        self
+    }
+
     /// Lifted as a chosen item is, while what it opens is open.
     pub fn pressed(mut self, pressed: bool) -> Self {
         self.pressed = pressed;
-        self
-    }
-
-    /// Something drawn before the label in place of an icon, such as a status dot.
-    pub fn lead(mut self, lead: impl IntoElement) -> Self {
-        self.lead = Some(lead.into_any_element());
-        self
-    }
-
-    /// Something drawn after the label, such as a count.
-    pub fn trail(mut self, trail: impl IntoElement) -> Self {
-        self.trail = Some(trail.into_any_element());
         self
     }
 
@@ -332,6 +391,8 @@ impl RenderOnce for Button {
             motion::fade(&self.id, channel, target, motion::CONTROL_TINT, window, cx)
         };
         let base = BaseButton::new(self.id.clone())
+            .focusable(!self.mouse_only)
+            .tab_stop(!self.mouse_only)
             .on_hover(keep_over)
             .when(self.disabled, |button| button.opacity(0.5))
             .when(!self.disabled, |button| button.cursor_pointer())
@@ -341,14 +402,21 @@ impl RenderOnce for Button {
             .items_center()
             .justify_start()
             .gap(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .whitespace_nowrap();
         let base = match self.variant {
-            Variant::Outline => base
-                .h(px(28.))
+            Variant::Outline | Variant::Ghost => base
+                .h(px(TOOLBAR_HEIGHT))
                 .px(SPACE_3)
-                .border_1()
-                .border_color(fade("edge", if lit { t.border_strong } else { t.border }))
+                .border(crate::theme::border())
+                .border_color(fade(
+                    "edge",
+                    match (lit, self.variant) {
+                        (true, _) => t.border_strong,
+                        (false, Variant::Ghost) => t.border.opacity(0.),
+                        (false, _) => t.border,
+                    },
+                ))
                 .text_size(crate::theme::ui_text(TEXT_2XS_H))
                 .text_color(fade(
                     "ink",
@@ -379,7 +447,7 @@ impl RenderOnce for Button {
                 .h(px(22.))
                 .px(SPACE_2)
                 .gap(px(5.))
-                .border_1()
+                .border(crate::theme::border())
                 .border_dashed()
                 .border_color(t.border)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
@@ -388,6 +456,16 @@ impl RenderOnce for Button {
                     if lit { t.text_primary } else { t.text_tertiary },
                 )),
         };
+        let base = base.when_some(self.solid, |button, (rest, hovered)| {
+            button
+                .h(px(26.))
+                .border_0()
+                .bg(rest)
+                .font_weight(FontWeight::MEDIUM)
+                .text_size(crate::theme::ui_text(TEXT_2XS))
+                .text_color(t.text_primary)
+                .hover(move |button| button.bg(hovered))
+        });
         let base = base.when(self.wide, |button| {
             button
                 .w_full()
@@ -395,9 +473,19 @@ impl RenderOnce for Button {
                 .justify_center()
                 .text_size(crate::theme::ui_text(TEXT_SM))
         });
+        let base = base.when_some(self.sized, |button, (height, padding, text)| {
+            button
+                .h(px(height))
+                .px(px(padding))
+                .rounded(px(height * SIZED_ROUNDING))
+                .text_size(crate::theme::ui_text(text))
+                .when(self.variant == Variant::Primary, |button| {
+                    button.font_weight(FontWeight::SEMIBOLD).gap(SPACE_3)
+                })
+        });
         let (glyph, rest) = match self.variant {
             Variant::Primary => (13., t.on_accent),
-            Variant::Outline => (11., t.text_secondary),
+            Variant::Outline | Variant::Ghost => (11., t.text_secondary),
             Variant::Dashed => (11., t.text_tertiary),
         };
         let hover = if self.variant == Variant::Primary {
@@ -421,10 +509,16 @@ impl RenderOnce for Button {
         }))
         .child(self.label)
         .children(self.trail)
-        .children(
-            self.keys
-                .map(|keys| kbd(keys, cx).font_family(crate::theme::MONO)),
-        )
+        .children(self.keys.map(|keys| {
+            kbd(keys, cx)
+                .font_family(crate::theme::mono_font())
+                .when(self.variant == Variant::Primary, |keys| {
+                    keys.text_color(t.on_accent.opacity(0.8))
+                })
+                .when_some(self.sized, |keys, (_, _, text)| {
+                    keys.text_size(crate::theme::ui_text(text))
+                })
+        }))
     }
 }
 
@@ -436,12 +530,18 @@ pub struct Segmented {
     options: Vec<(Option<Icon>, SharedString, Option<u64>)>,
     selected: usize,
     slide: bool,
-    fill: bool,
     on_select: Option<OnSelect>,
     /// Why it cannot be changed now, shown over it; none while it can.
     disabled: Option<SharedString>,
     /// A choice that holds things waiting on the person, and how many.
     waiting: Option<(usize, usize)>,
+    /// A choice marked with a dot, and why.
+    marked: Option<(usize, SharedString)>,
+    /// How wide each choice of a sliding switch is.
+    slot: f32,
+    /// What each choice does, in a line, shown over it.
+    tooltips: Vec<SharedString>,
+    icons_only: bool,
 }
 
 impl Segmented {
@@ -459,10 +559,13 @@ impl Segmented {
             options,
             selected,
             slide: false,
-            fill: false,
             on_select: None,
             disabled: None,
             waiting: None,
+            marked: None,
+            slot: 50.,
+            tooltips: Vec::new(),
+            icons_only: false,
         }
     }
 
@@ -481,22 +584,39 @@ impl Segmented {
             options,
             selected,
             slide: false,
-            fill: false,
             on_select: None,
             disabled: None,
             waiting: None,
+            marked: None,
+            slot: 50.,
+            tooltips: Vec::new(),
+            icons_only: false,
         }
-    }
-
-    /// Spans the width it is given, its choices sharing it, as a side panel's segment does.
-    pub fn fill(mut self) -> Self {
-        self.fill = true;
-        self
     }
 
     /// The switch in a pane's header, as GUI and TUI: a grey thumb slides to the chosen one.
     pub fn slide(mut self) -> Self {
         self.slide = true;
+        self
+    }
+
+    /// How wide each choice of a sliding switch is, for labels longer than GUI and TUI.
+    pub fn slot(mut self, width: f32) -> Self {
+        self.slot = width;
+        self
+    }
+
+    /// Marks the choice at `index` with a dot, saying `why` over it.
+    pub fn marked(mut self, index: usize, why: Option<impl Into<SharedString>>) -> Self {
+        self.marked = why.map(|why| (index, why.into()));
+        self
+    }
+
+    /// Puts `glyph` before the label of the choice at `index`.
+    pub fn glyph(mut self, index: usize, glyph: Icon) -> Self {
+        if let Some(option) = self.options.get_mut(index) {
+            option.0 = Some(glyph);
+        }
         self
     }
 
@@ -519,9 +639,11 @@ impl Segmented {
 
 impl Segmented {
     fn sliding(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        const SLOT: f32 = 50.;
+        let slot = self.slot;
+        let marked = self.marked;
         let t = Tokens::get(cx).clone();
-        let on_select = self.on_select.filter(|_| self.disabled.is_none());
+        let locked = self.disabled.is_some();
+        let on_select = self.on_select.filter(|_| !locked);
         let thumb_id = ElementId::NamedChild(Arc::new(self.id.clone()), "thumb".into());
         let at = motion::follow(
             thumb_id,
@@ -537,21 +659,21 @@ impl Segmented {
             .h(px(24.))
             .p(px(1.))
             .rounded(px(7.))
-            .bg(t.surface_hover)
-            .border_1()
+            .bg(t.surface_sunken)
+            .border(crate::theme::border())
             .border_color(t.border)
             .when_some(self.disabled, |track, reason| {
-                track.opacity(0.5).tooltip(super::tooltip(reason))
+                track.tooltip(super::tooltip(reason))
             })
             .child(
                 div()
                     .absolute()
                     .top(px(1.))
-                    .left(px(1. + at * SLOT))
-                    .w(px(SLOT))
+                    .left(px(1. + at * slot))
+                    .w(px(slot))
                     .h(px(20.))
                     .rounded(px(5.))
-                    .bg(t.surface_active),
+                    .bg(t.surface_raised),
             )
             .children(
                 self.options
@@ -559,37 +681,47 @@ impl Segmented {
                     .enumerate()
                     .map(|(index, (glyph, label, _))| {
                         let chosen = index == self.selected;
-                        let ink = if chosen {
-                            t.text_primary
-                        } else {
-                            t.text_tertiary
+                        let ink = match (chosen, locked) {
+                            (true, _) => t.text_primary,
+                            (false, true) => t.text_disabled,
+                            (false, false) => t.text_tertiary,
                         };
                         let on_select = on_select.clone();
+                        let why = (marked.as_ref())
+                            .filter(|(at, _)| *at == index)
+                            .map(|(_, why)| why.clone());
                         BaseButton::new(("segment", index))
                             .group(GROUP)
                             .selected(chosen)
                             .accessibility_label(label.clone())
-                            .w(px(SLOT))
+                            .w(px(slot))
                             .h_full()
                             .flex()
                             .items_center()
                             .justify_center()
                             .gap(px(5.))
                             .text_color(ink)
-                            .when(!chosen, |segment| {
+                            .when(!chosen && !locked, |segment| {
                                 segment.hover(move |style| style.text_color(t.text_secondary))
                             })
                             .when_some(on_select, |segment, handler| {
                                 segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
                             .children(glyph.map(|glyph| {
-                                icon(glyph, 12.).text_color(ink).when(!chosen, |glyph| {
-                                    glyph.group_hover(GROUP, move |style| {
-                                        style.text_color(t.text_secondary)
+                                icon(glyph, 12.)
+                                    .text_color(ink)
+                                    .when(!chosen && !locked, |glyph| {
+                                        glyph.group_hover(GROUP, move |style| {
+                                            style.text_color(t.text_secondary)
+                                        })
                                     })
-                                })
                             }))
                             .child(text(label, TEXT_2XS, FontWeight::NORMAL))
+                            .when_some(why, |segment, why| {
+                                segment.tooltip(super::tooltip(why)).child(
+                                    div().flex_none().size(px(5.)).rounded_full().bg(t.accent),
+                                )
+                            })
                     }),
             )
     }
@@ -601,19 +733,28 @@ impl RenderOnce for Segmented {
             return self.sliding(window, cx).into_any_element();
         }
         let t = Tokens::get(cx).clone();
-        let on_select = self.on_select.filter(|_| self.disabled.is_none());
-        let (fill, waiting) = (self.fill, self.waiting);
+        let locked = self.disabled.is_some();
+        let on_select = self.on_select.filter(|_| !locked);
+        let (primary, faded, quiet) = (t.text_primary, t.text_disabled, t.text_tertiary);
+        let ink = move |chosen: bool| match (chosen, locked) {
+            (true, _) => primary,
+            (false, true) => faded,
+            (false, false) => quiet,
+        };
+        let waiting = self.waiting;
+        let (marked, tooltips) = (self.marked, self.tooltips);
+        let icons_only = self.icons_only;
         div()
             .id(self.id)
             .flex()
-            .when(fill, |track| track.w_full())
             .when_some(self.disabled, |track, reason| {
-                track.opacity(0.5).tooltip(super::tooltip(reason))
+                track.tooltip(super::tooltip(reason))
             })
-            .h(px(30.))
-            .p(px(3.))
-            .rounded(RADIUS_2)
-            .border_1()
+            .h(px(TOOLBAR_HEIGHT))
+            .p(px(2.))
+            .rounded(radius_2())
+            .bg(t.surface_sunken)
+            .border(crate::theme::border())
             .border_color(t.border)
             .children(
                 self.options
@@ -622,12 +763,23 @@ impl RenderOnce for Segmented {
                     .map(|(index, (glyph, label, count))| {
                         let chosen = index == self.selected;
                         let on_select = on_select.clone();
+                        let why = (marked.as_ref())
+                            .filter(|(at, _)| *at == index)
+                            .map(|(_, why)| why.clone());
+                        let tip = match (tooltips.get(index), &why) {
+                            (Some(tip), Some(why)) => Some(format!("{tip}\n{why}").into()),
+                            (tip, why) => tip.or(why.as_ref()).cloned(),
+                        };
+                        let tip = match tip {
+                            Some(tip) if icons_only => Some(format!("{label}\n{tip}").into()),
+                            None if icons_only => Some(label.clone()),
+                            tip => tip,
+                        };
                         BaseButton::new(("segment", index))
                             .group(GROUP)
                             .selected(chosen)
                             .accessibility_label(label.clone())
-                            .when(fill, |segment| segment.flex_1().min_w_0())
-                            .when(!fill && glyph.is_some(), |segment| segment.flex_1())
+                            .when(glyph.is_some(), |segment| segment.flex_1())
                             .h_full()
                             .px(SPACE_2)
                             .flex()
@@ -635,32 +787,36 @@ impl RenderOnce for Segmented {
                             .justify_center()
                             .gap(px(7.))
                             .rounded(px(3.))
-                            .text_color(if chosen {
-                                t.text_primary
-                            } else {
-                                t.text_tertiary
+                            .text_color(ink(chosen))
+                            .when(chosen, |segment| segment.bg(t.surface_raised))
+                            .when(!locked, |segment| {
+                                segment.hover(move |style| style.text_color(t.text_primary))
                             })
-                            .when(chosen, |segment| segment.bg(t.surface_active))
-                            .hover(move |style| style.text_color(t.text_primary))
                             .when_some(on_select, |segment, handler| {
                                 segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
+                            .when_some(tip, |segment, tip: SharedString| {
+                                segment.tooltip(super::tooltip(tip))
+                            })
                             .children(glyph.map(|glyph| {
                                 icon(glyph, 13.)
-                                    .text_color(if chosen {
-                                        t.text_primary
-                                    } else {
-                                        t.text_tertiary
-                                    })
-                                    .group_hover(GROUP, move |style| {
-                                        style.text_color(t.text_primary)
+                                    .text_color(ink(chosen))
+                                    .when(!locked, |glyph| {
+                                        glyph.group_hover(GROUP, move |style| {
+                                            style.text_color(t.text_primary)
+                                        })
                                     })
                             }))
-                            .child(
-                                text(label, TEXT_2XS, FontWeight::NORMAL)
-                                    .overflow_hidden()
-                                    .text_ellipsis(),
-                            )
+                            .when(!icons_only, |segment| {
+                                segment.child(
+                                    text(label, TEXT_2XS, FontWeight::NORMAL)
+                                        .overflow_hidden()
+                                        .text_ellipsis(),
+                                )
+                            })
+                            .children(why.map(|_| {
+                                div().flex_none().size(px(5.)).rounded_full().bg(t.accent)
+                            }))
                             .children(count.map(|count| {
                                 text(count.to_string(), TEXT_3XS, FontWeight::NORMAL)
                                     .font_features(crate::theme::tabular())
@@ -751,14 +907,14 @@ impl RenderOnce for Field {
             true => field
                 .h(px(if self.small { 34. } else { 32. }))
                 .px(px(if self.small { 18. } else { 12. }))
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border),
             false => field
-                .h(px(if self.small { 26. } else { 34. }))
+                .h(px(if self.small { TOOLBAR_HEIGHT } else { 34. }))
                 .px(px(if self.small { 8. } else { 10. }))
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.line)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(Hsla {
                     a: 0.62,
                     ..t.line_soft
@@ -774,7 +930,7 @@ impl RenderOnce for Field {
                 .flex_1()
                 .map(|text| match self.mono {
                     true => text
-                        .font_family(crate::theme::MONO)
+                        .font_family(crate::theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_XS)),
                     false => {
                         text.text_size(crate::theme::ui_text(if self.small { 12. } else { 13. }))
@@ -795,6 +951,8 @@ pub struct Toggle {
     label: SharedString,
     pressed: bool,
     on_click: Option<OnClick>,
+    /// How many its choice holds, in its tint, after the label.
+    count: Option<(usize, Hsla)>,
 }
 
 impl Toggle {
@@ -804,7 +962,13 @@ impl Toggle {
             label: label.into(),
             pressed,
             on_click: None,
+            count: None,
         }
+    }
+
+    pub fn count(mut self, count: usize, tint: Hsla) -> Self {
+        self.count = Some((count, tint));
+        self
     }
 
     pub fn on_click(
@@ -827,7 +991,7 @@ impl RenderOnce for Toggle {
             .px(SPACE_2)
             .flex()
             .items_center()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(if self.pressed {
                 t.border
             } else {
@@ -846,5 +1010,11 @@ impl RenderOnce for Toggle {
                 toggle.on_click(move |event, window, cx| handler(event, window, cx))
             })
             .child(self.label)
+            .children(self.count.map(|(count, tint)| {
+                text(count.to_string(), TEXT_3XS, FontWeight::NORMAL)
+                    .ml(SPACE_1H)
+                    .font_family(crate::theme::mono_font())
+                    .text_color(tint)
+            }))
     }
 }

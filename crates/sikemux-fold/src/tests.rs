@@ -1,7 +1,8 @@
 use serde_json::json;
-use sikemux_wire::chat::{
-    ChatChange, ChatView, DiffLine, DiffSummary, OutputImage, OutputSummary, PageRef, PlanEntry,
-    PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall, ToolOutput, ToolStatus,
+use sikemux_view::chat::{
+    ChatActivity, ChatChange, ChatView, DecidedLine, DiffLine, DiffSummary, EndedTask, OutputImage,
+    OutputSummary, PageRef, PlanEntry, PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall,
+    ToolOutput, ToolStatus,
 };
 
 use super::*;
@@ -240,6 +241,7 @@ mod reducer {
             Some(Retrying {
                 attempt,
                 connection,
+                reason: Some("x".to_owned()),
             })
         };
         assert_eq!(
@@ -335,6 +337,7 @@ mod reducer {
             Some(ContextUsage {
                 used: 84_000.0,
                 size: 200_000.0,
+                compact_at: None,
                 cost: Some(UsageCost {
                     amount: 1.25,
                     currency: "USD".into()
@@ -346,6 +349,7 @@ mod reducer {
         let codex = Some(ContextUsage {
             used: 90_000.0,
             size: 272_000.0,
+            compact_at: None,
             cost: None,
         });
         assert_eq!(chat.head().usage, codex);
@@ -398,6 +402,39 @@ mod reducer {
     }
 
     #[test]
+    fn activity_follows_the_call_in_the_same_flush() {
+        let mut chat = Chat::running();
+        chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "tool-1", "title": "Terminal", "kind": "execute", "status": "pending" }));
+        chat.flush();
+        assert!(matches!(
+            chat.head().activity,
+            Some(ChatActivity::Call { .. })
+        ));
+        chat.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "tool-1", "status": "completed" }));
+        chat.flush();
+        assert_eq!(chat.head().activity, Some(ChatActivity::Thinking));
+    }
+
+    #[test]
+    fn a_catch_up_after_the_turn_clears_what_the_agent_was_doing() {
+        let mut chat = Chat::new();
+        chat.ready()
+            .prompt(json!({ "text": "Run it" }))
+            .turn_started();
+        chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "tool-1", "title": "Terminal", "kind": "execute", "status": "pending" }));
+        chat.flush();
+        chat.fold.number(5);
+        chat.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "tool-1", "status": "completed" }))
+            .turn_completed(Some("end_turn"));
+        chat.flush();
+        let missed = chat.fold.catch_up(4).expect("still holds what it missed");
+        let ChatChange::Head { set, .. } = &missed[0] else {
+            panic!("a client catching up hears the head first");
+        };
+        assert_eq!(set.get("activity"), Some(&Value::Null));
+    }
+
+    #[test]
     fn merges_tool_updates_into_their_original_call() {
         let mut chat = Chat::new();
         chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "tool-1", "title": "Read file", "kind": "read", "status": "pending" }))
@@ -407,6 +444,84 @@ mod reducer {
         assert_eq!(part.tool.title, "Read file");
         assert_eq!(part.tool.status, Some(ToolStatus::Completed));
         assert_eq!(part.output, None);
+    }
+
+    #[test]
+    fn a_wait_on_a_run_names_it_by_its_label_not_its_id() {
+        let id = "96542aa9-2f45-43ec-975c-fb7684434812";
+        let mut chat = Chat::new();
+        chat.update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "start",
+            "title": "mcp__sikemux-tools__process_start",
+            "status": "completed",
+            "rawInput": { "command": "cargo build -p sikemux-core", "label": "core build" },
+            "rawOutput": [{ "type": "text", "text": json!({ "executionId": id, "label": "core build" }).to_string() }],
+        }))
+        .update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "wait",
+            "title": "mcp__sikemux-tools__events_wait",
+            "status": "in_progress",
+            "rawInput": { "executionId": id, "until": "Finished" },
+        }));
+        let wait = tool_of(&chat.rows()[0].parts[1]).tool.row;
+        assert_eq!(wait.target, "for core build");
+        assert_eq!(wait.detail.as_deref(), Some("until it prints “Finished”"));
+    }
+
+    #[test]
+    fn waits_on_the_same_thing_back_to_back_share_one_row() {
+        let wait = |id: &str, file: &str| {
+            json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": id,
+                "title": "mcp__sikemux-tools__events_wait",
+                "status": "in_progress",
+                "rawInput": { "file": file, "timeoutMs": 50000 },
+            })
+        };
+        let done = |id: &str| json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed" });
+        let mut chat = Chat::new();
+        chat.at(1_000).update(wait("w1", "/tmp/a.output"));
+        chat.at(51_000).update(done("w1"));
+        chat.at(52_000).update(wait("w2", "/tmp/a.output"));
+        chat.at(102_000).update(done("w2"));
+        chat.at(103_000).update(wait("w3", "/tmp/b.output"));
+        let parts = chat.rows()[0].parts.clone();
+        assert_eq!(parts.len(), 2);
+        let joined = tool_of(&parts[0]);
+        assert_eq!(joined.tool.row.times, Some(2));
+        assert_eq!(
+            (joined.started_at, joined.ended_at),
+            (Some(1_000), Some(102_000))
+        );
+        assert_eq!(tool_of(&parts[1]).tool.row.times, None);
+    }
+
+    #[test]
+    fn a_wait_on_a_background_commands_output_names_the_command() {
+        let file = "/private/tmp/claude-501/project/417b64d8/tasks/bjpp32l6o.output";
+        let mut chat = Chat::new();
+        chat.update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "check",
+            "title": "Terminal",
+            "kind": "execute",
+            "status": "completed",
+            "rawInput": { "command": "pnpm check", "description": "Run server checks", "run_in_background": true },
+            "rawOutput": format!("Command running in background with ID: bjpp32l6o. Output is being written to: {file}. You will be notified when it completes."),
+        }))
+        .update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "wait",
+            "title": "mcp__sikemux-tools__events_wait",
+            "status": "in_progress",
+            "rawInput": { "file": file, "timeoutMs": 50000 },
+        }));
+        let wait = tool_of(&chat.rows()[0].parts[1]).tool.row;
+        assert_eq!(wait.target, "for Run server checks");
+        assert_eq!(wait.detail.as_deref(), Some("until it stops changing"));
     }
 
     #[test]
@@ -527,14 +642,14 @@ mod reducer {
                 cut: false,
                 exit_code: Some(1),
                 image: None,
+                page: None,
             })
         );
     }
 
     #[test]
     fn keeps_the_page_a_finished_page_show_showed_in_place_of_what_it_printed() {
-        let page =
-            json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue", "height": 300 });
+        let page = json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue" });
         let mut chat = Chat::new();
         chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "page-1", "title": "mcp__sikemux-tools__page_show", "status": "in_progress" }))
             .update(json!({
@@ -549,7 +664,6 @@ mod reducer {
             Some(PageRef {
                 id: "0123456789abcdef0123456789abcdef".into(),
                 title: "Revenue".into(),
-                height: Some(300.0),
             })
         );
         assert_eq!(part.output, None);
@@ -692,17 +806,21 @@ mod reducer {
         assert!(chat.head().tasks.is_empty());
         let rows = chat.rows();
         match rows.last().and_then(|row| row.parts.last()) {
-            Some(ChatPart::Notice { notice, .. }) => assert_eq!(
-                *notice,
-                TaskNotice {
-                    name: "pnpm test".into(),
-                    state: NoticeState::Completed,
-                    summary: Some("12 files passed".into()),
-                    task_type: Some("shell".into()),
-                    subagent: None,
+            Some(ChatPart::Tasks { tasks, .. }) => assert_eq!(
+                *tasks,
+                EndedTasks {
+                    tasks: vec![EndedTask {
+                        name: "pnpm test".into(),
+                        state: NoticeState::Completed,
+                        summary: Some("12 files passed".into()),
+                        task_type: Some("shell".into()),
+                        times: 1,
+                    }],
+                    done: 1,
+                    ..EndedTasks::default()
                 }
             ),
-            other => panic!("expected a notice, got {other:?}"),
+            other => panic!("expected the ended tasks, got {other:?}"),
         }
     }
 
@@ -719,22 +837,22 @@ mod reducer {
             .join("\n"),
         ));
         let rows = chat.rows();
-        let notices: Vec<&TaskNotice> = rows
+        let ended: Vec<&EndedTask> = rows
             .iter()
             .flat_map(|row| &row.parts)
-            .map(|part| match part {
-                ChatPart::Notice { notice, .. } => notice,
-                other => panic!("expected only a notice, got {other:?}"),
+            .flat_map(|part| match part {
+                ChatPart::Tasks { tasks, .. } => &tasks.tasks,
+                other => panic!("expected only the ended tasks, got {other:?}"),
             })
             .collect();
         assert_eq!(
-            notices,
-            vec![&TaskNotice {
+            ended,
+            vec![&EndedTask {
                 name: "Background task".into(),
                 state: NoticeState::Completed,
                 summary: None,
                 task_type: None,
-                subagent: None,
+                times: 1,
             }]
         );
         assert!(rows.iter().all(|row| row.role != ChatRole::User));
@@ -809,6 +927,7 @@ mod reducer {
             Some(ContextUsage {
                 used: 1.0,
                 size: 10.0,
+                compact_at: None,
                 cost: None
             })
         );
@@ -1213,23 +1332,57 @@ mod reducer {
     }
 
     #[test]
+    fn folds_the_tasks_that_end_in_one_turn_into_one_line_between_its_calls() {
+        let mut chat = Chat::new();
+        chat.prompt(json!({ "text": "capture" })).turn_started();
+        for (id, name, kind) in [
+            ("b1", "Capture screens", "shell"),
+            ("m1", "Watch failures", "monitor"),
+            ("m2", "Watch failures", "monitor"),
+        ] {
+            chat.update(json!({ "sessionUpdate": "async_task_spawned", "asyncTaskId": id, "name": name, "taskType": kind }));
+        }
+        chat.update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "b1", "state": "completed" }))
+            .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Read file", "status": "completed" }))
+            .update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "m1", "state": "stopped" }))
+            .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call-2", "title": "Read file", "status": "completed" }))
+            .update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "m2", "state": "stopped" }));
+        let rows = chat.rows();
+        let lines: Vec<&EndedTasks> = rows
+            .iter()
+            .flat_map(|row| &row.parts)
+            .filter_map(|part| match part {
+                ChatPart::Tasks { tasks, .. } => Some(tasks),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 1);
+        let watch = &lines[0].tasks[1];
+        assert_eq!((watch.name.as_str(), watch.times), ("Watch failures", 2));
+        assert_eq!(
+            (lines[0].done, lines[0].stopped, lines[0].watches_stopped),
+            (1, 2, 2)
+        );
+    }
+
+    #[test]
     fn writes_a_notice_without_a_summary_when_a_stopped_task_never_gave_one() {
         let mut chat = Chat::new();
         chat.update(json!({ "sessionUpdate": "async_task_spawned", "asyncTaskId": "task-1", "name": "Build" }))
             .update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "task-1", "state": "stopped" }));
         assert!(chat.head().tasks.is_empty());
         match &chat.rows()[0].parts[0] {
-            ChatPart::Notice { notice, .. } => assert_eq!(
-                *notice,
-                TaskNotice {
+            ChatPart::Tasks { tasks, .. } => assert_eq!(
+                tasks.tasks,
+                vec![EndedTask {
                     name: "Build".into(),
                     state: NoticeState::Stopped,
                     summary: None,
                     task_type: None,
-                    subagent: None,
-                }
+                    times: 1,
+                }]
             ),
-            other => panic!("expected a notice, got {other:?}"),
+            other => panic!("expected the ended tasks, got {other:?}"),
         }
     }
 
@@ -1244,6 +1397,14 @@ mod reducer {
                     severity: NoticeSeverity::Warning,
                     title: "Fast mode turned off".into(),
                     description: Some("Usage limit.".into()),
+                    goal: None,
+                    rule: None,
+                    overruled: None,
+                    week: None,
+                    rule_change: None,
+                    decided: None,
+                    worker_page: None,
+                    closed_card: None,
                 }
             ),
             other => panic!("expected an agent notice, got {other:?}"),
@@ -1257,7 +1418,7 @@ mod reducer {
     fn keeps_the_plan_title_and_config_the_session_reports() {
         let plan = json!({ "sessionUpdate": "plan", "entries": [{ "content": "Write tests", "status": "pending" }] });
         let mut chat = Chat::new();
-        chat.update(plan.clone())
+        chat.update(plan)
             .update(json!({ "sessionUpdate": "session_info_update", "title": "Coverage work" }))
             .update(json!({ "sessionUpdate": "config_option_update", "configOptions": [{ "id": "model" }] }));
         assert_eq!(
@@ -1298,6 +1459,7 @@ mod reducer {
         let bare = Some(ContextUsage {
             used: 1.0,
             size: 10.0,
+            compact_at: None,
             cost: None,
         });
         assert_eq!(
@@ -1378,25 +1540,11 @@ mod reducer {
         let mut sent = Chat::new();
         sent.at(5_000)
             .prompt(json!({ "text": "  ", "paths": ["/tmp/shot.png"] }));
-        assert_eq!(
-            sent.rows()[0],
-            ChatMessage {
-                id: "m0".into(),
-                role: ChatRole::User,
-                prompt_id: None,
-                parts: Vec::new(),
-                attachments: vec!["/tmp/shot.png".into()],
-                context: Vec::new(),
-                letters: Vec::new(),
-                sent_at: Some(5_000),
-                ended_at: None,
-                opens_turn: None,
-                meta: None,
-                fold: None,
-                from_event: Some(0),
-                reactions: Vec::new(),
-            }
-        );
+        let message = &sent.rows()[0];
+        assert_eq!(message.role, ChatRole::User);
+        assert!(message.parts.is_empty());
+        assert_eq!(message.attachments, ["/tmp/shot.png"]);
+        assert_eq!(message.sent_at, Some(5_000));
         let mut plain = Chat::new();
         plain.prompt(json!({ "text": "Hi", "paths": [] }));
         assert!(plain.rows()[0].attachments.is_empty());
@@ -1472,6 +1620,7 @@ mod reducer {
                     label: "Work".into(),
                     from: Some("Personal".into()),
                     reason: MoveReason::Limit,
+                    placed: None,
                 }
             ),
             other => panic!("expected an account move, got {other:?}"),
@@ -1489,6 +1638,7 @@ mod reducer {
                 details: None,
                 account: Some("personal".into()),
                 resumes_at: None,
+                carry_on_with: None,
             })
         );
         chat.status("starting");
@@ -1697,6 +1847,7 @@ mod acp_events {
                 details: None,
                 account: Some("Work".into()),
                 resumes_at: None,
+                carry_on_with: None,
             })
         );
     }
@@ -1715,6 +1866,7 @@ mod tool_output {
             cut: false,
             exit_code: None,
             image: None,
+            page: None,
         })
     }
 
@@ -1737,6 +1889,7 @@ mod tool_output {
                 cut: false,
                 exit_code: Some(0),
                 image: None,
+                page: None,
             })
         );
         let mcp = json!({ "result": { "content": [{ "type": "text", "text": "3 hits" }] }, "error": null });
@@ -1766,6 +1919,7 @@ mod tool_output {
                     data: "SEVMTE8=".into(),
                     mime_type: "image/png".into(),
                 }),
+                page: None,
             })
         );
     }
@@ -1958,14 +2112,6 @@ mod row_meta {
     }
 
     #[test]
-    fn times_nothing_for_history_replayed_after_a_reconnect() {
-        let mut chat = Chat::new();
-        chat.update(chunk(&"a".repeat(400), "m1"));
-        assert!(chat.fold.main.rows[0].stream.is_none());
-        assert_eq!(rate(&mut chat), None);
-    }
-
-    #[test]
     fn gives_no_rate_for_a_burst_too_short_to_measure() {
         let mut chat = Chat::running();
         chat.at(0).update(chunk("hello", "m1"));
@@ -2151,7 +2297,7 @@ mod diff {
         );
     }
 
-    fn counted(diff: Option<sikemux_wire::chat::ToolDiff>) -> Option<(String, u64, u64)> {
+    fn counted(diff: Option<sikemux_view::chat::ToolDiff>) -> Option<(String, u64, u64)> {
         diff.map(|diff| (diff.path, diff.adds, diff.dels))
     }
 
@@ -2310,8 +2456,7 @@ mod pages {
 
     fn printed() -> Option<Value> {
         Some(json!(
-            json!({ "page": { "id": ID, "title": "Revenue", "height": 412 }, "note": "shown" })
-                .to_string()
+            json!({ "page": { "id": ID, "title": "Revenue" }, "note": "shown" }).to_string()
         ))
     }
 
@@ -2324,7 +2469,6 @@ mod pages {
             Some(PageRef {
                 id: ID.into(),
                 title: "Revenue".into(),
-                height: Some(412.0),
             })
         );
     }
@@ -2335,7 +2479,6 @@ mod pages {
         let page = Some(PageRef {
             id: ID.into(),
             title: "Revenue".into(),
-            height: None,
         });
         assert_eq!(
             shown(
@@ -2392,10 +2535,7 @@ mod prompt_context {
     const URI: &str = "https://github.com/o/r/issues/12";
 
     fn issue() -> SentContext {
-        SentContext {
-            uri: URI.into(),
-            title: "Login crashes".into(),
-        }
+        SentContext::new(URI.into(), "Login crashes".into())
     }
 
     #[test]
@@ -2414,10 +2554,10 @@ mod prompt_context {
             prompt::split_sent_context(&sent),
             (
                 "fix this".to_owned(),
-                vec![SentContext {
-                    uri: URI.into(),
-                    title: "Issue #12: Login crashes".into(),
-                }]
+                vec![SentContext::new(
+                    URI.into(),
+                    "Issue #12: Login crashes".into()
+                )]
             )
         );
     }
@@ -2532,7 +2672,7 @@ mod tool_labels {
     }
 }
 
-fn row_of(title: &str, kind: Option<&str>, input: Value) -> sikemux_wire::chat::ToolRow {
+fn row_of(title: &str, kind: Option<&str>, input: Value) -> sikemux_view::chat::ToolRow {
     let mut raw = json!({ "toolCallId": "t1", "title": title, "rawInput": input });
     if let Some(kind) = kind {
         raw["kind"] = json!(kind);
@@ -2540,22 +2680,28 @@ fn row_of(title: &str, kind: Option<&str>, input: Value) -> sikemux_wire::chat::
     *tools::call(raw.as_object().unwrap()).row
 }
 
-fn titled(title: &str) -> sikemux_wire::chat::ToolRow {
+fn titled(title: &str) -> sikemux_view::chat::ToolRow {
     row_of(title, None, json!({}))
 }
 
 #[test]
-fn an_mcp_call_is_named_for_its_server_and_reads_its_tool_as_words() {
+fn an_mcp_call_says_its_tools_first_word_and_what_it_was_given_with_the_server_after() {
     let row = row_of(
         "mcp__linear__create_issue",
         Some("fetch_custom"),
         json!({ "title": "Rows use underscores", "body": "a\nb" }),
     );
-    assert_eq!(row.action, sikemux_wire::chat::ToolAction::Mcp);
+    assert_eq!(row.action, sikemux_view::chat::ToolAction::Mcp);
     assert_eq!(row.server.as_deref(), Some("linear"));
-    assert_eq!(row.target, "create issue");
-    assert_eq!(row.detail.as_deref(), Some("Rows use underscores"));
-    assert_eq!(titled("mcp__server__nested__tool").target, "nested  tool");
+    assert_eq!(row.verb.as_deref(), Some("create"));
+    assert_eq!(row.target, "Rows use underscores");
+    assert_eq!(row.detail.as_deref(), Some("linear"));
+    assert_eq!(row.icon.as_deref(), Some("linear"));
+    let nested = titled("mcp__server__nested__tool");
+    assert_eq!(
+        (nested.verb.as_deref(), nested.target.as_str()),
+        (Some("nested"), "tool")
+    );
     assert_eq!(titled("mcp__half").server, None);
 }
 
@@ -2581,7 +2727,6 @@ fn an_unknown_tool_is_called_by_the_first_word_of_its_title() {
         titled("Averyveryverylongtoolname").verb.as_deref(),
         Some("averyveryver")
     );
-    assert_eq!(titled("ToolSearch").icon.as_deref(), Some("wrench"));
     assert_eq!(row_of("Read", Some("read"), json!({})).verb, None);
 }
 
@@ -2731,6 +2876,86 @@ fn a_row_opens_the_file_the_call_reported_or_the_one_its_title_names() {
     assert_eq!(titled("Read").path, None);
 }
 
+#[test]
+fn an_answer_followed_by_a_wait_and_a_short_message_stays_out_of_the_fold() {
+    let answer = "That's a shortcut for the chat's scope. It duplicates two other controls, so I'd remove it.";
+    let mut chat = Chat::new();
+    chat.prompt(json!({ "text": "what does it do?", "paths": [] }))
+        .turn_started()
+        .update(say("agent_thought_chunk", "Looking at the control."))
+        .update(chunk(answer, "m1"))
+        .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "wait-1", "title": "Wait for checks", "status": "in_progress" }))
+        .update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "wait-1", "status": "completed" }))
+        .update(chunk("Checks still running.", "m2"))
+        .turn_completed(Some("end_turn"));
+    let shown: Vec<String> = chat
+        .rows()
+        .iter()
+        .filter_map(|row| row.fold.as_ref().map(|fold| (row, fold.from as usize)))
+        .flat_map(|(row, from)| {
+            row.parts
+                .iter()
+                .skip(from)
+                .filter_map(|part| match part {
+                    ChatPart::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        vec![answer.to_owned(), "Checks still running.".to_owned()]
+    );
+}
+
+#[test]
+fn pages_shown_during_a_turn_stay_out_of_its_fold() {
+    let page = json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue" });
+    let mut chat = Chat::new();
+    chat.prompt(json!({ "text": "is the gap right?", "paths": [] }))
+        .turn_started()
+        .update(say("agent_thought_chunk", "Checking the bar."))
+        .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "page-1", "title": "mcp__sikemux-tools__page_show", "status": "in_progress" }))
+        .update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "page-1",
+            "status": "completed",
+            "rawOutput": json!({ "page": page, "note": "shown" }).to_string(),
+        }))
+        .update(crate::update::worker_page_notice(WorkerPage {
+            id: "fedcba9876543210fedcba9876543210".into(),
+            title: "Segmented switch: darker fills".into(),
+            agent_id: "agent-ogami".into(),
+            name: "Ogami".into(),
+        }))
+        .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "send-1", "title": "agent_send", "status": "in_progress" }))
+        .update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "send-1", "status": "completed" }))
+        .update(chunk("The gap above the tabs is 5 pt.", "m1"))
+        .turn_completed(Some("end_turn"));
+    let rows = chat.rows();
+    let folded: Vec<_> = rows
+        .iter()
+        .filter_map(|row| Some((row, row.fold.as_ref()?)))
+        .collect();
+    assert!(!folded.is_empty(), "the turn folds");
+    let mut pages = Vec::new();
+    for (row, fold) in folded {
+        for at in &fold.shown {
+            match &row.parts[*at as usize] {
+                ChatPart::Tool {
+                    page: Some(page), ..
+                } => pages.push(page.title.clone()),
+                ChatPart::AgentNotice { notice, .. } => {
+                    pages.extend(notice.worker_page.as_ref().map(|page| page.title.clone()))
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(pages, vec!["Revenue", "Segmented switch: darker fills"]);
+}
+
 mod window {
     use super::*;
 
@@ -2805,9 +3030,14 @@ mod window {
                 ),
             ),
         ];
-        let page = chat
-            .fold
-            .page_of(&events, PageOf::Before(u64::MAX), PAGE_BYTES, None, None);
+        let page = chat.fold.page_of(
+            &events,
+            PageOf::Before(u64::MAX),
+            PAGE_BYTES,
+            None,
+            None,
+            None,
+        );
         assert_eq!(
             page.rows
                 .iter()
@@ -2863,4 +3093,155 @@ mod window {
         assert_eq!(view.rows.len(), 1);
         assert_eq!(said(&view.rows[0]), huge);
     }
+}
+
+/// The changes a real chat sends and the view they add up to, which `shared/chat/rows.test.ts`
+/// applies, so the clients' applier and the fold cannot drift. Set `SIKEMUX_WRITE_VECTORS` to
+/// write the file again after a change to what the fold sends.
+#[test]
+fn the_change_vector_is_current() {
+    let mut chat = Chat::running();
+    let mut steps = vec![chat.flush()];
+    chat.prompt(json!({ "text": "Tidy the *rail*" }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "agent_message_chunk",
+        "content": { "type": "text", "text": "# Looking\n\nFirst " },
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "agent_message_chunk",
+        "content": { "type": "text", "text": "I read **it**." },
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "tool_call",
+        "toolCallId": "t1",
+        "title": "cargo test",
+        "kind": "execute",
+        "status": "in_progress",
+        "rawInput": { "command": "cargo test" },
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "t1",
+        "status": "completed",
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "agent_message_chunk",
+        "content": { "type": "text", "text": "All done, and the rail is tidy now." },
+    }));
+    steps.push(chat.flush());
+    chat.turn_completed(Some("end_turn"));
+    steps.push(chat.flush());
+    let vector = serde_json::to_string_pretty(&json!({ "steps": steps, "view": chat.view() }))
+        .expect("the vector writes");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/vectors/changes.json");
+    if std::env::var_os("SIKEMUX_WRITE_VECTORS").is_some() {
+        std::fs::create_dir_all(concat!(env!("CARGO_MANIFEST_DIR"), "/vectors"))
+            .expect("the folder is made");
+        std::fs::write(path, format!("{vector}\n")).expect("the vector is written");
+    }
+    let kept = std::fs::read_to_string(path).expect("the vector is there");
+    assert_eq!(
+        kept.trim_end(),
+        vector,
+        "write it again with SIKEMUX_WRITE_VECTORS"
+    );
+}
+
+#[test]
+fn a_command_is_counted_by_what_it_does() {
+    use sikemux_view::chat::ToolIntent;
+    let intent = |command: &str| kinds::command_intent(command);
+    assert_eq!(
+        intent("sed -n 1,80p crates/a/lib.rs"),
+        (ToolIntent::Read, Some("lib.rs".into()))
+    );
+    assert_eq!(
+        intent("cd app && cat src/main.rs | head"),
+        (ToolIntent::Read, Some("main.rs".into()))
+    );
+    assert_eq!(
+        intent("rg -n 'rows.len()' tests/"),
+        (ToolIntent::Search, Some("rows.len()".into()))
+    );
+    assert_eq!(
+        intent("find . -name '*.rs'"),
+        (ToolIntent::Search, Some("*.rs".into()))
+    );
+    assert_eq!(
+        intent("ls mobile/app/test/"),
+        (ToolIntent::List, Some("mobile/app/test/".into()))
+    );
+    assert_eq!(
+        intent("RUST_LOG=1 cargo test -p sikemux-core").0,
+        ToolIntent::Test
+    );
+    assert_eq!(intent("pnpm typecheck:android").0, ToolIntent::Build);
+    assert_eq!(intent("git status --short").0, ToolIntent::Git);
+    assert_eq!(intent("python page.py").0, ToolIntent::Run);
+}
+
+fn decided_line(decision: u64) -> DecidedLine {
+    DecidedLine {
+        project: "/p".into(),
+        goal: Some(1),
+        decision,
+        text: "Inbox for shared links".into(),
+        why: Some("they land untriaged".into()),
+    }
+}
+
+fn decision_lines(chat: &mut Chat) -> Vec<AgentNotice> {
+    (chat.rows().into_iter())
+        .flat_map(|row| row.parts)
+        .filter_map(|part| match part {
+            ChatPart::AgentNotice { notice, .. }
+                if notice.decided.is_some() || notice.overruled.is_some() =>
+            {
+                Some(notice)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
+    let mut chat = Chat::running();
+    chat.update(update::decided_notice(decided_line(1)));
+    chat.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "I chose Inbox." } }));
+    let overruled = OverruledDecision {
+        project: "/p".into(),
+        goal: Some(1),
+        decision: 1,
+        text: "Inbox for shared links".into(),
+        rule: None,
+        undone: false,
+        stopped_auto: false,
+    };
+    chat.update(update::overruled_notice("Overruled", overruled.clone()));
+    chat.turn_completed(Some("end_turn"));
+    let lines = decision_lines(&mut chat);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0].decided, None);
+    assert_eq!(lines[0].overruled, Some(overruled));
+}
+
+#[test]
+fn a_decision_held_for_a_turn_that_fails_goes_under_its_reply() {
+    let mut chat = Chat::running();
+    chat.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "I chose Inbox." } }));
+    chat.update(update::decided_notice(decided_line(1)));
+    chat.error(json!({ "message": "Usage limit reached" }));
+    let rows = chat.rows();
+    let last = rows.last().expect("the reply");
+    assert!(
+        matches!(last.parts.last(), Some(ChatPart::AgentNotice { notice, .. }) if notice.decided == Some(decided_line(1))),
+        "{:?}",
+        last.parts
+    );
 }

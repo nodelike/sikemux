@@ -1,0 +1,9 @@
+[
+  {
+    "when": "card payments",
+    "steps": [
+      { "say": "Checkout is ready for cards, but the sandbox keys come from your Stripe account.", "perSecond": 40 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "do", "title": "Sign in to Stripe", "question": "Open the Stripe dashboard in test mode and copy the publishable and secret keys.\nPaste them into the shop's .env as STRIPE_PK and STRIPE_SK.", "link": { "label": "Stripe dashboard", "url": "https://dashboard.stripe.com/test/apikeys" } }, "ms": 800 }
+    ]
+  }
+]

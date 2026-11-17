@@ -1,4 +1,4 @@
-import type { RevokeReason } from '@protocol';
+import type { RevokeReason } from '@sikemux/protocol';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 

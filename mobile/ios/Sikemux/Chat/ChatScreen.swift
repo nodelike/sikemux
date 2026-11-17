@@ -1,0 +1,551 @@
+import SikemuxCore
+import SwiftUI
+
+/// What the bottom of a chat needs from the screen around it.
+struct ChatBottomContext {
+    var core: String
+    var agentId: String
+    var provider: String
+    var hostName: String
+    var watchOnly: Bool
+    var offline: Bool
+    /// Sending mid-turn steers the running turn rather than waiting behind it.
+    var steers: Bool
+    /// The live work strip docked on the composer, while there is work to show.
+    var strip: AnyView?
+    /// Scrolls the transcript to its end, once a message is sent.
+    var onSent: () -> Void
+    var focus: ComposerFocus
+    /// Where the chat runs, said quietly under the composer.
+    var place: ChatPlaceInfo?
+}
+
+struct ChatScreen: View {
+    let core: String
+    let agentId: String
+
+    var body: some View {
+        ChatPane(core: core, agentId: agentId)
+            .id("\(core):\(agentId)")
+    }
+}
+
+private struct ChatPane: View {
+    @Environment(\.palette) private var palette
+    let core: String
+    let agentId: String
+    @State private var session: ChatSession
+    @State private var context: TranscriptContext
+    @State private var scroll = TranscriptScroll()
+    @State private var watch: HostWatch?
+    @State private var release: (() -> Void)?
+    @StateObject private var focus = ComposerFocus()
+    /// The message whose strip is shown.
+    @State private var open: String?
+    @State private var editing: String?
+    @State private var menu = false
+    @State private var showLive = false
+    @State private var find: ChatFind?
+    @State private var away = false
+    @State private var stillness: (() -> Void)?
+    /// How tall the transcript stands, which the Now card stays well inside.
+    @State private var tall: CGFloat = 0
+
+    init(core: String, agentId: String) {
+        self.core = core
+        self.agentId = agentId
+        let session = ChatSession.of(core: core, agentId: agentId)
+        let info = Hub.shared.live(core).view?.chats.first { $0.agentId == agentId }
+        _session = State(initialValue: session)
+        _context = State(
+            initialValue: TranscriptContext(
+                provider: info?.provider ?? "agent", core: core, agentId: agentId, folds: session.folds,
+                messages: { [weak session] in session?.rows.messages ?? [] },
+                toolDetail: { [weak session] id, done in
+                    guard let session else { throw ChatProblem(String(localized: "the chat is closed")) }
+                    return try await session.toolDetail(id, done: done)
+                }))
+    }
+
+    private var live: HostLive { Hub.shared.live(core) }
+    private var info: ChatInfo? { live.view?.chats.first { $0.agentId == agentId } }
+    private var device: PairedDevice? { Hub.shared.device(core) }
+    private var hostName: String { device?.displayName ?? String(localized: "the host") }
+    private var watchOnly: Bool { device?.access == .watch }
+    private var full: Bool { device?.access == .full }
+    private var provider: String { info?.provider ?? "agent" }
+    private var listed: AgentShown? { live.view?.inbox.agents.first { $0.agentId == agentId } }
+
+    var body: some View {
+        let rows = session.rows
+        let own = rows.head.title ?? (listed?.titled == true ? listed?.title : nil)
+        let title = own ?? (info?.name == nil ? listed?.title ?? Catalog.label(provider, core: core) : nil)
+        Screen {
+            Nav(back: nil, onBack: nil) {
+                ChatTitle(
+                    agentId: agentId, turn: rows.head.turn, provider: provider, name: info?.name, title: title,
+                    chief: rows.head.chief == true,
+                    crumbs: Crew.crumbs(of: agentId, project: listed?.project, in: live.view))
+            } end: {
+                Button {
+                    menu = true
+                } label: {
+                    IconView(icon: Icons.moreVertical, size: 16).foregroundStyle(palette.tertiary).frame(
+                        width: 40, height: 40
+                    )
+                    .contentShape(Circle())
+                }
+                .buttonStyle(ActiveFill(radius: 20))
+                .accessibilityLabel("Chat actions")
+            }
+            ZStack(alignment: .bottom) {
+                if session.attached != .live && rows.messages.isEmpty {
+                    VStack {
+                        Spacer()
+                        status
+                    }.frame(maxWidth: .infinity)
+                } else if rows.messages.isEmpty, let placed = rows.head.placed {
+                    VStack {
+                        SmartPick(move: placed, provider: provider)
+                        Spacer()
+                    }
+                } else {
+                    transcript(rows)
+                        .overlay(alignment: .bottom) { JumpToLatest(scroll: scroll) }
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .onGeometryChange(for: CGFloat.self) {
+                $0.size.height
+            } action: {
+                tall = $0
+            }
+            .overlay(alignment: .top) { nowCard(rows) }
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottom(rows) }
+        }
+        .environment(context)
+        .onAppear(perform: appeared)
+        .onDisappear(perform: left)
+        .modifier(
+            ScreenReport(
+                core: core, agentId: agentId, away: session.rows.head.away?.calls, drawn: drawn, full: full,
+                show: show, onFull: { context.acts = $0 })
+        )
+        .onChange(of: info) { _, info in session.hostSaw(info) }
+        .onChange(of: live.isOpen) { _, _ in
+            OnScreen.shared.tell(core)
+            release?()
+            release = session.hold(live.connection)
+        }
+        .sheet(shown: $showLive) {
+            LiveSheet(
+                work: LiveWork(rows), provider: provider, steerable: steerable(rows), canAct: !watchOnly,
+                session: session
+            ) { scroll.toEnd() }
+        }
+        .sheet(shown: $away) {
+            if let listed {
+                AwaySheet(core: core, shown: listed, onClose: { away = false }, onDone: { Router.shared.back() })
+            }
+        }
+        .sheet(shown: $menu) {
+            ChatMenu(
+                core: core, agentId: agentId, agentName: info?.name.map { "@\($0)" } ?? provider, hostName: hostName,
+                onClose: { menu = false },
+                onFind: session.attached == .live ? { openFind() } : nil,
+                onRecent: !watchOnly && RecentSheet.offered(rows) ? { focus.recent = true } : nil,
+                onAway: watchOnly || listed == nil ? nil : { away = true },
+                onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
+        }
+        .onChange(of: provider) { _, provider in context.provider = provider }
+        .onChange(of: session.rows.head.chief, initial: true) { _, chief in context.chief = chief == true }
+        .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
+        .onChange(of: rows.running, initial: true) { was, running in
+            if was && !running { Haptics.success() }
+            // A streaming reply needs the main thread more than the moving backdrop does.
+            stillness?()
+            stillness = running ? BackdropPause.shared.hold() : nil
+        }
+        .onChange(of: session.permissions.first?.requestId) { _, asked in
+            if asked != nil { Haptics.warning() }
+        }
+        .onChange(of: find?.finding) { _, found in context.finding = found }
+        .onChange(of: session.attached, initial: true) { _, attached in
+            guard attached == .live, let words = PendingFind.take(core: core, agent: agentId) else { return }
+            openFind()
+            find?.text = words
+        }
+    }
+
+    private func appeared() {
+        Cards.dismiss(host: core, agent: agentId)
+        context.acts = full
+        HostCalls.of(core).setAway(session.rows.head.away?.calls, for: agentId)
+        show()
+        watch = Hub.shared.watch(core)
+        session.hostSaw(info)
+        release = session.hold(live.connection)
+        context.subagentRows = session.rows.subagentRows
+        let actions = context.actions
+        actions.tap = { [self] message in
+            let owner = Strip.owner(session.rows.messages, message.id)
+            open = open == owner ? nil : owner
+        }
+        actions.retry = { [weak session] id in session?.outbox.retry(id) }
+        actions.edit = { [self] message in
+            open = nil
+            editing = message.id
+            scroll.reveal(message.id)
+        }
+        actions.cancelEdit = { [self] in editing = nil }
+        actions.sendEdit = { [self] row, text in
+            session.edit(row, text)
+            editing = nil
+            scroll.toEnd()
+        }
+        actions.toggleWork = { [weak session] id in
+            guard let folds = session?.folds else { return }
+            folds.set(Folds.work(id), !folds.isOpen(Folds.work(id), false))
+        }
+        actions.toggleRun = { [weak session, scroll] id in
+            guard let folds = session?.folds else { return }
+            scroll.hold()
+            folds.set(Folds.team(id), !folds.isOpen(Folds.team(id), false))
+            folds.set(Folds.teamAll(id), false)
+        }
+        actions.showRunEarlier = { [weak session, scroll] id in
+            scroll.hold()
+            session?.folds.set(Folds.teamAll(id), true)
+        }
+    }
+
+    private func openFind() {
+        editing = nil
+        let folds = session.folds
+        find = ChatFind(session: session) { [weak session, scroll] hit in
+            guard let session, let row = session.rows.messages.first(where: { $0.id == hit.row }) else { return }
+            if let fold = row.fold, !folds.isOpen(Folds.work(fold.id), false) {
+                let kept = fold.shown
+                let tucked = !row.parts.enumerated().contains { kept.contains($0.offset) && $0.element.id == hit.part }
+                if tucked { folds.set(Folds.work(fold.id), true) }
+            }
+            if let team = row.team { folds.set(Folds.teamAll(team.id), true) }
+            let length = row.parts.first { $0.id == hit.part }.map(Self.length) ?? 0
+            let at = length > 0 ? CGFloat(hit.range.first) / CGFloat(length) : 0
+            Task { @MainActor in scroll.reveal(hit.row, at: at) }
+        }
+    }
+
+    /// How many words a part shows, as the host counts the places it finds.
+    private static func length(_ part: ChatPart) -> Int {
+        switch part {
+        case .text(let text): text.md.map { FindText.shown($0.blocks).utf16.count } ?? text.text.utf16.count
+        case .thought(let thought): thought.md.map { FindText.shown($0.blocks).utf16.count } ?? thought.text.utf16.count
+        default: 0
+        }
+    }
+
+    private func closeFind() {
+        find?.close()
+        find = nil
+        context.finding = nil
+    }
+
+    /// The chat is live on screen, with or without rows yet, which is when the host may count it read.
+    private var drawn: Bool { session.attached == .live }
+
+    private func show() {
+        if full { OnScreen.shared.show(core, agentId, drawn: drawn) } else { OnScreen.shared.hide(core, agentId) }
+    }
+
+    private func left() {
+        OnScreen.shared.hide(core, agentId)
+        HostCalls.of(core).setAway(nil, for: agentId)
+        stillness?()
+        stillness = nil
+        release?()
+        release = nil
+        watch?.cancel()
+        watch = nil
+        session.keep()
+    }
+
+    // MARK: The transcript
+
+    private func transcript(_ rows: ChatRows) -> some View {
+        let canEdit =
+            !watchOnly && rows.head.capabilities.editing == true && rows.head.connection == .ready && !rows.running
+            && session.attached == .live
+        let messages = rows.messages
+        let unsent = session.unsent
+        return Transcript(
+            rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context, scroll: scroll,
+            hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() },
+            worktree: live.view?.workspace.agents?.first { $0.id == agentId }?.worktree,
+            look: { [open, editing] message, look in
+                look.unsent = unsent[message.id]
+                if message.id == open { look.strip = Strip.of(messages, message.id) }
+                look.editable =
+                    canEdit && message.role == .user && message.promptId != nil && (message.context ?? []).isEmpty
+                    && unsent[message.id] == nil
+                look.editing = message.id == editing && canEdit
+            },
+            footer: {
+                TranscriptFooter(
+                    session: session, core: core, agentId: agentId, provider: provider, hostName: hostName,
+                    canAct: !watchOnly, full: full, focus: focus)
+            }
+        )
+    }
+
+    // MARK: Around the transcript
+
+    /// The chief's Now card for its project, while anything stands on it.
+    @ViewBuilder private func nowCard(_ rows: ChatRows) -> some View {
+        if rows.head.chief == true, let project = listed?.project,
+            let now = live.view?.now?.first(where: { $0.project == project }),
+            !(now.rows ?? []).isEmpty || !(now.closed ?? []).isEmpty
+        {
+            NowCard(
+                core: core, now: now, full: full, folds: session.folds, maxHeight: tall > 0 ? tall * 0.72 : .infinity
+            )
+            .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        let unreachable = session.attached != .live && isClosed
+        if unreachable {
+            ChatProblemView(
+                text: String(localized: "Can't reach \(hostName). \(capitalised(closedProblem))"), action: "Try again"
+            ) {
+                Hub.shared.retry(core)
+            }
+        } else if session.attached == .missing {
+            ChatProblemView(
+                text: session.problem.map(capitalised)
+                    ?? String(localized: "This chat is no longer running on the host."),
+                action: "Try again"
+            ) { session.retry() }
+        } else if session.attached == .attaching {
+            HStack(spacing: 10) {
+                Working()
+                Text(
+                    isConnecting
+                        ? String(localized: "Reaching \(hostName)…")
+                        : info?.state == .asleep
+                            ? String(localized: "Waking the chat…") : String(localized: "Opening the chat…")
+                )
+                .metaStyle(palette)
+            }
+            .padding(.vertical, 24)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var isClosed: Bool {
+        if case .closed = live.status { return true }
+        return false
+    }
+
+    private var isConnecting: Bool {
+        if case .connecting = live.status { return true }
+        return false
+    }
+
+    private var closedProblem: String {
+        if case .closed(let problem, _) = live.status { return problem }
+        return ""
+    }
+
+    @ViewBuilder private func bottom(_ rows: ChatRows) -> some View {
+        if session.attached == .live {
+            VStack(spacing: 0) {
+                if !live.isOpen {
+                    Reconnecting(closed: isClosed, problem: closedProblem, hostName: hostName) {
+                        Hub.shared.retry(core)
+                    }
+                }
+                if let notice = session.notice { NoticeBar(text: notice) { session.dismissNotice() } }
+                if let find {
+                    FindBar(find: find) { closeFind() }
+                } else {
+                    ChatBottom(session: session, context: bottomContext(rows))
+                }
+            }
+        } else if !rows.messages.isEmpty {
+            status
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .top) { Rectangle().fill(palette.border).frame(height: 1) }
+        }
+    }
+
+    private func bottomContext(_ rows: ChatRows) -> ChatBottomContext {
+        let work = LiveWork(rows)
+        let strip =
+            work.any && session.attached == .live
+            ? AnyView(LiveStrip(work: work, provider: provider) { showLive = true }) : nil
+        return ChatBottomContext(
+            core: core, agentId: agentId, provider: provider, hostName: hostName, watchOnly: watchOnly,
+            offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() },
+            focus: focus, place: place(rows))
+    }
+
+    private func place(_ rows: ChatRows) -> ChatPlaceInfo {
+        let workspace = live.view?.workspace
+        let saved = workspace?.agents?.first { $0.id == agentId }
+        let project = workspace?.projects.first { $0.id == saved?.project }
+        let accounts = workspace?.launchers.filter { $0.provider == provider } ?? []
+        let branch = saved?.worktree?.branch.nilIfEmpty ?? project?.git?.branch
+        return ChatPlaceInfo(
+            host: Hub.shared.devices.count > 1 ? hostName : nil,
+            project: project?.name,
+            branch: branch,
+            account: accounts.count > 1
+                ? saved?.profileId.flatMap { profile in accounts.first { $0.id.hasSuffix(":\(profile)") }?.label } : nil
+        )
+    }
+
+    private func steerable(_ rows: ChatRows) -> Bool {
+        rows.head.capabilities.steering == true && rows.running && !watchOnly
+    }
+}
+
+/// Below the last row: what waits to be sent, what the agent is doing or how its turn stands, and what went wrong.
+private struct TranscriptFooter: View {
+    let session: ChatSession
+    let core: String
+    let agentId: String
+    let provider: String
+    let hostName: String
+    let canAct: Bool
+    let full: Bool
+    let focus: ComposerFocus
+
+    var body: some View {
+        let rows = session.rows
+        let namedStep = rows.head.turn?.on != nil
+        let activity =
+            session.stoppingTurn
+            ? Doing(String(localized: "Stopping"))
+            : session.permissions.isEmpty && !namedStep ? ChatWords.doing(rows.head.activity) : nil
+        let reachable = canAct && session.attached == .live && Hub.shared.live(core).isOpen
+        VStack(alignment: .leading, spacing: 0) {
+            if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
+            if let away = rows.head.away { AwayCard(core: core, away: away, full: full) }
+            if let activity {
+                ActivityLine(
+                    provider: provider, doing: activity, since: session.turnSince, agentId: agentId,
+                    chief: rows.head.chief == true)
+            } else if let turn = rows.head.turn {
+                TurnLine(
+                    core: core, agentId: agentId, provider: provider, chief: rows.head.chief == true, turn: turn,
+                    canAct: reachable,
+                    docked: HostCalls.of(core).waiting(for: agentId) != nil, onLook: { focus.request() })
+            }
+            Trouble(session: session, provider: provider, hostName: hostName, canAct: reachable)
+        }
+        .padding(.bottom, 28)
+    }
+}
+
+func capitalised(_ text: String) -> String {
+    guard let first = text.first else { return text }
+    return first.uppercased() + text.dropFirst() + (text.hasSuffix(".") ? "" : ".")
+}
+
+private struct ChatProblemView: View {
+    @Environment(\.palette) private var palette
+    let text: String
+    let action: String
+    let onAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text(text).metaStyle(palette).multilineTextAlignment(.center)
+            ActionButton(action, action: onAction)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 24)
+    }
+}
+
+/// Above the composer while the host is out of reach: the chat stays, and what is sent waits.
+private struct Reconnecting: View {
+    @Environment(\.palette) private var palette
+    let closed: Bool
+    let problem: String
+    let hostName: String
+    let onTry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if !closed { Working() }
+            Text(
+                closed
+                    ? String(localized: "Can't reach \(hostName). \(capitalised(problem))")
+                    : String(localized: "Reconnecting to \(hostName)…")
+            )
+            .font(Theme.ui(13)).foregroundStyle(palette.secondary).lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Try now", action: onTry).font(Theme.ui(13, .semibold)).foregroundStyle(palette.ink)
+                .accessibilityLabel("Try reaching \(hostName) now")
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(palette.overlay))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+}
+
+/// Something this phone asked for that did not happen, said where the person is looking.
+private struct NoticeBar: View {
+    @Environment(\.palette) private var palette
+    let text: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 9) {
+            IconView(icon: Icons.warning, size: 13).foregroundStyle(palette.danger)
+            Text(capitalised(text)).font(Theme.ui(13)).foregroundStyle(palette.secondary).frame(
+                maxWidth: .infinity, alignment: .leading)
+            Button(action: onDismiss) {
+                IconView(icon: Icons.close, size: 13).foregroundStyle(palette.inkDim)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(palette.overlay))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.border, lineWidth: 1))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+}
+
+/// Tells the host what the chat on screen shows, and docks the chief's away card's calls, as what it hangs on changes.
+private struct ScreenReport: ViewModifier {
+    let core: String
+    let agentId: String
+    let away: [String]?
+    let drawn: Bool
+    let full: Bool
+    let show: () -> Void
+    let onFull: (Bool) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: away) { _, calls in HostCalls.of(core).setAway(calls, for: agentId) }
+            .onChange(of: scenePhase) { _, phase in OnScreen.shared.front(phase == .active) }
+            .onChange(of: Lock.shared.phase) { _, _ in OnScreen.shared.tellAll() }
+            .onChange(of: drawn) { _, _ in show() }
+            .onChange(of: full) { _, full in
+                onFull(full)
+                show()
+            }
+    }
+}

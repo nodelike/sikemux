@@ -83,6 +83,153 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-codec"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c13df95297bcf9014dc89162b0cc69431e192e34e3b419612fc124cfcd45dbf"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "actix-http"
+version = "3.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3422032be73eeb15bafdb64086386385875b653eb418a80241d1f98473e86ea6"
+dependencies = [
+ "actix-codec",
+ "actix-service",
+ "actix-utils",
+ "bitflags 2.13.2",
+ "bytes",
+ "bytestring",
+ "derive_more",
+ "encoding_rs",
+ "foldhash",
+ "futures-core",
+ "http 0.2.12",
+ "httparse",
+ "httpdate",
+ "itoa",
+ "language-tags",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "smallvec",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "actix-router"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "125f4331c1f10734a96c038bc7503dff22d8ccd5f82b214e6696728561ef1149"
+dependencies = [
+ "bytestring",
+ "cfg-if",
+ "http 0.2.12",
+ "regex-lite",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "actix-rt"
+version = "2.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5f794807f82bbd36430c12cd600c73bbab0f52fdde4f0ed49978df113f4807f"
+dependencies = [
+ "futures-core",
+ "tokio",
+]
+
+[[package]]
+name = "actix-server"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e296908c4d6f3a191e6b9873dbdfec8023350a89129d2b470f61d17233931ee"
+dependencies = [
+ "actix-rt",
+ "actix-service",
+ "futures-core",
+ "futures-util",
+ "mio",
+ "socket2",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "actix-service"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e46f36bf0e5af44bdc4bdb36fbbd421aa98c79a9bce724e1edeb3894e10dc7f"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "actix-utils"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0128396dd7313f697ad05b21b1a7be7d4cbb81888704f55996e4a27db196bb4d"
+dependencies = [
+ "local-waker",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "actix-web"
+version = "4.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acd6966acfcc7b66b37bdeea7d11665d5accac89333767e1784d2cecd33984e7"
+dependencies = [
+ "actix-codec",
+ "actix-http",
+ "actix-router",
+ "actix-rt",
+ "actix-server",
+ "actix-service",
+ "actix-utils",
+ "bytes",
+ "bytestring",
+ "cfg-if",
+ "derive_more",
+ "encoding_rs",
+ "foldhash",
+ "futures-core",
+ "futures-util",
+ "impl-more",
+ "itoa",
+ "language-tags",
+ "log",
+ "mime",
+ "once_cell",
+ "pin-project-lite",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "smallvec",
+ "socket2",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -467,9 +614,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -730,6 +877,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7178fe5f7d460b13895ebb9dcb28a3a6216d2df2574a0806cb51b555d297f38"
 dependencies = [
  "arrayvec",
+]
+
+[[package]]
+name = "backdrop-shaders"
+version = "0.1.0"
+dependencies = [
+ "naga",
 ]
 
 [[package]]
@@ -1042,6 +1196,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "bytestring"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca79160522b4aed4a69bab673bee78d3884d44240c78c96cb04b7557d532b4dc"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "c-enum"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1277,6 +1440,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
 dependencies = [
  "clap_builder",
+ "clap_derive",
 ]
 
 [[package]]
@@ -1287,6 +1451,19 @@ checksum = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d"
 dependencies = [
  "anstyle",
  "clap_lex",
+ "strsim",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -1649,6 +1826,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "crash-context"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031ed29858d90cfdf27fe49fae28028a1f20466db97962fa2f4ea34809aeebf3"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "mach2 0.4.3",
+]
+
+[[package]]
+name = "crash-handler"
+version = "0.7.0"
+source = "git+https://github.com/sikemux/crash-handling?rev=7443679fda95eb546cd4ec33100a13d3c6674aab#7443679fda95eb546cd4ec33100a13d3c6674aab"
+dependencies = [
+ "cfg-if",
+ "crash-context",
+ "libc",
+ "mach2 0.4.3",
+ "parking_lot",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1904,7 +2104,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.6",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1912,6 +2112,16 @@ name = "data-url"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
+
+[[package]]
+name = "debugid"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
+dependencies = [
+ "serde",
+ "uuid",
+]
 
 [[package]]
 name = "defmt"
@@ -2043,7 +2253,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2354,7 +2564,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "error-graph"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b920e777967421aa5f9bf34f842c0ab6ba19b3bdb4a082946093860f5858879"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -2412,6 +2631,12 @@ dependencies = [
  "smallvec",
  "zune-inflate",
 ]
+
+[[package]]
+name = "failspot"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c942e64b20ecd39933d5ff938ca4fdb6ef0d298cc3855b231179a5ef0b24948d"
 
 [[package]]
 name = "fallible-iterator"
@@ -2494,6 +2719,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
+name = "findshlibs"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40b9e59cd0f7e0806cca4be089683ecb6434e602038df21fe6bf6711b2f07f64"
+dependencies = [
+ "cc",
+ "lazy_static",
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2562,18 +2799,18 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-types"
-version = "0.11.3"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
+checksum = "39a654f404bbcbd48ea58c617c2993ee91d1cb63727a37bf2323a4edeed1b8c5"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "font-types"
-version = "0.12.7"
+version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "835ae9d781464a79026cde387f9cbc650c9a4909d7cf7e658b127e3c35d2f35d"
+checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
 dependencies = [
  "bytemuck",
 ]
@@ -3188,6 +3425,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "goblin"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daa0a64d21a7eb230583b4c5f4e23b7e4e57974f96620f42a7e75e08ae66d745"
+dependencies = [
+ "log",
+ "plain",
+ "scroll",
+]
+
+[[package]]
 name = "gpu-allocator"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3204,8 +3452,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d862bc8f2e27710039013d075ac4995892e9687ff207fa530f880cbcd513936f"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -3244,10 +3491,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-clicks"
+version = "0.1.0"
+dependencies = [
+ "gpui-pre",
+]
+
+[[package]]
 name = "gpui-component"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46ce53430332e30f303364eaabfa10ed2aa23dfaf2a147e04370e0e9c423578b"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3294,8 +3547,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a512c830553e7dddc43c3f8faffc2d2d7bd24db21fe3dc1326dde9c470013768"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -3387,8 +3639,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25210f6e59ea9ffac3a033dbce9edafe5ff0dd2900f894fd1316f54da2fe2b89"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -3401,8 +3652,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c214017b45e5654665f18faa551f58a2c2c8d25efe6632b1a443ba8edf365e96"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -3419,6 +3669,7 @@ version = "0.1.0"
 dependencies = [
  "block2 0.6.2",
  "futures",
+ "gpui-clicks",
  "gpui-pre",
  "gpui-pre-platform",
  "objc2 0.6.4",
@@ -3432,7 +3683,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -3466,6 +3717,7 @@ dependencies = [
  "libc",
  "log",
  "lyon",
+ "naga",
  "num_cpus",
  "objc2-core-foundation",
  "objc2-core-video",
@@ -3503,7 +3755,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-apple"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "anyhow",
  "async-task",
@@ -3524,7 +3776,7 @@ dependencies = [
  "image",
  "libc",
  "log",
- "mach2",
+ "mach2 0.6.0",
  "metal",
  "objc2 0.6.4",
  "objc2-core-foundation",
@@ -3544,7 +3796,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-bench-metrics"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "anyhow",
  "criterion",
@@ -3555,7 +3807,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-collections"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "gpui-pre-util",
  "indexmap 2.14.2",
@@ -3565,7 +3817,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-derive-refineable"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3575,12 +3827,12 @@ dependencies = [
 [[package]]
 name = "gpui-pre-http-client"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "anyhow",
  "bytes",
  "futures",
- "http",
+ "http 1.5.0",
  "http-body",
  "log",
  "parking_lot",
@@ -3593,7 +3845,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-linux"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -3637,7 +3889,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-macos"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3675,7 +3927,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-macros"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -3686,7 +3938,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-platform"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -3699,7 +3951,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-refineable"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "gpui-pre-derive-refineable",
 ]
@@ -3716,7 +3968,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "hyper",
@@ -3757,7 +4009,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-scheduler"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "async-task",
  "backtrace",
@@ -3773,7 +4025,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-shared-string"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "schemars 1.2.2",
  "serde",
@@ -3783,7 +4035,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-sum-tree"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "gpui-pre-ztracing",
  "heapless",
@@ -3794,7 +4046,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-util"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "anyhow",
  "log",
@@ -3834,7 +4086,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-wgpu"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3862,7 +4114,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-windows"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -3892,7 +4144,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-ztracing"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 dependencies = [
  "gpui-pre-ztracing-macro",
  "tracing",
@@ -3901,7 +4153,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-ztracing-macro"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=06ef31d917443186662eaa62cf8809dd54d274eb#06ef31d917443186662eaa62cf8809dd54d274eb"
+source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
 
 [[package]]
 name = "gpui-terminal-grid"
@@ -3915,6 +4167,7 @@ dependencies = [
 name = "gpui-transcript"
 version = "0.1.0"
 dependencies = [
+ "gpui-clicks",
  "gpui-pre",
  "gpui-pre-platform",
  "libc",
@@ -4124,7 +4377,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http",
+ "http 1.5.0",
  "indexmap 2.14.2",
  "slab",
  "tokio",
@@ -4195,8 +4448,6 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
- "allocator-api2",
- "equivalent",
  "foldhash",
 ]
 
@@ -4290,6 +4541,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617aaa3557aef3810a6369d0a99fac8a080891b68bd9f9812a1eeda0c0730cbd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4315,6 +4577,17 @@ dependencies = [
 
 [[package]]
 name = "http"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
+dependencies = [
+ "bytes",
+ "fnv",
+ "itoa",
+]
+
+[[package]]
+name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
@@ -4330,7 +4603,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c"
 dependencies = [
  "bytes",
- "http",
+ "http 1.5.0",
 ]
 
 [[package]]
@@ -4341,7 +4614,7 @@ checksum = "23169fe34a5fbcdd3f3862e78fb9b6fccd5f02a6dc6f732547005d45631ce71c"
 dependencies = [
  "bytes",
  "futures-core",
- "http",
+ "http 1.5.0",
  "http-body",
  "pin-project-lite",
 ]
@@ -4378,7 +4651,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "h2",
- "http",
+ "http 1.5.0",
  "http-body",
  "httparse",
  "httpdate",
@@ -4395,7 +4668,7 @@ version = "0.27.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa8e654703247911e29c23fbeaa261834bd9bb74efba2f9acddc37bfb127f53"
 dependencies = [
- "http",
+ "http 1.5.0",
  "hyper",
  "hyper-util",
  "rustls",
@@ -4415,7 +4688,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http",
+ "http 1.5.0",
  "http-body",
  "httparse",
  "hyper",
@@ -4637,6 +4910,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e44b0a4eaa4c82f441d50a963f2d5f05a787240aeee097597033e72accfd22f"
 
 [[package]]
+name = "impl-more"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d3a73c82a0b0747dba739b380c046a140b5ae747234bf701df3460282da7193"
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4756,7 +5035,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "getrandom 0.4.3",
- "http",
+ "http 1.5.0",
  "ipnet",
  "iroh-base",
  "iroh-dns",
@@ -4870,7 +5149,7 @@ dependencies = [
  "data-encoding",
  "derive_more",
  "getrandom 0.4.3",
- "http",
+ "http 1.5.0",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -4905,7 +5184,7 @@ dependencies = [
 [[package]]
 name = "irosashi"
 version = "0.3.0"
-source = "git+https://github.com/sikemux/irosashi?rev=8ddf7a2ddbae78ec13c1db43e4c6bdaf09e7269a#8ddf7a2ddbae78ec13c1db43e4c6bdaf09e7269a"
+source = "git+https://github.com/sikemux/irosashi?rev=80b45db8aaf19a060d05fa27caf752a72cee8a21#80b45db8aaf19a060d05fa27caf752a72cee8a21"
 dependencies = [
  "bitflags 2.13.2",
  "onig",
@@ -5223,6 +5502,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "language-tags"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+
+[[package]]
+name = "latex-rust"
+version = "3.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cee2a4a64c5ae2859fcb398ea21e23d3865ad7d2dbeb477ce179208eb45be317"
+dependencies = [
+ "skrifa 0.39.0",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5289,9 +5583,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -5345,6 +5639,12 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
+name = "local-waker"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88bab6b3971cb9cda8a370672a73e59a442b87552f005fb60ec07b67fa658f13"
 
 [[package]]
 name = "lock_api"
@@ -5494,6 +5794,15 @@ dependencies = [
 
 [[package]]
 name = "mach2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
@@ -5634,6 +5943,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mermaid-svg"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe0e905ac75d52a4d30692373beadd4bd4e09d8ea5275a3cb8e29a5f7ab4af62"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "metal"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5662,6 +5980,80 @@ checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
 dependencies = [
  "mime",
  "unicase",
+]
+
+[[package]]
+name = "minidump-common"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e16d10087ae9e375bad7a40e8ef5504bc08e808ccc6019067ff9de42a84570f"
+dependencies = [
+ "bitflags 2.13.2",
+ "debugid",
+ "num-derive",
+ "num-traits",
+ "range-map",
+ "scroll",
+ "smart-default",
+]
+
+[[package]]
+name = "minidump-writer"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48ef5778fc71c10d6bac1ec6b971ba0cc4b67cd8f3f0f7689dfdaab75884082f"
+dependencies = [
+ "bitflags 2.13.2",
+ "byteorder",
+ "cfg-if",
+ "crash-context",
+ "error-graph",
+ "failspot",
+ "goblin 0.9.3",
+ "libc",
+ "log",
+ "mach2 0.4.3",
+ "memmap2",
+ "minidump-common",
+ "nix 0.30.1",
+ "procfs-core",
+ "scroll",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "minidumper"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d1ab45c501f311e5e4c22232ecdd7e31120174261c42e170d41c6afbd60cc41"
+dependencies = [
+ "cfg-if",
+ "crash-context",
+ "libc",
+ "log",
+ "minidump-writer",
+ "parking_lot",
+ "polling",
+ "scroll",
+ "thiserror 2.0.21",
+ "uds",
+]
+
+[[package]]
+name = "minidumper-child"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8d9c1eee90a552d5357f34eacf3e700372dd2760a0ba0cde68708c3972fb53d"
+dependencies = [
+ "crash-context",
+ "crash-handler",
+ "libc",
+ "mach2 0.4.3",
+ "minidumper",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
@@ -6136,6 +6528,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases 0.2.2",
+ "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases 0.2.2",
+ "libc",
+]
+
+[[package]]
 name = "no_std_io2"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6302,7 +6718,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6439,7 +6855,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6641,6 +7057,16 @@ name = "objc2-core-image"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5d563b38d2b97209f8e861173de434bd0214cf020e3423a52624cd1d989f006"
+dependencies = [
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-core-location"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca347214e24bc973fc025fd0d36ebb179ff30536ed1f80252706db19ee452009"
 dependencies = [
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
@@ -6856,9 +7282,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d87d638e33c06f577498cbcc50491496a3ed4246998a7fbba7ccb98b1e7eab22"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
  "objc2 0.6.4",
+ "objc2-cloud-kit",
+ "objc2-core-data 0.3.2",
  "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-image 0.3.2",
+ "objc2-core-location",
+ "objc2-core-text",
  "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "objc2-user-notifications",
 ]
 
 [[package]]
@@ -7036,6 +7471,22 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "os_info"
+version = "3.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cf20a545b305cf1da722b236b5155c9bb35f1d5ceb28c048bd96ca842f41b5b"
+dependencies = [
+ "android_system_properties",
+ "log",
+ "nix 0.31.3",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+ "objc2-ui-kit",
+ "serde",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7534,7 +7985,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "nix",
+ "nix 0.28.0",
  "serial2",
  "shared_library",
  "shell-words",
@@ -7714,6 +8165,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "procfs-core"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6401bf7b6af22f78b563665d15a22e9aef27775b79b149a66ca022468a4e405"
+dependencies = [
+ "bitflags 2.13.2",
+ "hex",
+ "serde",
+]
+
+[[package]]
 name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7783,9 +8245,9 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.5"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
 dependencies = [
  "bitflags 2.13.2",
  "memchr",
@@ -7829,6 +8291,12 @@ checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
 ]
+
+[[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
 
 [[package]]
 name = "quick-error"
@@ -7913,7 +8381,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8038,6 +8506,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 
 [[package]]
+name = "range-map"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12a5a2d6c7039059af621472a4389be1215a816df61aa4d531cfe85264aee95f"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "rangemap"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8142,6 +8619,16 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5eaa2941a4c05443ee3a7b26ab076a553c343ad5995230cc2b1d3e993bdc6345"
+dependencies = [
+ "bytemuck",
+ "font-types 0.10.1",
+]
+
+[[package]]
+name = "read-fonts"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b634fabf032fab15307ffd272149b622260f55974d9fad689292a5d33df02e5"
@@ -8149,17 +8636,6 @@ dependencies = [
  "bytemuck",
  "core_maths",
  "font-types 0.11.3",
-]
-
-[[package]]
-name = "read-fonts"
-version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "046a7d674daf459825b32f5062056d6882db0d2f5a479fbd76ccfc870ac18709"
-dependencies = [
- "bytemuck",
- "font-types 0.12.7",
- "once_cell",
 ]
 
 [[package]]
@@ -8231,19 +8707,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
+
+[[package]]
 name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "relative-path"
-version = "2.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38540a682c6e9bca04a8bca9e5ec5a6ba168dfbb04c9998fe517a9befb92eb68"
-dependencies = [
- "serde_core",
-]
 
 [[package]]
 name = "renderdoc-sys"
@@ -8261,9 +8734,10 @@ dependencies = [
  "bytes",
  "cookie",
  "cookie_store",
+ "futures-channel",
  "futures-core",
  "futures-util",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "hyper",
@@ -8376,35 +8850,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rquickjs"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0a22bf72f515cc4189dd7c63d016f6de92a11eee98ddf7dd64794198f6eb34e"
-dependencies = [
- "rquickjs-core",
-]
-
-[[package]]
-name = "rquickjs-core"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6657979a24d543e5fc66f32cef2f47ca82ce8eb55cec5f7d59a12b7b570bbf24"
-dependencies = [
- "hashbrown 0.17.1",
- "relative-path",
- "rquickjs-sys",
-]
-
-[[package]]
-name = "rquickjs-sys"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cee271d0eeba64f0915b846cb7ae02e16faf3dfdffdca91731101d9d30fe3423"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "rsqlite-vfs"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8416,9 +8861,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.40.2"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator 0.3.0",
@@ -8543,15 +8988,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.2",
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8629,7 +9074,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8883,6 +9328,104 @@ name = "send_wrapper"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+
+[[package]]
+name = "sentry"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7c2c887f17023c9462a4202176efc33ca7228f9c30c0141c765ab534ab2d36b"
+dependencies = [
+ "cfg_aliases 0.2.2",
+ "httpdate",
+ "reqwest",
+ "rustls",
+ "sentry-actix",
+ "sentry-contexts",
+ "sentry-core",
+ "sentry-debug-images",
+ "sentry-minidump",
+ "tokio",
+ "ureq",
+]
+
+[[package]]
+name = "sentry-actix"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "004ede24516440d366cfc4109d52a74395d87b517efded27aeca901f3bd4eb0f"
+dependencies = [
+ "actix-http",
+ "actix-web",
+ "bytes",
+ "futures-util",
+ "sentry-core",
+]
+
+[[package]]
+name = "sentry-contexts"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "654dacb94135c713e1dcbff01314a83d333f0e62f76b91fed5ab87415075530c"
+dependencies = [
+ "hostname",
+ "libc",
+ "os_info",
+ "rustc_version",
+ "sentry-core",
+ "uname",
+]
+
+[[package]]
+name = "sentry-core"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edcb294ca821e5c5624edaf33535eb18b06ef4f8675201d3e4d81ce325741692"
+dependencies = [
+ "rand 0.10.3",
+ "sentry-types",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
+name = "sentry-debug-images"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74835055f6a57b78c0e13f941b460e39edc1899b05fe31dd47cd02367f70888f"
+dependencies = [
+ "findshlibs",
+ "sentry-core",
+]
+
+[[package]]
+name = "sentry-minidump"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55831db2fa73841be2e016cbd421c147e8d1617710d85e52fae8d9ab30863c18"
+dependencies = [
+ "minidumper-child",
+ "sentry-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "sentry-types"
+version = "0.49.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83d84a36b6bdeeb7813976fb899fca45d94540d2e2b80eac91ba66b4c654d8f0"
+dependencies = [
+ "debugid",
+ "hex",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+ "url",
+ "uuid",
+]
 
 [[package]]
 name = "serde"
@@ -9179,6 +9722,78 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-agents"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "hex",
+ "libc",
+ "notify",
+ "rayon",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-git",
+ "sikemux-keychain",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+ "zstd",
+]
+
+[[package]]
+name = "sikemux-app"
+version = "0.6.1-nightly.22"
+dependencies = [
+ "anyhow",
+ "block2 0.6.2",
+ "core-foundation 0.10.1",
+ "film-frame",
+ "gpui-base",
+ "gpui-component",
+ "gpui-kit",
+ "gpui-native-view",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "gpui-transcript",
+ "image",
+ "libc",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-web-kit",
+ "serde_json",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-browser",
+ "sikemux-buildinfo",
+ "sikemux-calls",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-gpui",
+ "sikemux-hostkit",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "tokio",
+]
+
+[[package]]
 name = "sikemux-base"
 version = "0.1.0"
 dependencies = [
@@ -9196,6 +9811,26 @@ dependencies = [
  "tokio-rustls",
  "url",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-board"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sikemux-agents",
+ "sikemux-calls",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-process",
+ "sikemux-repo",
+ "sikemux-view",
+ "sikemux-wire",
+ "time",
+ "tokio",
+ "url",
  "workspace-hack",
 ]
 
@@ -9234,9 +9869,69 @@ dependencies = [
  "url",
  "uuid",
  "webkit2gtk",
+ "webview2-com",
+ "windows 0.62.2",
  "workspace-hack",
  "wry",
  "x11",
+]
+
+[[package]]
+name = "sikemux-buildinfo"
+version = "0.6.1-nightly.22"
+dependencies = [
+ "hex",
+ "sha2 0.11.0",
+ "sikemux-corekit",
+ "sikemux-wire",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-calls"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sikemux-agents",
+ "sikemux-corekit",
+ "sikemux-git",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-chat"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "hyper",
+ "hyper-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-calls",
+ "sikemux-corekit",
+ "sikemux-drivers",
+ "sikemux-fold",
+ "sikemux-kernel",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-serve",
+ "sikemux-view",
+ "sikemux-wire",
+ "sikemux-workspace",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -9246,6 +9941,7 @@ dependencies = [
  "base64 0.22.1",
  "hex",
  "iroh",
+ "libc",
  "semver",
  "serde",
  "serde_json",
@@ -9255,6 +9951,7 @@ dependencies = [
  "tokio-rustls",
  "url",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9265,22 +9962,23 @@ dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
  "core-foundation 0.10.1",
+ "curve25519-dalek",
  "futures-util",
  "git2",
  "globset",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
- "hashlink",
  "hex",
+ "hyper",
+ "hyper-util",
  "ignore",
  "iroh",
  "libc",
- "memchr",
- "minisign-verify",
  "notify",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
  "portable-pty",
- "quick-xml 0.42.0",
  "rayon",
  "regex",
  "reqwest",
@@ -9289,19 +9987,35 @@ dependencies = [
  "rustix",
  "security-framework",
  "semver",
+ "sentry-core",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "sikemux-agents",
  "sikemux-base",
+ "sikemux-board",
+ "sikemux-calls",
+ "sikemux-chat",
  "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-drivers",
  "sikemux-fold",
+ "sikemux-git",
+ "sikemux-grid",
+ "sikemux-kernel",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-markdown",
  "sikemux-plugin-api",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-remote",
+ "sikemux-repo",
+ "sikemux-serve",
+ "sikemux-trust",
+ "sikemux-view",
  "sikemux-wire",
+ "sikemux-workspace",
  "tempfile",
  "thiserror 1.0.69",
  "time",
@@ -9314,7 +10028,70 @@ dependencies = [
  "uuid",
  "webpki-roots",
  "workspace-hack",
- "zstd",
+]
+
+[[package]]
+name = "sikemux-corekit"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "globset",
+ "hex",
+ "iroh",
+ "libc",
+ "memchr",
+ "minisign-verify",
+ "quick-xml 0.42.0",
+ "regex",
+ "reqwest",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-client",
+ "sikemux-grid",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tokio-websockets",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-drivers"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "base64 0.22.1",
+ "libc",
+ "serde",
+ "serde_json",
+ "sikemux-agents",
+ "sikemux-calls",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-markdown",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -9324,21 +10101,53 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-markdown",
+ "sikemux-view",
  "sikemux-wire",
  "workspace-hack",
 ]
 
 [[package]]
+name = "sikemux-git"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "git2",
+ "hashlink",
+ "hex",
+ "libc",
+ "notify",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-corekit",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "trash",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+]
+
+[[package]]
 name = "sikemux-gpui"
-version = "0.6.0"
+version = "0.6.1-nightly.22"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "block2 0.6.2",
  "chrono",
  "core-foundation 0.10.1",
  "film-frame",
  "flate2",
  "gpui-base",
+ "gpui-clicks",
  "gpui-component",
  "gpui-kit",
  "gpui-native-view",
@@ -9348,72 +10157,99 @@ dependencies = [
  "gpui-transcript",
  "image",
  "jpeg-decoder",
+ "latex-rust",
  "libc",
  "lsp-types",
+ "mermaid-svg",
  "naga",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
+ "objc2-web-kit",
  "percent-encoding",
+ "qrcodegen",
  "raw-window-handle",
+ "resvg 0.46.0",
  "rustls",
  "serde",
  "serde_json",
+ "sikemux-agents",
+ "sikemux-base",
  "sikemux-browser",
+ "sikemux-calls",
  "sikemux-client",
- "sikemux-core",
+ "sikemux-corekit",
  "sikemux-fold",
- "sikemux-host",
+ "sikemux-git",
+ "sikemux-grid",
+ "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-linked",
  "sikemux-markdown",
  "sikemux-plugin-api",
- "sikemux-plugin-aws-views",
- "sikemux-plugin-bruno-views",
- "sikemux-plugin-database-views",
- "sikemux-plugin-jira-views",
- "sikemux-plugin-linear-views",
- "sikemux-plugin-rundeck-views",
- "sikemux-plugin-signoz-views",
- "sikemux-plugin-slack-views",
- "sikemux-plugin-vercel-views",
  "sikemux-process",
+ "sikemux-pty",
  "sikemux-simulator",
+ "sikemux-view",
  "sikemux-voice",
  "sikemux-wire",
  "smallvec",
+ "sys-locale",
  "tempfile",
  "textmate-highlight",
  "tokio",
  "url",
+ "wayland-client",
+ "wayland-protocols",
+ "windows-sys 0.61.2",
+ "x11rb",
  "zbus",
 ]
 
 [[package]]
-name = "sikemux-host"
-version = "0.6.0"
+name = "sikemux-grid"
+version = "0.1.0"
 dependencies = [
- "hex",
+ "serde",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-host"
+version = "0.6.1-nightly.22"
+dependencies = [
+ "backtrace",
+ "base64 0.22.1",
+ "image",
  "libc",
+ "log",
  "reqwest",
  "rustls",
  "semver",
+ "sentry",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-buildinfo",
+ "sikemux-client",
  "sikemux-core",
+ "sikemux-corekit",
+ "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-plugin-api",
  "sikemux-plugin-aws",
  "sikemux-plugin-bitbucket",
- "sikemux-plugin-bruno",
  "sikemux-plugin-database",
+ "sikemux-plugin-forgejo",
  "sikemux-plugin-github",
  "sikemux-plugin-gitlab",
+ "sikemux-plugin-googleplay",
  "sikemux-plugin-jira",
  "sikemux-plugin-linear",
  "sikemux-plugin-rundeck",
@@ -9422,9 +10258,50 @@ dependencies = [
  "sikemux-plugin-vercel",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-trust",
+ "sikemux-view",
+ "sikemux-wire",
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-hostkit"
+version = "0.6.1-nightly.22"
+dependencies = [
+ "backtrace",
+ "libc",
+ "log",
+ "reqwest",
+ "rustls",
+ "sentry",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-trust",
+ "sikemux-wire",
+ "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-kernel"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sikemux-git",
+ "sikemux-pty",
+ "sikemux-wire",
+ "tokio",
  "workspace-hack",
 ]
 
@@ -9435,6 +10312,7 @@ dependencies = [
  "libc",
  "security-framework",
  "sikemux-process",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
@@ -9470,6 +10348,7 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "url",
  "workspace-hack",
 ]
 
@@ -9498,6 +10377,7 @@ dependencies = [
  "serde_json",
  "sikemux-client",
  "sikemux-core",
+ "sikemux-view",
  "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
@@ -9514,13 +10394,12 @@ dependencies = [
  "base64 0.23.1",
  "reqwest",
  "rustls",
- "semver",
  "serde",
  "serde_json",
+ "sikemux-base",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-process",
- "sikemux-wire",
  "tokio",
  "url",
  "workspace-hack",
@@ -9534,17 +10413,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-aws-views",
+ "sikemux-process",
  "time",
  "tokio",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-aws-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
@@ -9565,33 +10436,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sikemux-plugin-bruno"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "futures",
- "libc",
- "reqwest",
- "rquickjs",
- "serde",
- "serde_json",
- "sikemux-plugin-api",
- "sikemux-plugin-bruno-views",
- "tempfile",
- "tokio",
- "url",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-bruno-views"
-version = "0.1.0"
-dependencies = [
- "serde",
- "workspace-hack",
-]
-
-[[package]]
 name = "sikemux-plugin-database"
 version = "0.1.0"
 dependencies = [
@@ -9604,7 +10448,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-database-views",
+ "sikemux-process",
  "tokio",
  "tokio-postgres",
  "tokio-rustls",
@@ -9613,15 +10457,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sikemux-plugin-database-views"
-version = "0.1.0"
-dependencies = [
- "serde",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-github"
+name = "sikemux-plugin-forgejo"
 version = "0.1.0"
 dependencies = [
  "futures",
@@ -9630,6 +10466,25 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
+ "sikemux-process",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-github"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "futures",
+ "reqwest",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "time",
  "tokio",
  "url",
  "workspace-hack",
@@ -9645,6 +10500,23 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
+ "sikemux-process",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-googleplay"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "futures",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "sikemux-process",
  "tokio",
  "workspace-hack",
 ]
@@ -9657,18 +10529,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-jira-views",
+ "sikemux-process",
  "time",
  "tokio",
  "url",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-jira-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
@@ -9681,17 +10545,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-linear-views",
  "tokio",
  "url",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-linear-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
@@ -9706,18 +10561,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-rundeck-views",
+ "sikemux-process",
  "tokio",
  "url",
- "vte",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-rundeck-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
@@ -9729,19 +10575,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-signoz-views",
+ "sikemux-process",
  "time",
  "tokio",
  "url",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-signoz-views"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
  "workspace-hack",
 ]
 
@@ -9755,17 +10592,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-slack-views",
+ "sikemux-process",
  "time",
  "tokio",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-slack-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
@@ -9778,16 +10607,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-vercel-views",
  "tokio",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-vercel-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
@@ -9795,8 +10615,12 @@ dependencies = [
 name = "sikemux-process"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "libc",
+ "sikemux-trust",
  "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
@@ -9805,39 +10629,194 @@ name = "sikemux-pty"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "anyhow",
+ "base64 0.22.1",
  "libc",
  "memchr",
  "portable-pty",
  "regex",
  "serde",
  "serde_json",
+ "sikemux-grid",
  "sikemux-process",
  "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
  "url",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-remote"
+version = "0.6.1-nightly.22"
+dependencies = [
+ "base64 0.22.1",
+ "block2 0.6.2",
+ "curve25519-dalek",
+ "futures-util",
+ "hex",
+ "iroh",
+ "libc",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-calls",
+ "sikemux-chat",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-kernel",
+ "sikemux-keychain",
+ "sikemux-loopback",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-serve",
+ "sikemux-trust",
+ "sikemux-view",
+ "sikemux-wire",
+ "sikemux-workspace",
+ "tempfile",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-repo"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "git2",
+ "globset",
+ "hex",
+ "ignore",
+ "iroh",
+ "libc",
+ "notify",
+ "rayon",
+ "regex",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-calls",
+ "sikemux-chat",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-git",
+ "sikemux-kernel",
+ "sikemux-keychain",
+ "sikemux-markdown",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-remote",
+ "sikemux-serve",
+ "sikemux-view",
+ "sikemux-wire",
+ "sikemux-workspace",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-serve"
+version = "0.1.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "hex",
+ "iroh",
+ "libc",
+ "portable-pty",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-calls",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-grid",
+ "sikemux-kernel",
+ "sikemux-keychain",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-view",
+ "sikemux-wire",
+ "tokio",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
 [[package]]
 name = "sikemux-simulator"
-version = "0.6.0"
+version = "0.6.1-nightly.22"
 dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "h2",
  "hex",
+ "http 1.5.0",
  "libc",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.11.0",
  "sikemux-base",
  "sikemux-process",
  "tempfile",
  "tokio",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-trust"
+version = "0.6.1-nightly.22"
+dependencies = [
+ "base64 0.22.1",
+ "minisign-verify",
+ "semver",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-view"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sikemux-wire",
  "workspace-hack",
 ]
 
 [[package]]
 name = "sikemux-voice"
-version = "0.6.0"
+version = "0.6.1-nightly.22"
 dependencies = [
  "hex",
  "objc2-foundation 0.3.2",
@@ -9845,11 +10824,21 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "sikemux-base",
- "sikemux-plugin-api",
  "sikemux-process",
  "tempfile",
  "tokio",
  "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-web-device"
+version = "0.1.0"
+dependencies = [
+ "iroh",
+ "serde_json",
+ "sikemux-wire",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -9859,6 +10848,44 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "sikemux-workspace"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "globset",
+ "grep-matcher",
+ "grep-regex",
+ "grep-searcher",
+ "hex",
+ "ignore",
+ "notify",
+ "rayon",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-calls",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-kernel",
+ "sikemux-keychain",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-serve",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -9928,22 +10955,22 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "skrifa"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c9eb0b904a04d09bd68c65d946617b8ff733009999050f3b851c32fb3cfb60e"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.36.0",
+]
+
+[[package]]
+name = "skrifa"
 version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fbdfe3d2475fbd7ddd1f3e5cf8288a30eb3e5f95832829570cd88115a7434ac"
 dependencies = [
  "bytemuck",
  "read-fonts 0.37.0",
-]
-
-[[package]]
-name = "skrifa"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
-dependencies = [
- "bytemuck",
- "read-fonts 0.41.0",
 ]
 
 [[package]]
@@ -9966,6 +10993,17 @@ name = "smallvec"
 version = "1.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
+
+[[package]]
+name = "smart-default"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0eb01866308440fc64d6c44d9e86c5cc17adfe33c4d6eed55da9145044d0ffc1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "smawk"
@@ -10253,7 +11291,7 @@ version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
 dependencies = [
- "skrifa 0.44.0",
+ "skrifa 0.39.0",
  "yazi",
  "zeno",
 ]
@@ -10265,6 +11303,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
 dependencies = [
  "proc-macro2",
+ "quote",
  "unicode-ident",
 ]
 
@@ -10439,7 +11478,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10655,6 +11694,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -10759,7 +11799,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "getrandom 0.4.3",
- "http",
+ "http 1.5.0",
  "httparse",
  "rand 0.10.3",
  "ring",
@@ -10935,7 +11975,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http",
+ "http 1.5.0",
  "http-body",
  "http-body-util",
  "pin-project-lite",
@@ -11078,6 +12118,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
+name = "uds"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "885c31f06fce836457fe3ef09a59f83fe8db95d270b11cd78f40a4666c4d1661"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "uds_windows"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11086,6 +12135,15 @@ dependencies = [
  "memoffset",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "uname"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b72f89f0ca32e4db1c04e2a72f5345d59796d4866a1ee0609084569f73683dc8"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -11188,7 +12246,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46eefd5468602930da46b1f49d3448c6dfc2e81295f93120f23f8174fd70267f"
 dependencies = [
  "anyhow",
+ "camino",
  "cargo_metadata",
+ "clap",
  "uniffi_bindgen",
  "uniffi_core",
  "uniffi_macros",
@@ -11207,7 +12267,7 @@ dependencies = [
  "cargo_metadata",
  "fs-err",
  "glob",
- "goblin",
+ "goblin 0.8.2",
  "heck 0.5.0",
  "indexmap 2.14.2",
  "once_cell",
@@ -11317,6 +12377,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "ureq"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7be76686bdf7198002062423ca0d8cf9b75a27c8e1de804513b97e97b555d9d"
+dependencies = [
+ "base64 0.23.1",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "622dce33c252115466d83f63e9744a18f12b4406aae51a01c15ad8fcf1185eb3"
+dependencies = [
+ "base64 0.23.1",
+ "http 1.5.0",
+ "httparse",
+ "log",
+]
+
+[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11394,6 +12482,12 @@ name = "utf-8"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
+
+[[package]]
+name = "utf8-zero"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e"
 
 [[package]]
 name = "utf8_iter"
@@ -12140,7 +13234,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -12792,7 +13886,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -12832,15 +13926,14 @@ dependencies = [
  "aho-corasick",
  "bitflags 2.13.2",
  "block2 0.6.2",
+ "bstr",
  "cc",
  "crc32fast",
- "crossbeam-utils",
  "crypto-common 0.1.7",
  "crypto-common 0.2.2",
  "data-encoding",
  "digest 0.11.3",
  "dispatch2",
- "errno",
  "flate2",
  "form_urlencoded",
  "futures-channel",
@@ -12853,9 +13946,11 @@ dependencies = [
  "getrandom 0.4.3",
  "hashbrown 0.17.1",
  "hyper",
+ "hyper-util",
  "idna",
  "libc",
  "memchr",
+ "num-traits",
  "objc2 0.6.4",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
@@ -12874,10 +13969,12 @@ dependencies = [
  "rustls-webpki",
  "security-framework",
  "security-framework-sys",
- "semver",
+ "sentry-core",
  "serde",
  "serde_core",
  "serde_json",
+ "simd-adler32",
+ "simdutf8",
  "slab",
  "smallvec",
  "subtle",
@@ -12887,14 +13984,9 @@ dependencies = [
  "time-macros",
  "tokio-rustls",
  "tokio-util",
- "toml_datetime 1.1.1+spec-1.1.0",
- "toml_parser",
- "tower-http",
  "tracing",
  "url",
  "uuid",
- "vte",
- "winnow 1.0.4",
  "zeroize",
 ]
 
@@ -12920,7 +14012,7 @@ dependencies = [
  "dunce",
  "gdkx11",
  "gtk",
- "http",
+ "http 1.5.0",
  "javascriptcore-rs",
  "jni 0.21.1",
  "libc",

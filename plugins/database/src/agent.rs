@@ -7,13 +7,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_plugin_database_views::ProfileDraft;
 
-use crate::connections::{Access, Pool};
+use crate::connections::Pool;
 use crate::engines::Session;
 use crate::error::{DatabaseError, DatabaseResult};
-use crate::form::{self, FromUrl, UrlAsk};
-use crate::history::Source;
+use crate::form::{self, FromUrl, ProfileDraft, UrlAsk};
 use crate::profiles::{self, Profile, SaveRequest, Target};
 use crate::queries::{self, QueryRequest};
 use crate::schema::{Table, TableInfo};
@@ -31,6 +29,9 @@ pub struct AgentDatabase {
     pub address: String,
     /// Whether the agent may run statements that change data here.
     pub writable: bool,
+    /// Whether it is production, where each statement an agent may change data with waits
+    /// for the person to allow it.
+    pub production: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -38,6 +39,18 @@ pub struct AgentSchemaRequest {
     pub database: String,
     #[serde(default)]
     pub schema: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DatabaseRef {
+    pub database: String,
+}
+
+/// A switch on a saved database: whether agents may change its data, or whether it is production.
+#[derive(Deserialize, Debug)]
+pub struct WritesRequest {
+    pub database: String,
+    pub on: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -89,6 +102,14 @@ fn address(target: &Target) -> String {
     }
 }
 
+fn engine_name(target: &Target) -> &'static str {
+    match target {
+        Target::Postgres(_) => "PostgreSQL",
+        Target::Mysql(_) => "MySQL",
+        Target::Sqlite { .. } => "SQLite",
+    }
+}
+
 fn describe_profile(profile: &Profile) -> AgentDatabase {
     let engine = match &profile.target {
         Target::Postgres(_) => "postgres",
@@ -100,7 +121,15 @@ fn describe_profile(profile: &Profile) -> AgentDatabase {
         engine,
         address: address(&profile.target),
         writable: profile.agent_writes && !profile.read_only,
+        production: profile.production,
     }
+}
+
+/// Whether a statement an agent runs on the database `database` names may change production
+/// data: the database is production, and agents may change its data.
+pub fn writes_production(data_dir: &Path, database: DatabaseRef) -> DatabaseResult<bool> {
+    let saved = describe_profile(profiles::load(data_dir)?.find(&database.database)?);
+    Ok(saved.production && saved.writable)
 }
 
 pub fn databases(data_dir: &Path) -> DatabaseResult<Vec<AgentDatabase>> {
@@ -130,7 +159,7 @@ pub async fn tables(
     request: AgentSchemaRequest,
 ) -> DatabaseResult<AgentTables> {
     let id = id_of(data_dir, &request.database)?;
-    let session = pool.session(data_dir, &id, Access::Agent).await?;
+    let session = pool.session(data_dir, &id).await?;
     let schema = request.schema.unwrap_or_else(|| session.default_schema());
     Ok(AgentTables {
         schemas: session.schemas().await?,
@@ -145,7 +174,7 @@ pub async fn describe(
     request: AgentTableRequest,
 ) -> DatabaseResult<TableInfo> {
     let id = id_of(data_dir, &request.database)?;
-    let session = pool.session(data_dir, &id, Access::Agent).await?;
+    let session = pool.session(data_dir, &id).await?;
     session.describe(request.schema, request.table).await
 }
 
@@ -160,9 +189,8 @@ pub async fn query(
         id,
         sql: request.sql,
         limit: Some(limit),
-        run: None,
     };
-    let mut outcome = queries::run(pool, data_dir, request, Source::Agent).await?;
+    let mut outcome = queries::run(pool, data_dir, request).await?;
     let cut = values::fit(
         &mut outcome.results,
         values::AGENT_CELL_CHARACTERS,
@@ -205,30 +233,22 @@ fn proposed(data_dir: &Path, request: AgentAddRequest) -> DatabaseResult<FromUrl
     Ok(read)
 }
 
-/// What the person is asked about a proposed database, once it is tried. Without a password a
-/// server is not tried, and the person types one into the form.
+/// What the person is asked about a proposed database, once it is tried. A server is only
+/// tried, and only proposed, with its password in the address.
 pub async fn add_check(data_dir: &Path, request: AgentAddRequest) -> DatabaseResult<Value> {
     let FromUrl { profile, password } = proposed(data_dir, request)?;
-    let draft = form::profile(profile.clone())?;
+    let draft = form::profile(profile)?;
+    if password.is_none() && !matches!(draft.target, Target::Sqlite { .. }) {
+        return Err(DatabaseError::BadArg(
+            "a server database needs its password in the address, such as postgres://user:password@host/db; the person sees and approves it before it is saved".into(),
+        ));
+    }
     let named = format!(
         "{} · {}\n{}",
         draft.name,
-        crate::views::engine_name(&draft.target),
+        engine_name(&draft.target),
         address(&draft.target)
     );
-    let edit = json!({ "profile": profile, "password": password }).to_string();
-    let decline = json!({ "label": "Don't add", "does": "decline" });
-    if password.is_none() && !matches!(draft.target, Target::Sqlite { .. }) {
-        return Ok(json!({
-            "header": "New database",
-            "text": format!("{named}\nNo password given, so it was not tried."),
-            "choices": [
-                { "label": "Enter password", "detail": "Opens the connection form in the app", "does": "edit" },
-                decline,
-            ],
-            "edit": edit,
-        }));
-    }
     let session = Session::open(&draft.target, password.as_deref(), true).await?;
     let tried = match session.tables(None).await {
         Ok(tables) => format!("Connected · {} tables", tables.len()),
@@ -239,10 +259,8 @@ pub async fn add_check(data_dir: &Path, request: AgentAddRequest) -> DatabaseRes
         "text": format!("{named}\n{tried}. Agents may read it but not change data."),
         "choices": [
             { "label": "Add", "does": "approve" },
-            { "label": "Edit first", "detail": "Opens the connection form in the app", "does": "edit" },
-            decline,
+            { "label": "Don't add", "does": "decline" },
         ],
-        "edit": edit,
     }))
 }
 

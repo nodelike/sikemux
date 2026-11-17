@@ -378,8 +378,8 @@ def dp5(run):
 
 def dp3(run):
     said = run.prompt(json_tool("page.show", {"path": str(run.root / "site/shown.html"), "title": "Kit shown"}))
-    on_desk = any(page.get("title") == "Kit shown page" for page in pages(run.desk()))
-    run.report("DP3", said.startswith("tool answered") and not on_desk, f"answer {said[:160]!r}; on the desk too: {on_desk}")
+    on_desk = bool(until(lambda: any(page.get("title") == "Kit shown page" for page in pages(run.desk())), 15))
+    run.report("DP3", said.startswith("tool answered") and on_desk, f"answer {said[:160]!r}; on the desk: {on_desk}")
 
 
 def d5(run):
@@ -691,7 +691,7 @@ def df3(run):
 
 def df4(run):
     command = "i=0; while [ $i -lt 900 ]; do i=$((i+1)); echo line $i; sleep 0.2; done"
-    said = run.prompt(json_tool("task.start", {"command": command, "label": "Count", "idempotencyKey": "desk-checks-df4"}))
+    said = run.prompt(json_tool("process.start", {"command": command, "label": "Count", "idempotencyKey": "desk-checks-df4"}))
     desk = until(lambda: (lambda desk: desk if (desk.get("front") or {}).get("terminal") else None)(run.desk()), 15) or {}
     run.execution = answered(said).get("executionId")
     run.report("DF4", desk.get("open") and (desk.get("front") or {}).get("terminal") == "Count",

@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. Sikemux is a Rust desktop app drawn wi
 
 ## Getting started
 
-**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages CI's Linux job installs (see `.github/workflows/ci.yml`), and `pnpm build:linux` makes a `.deb`, an `.rpm` and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 Linux packages. Windows is not a target: the background core that owns terminals and agents is Unix-only.
+**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages in `packaging/linux/build-packages.txt`, and `pnpm build:linux` also needs those in `pack-packages.txt` beside it to make a `.deb`, a tarball and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 and arm64 Linux packages. Windows is a target too: no release ships for it yet, and its `cfg(windows)` code stays.
 
 ```bash
 git clone git@github.com:nodelike/sikemux.git
@@ -13,24 +13,25 @@ pnpm install        # also points core.hooksPath at .githooks
 make dev            # builds the core, its helpers and the app, and opens it
 ```
 
-`pnpm install` installs a `pre-push` hook that runs the CI gates for whatever you
-are about to push. Install it by hand in an existing clone with `make hooks`.
+`pnpm install` installs a `pre-push` hook that refuses commits that credit Claude
+as a co-author, and a `commit-msg` hook that strips those lines. Install
+them by hand in an existing clone with `make hooks`.
 
 ## Project layout
 
 | Path                 | What lives there                                                                                                                           |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `app/`               | The app, drawn with GPUI: its window, panes, editor, terminal and plugin panes                                                             |
+| `app/`               | The app, drawn with GPUI: its window, panes, editor and terminal                                                                           |
 | `crates/`            | Shared Rust crates: the terminal engine, the background core, plugin API, process runner, keychain, markdown                               |
 | `plugins/`           | Plugin backends, one crate per plugin behind a Cargo feature                                                                               |
 | `helpers/`           | The Swift helpers: the notch island, dictation and the iOS Simulator bridge                                                                |
 | `packaging/`         | What only the app bundle and the Linux packages are built from: Info.plist, entitlements, icons, the DMG background, provisioning profiles |
 | `shared/`            | TypeScript the phone and the share page both use, imported as `@shared/*`                                                                  |
 | `server/`            | The accounts API, the web app at app.sikemux.com and their protocol; its own pnpm workspace                                                |
-| `browser/`           | Agent tool declarations (`tools.json`) and the guide agents read                                                                           |
+| `tools/`             | Agent tool declarations (`tools.json`) and the guide agents read                                                                           |
 | `scripts/`           | Code generators, CI checks, icon pipeline and release tooling                                                                              |
 | `docs/architecture/` | How the app fits together, and the decisions behind it                                                                                     |
-| `mobile/`            | The phone app (Expo) and `@sikemux/native`, the core's client compiled from Rust; its own pnpm workspace                                   |
+| `mobile/`            | The iPhone app (SwiftUI, `mobile/ios`), the Android app (Expo) and `@sikemux/native`; the Android side is its own pnpm workspace           |
 
 Read [the architecture overview](docs/architecture/overview.md) before a large change, and the decision records beside it before proposing to undo one.
 
@@ -40,32 +41,42 @@ Terminals, agents and tasks run in a separate process, the core (`sikemux core`)
 
 ### The mobile app
 
-The phone app lives in `mobile/`, a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. `mobile/app` is the Expo app and `mobile/native` is `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates from `crates/sikemux-mobile`: the core's own client, pairing and iroh connection. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
+The phone apps live in `mobile/`. The iPhone app is native SwiftUI in `mobile/ios`; the Android app is the Expo app in `mobile/app`, which with `mobile/native` and the rest of `mobile/` is a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. Both link `crates/sikemux-mobile`, the core's own client, pairing and iroh connection, through UniFFI: Swift bindings for the iPhone, and for Android `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
 
-You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), Xcode, and for Android the NDK and `cargo-ndk`. `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain:
+You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), and `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain. For the iPhone you need Xcode with its Metal toolchain (`xcodebuild -downloadComponent MetalToolchain`, once) and XcodeGen (`brew install xcodegen`):
 
 ```bash
-cargo install cargo-ndk     # Android only
-cd mobile
-pnpm install
-pnpm run doctor             # checks the toolchain, Xcode, the Android SDK and what is built
-pnpm native:ios:sim         # builds the Rust client for the simulator and generates its bindings
-pnpm ios                    # builds the development app and runs it in the simulator
+mobile/ios/scripts/build-core.sh --sim-only   # the Rust client for the simulator, and its Swift bindings
+cd mobile/ios && xcodegen generate            # Sikemux.xcodeproj from project.yml
+xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -sdk iphonesimulator -derivedDataPath build/derived build
 ```
 
-Rebuild with `pnpm native:ios:sim` after changing `sikemux-mobile` or the protocol in `sikemux-core`; it builds only the simulator slice, which is the quickest loop. `pnpm native:ios` adds the device slice, `pnpm native:android` builds for Android, and the `:release` variants build with the small `mobile` profile that release runs require. These scripts put `~/.cargo/bin` first on `PATH` themselves and stop if the toolchain or a target is missing. `pnpm clean` deletes the generated native projects and bindings. The generated bindings and native libraries are build output and are not committed. The app needs a development build; Expo Go cannot load `@sikemux/native`. To pair the simulator with your Mac, turn on Settings, Devices in a dev build of Sikemux.
+Run `build-core.sh` again after changing `sikemux-mobile`, `sikemux-client` or the protocol in `sikemux-wire`; without `--sim-only` it adds the device slice, and `--profile mobile` builds with the small profile releases use. The Debug configuration is Sikemux Dev, which installs beside the release app. CI and releases build with the newest Xcode 26 (`.github/actions/setup-xcode-ios`): Xcode 27 dithers the app icon's flattened renditions, so the same icon costs 2.5 MB more there, and an archive made with it locally is that much larger than a release. Everything under `mobile/ios/build/` and the generated project are build output and are not committed. The Swift follows `mobile/ios/.swift-format`, which Mobile CI checks; run `xcrun swift-format format --in-place --configuration .swift-format` in `mobile/ios` on the files you changed; the generated `*.generated.swift` files are left as their generators write them.
 
-`pnpm check` in `mobile/` runs the phone's typecheck, lint, Prettier check and unit tests (vitest, with stand-ins for React Native and the native modules in `mobile/app/test/mocks`). Its lint also fails if Mac code the phone imports through `@mac/` reaches `@tauri-apps/*`, which Metro cannot bundle; the repo's `pnpm lint` runs that check too.
+For Android you need the NDK and `cargo-ndk`:
+
+```bash
+cargo install cargo-ndk
+cd mobile
+pnpm install
+pnpm run doctor             # checks the toolchain, the Android SDK and what is built
+pnpm native:android         # builds the Rust client for Android and generates its bindings
+pnpm android                # builds the development app and runs it on a device or emulator
+```
+
+`pnpm native:android:release` builds with the `mobile` profile that release runs require. These scripts put `~/.cargo/bin` first on `PATH` themselves and stop if the toolchain or a target is missing. `pnpm clean` deletes the generated native project and bindings. The app needs a development build; Expo Go cannot load `@sikemux/native`. To pair a phone with your Mac, turn on Settings, Devices in a dev build of Sikemux.
+
+`pnpm check` in `mobile/` runs the phone's typecheck, lint, Prettier check and unit tests (vitest, with stand-ins for React Native and the native modules in `mobile/app/test/mocks`). Its lint also fails if anything `shared/` imports reaches a desktop-only package or a file outside `shared/` and `server/protocol`, which the phone and the share page cannot bundle; the repo's `pnpm lint` runs that check too.
 
 #### Designing phone screens
 
-Every phone screen is drawn first in `mobile/design/screens.src.html`, with the Mac app's own icons and fonts. A design change starts there, before the app: run `pnpm design` in `mobile/` and open http://127.0.0.1:8791/mobile/design/screens.html, which rebuilds on each reload. In the PR, add a screenshot of each screen you changed or added from that page, so the design is reviewed before the code. `{{IconName}}` or `{{IconName:size}}` in the file draws one of the app's icons. The glyphs the phone draws itself live in `mobile/app/src/ui/drawnIcons.ts`, which the app and the page both read.
+Every phone screen is drawn first in `mobile/design/screens.src.html`, with the Mac app's own icons and fonts. A design change starts there, before the app: run `pnpm design` in `mobile/` and open http://127.0.0.1:8791/mobile/design/screens.html, which rebuilds on each reload. In the PR, add a screenshot of each screen you changed or added from that page, so the design is reviewed before the code. `{{IconName}}` or `{{IconName:size}}` in the file draws one of the app's icons. The glyphs the phone draws itself live in `mobile/app/src/ui/drawnIcons.ts`, which the Android app and the page read and `scripts/generate-notch-icons.mjs` turns into the iPhone app's icons.
 
 ### The accounts server
 
 `server/` holds the backend behind phone sign-in and the device list: the API at api.sikemux.com and the web app at app.sikemux.com. Like `mobile/`, it is a pnpm workspace of its own. [ADR 0009](docs/architecture/0009-accounts-and-backend.md) records the design.
 
-- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types in `crates/sikemux-wire/src/accounts/protocol.rs`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
+- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types: those the phone names in `crates/sikemux-wire/src/accounts/protocol.rs`, the rest in `crates/sikemux-corekit/src/accounts/`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
 - `server/api` is the API (Hono on Node, Postgres through Kysely). Schema changes are numbered SQL files in `api/migrations`; a shipped one is never edited, only followed by a new one.
 - `server/app` is the web app (Vite and React).
 - `server/deploy` is what runs it on the server: the systemd unit, the Caddy sites, the one-time setup and the script that installs a release.
@@ -82,24 +93,29 @@ Merging a change under `server/` to `main` deploys it: `.github/workflows/server
 
 ## Before you open a PR
 
-The `pre-push` hook already runs these for you. To check without pushing:
+CI runs its gates on every push that touches them. To run the ones a Mac can before pushing:
 
 ```bash
-make prepush          # the CI gates, limited to what your commits touched
-make check            # every gate, regardless of what changed
+make autofix          # applies the fixes CI's gates want, then runs the quick gates
+make check            # CI's gates, apart from those listed below
 ```
 
-`make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, `cargo audit`, `cargo fmt --check`, Clippy with warnings denied, Rust tests, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. These are the same quality gates enforced by CI.
+`make autofix` (`pnpm autofix`) regenerates every generated file, runs Prettier, `eslint --fix`, `cargo fmt` and `clippy --fix`, then runs the frontend checks and, when Rust changed since `origin/main`, Clippy for the Mac, the GPUI app and no plugins, and, with `zig` installed (`brew install zig`), Clippy for Linux over the core and the crates under it, whose Linux code is the most common reason CI fails. `--since <commit>` compares with another commit and `--all` runs everything. It never commits; it exits non-zero when something it could not fix still fails, and prints what.
 
-One CI job stays out of every push: **GPUI in a real window**. It runs daily and when CI is started by hand with `window` checked; start it that way if you touched how the app draws or launches.
+`make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, the dependency audit, `cargo fmt --check`, the `workspace-hack` check, Clippy with warnings denied, Rust tests, the core built with no plugins, Clippy and tests for the GPUI app, a build of the notch and voice helpers, and credential-free release-tooling checks. It also checks that generated files (agent tools, grammars, icons) match their sources. It takes as long as a full build of the app.
+
+CI also runs what `make check` leaves out:
+
+- The Linux compile, tests and packages, which need Linux. Pushes check x86_64; the daily run checks aarch64 too.
+- The **iOS Simulator helper**, which boots a real simulator.
+
+**GPUI in a real window**, on the Mac and on Linux, stays out of every push. Both run daily and when CI is started by hand with `window` checked; start it that way if you touched how the app draws or launches. The Windows workflow also runs daily, and by hand on the crates you name.
 
 `cargo audit` reads a database that changes daily, so a push that was clean can go red later with no code change. That is the advisory database moving, not your commit.
 
-Skip the hook for a work-in-progress push with `git push --no-verify`, or `SKIP_PREPUSH=1 git push`. Force every gate to run with `PREPUSH_FULL=1`.
-
 Releases publish only from the Release workflow ([docs/releasing.md](docs/releasing.md)); `scripts/release.sh --publish` refuses to run outside GitHub Actions. Release tooling supports two explicit modes. The default community mode requires the updater private key but no Apple membership and produces an updater-signed, ad-hoc code-signed release. `RELEASE_NOTARIZED=1` additionally requires a Developer ID and Apple notarization credentials and enforces Gatekeeper and stapled-ticket verification.
 
-Agent tools are declared once in `browser/tools.json`. Add or change one there, run `pnpm agent-tools:generate`, and commit the regenerated `crates/sikemux-core/src/cli/methods.rs`. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `browser/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
+Agent tools are declared once in `tools/tools.json`. Add or change one there, run `pnpm agent-tools:generate` and `pnpm docs:reference`, and commit what they regenerate: `crates/sikemux-base/src/cli/methods.rs`, `crates/sikemux-fold/src/tool_rows.rs` and the docs' reference pages. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `tools/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
 
 - **Scope** — keep PRs focused. One feature or fix per PR is much easier to review.
 - **No regressions** — keep things efficient and performant; if a change touches the editor, terminal, or git panes, verify the affected views still behave.
@@ -115,11 +131,11 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) — the form
 ```
 feat(themes): add custom theme editor
 fix(sessions): treat agent view as project-only
-style(bruno): tighten sidebar row styling
+style(rail): tighten sidebar row styling
 chore(release): v0.1.20
 ```
 
-Common types: `feat`, `fix`, `style`, `refactor`, `perf`, `chore`, `docs`. Scopes match the area you touched (`editor`, `git`, `aws`, `rundeck`, `bruno`, `terminal`, `themes`, …).
+Common types: `feat`, `fix`, `style`, `refactor`, `perf`, `chore`, `docs`. Scopes match the area you touched (`editor`, `git`, `aws`, `rundeck`, `terminal`, `themes`, …).
 
 ## Reporting bugs & requesting features
 
