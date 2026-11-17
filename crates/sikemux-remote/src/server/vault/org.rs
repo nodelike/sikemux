@@ -115,6 +115,8 @@ struct State {
 pub struct OrgVaults {
     state: Mutex<State>,
     wake: Arc<Notify>,
+    /// Told each time an org's entries, as this host holds them, change.
+    pub changed: Arc<Notify>,
     /// One round or change at a time, so a write never races the loop's reading of the vault.
     busy: tokio::sync::Mutex<()>,
 }
@@ -489,12 +491,17 @@ fn open_wrap(wrapped: &str, secret: &Key, org: &str, vault: &Remote, me: &str) -
 }
 
 fn set(core: &Core, org: &str, value: Org) {
-    core.vault()
-        .orgs()
+    let orgs = core.vault().orgs();
+    let before = orgs.state.locked().orgs.insert(org.to_owned(), value);
+    let now = orgs
         .state
         .locked()
         .orgs
-        .insert(org.to_owned(), value);
+        .get(org)
+        .map(|org| org.held.entries.clone());
+    if before.map(|org| org.held.entries) != now {
+        orgs.changed.notify_one();
+    }
 }
 
 fn open_entry(key: &Key, org: &str, entry: &OrgVaultEntry) -> Option<Value> {
@@ -853,6 +860,131 @@ pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
             }
         })
         .collect()
+}
+
+/// A project's store of rules and knowledge in an org's vault, which agents read.
+pub const PROJECT_MEMORY: &str = "project-memory";
+/// Rules members added to a project, waiting for an owner or admin to keep or drop them.
+pub const PROJECT_MEMORY_WAITING: &str = "project-memory-waiting";
+
+/// Where the org's vault keeps `kind` of the project the server knows as `project`, as the
+/// server works it out.
+pub fn project_entry_id(kind: &str, project: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("{kind}|{project}").as_bytes());
+    hex::encode(digest.into_iter().take(16).collect::<Vec<u8>>())
+}
+
+/// An entry of an org's vault as this host last read it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Read {
+    pub revision: i64,
+    pub body: Value,
+}
+
+/// Entry `id` of `org`'s vault: None while this host holds no key to it, Some(None) when the
+/// vault has no such entry.
+pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
+    let state = core.vault().orgs().state.locked();
+    let org = state.orgs.get(org).filter(|org| org.held.key.is_some())?;
+    Some(org.held.entries.get(id).map(|entry| Read {
+        revision: entry.revision,
+        body: entry.body.clone(),
+    }))
+}
+
+/// Whether this host's account manages `org`.
+pub fn manages_org(core: &Core, org: &str) -> bool {
+    account_orgs(core)
+        .unwrap_or_default()
+        .iter()
+        .any(|known| known.id == org && manages(known))
+}
+
+pub enum Put {
+    Written,
+    /// Another host wrote it after `revision`; read it again and redo the change.
+    Stale,
+    /// The server will not take it, saying why.
+    Refused(String),
+}
+
+/// Writes a project's entry of `kind` over the one at `revision` (0 for none), and reads the
+/// vault again.
+pub async fn put_project(
+    core: &Core,
+    org: &str,
+    kind: &str,
+    id: &str,
+    revision: i64,
+    body: &Value,
+) -> CoreResult<Put> {
+    if ![PROJECT_MEMORY, PROJECT_MEMORY_WAITING].contains(&kind) {
+        return Err(format!("a project's entry is never of kind {kind}").into());
+    }
+    let _busy = core.vault().orgs().busy.lock().await;
+    let (generation, key) = {
+        let state = core.vault().orgs().state.locked();
+        let held = state
+            .orgs
+            .get(org)
+            .map(|org| org.held.clone())
+            .unwrap_or_default();
+        (
+            held.generation,
+            held.key
+                .ok_or_else(|| CoreError::from("this host holds no key to the org's vault"))?,
+        )
+    };
+    let put = OrgVaultEntryPut {
+        kind: kind.to_owned(),
+        generation,
+        sealed: seal_entry(&key, org, id, kind, generation, revision, body)?,
+        revision,
+    };
+    let path = format!("{}/entries/{id}", vault_path(org));
+    let upload = super::super::account::api::Upload {
+        bytes: serde_json::to_vec(&put)?,
+        content_type: "application/json".into(),
+        headers: Vec::new(),
+    };
+    let answer = host_send_any(core, Method::PUT, &path, Some(upload)).await?;
+    let status = answer.status();
+    let outcome = if status == StatusCode::CONFLICT {
+        Put::Stale
+    } else if status.is_success() {
+        let written: OrgVaultEntry =
+            serde_json::from_slice(&answer.bytes().await.map_err(|error| {
+                CoreError::unreachable(&format!("the answer to {path} broke off"), &error)
+            })?)?;
+        let orgs = core.vault().orgs();
+        if let Some(held) = orgs.state.locked().orgs.get_mut(org) {
+            held.held.entries.insert(
+                id.to_owned(),
+                Opened {
+                    kind: kind.to_owned(),
+                    revision: written.revision,
+                    body: body.clone(),
+                },
+            );
+        }
+        Put::Written
+    } else if status.is_client_error() {
+        Put::Refused(answer.text().await.unwrap_or_default())
+    } else {
+        return Err(format!("the accounts server answered {status}").into());
+    };
+    if let Some(known) = account_orgs(core)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|known| known.id == org)
+    {
+        if let Some(host) = core.remote().host_key() {
+            let me = host.public().to_string();
+            sync_org(core, &known, &me, &seal::host_secret(&host)).await?;
+        }
+    }
+    Ok(outcome)
 }
 
 fn new_id() -> CoreResult<String> {

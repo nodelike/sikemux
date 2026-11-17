@@ -30,6 +30,8 @@ group's and must reach a different set of hosts: every host of every member, and
   member shares that project. Any member's host may put the waiting list, and the store too while
   the org's policy lets every member add rules; otherwise only an owner's or admin's host puts
   the store. The server removes both when the last member's share of the project ends.
+- **A member's host writes only those two kinds, and never takes an entry out.** Its core sends no
+  other kind, and the server refuses a member's put of any other kind and every member's removal.
 - **A member's host gets the key from a host that already holds it.** The server lists the
   members' hosts that lack the key, and a host holding it wraps it for them: an owner's or
   admin's host for any of them, any other member's host only for its own account's. The org
