@@ -43,12 +43,12 @@ pub fn loaded_libraries() -> io::Result<Vec<PathBuf>> {
     // SAFETY: the snapshot is open and `entry` is sized as the call requires.
     let mut more = unsafe { Module32FirstW(snapshot.as_raw_handle(), &mut entry) } != 0;
     while more {
-        let path = &entry.szExePath;
-        let length = path
-            .iter()
-            .position(|&unit| unit == 0)
-            .unwrap_or(path.len());
-        libraries.push(PathBuf::from(OsString::from_wide(&path[..length])));
+        let path = entry
+            .szExePath
+            .split(|&unit| unit == 0)
+            .next()
+            .unwrap_or_default();
+        libraries.push(PathBuf::from(OsString::from_wide(path)));
         // SAFETY: as for the first entry.
         more = unsafe { Module32NextW(snapshot.as_raw_handle(), &mut entry) } != 0;
     }

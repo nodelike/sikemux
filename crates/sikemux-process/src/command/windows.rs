@@ -266,10 +266,10 @@ impl Command {
     }
 
     /// The child's variables, sorted without case as Windows expects them.
-    fn environment(&self) -> BTreeMap<Name, OsString> {
+    fn environment(&self) -> io::Result<BTreeMap<Name, OsString>> {
         let mut variables: BTreeMap<Name, OsString> = if self.clear_env {
             BTreeMap::new()
-        } else if let Some(child) = sikemux_trust::child() {
+        } else if let Some(child) = sikemux_trust::child()? {
             child
                 .environment
                 .iter()
@@ -286,11 +286,11 @@ impl Command {
                 variables.insert(key.clone(), value.clone());
             }
         }
-        variables
+        Ok(variables)
     }
 
     fn start(&self, defaults: [Default; 3]) -> io::Result<Started> {
-        let variables = self.environment();
+        let variables = self.environment()?;
         let changed_path = self
             .env
             .iter()
@@ -404,7 +404,7 @@ impl Command {
             flags |= EXTENDED_STARTUPINFO_PRESENT;
         }
 
-        let token = sikemux_trust::child().map_or(null_mut(), |child| child.token.handle());
+        let token = sikemux_trust::child()?.map_or(null_mut(), |child| child.token.handle());
         // SAFETY: plain data, for which zero is valid; CreateProcess fills it in.
         let mut started: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
         let inherit = i32::from(!handed.is_empty());

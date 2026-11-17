@@ -6,7 +6,7 @@ use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -242,7 +242,7 @@ pub fn stop() -> io::Result<()> {
         match Manager::open(SC_MANAGER_CONNECT)?.service(SERVICE_STOP | SERVICE_QUERY_STATUS) {
             Ok(service) => service,
             Err(error) if error.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) => {
-                return Ok(())
+                return Ok(());
             }
             Err(error) => return Err(error),
         };
@@ -338,9 +338,9 @@ struct Launch {
 }
 
 unsafe extern "system" fn service_main(_count: u32, _arguments: *mut windows_sys::core::PWSTR) {
-    let service = SERVICE
-        .get()
-        .expect("run sets the service before Windows calls this");
+    let Some(service) = SERVICE.get() else {
+        return;
+    };
     let name = wide(NAME);
     // SAFETY: the name ends in a nul and the handler is a plain function.
     let status =
@@ -425,7 +425,7 @@ fn listen(service: &'static Service) {
 }
 
 impl Service {
-    fn answer(&self, mut connection: Connection) {
+    fn answer(&'static self, mut connection: Connection) {
         let answer = match connection.receive() {
             Ok(line) => self.handle(&connection, &line),
             Err(_) => return,
@@ -436,7 +436,7 @@ impl Service {
         }
     }
 
-    fn handle(&self, connection: &Connection, line: &str) -> Result<Answer, String> {
+    fn handle(&'static self, connection: &Connection, line: &str) -> Result<Answer, String> {
         let ask: Ask = serde_json::from_str(line).map_err(|error| error.to_string())?;
         let person = connection
             .client_token()
@@ -459,20 +459,17 @@ impl Service {
     }
 
     fn start_core(
-        &self,
+        &'static self,
         person: Token,
         socket: PathBuf,
         log: PathBuf,
         args: &[String],
     ) -> Result<Answer, String> {
         let user = person.user().map_err(|error| error.to_string())?;
-        let mut cores = self
-            .cores
-            .lock()
-            .expect("no thread panics holding the cores");
+        let mut cores = held(&self.cores);
         if let Some(running) = cores.get(&user) {
             return Ok(Answer::Running {
-                pid: *running.pid.lock().expect("no thread panics holding a pid"),
+                pid: *held(&running.pid),
             });
         }
         let launch = Launch {
@@ -492,10 +489,7 @@ impl Service {
         });
         cores.insert(user, Arc::clone(&running));
         drop(cores);
-        std::thread::spawn(move || {
-            let service = SERVICE.get().expect("set before the pipe opens");
-            service.keep_up(&launch, &running);
-        });
+        std::thread::spawn(move || self.keep_up(&launch, &running));
         Ok(Answer::Started { pid })
     }
 
@@ -599,11 +593,8 @@ impl Service {
             }
             match self.start(launch) {
                 Ok((process, pid)) => {
-                    *running
-                        .process
-                        .lock()
-                        .expect("no thread panics holding a process") = process;
-                    *running.pid.lock().expect("no thread panics holding a pid") = pid;
+                    *held(&running.process) = process;
+                    *held(&running.pid) = pid;
                 }
                 Err(error) => {
                     eprintln!("{}'s core could not start again: {error}", launch.user);
@@ -611,10 +602,7 @@ impl Service {
                 }
             }
         }
-        let mut cores = self
-            .cores
-            .lock()
-            .expect("no thread panics holding the cores");
+        let mut cores = held(&self.cores);
         if cores
             .get(&launch.user)
             .is_some_and(|kept| std::ptr::eq(kept.as_ref(), running))
@@ -624,16 +612,10 @@ impl Service {
     }
 
     fn end_cores(&self, which: impl Fn(&Running) -> bool) {
-        let cores = self
-            .cores
-            .lock()
-            .expect("no thread panics holding the cores");
+        let cores = held(&self.cores);
         for running in cores.values().filter(|running| which(running)) {
             running.ending.store(true, Ordering::SeqCst);
-            let process = running
-                .process
-                .lock()
-                .expect("no thread panics holding a process");
+            let process = held(&running.process);
             // SAFETY: the process handle is open; ending an exited process fails harmlessly.
             unsafe { TerminateProcess(process.as_raw_handle(), 1) };
         }
@@ -642,11 +624,7 @@ impl Service {
 
 impl Running {
     fn wait(&self) -> u32 {
-        let process = self
-            .process
-            .lock()
-            .expect("no thread panics holding a process")
-            .try_clone();
+        let process = held(&self.process).try_clone();
         let Ok(process) = process else {
             return 1;
         };
@@ -764,4 +742,10 @@ impl Manager {
         // SAFETY: the manager is open and the name ends in a nul.
         Handle::checked(unsafe { OpenServiceW(self.0 .0, name.as_ptr(), access) })
     }
+}
+
+/// Each guarded value is whole between statements, so one left by a panicking thread is
+/// still sound to use.
+fn held<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

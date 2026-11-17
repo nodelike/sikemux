@@ -185,10 +185,10 @@ fn verified(file: &mut File, key: &PublicKey, signature: &str) -> Result<String,
     let mut chunk = vec![0u8; 1 << 16];
     loop {
         let read = file.read(&mut chunk).map_err(|error| error.to_string())?;
-        if read == 0 {
+        let Some(bytes) = chunk.get(..read).filter(|bytes| !bytes.is_empty()) else {
             break;
-        }
-        verifier.update(&chunk[..read]);
+        };
+        verifier.update(bytes);
     }
     verifier
         .finalize()
