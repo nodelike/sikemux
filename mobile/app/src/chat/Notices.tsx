@@ -147,39 +147,44 @@ export function SmartPick({ move, provider }: { move: AccountMove; provider: str
 
 type PageRef = NonNullable<Extract<ChatPart, { kind: 'tool' }>['page']>;
 
-/** A page the agent showed. The phone has no web view to draw it in, so it names the page and where it is. */
+/** A page the agent showed, open in a tab on its desk. The phone has no web view to draw it in, so it names the page and where it is. */
 export function PageCard({ page }: { page: PageRef }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
   return (
-    <View style={styles.resource} accessible accessibilityLabel={t('Page {title}, open on the computer', { title: page.title })}>
-      <Icon name="IconWindow" size={14} color={colors.inkDim} />
-      <Text style={styles.pageTitle} numberOfLines={1}>
-        {page.title}
-      </Text>
-      <Text style={styles.pageWhere}>{t('on the computer')}</Text>
+    <View style={styles.page} accessible accessibilityLabel={t('Page {title}, in a tab on the desk', { title: page.title })}>
+      <Icon name="IconTabs" size={14} color={colors.inkDim} />
+      <View style={styles.pageWords}>
+        <Text style={styles.pageTitle} numberOfLines={2} ellipsizeMode="tail">
+          {page.title}
+        </Text>
+        <Text style={styles.pageWhere} numberOfLines={1}>
+          {t('In a tab on the desk')}
+        </Text>
+      </View>
     </View>
   );
 }
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    resource: {
+    page: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 10,
       alignSelf: 'flex-start',
       maxWidth: '100%',
       marginVertical: 6,
-      paddingVertical: 7,
+      paddingVertical: 8,
       paddingHorizontal: 10,
       borderRadius: 8,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.raised,
     },
-    pageTitle: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
+    pageWords: { flexShrink: 1, gap: 2 },
+    pageTitle: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
     pageWhere: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
     notice: { gap: 2, marginVertical: 2, paddingVertical: 4, paddingLeft: 12 },
     noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 18 },

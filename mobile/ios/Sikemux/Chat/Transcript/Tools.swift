@@ -213,7 +213,10 @@ private struct ToolRowView: View {
                     IconView(icon: icon, size: 12).foregroundStyle(color)
                     Text(ChatWords.toolKind(tool)).font(Theme.mono(11.5)).foregroundStyle(color).lineLimit(1)
                         .frame(minWidth: kindWidth, alignment: .leading)
-                    if running {
+                    if let agents = tool.row.agents, !agents.isEmpty {
+                        AgentTargets(row: tool.row, agents: agents, running: running)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if running {
                         Shimmer(
                             text: tool.row.target + (tool.row.detail.map { " \($0)" } ?? ""), font: Theme.mono(11.5),
                             color: palette.inkDim
@@ -251,7 +254,7 @@ private struct ToolRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .allowsHitTesting(opens)
+            .allowsHitTesting(opens || !(tool.row.agents ?? []).isEmpty)
             .accessibilityLabel(
                 tool.status == .failed
                     ? String(localized: "\(ChatWords.toolKind(tool)) \(tool.row.target), failed")
@@ -292,6 +295,79 @@ private struct ToolRowView: View {
         if let detail = tool.row.detail { text = Text("\(text)\(Text(" \(detail)").foregroundStyle(palette.inkDim))") }
         return text
     }
+}
+
+/// The agents a call reached, each as its pill, then what it said of them: for an agent it started, the task in full ink
+/// and the model it runs on.
+private struct AgentTargets: View {
+    @Environment(\.palette) private var palette
+    @Environment(\.crew) private var crew
+    @Environment(TranscriptContext.self) private var context
+    let row: ToolRow
+    let agents: [String]
+    let running: Bool
+
+    var body: some View {
+        let names = row.target.components(separatedBy: ", ").map { name in name.drop(while: { $0 == "@" }) }
+        let started = row.intent == .start
+        let font = started ? Theme.ui(12.5) : Theme.mono(11.5)
+        HStack(spacing: 4) {
+            ForEach(Array(agents.enumerated()), id: \.offset) { at, id in
+                AgentPill(
+                    agent: crew?.agent(id)
+                        ?? Crew.Named(
+                            id: id, written: "@\(at < names.count ? String(names[at]) : "")", chief: false,
+                            provider: context.provider, face: nil, project: nil),
+                    size: 11)
+            }
+            if let detail = row.detail {
+                Group {
+                    if started && running {
+                        Shimmer(text: detail, font: font, color: palette.inkDim)
+                    } else {
+                        Text(detail).font(font).foregroundStyle(started ? palette.ink : palette.inkDim).lineLimit(1)
+                    }
+                }
+                .padding(.leading, 4)
+                .layoutPriority(-1)
+            }
+            if started, let model = row.model {
+                Text(verbatim: "· \(modelName(model))").font(font).foregroundStyle(palette.inkDim).lineLimit(1)
+                    .fixedSize()
+            }
+        }
+    }
+}
+
+/// `claude-opus-5-5` reads as Opus 5.5 and `gpt-5.6-sol` as GPT-5.6 Sol, as the Mac names them; anything else keeps its
+/// id.
+private func modelName(_ model: String) -> String {
+    let bare = String((model.split(separator: "/").last.map { String($0) } ?? model).split(separator: "[").first ?? "")
+    let capital = { (word: Substring) -> String in word.prefix(1).uppercased() + word.dropFirst() }
+    let digits = { (part: Substring) -> Bool in
+        !part.isEmpty && part.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+    if bare.hasPrefix("claude-") {
+        var parts = bare.dropFirst("claude-".count).split(separator: "-", omittingEmptySubsequences: false)
+        if let last = parts.last, last.count == 8, digits(last) { parts.removeLast() }
+        let family = parts.first ?? ""
+        if !family.isEmpty, family.allSatisfy({ $0.isASCII && $0.isLowercase }), parts.count >= 2, digits(parts[1]) {
+            if parts.count == 2 { return "\(capital(family)) \(parts[1])" }
+            if parts.count == 3, digits(parts[2]), parts[2].count <= 2 {
+                return "\(capital(family)) \(parts[1]).\(parts[2])"
+            }
+        }
+    }
+    if bare.hasPrefix("gpt-") {
+        let rest = bare.dropFirst("gpt-".count)
+        let cut = rest.firstIndex(of: "-")
+        let version = cut.map { rest[..<$0] } ?? rest
+        let variant = cut.map { rest[rest.index(after: $0)...].split(separator: "-").map(capital) } ?? []
+        if !version.isEmpty, version.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }) {
+            return variant.isEmpty ? "GPT-\(version)" : "GPT-\(version) \(variant.joined(separator: " "))"
+        }
+    }
+    return bare
 }
 
 /// The line down a run of calls; the last row's bends into its tick, ending on the row's middle like the Mac's.

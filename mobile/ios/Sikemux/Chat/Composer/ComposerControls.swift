@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// YOLO or safe, as the Mac's toggle says it; a tap switches it where the host can.
+/// YOLO or safe, as the Mac's toggle says it; a tap switches it where the host can. An agent with ways of working
+/// of its own, such as OpenCode's build and plan, lists them in a menu under the two instead.
 struct YoloToggle: View {
     @Environment(\.palette) private var palette
     /// The host the agent runs on.
@@ -10,11 +11,46 @@ struct YoloToggle: View {
     /// A turn is running or something waits on an answer, and the host refuses a switch then.
     let locked: Bool
     let onToggle: (PermissionMode) -> Void
+    var work: ConfigPicker? = nil
+    var onWork: ((ConfigPicker, String) -> Void)? = nil
 
     private var on: Bool { mode == .bypass }
 
+    /// The way of working the agent is in, named only when it is not the first it offers.
+    private var working: ConfigChoice? {
+        guard let work, let first = work.choices.first, first.value != work.current else { return nil }
+        return work.choices.first { $0.value == work.current }
+    }
+
     var body: some View {
-        if Catalog.canSwitchMode(provider, core: core) {
+        if Catalog.canSwitchMode(provider, core: core), let work, let onWork {
+            Menu {
+                Section {
+                    modeButton("Safe", chosen: !on) { onToggle(.workspaceWrite) }
+                    modeButton("YOLO", chosen: on) { onToggle(.bypass) }
+                }
+                Section {
+                    ForEach(work.choices, id: \.value) { choice in
+                        Button {
+                            Haptics.select()
+                            onWork(work, choice.value)
+                        } label: {
+                            if choice.value == work.current {
+                                Label(choice.label, systemImage: "checkmark")
+                            } else {
+                                Text(choice.label)
+                            }
+                            if let about = choice.description { Text(about) }
+                        }
+                    }
+                }
+            } label: {
+                look
+            }
+            .buttonStyle(ActiveFill(radius: 7))
+            .accessibilityLabel("Mode")
+            .accessibilityValue([on ? "YOLO" : "Safe", working?.label].compactMap { $0 }.joined(separator: ", "))
+        } else if Catalog.canSwitchMode(provider, core: core) {
             Button {
                 Haptics.select()
                 onToggle(on ? .workspaceWrite : .bypass)
@@ -45,10 +81,28 @@ struct YoloToggle: View {
                 .fixedSize()
                 .foregroundStyle(
                     on ? AnyShapeStyle(Self.rainbow(palette)) : AnyShapeStyle(palette.inkFaint))
+            if let working {
+                Text(working.label.uppercased())
+                    .font(Theme.ui(11, .semibold))
+                    .tracking(0.9)
+                    .fixedSize()
+                    .foregroundStyle(palette.accent)
+            }
         }
         .padding(.horizontal, 8)
         .frame(height: 34)
         .contentShape(Rectangle())
+    }
+
+    private func modeButton(_ title: LocalizedStringKey, chosen: Bool, pick: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.select()
+            if !chosen { pick() }
+        } label: {
+            if chosen { Label(title, systemImage: "checkmark") } else { Text(title) }
+            if locked { Text("Changes once the turn ends") }
+        }
+        .disabled(locked)
     }
 
     /// How strongly the accent edges the composer while YOLO is on, as the Mac's does.

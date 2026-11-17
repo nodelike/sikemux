@@ -201,7 +201,8 @@ struct Composer: View {
             StashButton { adding = .stash }
             YoloToggle(
                 core: core, mode: session.permissionMode, provider: provider,
-                locked: modeLocked, onToggle: session.setPermissionMode)
+                locked: modeLocked, onToggle: session.setPermissionMode, work: rows.sessionMode,
+                onWork: { picker, value in session.setConfig(picker.id, value) })
             if model != nil || effort != nil {
                 Capped(width: 240) {
                     ModelChip(provider: provider, model: model, effort: effort) {

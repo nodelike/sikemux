@@ -624,7 +624,9 @@ export class ChatSession {
       const value = picker && chosen.get(picker.id);
       return picker && value !== undefined ? { ...picker, current: value } : picker;
     };
-    const view = chosen.size ? { ...over, model: picked(over.model), effort: picked(over.effort) } : over;
+    const view = chosen.size
+      ? { ...over, model: picked(over.model), effort: picked(over.effort), sessionMode: picked(over.sessionMode) }
+      : over;
     this.viewOf = { over, chosen, view };
     return view;
   }
@@ -669,7 +671,8 @@ export class ChatSession {
     if (chat.permissionMode !== before.permissionMode) this.mode = null;
     if (chat.expiredCache !== before.expiredCache) this.summarise = null;
     if (chat.queued !== before.queued || chat.running !== before.running) this.outbox.dropTaken();
-    if (this.chosen.size && (chat.model !== before.model || chat.effort !== before.effort)) this.chosen = new Map();
+    if (this.chosen.size && (chat.model !== before.model || chat.effort !== before.effort || chat.sessionMode !== before.sessionMode))
+      this.chosen = new Map();
     this.outbox.settle(before.running && !chat.running);
     if (chat.draft !== before.draft) this.draft.takeIn();
   }

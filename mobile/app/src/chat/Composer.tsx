@@ -77,6 +77,7 @@ export const Composer = memo(function Composer({
   modelsUnread,
   effort,
   speed,
+  sessionMode,
   usage,
   expiredCache,
   commands,
@@ -109,6 +110,7 @@ export const Composer = memo(function Composer({
   modelsUnread?: ChatFailure;
   effort: ChatRows['effort'];
   speed: ChatRows['speed'];
+  sessionMode: ChatRows['sessionMode'];
   usage: ChatRows['usage'];
   expiredCache: ExpiredCache | null;
   commands: ChatCommandInfo[];
@@ -308,7 +310,15 @@ export const Composer = memo(function Composer({
             <Icon name="IconPlus" size={17} color={colors.inkDim} />
           </Pressable>
           <StashButton onPress={() => setAdding('stash')} />
-          <YoloToggle core={core} mode={permissionMode} provider={provider} locked={modeLocked} onToggle={session.setPermissionMode} />
+          <YoloToggle
+            core={core}
+            mode={permissionMode}
+            provider={provider}
+            locked={modeLocked}
+            onToggle={session.setPermissionMode}
+            work={sessionMode}
+            onWork={(picker, value) => session.setConfig(picker.id, value)}
+          />
           {modelLabel || effortLabel ? <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={openSheet} /> : null}
           {usage ? (
             <ContextRing

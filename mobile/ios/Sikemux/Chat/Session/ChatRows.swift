@@ -238,6 +238,7 @@ extension ChatRows {
     var modelsUnread: ChatFailure? { head.connection == .ready ? nil : head.modelsUnread }
     var effort: ConfigPicker? { head.effort }
     var speed: ConfigPicker? { head.speed }
+    var sessionMode: ConfigPicker? { head.sessionMode }
     var usage: ContextUsage? { head.usage }
     var commands: [ChatCommandInfo] { head.commands }
 }

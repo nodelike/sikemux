@@ -8,6 +8,7 @@ import { attachmentName } from '@shared/chat/transcript';
 import { callCount, callsLabel, secondsSince, toolElapsed, toolGroupSummary, toolIconName, type ToolIconName } from '@shared/chat/toolView';
 import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
+import { AgentPill, namedAgent, useCrew } from '@/devices/Crew';
 import { useT } from '@/i18n';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
@@ -21,6 +22,7 @@ import { DiffBody } from './Diff';
 import { FileRef } from './FileRef';
 import { useFold } from './folds';
 import { ImageViewerHost, useShowImage } from './ImageViewer';
+import { ProviderContext } from './transcriptContext';
 
 export type ToolPart = Extract<ChatPart, { kind: 'tool' }>;
 
@@ -304,6 +306,67 @@ function Target({ tool, target }: { tool: ToolCall; target: string }) {
   );
 }
 
+/** `claude-opus-5-5` reads as Opus 5.5 and `gpt-5.6-sol` as GPT-5.6 Sol, as the Mac names them; anything else keeps its id. */
+function modelName(model: string): string {
+  const bare = (model.split('/').at(-1) ?? model).split('[')[0];
+  const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
+  const digits = (part: string) => /^\d+$/.test(part);
+  if (bare.startsWith('claude-')) {
+    const parts = bare.slice('claude-'.length).split('-');
+    if (/^\d{8}$/.test(parts.at(-1) ?? '')) parts.pop();
+    const [family, major, minor] = parts;
+    if (/^[a-z]+$/.test(family ?? '') && digits(major ?? '')) {
+      if (parts.length === 2) return `${capital(family)} ${major}`;
+      if (parts.length === 3 && digits(minor) && minor.length <= 2) return `${capital(family)} ${major}.${minor}`;
+    }
+  }
+  if (bare.startsWith('gpt-')) {
+    const rest = bare.slice('gpt-'.length);
+    const cut = rest.indexOf('-');
+    const version = cut < 0 ? rest : rest.slice(0, cut);
+    const variant =
+      cut < 0
+        ? []
+        : rest
+            .slice(cut + 1)
+            .split('-')
+            .filter(Boolean)
+            .map(capital);
+    if (/^[\d.]+$/.test(version)) return variant.length ? `GPT-${version} ${variant.join(' ')}` : `GPT-${version}`;
+  }
+  return bare;
+}
+
+/** The agents a call reached, each as its pill, then what it said of them: for an agent it started, the task in full ink and its model. */
+function AgentTargets({ row, agents, running }: { row: ToolCall['row']; agents: string[]; running: boolean }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const crew = useCrew();
+  const provider = useContext(ProviderContext);
+  const names = row.target.split(', ').map((name) => name.replace(/^@+/, ''));
+  const started = row.intent === 'start';
+  const words = started ? styles.task : styles.mono;
+  return (
+    <View style={styles.agents}>
+      {agents.map((id, at) => (
+        <AgentPill key={id} agent={namedAgent(crew, id) ?? { id, written: `@${names[at] ?? ''}`, chief: false, provider }} size={11} />
+      ))}
+      {row.detail ? (
+        started && running ? (
+          <Shimmer style={[words, { color: colors.inkDim }]} layout={styles.agentDetail}>
+            {row.detail}
+          </Shimmer>
+        ) : (
+          <Text style={[words, styles.agentDetail, { color: started ? colors.ink : colors.inkDim }]} numberOfLines={1}>
+            {row.detail}
+          </Text>
+        )
+      ) : null}
+      {started && row.model ? <Text style={[styles.task, { color: colors.inkDim }]}>· {modelName(row.model)}</Text> : null}
+    </View>
+  );
+}
+
 const ToolRow = memo(function ToolRow({
   part,
   last,
@@ -346,7 +409,9 @@ const ToolRow = memo(function ToolRow({
         <Text style={[styles.mono, { color, minWidth: kindWidth }]} numberOfLines={1}>
           {kind}
         </Text>
-        {running ? (
+        {tool.row.agents?.length ? (
+          <AgentTargets row={tool.row} agents={tool.row.agents} running={running} />
+        ) : running ? (
           <Shimmer style={[styles.mono, { color: colors.inkDim }]} layout={styles.targetLayout}>
             {target}
             {detail ? ` ${detail}` : null}
@@ -484,6 +549,9 @@ const makeStyles = (colors: Palette) => {
     mono: { fontFamily: fonts.mono, fontSize: 11.5 },
     target: { flex: 1, color: colors.ink },
     targetLayout: { flex: 1 },
+    agents: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
+    agentDetail: { flexShrink: 1, minWidth: 0, marginLeft: 4 },
+    task: { fontFamily: fonts.ui, fontSize: 12.5 },
     end: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     link: { color: colors.accent },
     rowChevron: { opacity: 0.55 },

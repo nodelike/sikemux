@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { contextShare, money, tokenCount } from '@shared/chat/contextUsage';
+import { contextLimit, contextShare, money, tokenCount } from '@shared/chat/contextUsage';
 import type { ChatRows } from '@shared/chat/rows';
 import { formatAgo } from '@shared/lib/format';
 import type { ChatFailure, ExpiredCache, ModelRoute } from '@shared/wire.generated';
@@ -281,10 +281,10 @@ export function ConfigSheet({
           {usage ? (
             <View style={styles.context}>
               <View style={styles.contextTop}>
-                <Text style={styles.contextLabel}>{t('Context')}</Text>
+                <Text style={styles.contextLabel}>{usage.compactAt ? t('Until compaction') : t('Context')}</Text>
                 <Text style={styles.contextValue}>
                   {Math.round(contextShare(usage) * 100)}% ·{' '}
-                  {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(usage.size) })}
+                  {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(contextLimit(usage)) })}
                 </Text>
               </View>
               <View style={styles.contextBar}>
@@ -295,11 +295,7 @@ export function ConfigSheet({
                   ]}
                 />
               </View>
-              {usage.compactAt ? (
-                <Text style={styles.cost}>
-                  {t('Compacts at {at} of {size}', { at: tokenCount(usage.compactAt), size: tokenCount(usage.size) })}
-                </Text>
-              ) : null}
+              {usage.compactAt ? <Text style={styles.window}>{t('Model window {size}', { size: tokenCount(usage.size) })}</Text> : null}
               {usage.cost ? <Text style={styles.cost}>{t('Session cost {cost}', { cost: money(usage.cost) })}</Text> : null}
             </View>
           ) : null}
@@ -327,6 +323,7 @@ export function ConfigSheet({
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     cost: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    window: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     unread: { paddingTop: 16, paddingHorizontal: 4, fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.secondary },
     sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },

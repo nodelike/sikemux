@@ -508,6 +508,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   modelsUnread={state.connection === 'ready' ? undefined : state.modelsUnread}
                   effort={state.effort}
                   speed={state.speed}
+                  sessionMode={state.sessionMode}
                   usage={state.usage}
                   expiredCache={chat.expiredCache}
                   commands={state.commands}

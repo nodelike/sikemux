@@ -79,7 +79,7 @@ const makeStyles = (colors: Palette) => {
     queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 4 },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },
     earlier: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 10, paddingBottom: 6 },
-    earlierIdle: { width: 13, height: 13 },
+    earlierIdle: { width: 13.5, height: 13.5 },
     earlierText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
   });
 };

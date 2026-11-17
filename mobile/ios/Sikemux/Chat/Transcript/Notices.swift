@@ -215,24 +215,28 @@ struct ResourceChip: View {
     }
 }
 
-/// A page the agent showed. The phone has no web view to draw it in, so it names the page and where it is.
+/// A page the agent showed, open in a tab on its desk. The phone has no web view to draw it in, so it names the page
+/// and where it is.
 struct PageCard: View {
     @Environment(\.palette) private var palette
     let page: PageRef
 
     var body: some View {
-        HStack(spacing: 8) {
-            IconView(icon: Icons.window, size: 14).foregroundStyle(palette.inkDim)
-            Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).lineLimit(1)
-            Text("on the computer").font(Theme.ui(12)).foregroundStyle(palette.inkFaint)
+        HStack(spacing: 10) {
+            IconView(icon: Icons.tabs, size: 14).foregroundStyle(palette.inkDim)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).lineLimit(2)
+                    .truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                Text("In a tab on the desk").font(Theme.ui(12)).foregroundStyle(palette.inkFaint).lineLimit(1)
+            }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(palette.raised))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
         .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Page \(page.title), open on the computer")
+        .accessibilityLabel("Page \(page.title), in a tab on the desk")
     }
 }
 
@@ -619,7 +623,7 @@ struct EarlierLine: View {
                 .accessibilityLabel("Couldn't load earlier messages. Retry")
             } else {
                 HStack(spacing: 8) {
-                    if loading { Working() } else { Color.clear.frame(width: 13, height: 13) }
+                    if loading { Working() } else { Color.clear.frame(width: 13.5, height: 13.5) }
                     Text("Loading earlier messages…")
                 }
             }
