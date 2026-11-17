@@ -499,9 +499,13 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
-    worker
+    let added = worker
         .tool("task.add", json!({ "title": "Totals", "claim": true }))
         .await;
+    let added: Value = (added.split_once("tool answered: "))
+        .and_then(|(_, answer)| serde_json::from_str(answer).ok())
+        .unwrap_or_default();
+    let goal = added["task"].as_u64().expect("the task's number");
     let secret = "Deploy with API_KEY=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6";
     for (text, why) in [
         (secret, "it was in the env file"),
@@ -547,7 +551,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
         worker.chat.notices()
     );
 
-    let decision = json!({ "project": project, "goal": 1, "decision": 2 });
+    let decision = json!({ "project": project, "goal": goal, "decision": 2 });
     app.call("overruleDecision", decision.clone())
         .await
         .expect("the person overrules");
