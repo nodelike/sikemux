@@ -100,8 +100,8 @@ impl Board {
     }
 
     /// Takes in the board `other` kept as the project's home, matching cards by id and when they
-    /// were made: the one changed last wins, keeping the commits, pulls, recordings and arrivals
-    /// either had, and its cards this board lacks get new ids unless this board archived them. It
+    /// were made: the one changed last wins, keeping the commits, pulls, recordings, arrivals and
+    /// goal rules either had, and its cards this board lacks get new ids unless this board archived them. It
     /// removes nothing else, so a card `other` removed comes back.
     pub(super) fn merge(&mut self, other: Board, archived: &HashSet<(u64, u64)>) {
         let cards: Vec<Card> = (other.cards.into_iter())
@@ -160,5 +160,6 @@ impl Card {
         self.recordings.sort_by_key(|recording| recording.at);
         self.arrivals.sort_by_key(|arrival| arrival.at);
         self.checked = self.checked.take().or(other.checked);
+        self.goal.merge(other.goal);
     }
 }

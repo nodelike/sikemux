@@ -20,7 +20,7 @@ use super::super::board::record as board_record;
 use super::super::memory::{self, moving};
 use super::super::Core;
 use super::calls::{self as asks, params_of, HostAsk};
-use super::link::Answer;
+use super::link::{Answer, Refusal};
 use super::outbox::Post;
 use super::{ask, name_of, Failed, ASK_WAIT};
 
@@ -369,9 +369,9 @@ pub(super) fn send_to(core: &Core, home: &str, posts: Vec<Post>) {
                     Ok(asked) => act_here(&core, asked).await.map(drop),
                     Err(error) => Err(error.to_string()),
                 },
-                asks::RecordTakeIn::METHOD => (serde_json::from_value(post.params))
+                asks::RecordTakeIn::METHOD => (serde_json::from_value::<TakeIn>(post.params))
                     .map_err(|error| error.to_string())
-                    .and_then(|kept| taken_in(&core, &from, kept).map(drop)),
+                    .and_then(|taking| take_in(&core, &taking.identity, taking.kept)),
                 _ => Ok(()),
             };
             if let Some(doing) = doing {
@@ -479,7 +479,18 @@ pub(super) fn heard_holds(core: &Arc<Core>, host: &str) {
     }
 }
 
+/// Sends the record this host keeps as the project's home, which it no longer counts as a copy.
 fn send(core: &Arc<Core>, identity: &str, only: Option<&str>, carries: Carries) {
+    let (board, memory) = (
+        matches!(carries, Carries::Board | Carries::Both),
+        matches!(carries, Carries::Memory | Carries::Both),
+    );
+    if board {
+        board_record::kept_here(core, identity);
+    }
+    if memory {
+        memory::kept_here(core, identity);
+    }
     let mut holders = core.hosts().copies.holders(identity);
     holders.retain(|host| {
         only.is_none_or(|only| only == host) && core.hosts().connected(host).is_some()
@@ -487,12 +498,10 @@ fn send(core: &Arc<Core>, identity: &str, only: Option<&str>, carries: Carries) 
     if holders.is_empty() {
         return;
     }
-    let board = matches!(carries, Carries::Board | Carries::Both)
+    let board = board
         .then(|| board_record::record(core, identity))
         .flatten();
-    let memory = matches!(carries, Carries::Memory | Carries::Both)
-        .then(|| memory::record(core, identity))
-        .flatten();
+    let memory = memory.then(|| memory::record(core, identity)).flatten();
     if board.is_none() && memory.is_none() {
         return;
     }
@@ -584,9 +593,18 @@ pub(super) struct TakeIn {
     kept: Replaced,
 }
 
-/// A linked host sent what a copy of this host's replaced there.
-pub(super) fn taken_in(core: &Core, host: &str, taking: TakeIn) -> Answer {
-    take_in(core, &taking.identity, host, taking.kept);
+/// A linked host sent what a copy of this host's replaced there. A host that no longer keeps
+/// the record asks for it again later, by when the sender's lane has followed the home.
+pub(super) fn taken_in(core: &Core, taking: TakeIn) -> Result<Value, Refusal> {
+    let project = project_of(core, &taking.identity)
+        .ok_or_else(|| Refusal::retry("this host does not hold that repository"))?;
+    if let Some(home) = core.hosts().copies.home_of(core, &project) {
+        return Err(Refusal::retry(format!(
+            "{} keeps that project's record now",
+            home.host_name
+        )));
+    }
+    take_in(core, &taking.identity, taking.kept)?;
     Ok(Value::Null)
 }
 
@@ -612,7 +630,7 @@ impl Replaced {
     }
 }
 
-fn take_in(core: &Core, identity: &str, host: &str, theirs: Replaced) {
+fn take_in(core: &Core, identity: &str, theirs: Replaced) -> Result<(), String> {
     let taken = [
         theirs
             .unshared
@@ -624,11 +642,14 @@ fn take_in(core: &Core, identity: &str, host: &str, theirs: Replaced) {
             .memory
             .map(|store| memory::merge_in(core, identity, store)),
     ];
-    for error in taken.into_iter().flatten().filter_map(Result::err) {
-        eprintln!(
-            "sikemux core: what {} kept was not taken in: {error}",
-            name_of(core, host)
-        );
+    let failed: Vec<String> = taken
+        .into_iter()
+        .flatten()
+        .filter_map(Result::err)
+        .collect();
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(failed.join("; ")),
     }
 }
 

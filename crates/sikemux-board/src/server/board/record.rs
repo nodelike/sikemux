@@ -13,7 +13,6 @@ pub fn record(core: &Core, key: &str) -> Option<Value> {
     let mut state = core.boards().state.locked();
     let board = state.boards.get_mut(key)?;
     board.shared = true;
-    board.mirrored = false;
     serde_json::to_value(board.saved()).ok()
 }
 
@@ -34,7 +33,7 @@ pub fn is_copy(core: &Core, key: &str) -> bool {
 pub fn kept_here(core: &Core, key: &str) {
     let boards = core.boards();
     let mut state = boards.state.locked();
-    if let Some(board) = state.boards.get_mut(key) {
+    if let Some(board) = state.boards.get_mut(key).filter(|board| board.mirrored) {
         board.mirrored = false;
         boards.save_key(&mut state, key);
     }

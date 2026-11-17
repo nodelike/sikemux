@@ -24,16 +24,10 @@ pub(crate) const APP_WRITES: [&str; 6] = [
 
 /// What the store under `key` keeps, as its home sends it, without the notes for its own chats.
 pub(crate) fn record(core: &Core, key: &str) -> Option<Value> {
-    let memory = core.memory();
-    let mut state = memory.state.locked();
-    let held = state.held.get_mut(key)?;
-    let was_copy = std::mem::replace(&mut held.mirrored, false);
-    let mut sent = held.clone();
-    sent.removed.clear();
-    if was_copy {
-        memory.save(&mut state, key);
-    }
-    serde_json::to_value(sent).ok()
+    let mut held = core.memory().state.locked().held.get(key)?.clone();
+    held.removed.clear();
+    held.mirrored = false;
+    serde_json::to_value(held).ok()
 }
 
 /// Whether the store under `key` is a copy of what another host, the project's home, sent.
@@ -45,7 +39,7 @@ pub(crate) fn is_copy(core: &Core, key: &str) -> bool {
 pub(crate) fn kept_here(core: &Core, key: &str) {
     let memory = core.memory();
     let mut state = memory.state.locked();
-    if let Some(held) = state.held.get_mut(key) {
+    if let Some(held) = state.held.get_mut(key).filter(|held| held.mirrored) {
         held.mirrored = false;
         memory.save(&mut state, key);
     }
@@ -103,7 +97,8 @@ pub(crate) fn mirror(core: &Core, key: &str, record: Value) -> Result<Option<Val
 /// Merges in the store another host kept as the project's own before this host's copy reached
 /// it. An entry is the same when its words are, or when it has the same id and one side was
 /// corrected from the other; the one learned or corrected last wins, and one this store lacks gets
-/// a new id. It removes nothing, so an entry removed there comes back.
+/// a new id. A rule set aside and the same rule listed again: the later one stands. Nothing else
+/// removed here stays removed, so knowledge or a rule removed here comes back.
 pub(crate) fn merge_in(core: &Core, key: &str, theirs: Value) -> Result<(), String> {
     let theirs: Held = serde_json::from_value(theirs).map_err(|error| error.to_string())?;
     let memory = core.memory();
@@ -116,8 +111,17 @@ pub(crate) fn merge_in(core: &Core, key: &str, theirs: Value) -> Result<(), Stri
             break;
         };
         let said = Said::rule(&rule);
-        if (own.set_aside.iter()).any(|apart| said.same(&Said::rule(&apart.rule))) {
-            continue;
+        let apart = (own.set_aside.iter().enumerate())
+            .find(|(_, apart)| said.same(&Said::rule(&apart.rule)))
+            .map(|(at, apart)| (at, apart.at));
+        match apart {
+            Some((at, aside)) if rule.learned.at > aside => {
+                rule.id = own.set_aside.remove(at).rule.id;
+                own.rules.push(rule);
+                continue;
+            }
+            Some(_) => continue,
+            None => {}
         }
         match (own.rules.iter_mut()).find(|own| said.same(&Said::rule(own))) {
             Some(own) if rule.learned.at > own.learned.at => {
@@ -157,11 +161,22 @@ pub(crate) fn merge_in(core: &Core, key: &str, theirs: Value) -> Result<(), Stri
             break;
         };
         let said = Said::rule(&apart.rule);
-        if (own.set_aside.iter()).any(|own| said.same(&Said::rule(&own.rule))) {
+        if let Some(own) = (own.set_aside.iter_mut()).find(|own| said.same(&Said::rule(&own.rule)))
+        {
+            if apart.at > own.at {
+                apart.rule.id = own.rule.id;
+                *own = apart;
+            }
             continue;
         }
-        match (own.rules.iter()).position(|rule| said.same(&Said::rule(rule))) {
-            Some(listed) => apart.rule.id = own.rules.remove(listed).id,
+        let listed = (own.rules.iter().enumerate())
+            .find(|(_, rule)| said.same(&Said::rule(rule)))
+            .map(|(at, rule)| (at, rule.learned.at));
+        match listed {
+            Some((at, learned)) if apart.at > learned => {
+                apart.rule.id = own.rules.remove(at).id;
+            }
+            Some(_) => continue,
             None => apart.rule.id = state.next_id(key),
         }
         if let Some(own) = state.held.get_mut(key) {
