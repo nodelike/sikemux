@@ -1,5 +1,6 @@
-//! The folders the person keeps projects in, and how deep each is searched; and sending the
-//! project in front, with its chats and tabs, to another host.
+//! The folders the person keeps projects in, and how deep each is searched; sending the project
+//! in front, with its chats and tabs, to another host; and whether the person's settings and
+//! skills follow them to their other hosts.
 
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -40,6 +41,11 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
         General,
         "Session transfer",
         "send move copy host machine chats tabs another server transfer",
+    ),
+    section(
+        General,
+        "Sync settings and skills across your hosts",
+        "sync pro settings skills themes shortcuts hosts machines follow",
     ),
 ];
 
@@ -435,6 +441,35 @@ pub fn render(
             Some(t!("Send the project in front to another host, with its chats and tabs.").into()),
             lit("Session transfer"),
             transfer(bench, &fields.transfer, this, cx),
+            cx,
+        ),
+        rows::card(
+            lit("Sync settings and skills across your hosts"),
+            rows::row_parts(
+                None,
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(SPACE_2)
+                    .child(t!("Sync settings and skills across your hosts"))
+                    .children(bench.pro_free().map(|pro| {
+                        div()
+                            .text_size(crate::theme::ui_text(TEXT_XS))
+                            .text_color(Tokens::get(cx).text_tertiary)
+                            .child(pro)
+                    })),
+                Some(rows::about_line(
+                    t!("Your theme, shortcuts, chat and agent choices, skills and themes follow you to every linked host.").into(),
+                    Tokens::get(cx).text_tertiary,
+                )),
+                rows::switch(
+                    "sync-across-hosts",
+                    PreferenceChange::SyncAcrossHosts,
+                    bench.preferences().sync_across_hosts,
+                    this,
+                ),
+                cx,
+            ),
             cx,
         ),
     ]
