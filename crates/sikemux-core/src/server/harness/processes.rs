@@ -94,11 +94,26 @@ pub(super) fn within_project(project: &str, cwd: &str) -> String {
     }
 }
 
+/// An absolute `cwd` outside the caller's checkout `project` that is still in the same project,
+/// such as another repository's checkout beside it, as the real path to start in.
+fn sibling_checkout(core: &Core, project: &str, params: &Value) -> Option<String> {
+    let cwd = params["cwd"]
+        .as_str()
+        .filter(|cwd| Path::new(cwd).is_absolute())?;
+    let real = sikemux_process::files::real_path(cwd).ok()?;
+    let checkout = sikemux_process::files::real_path(project).ok()?;
+    let workspaces = core.workspaces();
+    let same_project = workspaces.project_of(&real) == workspaces.project_of(&checkout);
+    (real.is_dir() && !real.starts_with(&checkout) && same_project)
+        .then(|| real.to_string_lossy().into_owned())
+}
+
 pub(super) fn launch_target(
     state: &mut State,
     project: &str,
     params: &Value,
     restart: bool,
+    sibling: Option<&str>,
 ) -> Result<(String, Option<CommandLaunch>), String> {
     if restart {
         let task_id = required_text(params, "processId")?;
@@ -120,8 +135,13 @@ pub(super) fn launch_target(
             if label.is_some_and(|label| label.chars().count() > 80) {
                 return Err("label must be at most 80 characters".into());
             }
-            let cwd = text(params, "cwd")?.map(|cwd| within_project(project, cwd));
-            let cwd = command_cwd(cwd.as_deref())?;
+            let cwd = match sibling {
+                Some(sibling) => sibling.to_owned(),
+                None => {
+                    let cwd = text(params, "cwd")?.map(|cwd| within_project(project, cwd));
+                    command_cwd(cwd.as_deref())?
+                }
+            };
             let task_id = command_task_id(command, &cwd, label);
             Ok((
                 task_id,
@@ -165,8 +185,10 @@ pub(super) fn begin_start(
     key: &str,
     restart: bool,
 ) -> Result<Begun, String> {
+    let sibling = sibling_checkout(core, project, params);
     core.harness().change(|state| {
-        let (task_id, mut spec) = launch_target(state, project, params, restart)?;
+        let (task_id, mut spec) =
+            launch_target(state, project, params, restart, sibling.as_deref())?;
         if !restart {
             if let Some(existing) = state.runs.keyed(project, key, &task_id)? {
                 return Ok(Begun::Existing(existing));

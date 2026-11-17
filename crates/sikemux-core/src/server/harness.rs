@@ -980,7 +980,7 @@ mod tests {
     fn task_ids_and_commands_are_resolved_before_anything_starts() {
         let harness = Harness::new(None, |_| true);
         let resolve = |params: Value, restart: bool| {
-            harness.read(|state| launch_target(state, "/one", &params, restart))
+            harness.read(|state| launch_target(state, "/one", &params, restart, None))
         };
         let (task_id, spec) = resolve(
             json!({ "command": "pnpm dev", "cwd": "./web/", "label": "Web" }),
