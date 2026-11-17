@@ -241,8 +241,8 @@ export function Dot({ color, size = 8, hollow }: { color: string; size?: number;
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    loader: { width: 13, height: 13, flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
-    cell: { width: 3, height: 3, borderRadius: 0.6, backgroundColor: colors.live },
+    loader: { width: 13.5, height: 13.5, flexDirection: 'row', flexWrap: 'wrap', gap: 1.5 },
+    cell: { width: 3.5, height: 3.5, borderRadius: 0.75, backgroundColor: colors.live },
     dotBox: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
     ring: { position: 'absolute', width: 7, height: 7, borderRadius: 4, borderWidth: 1, borderColor: colors.warn },
     dot: { width: 7, height: 7, borderRadius: 4 },

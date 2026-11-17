@@ -66,12 +66,10 @@ struct TurnLine: View {
                 if waitedOn.count > Self.shownAgents {
                     MoreAgents(agents: Array(waitedOn.dropFirst(Self.shownAgents))).fixedSize()
                 }
-            } else if said.phase == .waiting {
-                // A wait's place, holder and minutes matter more than its long name, which gives way first.
-                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(1)
-                    .layoutPriority(-1)
             } else {
-                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).fixedSize()
+                // A wait's place, holder and minutes matter more than its long name, which gives way first.
+                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(2)
+                    .layoutPriority(said.phase == .waiting ? -1 : 0)
             }
             ForEach(Array(said.parts.enumerated()), id: \.offset) { index, part in
                 Text("·").foregroundStyle(palette.inkFaint).fixedSize()

@@ -98,11 +98,11 @@ export function TurnLine({
               {after?.trim() ? <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{after.trim()}</Text> : null}
             </>
           ) : shown.phase === 'working' ? (
-            <Shimmer style={[styles.word, { color: colors.ink }]}>{shown.word}</Shimmer>
+            <Shimmer style={[styles.word, { color: colors.ink }]} layout={styles.shortened} numberOfLines={2}>
+              {shown.word}
+            </Shimmer>
           ) : (
-            <Text
-              style={[styles.word, waiting && styles.shortened, { color: tint(shown.phase, colors) }]}
-              numberOfLines={waiting ? 1 : undefined}>
+            <Text style={[styles.word, styles.shortened, { color: tint(shown.phase, colors) }]} numberOfLines={2}>
               {shown.word}
             </Text>
           )}
