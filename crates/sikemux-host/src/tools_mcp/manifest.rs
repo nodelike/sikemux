@@ -473,7 +473,8 @@ impl Tool {
     /// The arguments as this tool takes them, so a call an agent got nearly right runs rather
     /// than coming back refused: a name it commonly uses for one of this tool's is renamed,
     /// `repo: "owner/name"` is split where the tool takes `owner` and `name`, a listed value
-    /// written in another case or spelling is matched, and a number past a bound is held at it.
+    /// written in another case or spelling is matched, a number past a bound is held at it, and one
+    /// name given where a list is taken, or a list where one name is, is fitted to the field.
     pub fn settle(&self, arguments: Value) -> Value {
         let Value::Object(mut object) = arguments else {
             return arguments;
@@ -507,6 +508,13 @@ impl Tool {
                     .map_or(value, |seconds| json!((seconds * 1000.0) as u64));
             }
             object.insert(meant.to_owned(), value);
+        }
+        if let Some(Value::Array(names)) = object.get("to") {
+            if self.properties.contains_key("to") && names.iter().all(Value::is_string) {
+                let names: Vec<&str> = names.iter().filter_map(Value::as_str).collect();
+                let joined = names.join(", ");
+                object.insert("to".into(), joined.into());
+            }
         }
         for (name, value) in object.iter_mut() {
             if let Some(schema) = self.properties.get(name) {
@@ -552,7 +560,18 @@ impl Tool {
             ),
             ("deltaY", &["y", "dy", "amount", "pixels"]),
             ("url", &["href", "link"]),
-            ("text", &["value", "content"]),
+            (
+                "to",
+                &["agent", "agents", "agentid", "agent_id", "recipient"],
+            ),
+            ("agent", &["to", "agents", "agentid", "agent_id"]),
+            (
+                "agents",
+                &["to", "agent", "agentid", "agent_id", "agentids"],
+            ),
+            ("text", &["value", "content", "message", "body"]),
+            ("prompt", &["message", "text", "instructions"]),
+            ("paths", &["files", "file", "path"]),
             ("index", &["element", "ref", "number"]),
         ];
         let lowered = name.to_ascii_lowercase();
@@ -609,6 +628,17 @@ fn settle_value(value: &mut Value, schema: &Value) {
             } else {
                 json!(held)
             };
+        }
+        Value::String(text) if schema.get("type") == Some(&json!("array")) => {
+            *value = json!([std::mem::take(text)]);
+            settle_value(value, schema);
+        }
+        Value::Array(items)
+            if schema.get("type") == Some(&json!("string"))
+                && items.len() == 1
+                && items.first().is_some_and(Value::is_string) =>
+        {
+            *value = items.remove(0);
         }
         Value::String(text) => {
             let Some(choices) = schema.get("enum").and_then(Value::as_array) else {
