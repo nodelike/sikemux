@@ -25,7 +25,7 @@ use super::outbox::Post;
 use super::{ask, name_of, Failed, ASK_WAIT};
 
 /// The calls from the app that change a project's record.
-pub(crate) const APP_WRITES: [&str; 10] = [
+pub(crate) const APP_WRITES: [&str; 12] = [
     "boardAdd",
     "boardAddTicket",
     "boardUpdate",
@@ -36,6 +36,8 @@ pub(crate) const APP_WRITES: [&str; 10] = [
     "overruleDecision",
     "undoOverrule",
     "boardDecide",
+    "shareProject",
+    "unshareProject",
 ];
 
 /// The tools an agent changes a project's record with.

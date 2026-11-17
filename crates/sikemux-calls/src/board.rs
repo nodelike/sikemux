@@ -439,6 +439,9 @@ pub struct BoardSettings {
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<String>,
+    /// The org whose members read the board, by its id; none while only its owner does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_with: Option<String>,
 }
 
 impl BoardSettings {
@@ -467,8 +470,17 @@ impl Default for BoardSettings {
             places_confirmed: None,
             spend_ceiling: None,
             hosts: Vec::new(),
+            shared_with: None,
         }
     }
+}
+
+/// Shares a project's board with one org the account is in, in place of any other.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareProjectParams {
+    pub project: String,
+    pub org: String,
 }
 
 /// What the person changes of how a project's board runs on its own; what it leaves out

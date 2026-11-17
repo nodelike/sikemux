@@ -15,6 +15,7 @@ mod flags;
 mod kept;
 mod orgs;
 mod profile;
+pub mod shares;
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;

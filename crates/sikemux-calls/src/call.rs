@@ -355,6 +355,9 @@ crate::calls! {
     "overruleDecision" OverruleDecision (crate::board::OverruleParams) -> crate::board::ProjectBoard;
     "undoOverrule" UndoOverrule (crate::board::UndoOverruleParams) -> crate::board::ProjectBoard;
     "boardDecide" BoardDecide (crate::board::DecideParams) -> crate::board::ProjectBoard;
+    "shareProject" ShareProject (crate::board::ShareProjectParams) -> sikemux_view::teammates::ProjectSharing;
+    "unshareProject" UnshareProject (crate::board::BoardParams) -> sikemux_view::teammates::ProjectSharing;
+    "projectSharing" ProjectSharing (crate::board::BoardParams) -> sikemux_view::teammates::ProjectSharing;
     "boardRetry" BoardRetry (crate::board::BoardCardParams) -> crate::board::ProjectBoard;
     "boardPass" BoardPass (crate::board::BoardPassParams) -> crate::board::ProjectBoard;
     "boardNote" BoardNote (crate::board::BoardNoteParams) -> crate::board::ProjectBoard;

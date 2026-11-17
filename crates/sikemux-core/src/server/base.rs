@@ -37,7 +37,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{finished, hooks, inbox, mods, stash};
+use super::{finished, hooks, inbox, mods, shares, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -346,6 +346,7 @@ pub(super) fn remote_above() -> RemoteAbove {
             stash::heard(core, events);
             mods::heard(core, events);
         },
+        shares_heard: shares::heard,
         account_catch_up: |core| {
             stash::catch_up(core);
             mods::catch_up(core);
@@ -504,7 +505,10 @@ pub(super) fn board_above() -> BoardAbove {
         chief_card_reopened: chief::card_reopened,
         hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
-        records_changed: hosts::record::changed,
+        records_changed: |core, keys| {
+            shares::records_changed(core, &keys);
+            hosts::record::changed(core, keys);
+        },
         records_elsewhere: hosts::record::elsewhere,
         records_act: hosts::record::act_waiting,
         records_post: hosts::record::post_home,

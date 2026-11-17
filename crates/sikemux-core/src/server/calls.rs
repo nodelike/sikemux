@@ -599,6 +599,9 @@ calls! { core, client, method, params;
     "boardDecide" = BoardDecide: Full => {
         board::goal::person_decide(&core, params).await?
     },
+    "shareProject" = ShareProject: Full => super::shares::share(&core, params).await?,
+    "unshareProject" = UnshareProject: Full => super::shares::unshare(&core, params).await?,
+    "projectSharing" = ProjectSharing: Watch => super::shares::sharing(&core, &params.project).await,
     "triage" = Triage: Full => {
         super::triage::triage(&core, params).await?
     },
@@ -773,6 +776,8 @@ pub(crate) async fn record_write(
         "overruleDecision" => answer(board::goal::overrule(core, parse(params)?).await?),
         "undoOverrule" => answer(board::goal::undo_overrule(core, parse(params)?).await?),
         "boardDecide" => answer(board::goal::person_decide(core, parse(params)?).await?),
+        "shareProject" => answer(super::shares::share(core, parse(params)?).await?),
+        "unshareProject" => answer(super::shares::unshare(core, parse(params)?).await?),
         "boardHeldCard" => answer(board::hand_off::person_held_card(core, parse(params)?).await?),
         "memoryTake" => {
             let core = core.clone();

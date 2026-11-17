@@ -68,6 +68,8 @@ pub struct RemoteAbove {
     pub vault_books: fn(&Core) -> Vec<VaultBook>,
     /// The account said these things happened; the stash and the mods take what is theirs.
     pub account_heard: fn(&Arc<Core>, &[AccountEvent]),
+    /// The account's share registry or orgs were read again.
+    pub shares_heard: fn(&Arc<Core>),
     /// The live connection is up again: the stash and the mods read what the account kept while
     /// this host was away.
     pub account_catch_up: fn(&Arc<Core>),

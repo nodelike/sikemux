@@ -135,6 +135,7 @@ pub(crate) use sikemux_workspace::server::seen;
 mod session_watch;
 pub mod settling;
 pub mod setup_check;
+pub(crate) mod shares;
 pub use sikemux_remote::server::share;
 pub use sikemux_repo::server::ship;
 pub use sikemux_repo::server::skill_library;

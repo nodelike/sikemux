@@ -2431,6 +2431,28 @@ pub async fn person_settings(
     .map_err(|error| error.to_string())
 }
 
+/// Shares the project's board with the org `org`, or with nobody. Answers the org it was shared
+/// with before.
+pub async fn person_share(
+    core: &Arc<Core>,
+    project: String,
+    org: Option<String>,
+) -> Result<Option<String>, String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &project)?;
+        let mut state = core.boards().state.locked();
+        let board = state.made(&project);
+        let before = std::mem::replace(&mut board.settings.shared_with, org);
+        if board.settings.shared_with != before {
+            core.boards().save(&mut state, &project);
+        }
+        Ok(before)
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 pub async fn person_answer_proposal(
     core: &Arc<Core>,
     params: BoardProposalParams,

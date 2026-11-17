@@ -30,6 +30,7 @@ pub mod shown;
 pub mod slice;
 pub mod start;
 pub mod task_list;
+pub mod teammates;
 pub mod theme;
 pub mod turn;
 pub mod updates;
