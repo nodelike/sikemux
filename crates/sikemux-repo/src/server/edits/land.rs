@@ -272,21 +272,8 @@ pub fn lay(
 /// project's checkout along when it has `base` out. The files someone had
 /// changed there, which took the new lines merged in.
 pub fn put(repo: &Path, base: &str, from: &str, to: &str) -> Result<Vec<String>, NotPut> {
+    let steps = planned(repo, base, from, to)?;
     let target = format!("refs/heads/{base}");
-    let checked_out =
-        git(repo, &["symbolic-ref", "-q", "HEAD"]).is_ok_and(|head| head.trim() == target);
-    let steps = match checked_out {
-        true => {
-            let (steps, clashes) = plan(repo, from, to).map_err(NotPut::Failed)?;
-            if !clashes.is_empty() {
-                return Err(NotPut::Clash(
-                    clashes.iter().map(|path| repo.join(path)).collect(),
-                ));
-            }
-            steps
-        }
-        false => Steps::default(),
-    };
     run(
         repo,
         &[
@@ -301,28 +288,43 @@ pub fn put(repo: &Path, base: &str, from: &str, to: &str) -> Result<Vec<String>,
         None,
     )
     .map_err(|_| NotPut::Moved)?;
-    Ok(match checked_out {
-        true => apply(repo, steps, from, to),
-        false => Vec::new(),
+    Ok(match steps {
+        Some(steps) => apply(repo, steps, from, to),
+        None => Vec::new(),
     })
 }
 
-/// What each file the landing changes needs in the project's checkout at
-/// `repo`, from `before` to `after`, and whether someone had changed it there.
-/// A clash with what someone changed refuses the landing.
-pub fn steps(repo: &Path, before: &str, after: &str) -> Result<Steps, String> {
-    let (steps, clashes) = plan(repo, before, after)?;
+/// What moving `base` from `from` to `to` does to the project's checkout at
+/// `repo`, none when it does not have `base` out. A clash with what someone
+/// changed there refuses it.
+pub fn planned(repo: &Path, base: &str, from: &str, to: &str) -> Result<Option<Steps>, NotPut> {
+    let target = format!("refs/heads/{base}");
+    if !git(repo, &["symbolic-ref", "-q", "HEAD"]).is_ok_and(|head| head.trim() == target) {
+        return Ok(None);
+    }
+    let (steps, clashes) = plan(repo, from, to).map_err(NotPut::Failed)?;
     if !clashes.is_empty() {
-        return Err(format!(
-            "Not landed: the project's checkout has changes nobody committed in {} that clash with yours. Find who made them with who_wrote on those paths and agree with them, then land again.",
-            clashes
-                .iter()
-                .map(|path| repo.join(path).display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+        return Err(NotPut::Clash(
+            clashes.iter().map(|path| repo.join(path)).collect(),
         ));
     }
-    Ok(steps)
+    Ok(Some(steps))
+}
+
+/// [`planned`], with a clash said in words.
+pub fn steps(repo: &Path, base: &str, before: &str, after: &str) -> Result<Option<Steps>, String> {
+    planned(repo, base, before, after).map_err(|not| match not {
+        NotPut::Clash(paths) => format!(
+            "Not landed: the project's checkout has changes nobody committed in {} that clash with yours. Find who made them with who_wrote on those paths and agree with them, then land again.",
+            paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        NotPut::Failed(why) => why,
+        NotPut::Moved => format!("{base} moved meanwhile"),
+    })
 }
 
 /// What each file changed from `before` to `after` needs in the checkout at

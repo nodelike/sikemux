@@ -803,12 +803,18 @@ fn failed_over(core: &Arc<Core>, key: &Key, waiting: &Waiting, tip: &str, why: S
 }
 
 /// Moves the branch to the checked stack, made again on its tip should that
-/// have moved since, then brings each agent's checkout along and pushes.
+/// have moved since, and brings each agent's checkout along. A stack with a
+/// land to push goes to the remote first and moves the branch only once it took it.
 async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
     let owner = core.clone();
     let key_now = key.clone();
     let put = blocking(move || Ok(put_stack(&owner, &key_now, stacked))).await;
-    let Ok((landed, refused)) = put else {
+    let Ok(Put {
+        landed,
+        refused,
+        pushed,
+    }) = put
+    else {
         return;
     };
     for (waiting, why) in &refused {
@@ -844,39 +850,19 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
             tell_lead(core, &waiting.agent, format!("Its land of {on}."), true);
         }
     }
-    if pushers.is_empty() {
+    let Some(pushed) = pushed else {
         return;
-    }
-    let agents: Vec<String> = pushers.iter().map(|(agent, _)| agent.clone()).collect();
-    let (owner, repo) = (core.clone(), key.0.clone());
-    let pushed =
-        blocking(move || super::push::push(&owner, &repo, &agents, "origin").map_err(Into::into))
-            .await;
-    let pushed = pushed.inspect(|pushed| {
-        super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), pushed)
-    });
+    };
+    super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), &pushed);
     for (agent, on) in &pushers {
-        let (text, calm) = match &pushed {
-            Ok(pushed) if (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) => {
-                (
-                    format!(
-                        "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
-                    ),
-                    false,
-                )
-            }
-            Ok(_) => (format!("Its land of {on}, and pushed."), true),
-            Err(error) => {
-                tell(
-                    core,
-                    agent,
-                    format!("Your commits landed on {} but did not push: {error}", key.1),
-                );
-                (
-                    format!("Its land of {on}, but did not push: {error}"),
-                    false,
-                )
-            }
+        let (text, calm) = match (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) {
+            true => (
+                format!(
+                    "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
+                ),
+                false,
+            ),
+            false => (format!("Its land of {on}, and pushed."), true),
         };
         tell_lead(core, agent, text, calm);
     }
@@ -885,12 +871,23 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
 type Landed = Vec<(Waiting, Vec<String>, Option<String>)>;
 
 /// The lands put on the branch, each with the commits made for it and why its
-/// checkout stayed behind when it did, and those refused with why.
-fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, String)>) {
+/// checkout stayed behind when it did, those refused with why, and what was
+/// pushed when any of them pushes.
+struct Put {
+    landed: Landed,
+    refused: Vec<(Waiting, String)>,
+    pushed: Option<super::push::Pushed>,
+}
+
+fn put_stack(core: &Core, key: &Key, stacked: Stack) -> Put {
     let (repo, base) = key;
     let signing = Signing::of(core);
     let mut stacked = stacked;
-    let mut refused = Vec::new();
+    let mut put = Put {
+        landed: Vec::new(),
+        refused: Vec::new(),
+        pushed: None,
+    };
     for _ in 0..ATTEMPTS {
         let tip = match git(repo, &["rev-parse", &format!("refs/heads/{base}")]) {
             Ok(tip) => line(tip),
@@ -898,7 +895,7 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, S
         };
         if tip != stacked.tip {
             if checked_below(repo, base, &tip) != tip {
-                return (Vec::new(), refused);
+                return put;
             }
             let batch: Vec<Waiting> = (stacked.laid.iter())
                 .map(|laid| laid.waiting.clone())
@@ -907,13 +904,46 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, S
                 Ok(again) => again,
                 Err(_) => break,
             };
-            refused.append(&mut stacked.refused);
+            put.refused.append(&mut stacked.refused);
         }
         let Some(top) = stacked.laid.last().map(|laid| laid.tip.clone()) else {
             break;
         };
-        match land::put(repo, base, &stacked.tip, &top) {
-            Ok(_) => return (landed(core, repo, &stacked), refused),
+        let pushers: Vec<String> = (stacked.laid.iter())
+            .filter(|laid| laid.waiting.push)
+            .map(|laid| laid.waiting.agent.clone())
+            .collect();
+        let moved = match pushers.is_empty() {
+            true => land::put(repo, base, &stacked.tip, &top).map(drop),
+            false => land::planned(repo, base, &stacked.tip, &top).map(drop),
+        };
+        match moved {
+            Ok(()) if pushers.is_empty() => {
+                put.landed = landed(core, repo, &stacked);
+                return put;
+            }
+            Ok(()) => {
+                let landing = super::push::Landing {
+                    branch: base,
+                    from: &stacked.tip,
+                    to: &top,
+                };
+                match super::push::land_and_push(core, repo, &pushers, "origin", &landing) {
+                    Ok(pushed) => {
+                        put.landed = landed(core, repo, &stacked);
+                        put.pushed = Some(pushed);
+                    }
+                    Err(why) => {
+                        let why = format!("pushing it failed, so nothing landed: {why}");
+                        put.refused.extend(
+                            (stacked.laid.into_iter())
+                                .filter(|laid| laid.waiting.push)
+                                .map(|laid| (laid.waiting, why.clone())),
+                        );
+                    }
+                }
+                return put;
+            }
             Err(NotPut::Moved) => continue,
             Err(NotPut::Clash(paths)) => {
                 let why = format!(
@@ -928,18 +958,18 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, S
                 if clashing.is_empty() {
                     clashing = stacked.laid.into_iter().map(|laid| laid.waiting).collect();
                 }
-                refused.extend(clashing.into_iter().map(|waiting| (waiting, why.clone())));
-                return (Vec::new(), refused);
+                (put.refused).extend(clashing.into_iter().map(|waiting| (waiting, why.clone())));
+                return put;
             }
             Err(NotPut::Failed(why)) => {
                 for laid in stacked.laid {
-                    refused.push((laid.waiting, why.clone()));
+                    put.refused.push((laid.waiting, why.clone()));
                 }
-                return (Vec::new(), refused);
+                return put;
             }
         }
     }
-    (Vec::new(), refused)
+    put
 }
 
 /// The lands of `stacked` that change any of `paths`.

@@ -192,7 +192,8 @@ fn bring_up_to_date(
         .into_owned(),
     );
     let branch = line(git(project, &["symbolic-ref", "-q", "HEAD"])?);
-    let ready = steps(project, commit, &new)?;
+    let base = branch.strip_prefix("refs/heads/").unwrap_or(&branch);
+    let ready = steps(project, base, commit, &new)?;
     run(
         project,
         &["update-ref", "-m", &subject, &branch, &new, commit],
@@ -200,7 +201,9 @@ fn bring_up_to_date(
         None,
     )
     .map_err(|_| "the branch moved while generating; the next commit regenerates".to_owned())?;
-    apply(project, ready, commit, &new);
+    if let Some(ready) = ready {
+        apply(project, ready, commit, &new);
+    }
     git(
         checkout,
         &["checkout", "--detach", "--force", "--quiet", &new],
