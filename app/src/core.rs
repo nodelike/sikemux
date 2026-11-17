@@ -222,8 +222,8 @@ impl Watch {
     }
 
     /// Whether `topic` changing for the project folder `project`, or for every project when
-    /// none, could move what `read` reads. Git and code host changes name the folder that
-    /// moved, so a watch on another project's folder lets them pass.
+    /// none, could move what `read` reads. Git, code host and board changes name the folder
+    /// that moved, so a watch on another project's folder lets them pass.
     fn moved_by(&self, read: Read, topic: Topic, project: Option<&str>) -> bool {
         if !read.topics().contains(&topic) {
             return false;
@@ -231,7 +231,7 @@ impl Watch {
         let folder = self
             .folder
             .as_deref()
-            .filter(|_| matches!(topic, Topic::Git | Topic::CodeHost));
+            .filter(|_| matches!(topic, Topic::Git | Topic::CodeHost | Topic::Boards));
         match (folder, project) {
             (Some(folder), Some(project)) => {
                 Path::new(folder).starts_with(project) || Path::new(project).starts_with(folder)

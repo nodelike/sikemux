@@ -58,6 +58,7 @@ pub struct Desks {
     pub(crate) kinds: HashMap<String, DeskKind>,
     /// Each desk's calls page, made the first time the desk shows its calls.
     call_pages: HashMap<String, Entity<crate::calls::Page>>,
+    pub(crate) task_views: HashMap<String, crate::task_list::View>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
     /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
@@ -216,6 +217,7 @@ pub enum DeskKind {
     Terminals,
     Simulator,
     Calls,
+    Tasks,
 }
 
 /// One desk's page area and address bar.
@@ -286,6 +288,7 @@ impl Desks {
             known: HashMap::new(),
             kinds: HashMap::new(),
             call_pages: HashMap::new(),
+            task_views: HashMap::new(),
             present: HashSet::new(),
             working: HashSet::new(),
             finished_runs: HashSet::new(),
@@ -320,12 +323,19 @@ impl Desks {
         self.present.extend(agents);
     }
 
+    pub(crate) fn redraw_call_pages(&self, cx: &mut Context<Self>) {
+        for page in self.call_pages.values() {
+            page.update(cx, |_, cx| cx.notify());
+        }
+    }
+
     fn forget(&mut self, agent: &str) {
         self.strips.remove(agent);
         self.pages.remove(agent);
         self.known.remove(agent);
         self.kinds.remove(agent);
         self.call_pages.remove(agent);
+        self.task_views.remove(agent);
         self.items.remove(agent);
         self.front.remove(agent);
         self.last_front.retain(|(held, _), _| held != agent);
@@ -341,7 +351,9 @@ impl Desks {
     /// What the desk shows now: its simulator or its calls, else whatever is in front of its
     /// pages.
     fn kind_of(&self, agent: &str) -> DeskKind {
-        if let Some(kind @ (DeskKind::Simulator | DeskKind::Calls)) = self.kinds.get(agent) {
+        if let Some(kind @ (DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks)) =
+            self.kinds.get(agent)
+        {
             return *kind;
         }
         self.front
@@ -353,7 +365,9 @@ impl Desks {
     /// were asked for with none to show, so a blank one opens.
     fn pick_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) -> bool {
         match kind {
-            DeskKind::Simulator | DeskKind::Calls => self.show_kind(agent, kind, cx),
+            DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks => {
+                self.show_kind(agent, kind, cx)
+            }
             DeskKind::Pages => {
                 self.turn_to_pages(agent, cx);
                 return (self.strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
@@ -731,7 +745,7 @@ impl Workbench {
         let mut params = sikemux_view::goals::DesksParams {
             desks: self.desks.read(cx).held(self.sims.read(cx)),
         };
-        let opened = self.opened_ask.as_ref().filter(|ask| ask.narrowed);
+        let opened = self.opened_task.as_ref().filter(|ask| ask.narrowed);
         if let Some(opened) = opened {
             if let Some(desk) = params.desks.get_mut(&opened.agent) {
                 desk.ask = Some(opened.id);
@@ -892,7 +906,7 @@ impl Workbench {
     fn shut_empty_desk(&mut self, agent: &str, cx: &mut Context<Self>) {
         let empty = !matches!(
             self.desk_kind(agent, cx),
-            DeskKind::Simulator | DeskKind::Calls
+            DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks
         ) && self
             .desks
             .read(cx)
@@ -966,8 +980,17 @@ impl Workbench {
 
     /// Turns the agent's desk to the calls of its project, bringing the desk out if it is closed.
     pub(crate) fn show_calls(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.show_desk_kind(agent, DeskKind::Calls, cx);
+    }
+
+    /// Turns the agent's desk to the tasks of its project, bringing the desk out if it is closed.
+    pub(crate) fn show_tasks(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.show_desk_kind(agent, DeskKind::Tasks, cx);
+    }
+
+    fn show_desk_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
         self.desks
-            .update(cx, |desks, cx| desks.show_kind(agent, DeskKind::Calls, cx));
+            .update(cx, |desks, cx| desks.show_kind(agent, kind, cx));
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
         }
@@ -1373,6 +1396,13 @@ impl Workbench {
         }
     }
 
+    /// The nearest agent's desk, turned to its project's tasks.
+    pub fn front_tasks(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, _, agent)) = self.nearest_agent(cx) {
+            self.show_tasks(&agent, cx);
+        }
+    }
+
     /// A new page on the nearest agent's desk, which opens if it is closed.
     pub fn new_front_page(&mut self, cx: &mut Context<Self>) {
         let Some((tab, view, agent)) = self.nearest_agent(cx) else {
@@ -1434,7 +1464,7 @@ impl Workbench {
             .copied()
             .unwrap_or_default()
         {
-            DeskKind::Simulator | DeskKind::Calls => {
+            DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks => {
                 self.desks
                     .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
                 true
@@ -1936,7 +1966,7 @@ const HEAD: f32 = 34.;
 const GAP: f32 = 5.;
 /// The kind switch's box: its kinds 2pt apart, a gap short of the head, each kind as far from
 /// the box's edge on every side.
-const KINDS: f32 = if cfg!(target_os = "macos") { 5. } else { 4. };
+const KINDS: f32 = if cfg!(target_os = "macos") { 6. } else { 5. };
 const KIND_W: f32 = 24.;
 const KIND_H: f32 = 21.;
 const KIND_GAP: f32 = 2.;
@@ -1983,6 +2013,7 @@ pub fn pane(
     match kind {
         DeskKind::Simulator => return simulator_desk(bench, agent, cx),
         DeskKind::Calls => return calls_desk(bench, agent, cx),
+        DeskKind::Tasks => return tasks_desk(bench, agent, cx),
         _ => {}
     }
     let desks = bench.desks.read(cx);
@@ -2703,6 +2734,14 @@ fn kinds(
             false,
         ),
         (
+            "desk-tasks",
+            Icon::ListTodo,
+            t!("Tasks"),
+            DeskKind::Tasks,
+            0,
+            false,
+        ),
+        (
             "desk-pages",
             Icon::Globe,
             t!("Browser"),
@@ -2848,6 +2887,39 @@ fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> An
             .flex_col()
             .child(head)
             .child(div().flex_1().min_h_0().child(page)),
+        cx,
+    )
+}
+
+fn tasks_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let head = div()
+        .w_full()
+        .min_w_0()
+        .h(px(HEAD))
+        .flex_none()
+        .flex()
+        .items_center()
+        .pl(px(SWITCH_W + GAP + 14.))
+        .pr(SPACE_1H)
+        .child(crate::task_list::counts(bench, agent, cx));
+    let sheet = crate::task_sheet::sheet_over(bench, cx);
+    frame(
+        bench,
+        agent,
+        DeskKind::Tasks,
+        div()
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(crate::task_list::body(bench, agent, cx)),
+            )
+            .children(sheet),
         cx,
     )
 }

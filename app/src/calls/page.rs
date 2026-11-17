@@ -23,7 +23,7 @@ const OPTION_PICTURE_HEIGHT: f32 = 176.;
 const CHAT_ROW: &str = "call-chat-row";
 
 /// The project path of agent `agent`'s desk.
-fn project_of(bench: &Workbench, agent: &str) -> Option<String> {
+pub(crate) fn project_of(bench: &Workbench, agent: &str) -> Option<String> {
     let row = bench.agent_by_id(agent)?;
     (bench.projects().iter())
         .find(|project| project.id == row.project)
@@ -109,16 +109,25 @@ impl Render for Page {
         };
         let shown = self.shown(&calls, cx).cloned();
         self.last = shown.as_ref().map(|call| (call.id.clone(), call.raised_at));
+        let foot = crate::task_list::calls_foot(&self.bench, &self.agent, cx)
+            .map(|foot| div().flex_none().pt(SPACE_2).pb(px(14.)).child(foot));
         let Some(open) = shown else {
             return div()
                 .size_full()
                 .flex()
                 .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(SPACE_2)
-                .child(ui::icon(Icon::Bell, 18.).text_color(t.text_disabled))
-                .child(ui::meta(t!("Nothing waits on you"), cx))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap(SPACE_2)
+                        .child(ui::icon(Icon::Bell, 18.).text_color(t.text_disabled))
+                        .child(ui::meta(t!("Nothing waits on you"), cx)),
+                )
+                .children(foot)
                 .into_any_element();
         };
         let through = Through {
@@ -187,6 +196,7 @@ impl Render for Page {
                     .child(answered_with),
             ),
         )
+        .children(foot)
         .when(reply.is_some() && cx.has_active_drag(), |page| {
             let words = t!("Drop files to send with your answer");
             let hint = crate::chat::drop_hint(words, &owner, bench.read(cx), cx);

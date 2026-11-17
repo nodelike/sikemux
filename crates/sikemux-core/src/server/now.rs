@@ -1,6 +1,6 @@
 //! Each project's Now strip: its open agents in the person's four groups, each with one fact and
 //! since when, read off the turn states the device view works out anyway, and the agents closed
-//! lately, which closing writes in, and the person's asks. Agents read the same strip, with the
+//! lately, which closing writes in, and the tasks the person asked for. Agents read the same strip, with the
 //! project's tasks, as one compact text.
 
 pub(crate) mod asks;

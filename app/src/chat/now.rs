@@ -194,7 +194,7 @@ fn chevron(open: bool, cx: &App) -> Div {
         )
 }
 
-/// The person's open asks as one pill opening the project's Agent Board: amber with how many have
+/// The tasks the person asked for as one pill opening the project's tasks: amber with how many have
 /// nobody on them, else quiet with how many there are.
 fn asks_pill(now: &ProjectNow, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     if now.asks.is_empty() {
@@ -207,8 +207,8 @@ fn asks_pill(now: &ProjectNow, cx: &mut Context<Workbench>) -> Option<AnyElement
     let (words, ink, fill) = match nobody {
         0 => (
             match now.asks.len() {
-                1 => t!("1 ask").to_owned(),
-                count => t!("{count} asks", count = count),
+                1 => t!("1 task").to_owned(),
+                count => t!("{count} tasks", count = count),
             },
             t.text_secondary,
             t.text_primary.opacity(0.06),
@@ -219,7 +219,6 @@ fn asks_pill(now: &ProjectNow, cx: &mut Context<Workbench>) -> Option<AnyElement
             t.warn.opacity(0.14),
         ),
     };
-    let project = now.project.clone();
     Some(
         div()
             .id("now-asks")
@@ -235,7 +234,7 @@ fn asks_pill(now: &ProjectNow, cx: &mut Context<Workbench>) -> Option<AnyElement
             .child(ui::text(words, TEXT_XS, FontWeight::SEMIBOLD).font_features(theme::tabular()))
             .clicks(cx.listener(move |bench, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
-                bench.open_board_of(&project);
+                bench.front_tasks(cx);
             }))
             .into_any_element(),
     )

@@ -806,6 +806,38 @@ export const IconCommit = makeSvgIcon(
     </>,
 );
 
+export const IconListTodo = makeSvgIcon(
+    <>
+        <rect x="3" y="5" width="6" height="6" rx="1" />
+        <path d="m3 17 2 2 4-4" />
+        <path d="M13 6h8" />
+        <path d="M13 12h8" />
+        <path d="M13 18h8" />
+    </>,
+);
+
+export const IconCircleMoving = makeSvgIcon(<path d="M21 12a9 9 0 1 1-6.219-8.56" />);
+
+export const IconCircleDashed = makeSvgIcon(
+    <>
+        <path d="M10.1 2.182a10 10 0 0 1 3.8 0" />
+        <path d="M13.9 21.818a10 10 0 0 1-3.8 0" />
+        <path d="M17.609 3.721a10 10 0 0 1 2.69 2.7" />
+        <path d="M2.182 13.9a10 10 0 0 1 0-3.8" />
+        <path d="M20.279 17.609a10 10 0 0 1-2.7 2.69" />
+        <path d="M21.818 10.1a10 10 0 0 1 0 3.8" />
+        <path d="M3.721 6.391a10 10 0 0 1 2.7-2.69" />
+        <path d="M6.391 20.279a10 10 0 0 1-2.69-2.7" />
+    </>,
+);
+
+export const IconCircleSlash = makeSvgIcon(
+    <>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9 15L15 9" />
+    </>,
+);
+
 export const IconPush = makeSvgIcon(
     <>
         <path d="M5 3h14" />

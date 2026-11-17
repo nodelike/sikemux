@@ -60,7 +60,7 @@ impl Chat {
         let narrowed = self.narrowed.as_ref()?;
         Some(ChatContext {
             uri: format!("{ASK_REPLY_URI}{}", narrowed.id),
-            title: format!("Ask #{}", narrowed.id),
+            title: format!("Task #{}", narrowed.id),
             text: narrowed.title.clone(),
         })
     }

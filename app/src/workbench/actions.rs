@@ -113,8 +113,8 @@ commands! {
     FocusAgents = "window.agents" opens Workbench::focus_agents;
     FocusHosts = "window.hosts" opens |bench, _, _| bench.open_hosts(None);
     FocusPlaybook = "window.playbook" opens |bench, _, _| bench.open_playbook();
-    /// The project's Agent Board on its chief's desk.
-    FocusAgentBoard = "window.board" opens |bench, _, _| bench.open_agent_board();
+    /// The project's tasks on the nearest agent's desk.
+    FocusTasks = "window.tasks" opens |bench, _, cx| bench.front_tasks(cx);
     /// Moves the keys to the next of the window's areas: the rails and the view in front.
     NextArea = "window.nextArea" acts |bench, window, cx| bench.step_area(1, window, cx);
     PreviousArea = "window.previousArea" acts |bench, window, cx| bench.step_area(-1, window, cx);

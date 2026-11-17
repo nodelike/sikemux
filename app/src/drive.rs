@@ -469,6 +469,7 @@ impl Workbench {
                 "kind": match desks.kinds.get(agent).copied().unwrap_or_default() {
                     DeskKind::Simulator => "simulator",
                     DeskKind::Calls => "calls",
+                    DeskKind::Tasks => "tasks",
                     _ => "pages",
                 },
                 "pages": pages,

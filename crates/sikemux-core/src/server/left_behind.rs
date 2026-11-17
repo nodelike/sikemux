@@ -2,7 +2,7 @@
 //! Whoever hears of an idle agent ([`roster::hears_of`]) is woken for them a few minutes after
 //! its turn ends, once per idle stretch; with only the person to hear, the agent's row says it
 //! already. A lead closing a worker hears in `agent_close`'s answer what the close left, and a
-//! project's chief hears of the person's asks that nobody has.
+//! project's chief hears of the tasks the person asked for that nobody has.
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
@@ -80,14 +80,14 @@ pub(crate) fn tell(core: &Arc<Core>, left: Vec<Left>) {
     }
 }
 
-/// A note for a project's chief on the person's asks nobody has.
+/// A note for a project's chief on the tasks the person asked for that nobody has.
 pub(crate) struct Unowned {
     chief: String,
     text: String,
 }
 
-/// The person's asks that have had nobody on them for the grace, grouped by the chief of their
-/// project, told once per stretch with nobody; and when the next one falls due.
+/// The tasks the person asked for that have had nobody on them for the grace, grouped by the
+/// chief of their project, told once per stretch with nobody; and when the next one falls due.
 pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
     let nobody = super::now::asks::with_nobody_untold(core);
     let mut told = Vec::new();
@@ -119,7 +119,7 @@ pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
         .map(|(chief, lines)| Unowned {
             chief,
             text: format!(
-                "{} of the person's asks {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker with its number as agent_spawn's or agent_send's task, close one already handled with task_update's asked, or say why it waits. You hear of each once until someone takes it.",
+                "{} of the tasks the person asked for {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker with its number as agent_spawn's or agent_send's task, close one already handled with task_update's asked, or say why it waits. You hear of each once until someone takes it.",
                 lines.len(),
                 if lines.len() == 1 { "has" } else { "have" },
                 GRACE_MS / 60_000,

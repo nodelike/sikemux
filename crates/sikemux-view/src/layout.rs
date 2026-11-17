@@ -104,9 +104,6 @@ pub enum PaneKind {
     InstallSikemux,
     /// What the account keeps in its Stash; `target` is `stash`.
     Stash,
-    /// The Agent Board: what the person asked in a project, by how far each has gone; `target`
-    /// is the project's id.
-    Asks,
     /// Every host on the account, how busy each is, and one host's detail; `target` is the
     /// host chosen, by its key as the app names it.
     Hosts,

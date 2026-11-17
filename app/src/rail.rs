@@ -1289,7 +1289,7 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
     ui::status_mark(&key, status, cx)
 }
 
-/// The project's surfaces, its Agent Board and its Playbook, hung off a spine with a tick to each, the one in
+/// The project's surfaces and its Playbook, hung off a spine with a tick to each, the one in
 /// front lit.
 fn surfaces(
     workbench: &Workbench,
@@ -1330,18 +1330,6 @@ fn surfaces(
                 cx,
             )
         });
-    let board = crate::workbench::actions::FocusAgentBoard::ID;
-    let board = tree_row(
-        "surface-board".into(),
-        Icon::SquareKanban,
-        n!("Agent Board"),
-        false,
-        false,
-        keymap::hint(board, cx),
-        cx,
-    )
-    .clicks(move |_, window, cx| keymap::dispatch(board, window, cx));
-    let board = keyed.row("surface-board", t!("Agent Board"), board, cx);
     let playbook = crate::workbench::actions::FocusPlaybook::ID;
     let playbook = tree_row(
         "surface-playbook".into(),
@@ -1361,7 +1349,6 @@ fn surfaces(
         .py(SPACE_0)
         .pr(SPACE_1H)
         .children(surfaces)
-        .child(board)
         .child(playbook)
 }
 

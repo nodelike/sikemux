@@ -34,7 +34,7 @@ mod away;
 mod page;
 pub(crate) mod reply;
 pub(crate) use away::Away;
-pub(crate) use page::{on_desk, waiting_on_desk, Page};
+pub(crate) use page::{on_desk, project_of, waiting_on_desk, Page};
 
 /// The mark of a call of `kind`, as its tab shows it.
 pub(crate) fn kind_mark(kind: CallKind, cx: &App) -> AnyElement {

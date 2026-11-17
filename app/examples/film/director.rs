@@ -939,20 +939,20 @@ impl Director {
                     .map_err(|error| anyhow!("{error}"))?;
                 self.wait(0.3)?;
             }
-            "ask" => {
+            "task" => {
                 let title = step.text(0)?.to_owned();
                 let bench = self.bench.clone().ok_or_else(|| anyhow!("no workbench"))?;
                 self.cx
                     .update_window(self.window, |_, _, cx| {
                         bench.update(cx, |bench, cx| {
                             if title == "whole" {
-                                bench.narrow_ask(false, cx);
+                                bench.narrow_task(false, cx);
                                 return anyhow::Ok(());
                             }
-                            let id = bench.ask_titled(&title).ok_or_else(|| {
-                                anyhow!("line {}: no ask titled {title}", step.line)
+                            let id = bench.task_titled(&title).ok_or_else(|| {
+                                anyhow!("line {}: no task titled {title}", step.line)
                             })?;
-                            bench.open_ask(id, cx);
+                            bench.open_task(id, cx);
                             Ok(())
                         })
                     })

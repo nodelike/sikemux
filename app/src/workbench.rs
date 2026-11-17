@@ -112,9 +112,9 @@ pub struct Workbench {
     pub last_place: Option<Strip>,
     pub(crate) visits: crate::visits::Visits,
     /// The person's ask opened from its card, while it is open.
-    pub(crate) opened_ask: Option<crate::opened_ask::OpenedAsk>,
-    /// The ask an Agent Board shows on its sheet, while it does.
-    pub(crate) ask_sheet: Option<crate::agent_board::Sheet>,
+    pub(crate) opened_task: Option<crate::opened_task::OpenedTask>,
+    /// The task the Tasks view shows on its sheet, while it does.
+    pub(crate) task_sheet: Option<crate::task_sheet::Sheet>,
     pub rails: crate::rail::Rails,
     pub(crate) strip: crate::tabs::StripMotion,
     /// Tabs asked to close that the layout still lists, and when, so a second click or ⌘W
@@ -376,8 +376,8 @@ impl Workbench {
             place: None,
             last_place: None,
             visits: Default::default(),
-            opened_ask: None,
-            ask_sheet: None,
+            opened_task: None,
+            task_sheet: None,
             rails,
             strip: Default::default(),
             closing_tabs: Default::default(),

@@ -371,7 +371,7 @@ fn pane_header(
     let ask = bench.opened_on(&agent.id).map(|opened| {
         let outside = (bench.chats.open.get(&agent.id)).is_some_and(|chat| chat.outside);
         let words = vec![
-            (SharedString::from(t!("Ask #{id}", id = opened.id)), None),
+            (SharedString::from(t!("Task #{id}", id = opened.id)), None),
             (SharedString::from(t!("Whole chat")), None),
         ];
         Segmented::words("agent-ask", words, usize::from(!opened.narrowed))
@@ -382,7 +382,7 @@ fn pane_header(
                 outside.then(|| t!("Something happened outside #{id}", id = opened.id)),
             )
             .on_select(
-                cx.listener(|bench, picked: &usize, _, cx| bench.narrow_ask(*picked == 0, cx)),
+                cx.listener(|bench, picked: &usize, _, cx| bench.narrow_task(*picked == 0, cx)),
             )
     });
     agent_header(bench, agent, cx)
