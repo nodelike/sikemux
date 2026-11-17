@@ -952,7 +952,8 @@ export type OrgAuditAction =
   | "domain_added"
   | "domain_verified"
   | "domain_joining_changed"
-  | "domain_removed";
+  | "domain_removed"
+  | "policy_changed";
 export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "created",
   "joined",
@@ -973,6 +974,7 @@ export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "domain_verified",
   "domain_joining_changed",
   "domain_removed",
+  "policy_changed",
 ];
 
 /** Where the next page of the audit log starts. Opaque to apps. */
@@ -998,6 +1000,12 @@ export interface OrgAuditEntry {
   previousName?: OrgTeamName;
   domain?: OrgDomainName;
   joining?: OrgDomainJoining;
+  /** Who may add a rule, as a policy change set it. */
+  ruleAdding?: OrgRuleAdding;
+  /** Whether teammates' agents may ask, as a policy change set it. */
+  asking?: boolean;
+  /** The questions a day a policy change set. */
+  dailyQuestions?: OrgDailyQuestions;
   /** The seat count a change set. */
   seats?: number;
   /** True when a seat change waits for the plan's renewal. */
@@ -1015,6 +1023,9 @@ export interface OrgAuditPage {
 export interface OrgCreate {
   name: OrgName;
 }
+
+/** How many questions one person's agents may ask, a day, across all of the org's shared projects. */
+export type OrgDailyQuestions = number;
 
 /** An email domain the org claims. */
 export interface OrgDomain {
@@ -1143,6 +1154,7 @@ export interface OrgMembership {
   /** The account's role in it. */
   role: OrgRole;
   plan: OrgPlan;
+  policy: OrgPolicy;
 }
 
 /** The orgs the account is in, oldest first. orgs.changed says when to read it again. */
@@ -1172,6 +1184,14 @@ export interface OrgOfferList {
 export type OrgPlan = "active" | "lapsed";
 export const orgPlanValues: readonly OrgPlan[] = ["active", "lapsed"];
 
+/** How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day. */
+export interface OrgPolicy {
+  ruleAdding: OrgRuleAdding;
+  /** Whether teammates' agents may ask yours about a task. */
+  asking: boolean;
+  dailyQuestions: OrgDailyQuestions;
+}
+
 export interface OrgRename {
   name: OrgName;
 }
@@ -1183,6 +1203,13 @@ export const orgRoleValues: readonly OrgRole[] = ["owner", "admin", "user"];
 export interface OrgRoleChange {
   role: OrgRole;
 }
+
+/** Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin. */
+export type OrgRuleAdding = "every_member" | "admins_approve";
+export const orgRuleAddingValues: readonly OrgRuleAdding[] = [
+  "every_member",
+  "admins_approve",
+];
 
 /** Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited. */
 export interface OrgSeats {
@@ -2144,6 +2171,7 @@ export interface Definitions {
   OrgAuditEntry: OrgAuditEntry;
   OrgAuditPage: OrgAuditPage;
   OrgCreate: OrgCreate;
+  OrgDailyQuestions: OrgDailyQuestions;
   OrgDomain: OrgDomain;
   OrgDomainAdd: OrgDomainAdd;
   OrgDomainId: OrgDomainId;
@@ -2172,9 +2200,11 @@ export interface Definitions {
   OrgOffer: OrgOffer;
   OrgOfferList: OrgOfferList;
   OrgPlan: OrgPlan;
+  OrgPolicy: OrgPolicy;
   OrgRename: OrgRename;
   OrgRole: OrgRole;
   OrgRoleChange: OrgRoleChange;
+  OrgRuleAdding: OrgRuleAdding;
   OrgSeats: OrgSeats;
   OrgShareList: OrgShareList;
   OrgTeam: OrgTeam;

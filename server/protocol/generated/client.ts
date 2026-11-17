@@ -57,6 +57,7 @@ import type {
   OrgMemberList,
   OrgMemberships,
   OrgOfferList,
+  OrgPolicy,
   OrgRename,
   OrgRoleChange,
   OrgTeam,
@@ -335,6 +336,16 @@ export function apiClient(send: Send) {
       send<OrgAuditPage>(
         "GET",
         `/v1/orgs/${encodeURIComponent(orgId)}/audit${search(query)}`,
+      ),
+    /** How an org's agents work together, as any member. */
+    getOrgPolicy: (orgId: string) =>
+      send<OrgPolicy>("GET", `/v1/orgs/${encodeURIComponent(orgId)}/policy`),
+    /** Change how an org's agents work together, as an owner or an admin. */
+    setOrgPolicy: (orgId: string, body: OrgPolicy) =>
+      send<OrgPolicy>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/policy`,
+        body,
       ),
     /** Stash a link, text or file on your account. */
     addStash: (body: StashAdd) => send<StashItem>("POST", `/v1/stash`, body),

@@ -1123,6 +1123,53 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/policy",
+      "operationId": "getOrgPolicy",
+      "summary": "How an org's agents work together, as any member",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The org's policy.",
+          "body": "OrgPolicy"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/policy",
+      "operationId": "setOrgPolicy",
+      "summary": "Change how an org's agents work together, as an owner or an admin",
+      "auth": "session",
+      "request": "OrgPolicy",
+      "responses": {
+        "200": {
+          "description": "The org's policy as it now is.",
+          "body": "OrgPolicy"
+        },
+        "400": {
+          "description": "The body is not a valid OrgPolicy.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owners and admins may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its policy is frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/stash",
       "operationId": "addStash",

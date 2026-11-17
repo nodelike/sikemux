@@ -37,6 +37,7 @@ import {
 import { perUser } from "../limits.ts";
 import { domainRoutes } from "./domains.ts";
 import { auditRoutes } from "./log.ts";
+import { policyRoutes } from "./policy.ts";
 import { manages } from "./roles.ts";
 import {
   admit,
@@ -528,5 +529,6 @@ export function orgRoutes({
     )
     .route("/", teamRoutes(db, limiter))
     .route("/", domainRoutes(db, limiter, clerk, txtRecords))
-    .route("/", auditRoutes(db, people));
+    .route("/", auditRoutes(db, people))
+    .route("/", policyRoutes(db, limiter));
 }

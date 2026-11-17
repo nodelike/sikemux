@@ -6,6 +6,7 @@ import type {
   OrgMember,
   OrgOffer,
   OrgRole,
+  OrgRuleAdding,
   OrgTeam,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
@@ -15,6 +16,7 @@ import {
   IconCopy,
   IconGlobe,
   IconPlus,
+  IconShield,
   IconStack,
   IconUsers,
 } from "@shared/ui/Icons";
@@ -524,6 +526,11 @@ function TeamMemberPick({
   );
 }
 
+const RULE_WORDS: Record<OrgRuleAdding, string> = {
+  every_member: "Every member",
+  admins_approve: "Admins approve first",
+};
+
 const JOINING_WORDS: Record<OrgDomainJoining, string> = {
   open: "Join on their own",
   offered: "Offered at sign-in",
@@ -911,6 +918,7 @@ function Audit({ org }: { org: Org }) {
 function AuditGlyph({ action }: { action: OrgAuditEntry["action"] }) {
   if (action.startsWith("team_")) return <IconStack size={16} />;
   if (action.startsWith("domain_")) return <IconGlobe size={16} />;
+  if (action === "policy_changed") return <IconShield size={16} />;
   if (action.startsWith("plan_") || action === "seats_changed")
     return <IconActivity size={16} />;
   return <IconUsers size={16} />;
@@ -969,6 +977,14 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
         : `${by} changed how people join through ${domain}`;
     case "domain_removed":
       return `${by} removed ${domain}`;
+    case "policy_changed":
+      if (entry.ruleAdding)
+        return `${by} set who can add a rule to ${RULE_WORDS[entry.ruleAdding].toLowerCase()}`;
+      if (entry.asking !== undefined)
+        return `${by} turned teammates' agents asking ${entry.asking ? "on" : "off"}`;
+      if (entry.dailyQuestions !== undefined)
+        return `${by} set questions a day per person to ${entry.dailyQuestions}`;
+      return `${by} changed the policy`;
   }
 }
 

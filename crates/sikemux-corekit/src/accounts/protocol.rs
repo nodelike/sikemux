@@ -911,6 +911,8 @@ pub enum OrgAuditAction {
     DomainJoiningChanged,
     #[serde(rename = "domain_removed")]
     DomainRemoved,
+    #[serde(rename = "policy_changed")]
+    PolicyChanged,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -949,6 +951,15 @@ pub struct OrgAuditEntry {
     pub domain: Option<OrgDomainName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joining: Option<OrgDomainJoining>,
+    /// Who may add a rule, as a policy change set it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_adding: Option<OrgRuleAdding>,
+    /// Whether teammates' agents may ask, as a policy change set it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asking: Option<bool>,
+    /// The questions a day a policy change set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily_questions: Option<OrgDailyQuestions>,
     /// The seat count a change set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats: Option<i64>,
@@ -972,6 +983,9 @@ pub struct OrgAuditPage {
 pub struct OrgCreate {
     pub name: OrgName,
 }
+
+/// How many questions one person's agents may ask, a day, across all of the org's shared projects.
+pub type OrgDailyQuestions = i64;
 
 /// An email domain the org claims.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1143,6 +1157,7 @@ pub struct OrgMembership {
     /// The account's role in it.
     pub role: OrgRole,
     pub plan: OrgPlan,
+    pub policy: OrgPolicy,
 }
 
 /// The orgs the account is in, oldest first. orgs.changed says when to read it again.
@@ -1186,6 +1201,16 @@ pub enum OrgPlan {
     Unknown,
 }
 
+/// How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgPolicy {
+    pub rule_adding: OrgRuleAdding,
+    /// Whether teammates' agents may ask yours about a task.
+    pub asking: bool,
+    pub daily_questions: OrgDailyQuestions,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgRename {
@@ -1210,6 +1235,18 @@ pub enum OrgRole {
 #[serde(rename_all = "camelCase")]
 pub struct OrgRoleChange {
     pub role: OrgRole,
+}
+
+/// Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrgRuleAdding {
+    #[serde(rename = "every_member")]
+    EveryMember,
+    #[serde(rename = "admins_approve")]
+    AdminsApprove,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.
@@ -1903,6 +1940,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgAuditEntry" => through::<OrgAuditEntry>(json),
         "OrgAuditPage" => through::<OrgAuditPage>(json),
         "OrgCreate" => through::<OrgCreate>(json),
+        "OrgDailyQuestions" => through::<OrgDailyQuestions>(json),
         "OrgDomain" => through::<OrgDomain>(json),
         "OrgDomainAdd" => through::<OrgDomainAdd>(json),
         "OrgDomainId" => through::<OrgDomainId>(json),
@@ -1931,9 +1969,11 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgOffer" => through::<OrgOffer>(json),
         "OrgOfferList" => through::<OrgOfferList>(json),
         "OrgPlan" => through::<OrgPlan>(json),
+        "OrgPolicy" => through::<OrgPolicy>(json),
         "OrgRename" => through::<OrgRename>(json),
         "OrgRole" => through::<OrgRole>(json),
         "OrgRoleChange" => through::<OrgRoleChange>(json),
+        "OrgRuleAdding" => through::<OrgRuleAdding>(json),
         "OrgSeats" => through::<OrgSeats>(json),
         "OrgShareList" => through::<OrgShareList>(json),
         "OrgTeam" => through::<OrgTeam>(json),

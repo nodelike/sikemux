@@ -7,6 +7,7 @@ import { isStaff } from "../account/staff.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { perUser } from "../limits.ts";
+import { policyBody } from "./policy.ts";
 
 /**
  * GET /v1/account/orgs: the orgs the account a host is on is in, read again on orgs.changed.
@@ -46,18 +47,26 @@ export function membershipRoutes({
       const rows = await db
         .selectFrom("orgs")
         .innerJoin("org_users", "org_users.org_id", "orgs.id")
-        .select(["orgs.id", "orgs.name", "org_users.role"])
+        .select([
+          "orgs.id",
+          "orgs.name",
+          "org_users.role",
+          "orgs.rule_adding",
+          "orgs.asking",
+          "orgs.daily_questions",
+        ])
         .select((eb) => teamPaid(eb).as("paid"))
         .where("org_users.user_id", "=", userId)
         .orderBy("orgs.created_at")
         .orderBy("orgs.id")
         .execute();
       const body: OrgMemberships = {
-        orgs: rows.map(({ id, name, role, paid }) => ({
-          id,
-          name,
-          role,
-          plan: paid ? "active" : "lapsed",
+        orgs: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          role: row.role,
+          plan: row.paid ? "active" : "lapsed",
+          policy: policyBody(row),
         })),
       };
       return c.json(body);

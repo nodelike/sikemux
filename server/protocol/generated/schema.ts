@@ -1720,6 +1720,7 @@ export const schema = {
         "domain_verified",
         "domain_joining_changed",
         "domain_removed",
+        "policy_changed",
       ],
     },
     OrgAuditCursor: {
@@ -1766,6 +1767,19 @@ export const schema = {
         },
         domain: { $ref: "#/$defs/OrgDomainName" },
         joining: { $ref: "#/$defs/OrgDomainJoining" },
+        ruleAdding: {
+          description: "Who may add a rule, as a policy change set it.",
+          $ref: "#/$defs/OrgRuleAdding",
+        },
+        asking: {
+          description:
+            "Whether teammates' agents may ask, as a policy change set it.",
+          type: "boolean",
+        },
+        dailyQuestions: {
+          description: "The questions a day a policy change set.",
+          $ref: "#/$defs/OrgDailyQuestions",
+        },
         seats: {
           description: "The seat count a change set.",
           type: "integer",
@@ -1799,6 +1813,13 @@ export const schema = {
       properties: { name: { $ref: "#/$defs/OrgName" } },
       required: ["name"],
       additionalProperties: false,
+    },
+    OrgDailyQuestions: {
+      description:
+        "How many questions one person's agents may ask, a day, across all of the org's shared projects.",
+      type: "integer",
+      minimum: 1,
+      maximum: 500,
     },
     OrgDomain: {
       description: "An email domain the org claims.",
@@ -2020,8 +2041,9 @@ export const schema = {
           $ref: "#/$defs/OrgRole",
         },
         plan: { $ref: "#/$defs/OrgPlan" },
+        policy: { $ref: "#/$defs/OrgPolicy" },
       },
-      required: ["id", "name", "role", "plan"],
+      required: ["id", "name", "role", "plan", "policy"],
       additionalProperties: false,
     },
     OrgMemberships: {
@@ -2074,6 +2096,21 @@ export const schema = {
       type: "string",
       enum: ["active", "lapsed"],
     },
+    OrgPolicy: {
+      description:
+        "How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day.",
+      type: "object",
+      properties: {
+        ruleAdding: { $ref: "#/$defs/OrgRuleAdding" },
+        asking: {
+          description: "Whether teammates' agents may ask yours about a task.",
+          type: "boolean",
+        },
+        dailyQuestions: { $ref: "#/$defs/OrgDailyQuestions" },
+      },
+      required: ["ruleAdding", "asking", "dailyQuestions"],
+      additionalProperties: false,
+    },
     OrgRename: {
       type: "object",
       properties: { name: { $ref: "#/$defs/OrgName" } },
@@ -2091,6 +2128,12 @@ export const schema = {
       properties: { role: { $ref: "#/$defs/OrgRole" } },
       required: ["role"],
       additionalProperties: false,
+    },
+    OrgRuleAdding: {
+      description:
+        "Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin.",
+      type: "string",
+      enum: ["every_member", "admins_approve"],
     },
     OrgSeats: {
       description:

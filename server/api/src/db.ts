@@ -19,6 +19,7 @@ import type {
   HookHeader,
   HookMethod,
   OrgDomainJoining,
+  OrgRuleAdding,
   OrgRole,
   Platform,
   PushApp,
@@ -296,6 +297,9 @@ export interface Tables {
     name: string;
     created_by: string;
     created_at: CreatedAt;
+    rule_adding: Generated<OrgRuleAdding>;
+    asking: Generated<boolean>;
+    daily_questions: Generated<number>;
   };
   org_users: {
     id: Generated<string>;

@@ -56,6 +56,7 @@ type AuditAction =
   | "org.domain_verified"
   | "org.domain_joining_changed"
   | "org.domain_removed"
+  | "org.policy_changed"
   | "share.added"
   | "share.moved"
   | "share.removed";

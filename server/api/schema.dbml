@@ -376,6 +376,9 @@ Table orgs {
   name text [not null, note: '(length(name) >= 1) AND (length(name) <= 64)']
   created_by text [not null]
   created_at timestamptz [not null, default: `now()`]
+  rule_adding text [not null, default: 'every_member', note: 'rule_adding = ANY (ARRAY[\'every_member\', \'admins_approve\'])']
+  asking boolean [not null, default: `true`]
+  daily_questions integer [not null, default: 30, note: '(daily_questions >= 1) AND (daily_questions <= 500)']
 }
 
 Table org_users {

@@ -2615,6 +2615,120 @@
         }
       }
     },
+    "/v1/orgs/{orgId}/policy": {
+      "get": {
+        "operationId": "getOrgPolicy",
+        "summary": "How an org's agents work together, as any member",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org's policy.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgPolicy" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "setOrgPolicy",
+        "summary": "Change how an org's agents work together, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgPolicy" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The org's policy as it now is.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgPolicy" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgPolicy.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owners and admins may do this.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its policy is frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/stash": {
       "post": {
         "operationId": "addStash",
@@ -6480,7 +6594,8 @@
           "domain_added",
           "domain_verified",
           "domain_joining_changed",
-          "domain_removed"
+          "domain_removed",
+          "policy_changed"
         ]
       },
       "OrgAuditCursor": {
@@ -6523,6 +6638,18 @@
           },
           "domain": { "$ref": "#/components/schemas/OrgDomainName" },
           "joining": { "$ref": "#/components/schemas/OrgDomainJoining" },
+          "ruleAdding": {
+            "description": "Who may add a rule, as a policy change set it.",
+            "$ref": "#/components/schemas/OrgRuleAdding"
+          },
+          "asking": {
+            "description": "Whether teammates' agents may ask, as a policy change set it.",
+            "type": "boolean"
+          },
+          "dailyQuestions": {
+            "description": "The questions a day a policy change set.",
+            "$ref": "#/components/schemas/OrgDailyQuestions"
+          },
           "seats": {
             "description": "The seat count a change set.",
             "type": "integer",
@@ -6561,6 +6688,12 @@
         "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
         "required": ["name"],
         "additionalProperties": false
+      },
+      "OrgDailyQuestions": {
+        "description": "How many questions one person's agents may ask, a day, across all of the org's shared projects.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500
       },
       "OrgDomain": {
         "description": "An email domain the org claims.",
@@ -6795,9 +6928,10 @@
             "description": "The account's role in it.",
             "$ref": "#/components/schemas/OrgRole"
           },
-          "plan": { "$ref": "#/components/schemas/OrgPlan" }
+          "plan": { "$ref": "#/components/schemas/OrgPlan" },
+          "policy": { "$ref": "#/components/schemas/OrgPolicy" }
         },
-        "required": ["id", "name", "role", "plan"],
+        "required": ["id", "name", "role", "plan", "policy"],
         "additionalProperties": false
       },
       "OrgMemberships": {
@@ -6851,6 +6985,20 @@
         "type": "string",
         "enum": ["active", "lapsed"]
       },
+      "OrgPolicy": {
+        "description": "How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day.",
+        "type": "object",
+        "properties": {
+          "ruleAdding": { "$ref": "#/components/schemas/OrgRuleAdding" },
+          "asking": {
+            "description": "Whether teammates' agents may ask yours about a task.",
+            "type": "boolean"
+          },
+          "dailyQuestions": { "$ref": "#/components/schemas/OrgDailyQuestions" }
+        },
+        "required": ["ruleAdding", "asking", "dailyQuestions"],
+        "additionalProperties": false
+      },
       "OrgRename": {
         "type": "object",
         "properties": { "name": { "$ref": "#/components/schemas/OrgName" } },
@@ -6867,6 +7015,11 @@
         "properties": { "role": { "$ref": "#/components/schemas/OrgRole" } },
         "required": ["role"],
         "additionalProperties": false
+      },
+      "OrgRuleAdding": {
+        "description": "Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin.",
+        "type": "string",
+        "enum": ["every_member", "admins_approve"]
       },
       "OrgSeats": {
         "description": "Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.",

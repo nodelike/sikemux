@@ -4,6 +4,7 @@ import type {
   OrgAuditPage,
   OrgDomainJoining,
   OrgRole,
+  OrgRuleAdding,
 } from "@sikemux/protocol";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -35,6 +36,7 @@ const SHOWN: Record<string, OrgAuditAction> = {
   "org.domain_verified": "domain_verified",
   "org.domain_joining_changed": "domain_joining_changed",
   "org.domain_removed": "domain_removed",
+  "org.policy_changed": "policy_changed",
 };
 
 /** What the Team plan's own changes are called in the org's log. */
@@ -54,6 +56,11 @@ const text = (value: unknown) =>
 const joining = (value: unknown) =>
   value === "open" || value === "offered"
     ? (value as OrgDomainJoining)
+    : undefined;
+
+const ruleAdding = (value: unknown) =>
+  value === "every_member" || value === "admins_approve"
+    ? (value as OrgRuleAdding)
     : undefined;
 
 const userOf = (actor: string) =>
@@ -76,6 +83,12 @@ function entryBody(
     previousName: text(detail.previousName),
     domain: text(detail.domain),
     joining: joining(detail.joining),
+    ruleAdding: ruleAdding(detail.ruleAdding),
+    asking: typeof detail.asking === "boolean" ? detail.asking : undefined,
+    dailyQuestions:
+      typeof detail.dailyQuestions === "number"
+        ? detail.dailyQuestions
+        : undefined,
     via:
       action === "joined"
         ? detail.via === "domain"
