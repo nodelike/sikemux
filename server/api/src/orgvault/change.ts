@@ -3,6 +3,7 @@ import type {
   OrgVaultCreate,
   OrgVaultEntry,
   OrgVaultEntryPut,
+  OrgVaultEntryRead,
   OrgVaultKeysAdd,
   OrgVaultRotate,
   OrgWrappedKey,
@@ -310,15 +311,49 @@ export async function rotateOrgVault(
   });
 }
 
+async function unmoved(
+  trx: Transaction<Tables>,
+  orgId: string,
+  read: OrgVaultEntryRead[],
+): Promise<void> {
+  if (read.length === 0) return;
+  const ids = read.map((entry) => entry.id);
+  const [held, ended] = await Promise.all([
+    trx
+      .selectFrom("org_vault_entries")
+      .select(["id", "revision"])
+      .where("org_id", "=", orgId)
+      .where("id", "in", ids)
+      .execute(),
+    trx
+      .selectFrom("org_vault_ended")
+      .select(["id", "revision"])
+      .where("org_id", "=", orgId)
+      .where("id", "in", ids)
+      .execute(),
+  ]);
+  const now = new Map(
+    [...ended, ...held].map((entry) => [entry.id, entry.revision]),
+  );
+  const moved = read.find(
+    (entry) => (now.get(entry.id) ?? 0) !== entry.revision,
+  );
+  if (moved)
+    throw conflict(
+      `Entry ${moved.id} moved on from revision ${moved.revision} after it was read.`,
+    );
+}
+
 export async function putOrgEntry(
   trx: Transaction<Tables>,
   asker: Asker,
   id: string,
-  { kind, generation, sealed, revision }: OrgVaultEntryPut,
+  { kind, generation, sealed, revision, checked = [] }: OrgVaultEntryPut,
 ): Promise<OrgVaultEntry> {
   const { orgId, hostKey } = asker;
   atCurrent((await lockedVault(trx, orgId)).generation, generation);
   await requireHolder(trx, asker, generation);
+  await unmoved(trx, orgId, checked);
   const existing = await trx
     .selectFrom("org_vault_entries")
     .select("revision")

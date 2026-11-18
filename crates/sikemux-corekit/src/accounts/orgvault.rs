@@ -76,6 +76,17 @@ pub struct OrgVaultEntryPut {
     pub sealed: VaultSealed,
     /// The entry's revision as the writer last saw it, or 0 to add it.
     pub revision: i64,
+    /// Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked: Option<Vec<OrgVaultEntryRead>>,
+}
+
+/// An entry at the revision a writer read it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultEntryRead {
+    pub id: VaultEntryId,
+    pub revision: i64,
 }
 
 /// A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.
@@ -129,6 +140,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgVaultEntry" => through::<OrgVaultEntry>(json),
         "OrgVaultEntryKind" => through::<OrgVaultEntryKind>(json),
         "OrgVaultEntryPut" => through::<OrgVaultEntryPut>(json),
+        "OrgVaultEntryRead" => through::<OrgVaultEntryRead>(json),
         "OrgVaultKeysAdd" => through::<OrgVaultKeysAdd>(json),
         "OrgVaultRotate" => through::<OrgVaultRotate>(json),
         "OrgVaultState" => through::<OrgVaultState>(json),

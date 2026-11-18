@@ -1437,6 +1437,14 @@ export interface OrgVaultEntryPut {
   sealed: VaultSealed;
   /** The entry's revision as the writer last saw it, or 0 to add it. */
   revision: number;
+  /** Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved. */
+  checked?: OrgVaultEntryRead[];
+}
+
+/** An entry at the revision a writer read it. */
+export interface OrgVaultEntryRead {
+  id: VaultEntryId;
+  revision: number;
 }
 
 /** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. */
@@ -2501,6 +2509,7 @@ export interface Definitions {
   OrgVaultEntry: OrgVaultEntry;
   OrgVaultEntryKind: OrgVaultEntryKind;
   OrgVaultEntryPut: OrgVaultEntryPut;
+  OrgVaultEntryRead: OrgVaultEntryRead;
   OrgVaultKeysAdd: OrgVaultKeysAdd;
   OrgVaultRotate: OrgVaultRotate;
   OrgVaultState: OrgVaultState;

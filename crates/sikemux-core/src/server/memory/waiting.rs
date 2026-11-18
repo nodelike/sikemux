@@ -210,7 +210,7 @@ async fn write<T: Serialize>(
     let Ok(value) = serde_json::to_value(body) else {
         return Wrote::Done;
     };
-    match vault::put_project(core, &shared.org, kind, id, revision, &value).await {
+    match vault::put_project(core, &shared.org, kind, id, revision, &value, &[]).await {
         Ok(Put::Written(_)) => Wrote::Done,
         Ok(Put::Stale) => Wrote::Stale,
         Ok(Put::Refused(why)) => {
@@ -752,7 +752,6 @@ pub(super) struct Keep {
     item: String,
     /// The hash of the words the owner or admin read.
     words: String,
-    at: u64,
     /// The call the owner or admin answered.
     call: String,
 }
@@ -762,6 +761,8 @@ pub(super) struct Voided {
     pub(super) any: bool,
     /// The calls of those whose member took the entry back.
     pub(super) withdrawn: Vec<String>,
+    /// Each waiting list the Keeps still standing were checked against, at the revision read.
+    pub(super) read: Vec<(String, i64)>,
 }
 
 impl Voided {
@@ -774,9 +775,8 @@ impl Voided {
 }
 
 /// Takes out of the org's store each entry kept here that its member's list no longer holds in
-/// the words the owner or admin read, so only those still waiting are written. False while the
-/// vault was last read before a Keep, when the list cannot be trusted yet; otherwise whether any
-/// was taken out.
+/// the words the owner or admin read, so only those still waiting are written. None while this
+/// host holds no key to the org's vault.
 pub(super) fn check_keeps(
     core: &Core,
     held: &mut Held,
@@ -787,18 +787,18 @@ pub(super) fn check_keeps(
         return Some(Voided {
             any: false,
             withdrawn: Vec::new(),
+            read: Vec::new(),
         });
     }
-    let read_after = vault::synced(core, &shared.org)
-        .is_some_and(|synced| held.keeps.iter().all(|keep| keep.at < synced));
-    if !read_after {
-        return None;
-    }
-    let (mut void, mut withdrawn) = (Vec::new(), Vec::new());
+    let (mut void, mut withdrawn, mut read_at) = (Vec::new(), Vec::new(), Vec::new());
     for keep in &held.keeps {
-        let (_, list) = read::<Mine>(core, shared, &shared.waiting_id(&keep.member))?;
+        let id = shared.waiting_id(&keep.member);
+        let (revision, list) = read::<Mine>(core, shared, &id)?;
         match list.items.get(&keep.item).map(|entry| words(entry.text())) {
-            Some(still) if still == keep.words => continue,
+            Some(still) if still == keep.words => {
+                read_at.push((id, revision));
+                continue;
+            }
             Some(_) => {}
             None => withdrawn.push(keep.call.clone()),
         }
@@ -823,9 +823,12 @@ pub(super) fn check_keeps(
     held.rules.retain(|rule| !ids.contains(&rule.id));
     held.knowledge.retain(|known| !ids.contains(&known.id));
     held.writers.retain(|id, _| !ids.contains(id));
+    read_at.sort();
+    read_at.dedup();
     Some(Voided {
         any: !void.is_empty(),
         withdrawn,
+        read: read_at,
     })
 }
 
@@ -854,7 +857,6 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
                 member: member.to_owned(),
                 item: item.to_owned(),
                 words: shown.to_owned(),
-                at: epoch_ms(),
                 call: call.id.clone(),
             };
             if let Err(problem) = keep(&mut state, store, from, entry) {
@@ -864,9 +866,6 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
             memory.save(&mut state, store);
             drop(state);
             tell_clients(core, false);
-            crate::server::remote_state::RemoteParts::vault(&**core)
-                .orgs()
-                .wake_and_tell();
         }
         Some(DROP) => {
             let Some(held) = state.held.get_mut(store) else {

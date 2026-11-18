@@ -19,14 +19,13 @@ use sikemux_agents::launch::providers::{catalogue, OrgKey, ProviderOrg};
 use sikemux_calls::vault::{
     OrgEntryParams, OrgModelKeyAdd, OrgVaultStatus, ShownOrgModelKey, ShownOrgVault,
 };
-use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::device::{AccountOrg, OrgRole};
 use tokio::sync::Notify;
 
 use crate::accounts::orgvault::{
-    OrgVault as Remote, OrgVaultCreate, OrgVaultEntry, OrgVaultEntryPut, OrgVaultKeysAdd,
-    OrgVaultRotate, OrgVaultState, OrgWrappedKey,
+    OrgVault as Remote, OrgVaultCreate, OrgVaultEntry, OrgVaultEntryPut, OrgVaultEntryRead,
+    OrgVaultKeysAdd, OrgVaultRotate, OrgVaultState, OrgWrappedKey,
 };
 use crate::accounts::vault::VaultEntryReseal;
 
@@ -204,8 +203,6 @@ struct Org {
     /// The vault's count of changes when this host last took in its entries, so the next read
     /// asks only for what changed after it.
     changes: Option<i64>,
-    /// When the round that last read the org's vault began, in ms since the epoch.
-    synced: Option<u64>,
 }
 
 #[derive(Default)]
@@ -217,8 +214,6 @@ struct State {
     kept: Option<Option<Copy>>,
     /// The orgs whose vault the accounts server has answered for since the copy was loaded.
     heard: BTreeSet<String>,
-    /// When something asked to hear of the first round begun after it, in ms since the epoch.
-    tell_after: Option<u64>,
 }
 
 #[derive(Default)]
@@ -233,16 +228,6 @@ pub struct OrgVaults {
 
 impl OrgVaults {
     pub fn wake(&self) {
-        self.wake.notify_one();
-    }
-
-    /// Wakes the loop, and tells [`OrgVaults::changed`] once a round begun from now on has
-    /// ended, even when it found nothing new.
-    pub fn wake_and_tell(&self) {
-        let now = epoch_ms();
-        let mut state = self.state.locked();
-        state.tell_after = Some(state.tell_after.map_or(now, |after| after.min(now)));
-        drop(state);
         self.wake.notify_one();
     }
 }
@@ -310,7 +295,6 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         hand_on(core, &[]);
         return keep(core, None).await;
     };
-    let begun = epoch_ms();
     load(core, &account).await?;
     let Some(orgs) = account_orgs(core) else {
         return Ok(());
@@ -323,15 +307,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         state.orgs.retain(|id, _| listed.contains(id.as_str()));
     }
     for org in &orgs {
-        let started = epoch_ms();
-        let synced = sync_org(core, org, &me, &secret).await;
-        if synced.is_ok() {
-            let mut state = core.vault().orgs().state.locked();
-            if let Some(held) = state.orgs.get_mut(&org.id) {
-                held.synced = Some(started);
-            }
-        }
-        if let Err(error) = synced {
+        if let Err(error) = sync_org(core, org, &me, &secret).await {
             core.vault()
                 .orgs()
                 .state
@@ -344,17 +320,6 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         }
     }
     hand_on(core, &orgs);
-    let told = {
-        let mut state = core.vault().orgs().state.locked();
-        let told = state.tell_after.is_some_and(|after| after <= begun);
-        if told {
-            state.tell_after = None;
-        }
-        told
-    };
-    if told {
-        core.vault().orgs().changed.notify_one();
-    }
     keep(core, Some(&account)).await
 }
 
@@ -590,7 +555,6 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 holders: vault.holders.len(),
                 failed,
                 changes: None,
-                synced: None,
             },
         );
         return Ok(());
@@ -606,7 +570,6 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 holders: vault.holders.len(),
                 failed: None,
                 changes: None,
-                synced: None,
             },
         );
         core.vault().orgs().wake();
@@ -675,7 +638,6 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             holders: vault.holders.len(),
             failed: None,
             changes: Some(vault.changes),
-            synced: None,
         },
     );
     Ok(())
@@ -921,7 +883,6 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                 holders: 1,
                 failed: None,
                 changes: None,
-                synced: None,
             },
         );
     }
@@ -1010,6 +971,7 @@ pub async fn add_model_key(core: &Arc<Core>, params: OrgModelKeyAdd) -> CoreResu
             &body,
         )?,
         revision,
+        checked: None,
     };
     let path = format!("{}/entries/{id}", vault_path(&org.id));
     host_request(core, Method::PUT, &path, Some(json!(put))).await?;
@@ -1120,13 +1082,6 @@ pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
     }))
 }
 
-/// When the round that last read `org`'s vault began, in ms since the epoch: what this host
-/// reads of the vault is no older than that.
-pub fn synced(core: &Core, org: &str) -> Option<u64> {
-    let state = core.vault().orgs().state.locked();
-    state.orgs.get(org)?.synced
-}
-
 /// Whether this host holds the key to `org`'s vault, so the org's entries can be read and
 /// written; None while it holds none and the accounts server has not answered for the vault yet.
 pub fn holds_key(core: &Core, org: &str) -> Option<bool> {
@@ -1165,7 +1120,8 @@ pub enum Put {
 }
 
 /// Writes a project's entry of `kind` over the one at `revision` (0 for none), and reads the
-/// vault again.
+/// vault again. The server takes it as stale once any entry in `checked` has moved on from the
+/// revision given beside it.
 pub async fn put_project(
     core: &Core,
     org: &str,
@@ -1173,6 +1129,7 @@ pub async fn put_project(
     id: &str,
     revision: i64,
     body: &Value,
+    checked: &[(String, i64)],
 ) -> CoreResult<Put> {
     if ![PROJECT_MEMORY, PROJECT_MEMORY_WAITING, PROJECT_MEMORY_DROPS].contains(&kind) {
         return Err(format!("a project's entry is never of kind {kind}").into());
@@ -1200,6 +1157,14 @@ pub async fn put_project(
         generation,
         sealed: seal_entry(&key, org, id, kind, generation, revision, body)?,
         revision,
+        checked: (!checked.is_empty()).then(|| {
+            (checked.iter())
+                .map(|(id, revision)| OrgVaultEntryRead {
+                    id: id.clone(),
+                    revision: *revision,
+                })
+                .collect()
+        }),
     };
     let path = format!("{}/entries/{id}", vault_path(org));
     let upload = super::super::account::api::Upload {

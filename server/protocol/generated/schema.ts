@@ -2581,8 +2581,25 @@ export const schema = {
           minimum: 0,
           maximum: 999999999,
         },
+        checked: {
+          description:
+            "Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultEntryRead" },
+          maxItems: 500,
+        },
       },
       required: ["kind", "generation", "sealed", "revision"],
+      additionalProperties: false,
+    },
+    OrgVaultEntryRead: {
+      description: "An entry at the revision a writer read it.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        revision: { type: "integer", minimum: 0, maximum: 999999999 },
+      },
+      required: ["id", "revision"],
       additionalProperties: false,
     },
     OrgVaultKeysAdd: {

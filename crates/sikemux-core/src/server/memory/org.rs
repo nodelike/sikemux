@@ -716,7 +716,7 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
 async fn push(core: &Arc<Core>, shared: &Shared) {
     let key = shared.key();
     for _ in 0..TRIES {
-        let (revision, body, checked) = {
+        let (revision, body, checked, read) = {
             let memory = core.memory();
             let mut state = memory.state.locked();
             let Some(held) = state.held.get_mut(&key) else {
@@ -743,7 +743,7 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
             if body.same_entries(&base.body) {
                 return;
             }
-            (base.revision, body, checked)
+            (base.revision, body, checked, voided.read)
         };
         let Ok(value) = serde_json::to_value(&body) else {
             return;
@@ -755,6 +755,7 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
             &shared.entry_id(),
             revision,
             &value,
+            &read,
         )
         .await
         {

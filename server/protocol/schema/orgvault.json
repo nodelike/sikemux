@@ -183,6 +183,20 @@
       "required": ["generation", "keys"],
       "additionalProperties": false
     },
+    "OrgVaultEntryRead": {
+      "description": "An entry at the revision a writer read it.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "vault.json#/$defs/VaultEntryId" },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999999
+        }
+      },
+      "required": ["id", "revision"],
+      "additionalProperties": false
+    },
     "OrgVaultEntryPut": {
       "description": "An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules.",
       "type": "object",
@@ -198,6 +212,12 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 999999999
+        },
+        "checked": {
+          "description": "Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/OrgVaultEntryRead" },
+          "maxItems": 500
         }
       },
       "required": ["kind", "generation", "sealed", "revision"],
