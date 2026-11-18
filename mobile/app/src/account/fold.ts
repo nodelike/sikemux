@@ -5,7 +5,9 @@ import type { FoldCatch } from '@sikemux/protocol';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
-import { ApiProblem, api, type TokenSource } from './api';
+import { deviceIdentity } from '@/phone/identity';
+
+import { ApiProblem, accountDevice, api, type TokenSource } from './api';
 
 /** A fold this phone started, waiting for the person's other account to confirm it. Kept in memory only. */
 export type Waiting = { id: string; secret: string; expiresAt: string; waitingWords: string };
@@ -64,12 +66,23 @@ async function askCatch(token: TokenSource) {
   return api(token).getFoldCatch(before ? { hint: 'browser' } : {});
 }
 
+/** Whether the account already holds this phone, so the catch has nothing left to offer. */
+async function onAccount(token: TokenSource): Promise<boolean> {
+  const key = (await deviceIdentity()).id();
+  return Boolean(await accountDevice(token, key).catch(() => undefined));
+}
+
 /**
  * Before the phone joins an account whose sign-in couldn't ask "Already on Sikemux?", asks it now, since
  * joining ends the offer. Throws while the server can't be reached, so joining waits and tries again.
  */
 export async function askBeforeAddingPhone(token: TokenSource, userId: string) {
   if (unasked?.userId !== userId) return;
+  if (await onAccount(token)) {
+    stillSignedIn(userId);
+    unasked = null;
+    return openFold(userId);
+  }
   try {
     const caught = await askCatch(token);
     stillSignedIn(userId);

@@ -84,6 +84,11 @@ final class Fold {
     /// ends the offer. Throws while the server can't be reached, so joining waits and tries again.
     func askBeforeJoining(_ userId: String) async throws {
         guard unasked?.userId == userId else { return }
+        if await onAccount() {
+            guard self.userId == userId else { throw CancellationError() }
+            unasked = nil
+            return open()
+        }
         do {
             let caught = try await askCatch()
             guard self.userId == userId else { throw CancellationError() }
@@ -99,6 +104,12 @@ final class Fold {
             if (problem.unreachable || status == 429) && unasked!.failures < Self.giveUpAfter { throw problem }
             unasked = nil
         }
+    }
+
+    /// Whether the account already holds this phone, so the catch has nothing left to offer.
+    private func onAccount() async -> Bool {
+        guard let key = try? Identity.shared.deviceIdentity().id() else { return false }
+        return (try? await AccountCalls.device(key)) != nil
     }
 
     private func askCatch() async throws -> FoldCatch {
