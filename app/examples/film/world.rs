@@ -525,7 +525,13 @@ impl World {
         let name = (self.world.pointer("/sikemuxAccount/host"))
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("the world's sikemuxAccount names no host"))?;
-        account.sign_in(&self.runtime, &self.client, &self.work.join("data"), name)
+        account.sign_in(
+            &self.runtime,
+            &self.client,
+            &self.work.join("data"),
+            name,
+            None,
+        )
     }
 
     /// Does `step` when it is the core's to do.
@@ -544,7 +550,7 @@ impl World {
                 self.project = Some((name, path));
             }
             "signed-in" => self.sign_in()?,
-            "host" => self.link_host(step.text(0)?)?,
+            "host" => self.link_host(step.text(0)?, step.text(1).ok())?,
             "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
             "asleep" => self.freeze(step.text(0)?)?,
             "orgrole" => self.org_change("role", step.text(0)?, step.text(1)?)?,
@@ -552,6 +558,9 @@ impl World {
             "orgkey" => self.org_key(step.text(0)?, step.text(1)?, step.text(2)?)?,
             "orgpolicy" => self.org_change("policy", step.text(0)?, step.text(1)?)?,
             "orgshare" => self.org_share(step.text(0)?)?,
+            "orgmember" => self.org_change("member", step.text(0)?, step.text(1)?)?,
+            "orgmove" => self.org_move(step.text(0)?, step.text(1)?)?,
+            "orgholds" => self.org_holds(step.text(0)?, step.text(1)?)?,
             "chat" => {
                 let (project, _) = self.project()?.clone();
                 let (chat, _) = self.runtime.block_on(self.client.start_chat(

@@ -1,0 +1,20 @@
+# Ines administers Lumen Studio, where admins approve rules first. Priya, a member on her own
+# Mac, moves a rule to the org's store; Ines is asked, keeps it, and it reaches Priya's Mac.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+signed-in
+origin https://lumen.invalid/storefront.git
+project storefront shop
+orgpolicy admins_approve "Lumen Studio"
+orgmember priya "Lumen Studio"
+orgshare "Lumen Studio"
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Run pnpm check before every commit.\",\"goal\":null,\"sensitive\":false,\"store\":\"org\"}}"
+host laptop priya
+orgmove laptop "Use pnpm, never npm, for every install."
+settle 6
+chat Wren
+settle 2
+key cmd-alt-6
+settle 4
+snap rules-admin-asked

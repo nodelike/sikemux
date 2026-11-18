@@ -80,20 +80,25 @@ impl Account {
         Ok(())
     }
 
-    /// Signs the core behind `client` in by code, approving the code as the person, and names
-    /// it `name` on the account, never this computer's own name.
+    /// Signs the core behind `client` in by code, approving the code as the person or as stand-in
+    /// `person`, and names it `name` on the account, never this computer's own name.
     pub(super) fn sign_in(
         &mut self,
         runtime: &tokio::runtime::Runtime,
         client: &CoreClient,
         data: &Path,
         name: &str,
+        person: Option<&str>,
     ) -> anyhow::Result<()> {
         let shown = runtime.block_on(client.call("accountSignInByCode", json!({})))?;
         let code = (shown.get("code"))
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("signing in by code gave no code"))?;
-        self.tell(&format!("approve {code}"), &format!("approved {code}"))?;
+        let approve = match person {
+            Some(person) => format!("approve {code} {person}"),
+            None => format!("approve {code}"),
+        };
+        self.tell(&approve, &format!("approved {code}"))?;
         runtime.block_on(client.call("accountSignInFinish", json!({})))?;
         let status = listening(runtime, client)?;
         name_on_account(runtime, client, &status.core_id, data, name)?;
@@ -196,8 +201,9 @@ fn name_on_account(
 }
 
 impl World {
-    /// Starts host `name` on the film's account, with a copy of the last project.
-    pub(super) fn link_host(&mut self, name: &str) -> anyhow::Result<()> {
+    /// Starts host `name` on the film's account, with a copy of the last project, signed in as
+    /// the person or as stand-in `person`.
+    pub(super) fn link_host(&mut self, name: &str, person: Option<&str>) -> anyhow::Result<()> {
         let work = self.work.join("hosts").join(name);
         let home = work.join("home");
         let claude = home.join(".claude");
@@ -272,6 +278,7 @@ impl World {
             &linked.client,
             &linked.work.join("data"),
             name,
+            person,
         )?;
         self.linked.push(linked);
         Ok(())
@@ -298,7 +305,8 @@ impl World {
         save_transcript(claude, &path, first + saved, title, 2 + 60 * saved as u64)
     }
 
-    /// Has the accounts API set the person's `role` in org `org`, or its `plan`.
+    /// Has the accounts API set the person's `role` in org `org`, its `plan` or `policy`, or
+    /// bring a stand-in `member` into it.
     pub(super) fn org_change(&mut self, what: &str, value: &str, org: &str) -> anyhow::Result<()> {
         let account =
             (self.account.as_mut()).ok_or_else(|| anyhow!("the film is not signed in"))?;
@@ -325,10 +333,8 @@ impl World {
         bail!("this core never heard of {org}")
     }
 
-    /// Saves a key to `provider` in org `org`'s vault from host `name` or `here`, once that
-    /// host may write there.
-    pub(super) fn org_key(&self, name: &str, org: &str, provider: &str) -> anyhow::Result<()> {
-        let client = match name {
+    fn client_on(&self, name: &str) -> anyhow::Result<&CoreClient> {
+        Ok(match name {
             "here" => &self.client,
             name => {
                 &(self.linked.iter())
@@ -336,7 +342,61 @@ impl World {
                     .ok_or_else(|| anyhow!("no host named {name}"))?
                     .client
             }
-        };
+        })
+    }
+
+    /// On host `name`, adds rule `text` to the project's own store and moves it to the org's,
+    /// as a member taps the move offer, once that host knows the project is shared.
+    pub(super) fn org_move(&self, name: &str, text: &str) -> anyhow::Result<()> {
+        let client = self.client_on(name)?;
+        let (project, _) = self.project()?.clone();
+        let entry = json!({ "kind": "rule", "text": text, "goal": null, "sensitive": false,
+            "store": "project" });
+        let view = self
+            .runtime
+            .block_on(client.call("memoryAdd", json!({ "project": project, "entry": entry })))?;
+        let id = rules_in(&view, "project")
+            .find(|rule| rule.get("text") == Some(&json!(text)))
+            .and_then(|rule| rule.get("id")?.as_u64())
+            .ok_or_else(|| anyhow!("{name} did not keep the rule {text}"))?;
+        for _ in 0..300 {
+            let view = self
+                .runtime
+                .block_on(client.call("memory", json!({ "project": project })))?;
+            if stores(&view).any(|store| store.get("store") == Some(&json!("org"))) {
+                let params = json!({ "project": project, "id": id, "store": "org" });
+                self.runtime.block_on(client.call("memoryUpdate", params))?;
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        bail!("{name} never saw the project shared with an org")
+    }
+
+    /// Waits until host `name` reads rule `text` in the org's store and no longer in the
+    /// project's own, as a moved rule an admin kept arrives.
+    pub(super) fn org_holds(&self, name: &str, text: &str) -> anyhow::Result<()> {
+        let client = self.client_on(name)?;
+        let (project, _) = self.project()?.clone();
+        let mut view = Value::Null;
+        for _ in 0..600 {
+            view = self
+                .runtime
+                .block_on(client.call("memory", json!({ "project": project })))?;
+            let has =
+                |store| rules_in(&view, store).any(|rule| rule.get("text") == Some(&json!(text)));
+            if has("org") && !has("project") {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        bail!("{name} never held {text} in the org's rules alone: {view}")
+    }
+
+    /// Saves a key to `provider` in org `org`'s vault from host `name` or `here`, once that
+    /// host may write there.
+    pub(super) fn org_key(&self, name: &str, org: &str, provider: &str) -> anyhow::Result<()> {
+        let client = self.client_on(name)?;
         for _ in 0..300 {
             let vaults = self.runtime.block_on(client.call("orgVaults", json!({})))?;
             let writable = (vaults.as_array().into_iter().flatten())
@@ -377,6 +437,17 @@ impl Drop for Linked {
         let _ = self.core.wait();
         let _ = std::fs::remove_file(&self.socket);
     }
+}
+
+fn stores(view: &Value) -> impl Iterator<Item = &Value> {
+    (view.get("stores").and_then(Value::as_array).into_iter()).flatten()
+}
+
+fn rules_in<'a>(view: &'a Value, store: &'a str) -> impl Iterator<Item = &'a Value> {
+    stores(view)
+        .filter(move |shown| shown.get("store").and_then(Value::as_str) == Some(store))
+        .flat_map(|shown| (shown.get("rules").and_then(Value::as_array).into_iter()).flatten())
+        .filter_map(|listed| listed.get("rule"))
 }
 
 fn saved_on(claude: &Path, path: &Path) -> usize {

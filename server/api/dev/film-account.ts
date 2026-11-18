@@ -11,8 +11,9 @@ import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
 /**
  * The accounts API a film's cores sign in to: a throwaway Postgres, the stand-in sign-in and the
  * real API, all in the folder it is given and gone when its input closes. It prints the API's
- * address, then answers lines on its input: `approve CODE` approves that host sign-in as the
- * person, `role ROLE ORG` has the owner of an org the person doesn't own give them ROLE in it,
+ * address, then answers lines on its input: `approve CODE [PERSON]` approves that host sign-in as
+ * the person or another stand-in person, `member PERSON ORG` has the person bring PERSON into an
+ * org they own as a member, `role ROLE ORG` has the owner of an org the person doesn't own give them ROLE in it,
  * `plan active|lapsed ORG` sets the org's plan, which hosts read at their next role change, and
  * `policy every_member|admins_approve ORG` has the org's owner set who may add its rules.
  *
@@ -272,6 +273,21 @@ async function setPlan(name: string, plan: string) {
   );
 }
 
+async function addMember(member: string, name: string) {
+  const org = seeded.get(name);
+  if (!org || org.owner !== person)
+    throw new Error(`${name} is not an org the person owns`);
+  const { token } = await as<{ token: string }>(
+    person,
+    `/v1/orgs/${org.id}/invites`,
+    { method: "POST", body: JSON.stringify({ role: "user" }) },
+  );
+  await as(member, "/v1/orgs/join", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
 async function setPolicy(name: string, ruleAdding: string) {
   const org = seeded.get(name);
   if (!org) throw new Error(`no org named ${name}`);
@@ -285,7 +301,10 @@ for await (const line of createInterface({ input: process.stdin })) {
   const [verb, arg, ...rest] = line.trim().split(" ");
   if (!verb || !arg) continue;
   if (verb === "approve")
-    await as(person, `/v1/host-sign-ins/${arg}/approve`, { method: "POST" });
+    await as(rest[0] ?? person, `/v1/host-sign-ins/${arg}/approve`, {
+      method: "POST",
+    });
+  else if (verb === "member") await addMember(arg, rest.join(" "));
   else if (verb === "role") await setRole(rest.join(" "), arg);
   else if (verb === "plan") await setPlan(rest.join(" "), arg);
   else if (verb === "policy") await setPolicy(rest.join(" "), arg);
