@@ -429,8 +429,9 @@ pub(crate) async fn set_asking(
     core: &Arc<Core>,
     params: TeammateAskingParams,
 ) -> Result<ProjectTasks, String> {
-    let core = core.clone();
-    blocking(move || {
+    let set = core.clone();
+    let mut tasks = blocking(move || {
+        let core = set;
         let folder = crate::server::board::project_at(&core, &params.project)?;
         let asks = &core.harness().mailbox.asks;
         let named = match &params.member {
@@ -453,7 +454,9 @@ pub(crate) async fn set_asking(
         Ok(super::task_list::of_folder(&core, &folder))
     })
     .await
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    super::peer::heed_asking(core, &mut tasks.shared_by).await;
+    Ok(tasks)
 }
 
 /// Whether `org` is one this account holds a seat in with its Team plan paid; none when it holds

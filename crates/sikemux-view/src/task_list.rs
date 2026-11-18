@@ -45,7 +45,8 @@ pub struct SharedBy {
     pub name: String,
     /// The members whose tasks are in the list.
     pub people: Vec<Teammate>,
-    /// Whether the person's agents can ask about those tasks: the org's Team plan is paid.
+    /// Whether the person's agents can ask about those tasks: the org's Team plan is paid and it
+    /// lets teammates' agents ask.
     pub can_ask: bool,
 }
 

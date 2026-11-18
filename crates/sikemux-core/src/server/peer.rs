@@ -617,6 +617,15 @@ pub(crate) fn shared_by(core: &Core, folder: &str) -> Vec<SharedBy> {
     orgs
 }
 
+/// Clears `can_ask` for each org that has turned teammates' agents asking off.
+pub(crate) async fn heed_asking(core: &Core, orgs: &mut [SharedBy]) {
+    for org in orgs.iter_mut().filter(|org| org.can_ask) {
+        org.can_ask = crate::server::account::org_policy(core, &org.org)
+            .await
+            .asking;
+    }
+}
+
 /// Each control frame read from `reader`, until it ends or sends something else.
 fn frames<T: DeserializeOwned + Send + 'static>(mut reader: RecvStream) -> mpsc::Receiver<T> {
     let (send, receive) = mpsc::channel(8);

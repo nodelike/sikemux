@@ -12,13 +12,15 @@ use super::connection::blocking;
 use super::Core;
 
 pub(crate) async fn read(core: &Arc<Core>, params: BoardParams) -> Result<ProjectTasks, String> {
-    let core = core.clone();
-    blocking(move || {
-        let folder = board::project_at(&core, &params.project)?;
-        Ok(of_folder(&core, &folder))
+    let read = core.clone();
+    let mut tasks = blocking(move || {
+        let folder = board::project_at(&read, &params.project)?;
+        Ok(of_folder(&read, &folder))
     })
     .await
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    super::peer::heed_asking(core, &mut tasks.shared_by).await;
+    Ok(tasks)
 }
 
 pub(crate) fn of_folder(core: &Core, folder: &str) -> ProjectTasks {
