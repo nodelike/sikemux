@@ -12,7 +12,6 @@ final class Fold {
         let id: String
         let secret: String
         let expiresAt: Date
-        let why: FoldWhy
         let words: String
     }
 
@@ -71,9 +70,9 @@ final class Fold {
         AccountSession.shared.admit()
     }
 
-    func hold(_ intent: FoldIntent, why: FoldWhy) {
+    func hold(_ intent: FoldIntent) {
         waiting = Waiting(
-            id: intent.id, secret: intent.secret, expiresAt: Format.date(iso: intent.expiresAt) ?? .now, why: why,
+            id: intent.id, secret: intent.secret, expiresAt: Format.date(iso: intent.expiresAt) ?? .now,
             words: intent.waitingWords)
     }
 

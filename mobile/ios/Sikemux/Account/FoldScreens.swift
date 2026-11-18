@@ -99,7 +99,7 @@ private struct CatchScreen: View {
         Task {
             do {
                 let intent = try await recent.run { try await AccountCalls.startFold(why: why) }
-                Fold.shared.hold(intent, why: why)
+                Fold.shared.hold(intent)
                 await Leave.signOutHere(confirmed: true)
             } catch {
                 busy = nil
@@ -158,8 +158,6 @@ private struct ConfirmFoldScreen: View {
         case done(title: String, words: String)
     }
 
-    private var seatComing: Bool { waiting.why == .seat }
-
     var body: some View {
         content.task(id: waiting) { await load() }
     }
@@ -167,7 +165,7 @@ private struct ConfirmFoldScreen: View {
     @ViewBuilder
     private var content: some View {
         if let verify = recent.verify {
-            ConfirmItsYou(recent: recent, verify: verify, action: seatComing ? "Move the seat" : "Bring it here")
+            ConfirmItsYou(recent: recent, verify: verify, action: "Bring it here")
         } else {
             switch read {
             case .loading: Checking()
@@ -182,16 +180,14 @@ private struct ConfirmFoldScreen: View {
                 }
             case .done(let title, let words):
                 PromptScreen(icon: Icons.circleCheck, title: title, detail: words) {
-                    ActionButton(seatComing ? "Sign in" : "Continue", kind: .primary) {
-                        if seatComing { signInAgain() } else { Fold.shared.open() }
-                    }
+                    ActionButton("Continue", kind: .primary) { Fold.shared.open() }
                 }
             case .loaded(let preview):
                 FoldPrompt(
-                    icon: seatComing ? Icons.user : Icons.shield, title: preview.title, address: preview.address,
+                    icon: Icons.shield, title: preview.title, address: preview.address,
                     words: preview.words, problem: problem
                 ) {
-                    ActionButton(seatComing ? "Move the seat" : "Bring it here", kind: .primary, busy: busy) {
+                    ActionButton("Bring it here", kind: .primary, busy: busy) {
                         bring(preview)
                     }
                     ActionButton("Cancel", action: cancel)
