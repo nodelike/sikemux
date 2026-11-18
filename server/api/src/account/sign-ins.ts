@@ -141,6 +141,6 @@ export function signInRefusalWords(
   refusal: NonNullable<Awaited<ReturnType<typeof workAddressRefusal>>>,
 ): string {
   return refusal.why === "domain"
-    ? `${refusal.orgName} has verified ${refusal.domain}, so an address there is a work address and can't sign in to your account. Add it under Work addresses instead.`
+    ? `Addresses at ${refusal.domain} are work addresses, so they can't sign in to your account. Verify yours under Work addresses instead.`
     : "This address is already verified as a work address, so it can't sign in to your account.";
 }

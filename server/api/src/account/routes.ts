@@ -96,7 +96,7 @@ export function accountRoutes({
     })
     .post(
       "/sign-ins/check",
-      perUser(limiter, "check-sign-in", 30),
+      perUser(limiter, "check-sign-in", 10),
       async (c) => {
         const { email } = await readBody(c, "SignInAddressCheck");
         const refusal = await addressRefusal(
