@@ -227,6 +227,10 @@ async function fold(
       );
 
     const seats = await moveSeats(trx, side);
+    if (locked.why === "seat" && seats.length === 0)
+      throw conflict(
+        "The seat on that account was removed since you started, so nothing was brought over.",
+      );
     const orgId = locked.org_id ?? (await seatOrg(trx, seats, domain));
     await trx
       .updateTable("address_proofs")
