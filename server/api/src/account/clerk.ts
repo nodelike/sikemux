@@ -36,7 +36,7 @@ export interface SignUp {
   /** The main address, once Clerk has verified it. */
   email: string | null;
   /** Every address Clerk has verified on the user, the main one first. */
-  addresses: string[];
+  addresses: { email: string; addedAt: Date }[];
 }
 
 type Fetch = (
@@ -138,17 +138,26 @@ export function clerkBackend(
     signUp: async (userId) => {
       const { user, verified } = await primaryEmail(userId);
       if (typeof user?.created_at !== "number") return null;
-      const others = (user.email_addresses ?? []).flatMap((address) =>
-        address.verification?.status === "verified" &&
-        address.email_address &&
-        address.email_address !== verified
-          ? [address.email_address]
+      const createdAt = new Date(user.created_at);
+      const addresses = (user.email_addresses ?? []).flatMap((address) =>
+        address.verification?.status === "verified" && address.email_address
+          ? [
+              {
+                email: address.email_address,
+                addedAt:
+                  typeof address.created_at === "number"
+                    ? new Date(address.created_at)
+                    : createdAt,
+              },
+            ]
           : [],
       );
       return {
-        createdAt: new Date(user.created_at),
+        createdAt,
         email: verified,
-        addresses: verified ? [verified, ...others] : others,
+        addresses: addresses.sort(
+          (a, b) => Number(b.email === verified) - Number(a.email === verified),
+        ),
       };
     },
     verifiedDomains: async (userId) => {

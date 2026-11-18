@@ -37,19 +37,23 @@ function sinceRefusing(db: Kysely<Tables>): Promise<Date | null> {
  * Whether an address added at `addedAt` came after an org's owner said its domain is the org's,
  * or after the address was proven on an account (other than `exceptUser`, or only `ofUser`'s).
  * Either way it is someone's work address and opens no account. One added before this server
- * began refusing stands as it is.
+ * began refusing, or on an account made before then (`madeAt`), stands as it is.
  */
 export async function workAddressRefusal(
   db: Kysely<Tables>,
   proofKey: Buffer | null,
   email: string,
   addedAt: Date,
-  { exceptUser, ofUser }: { exceptUser?: string; ofUser?: string } = {},
+  {
+    exceptUser,
+    ofUser,
+    madeAt = addedAt,
+  }: { exceptUser?: string; ofUser?: string; madeAt?: Date } = {},
 ): Promise<Refusal | null> {
   const domain = domainOf(email);
   if (!domain) return null;
   const since = await sinceRefusing(db);
-  if (!since || addedAt < since) return null;
+  if (!since || madeAt < since) return null;
   const org = await db
     .selectFrom("org_domains")
     .innerJoin("orgs", "orgs.id", "org_domains.org_id")
@@ -80,15 +84,12 @@ export async function refusalOf(
   userId: string,
   signUp: SignUp,
 ): Promise<SignUpRefusal | null> {
-  for (const address of signUp.addresses) {
-    const refusal = await workAddressRefusal(
-      db,
-      proofKey,
-      address,
-      signUp.createdAt,
-      { exceptUser: userId },
-    );
-    if (refusal) return { ...refusal, address };
+  for (const { email, addedAt } of signUp.addresses) {
+    const refusal = await workAddressRefusal(db, proofKey, email, addedAt, {
+      exceptUser: userId,
+      madeAt: signUp.createdAt,
+    });
+    if (refusal) return { ...refusal, address: email };
   }
   return null;
 }
