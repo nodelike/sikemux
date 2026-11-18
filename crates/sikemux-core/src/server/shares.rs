@@ -76,7 +76,9 @@ pub(crate) fn records_changed(core: &Arc<Core>, keys: &[String]) {
 }
 
 /// Registers each project this host keeps the record of with the org it is shared with, and takes
-/// back registrations the account holds for projects no longer shared there.
+/// back this host's own registrations for projects no longer shared there. Another of the
+/// person's hosts can keep the same project as its home too, so a registration a linked host made
+/// is left alone; one from a host no longer linked is taken over, never removed.
 async fn reconcile(core: &Arc<Core>) {
     let (Some(host), Some(registry)) = (core.remote().core_id(), shares::read(core).await) else {
         return;
@@ -88,12 +90,23 @@ async fn reconcile(core: &Arc<Core>) {
             Some((key(&known.identity?), shared_with(core, &folder)))
         })
         .collect();
+    let linked: Vec<String> = (core.remote().links().into_iter())
+        .map(|link| link.id)
+        .collect();
     for (project, org) in kept {
         for list in &registry.orgs {
             let wanted = org.as_deref() == Some(list.org.as_str());
             let listed = (list.mine.iter()).find(|mine| mine.project == project);
             let outcome = match listed {
-                Some(mine) if wanted && mine.host == host => continue,
+                Some(mine) if mine.host == host && wanted => continue,
+                Some(mine) if mine.host == host => {
+                    let removal = ShareRemoval {
+                        org: list.org.clone(),
+                        project: project.clone(),
+                    };
+                    shares::remove(core, &removal).await
+                }
+                Some(mine) if !wanted || linked.contains(&mine.host) => continue,
                 _ if wanted && active(core, &list.org) => {
                     let registration = ShareRegistration {
                         org: list.org.clone(),
@@ -101,13 +114,6 @@ async fn reconcile(core: &Arc<Core>) {
                         host: host.clone(),
                     };
                     shares::register(core, &registration).await
-                }
-                Some(_) if !wanted => {
-                    let removal = ShareRemoval {
-                        org: list.org.clone(),
-                        project: project.clone(),
-                    };
-                    shares::remove(core, &removal).await
                 }
                 _ => continue,
             };
@@ -184,11 +190,20 @@ pub(crate) async fn unshare(
     Ok(sharing(core, &params.project).await)
 }
 
+/// Takes back this host's registration of the project with `org`; one another host made stays.
 async fn take_back(core: &Arc<Core>, org: String, identity: &str) {
-    let removal = ShareRemoval {
-        org,
-        project: key(identity),
+    let project = key(identity);
+    let (Some(host), Some(registry)) = (core.remote().core_id(), shares::read(core).await) else {
+        return;
     };
+    let ours = (registry.orgs.iter())
+        .filter(|list| list.org == org)
+        .flat_map(|list| &list.mine)
+        .any(|mine| mine.project == project && mine.host == host);
+    if !ours {
+        return;
+    }
+    let removal = ShareRemoval { org, project };
     if let Err(error) = shares::remove(core, &removal).await {
         eprintln!("sikemux core: an unshared project stayed on the account's registry: {error}");
     }
