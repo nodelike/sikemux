@@ -401,7 +401,7 @@ fn teammates(
     let t = Tokens::get(cx).clone();
     let stop_everyone = asks.off.is_none().then(|| {
         let handle = handle.clone();
-        ui::Button::new("teammates-stop", t!("Stop everyone"), ui::Variant::Ghost)
+        ui::Button::new("teammates-stop", t!("Stop everyone"), ui::Variant::Outline)
             .sized(20., 7., theme::TEXT_2XS_H)
             .on_click(move |_, _, cx| {
                 let _ = handle.update(cx, |bench, cx| set_asking(bench, None, true, cx));
@@ -561,37 +561,48 @@ fn ask_row(
             });
         }
     };
+    let question = div()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(t.text_primary)
+        .child(asked.question.clone());
     let head = div()
         .id(SharedString::from(id.clone()))
-        .h(px(30.))
+        .min_h(px(30.))
         .px(px(6.))
         .flex()
-        .items_center()
         .gap(px(9.))
         .rounded(px(5.))
-        .whitespace_nowrap()
         .text_size(theme::ui_text(theme::TEXT_SM))
         .cursor_pointer()
-        .hover(|it| it.bg(t.surface_hover))
-        .when(open, |it| it.bg(t.surface_hover))
-        .child(ui::icon(Icon::Message, 12.).text_color(t.text_tertiary))
+        .map(|it| match open {
+            true => it.py(px(6.)).items_start(),
+            false => it
+                .items_center()
+                .whitespace_nowrap()
+                .hover(|it| it.bg(t.surface_hover)),
+        })
         .child(
             div()
-                .min_w_0()
-                .max_w(relative(0.58))
-                .truncate()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.text_primary)
-                .child(asked.question.clone()),
+                .flex_none()
+                .h(theme::ui_text(theme::TEXT_SM) * 1.5)
+                .flex()
+                .items_center()
+                .child(ui::icon(Icon::Message, 12.).text_color(t.text_tertiary)),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_tertiary)
-                .child(t!("about {title}", title = asked.task_title)),
-        )
+        .map(|it| match open {
+            true => it.child(question.flex_1().min_w_0()),
+            false => it
+                .child(question.flex_initial().min_w_0().truncate())
+                .child(
+                    div()
+                        .flex_none()
+                        .max_w(relative(0.36))
+                        .truncate()
+                        .text_color(t.text_tertiary)
+                        .child(asked.task_title.clone()),
+                )
+                .child(div().flex_1()),
+        })
         .child(teammate_pill(
             &asked.by,
             Some((&asked.agent, asked.agent_cli.as_deref().unwrap_or_default())),
@@ -614,15 +625,22 @@ fn ask_row(
         return head.into_any_element();
     }
     let source = match &asked.from_work_of {
-        Some(name) => t!("Answered from @{name}'s work", name = name),
-        None => t!("Nobody held the task, so only the board's facts went back").to_owned(),
+        Some(name) => t!(
+            "on {title} · answered from @{name}'s work",
+            title = asked.task_title,
+            name = name
+        ),
+        None => t!(
+            "on {title} · nobody held it, so only the board's facts went back",
+            title = asked.task_title
+        ),
     };
     let stop = stoppable.then(|| {
         let (handle, member) = (handle.clone(), asked.by.member.clone());
         ui::Button::new(
             SharedString::from(format!("{id}-stop")),
             t!("Stop {name}", name = asked.by.name),
-            ui::Variant::Outline,
+            ui::Variant::Ghost,
         )
         .sized(20., 7., theme::TEXT_2XS_H)
         .on_click(move |_, _, cx| {
@@ -633,22 +651,18 @@ fn ask_row(
     div()
         .flex()
         .flex_col()
+        .rounded(px(5.))
+        .bg(t.surface_hover)
         .child(head)
         .child(
             div()
                 .pl(px(27.))
                 .pr(px(6.))
-                .pt(px(4.))
                 .pb(px(10.))
                 .flex()
                 .flex_col()
                 .gap(px(6.))
                 .text_size(theme::ui_text(theme::TEXT_SM))
-                .child(
-                    div()
-                        .text_color(t.text_secondary)
-                        .child(asked.question.clone()),
-                )
                 .child(div().text_color(t.text_primary).child(asked.answer.clone()))
                 .child(
                     div()
