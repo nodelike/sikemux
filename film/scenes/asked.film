@@ -41,7 +41,7 @@ settle 6
 key cmd-alt-7
 settle 4
 snap asked
-click 1056,770
+click 1056,826
 settle 2
 snap asked-open
 click "Stop Maya"
