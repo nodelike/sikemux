@@ -6,6 +6,7 @@ import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { ApiFailure, badRequest, forbidden } from "../http.ts";
+import { vaultChanged } from "../orgvault/change.ts";
 import { proveKey } from "./challenge.ts";
 import { registrationMessage } from "./signature.ts";
 
@@ -147,6 +148,15 @@ export async function registerDevice(
         .deleteFrom("removed_devices")
         .where("key", "=", registration.key)
         .execute();
+    if (!existing && registration.role === "host") {
+      const vaults = await trx
+        .selectFrom("org_users")
+        .innerJoin("org_vaults", "org_vaults.org_id", "org_users.org_id")
+        .select("org_users.org_id")
+        .where("org_users.user_id", "=", userId)
+        .execute();
+      for (const { org_id } of vaults) await vaultChanged(trx, org_id);
+    }
     await audit(trx, {
       userId,
       actor: `user:${userId}`,
