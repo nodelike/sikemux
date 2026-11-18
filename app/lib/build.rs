@@ -34,7 +34,12 @@ fn main() -> Result {
 
 /// The languages the app speaks besides English, as the catalog tags them, each named in itself.
 /// A language comes back here once someone has reviewed its translation.
-const LANGUAGES: [(&str, &str); 3] = [("es", "Español"), ("de", "Deutsch"), ("fr", "Français")];
+const LANGUAGES: [(&str, &str); 4] = [
+    ("es", "Español"),
+    ("zh-Hans", "简体中文"),
+    ("de", "Deutsch"),
+    ("fr", "Français"),
+];
 
 /// Turns the string catalog into a table per language of each English string and what it
 /// says there, sorted by the English for `i18n::tr`'s binary search.
