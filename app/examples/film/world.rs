@@ -35,6 +35,7 @@ impl World {
         team: Option<(PathBuf, String)>,
         clock: &Path,
         mut account: Option<Account>,
+        signs_in_at_step: bool,
     ) -> anyhow::Result<Self> {
         let work = &args.work;
         let home = work.join("home");
@@ -172,13 +173,7 @@ impl World {
         if let Some(face) = args.world.get("faceStyle").filter(|face| face.is_object()) {
             runtime.block_on(client.call("setFaceStyle", face.clone()))?;
         }
-        if let Some(account) = &mut account {
-            let name = (args.world.pointer("/sikemuxAccount/host"))
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("the world's sikemuxAccount names no host"))?;
-            account.sign_in(&runtime, &client, &work.join("data"), name)?;
-        }
-        Ok(Self {
+        let mut world = Self {
             core,
             runtime,
             client,
@@ -201,7 +196,11 @@ impl World {
             claude_program: args.claude.clone(),
             linked: Vec::new(),
             account,
-        })
+        };
+        if !signs_in_at_step {
+            world.sign_in()?;
+        }
+        Ok(world)
     }
 
     /// A year of work in `path` for the activity calendar: busier on weekdays and lately. The
@@ -511,6 +510,17 @@ impl World {
             .ok_or_else(|| anyhow!("add a project first"))
     }
 
+    /// Signs the film's core in to the world's accounts API, as the host its sikemuxAccount names.
+    fn sign_in(&mut self) -> anyhow::Result<()> {
+        let Some(account) = &mut self.account else {
+            return Ok(());
+        };
+        let name = (self.world.pointer("/sikemuxAccount/host"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("the world's sikemuxAccount names no host"))?;
+        account.sign_in(&self.runtime, &self.client, &self.work.join("data"), name)
+    }
+
     /// Does `step` when it is the core's to do.
     pub(super) fn chat_named(&self, name: &str) -> anyhow::Result<String> {
         (self.named.get(name).cloned()).ok_or_else(|| anyhow!("no chat named {name}"))
@@ -526,7 +536,7 @@ impl World {
                 }
                 self.project = Some((name, path));
             }
-            "signed-in" => {}
+            "signed-in" => self.sign_in()?,
             "host" => self.link_host(step.text(0)?)?,
             "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
             "asleep" => self.freeze(step.text(0)?)?,

@@ -20,7 +20,8 @@
 //!                               each project gets ORIGIN as its remote, so it is the shared one
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   signed-in                   signs the film's core in to a local accounts API, as the
-//!                               person, host and orgs the world's sikemuxAccount names
+//!                               person, host and orgs the world's sikemuxAccount names; a
+//!                               scene with a host step and none of these signs in first
 //!   host NAME                   signs in another host on the same account, a throwaway core
 //!                               of its own holding a copy of the last project
 //!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST
@@ -200,7 +201,8 @@ fn main() -> anyhow::Result<()> {
             Account::start(&args.work, account)
         })
         .transpose()?;
-    let mut world = World::start(&args, replies, team, &clock, account)?;
+    let signs_in_at_step = steps.iter().any(|step| step.verb == "signed-in");
+    let mut world = World::start(&args, replies, team, &clock, account, signs_in_at_step)?;
 
     let bench = Rc::new(RefCell::new(None));
     let kept = bench.clone();
