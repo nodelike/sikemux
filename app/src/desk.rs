@@ -1584,8 +1584,17 @@ impl Workbench {
         if self.desks.read(cx).engine.is_none() {
             return false;
         }
-        self.open_agent(agent, cx);
+        self.bring_pages_forward(agent, cx);
         self.show_on_desk(agent, url, cx)
+    }
+
+    /// Brings the agent and its desk's pages to the front, with the page wanted in the keys.
+    fn bring_pages_forward(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.open_agent(agent, cx);
+        self.desks.update(cx, |desks, cx| {
+            desks.turn_to_pages(agent, cx);
+            desks.want_page_focused(agent);
+        });
     }
 
     /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
@@ -1625,11 +1634,7 @@ impl Workbench {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
-        self.open_agent(agent, cx);
-        self.desks.update(cx, |desks, cx| {
-            desks.turn_to_pages(agent, cx);
-            desks.want_page_focused(agent);
-        });
+        self.bring_pages_forward(agent, cx);
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
         }
