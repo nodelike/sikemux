@@ -782,7 +782,10 @@ export function billingRoutes({
           });
         if (row.cancel_at_period_end === cancel)
           return c.json(await reread(row.id));
-        if (row.paused_for_seat_at) {
+        if (
+          row.paused_for_seat_at &&
+          (row.paid_left !== null || row.resumes_at !== null)
+        ) {
           const firstDays =
             cancel &&
             (
@@ -812,6 +815,12 @@ export function billingRoutes({
             );
           }
         } else {
+          if (row.paused_for_seat_at && row.status === "paused")
+            throw new ApiFailure(
+              409,
+              "conflict",
+              "This plan is being paused for your seat. Try again in a minute.",
+            );
           const subscription = heldSubscription(row, row.provider_customer_id);
           const when = row.status === "paused" ? "now" : "period_end";
           await (cancel

@@ -11,6 +11,7 @@ import type {
   PaymentCard,
 } from "@sikemux/protocol";
 
+import { ApiFailure } from "../http.ts";
 import { unitPrice } from "./catalog.ts";
 import type {
   BillingProvider,
@@ -25,7 +26,10 @@ import type {
 } from "./provider.ts";
 
 const SIGNATURE_HEADER = "x-stand-in-signature";
-/** Like Paddle, the stand-in takes no pause or cancel in the half hour before a renewal. */
+/**
+ * Like Paddle, the stand-in takes no pause or cancel in the half hour before the period's end, when
+ * it renews or a scheduled cancel ends it, and a pause drops a scheduled cancel.
+ */
 const RENEWAL_LOCK_MS = 30 * 60_000;
 
 function periodEnd(from: Date, interval: BillingInterval): Date {
@@ -94,6 +98,8 @@ export class StandInProvider implements BillingProvider {
   private readonly resumes = new Map<string, Date>();
   /** When each subscription paused here was paused. */
   private readonly pausedAt = new Map<string, Date>();
+  /** The subscriptions set here to cancel at their period's end. */
+  private readonly cancelling = new Set<string>();
   private readonly payments = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
@@ -290,10 +296,17 @@ export class StandInProvider implements BillingProvider {
   }
 
   private async setCancel(held: HeldSubscription, cancelAtPeriodEnd: boolean) {
+    if (cancelAtPeriodEnd) this.cancelling.add(held.providerSubscriptionId);
+    else this.cancelling.delete(held.providerSubscriptionId);
     await this.send({
       ...this.event("subscription.changed"),
       subscription: { ...this.subscriptionOf(held), cancelAtPeriodEnd },
     });
+  }
+
+  /** Whether the subscription is set here to cancel at its period's end. */
+  cancelsAtPeriodEnd(providerSubscriptionId: string) {
+    return this.cancelling.has(providerSubscriptionId);
   }
 
   private renewsShortly(held: HeldSubscription, now = Date.now()) {
@@ -308,8 +321,13 @@ export class StandInProvider implements BillingProvider {
     if (when === "period_end" && paused)
       throw new Error("A paused subscription can only be cancelled at once.");
     if (!paused && this.renewsShortly(held))
-      throw new Error("The subscription renews in the next few minutes.");
+      throw new ApiFailure(
+        409,
+        "conflict",
+        "This subscription renews in the next few minutes. Change it after it renews.",
+      );
     if (when === "period_end") return this.setCancel(held, true);
+    this.cancelling.delete(held.providerSubscriptionId);
     this.pausedAt.delete(held.providerSubscriptionId);
     this.resumes.delete(held.providerSubscriptionId);
     await this.send({
@@ -338,6 +356,10 @@ export class StandInProvider implements BillingProvider {
       return {
         askAgainAt: new Date(held.currentPeriodEnd.getTime() + RENEWAL_LOCK_MS),
       };
+    if (this.cancelling.has(id)) {
+      if (!held.cancelAtPeriodEnd) return { cancelScheduled: true };
+      await this.setCancel(held, false);
+    }
     this.pausedAt.set(id, now);
     await this.send({
       ...this.event("subscription.paused", now),

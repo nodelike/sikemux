@@ -726,3 +726,96 @@ describe("the provider's events", () => {
     expect(rows.map((invoice) => invoice.status)).toEqual(["paid", "refunded"]);
   });
 });
+
+describe("cancelling a Pro a seat pauses", () => {
+  async function pro() {
+    const { rows } = await database.pool.query<{
+      id: string;
+      provider_subscription_id: string;
+      status: string;
+      cancel_at_period_end: boolean;
+      paid_left: string | null;
+      resumes_at: Date | null;
+    }>(
+      `select id, provider_subscription_id, status, cancel_at_period_end, paid_left::text, resumes_at
+         from subscriptions where product = 'pro'`,
+    );
+    const [row] = rows;
+    if (!row) throw new Error("no Pro");
+    return row;
+  }
+
+  const cancelPro = async (id: string) =>
+    as(MEMBER, `/v1/billing/subscriptions/${id}/cancel`, { method: "POST" });
+
+  async function pausing(renewsInMinutes?: number) {
+    await buy(MEMBER, "pro");
+    const orgId = await createOrg(3);
+    vi.spyOn(provider, "pause").mockResolvedValueOnce({
+      askAgainAt: new Date(Date.now() + DAY_MS),
+    });
+    await addMember(orgId, MEMBER, "user");
+    if (renewsInMinutes !== undefined)
+      await database.pool.query(
+        "update subscriptions set current_period_end = now() + $1 * interval '1 minute' where product = 'pro'",
+        [renewsInMinutes],
+      );
+    const row = await pro();
+    expect(row.paid_left).toBeNull();
+    return row;
+  }
+
+  it("B1: while the pause is under way, a cancel inside the renewal lock is refused as for any plan", async () => {
+    const row = await pausing(10);
+    expect((await cancelPro(row.id)).status).toBe(409);
+    expect((await pro()).cancel_at_period_end).toBe(false);
+  });
+
+  it("B2: while the pause is under way, a cancel goes to the provider, and the pause carries it over to end the plan", async () => {
+    const row = await pausing();
+    const cancel = vi.spyOn(provider, "cancel");
+    expect((await cancelPro(row.id)).status).toBe(200);
+    expect(cancel).toHaveBeenCalledWith(expect.anything(), "period_end");
+    expect(await pro()).toMatchObject({
+      cancel_at_period_end: true,
+      status: "ended",
+    });
+  });
+
+  it("C: a refused refund of the kept days keeps the cancel; the days run after the seat and end with no new charge", async () => {
+    await buy(MEMBER, "pro");
+    await database.pool.query(
+      "update invoices set at = at - interval '20 days'",
+    );
+    const orgId = await createOrg(3);
+    await addMember(orgId, MEMBER, "user");
+    const frozen = await pro();
+    expect(frozen.paid_left).not.toBeNull();
+
+    provider.refuseRefunds = true;
+    expect((await cancelPro(frozen.id)).status).toBe(200);
+    expect(await pro()).toMatchObject({
+      cancel_at_period_end: true,
+      paid_left: frozen.paid_left,
+    });
+    expect(
+      await count(
+        "select count(*)::int as n from invoices where kept_refund_refused_at is not null",
+      ),
+    ).toBe(1);
+
+    const payments = await count("select count(*)::int as n from invoices");
+    expect(
+      (await as(MEMBER, `/v1/orgs/${orgId}/leave`, { method: "POST" })).status,
+    ).toBe(204);
+    const running = await pro();
+    expect(running.cancel_at_period_end).toBe(true);
+    expect(running.resumes_at).not.toBeNull();
+    expect(
+      provider.resumesOn(running.provider_subscription_id),
+    ).toBeUndefined();
+    expect(await count("select count(*)::int as n from invoices")).toBe(
+      payments,
+    );
+  });
+});

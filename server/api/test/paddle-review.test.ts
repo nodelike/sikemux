@@ -48,7 +48,8 @@ interface PaddleSub {
   custom_data: Record<string, unknown> | null;
   billing_cycle: { interval: string; frequency: number };
   current_billing_period: { starts_at: string; ends_at: string };
-  next_billed_at: string;
+  next_billed_at: string | null;
+  paused_at?: string;
   scheduled_change: { action: string; effective_at: string } | null;
   items: { status: string; quantity: number; price: PaddlePrice }[];
   management_urls: { update_payment_method: string };
@@ -78,6 +79,8 @@ class FakePaddle {
   private later = 0;
   /** How long Paddle takes to answer for a subscription. */
   slowMs = 0;
+  /** Fails every pause, as Paddle failing between two calls. */
+  failPauses = false;
   subscriptions = new Map<string, PaddleSub>();
   customerOf = new Map<string, string>();
   lastCheckout: string | undefined;
@@ -205,7 +208,7 @@ class FakePaddle {
       const [first] = items ?? [];
       const billsOn = body.next_billed_at as string | undefined;
       const now = Date.now() + ahead + this.later;
-      const renewsIn = new Date(sub.next_billed_at).getTime() - now;
+      const renewsIn = new Date(sub.next_billed_at ?? 0).getTime() - now;
       if (renewsIn > 0 && renewsIn < 30 * MINUTE_MS)
         return Promise.reject(
           new PaddleError(409, "subscription_locked_renewal", "locked"),
@@ -259,13 +262,44 @@ class FakePaddle {
       }
       if ("custom_data" in body)
         sub.custom_data = body.custom_data as Record<string, unknown>;
-      if (body.scheduled_change === null) sub.scheduled_change = null;
+      if (body.scheduled_change === null) {
+        if (sub.scheduled_change?.action === "cancel")
+          sub.next_billed_at = sub.current_billing_period.ends_at;
+        sub.scheduled_change = null;
+      }
       return Promise.resolve(sub);
     }
     if (method === "POST" && path === "/adjustments")
       return Promise.resolve({});
-    if (method === "POST" && path.endsWith("/cancel"))
+    const acted = /^\/subscriptions\/([^/]+)\/(cancel|pause)$/.exec(path);
+    const target = acted && this.subscriptions.get(acted[1] ?? "");
+    if (method === "POST" && acted?.[2] === "cancel") {
+      if (target && body?.effective_from === "next_billing_period") {
+        target.scheduled_change = {
+          action: "cancel",
+          effective_at: target.current_billing_period.ends_at,
+        };
+        target.next_billed_at = null;
+      }
       return Promise.resolve({});
+    }
+    if (method === "POST" && target && acted?.[2] === "pause") {
+      const ends =
+        target.next_billed_at ?? target.scheduled_change?.effective_at;
+      const endsIn = ends ? Date.parse(ends) - (Date.now() + ahead) : 0;
+      if (endsIn > 0 && endsIn < 30 * MINUTE_MS)
+        return Promise.reject(
+          new PaddleError(409, "subscription_locked_renewal", "locked"),
+        );
+      if (this.failPauses)
+        return Promise.reject(new PaddleError(500, "internal_error", "failed"));
+      // Whether a pause keeps a scheduled cancel is not in Paddle's docs: this takes the worse case.
+      target.status = "paused";
+      target.paused_at = new Date(Date.now() + ahead).toISOString();
+      target.scheduled_change = null;
+      target.next_billed_at = null;
+      return Promise.resolve(target);
+    }
     return Promise.reject(
       new Error(`the fake Paddle has no ${method} ${path}`),
     );
@@ -1701,5 +1735,49 @@ describe("a sale paid on a checkout the API has no record of, sixth read", () =>
       errorsForLater: 2,
       renewalPastRetries: 503,
     });
+  });
+});
+
+describe("a seat pausing a Pro its person set to cancel", () => {
+  const provider = () =>
+    new PaddleProvider({
+      api: paddle as unknown as PaddleApi,
+      apiOrigin: "https://api.sikemux.com",
+      log,
+      now: () => Date.now() + ahead,
+    });
+
+  function cancelling(endsInMinutes: number) {
+    const ends = new Date(Date.now() + endsInMinutes * MINUTE_MS).toISOString();
+    const sub = paddleSub(ctmOf(OWNER), "pro", 1, ends);
+    sub.scheduled_change = { action: "cancel", effective_at: ends };
+    sub.next_billed_at = null;
+    paddle.subscriptions.set(sub.id, sub);
+    const held = {
+      providerSubscriptionId: sub.id,
+      providerCustomerId: sub.customer_id,
+      product: "pro" as const,
+      interval: "month" as const,
+      quantity: 1,
+      currentPeriodEnd: new Date(ends),
+      cancelAtPeriodEnd: true,
+    };
+    return { sub, held };
+  }
+
+  it("A1: a cancel due within half an hour is left alone and the pause asked again after it", async () => {
+    const { sub, held } = cancelling(20);
+    const outcome = await provider().pause(held, new Date());
+    expect(outcome).toHaveProperty("askAgainAt");
+    expect(sub.scheduled_change?.action).toBe("cancel");
+    expect(sub.status).toBe("active");
+  });
+
+  it("A2: a pause that fails after the cancel was taken off puts the cancel back", async () => {
+    const { sub, held } = cancelling(10 * 24 * 60);
+    paddle.failPauses = true;
+    await expect(provider().pause(held, new Date())).rejects.toThrow();
+    expect(sub.scheduled_change?.action).toBe("cancel");
+    expect(sub.next_billed_at).toBeNull();
   });
 });

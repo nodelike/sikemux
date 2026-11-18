@@ -234,6 +234,7 @@ export async function refundPending(
         eb.and([
           eb("kept_refund", "is not", null),
           eb("kept_refunded_at", "is", null),
+          eb("kept_refund_refused_at", "is", null),
         ]),
       ]),
     )

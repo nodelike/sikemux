@@ -81,6 +81,7 @@ async function rowsOf(
       "subscriptions.paused_for_seat_at",
       "subscriptions.paid_left",
       "subscriptions.resumes_at",
+      "subscriptions.cancel_at_period_end",
     ])
     .where("billing_customers.provider", "=", from.name)
     .where(
@@ -249,6 +250,8 @@ async function changeItems(
           at,
         ),
         ...back,
+        ...(pausing &&
+          row.cancel_at_period_end && { cancel_at_period_end: true }),
       })
       .where("id", "=", row.id)
       .execute();
@@ -599,17 +602,8 @@ async function apply(
       if (event.type === "payment.refund_refused" && keptPending) {
         await trx
           .updateTable("invoices")
-          .set({ kept_refund: null })
-          .where("customer_id", "=", customerId)
-          .where("provider_subscription_id", "=", subscriptionId)
-          .where("kept_refunded_at", "is", null)
-          .execute();
-        await trx
-          .updateTable("subscriptions")
-          .set({ cancel_at_period_end: false })
-          .where("customer_id", "=", customerId)
-          .where("provider_subscription_id", "=", subscriptionId)
-          .where("status", "<>", "ended")
+          .set({ kept_refund_refused_at: at })
+          .where("id", "=", invoice.id)
           .execute();
         return { customerId, refused: event.providerPaymentId };
       }
@@ -641,6 +635,7 @@ async function apply(
           .where("status", "=", "paid")
           .where("kept_refund", "is not", null)
           .where("kept_refunded_at", "is", null)
+          .where("kept_refund_refused_at", "is", null)
           .executeTakeFirst();
         if (!waiting)
           await endPlanNow(trx, from, customerId, subscriptionId, at);

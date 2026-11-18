@@ -139,28 +139,50 @@ function waitingRefunds(db: Kysely<Tables>, row: Held) {
         eb.and([
           eb("kept_refund", "is not", null),
           eb("kept_refunded_at", "is", null),
+          eb("kept_refund_refused_at", "is", null),
         ]),
       ]),
     )
     .execute();
 }
 
+/** Whether the provider refused to refund the kept paid time of a cancelled Pro paused for a seat. */
+async function keptRefundRefused(db: Kysely<Tables>, row: Held) {
+  const refused = await db
+    .selectFrom("invoices")
+    .select("id")
+    .where("customer_id", "=", row.customer_id)
+    .where("provider_subscription_id", "=", row.provider_subscription_id)
+    .where("kept_refund_refused_at", "is not", null)
+    .where("kept_refunded_at", "is", null)
+    .executeTakeFirst();
+  return refused !== undefined;
+}
+
 /**
  * Forgets a pause the provider no longer holds, as when its resume went through and the event
- * saying so was lost. Refunds it waited on go out as for a plan that runs: a first-days refund
- * with a cancel at the period's end, a kept-time refund not at all, as no time is kept.
+ * saying so was lost, and settles the plan again as the running plan it is. Refunds it waited on
+ * go out as for a plan that runs: a first-days refund with a cancel at the period's end, a
+ * kept-time refund not at all, as no time is kept.
  */
 async function forgetPause(
   db: Kysely<Tables>,
-  provider: string,
+  provider: Pausing,
+  userId: string,
   row: Held,
   log: Logger,
-): Promise<null> {
-  await db.transaction().execute(async (trx) => {
+): Promise<Date | null> {
+  const refunding = await db.transaction().execute(async (trx) => {
     await trx
       .updateTable("subscriptions")
       .set({ paused_for_seat_at: null, paid_left: null, resumes_at: null })
       .where("id", "=", row.id)
+      .execute();
+    await trx
+      .updateTable("subscriptions")
+      .set({ status: "active" })
+      .where("id", "=", row.id)
+      .where("status", "=", "paused")
       .execute();
     const dropped = await trx
       .updateTable("invoices")
@@ -169,6 +191,7 @@ async function forgetPause(
       .where("provider_subscription_id", "=", row.provider_subscription_id)
       .where("kept_refund", "is not", null)
       .where("kept_refunded_at", "is", null)
+      .where("kept_refund_refused_at", "is", null)
       .executeTakeFirst();
     if (dropped.numUpdatedRows)
       log.error(
@@ -184,7 +207,7 @@ async function forgetPause(
       .where("refund_requested_at", "is not", null)
       .execute();
     if (firstDays.length)
-      await callLater(trx, provider, [
+      await callLater(trx, provider.name, [
         {
           action: "cancel_at_period_end",
           subscription: heldSubscription(row, row.provider_customer_id),
@@ -194,8 +217,10 @@ async function forgetPause(
           providerPaymentId: invoice.provider_payment_id,
         })),
       ]);
+    await appendEvents(trx, [{ userId, type: "plan.changed" }]);
+    return firstDays.length > 0;
   });
-  return null;
+  return refunding ? null : settleSeatPause(db, provider, userId, log);
 }
 
 /** Ends a paused Pro at once, which is the only way the provider ends a paused subscription. */
@@ -271,6 +296,17 @@ export async function settleSeatPause(
   if (row.paid_left === null && row.resumes_at === null) {
     const paused = await provider.pause(held, since);
     if ("askAgainAt" in paused) return paused.askAgainAt;
+    if ("cancelScheduled" in paused) {
+      await db
+        .updateTable("subscriptions")
+        .set({ cancel_at_period_end: true })
+        .where("id", "=", row.id)
+        .where("paused_for_seat_at", "=", since)
+        .where("paid_left", "is", null)
+        .where("resumes_at", "is", null)
+        .execute();
+      return settleSeatPause(db, provider, userId, log);
+    }
     if ("refused" in paused) {
       await db
         .updateTable("subscriptions")
@@ -312,7 +348,7 @@ export async function settleSeatPause(
   const refunds = await waitingRefunds(db, row);
   if (row.resumes_at && (seated || deleted || refunds.length)) {
     if (!(await provider.keepPaused(held)))
-      return forgetPause(db, provider.name, row, log);
+      return forgetPause(db, provider, userId, row, log);
     await record(
       db,
       userId,
@@ -334,7 +370,7 @@ export async function settleSeatPause(
 
   if (refunds.length) {
     if (!(await provider.keepPaused(held)))
-      return forgetPause(db, provider.name, row, log);
+      return forgetPause(db, provider, userId, row, log);
     for (const refund of refunds)
       await (refund.kept_refund === null
         ? provider.refund(refund.provider_payment_id)
@@ -352,12 +388,29 @@ export async function settleSeatPause(
       .transaction()
       .execute((trx) => askKeptRefunds(trx, id));
     if (asked) return settleSeatPause(db, provider, userId, log);
-    await endNow(db, provider, userId, row, "paused");
-    return null;
+    if (!(await keptRefundRefused(db, row))) {
+      await endNow(db, provider, userId, row, "paused");
+      return null;
+    }
+    if (seated || !row.runs_out_at) return null;
+    await record(
+      db,
+      userId,
+      row.id,
+      (trx) =>
+        trx
+          .updateTable("subscriptions")
+          .set({ resumes_at: row.runs_out_at, paid_left: null })
+          .where("id", "=", id)
+          .where("paid_left", "is not", null)
+          .executeTakeFirst(),
+      { endsAt: row.runs_out_at.toISOString() },
+    );
+    return settleSeatPause(db, provider, userId, log);
   }
   if (row.cancel_at_period_end && row.resumes_at) {
     if (!(await provider.keepPaused(held)))
-      return forgetPause(db, provider.name, row, log);
+      return forgetPause(db, provider, userId, row, log);
     if (row.resumes_at.getTime() > Date.now()) return row.resumes_at;
     await endNow(db, provider, userId, row, "kept_time_used");
     return null;
@@ -367,7 +420,7 @@ export async function settleSeatPause(
   const at = row.resumes_at ?? row.runs_out_at;
   if (!at) return null;
   if (!(await provider.resumeOn(held, at)))
-    return forgetPause(db, provider.name, row, log);
+    return forgetPause(db, provider, userId, row, log);
   if (row.resumes_at) return null;
   await db.transaction().execute(async (trx) => {
     const set = await trx

@@ -479,13 +479,14 @@ Table invoices {
   refunded_at timestamptz
   kept_refund bigint [note: 'kept_refund > 0']
   kept_refunded_at timestamptz
+  kept_refund_refused_at timestamptz
 
   indexes {
     (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
     provider_payment_id [name: 'invoices_by_provider', unique]
   }
 
-  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL)'
+  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_refused_at IS NULL) OR (kept_refund IS NOT NULL)'
 }
 
 Table billing_events {

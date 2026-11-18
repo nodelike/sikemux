@@ -27,8 +27,11 @@ alter table billing_calls
   add check (action = 'refund' or refund_amount is null);
 
 -- The refund of the paid time a Pro paused for a seat still kept, asked when it is cancelled:
--- kept_refund is the amount asked of this payment, kept_refunded_at when the provider paid it.
+-- kept_refund is the amount asked of this payment, kept_refunded_at when the provider paid it,
+-- kept_refund_refused_at when the provider refused it.
 alter table invoices
   add column kept_refund bigint check (kept_refund > 0),
   add column kept_refunded_at timestamptz,
-  add check (kept_refunded_at is null or kept_refund is not null);
+  add column kept_refund_refused_at timestamptz,
+  add check (kept_refunded_at is null or kept_refund is not null),
+  add check (kept_refund_refused_at is null or kept_refund is not null);

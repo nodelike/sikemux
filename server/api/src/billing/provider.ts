@@ -120,6 +120,7 @@ export type ProviderEvent = {
 export type PauseOutcome =
   | { paidUntil: Date; pausedAt: Date; wasCancelling: boolean }
   | { askAgainAt: Date }
+  | { cancelScheduled: true }
   | { refused: "paused_elsewhere" | "not_active" };
 
 export interface CheckoutRequest {
@@ -239,9 +240,11 @@ export interface BillingProvider {
   /**
    * Pauses the subscription at once, with no end, and answers when the period it had paid for
    * would have ended, when the provider paused it, and whether it was set to cancel, which the pause
-   * drops. A pause the provider made before `since` is someone else's and is refused, as is a
-   * subscription that is not active. Inside the half hour before a renewal the provider takes no
-   * pause, so it answers when to ask again instead, by which time the renewal has gone through.
+   * drops. A cancel the provider holds that `subscription` does not is answered with
+   * `cancelScheduled`, to be recorded before it is dropped. A pause the provider made before `since`
+   * is someone else's and is refused, as is a subscription that is not active. Inside the half hour
+   * before a renewal or a scheduled cancel the provider takes no pause, so it answers when to ask
+   * again instead, by which time the renewal or the cancel has gone through.
    */
   pause(subscription: HeldSubscription, since: Date): Promise<PauseOutcome>;
   /**

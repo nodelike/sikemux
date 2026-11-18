@@ -500,6 +500,7 @@ export interface Tables {
       number | null
     >;
     kept_refunded_at: Generated<Date | null>;
+    kept_refund_refused_at: Generated<Date | null>;
   };
   billing_events: {
     provider: string;

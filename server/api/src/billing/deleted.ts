@@ -122,6 +122,7 @@ export async function endDeletedBilling(
             )
             .where("kept_refund", "is not", null)
             .where("kept_refunded_at", "is", null)
+            .where("kept_refund_refused_at", "is", null)
             .execute();
           await callLater(
             trx,
