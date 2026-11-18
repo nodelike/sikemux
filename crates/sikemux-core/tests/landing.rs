@@ -11,7 +11,7 @@
 //! a rebase by hand, a landing and a push, a footer copied onto another commit
 //! still counts for nothing, an agent can wake one held by a stop, and a file a shell command
 //! wrote reads as the turn's uncommitted work, and a worker that ends waiting with nothing set to
-//! wake it is sent back rather than reported as done.
+//! wake it is sent back rather than reported as done, and a land drops the merge queue's old builds.
 
 mod folded;
 
@@ -586,4 +586,128 @@ async fn a_turn_in_a_folder_of_repositories_reads_the_one_it_changed() {
         ))
         .await;
     reads(&mut onlooker, &writer.id, "done, committed, not landed").await;
+}
+
+/// A file in `deps` last read, and changed, `hours` ago.
+fn built(deps: &Path, name: &str, hours: u64) {
+    let file = deps.join(name);
+    std::fs::write(&file, "built").expect("the build output");
+    let at = std::time::SystemTime::now() - Duration::from_secs(hours * 3600);
+    let times = std::fs::FileTimes::new().set_accessed(at).set_modified(at);
+    (std::fs::File::options().write(true).open(&file))
+        .and_then(|opened| opened.set_times(times))
+        .expect("its times");
+}
+
+/// The merge queue's checkout reached 170 GB: every land built there in a new copy of each crate,
+/// and nothing ever dropped the old ones.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_land_trims_the_merge_queues_old_builds_and_keeps_the_newest() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    git(&project, &["init", "--quiet", "-b", "main"]);
+    commit_file(&project, ".gitignore", "/target\n", "base");
+
+    let socket: PathBuf = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "omp",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    app.call("setAgentDefaults", json!({ "permissionMode": "bypass" }))
+        .await
+        .expect("the defaults");
+    let (lead, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let mut lead = Agent::open(&socket, &lead).await;
+    let spawned = lead
+        .tool(
+            "agent.spawn",
+            json!({ "cli": "omp", "checkout": "own", "title": "Say hello", "prompt": "hello" }),
+        )
+        .await
+        .expect("a worker");
+    let mut worker = Agent::open(&socket, spawned["agentId"].as_str().expect("its id")).await;
+    worker.chat.until_said("hello").await;
+
+    for change in ["one", "two"] {
+        if change == "two" {
+            let target = root.join("project.worktrees/.merge-queue/target");
+            let (deps, fingerprints) =
+                (target.join("debug/deps"), target.join("debug/.fingerprint"));
+            std::fs::create_dir_all(&deps).expect("deps");
+            std::fs::write(target.join(".rustc_info.json"), "{}").expect("cargo's mark");
+            for (hash, hours) in [("a", 1), ("b", 2), ("c", 3), ("d", 30), ("e", 40)] {
+                built(&deps, &format!("libwidget-{hash}.rlib"), hours);
+                built(&deps, &format!("libwidget-{hash}.rmeta"), hours);
+                let fingerprint = fingerprints.join(format!("widget-{hash}"));
+                std::fs::create_dir_all(&fingerprint).expect("fingerprint");
+                std::fs::write(fingerprint.join("lib-widget"), "0").expect("fingerprint");
+            }
+        }
+        worker
+            .run(&format!(
+                "printf '{change}\\n' > {change}.txt && git add {change}.txt && git commit -qm 'worker: {change}'"
+            ))
+            .await;
+        let before = git(&project, &["rev-parse", "main"]);
+        worker
+            .tool("git.commit", json!({ "land": true }))
+            .await
+            .expect("it lands");
+        moved(&project, "main", &before).await;
+    }
+
+    let target = root.join("project.worktrees/.merge-queue/target/debug");
+    let left = |dir: &str| {
+        let mut names: Vec<String> = std::fs::read_dir(target.join(dir))
+            .expect("the folder")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    };
+    let deadline = Instant::now() + WAIT;
+    while left("deps").len() > 6 {
+        assert!(
+            Instant::now() < deadline,
+            "never trimmed: {:?}",
+            left("deps")
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        left("deps"),
+        [
+            "libwidget-a.rlib",
+            "libwidget-a.rmeta",
+            "libwidget-b.rlib",
+            "libwidget-b.rmeta",
+            "libwidget-c.rlib",
+            "libwidget-c.rmeta"
+        ]
+    );
+    assert_eq!(left(".fingerprint"), ["widget-a", "widget-b", "widget-c"]);
 }

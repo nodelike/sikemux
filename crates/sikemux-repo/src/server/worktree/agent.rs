@@ -329,6 +329,27 @@ pub async fn merge_queue(
     clean_at(core, project, commit, MERGE_QUEUE).await
 }
 
+/// Drops the Cargo builds in the merge queue's checkout of `project` that no build has used
+/// lately, at most once an hour. Call it while holding the queue's checkout turn, so no check
+/// is building there.
+pub async fn trim_merge_queue(project: &Path) {
+    let checkout = worktrees_folder(project).join(MERGE_QUEUE);
+    if !linked(&checkout) {
+        return;
+    }
+    let shown = checkout.clone();
+    let freed = blocking(move || Ok(super::stale_builds::trim_hourly(&checkout)))
+        .await
+        .unwrap_or_default();
+    if freed > 0 {
+        eprintln!(
+            "sikemux core: freed {:.1} GB of old builds from {}",
+            freed as f64 / 1e9,
+            shown.display()
+        );
+    }
+}
+
 /// The checkout of `project`'s repository that its reservoir command runs in, moved to `commit`.
 /// It is its own, as that command can run for as long as a check does.
 pub async fn reservoir(core: &Arc<Core>, project: &Path, commit: &str) -> Result<PathBuf, String> {

@@ -13,6 +13,7 @@ use crate::tasks::detect::PERSONAL_TASKS;
 pub mod agent;
 pub mod build_output;
 pub mod removal;
+mod stale_builds;
 mod warm;
 
 pub use warm::seed_in_background;

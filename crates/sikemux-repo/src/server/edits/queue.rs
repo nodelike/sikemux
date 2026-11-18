@@ -257,6 +257,7 @@ fn wake(core: &Core, key: Key) {
             with_line(&core, &key, |line| {
                 line.waiting.iter_mut().for_each(|w| w.checking = false)
             });
+            crate::server::worktree::agent::trim_merge_queue(&key.0).await;
         }
     });
 }
@@ -981,14 +982,28 @@ pub async fn check_before_push(
         return Ok(());
     }
     let _turn = merge_queue::checkout_turn(true).await;
+    let checked = check_from(core, &key, &from, head, agent).await;
+    crate::server::worktree::agent::trim_merge_queue(repo).await;
+    checked
+}
+
+/// [`check_before_push`] of the commits from `from` to `head`, while it holds the checkout.
+async fn check_from(
+    core: &Arc<Core>,
+    key: &Key,
+    from: &str,
+    head: &str,
+    agent: &str,
+) -> Result<(), String> {
+    let repo = &key.0;
     let due = {
-        let (repo, from, head) = (repo.to_owned(), from.clone(), head.to_owned());
+        let (repo, from, head) = (repo.to_owned(), from.to_owned(), head.to_owned());
         blocking(move || Ok(land_checks_due(&repo, &from, &head)))
             .await
             .unwrap_or_default()
     };
-    if let Some((check, files, why)) = land_checks_at(core, &key, head, due).await {
-        if land_checks_at(core, &key, &from, vec![(check, files)])
+    if let Some((check, files, why)) = land_checks_at(core, key, head, due).await {
+        if land_checks_at(core, key, from, vec![(check, files)])
             .await
             .is_none()
         {
@@ -997,7 +1012,7 @@ pub async fn check_before_push(
     }
     let checkout = crate::server::worktree::agent::merge_queue(core, repo, head).await?;
     let command = {
-        let (repo, head) = (repo.to_owned(), head.to_owned());
+        let (repo, from, head) = (repo.to_owned(), from.to_owned(), head.to_owned());
         blocking(move || rust_check(&repo, &checkout, &from, &head).map_err(Into::into))
             .await
             .map_err(|error| error.to_string())?
@@ -1012,7 +1027,7 @@ pub async fn check_before_push(
             ));
         }
     }
-    mark_checked(&key, head);
+    mark_checked(key, head);
     Ok(())
 }
 
