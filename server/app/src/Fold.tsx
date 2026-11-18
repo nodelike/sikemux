@@ -26,6 +26,7 @@ type Waiting = {
   secret: string;
   expiresAt: string;
   why: FoldWhy;
+  waitingWords: string;
 };
 
 export function waitingFold(): Waiting | null {
@@ -186,6 +187,7 @@ function useStartFold() {
         secret: intent.secret,
         expiresAt: intent.expiresAt,
         why,
+        waitingWords: intent.waitingWords,
       };
       sessionStorage.setItem(WAITING_KEY, JSON.stringify(waiting));
       if (inviteToken)
@@ -253,27 +255,11 @@ function Catch({
   const why = caught.why ?? "browser";
   return (
     <Panel>
-      <h1>
-        {caught.mustFold
-          ? why === "domain"
-            ? `This is an ${caught.orgName ?? "org"} address`
-            : "This address is already on Sikemux"
-          : "Already on Sikemux?"}
-      </h1>
+      <h1>{caught.title}</h1>
       <div className="consent-who">
         <span className="ink">{address}</span>
       </div>
-      <p className="lede">
-        {caught.mustFold
-          ? why === "domain"
-            ? `Addresses at ${caught.address?.split("@")[1] ?? "this domain"} belong to ${caught.orgName ?? "your org"}, so one can't have a Sikemux account of its own. Sign in with your own Google, Apple or email, and this address comes along to show you belong to ${caught.orgName ?? "the org"}. It never signs you in.`
-            : "This address is already verified on a Sikemux account, so it can't have one of its own. Sign in to that account with its own Google, Apple or email, and this new one is removed."
-          : `You just made a new account with this address${
-              why === "invite" && caught.orgName
-                ? ` to join ${caught.orgName}`
-                : ""
-            }. If you already have a Sikemux account, sign in with it and bring the address over, so you keep one account.`}
-      </p>
+      <p className="lede">{caught.words}</p>
       {problem || keepProblem ? (
         <p className="problem" role="alert">
           {problem ?? keepProblem}
@@ -333,9 +319,7 @@ export function FoldWaiting() {
   return (
     <section className="panel fold-waiting">
       <p className="lede">
-        {waiting.why === "seat"
-          ? "Sign in with the account that holds the seat, to bring it to your own."
-          : "Sign in with your own account to bring over the address you just used."}{" "}
+        {waiting.waitingWords}{" "}
         <a
           href="/"
           onClick={(event) => {
@@ -355,7 +339,7 @@ type Read =
   | { state: "loading" }
   | { state: "failed"; problem: string; sameAccount: boolean }
   | { state: "loaded"; preview: FoldPreview }
-  | { state: "done"; kept: string };
+  | { state: "done"; title: string; words: string };
 
 function ConfirmFold({
   waiting,
@@ -451,12 +435,8 @@ function ConfirmFold({
   if (read.state === "done")
     return (
       <Panel>
-        <h1>{seatComing ? "Your seat moved" : "Brought over"}</h1>
-        <p className="lede">
-          {seatComing
-            ? `This account is deleted, and its seats are on ${read.kept} now. Sign in with that account from here on.`
-            : "The address is verified on this account now. The account made with it is deleted, and any seat it held is here."}
-        </p>
+        <h1>{read.title}</h1>
+        <p className="lede">{read.words}</p>
         <button
           type="button"
           className="button primary"
@@ -470,11 +450,6 @@ function ConfirmFold({
     );
 
   const { preview } = read;
-  const kept = preview.keptAddress ?? preview.keptName ?? "your own account";
-  const seats =
-    preview.seats.length > 0
-      ? `Its seat${preview.seats.length > 1 ? "s" : ""} in ${preview.seats.join(", ")} move${preview.seats.length > 1 ? "" : "s"} to ${seatComing ? kept : "this account"}.`
-      : "";
 
   const bring = async () => {
     setBusy(true);
@@ -482,7 +457,11 @@ function ConfirmFold({
     try {
       await run();
       dropWaiting();
-      setRead({ state: "done", kept });
+      setRead({
+        state: "done",
+        title: preview.doneTitle,
+        words: preview.doneWords,
+      });
     } catch (error) {
       setBusy(false);
       if (errorCode(error) === "reverification_cancelled") return;
@@ -492,19 +471,11 @@ function ConfirmFold({
 
   return (
     <Panel>
-      <h1>
-        {seatComing
-          ? `Move this account's seat to ${kept}?`
-          : "Bring this address to this account?"}
-      </h1>
+      <h1>{preview.title}</h1>
       <div className="consent-who">
         <span className="ink">{preview.address}</span>
       </div>
-      <p className="lede">
-        {seatComing
-          ? `This account, made with the address above, holds nothing but its seat. ${seats} Then this account is deleted, and you sign in as ${kept} from here on.`
-          : `The account you just made with it holds nothing but ${preview.seats.length ? "a seat" : "its sign-in"}. ${seats} It's deleted, and the address is verified${preview.orgName ? ` for ${preview.orgName}` : ""} on this account. The address never signs you in: keep signing in as you do now.`}
-      </p>
+      <p className="lede">{preview.words}</p>
       {problem ? (
         <p className="problem" role="alert">
           {problem}

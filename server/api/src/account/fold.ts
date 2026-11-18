@@ -13,7 +13,7 @@ import { sql, type Kysely, type Transaction } from "kysely";
 import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
 import {
-  isWeb,
+  isSession,
   requireIdentity,
   requireRecentSignIn,
   type AuthEnv,
@@ -32,6 +32,7 @@ import { inviteTokenHash, seatsChanged } from "../orgs/shared.ts";
 import { refusalOf, type SignUpRefusal } from "./admission.ts";
 import type { ClerkBackend, SignUp } from "./clerk.ts";
 import { deleteInClerk } from "./deletion.ts";
+import { catchWords, previewWords, waitingWords } from "./fold-words.ts";
 import { addressHash, domainOf } from "./proofs.ts";
 
 const INTENT_MINUTES = 10;
@@ -85,9 +86,12 @@ function holdsTooMuch(held: string[]): ApiFailure {
   );
 }
 
-function requireWeb(c: Context<AuthEnv>) {
-  if (!isWeb(c.get("identity")))
-    throw forbidden("Accounts are brought together only on app.sikemux.com.");
+/** A fold takes the person's own sign-in on the web app or a phone, never a host's or the Mac's. */
+function requireSignIn(c: Context<AuthEnv>) {
+  if (!isSession(c.get("identity")))
+    throw forbidden(
+      "Accounts are brought together only on app.sikemux.com or the Sikemux phone app.",
+    );
 }
 
 async function inviteOrg(db: Kysely<Tables>, token: string | undefined) {
@@ -505,7 +509,7 @@ export function foldRoutes({
     .use("/folds", perUser(limiter, "fold", 60))
     .use("/folds/*", perUser(limiter, "fold", 60))
     .post("/fold/catch", async (c) => {
-      requireWeb(c);
+      requireSignIn(c);
       const { userId } = c.get("identity");
       const { hint, inviteToken } = await readBody(c, "FoldCatchRequest");
       const quiet: FoldCatch = { ask: false, mustFold: false };
@@ -529,6 +533,12 @@ export function foldRoutes({
           ...(deletion?.purge_after
             ? { deletesAt: deletion.purge_after.toISOString() }
             : {}),
+          ...catchWords({
+            mustFold: true,
+            why: found.why,
+            address: found.address,
+            orgName: org?.name,
+          }),
         };
         return c.json(body);
       }
@@ -554,11 +564,17 @@ export function foldRoutes({
         why: hint,
         address: signUp.email,
         ...(org ? { orgName: org.name } : {}),
+        ...catchWords({
+          mustFold: false,
+          why: hint,
+          address: signUp.email,
+          orgName: org?.name,
+        }),
       };
       return c.json(body);
     })
     .post("/fold/keep-new", async (c) => {
-      requireWeb(c);
+      requireSignIn(c);
       const { userId } = c.get("identity");
       const signUp = clerk ? await clerk.signUp(userId) : null;
       if (signUp && (await refusal(userId, signUp)))
@@ -573,7 +589,7 @@ export function foldRoutes({
       return c.body(null, 204);
     })
     .post("/folds", requireRecentSignIn(), async (c) => {
-      requireWeb(c);
+      requireSignIn(c);
       const key = requireProofKey();
       const { userId } = c.get("identity");
       const { why, inviteToken } = await readBody(c, "FoldStart");
@@ -626,11 +642,12 @@ export function foldRoutes({
         id: row.id,
         secret,
         expiresAt: row.expires_at.toISOString(),
+        waitingWords: waitingWords(why),
       };
       return c.json(body, 201);
     })
     .post("/folds/:foldId/preview", async (c) => {
-      requireWeb(c);
+      requireSignIn(c);
       const { userId } = c.get("identity");
       const { secret } = await readBody(c, "FoldSecret");
       const intent = await openIntent(
@@ -656,18 +673,26 @@ export function foldRoutes({
         .where("org_users.user_id", "=", side.from)
         .orderBy("orgs.name")
         .execute();
+      const named = await orgName(db, intent.org_id);
+      const seatNames = seats.map((seat) => seat.name);
       const body: FoldPreview = {
         why: intent.why,
         address,
         keptName: kept?.name ?? null,
         ...(kept?.email ? { keptAddress: kept.email } : {}),
-        orgName: await orgName(db, intent.org_id),
-        seats: seats.map((seat) => seat.name),
+        orgName: named,
+        seats: seatNames,
+        ...previewWords({
+          why: intent.why,
+          kept: kept?.email ?? kept?.name ?? null,
+          orgName: named,
+          seats: seatNames,
+        }),
       };
       return c.json(body);
     })
     .post("/folds/:foldId/confirm", requireRecentSignIn(), async (c) => {
-      requireWeb(c);
+      requireSignIn(c);
       const key = requireProofKey();
       const { userId } = c.get("identity");
       const { secret } = await readBody(c, "FoldSecret");

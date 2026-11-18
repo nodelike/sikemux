@@ -383,6 +383,10 @@ export interface FoldCatch {
   orgName?: string;
   /** With mustFold: the account was deleted and can be restored until then. */
   deletesAt?: string;
+  /** With ask: the screen's heading, in the words every client shows. */
+  title?: string;
+  /** With ask: why the person is asked, in the words every client shows. */
+  words?: string;
 }
 
 export interface FoldCatchRequest {
@@ -405,6 +409,8 @@ export interface FoldIntent {
   /** Kept by the browser that started the fold; the other account sends it to confirm. */
   secret: string;
   expiresAt: string;
+  /** The line shown above the sign-in while the fold waits for the person's other account. */
+  waitingWords: string;
 }
 
 /** What confirming the fold does, for the confirmation screen. */
@@ -419,6 +425,12 @@ export interface FoldPreview {
   orgName: string | null;
   /** The orgs whose seats move to the account that stays. */
   seats: string[];
+  title: string;
+  /** What confirming does, in the words every client shows. */
+  words: string;
+  doneTitle: string;
+  /** What the confirmation screen says once the fold is done. */
+  doneWords: string;
 }
 
 export interface FoldSecret {

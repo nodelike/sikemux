@@ -608,6 +608,16 @@ export const schema = {
           type: "string",
           format: "date-time",
         },
+        title: {
+          description:
+            "With ask: the screen's heading, in the words every client shows.",
+          type: "string",
+        },
+        words: {
+          description:
+            "With ask: why the person is asked, in the words every client shows.",
+          type: "string",
+        },
       },
       required: ["ask", "mustFold"],
       additionalProperties: false,
@@ -644,8 +654,13 @@ export const schema = {
           type: "string",
         },
         expiresAt: { type: "string", format: "date-time" },
+        waitingWords: {
+          description:
+            "The line shown above the sign-in while the fold waits for the person's other account.",
+          type: "string",
+        },
       },
-      required: ["id", "secret", "expiresAt"],
+      required: ["id", "secret", "expiresAt", "waitingWords"],
       additionalProperties: false,
     },
     FoldPreview: {
@@ -673,8 +688,29 @@ export const schema = {
           type: "array",
           items: { type: "string" },
         },
+        title: { type: "string" },
+        words: {
+          description: "What confirming does, in the words every client shows.",
+          type: "string",
+        },
+        doneTitle: { type: "string" },
+        doneWords: {
+          description:
+            "What the confirmation screen says once the fold is done.",
+          type: "string",
+        },
       },
-      required: ["why", "address", "keptName", "orgName", "seats"],
+      required: [
+        "why",
+        "address",
+        "keptName",
+        "orgName",
+        "seats",
+        "title",
+        "words",
+        "doneTitle",
+        "doneWords",
+      ],
       additionalProperties: false,
     },
     FoldSecret: {

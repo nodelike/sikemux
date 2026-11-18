@@ -516,6 +516,12 @@ pub struct FoldCatch {
     /// With mustFold: the account was deleted and can be restored until then.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deletes_at: Option<String>,
+    /// With ask: the screen's heading, in the words every client shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// With ask: why the person is asked, in the words every client shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -550,6 +556,8 @@ pub struct FoldIntent {
     /// Kept by the browser that started the fold; the other account sends it to confirm.
     pub secret: String,
     pub expires_at: String,
+    /// The line shown above the sign-in while the fold waits for the person's other account.
+    pub waiting_words: String,
 }
 
 /// What confirming the fold does, for the confirmation screen.
@@ -567,6 +575,12 @@ pub struct FoldPreview {
     pub org_name: Option<String>,
     /// The orgs whose seats move to the account that stays.
     pub seats: Vec<String>,
+    pub title: String,
+    /// What confirming does, in the words every client shows.
+    pub words: String,
+    pub done_title: String,
+    /// What the confirmation screen says once the fold is done.
+    pub done_words: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

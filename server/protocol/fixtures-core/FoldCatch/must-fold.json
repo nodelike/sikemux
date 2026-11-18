@@ -3,5 +3,7 @@
   "why": "domain",
   "mustFold": true,
   "address": "maya@acme.example",
-  "orgName": "Acme"
+  "orgName": "Acme",
+  "title": "This is an Acme address",
+  "words": "Addresses at acme.example belong to Acme, so one can't have a Sikemux account of its own. Sign in with your own Google, Apple or email, and this address comes along to show you belong to Acme. It never signs you in."
 }
