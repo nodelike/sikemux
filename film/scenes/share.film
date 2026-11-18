@@ -31,6 +31,7 @@ key cmd-alt-7
 settle 4
 click 1390,62
 settle 1
+snap share-menu
 click 1167,142
 settle 2
 click 1385,62
