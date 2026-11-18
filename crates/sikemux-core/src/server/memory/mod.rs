@@ -1499,12 +1499,9 @@ pub(crate) async fn tool_update(
 /// and now names another one, since the agent may mean either.
 fn renumbered_once(core: &Core, agent: &str, project: &str, id: u64) -> Result<(), String> {
     let state = core.memory().state.locked();
-    let moved = state.applying(project).find_map(|held| {
-        let now = *held.renumbered.get(&id)?;
-        Some((now, held.words(now)?))
-    });
+    let moved = (state.applying(project)).find_map(|held| held.renumbered.get(&id).copied());
     let holder = state.applying(project).find(|held| held.holds(id));
-    let (Some((now, was)), Some(holder)) = (moved, holder) else {
+    let (Some(now), Some(holder)) = (moved, holder) else {
         return Ok(());
     };
     if !(core.memory().told_renumbered.locked()).insert((agent.to_owned(), id)) {
@@ -1519,9 +1516,12 @@ fn renumbered_once(core: &Core, agent: &str, project: &str, id: u64) -> Result<(
         Store::Project => "this project".to_owned(),
         Store::Personal => "your own rules".to_owned(),
     };
+    let was = match state.applying(project).find_map(|held| held.words(now)) {
+        Some(was) => format!("#{id} was \"{was}\", which is now #{now}."),
+        None => format!("#{id} was renumbered to #{now}, which is no longer kept."),
+    };
     Err(format!(
-        "#{id} was \"{was}\", which is now #{now}. #{id} is now \"{words}\" from {from}. \
-         Send it again with the number you mean."
+        "{was} #{id} is now \"{words}\" from {from}. Send it again with the number you mean."
     ))
 }
 
