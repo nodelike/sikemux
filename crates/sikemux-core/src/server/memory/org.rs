@@ -275,6 +275,7 @@ async fn sync(core: &Arc<Core>) {
         shared,
         shut,
         unheard,
+        orgs,
     }) = sharing(core).await
     else {
         return;
@@ -284,6 +285,7 @@ async fn sync(core: &Arc<Core>) {
         let mut state = memory.state.locked();
         end(core, &mut state, &shared, &unheard);
         let reshut = state.shut != shut;
+        super::waiting::follow_shares(core, &mut state, &orgs);
         state.shared = shared.clone();
         state.shut = shut;
         if reshut {
@@ -318,6 +320,9 @@ struct Sharing {
     /// The orgs whose vault this host holds no key to and has not heard from yet, whose projects
     /// are in neither map.
     unheard: HashSet<String>,
+    /// The org each project open here is shared with, by its store's key, whether or not this
+    /// host can open its vault.
+    orgs: HashMap<String, String>,
 }
 
 /// None until this host has heard the registry and the account's orgs.
@@ -335,6 +340,7 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
         }
     }
     let (mut shared, mut shut, mut unheard) = (HashMap::new(), HashMap::new(), HashSet::new());
+    let mut shared_orgs = HashMap::new();
     for identity in (core.workspaces().projects().into_iter()).filter_map(|known| known.identity) {
         let project = crate::server::shares::key(&identity);
         let mut mine = (registry.orgs.iter())
@@ -342,6 +348,7 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
         let (Some(list), None) = (mine.next(), mine.next()) else {
             continue;
         };
+        shared_orgs.insert(identity.clone(), list.org.clone());
         let (Some(me), Some(org)) = (
             list.members.iter().find(|member| member.you),
             orgs.iter().find(|org| org.id == list.org),
@@ -386,6 +393,7 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
         shared,
         shut,
         unheard,
+        orgs: shared_orgs,
     })
 }
 

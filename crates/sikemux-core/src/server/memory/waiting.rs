@@ -85,6 +85,30 @@ pub(super) struct Answers {
     not_kept: HashMap<String, String>,
 }
 
+/// Ends the waiting, dropped and refused marks of each project open here whose share changed
+/// since they were kept, so a rule sent to one org's admins is never listed for another's.
+/// `orgs` holds the org each project open here is shared with, by its own store's key.
+pub(super) fn follow_shares(core: &Core, state: &mut State, orgs: &HashMap<String, String>) {
+    let open: HashSet<&String> = state.keys.values().collect();
+    let changed: Vec<String> = (state.held.values_mut())
+        .filter(|held| held.store == Store::Project && !held.mirrored && open.contains(&held.key))
+        .filter_map(|held| {
+            let now = orgs.get(&held.key);
+            if held.shared_with.as_ref() == now {
+                return None;
+            }
+            held.shared_with = now.cloned();
+            held.waiting.clear();
+            held.dropped.clear();
+            held.refused.clear();
+            Some(held.key.clone())
+        })
+        .collect();
+    for key in changed {
+        core.memory().save(state, &key);
+    }
+}
+
 /// Where the store under `local` puts its entries on its member's list, without naming the
 /// project's folder to the org.
 fn store_tag(local: &str) -> String {

@@ -128,6 +128,10 @@ struct Held {
     /// and the vault does not hold yet, by member and entry, with the hash of the words read.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     drops: BTreeMap<String, String>,
+    /// The org the project was shared with when `waiting`, `dropped` and `refused` were last
+    /// kept; they end with that share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared_with: Option<String>,
     /// For an org's store, the project's own store and the membership it was kept for here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     kept_for: Option<org::KeptFor>,
@@ -157,6 +161,7 @@ impl Held {
             refused: BTreeMap::new(),
             keeps: Vec::new(),
             drops: BTreeMap::new(),
+            shared_with: None,
             kept_for: None,
             was: BTreeSet::new(),
         }
