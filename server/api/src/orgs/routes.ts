@@ -131,7 +131,7 @@ export function invitePreviewRoutes({
         .selectFrom("org_invites")
         .innerJoin("orgs", "orgs.id", "org_invites.org_id")
         .select("orgs.name")
-        .where("org_invites.token_hash", "=", tokenHash(token))
+        .where("org_invites.token_hash", "=", inviteTokenHash(token))
         .where("org_invites.accepted_at", "is", null)
         .where("org_invites.revoked_at", "is", null)
         .where("org_invites.expires_at", ">", sql<Date>`now()`)

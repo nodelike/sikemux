@@ -18,6 +18,7 @@ const PEOPLE: {
   name: string;
   domain: string;
   address?: string;
+  alsoAt?: string[];
   createdAt?: number;
 }[] = [
   {
@@ -115,7 +116,7 @@ function user(person: (typeof PEOPLE)[number]) {
     email_address: person.address ?? `${person.key}@${person.domain}`,
     verification: { status: "verified" },
   };
-  const more = ("alsoAt" in person ? person.alsoAt : []).map((domain) => ({
+  const more = (person.alsoAt ?? []).map((domain) => ({
     id: `idn_${person.key}_${domain}`,
     email_address: `${person.key}@${domain}`,
     verification: { status: "verified" },
