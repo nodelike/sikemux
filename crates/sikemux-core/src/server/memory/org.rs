@@ -22,7 +22,7 @@ use crate::server::Core;
 const MAX_BODY: usize = 60 * 1024;
 const TRIES: usize = 3;
 
-/// A project open here that a member shares with an org this account is in.
+/// A project open here that this account's person shares with an org.
 #[derive(Clone)]
 pub(super) struct Shared {
     pub(super) org: String,
@@ -196,17 +196,17 @@ async fn sync(core: &Arc<Core>) {
     }
 }
 
-/// The projects open here that a member shares with an org, by their store's key; none while
-/// this host has not heard the registry.
+/// The projects open here that this account's person shares with one org, by their store's
+/// key; none while this host has not heard the registry.
 async fn shared(core: &Core) -> Option<HashMap<String, Shared>> {
     let registry = crate::server::account::shares::read(core).await?;
     let orgs = sikemux_corekit::accounts::orgs(core.account().shown().as_ref()).to_vec();
     let mut shared = HashMap::new();
     for identity in (core.workspaces().projects().into_iter()).filter_map(|known| known.identity) {
         let project = crate::server::shares::key(&identity);
-        let Some(list) = (registry.orgs.iter()).find(|list| {
-            (list.shares.iter().chain(&list.mine)).any(|share| share.project == project)
-        }) else {
+        let mut mine = (registry.orgs.iter())
+            .filter(|list| list.mine.iter().any(|share| share.project == project));
+        let (Some(list), None) = (mine.next(), mine.next()) else {
             continue;
         };
         let (Some(me), Some(org)) = (
