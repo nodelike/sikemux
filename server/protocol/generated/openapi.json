@@ -6563,6 +6563,10 @@
             "description": "The name of the account that stays.",
             "type": ["string", "null"]
           },
+          "keptAddress": {
+            "description": "The sign-in address of the account that stays, which started the fold, so the person can tell which of their accounts takes the seat.",
+            "type": "string"
+          },
           "orgName": { "type": ["string", "null"] },
           "seats": {
             "description": "The orgs whose seats move to the account that stays.",

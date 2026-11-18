@@ -561,6 +561,9 @@ pub struct FoldPreview {
     pub address: String,
     /// The name of the account that stays.
     pub kept_name: Option<String>,
+    /// The sign-in address of the account that stays, which started the fold, so the person can tell which of their accounts takes the seat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_address: Option<String>,
     pub org_name: Option<String>,
     /// The orgs whose seats move to the account that stays.
     pub seats: Vec<String>,

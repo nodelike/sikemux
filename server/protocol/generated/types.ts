@@ -414,6 +414,8 @@ export interface FoldPreview {
   address: string;
   /** The name of the account that stays. */
   keptName: string | null;
+  /** The sign-in address of the account that stays, which started the fold, so the person can tell which of their accounts takes the seat. */
+  keptAddress?: string;
   orgName: string | null;
   /** The orgs whose seats move to the account that stays. */
   seats: string[];

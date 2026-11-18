@@ -633,6 +633,7 @@ export function foldRoutes({
         why: intent.why,
         address,
         keptName: kept?.name ?? null,
+        ...(kept?.email ? { keptAddress: kept.email } : {}),
         orgName: await orgName(db, intent.org_id),
         seats: seats.map((seat) => seat.name),
       };

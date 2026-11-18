@@ -470,7 +470,7 @@ function ConfirmFold({
     );
 
   const { preview } = read;
-  const kept = preview.keptName ?? "your own account";
+  const kept = preview.keptAddress ?? preview.keptName ?? "your own account";
   const seats =
     preview.seats.length > 0
       ? `Its seat${preview.seats.length > 1 ? "s" : ""} in ${preview.seats.join(", ")} move${preview.seats.length > 1 ? "" : "s"} to ${seatComing ? kept : "this account"}.`
