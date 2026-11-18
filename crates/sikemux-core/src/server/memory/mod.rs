@@ -1039,11 +1039,6 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 .then(|| moved.as_ref().map(|moved| moved.by.clone()))
                 .flatten()
         };
-        let refused = |id: u64| {
-            (held.refused.get(&id))
-                .filter(|_| shared.is_some())
-                .cloned()
-        };
         let org_of = |id: u64| {
             (org.clone())
                 .filter(|_| held.store != Store::Personal || held.refused.contains_key(&id))
@@ -1051,6 +1046,12 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
         let org = org.clone().filter(|_| held.store != Store::Personal);
         let local = held.store == Store::Project && org.is_some();
         let asks = local && shared.is_some_and(|shared| !shared.writes);
+        let refused = |id: u64, sensitive: bool, text: &str| {
+            (held.refused.get(&id).filter(|_| shared.is_some()).cloned()).or_else(|| {
+                (asks && waiting::Waiting::is_sensitive(sensitive, text))
+                    .then(|| waiting::SENSITIVE.to_owned())
+            })
+        };
         let waiting = |id: u64| local && held.waiting.contains(&id);
         let dropped = |id: u64| (held.dropped.get(&id)).filter(|_| local).cloned();
         for rule in held
@@ -1072,7 +1073,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 org: org_of(rule.id),
                 waiting: waiting(rule.id),
                 dropped: dropped(rule.id),
-                refused: refused(rule.id),
+                refused: refused(rule.id, rule.sensitive, &rule.text),
                 asks,
                 shut: local && shut.is_some(),
             };
@@ -1100,7 +1101,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 org: org_of(known.id),
                 waiting: waiting(known.id),
                 dropped: dropped(known.id),
-                refused: refused(known.id),
+                refused: refused(known.id, known.sensitive, &known.text),
                 asks,
                 shut: local && shut.is_some(),
             });

@@ -266,11 +266,11 @@ pub(super) fn move_to(
     }
     if by.agent.is_none() {
         if let Some(listed) = super::waiting::listed(&mut state, project, &from_key, id, to) {
-            listed?;
             core.memory().save(&mut state, &from_key);
-            core.memory().org_sync.notify_one();
             drop(state);
             super::tell_clients(core, false);
+            listed?;
+            core.memory().org_sync.notify_one();
             return Ok(());
         }
     }

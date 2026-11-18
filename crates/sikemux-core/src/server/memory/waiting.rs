@@ -15,6 +15,7 @@ use sikemux_view::memory::{Knowledge, MemoryRule, Store};
 use super::org::Shared;
 use super::{holding, moving, tell_clients, Held, State, MAX_ENTRIES};
 use crate::server::board::goal::learned;
+use crate::sessions::asked::may_hold_secret;
 use crate::server::parts::Parts;
 use crate::server::person_calls::{self, Raise, ORG_WAITING};
 use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY_DROPS, PROJECT_MEMORY_WAITING};
@@ -54,7 +55,7 @@ struct Dropped {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-enum Waiting {
+pub(super) enum Waiting {
     Rule { rule: Box<MemoryRule> },
     Knowledge { knowledge: Box<Knowledge> },
 }
@@ -65,6 +66,15 @@ impl Waiting {
             Waiting::Rule { rule } => &rule.text,
             Waiting::Knowledge { knowledge } => &knowledge.text,
         }
+    }
+
+    /// Marked sensitive, or in words that look like a credential.
+    fn sensitive(&self) -> bool {
+        let marked = match self {
+            Waiting::Rule { rule } => rule.sensitive,
+            Waiting::Knowledge { knowledge } => knowledge.sensitive,
+        };
+        Self::is_sensitive(marked, self.text())
     }
 
     fn of(held: &Held, id: u64) -> Option<Self> {
@@ -238,14 +248,30 @@ pub(super) fn listed(
     }
 }
 
-/// Puts entry `id` of the project's own store under `local` on the org's waiting list, unless the
-/// org keeps its words already or the list has no room for it.
+/// Why a sensitive entry never waits for an admin: it goes up only by an admin's own move.
+pub(super) const SENSITIVE: &str = "it's sensitive, so ask an owner or admin to add it";
+
+impl Waiting {
+    pub(super) fn is_sensitive(sensitive: bool, text: &str) -> bool {
+        sensitive || may_hold_secret(text)
+    }
+}
+
+/// Puts entry `id` of the project's own store under `local` on the org's waiting list, unless it
+/// is sensitive, the org keeps its words already or the list has no room for it. A sensitive
+/// entry is marked refused, so its row says why.
 pub(super) fn wait(state: &mut State, local: &str, id: u64) -> Result<(), String> {
     let shared = (state.shared.get(local)).ok_or("the project is no longer shared")?;
     let (org_key, org_name) = (shared.key(), shared.name.clone());
     let in_org = org_words(state, &org_key, |_| true);
     let held = (state.held.get_mut(local)).ok_or("the store went while it was being written to")?;
-    let text = Waiting::of(held, id).map(|entry| entry.text().to_lowercase());
+    let entry = Waiting::of(held, id);
+    if entry.as_ref().is_some_and(Waiting::sensitive) {
+        let why = SENSITIVE.to_owned();
+        held.refused.insert(id, why.clone());
+        return Err(why);
+    }
+    let text = entry.map(|entry| entry.text().to_lowercase());
     if text.is_some_and(|text| in_org.contains(&text)) {
         return Err(format!("{org_name} keeps that already"));
     }
