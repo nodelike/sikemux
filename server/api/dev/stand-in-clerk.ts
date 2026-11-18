@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
@@ -5,11 +6,14 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
  * A sign-in for made-up people on a local run, so the signed-in app can be seen without a real
  * account. Point the local API's CLERK_ISSUER and the app's VITE_STAND_IN_CLERK at it. It also
  * answers the Backend API's user reads and deletes, so the API can name them and fold them away.
+ * Jonah added his lumen.test address months after signing up, before any of this checking.
+ * Under /google it is Google too, for proving a work address, signing in whatever address is typed.
  * Maya and Kofi each have two accounts: a personal one, and one made with a work address at
  * acme.example, Maya's just now. Maya also has a third, made just now with another address of
  * her own, for the catch that only asks.
  */
 const LONG_AGO = Date.parse("2025-06-01T09:00:00Z");
+const ADDED_LATER = Date.parse("2025-09-01T09:00:00Z");
 const STARTED = Date.now();
 
 const PEOPLE: {
@@ -137,7 +141,7 @@ function holding(person: (typeof PEOPLE)[number]): Held {
         index === 0
           ? (person.address ?? `${person.key}@${domain}`)
           : `${person.key}@${domain}`,
-      created_at: person.createdAt ?? LONG_AGO,
+      created_at: index === 0 ? (person.createdAt ?? LONG_AGO) : ADDED_LATER,
       verification: { status: "verified" },
       linked_to: [],
     }));
@@ -172,6 +176,90 @@ function connectPage(key: string, provider: string, back: string) {
 <input type="hidden" name="as" value="${key}"><input type="hidden" name="provider" value="${provider}">
 <input type="hidden" name="back" value="${back.replace(/"/g, "&quot;")}">
 <button>Continue</button></form>`;
+}
+
+type GoogleCode = {
+  email: string;
+  nonce: string;
+  challenge: string;
+  clientId: string;
+  redirectUri: string;
+};
+const googleCodes = new Map<string, GoogleCode>();
+
+function googlePage(asked: URLSearchParams) {
+  const hidden = [
+    "client_id",
+    "redirect_uri",
+    "state",
+    "nonce",
+    "code_challenge",
+  ]
+    .map(
+      (name) =>
+        `<input type="hidden" name="${name}" value="${(asked.get(name) ?? "").replace(/"/g, "&quot;")}">`,
+    )
+    .join("");
+  return `<!doctype html><meta charset="utf-8"><title>Stand-in Google</title>
+<form method="post" action="/google/authorize" style="font:15px system-ui;margin:4rem auto;max-width:22rem;display:grid;gap:.75rem">
+<p>Stand-in Google: which address signs in?</p>
+<input name="email" type="email" required autofocus value="maya@acme.example">${hidden}
+<button>Continue</button></form>`;
+}
+
+async function google(
+  path: string,
+  method: string,
+  request: IncomingMessage,
+  url: URL,
+) {
+  if (path === "/keys") return { status: 200, body: jwks };
+  if (path === "/authorize" && method === "GET")
+    return { html: googlePage(url.searchParams) };
+  if (path === "/authorize" && method === "POST") {
+    const form = await bodyOf(request);
+    const code = randomBytes(16).toString("base64url");
+    googleCodes.set(code, {
+      email: form.email ?? "",
+      nonce: form.nonce ?? "",
+      challenge: form.code_challenge ?? "",
+      clientId: form.client_id ?? "",
+      redirectUri: form.redirect_uri ?? "",
+    });
+    const back = new URL(form.redirect_uri ?? appOrigin);
+    back.searchParams.set("code", code);
+    back.searchParams.set("state", form.state ?? "");
+    return { redirect: back.toString() };
+  }
+  if (path === "/token" && method === "POST") {
+    const form = await bodyOf(request);
+    const asked = googleCodes.get(form.code ?? "");
+    googleCodes.delete(form.code ?? "");
+    const challenge = createHash("sha256")
+      .update(form.code_verifier ?? "")
+      .digest("base64url");
+    if (
+      !asked ||
+      asked.challenge !== challenge ||
+      asked.clientId !== form.client_id ||
+      asked.redirectUri !== form.redirect_uri
+    )
+      return { status: 400, body: { error: "invalid_grant" } };
+    const idToken = await new SignJWT({
+      email: asked.email,
+      email_verified: true,
+      nonce: asked.nonce,
+    })
+      .setProtectedHeader({ alg: "RS256", kid: "stand-in", typ: "JWT" })
+      .setIssuer(`${issuer}/google`)
+      .setAudience(asked.clientId)
+      .setSubject(`google-${asked.email}`)
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(privateKey);
+    return { status: 200, body: { id_token: idToken } };
+  }
+  return { status: 404, body: { error: "not found" } };
 }
 
 async function bodyOf(request: IncomingMessage) {
@@ -211,6 +299,23 @@ createServer(async (request, response) => {
     response.end(JSON.stringify(body));
   };
   if (method === "OPTIONS") return send(204, null);
+  if (url.pathname.startsWith("/google/")) {
+    const answer = await google(
+      url.pathname.slice("/google".length),
+      method,
+      request,
+      url,
+    );
+    if ("html" in answer) {
+      response.setHeader("content-type", "text/html; charset=utf-8");
+      response.end(answer.html);
+    } else if ("redirect" in answer) {
+      response.statusCode = 303;
+      response.setHeader("location", answer.redirect);
+      response.end();
+    } else send(answer.status, answer.body);
+    return;
+  }
   if (url.pathname === "/.well-known/jwks.json") return send(200, jwks);
   if (url.pathname === "/people") return send(200, standing());
   if (url.pathname === "/v1/users") {

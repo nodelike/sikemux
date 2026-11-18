@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import type { Server } from "node:http";
 
 import { appleSignIn } from "./account/apple.ts";
+import { workGoogle } from "./account/work-google.ts";
 import { admittingVerifier } from "./account/admission.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
@@ -153,6 +154,7 @@ export async function startServer(config: Config, log: Logger) {
     verifier,
     signInVerifier,
     addressProofKey: config.addressProofKey,
+    workGoogle: config.workGoogle ? workGoogle(config.workGoogle) : null,
     limiter,
     relayAccess,
     clerk,

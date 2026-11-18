@@ -108,6 +108,10 @@ import type {
   VaultState,
   VaultUses,
   VaultUsesAdd,
+  WorkAddressList,
+  WorkAddressProven,
+  WorkAddressVerifyFinish,
+  WorkAddressVerifyStart,
 } from "./types.ts";
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -206,6 +210,25 @@ export function apiClient(send: Send) {
       send<void>("POST", `/v1/account/sign-ins/check`, body),
     /** Take work addresses off the account's sign-ins, and say once what was taken off. */
     tidySignIns: () => send<SignInsTidied>("POST", `/v1/account/sign-ins/tidy`),
+    /** The work addresses the person proved they hold, by domain and org, never the address. */
+    listWorkAddresses: () =>
+      send<WorkAddressList>("GET", `/v1/account/work-addresses`),
+    /** Start proving a work address by signing in to its Google account. */
+    startWorkAddressVerify: () =>
+      send<WorkAddressVerifyStart>("POST", `/v1/account/work-addresses/verify`),
+    /** Prove the work address Google signed in, on the account that started it. */
+    finishWorkAddressVerify: (body: WorkAddressVerifyFinish) =>
+      send<WorkAddressProven>(
+        "POST",
+        `/v1/account/work-addresses/verify/finish`,
+        body,
+      ),
+    /** Forget a proven work address. */
+    removeWorkAddress: (id: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/account/work-addresses/${encodeURIComponent(id)}`,
+      ),
     /** Whether to ask a new account's person if they already have an account. */
     getFoldCatch: (body: FoldCatchRequest) =>
       send<FoldCatch>("POST", `/v1/account/fold/catch`, body),

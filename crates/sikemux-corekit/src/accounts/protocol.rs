@@ -1133,11 +1133,14 @@ pub struct OrgDomainAdd {
 /// An org domain's id, a UUID in lowercase.
 pub type OrgDomainId = String;
 
-/// Joining an org through your email's domain.
+/// Joining an org through your email's domain, or through a work address you just proved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgDomainJoin {
     pub org_id: OrgId,
+    /// The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sitting: Option<String>,
 }
 
 /// How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in.
@@ -2015,6 +2018,52 @@ pub enum SubscriptionStatus {
     Unknown,
 }
 
+/// A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkAddress {
+    /// Names the proof for removing it.
+    pub id: String,
+    pub domain: String,
+    /// The org that had verified the domain when the address was proven; null once that org is gone.
+    pub org_id: Option<String>,
+    pub org_name: Option<String>,
+    pub proven_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkAddressList {
+    pub work_addresses: Vec<WorkAddress>,
+    /// Whether a work address can be verified here; false while the API has no Google client for it.
+    pub verifying: bool,
+}
+
+/// The work address just proven, and the org its domain lets the person join now, in this sitting only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkAddressProven {
+    pub work_address: WorkAddress,
+    /// Joining the offered org names this, so the join stands on the proof just made.
+    pub sitting: String,
+    pub offer: Option<OrgOffer>,
+}
+
+/// What Google sent back to the web app after the person signed in there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkAddressVerifyFinish {
+    pub code: String,
+    pub state: String,
+}
+
+/// Where to send the person to sign in with the Google account of their work address.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkAddressVerifyStart {
+    pub url: String,
+}
+
 /// Reads `json` as the named type and writes it back, for the contract tests.
 #[cfg(test)]
 pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
@@ -2196,6 +2245,11 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "SubscriptionChange" => through::<SubscriptionChange>(json),
         "SubscriptionId" => through::<SubscriptionId>(json),
         "SubscriptionStatus" => through::<SubscriptionStatus>(json),
+        "WorkAddress" => through::<WorkAddress>(json),
+        "WorkAddressList" => through::<WorkAddressList>(json),
+        "WorkAddressProven" => through::<WorkAddressProven>(json),
+        "WorkAddressVerifyFinish" => through::<WorkAddressVerifyFinish>(json),
+        "WorkAddressVerifyStart" => through::<WorkAddressVerifyStart>(json),
         _ => return None,
     })
 }

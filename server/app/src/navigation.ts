@@ -16,6 +16,7 @@ export const AUDIT = "/audit-log";
 export const POLICY = "/policy";
 export const JOIN = "/orgs/join";
 export const PAY = "/pay";
+export const WORK_ADDRESS = "/work-address";
 
 /** The signed-in pages a sign-in can come back to. */
 const PAGES = new Set([

@@ -942,6 +942,149 @@
         }
       }
     },
+    "/v1/account/work-addresses": {
+      "get": {
+        "operationId": "listWorkAddresses",
+        "summary": "The work addresses the person proved they hold, by domain and org, never the address",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "Every proof on the account, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WorkAddressList" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/work-addresses/verify": {
+      "post": {
+        "operationId": "startWorkAddressVerify",
+        "summary": "Start proving a work address by signing in to its Google account",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "Where to send the person; it comes back to the web app within ten minutes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkAddressVerifyStart"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The API has no Google client for verifying work addresses.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/work-addresses/verify/finish": {
+      "post": {
+        "operationId": "finishWorkAddressVerify",
+        "summary": "Prove the work address Google signed in, on the account that started it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkAddressVerifyFinish"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The address is proven on this account.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WorkAddressProven" }
+              }
+            }
+          },
+          "404": {
+            "description": "No verifying started on this account goes with that state, or it is over ten minutes old.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "Google did not sign in a verified address at a domain an org verified, or the address is proven on another account. The message says which.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/work-addresses/{id}": {
+      "delete": {
+        "operationId": "removeWorkAddress",
+        "summary": "Forget a proven work address",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The proof is gone, or was never on this account."
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/account/fold/catch": {
       "post": {
         "operationId": "getFoldCatch",
@@ -7611,9 +7754,16 @@
         "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
       },
       "OrgDomainJoin": {
-        "description": "Joining an org through your email's domain.",
+        "description": "Joining an org through your email's domain, or through a work address you just proved.",
         "type": "object",
-        "properties": { "orgId": { "$ref": "#/components/schemas/OrgId" } },
+        "properties": {
+          "orgId": { "$ref": "#/components/schemas/OrgId" },
+          "sitting": {
+            "description": "The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        },
         "required": ["orgId"],
         "additionalProperties": false
       },
@@ -9596,6 +9746,78 @@
           }
         },
         "required": ["uses"],
+        "additionalProperties": false
+      },
+      "WorkAddress": {
+        "description": "A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Names the proof for removing it.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "domain": { "type": "string" },
+          "orgId": {
+            "description": "The org that had verified the domain when the address was proven; null once that org is gone.",
+            "type": ["string", "null"]
+          },
+          "orgName": { "type": ["string", "null"] },
+          "provenAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "domain", "orgId", "orgName", "provenAt"],
+        "additionalProperties": false
+      },
+      "WorkAddressList": {
+        "type": "object",
+        "properties": {
+          "workAddresses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/WorkAddress" }
+          },
+          "verifying": {
+            "description": "Whether a work address can be verified here; false while the API has no Google client for it.",
+            "type": "boolean"
+          }
+        },
+        "required": ["workAddresses", "verifying"],
+        "additionalProperties": false
+      },
+      "WorkAddressProven": {
+        "description": "The work address just proven, and the org its domain lets the person join now, in this sitting only.",
+        "type": "object",
+        "properties": {
+          "workAddress": { "$ref": "#/components/schemas/WorkAddress" },
+          "sitting": {
+            "description": "Joining the offered org names this, so the join stands on the proof just made.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "offer": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/OrgOffer" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["workAddress", "sitting", "offer"],
+        "additionalProperties": false
+      },
+      "WorkAddressVerifyFinish": {
+        "description": "What Google sent back to the web app after the person signed in there.",
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "state": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "required": ["code", "state"],
+        "additionalProperties": false
+      },
+      "WorkAddressVerifyStart": {
+        "description": "Where to send the person to sign in with the Google account of their work address.",
+        "type": "object",
+        "properties": { "url": { "type": "string", "maxLength": 4096 } },
+        "required": ["url"],
         "additionalProperties": false
       },
       "WrappedKey": {

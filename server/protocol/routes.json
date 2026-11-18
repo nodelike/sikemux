@@ -428,6 +428,70 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/account/work-addresses",
+      "operationId": "listWorkAddresses",
+      "summary": "The work addresses the person proved they hold, by domain and org, never the address",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Every proof on the account, oldest first.",
+          "body": "WorkAddressList"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/work-addresses/verify",
+      "operationId": "startWorkAddressVerify",
+      "summary": "Start proving a work address by signing in to its Google account",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "Where to send the person; it comes back to the web app within ten minutes.",
+          "body": "WorkAddressVerifyStart"
+        },
+        "503": {
+          "description": "The API has no Google client for verifying work addresses.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/work-addresses/verify/finish",
+      "operationId": "finishWorkAddressVerify",
+      "summary": "Prove the work address Google signed in, on the account that started it",
+      "auth": "session",
+      "request": "WorkAddressVerifyFinish",
+      "responses": {
+        "200": {
+          "description": "The address is proven on this account.",
+          "body": "WorkAddressProven"
+        },
+        "409": {
+          "description": "Google did not sign in a verified address at a domain an org verified, or the address is proven on another account. The message says which.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No verifying started on this account goes with that state, or it is over ten minutes old.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/account/work-addresses/{id}",
+      "operationId": "removeWorkAddress",
+      "summary": "Forget a proven work address",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The proof is gone, or was never on this account."
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/account/fold/catch",
       "operationId": "getFoldCatch",

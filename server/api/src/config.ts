@@ -4,6 +4,10 @@ import type { Network } from "@sikemux/protocol";
 import type { Level } from "pino";
 
 import { readAppleSignIn } from "./account/apple.ts";
+import {
+  readWorkGoogle,
+  type WorkGoogleSettings,
+} from "./account/work-google.ts";
 import { CLERK_API } from "./account/clerk.ts";
 import { isSandboxKey, PADDLE_KEY } from "./billing/paddle-api.ts";
 import type { AppleKey } from "./apple-key.ts";
@@ -61,6 +65,8 @@ export interface Config extends MigrationConfig {
   stash: StashSettings | null;
   /** Keys the hash a proven work address is kept as. Null leaves addresses unproven; every release has one. */
   addressProofKey: Buffer | null;
+  /** The Google client a work address is proven with; null hides verifying. */
+  workGoogle: WorkGoogleSettings | null;
   billing: BillingSettings;
 }
 
@@ -235,6 +241,12 @@ export function loadConfig(
   if (addressProofKey === null && release)
     problems.push("ADDRESS_PROOF_KEY is not set");
 
+  const workGoogle = readWorkGoogle(
+    env,
+    problems,
+    standInIssuer ? clerkIssuer : null,
+  );
+
   const provider = oneOf(
     "BILLING_PROVIDER",
     ["none", "stand-in", "paddle"],
@@ -274,6 +286,7 @@ export function loadConfig(
     addressProofKey: addressProofKey
       ? Buffer.from(addressProofKey, "hex")
       : null,
+    workGoogle,
     billing,
     logLevel,
   });

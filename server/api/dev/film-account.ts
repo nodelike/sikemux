@@ -157,6 +157,8 @@ startNode(
     APP_ORIGIN: appOrigin,
     BILLING_PROVIDER: "stand-in",
     ADDRESS_PROOF_KEY: "0".repeat(64),
+    GOOGLE_WORK_ADDRESS_CLIENT_ID: "stand-in-work-address",
+    GOOGLE_WORK_ADDRESS_CLIENT_SECRET: "stand-in",
     LOG_LEVEL: "warn",
   },
   "api.log",

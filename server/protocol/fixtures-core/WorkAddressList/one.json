@@ -1,0 +1,12 @@
+{
+  "workAddresses": [
+    {
+      "id": "3f1c8d2a4f5e9c7b1a2d3e4f5a6b0b6e3f1c8d2a4f5e9c7b1a2d3e4f5a6b0b6e",
+      "domain": "acme.example",
+      "orgId": "0b6e3f1c-8d2a-4f5e-9c7b-1a2d3e4f5a6b",
+      "orgName": "Acme",
+      "provenAt": "2026-11-18T12:00:00.000Z"
+    }
+  ],
+  "verifying": true
+}

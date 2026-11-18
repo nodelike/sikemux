@@ -1223,9 +1223,11 @@ export function useOffers(ready: boolean) {
 
 export function OfferRow({
   offer,
+  sitting,
   onJoined,
 }: {
   offer: OrgOffer;
+  sitting?: string;
   onJoined: (org: Org) => void;
 }) {
   const client = useClient();
@@ -1251,7 +1253,7 @@ export function OfferRow({
                 onJoined(
                   await (
                     await client("join the org")
-                  ).joinOrgByDomain({ orgId: offer.orgId }),
+                  ).joinOrgByDomain({ orgId: offer.orgId, sitting }),
                 ),
               (error) => `${problemText(error)} You did not join.`,
             )

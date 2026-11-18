@@ -7,6 +7,8 @@ import { profileRoutes } from "./account/profile.ts";
 import type { ClerkBackend } from "./account/clerk.ts";
 import { foldRoutes } from "./account/fold.ts";
 import { accountRoutes } from "./account/routes.ts";
+import { workAddressRoutes } from "./account/work-addresses.ts";
+import type { WorkGoogle } from "./account/work-google.ts";
 import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
 import { allowanceRoutes } from "./billing/host.ts";
@@ -53,6 +55,8 @@ export interface Services {
   signInVerifier: Verifier;
   /** The key proven work addresses are hashed with, or null when ADDRESS_PROOF_KEY is not set. */
   addressProofKey: Buffer | null;
+  /** Google, for proving a work address; null when its client is not set up. */
+  workGoogle: WorkGoogle | null;
   limiter: RateLimiter;
   relayAccess: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
@@ -135,6 +139,7 @@ export function createApp(services: Services) {
   const { shares, tickets } = shareRoutes(services);
   app.route("/v1/account/shares", shares);
   app.route("/v1/account/peer-tickets", tickets);
+  app.route("/v1/account/work-addresses", workAddressRoutes(services));
   app.route("/v1/account", foldRoutes(services));
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/orgs/join/preview", invitePreviewRoutes(services));

@@ -518,11 +518,16 @@
       "additionalProperties": false
     },
     "OrgDomainJoin": {
-      "description": "Joining an org through your email's domain.",
+      "description": "Joining an org through your email's domain, or through a work address you just proved.",
       "type": "object",
       "properties": {
         "orgId": {
           "$ref": "#/$defs/OrgId"
+        },
+        "sitting": {
+          "description": "The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         }
       },
       "required": ["orgId"],

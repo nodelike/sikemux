@@ -7,7 +7,7 @@ import type {
 } from "@sikemux/protocol";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import type { Kysely, Selectable } from "kysely";
+import { sql, type Kysely, type Selectable } from "kysely";
 
 import type { ClerkBackend } from "../account/clerk.ts";
 import type { Services } from "../app.ts";
@@ -68,6 +68,76 @@ async function emailDomains(clerk: ClerkBackend | null, userId: string) {
   return clerk ? await clerk.verifiedDomains(userId) : [];
 }
 
+/** The orgs not yet joined whose verified domain is one of `domains`, leaving out those with no seat to give. */
+export async function offersFor(
+  db: Kysely<Tables>,
+  userId: string,
+  domains: string[],
+): Promise<OrgOffer[]> {
+  if (!domains.length) return [];
+  const rows = await db
+    .selectFrom("org_domains")
+    .innerJoin("orgs", "orgs.id", "org_domains.org_id")
+    .select([
+      "orgs.id as orgId",
+      "orgs.name",
+      "org_domains.domain",
+      "org_domains.joining",
+    ])
+    .where("org_domains.domain", "in", domains)
+    .where("org_domains.verified_at", "is not", null)
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom("org_users")
+            .select("org_users.user_id")
+            .whereRef("org_users.org_id", "=", "orgs.id")
+            .where("org_users.user_id", "=", userId),
+        ),
+      ),
+    )
+    .orderBy("orgs.name")
+    .execute();
+  const offers: OrgOffer[] = [];
+  for (const row of rows) {
+    const limit = await seatLimit(db, row.orgId);
+    if (limit === 0) continue;
+    offers.push({ ...row, seatFree: (await seatsHeld(db, row.orgId)) < limit });
+  }
+  return offers;
+}
+
+/**
+ * The domain of the work address proven in `sitting`, used up by this join. Only a proof made in
+ * that sitting on this account, under half an hour ago, labelled for this org, counts.
+ */
+async function sittingDomains(
+  trx: Kysely<Tables>,
+  userId: string,
+  orgId: string,
+  sitting: string,
+): Promise<string[]> {
+  const row = await trx
+    .selectFrom("work_address_sittings as s")
+    .innerJoin("address_proofs as p", "p.address_hash", "s.address_hash")
+    .select(["s.id", "p.domain"])
+    .where("s.id", "=", sitting)
+    .where("s.user_id", "=", userId)
+    .where("s.joined_at", "is", null)
+    .where("s.proven_at", ">", sql<Date>`now() - interval '30 minutes'`)
+    .where("p.user_id", "=", userId)
+    .where("p.org_id", "=", orgId)
+    .forUpdate("s")
+    .executeTakeFirst();
+  if (!row) return [];
+  await trx
+    .updateTable("work_address_sittings")
+    .set({ joined_at: new Date() })
+    .where("id", "=", row.id)
+    .execute();
+  return [row.domain];
+}
+
 /** Email domains an org proves it owns, and joining an org through one. */
 export function domainRoutes(
   db: Kysely<Tables>,
@@ -111,52 +181,24 @@ export function domainRoutes(
   return new Hono<AuthEnv>()
     .get("/offers", perUser(limiter, "org-offers", 60), async (c) => {
       const { userId } = c.get("identity");
-      const domains = await emailDomains(clerk, userId);
-      const rows = domains.length
-        ? await db
-            .selectFrom("org_domains")
-            .innerJoin("orgs", "orgs.id", "org_domains.org_id")
-            .select([
-              "orgs.id as orgId",
-              "orgs.name",
-              "org_domains.domain",
-              "org_domains.joining",
-            ])
-            .where("org_domains.domain", "in", domains)
-            .where("org_domains.verified_at", "is not", null)
-            .where(({ not, exists, selectFrom }) =>
-              not(
-                exists(
-                  selectFrom("org_users")
-                    .select("org_users.user_id")
-                    .whereRef("org_users.org_id", "=", "orgs.id")
-                    .where("org_users.user_id", "=", userId),
-                ),
-              ),
-            )
-            .orderBy("orgs.name")
-            .execute()
-        : [];
-      const offers: OrgOffer[] = [];
-      for (const row of rows) {
-        const limit = await seatLimit(db, row.orgId);
-        if (limit === 0) continue;
-        offers.push({
-          ...row,
-          seatFree: (await seatsHeld(db, row.orgId)) < limit,
-        });
-      }
-      const body: OrgOfferList = { offers };
+      const body: OrgOfferList = {
+        offers: await offersFor(db, userId, await emailDomains(clerk, userId)),
+      };
       return c.json(body);
     })
     .post("/offers/join", perUser(limiter, "join-org", 10), async (c) => {
       const { userId } = c.get("identity");
-      const { orgId } = await readBody(c, "OrgDomainJoin");
-      const domains = await emailDomains(clerk, userId);
-      const NOT_YOURS =
-        "None of your verified email addresses is at a domain that org proved it owns.";
-      if (!domains.length || !isUuid(orgId)) throw notFound(NOT_YOURS);
+      const { orgId, sitting } = await readBody(c, "OrgDomainJoin");
+      const NOT_YOURS = sitting
+        ? "The work address you verified is not at a domain that org proved it owns, or you verified it over half an hour ago. Verify it again."
+        : "None of your verified email addresses is at a domain that org proved it owns.";
+      if (!isUuid(orgId) || (sitting && !isUuid(sitting)))
+        throw notFound(NOT_YOURS);
       const org = await db.transaction().execute(async (trx) => {
+        const domains = sitting
+          ? await sittingDomains(trx, userId, orgId, sitting)
+          : await emailDomains(clerk, userId);
+        if (!domains.length) throw notFound(NOT_YOURS);
         const claim = await trx
           .selectFrom("org_domains")
           .select("domain")

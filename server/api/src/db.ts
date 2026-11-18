@@ -89,6 +89,17 @@ export interface Tables {
     reason: RevokeReason | null;
     at: CreatedAt;
   };
+  work_address_sittings: {
+    id: Generated<string>;
+    user_id: string;
+    state_hash: Buffer;
+    nonce: string;
+    verifier: string;
+    address_hash: Buffer | null;
+    created_at: CreatedAt;
+    proven_at: Date | null;
+    joined_at: Date | null;
+  };
   sign_in_removals: {
     id: Generated<string>;
     user_id: string;

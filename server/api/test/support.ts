@@ -91,6 +91,7 @@ export function testApp(
     verifier,
     signInVerifier: verifier,
     addressProofKey: null,
+    workGoogle: null,
     limiter,
     relayAccess: new RelayAccess(database.db),
     clerk: null,

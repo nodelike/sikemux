@@ -720,6 +720,22 @@ Table sign_in_removals {
   }
 }
 
+Table work_address_sittings {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id text [not null]
+  state_hash bytea [not null, unique, note: 'length(state_hash) = 32']
+  nonce text [not null]
+  verifier text [not null]
+  address_hash bytea [note: 'length(address_hash) = 32']
+  created_at timestamptz [not null, default: `now()`]
+  proven_at timestamptz
+  joined_at timestamptz
+
+  indexes {
+    user_id [name: 'work_address_sittings_by_user']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -767,3 +783,4 @@ Ref: account_folds.from_user > users.id [delete: cascade]
 Ref: account_folds.into_user > users.id [delete: cascade]
 Ref: account_folds.org_id > orgs.id [delete: set null]
 Ref: sign_in_removals.user_id > users.id [delete: cascade]
+Ref: work_address_sittings.user_id > users.id [delete: cascade]

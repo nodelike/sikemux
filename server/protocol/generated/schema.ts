@@ -1999,9 +1999,19 @@ export const schema = {
       pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     },
     OrgDomainJoin: {
-      description: "Joining an org through your email's domain.",
+      description:
+        "Joining an org through your email's domain, or through a work address you just proved.",
       type: "object",
-      properties: { orgId: { $ref: "#/$defs/OrgId" } },
+      properties: {
+        orgId: { $ref: "#/$defs/OrgId" },
+        sitting: {
+          description:
+            "The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses.",
+          type: "string",
+          pattern:
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        },
+      },
       required: ["orgId"],
       additionalProperties: false,
     },
@@ -4015,6 +4025,81 @@ export const schema = {
         },
       },
       required: ["uses"],
+      additionalProperties: false,
+    },
+    WorkAddress: {
+      description:
+        "A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown.",
+      type: "object",
+      properties: {
+        id: {
+          description: "Names the proof for removing it.",
+          type: "string",
+          pattern: "^[0-9a-f]{64}$",
+        },
+        domain: { type: "string" },
+        orgId: {
+          description:
+            "The org that had verified the domain when the address was proven; null once that org is gone.",
+          type: ["string", "null"],
+        },
+        orgName: { type: ["string", "null"] },
+        provenAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "domain", "orgId", "orgName", "provenAt"],
+      additionalProperties: false,
+    },
+    WorkAddressList: {
+      type: "object",
+      properties: {
+        workAddresses: {
+          type: "array",
+          items: { $ref: "#/$defs/WorkAddress" },
+        },
+        verifying: {
+          description:
+            "Whether a work address can be verified here; false while the API has no Google client for it.",
+          type: "boolean",
+        },
+      },
+      required: ["workAddresses", "verifying"],
+      additionalProperties: false,
+    },
+    WorkAddressProven: {
+      description:
+        "The work address just proven, and the org its domain lets the person join now, in this sitting only.",
+      type: "object",
+      properties: {
+        workAddress: { $ref: "#/$defs/WorkAddress" },
+        sitting: {
+          description:
+            "Joining the offered org names this, so the join stands on the proof just made.",
+          type: "string",
+          pattern:
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        },
+        offer: { anyOf: [{ $ref: "#/$defs/OrgOffer" }, { type: "null" }] },
+      },
+      required: ["workAddress", "sitting", "offer"],
+      additionalProperties: false,
+    },
+    WorkAddressVerifyFinish: {
+      description:
+        "What Google sent back to the web app after the person signed in there.",
+      type: "object",
+      properties: {
+        code: { type: "string", minLength: 1, maxLength: 2048 },
+        state: { type: "string", minLength: 1, maxLength: 128 },
+      },
+      required: ["code", "state"],
+      additionalProperties: false,
+    },
+    WorkAddressVerifyStart: {
+      description:
+        "Where to send the person to sign in with the Google account of their work address.",
+      type: "object",
+      properties: { url: { type: "string", maxLength: 4096 } },
+      required: ["url"],
       additionalProperties: false,
     },
     WrappedKey: {

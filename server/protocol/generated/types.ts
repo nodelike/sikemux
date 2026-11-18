@@ -1134,9 +1134,11 @@ export interface OrgDomainAdd {
 /** An org domain's id, a UUID in lowercase. */
 export type OrgDomainId = string;
 
-/** Joining an org through your email's domain. */
+/** Joining an org through your email's domain, or through a work address you just proved. */
 export interface OrgDomainJoin {
   orgId: OrgId;
+  /** The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses. */
+  sitting?: string;
 }
 
 /** How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in. */
@@ -2240,6 +2242,42 @@ export interface VaultUsesAdd {
   uses: VaultUse[];
 }
 
+/** A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown. */
+export interface WorkAddress {
+  /** Names the proof for removing it. */
+  id: string;
+  domain: string;
+  /** The org that had verified the domain when the address was proven; null once that org is gone. */
+  orgId: string | null;
+  orgName: string | null;
+  provenAt: string;
+}
+
+export interface WorkAddressList {
+  workAddresses: WorkAddress[];
+  /** Whether a work address can be verified here; false while the API has no Google client for it. */
+  verifying: boolean;
+}
+
+/** The work address just proven, and the org its domain lets the person join now, in this sitting only. */
+export interface WorkAddressProven {
+  workAddress: WorkAddress;
+  /** Joining the offered org names this, so the join stands on the proof just made. */
+  sitting: string;
+  offer: OrgOffer | null;
+}
+
+/** What Google sent back to the web app after the person signed in there. */
+export interface WorkAddressVerifyFinish {
+  code: string;
+  state: string;
+}
+
+/** Where to send the person to sign in with the Google account of their work address. */
+export interface WorkAddressVerifyStart {
+  url: string;
+}
+
 /** The vault key, sealed for one host. */
 export interface WrappedKey {
   hostKey: DeviceKey;
@@ -2545,5 +2583,10 @@ export interface Definitions {
   VaultUseRow: VaultUseRow;
   VaultUses: VaultUses;
   VaultUsesAdd: VaultUsesAdd;
+  WorkAddress: WorkAddress;
+  WorkAddressList: WorkAddressList;
+  WorkAddressProven: WorkAddressProven;
+  WorkAddressVerifyFinish: WorkAddressVerifyFinish;
+  WorkAddressVerifyStart: WorkAddressVerifyStart;
   WrappedKey: WrappedKey;
 }

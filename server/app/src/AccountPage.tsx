@@ -6,6 +6,7 @@ import { Avatar } from "./Avatar.tsx";
 import { DELETE_ACCOUNT } from "./navigation.ts";
 import { PROVIDERS, SignInWaysSection } from "./SignInWays.tsx";
 import { ItemRow, PageHead, Row, Rows, Section } from "./ui.tsx";
+import { WorkAddressesSection } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */
 export function useSignInWays() {
@@ -43,6 +44,7 @@ export function AccountPage({
           </Rows>
         </Section>
         <SignInWaysSection />
+        <WorkAddressesSection />
         <Section label="Delete">
           <Rows>
             <ItemRow
