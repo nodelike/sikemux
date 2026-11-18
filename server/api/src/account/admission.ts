@@ -24,6 +24,7 @@ function sinceRefusing(db: Kysely<Tables>): Promise<Date | null> {
       select applied_at from schema_migrations where name = 'one_account'`
       .execute(db)
       .then(({ rows }) => rows[0]?.applied_at ?? null);
+    since.catch(() => refusingSince.delete(db));
     refusingSince.set(db, since);
   }
   return since;

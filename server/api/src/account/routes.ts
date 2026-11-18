@@ -38,7 +38,9 @@ export function accountRoutes({
   });
   return new Hono<AuthEnv>()
     .use((c, next) =>
-      c.req.method === "DELETE" ? anyAccount(c, next) : admitted(c, next),
+      c.req.method === "DELETE" || c.req.path.endsWith("/restore")
+        ? anyAccount(c, next)
+        : admitted(c, next),
     )
     .get("/", async (c) => {
       const { userId } = c.get("identity");
