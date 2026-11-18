@@ -332,8 +332,10 @@ createServer(async (request, response) => {
     deleted.add(one.id);
     return send(200, { id: one.id, deleted: true });
   }
-  const byId = standing().find((p) =>
-    url.pathname.startsWith(`/v1/users/${p.id}`),
+  const byId = standing().find(
+    (p) =>
+      url.pathname === `/v1/users/${p.id}` ||
+      url.pathname.startsWith(`/v1/users/${p.id}/`),
   );
   if (byId) {
     const kept = holding(byId);
