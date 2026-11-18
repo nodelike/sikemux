@@ -282,8 +282,6 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.hyper-util]
 opt-level = "s"
-[profile.release.package.idna]
-opt-level = "s"
 [profile.release.package.regex-syntax]
 opt-level = "s"
 # The phone link carries terminal text and chat, and the database drivers wait
