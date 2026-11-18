@@ -60,6 +60,12 @@ enum AccountAPI {
     }
 
     private static func request(_ method: String, _ path: String, body: (any Encodable)?) async throws -> Data {
+        #if DEBUG
+            if let answer = ShowcaseAccount.answer(method, path) {
+                try check(HTTPURLResponse(url: Config.apiUrl, statusCode: answer.status, httpVersion: nil, headerFields: nil)!, answer.body)
+                return answer.body
+            }
+        #endif
         var request = try await signedIn(method, path)
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
