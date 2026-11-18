@@ -139,7 +139,10 @@ final class AccountSession {
             } catch {
                 registering = false
                 guard self.userId == userId else { return }
-                if error is Fold.Asking || error is CancellationError { return status = nil }
+                if error is Fold.Asking || error is CancellationError {
+                    status = nil
+                    return
+                }
                 if let deleting = error as? AccountDeleting {
                     status = .deleting(deletesAt: deleting.deletesAt)
                     return

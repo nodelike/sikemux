@@ -79,7 +79,10 @@ private struct CatchScreen: View {
                 if caught.mustFold {
                     ActionButton("Sign out", icon: Icons.logOut) { Task { await Leave.signOutHere(confirmed: true) } }
                     NavigationLink(value: Route.deleteAccount) {
-                        Text("Delete this account instead").font(Theme.meta).foregroundStyle(palette.secondary).frame(maxWidth: .infinity, minHeight: 44)
+                        Text("Delete this account instead")
+                            .font(Theme.meta)
+                            .foregroundStyle(palette.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(PressFade())
@@ -137,7 +140,10 @@ struct FoldWaiting: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8)
-                Button("Cancel") { fold.drop() }.font(Theme.meta).foregroundStyle(palette.secondary).buttonStyle(PressFade())
+                Button("Cancel") { fold.drop() }
+                    .font(Theme.meta)
+                    .foregroundStyle(palette.secondary)
+                    .buttonStyle(PressFade())
             }
             .padding(.bottom, 8)
         }

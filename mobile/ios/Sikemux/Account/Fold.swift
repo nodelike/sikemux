@@ -103,7 +103,8 @@ final class Fold {
             guard let status = problem.status, unasked?.userId == userId else { throw problem }
             unasked!.failures += 1
             if unasked!.failures == 1 { unasked!.since = .now }
-            let lasting = unasked!.failures >= Self.giveUpAfter && -unasked!.since.timeIntervalSinceNow >= Self.giveUpAfterSeconds
+            let lasting =
+                unasked!.failures >= Self.giveUpAfter && -unasked!.since.timeIntervalSinceNow >= Self.giveUpAfterSeconds
             if (problem.unreachable || status == 429) && !lasting { throw problem }
             unasked = nil
         }
@@ -150,7 +151,8 @@ extension AccountCalls {
     }
 
     static func confirmFold(_ waiting: Fold.Waiting) async throws {
-        try await AccountAPI.send("POST", "/v1/account/folds/\(waiting.id)/confirm", body: FoldSecret(secret: waiting.secret))
+        try await AccountAPI.send(
+            "POST", "/v1/account/folds/\(waiting.id)/confirm", body: FoldSecret(secret: waiting.secret))
     }
 
     static func keepNewAccount() async throws {
