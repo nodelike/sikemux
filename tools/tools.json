@@ -1891,6 +1891,7 @@
       "description": "Read what an agent said.",
       "properties": {
         "agent": {
+          "description": "Or a teammate's task from task_list, with a question to ask about it",
           "type": "string",
           "minLength": 1,
           "maxLength": 200

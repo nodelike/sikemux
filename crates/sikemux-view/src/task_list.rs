@@ -17,6 +17,9 @@ pub struct ProjectTasks {
     /// The tasks on teammates' boards for the same repository, read-only, in the same order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teammates: Vec<TeammateTask>,
+    /// None while no teammate has asked and nobody is stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<TeammateAsks>,
 }
 
 /// A task on the board a teammate shares, as their own list shows it.
@@ -28,6 +31,49 @@ pub struct TeammateTask {
     pub heard: u64,
     #[serde(flatten)]
     pub row: TaskRow,
+}
+
+/// What teammates' agents asked about this project's tasks, drawn after Dropped.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateAsks {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off: Option<AskingOff>,
+    /// The people the person stopped one by one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stopped: Vec<Teammate>,
+    /// Newest first.
+    pub asks: Vec<TeammateAsk>,
+}
+
+/// Why no teammate can ask about this project now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AskingOff {
+    /// The person stopped everyone; they can turn it back on.
+    Stopped,
+    /// The org's Team plan is unpaid.
+    Unpaid,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateAsk {
+    pub at: u64,
+    pub by: Teammate,
+    /// Their agent's name.
+    pub agent: String,
+    /// The program their agent runs on, which picks its mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_cli: Option<String>,
+    pub task: u64,
+    pub task_title: String,
+    pub question: String,
+    pub answer: String,
+    /// The name of the agent of this person's whose work answered; none when nobody held the
+    /// task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_work_of: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

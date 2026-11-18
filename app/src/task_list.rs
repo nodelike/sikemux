@@ -1,7 +1,8 @@
 //! The desk's Tasks view: the project's one list of tasks as the core sorts it, a section each
 //! for the calls waiting on the person, finished work, work moving, work nobody holds, dropped
-//! work and finished work already opened. Teammates' tasks on a board shared with them sit in the
-//! same sections, read-only, except For you, which stays the person's own.
+//! work, what teammates' agents asked about its tasks, and finished work already opened.
+//! Teammates' tasks on a board shared with them sit in the same sections, read-only, except For
+//! you, which stays the person's own.
 
 use std::collections::HashSet;
 
@@ -10,9 +11,11 @@ use gpui_kit::{
     div, px, relative, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
     ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
 };
-use sikemux_calls::board::{BoardParams, BoardUpdateParams};
+use sikemux_calls::board::{BoardParams, BoardUpdateParams, TeammateAskingParams};
 use sikemux_calls::call;
-use sikemux_view::task_list::{ProjectTasks, TaskFact, TaskOf, TaskRow, TaskSection};
+use sikemux_view::task_list::{
+    AskingOff, ProjectTasks, TaskFact, TaskOf, TaskRow, TaskSection, TeammateAsk, TeammateAsks,
+};
 use sikemux_view::teammates::Teammate;
 use sikemux_view::workspace::PullChecks;
 use tokio::sync::mpsc::UnboundedSender;
@@ -39,6 +42,9 @@ pub(crate) struct View {
     unfolded: HashSet<TaskSection>,
     /// Only the person's own tasks, leaving out teammates'.
     yours: bool,
+    teammates_unfolded: bool,
+    /// The teammates' asks drawn open, by when they were asked and who asked.
+    open_asks: HashSet<(u64, String)>,
 }
 
 /// One task in the list: the person's own, or one on the board a teammate shares.
@@ -122,16 +128,35 @@ fn words(section: TaskSection) -> &'static str {
     }
 }
 
-/// Turns agent `agent`'s desk to its tasks with `section` at the top.
+/// How many sections are drawn before the teammates' asks.
+fn before_teammates(sections: &[(TaskSection, Vec<Line>)]) -> usize {
+    (sections.iter())
+        .filter(|(section, _)| *section <= TaskSection::Dropped)
+        .count()
+}
+
+/// Where among the view's blocks `section` is drawn; the teammates' asks when none.
+fn place(list: &ProjectTasks, yours: bool, section: Option<TaskSection>) -> Option<usize> {
+    let sections = sections(&lines(list, yours));
+    let before = before_teammates(&sections);
+    let Some(section) = section else {
+        return list.asked.is_some().then_some(before);
+    };
+    let at = sections.iter().position(|(it, _)| *it == section)?;
+    Some(at + usize::from(at >= before && list.asked.is_some()))
+}
+
+/// Turns agent `agent`'s desk to its tasks with `section` at the top, or the teammates' asks
+/// when none.
 pub(crate) fn show_section(
     bench: &mut Workbench,
     agent: &str,
-    section: TaskSection,
+    section: impl Into<Option<TaskSection>>,
     cx: &mut Context<Workbench>,
 ) {
+    let section = section.into();
     let yours = yours_only(bench, agent, cx);
-    let at = (of_desk(bench, agent))
-        .and_then(|list| (sections(&lines(list, yours)).iter()).position(|(it, _)| *it == section));
+    let at = of_desk(bench, agent).and_then(|list| place(list, yours, section));
     bench.desks.update(cx, |desks, _| {
         let view = desks.task_views.entry(agent.to_owned()).or_default();
         if let Some(at) = at {
@@ -147,14 +172,19 @@ pub(crate) fn counts(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>
     let handle = cx.weak_entity();
     let list = of_desk(bench, agent);
     let lines = list.map(|list| lines(list, yours_only(bench, agent, cx)));
+    let asked = (list.and_then(|list| list.asked.as_ref())).map_or(0, |asks| asks.asks.len());
     let jumps = [
-        (TaskSection::ForYou, t!("for you")),
-        (TaskSection::Finished, t!("finished")),
-        (TaskSection::Dropped, t!("dropped")),
+        (Some(TaskSection::ForYou), t!("for you")),
+        (Some(TaskSection::Finished), t!("finished")),
+        (Some(TaskSection::Dropped), t!("dropped")),
+        (None, t!("asked")),
     ]
     .into_iter()
     .filter_map(|(section, words)| {
-        let count = count(lines.as_deref()?, section);
+        let count = match section {
+            Some(section) => count(lines.as_deref()?, section),
+            None => asked,
+        };
         (count > 0).then_some((section, words, count))
     })
     .map(|(section, words, count)| {
@@ -274,7 +304,7 @@ pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) 
         return div().into_any_element();
     };
     let lines = lines(list, yours_only(bench, agent, cx));
-    if lines.is_empty() {
+    if lines.is_empty() && list.asked.is_none() {
         return div()
             .size_full()
             .flex()
@@ -286,13 +316,44 @@ pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) 
             .child(ui::meta(t!("No tasks yet"), cx))
             .into_any_element();
     }
-    let (scroll, unfolded) = bench.desks.update(cx, |desks, _| {
+    let (scroll, unfolded, teammates_unfolded, open_asks) = bench.desks.update(cx, |desks, _| {
         let view = desks.task_views.entry(agent.to_owned()).or_default();
-        (view.scroll.clone(), view.unfolded.clone())
+        (
+            view.scroll.clone(),
+            view.unfolded.clone(),
+            view.teammates_unfolded,
+            view.open_asks.clone(),
+        )
     });
     let handle = cx.weak_entity();
     let sections = sections(&lines);
-    let last = sections.len().saturating_sub(1);
+    let before = before_teammates(&sections);
+    let mut blocks: Vec<Div> = (sections.into_iter())
+        .map(|(section, rows)| {
+            let open = unfolded.contains(&section);
+            div()
+                .child(match section {
+                    TaskSection::Opened if !open => opened_shut(agent, rows.len(), &handle, cx),
+                    _ => cap(words(section), rows.len(), &t, cx),
+                })
+                .when(section != TaskSection::Opened || open, |it| {
+                    it.child(rows_of(bench, agent, section, &rows, open, &handle, cx))
+                })
+        })
+        .collect();
+    if let Some(asks) = &list.asked {
+        let block = teammates(
+            bench,
+            agent,
+            asks,
+            teammates_unfolded,
+            &open_asks,
+            &handle,
+            cx,
+        );
+        blocks.insert(before, block);
+    }
+    let last = blocks.len().saturating_sub(1);
     div()
         .id(SharedString::from(format!("tasks-{agent}")))
         .size_full()
@@ -301,45 +362,353 @@ pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) 
         .pt(px(24.))
         .pb(px(32.))
         .px(px(SIDE))
-        .children(
-            sections
-                .into_iter()
-                .enumerate()
-                .map(|(at, (section, rows))| {
-                    let open = unfolded.contains(&section);
-                    div()
-                        .w_full()
-                        .max_w(px(COLUMN))
-                        .mx_auto()
-                        .when(at > 0, |it| it.pt(px(22.)))
-                        .when(at == last, |it| it.pb(px(8.)))
-                        .child(match section {
-                            TaskSection::Opened if !open => {
-                                opened_shut(agent, rows.len(), &handle, cx)
-                            }
-                            _ => cap(section, rows.len(), &t, cx),
-                        })
-                        .when(section != TaskSection::Opened || open, |it| {
-                            it.child(rows_of(bench, agent, section, &rows, open, &handle, cx))
-                        })
-                }),
-        )
+        .children(blocks.into_iter().enumerate().map(|(at, block)| {
+            block
+                .w_full()
+                .max_w(px(COLUMN))
+                .mx_auto()
+                .when(at > 0, |it| it.pt(px(22.)))
+                .when(at == last, |it| it.pb(px(8.)))
+        }))
         .into_any_element()
 }
 
-fn cap(section: TaskSection, count: usize, t: &Tokens, cx: &App) -> Div {
+fn cap(words: &str, count: usize, t: &Tokens, cx: &App) -> Div {
     div()
         .h(px(22.))
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .child(ui::caps(words(section), cx))
+        .child(ui::caps(words, cx))
         .child(
             ui::caps(&count.to_string(), cx)
                 .text_color(t.text_disabled)
                 .font_features(theme::tabular()),
         )
         .child(div().flex_1().h(px(1.)).bg(t.line))
+}
+
+/// The section of what teammates' agents asked about the project's tasks.
+fn teammates(
+    bench: &Workbench,
+    agent: &str,
+    asks: &TeammateAsks,
+    unfolded: bool,
+    open_asks: &HashSet<(u64, String)>,
+    handle: &WeakEntity<Workbench>,
+    cx: &App,
+) -> Div {
+    let t = Tokens::get(cx).clone();
+    let stop_everyone = asks.off.is_none().then(|| {
+        let handle = handle.clone();
+        ui::Button::new("teammates-stop", t!("Stop everyone"), ui::Variant::Ghost)
+            .sized(20., 7., theme::TEXT_2XS_H)
+            .on_click(move |_, _, cx| {
+                let _ = handle.update(cx, |bench, cx| set_asking(bench, None, true, cx));
+            })
+    });
+    let off = asks.off.map(|off| {
+        let (title, why) = match off {
+            AskingOff::Stopped => (
+                t!("Teammates can't ask about this project"),
+                t!("their agents get the board's facts only"),
+            ),
+            AskingOff::Unpaid => (t!("Asking is off"), t!("the org's Team plan is unpaid")),
+        };
+        let title = div()
+            .min_w_0()
+            .truncate()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(t.text_primary)
+            .child(title)
+            .into_any_element();
+        line(slashed(&t), title, why, &t)
+            .when(off == AskingOff::Stopped, |it| {
+                it.child(turn_on("teammates-on", None, handle))
+            })
+            .into_any_element()
+    });
+    let stopped = (asks.stopped.iter()).map(|person| {
+        line(
+            slashed(&t),
+            teammate_pill(person, None, bench, cx),
+            t!("can't ask about this project"),
+            &t,
+        )
+        .child(turn_on(
+            &format!("teammates-on-{}", person.member),
+            Some(&person.member),
+            handle,
+        ))
+        .into_any_element()
+    });
+    let folds = !unfolded && asks.asks.len() > FOLDED + 1;
+    let shown = if folds { FOLDED } else { asks.asks.len() };
+    let rows = (asks.asks.iter()).take(shown).map(|asked| {
+        let stopped = asks
+            .stopped
+            .iter()
+            .any(|person| person.member == asked.by.member);
+        let open = open_asks.contains(&(asked.at, asked.by.member.clone()));
+        ask_row(
+            bench,
+            agent,
+            asked,
+            open,
+            asks.off.is_none() && !stopped,
+            handle,
+            cx,
+        )
+    });
+    div()
+        .child(cap(t!("Asked by teammates"), asks.asks.len(), &t, cx).children(stop_everyone))
+        .child(
+            div()
+                .mt(px(6.))
+                .mx(px(-6.))
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .children(off)
+                .children(stopped)
+                .children(rows)
+                .when(folds, |it| {
+                    let handle = handle.clone();
+                    let agent = agent.to_owned();
+                    it.child(
+                        more("tasks-more-teammates", asks.asks.len() - FOLDED, &t).clicks(
+                            move |_, _, cx| {
+                                let _ = handle.update(cx, |bench, cx| {
+                                    bench.desks.update(cx, |desks, _| {
+                                        let view =
+                                            desks.task_views.entry(agent.clone()).or_default();
+                                        view.teammates_unfolded = true;
+                                    });
+                                    bench.parts.redraw_stage(cx);
+                                });
+                            },
+                        ),
+                    )
+                }),
+        )
+}
+
+/// A row of the teammates' section that is a state rather than an ask: a mark, a title and a
+/// muted line, with its controls after.
+fn line(mark: AnyElement, title: AnyElement, why: &str, t: &Tokens) -> Div {
+    div()
+        .h(px(30.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .whitespace_nowrap()
+        .text_size(theme::ui_text(theme::TEXT_SM))
+        .child(mark)
+        .child(title)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_tertiary)
+                .child(why.to_owned()),
+        )
+}
+
+fn slashed(t: &Tokens) -> AnyElement {
+    (ui::icon(Icon::CircleSlash, 12.).text_color(t.text_tertiary)).into_any_element()
+}
+
+fn turn_on(key: &str, member: Option<&str>, handle: &WeakEntity<Workbench>) -> ui::Button {
+    let (handle, member) = (handle.clone(), member.map(str::to_owned));
+    ui::Button::new(
+        SharedString::from(key.to_owned()),
+        t!("Turn on"),
+        ui::Variant::Outline,
+    )
+    .sized(20., 7., theme::TEXT_2XS_H)
+    .on_click(move |_, _, cx| {
+        cx.stop_propagation();
+        let member = member.clone();
+        let _ = handle.update(cx, |bench, cx| set_asking(bench, member, false, cx));
+    })
+}
+
+fn ask_row(
+    bench: &Workbench,
+    agent: &str,
+    asked: &TeammateAsk,
+    open: bool,
+    stoppable: bool,
+    handle: &WeakEntity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let key = (asked.at, asked.by.member.clone());
+    let id = format!("teammate-ask-{}-{}", asked.at, asked.by.member);
+    let toggles = {
+        let (handle, agent, key) = (handle.clone(), agent.to_owned(), key.clone());
+        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+            let _ = handle.update(cx, |bench, cx| {
+                bench.desks.update(cx, |desks, _| {
+                    let view = desks.task_views.entry(agent.clone()).or_default();
+                    if !view.open_asks.remove(&key) {
+                        view.open_asks.insert(key.clone());
+                    }
+                });
+                bench.parts.redraw_stage(cx);
+            });
+        }
+    };
+    let head = div()
+        .id(SharedString::from(id.clone()))
+        .h(px(30.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .rounded(px(5.))
+        .whitespace_nowrap()
+        .text_size(theme::ui_text(theme::TEXT_SM))
+        .cursor_pointer()
+        .hover(|it| it.bg(t.surface_hover))
+        .when(open, |it| it.bg(t.surface_hover))
+        .child(ui::icon(Icon::Message, 12.).text_color(t.text_tertiary))
+        .child(
+            div()
+                .min_w_0()
+                .max_w(relative(0.58))
+                .truncate()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(t.text_primary)
+                .child(asked.question.clone()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_tertiary)
+                .child(t!("about {title}", title = asked.task_title)),
+        )
+        .child(teammate_pill(
+            &asked.by,
+            Some((&asked.agent, asked.agent_cli.as_deref().unwrap_or_default())),
+            bench,
+            cx,
+        ))
+        .child(
+            div()
+                .flex_none()
+                .min_w(px(26.))
+                .flex()
+                .justify_end()
+                .text_size(theme::ui_text(theme::TEXT_2XS_H))
+                .text_color(t.text_tertiary)
+                .font_features(theme::tabular())
+                .child(ui::time::age(asked.at)),
+        )
+        .clicks(toggles);
+    if !open {
+        return head.into_any_element();
+    }
+    let source = match &asked.from_work_of {
+        Some(name) => t!("Answered from @{name}'s work", name = name),
+        None => t!("Nobody held the task, so only the board's facts went back").to_owned(),
+    };
+    let stop = stoppable.then(|| {
+        let (handle, member) = (handle.clone(), asked.by.member.clone());
+        ui::Button::new(
+            SharedString::from(format!("{id}-stop")),
+            t!("Stop {name}", name = asked.by.name),
+            ui::Variant::Outline,
+        )
+        .sized(20., 7., theme::TEXT_2XS_H)
+        .on_click(move |_, _, cx| {
+            let member = member.clone();
+            let _ = handle.update(cx, |bench, cx| set_asking(bench, Some(member), true, cx));
+        })
+    });
+    div()
+        .flex()
+        .flex_col()
+        .child(head)
+        .child(
+            div()
+                .pl(px(27.))
+                .pr(px(6.))
+                .pt(px(4.))
+                .pb(px(10.))
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .text_size(theme::ui_text(theme::TEXT_SM))
+                .child(
+                    div()
+                        .text_color(t.text_secondary)
+                        .child(asked.question.clone()),
+                )
+                .child(div().text_color(t.text_primary).child(asked.answer.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_2)
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(theme::ui_text(theme::TEXT_XS))
+                                .text_color(t.text_tertiary)
+                                .child(source),
+                        )
+                        .children(stop),
+                ),
+        )
+        .into_any_element()
+}
+
+fn set_asking(
+    bench: &mut Workbench,
+    member: Option<String>,
+    stop: bool,
+    cx: &mut Context<Workbench>,
+) {
+    let Some(project) = folder(bench) else {
+        return;
+    };
+    let asked = (bench.target()).request_typed::<call::TeammateAsking>(TeammateAskingParams {
+        project,
+        member,
+        stop,
+    });
+    bench.report(
+        asked,
+        t!("Asking was not changed"),
+        move |bench, _, cx| {
+            let done = if stop { t!("Stopped") } else { t!("Turned on") };
+            bench.notify(toast::success(done), cx);
+            reread(bench);
+        },
+        cx,
+    );
+}
+
+fn more(key: &str, count: usize, t: &Tokens) -> gpui_kit::Stateful<Div> {
+    div()
+        .id(SharedString::from(key.to_owned()))
+        .h(px(26.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .rounded(px(5.))
+        .cursor_pointer()
+        .hover(|more| more.bg(t.surface_hover))
+        .text_size(theme::ui_text(theme::TEXT_XS))
+        .text_color(t.text_tertiary)
+        .child(ui::icon(Icon::Chevron, 12.).text_color(t.text_disabled))
+        .child(t!("{count} more", count = count))
 }
 
 /// Opened while shut: one line that opens it.
@@ -411,20 +780,7 @@ fn rows_of(
         }))
         .when(folds, |it| {
             it.child(
-                div()
-                    .id(SharedString::from(format!("tasks-more-{section:?}")))
-                    .h(px(26.))
-                    .px(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .rounded(px(5.))
-                    .cursor_pointer()
-                    .hover(|more| more.bg(t.surface_hover))
-                    .text_size(theme::ui_text(theme::TEXT_XS))
-                    .text_color(t.text_tertiary)
-                    .child(ui::icon(Icon::Chevron, 12.).text_color(t.text_disabled))
-                    .child(t!("{count} more", count = rows.len() - FOLDED))
+                more(&format!("tasks-more-{section:?}"), rows.len() - FOLDED, &t)
                     .clicks(unfold(handle, agent, section)),
             )
         })

@@ -83,6 +83,18 @@ pub enum PeerSay {
     /// Asks for the board of the project known by `project`, the hash of its repository, and
     /// for it again each time it changes.
     Read { project: String },
+    /// One question from the asking person's agent about a task on the board being read. The
+    /// answer comes back under the same `id`.
+    Ask {
+        id: u64,
+        task: u64,
+        question: String,
+        /// The asking agent's name.
+        agent: String,
+        /// The program it runs on.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cli: Option<String>,
+    },
 }
 
 /// What the answering host says back.
@@ -95,6 +107,14 @@ pub enum PeerHear {
     /// The project is no longer shared with the ticket's org.
     Gone,
     Refused {
+        reason: String,
+    },
+    Answered {
+        id: u64,
+        said: serde_json::Value,
+    },
+    NotAnswered {
+        id: u64,
         reason: String,
     },
 }

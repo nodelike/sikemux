@@ -551,9 +551,9 @@ pub(crate) fn resolve(
         .collect();
     match (here.as_slice(), reachable.as_slice(), called.as_slice()) {
         ([agent], _, _) | ([], [agent], _) => Ok((*agent).clone()),
-        ([], [], []) => Err(format!(
+        ([], [], []) => Err(teammates_work(core, project, wanted).unwrap_or_else(|| format!(
             "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is read by agent_read and reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
-        )),
+        ))),
         ([], [], elsewhere) => Err(format!(
             "No agent in your project or on your team is called {wanted}. {}; pass its agent id if you mean it",
             elsewhere
@@ -573,6 +573,19 @@ pub(crate) fn resolve(
                 .join(", ")
         )),
     }
+}
+
+/// Why `wanted` can't be reached when it names a teammate's task or their agent on it.
+fn teammates_work(core: &Core, project: &str, wanted: &str) -> Option<String> {
+    if super::peer::teammate_task(core, project, wanted).is_some() {
+        return Some(format!(
+            "{wanted} is a teammate's task; agent_read with it and a question asks about it"
+        ));
+    }
+    let holder = super::peer::held_by_teammate(core, project, wanted)?;
+    Some(format!(
+        "{holder}. Another person's agents can't be messaged, read, woken or closed; agent_read with their task and a question asks about it"
+    ))
 }
 
 /// Whether a bare name from `caller` may mean `agent`: it works in the

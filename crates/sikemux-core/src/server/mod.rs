@@ -63,6 +63,7 @@ mod goals;
 mod handover;
 pub mod harness;
 mod hooks;
+mod teammate_asks;
 pub use sikemux_remote::server::host;
 pub mod host_stats;
 pub mod hosts;

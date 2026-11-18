@@ -10,16 +10,18 @@ use std::time::Duration;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sikemux_client::join;
 use sikemux_corekit::peer::{PeerHear, PeerSay, SharedBoard, SharedDecision, PEER_ALPN};
 use sikemux_process::clock::{epoch_ms, epoch_secs};
 use sikemux_process::sync::Locked;
-use sikemux_view::task_list::{TaskRow, TeammateTask};
+use sikemux_view::task_list::{TaskOf, TaskRow, TeammateTask};
 use sikemux_view::teammates::Teammate;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::accounts::protocol::{PeerTicket, PeerTicketRequest};
+use crate::cli::protocol::HarnessRequest;
 use crate::server::account::shares as registry;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::board;
@@ -32,6 +34,7 @@ use crate::server::Core;
 use crate::sessions::asked::may_hold_secret;
 
 use super::shares;
+use super::teammate_asks::{self, Asker};
 
 const FILE: &str = "teammate-boards.json";
 const OPENING: Duration = Duration::from_secs(10);
@@ -40,11 +43,13 @@ const LINGER: Duration = Duration::from_secs(2);
 const RENEW_EARLY_SECS: i64 = 60;
 const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(300);
+/// How long an agent here waits for a teammate's host to answer its question.
+const ANSWERING: Duration = Duration::from_secs(120);
 
 pub(crate) struct Peer {
     /// Moves on whenever a shared board, a share or an org changes, so open sessions look again.
     changed: watch::Sender<u64>,
-    reading: Mutex<HashMap<Reading, JoinHandle<()>>>,
+    reading: Mutex<HashMap<Reading, Session>>,
     copies: Mutex<Copies>,
     kept: Kept,
 }
@@ -67,6 +72,22 @@ struct Reading {
     org: String,
     host: String,
     project: String,
+}
+
+/// An open session to a teammate's host, and the way to put a question on it.
+struct Session {
+    task: JoinHandle<()>,
+    member: String,
+    asks: mpsc::Sender<Asking>,
+}
+
+/// A question an agent here puts to a teammate's host, and where its answer goes.
+struct Asking {
+    task: u64,
+    question: String,
+    agent: String,
+    cli: Option<String>,
+    answer: oneshot::Sender<Result<Value, String>>,
 }
 
 /// Teammates' boards as last read, for the account that read them.
@@ -141,6 +162,7 @@ async fn answer(
     let mut changes = core.peer().changed.subscribe();
     let mut asked: Option<String> = None;
     let mut sent: Option<SharedBoard> = None;
+    let (answered, mut answers) = mpsc::channel::<PeerHear>(4);
     loop {
         if !shares::active(core, &ticket.org) {
             return Some(refused("the org's Team plan is unpaid"));
@@ -172,7 +194,32 @@ async fn answer(
                     asked = Some(project);
                     sent = None;
                 }
+                PeerSay::Ask { id, task, question, agent, cli } => {
+                    let folder = (asked.as_deref()).and_then(|project| shared_folder(core, &ticket.org, project));
+                    let Some(folder) = folder else {
+                        return Some(PeerHear::Gone);
+                    };
+                    let asker = Asker {
+                        org: ticket.org.clone(),
+                        member: ticket.member.clone(),
+                        name: ticket.member_name.clone(),
+                        picture: None,
+                        agent,
+                        agent_cli: cli,
+                    };
+                    let (core, answered) = (core.clone(), answered.clone());
+                    tokio::spawn(async move {
+                        let frame = match teammate_asks::ask(&core, asker, folder, task, question).await {
+                            Ok(said) => PeerHear::Answered { id, said },
+                            Err(reason) => PeerHear::NotAnswered { id, reason },
+                        };
+                        let _ = answered.send(frame).await;
+                    });
+                }
             },
+            Some(frame) = answers.recv() => {
+                join::send(writer, &frame).await.ok()?;
+            }
             _ = changes.changed() => {}
             () = tokio::time::sleep(Duration::from_secs(left)) => {
                 return Some(refused("the ticket ran out"));
@@ -194,15 +241,7 @@ fn refused(reason: impl Into<String>) -> PeerHear {
 /// The board of the project known by `project` as `org`'s members read it, while this host keeps
 /// its record and shares it with them.
 fn shared_board(core: &Core, org: &str, project: &str) -> Option<SharedBoard> {
-    let folder = (core.workspaces().projects().into_iter())
-        .filter(|known| core.hosts().copies.home_of(core, known).is_none())
-        .find(|known| known.identity.as_deref().map(shares::key).as_deref() == Some(project))?
-        .path
-        .to_string_lossy()
-        .into_owned();
-    if shares::shared_with(core, &folder).as_deref() != Some(org) {
-        return None;
-    }
+    let folder = shared_folder(core, org, project)?;
     let tasks = (board::task_rows(core, &folder).into_iter())
         .filter_map(|row| crossing(core, row))
         .collect();
@@ -220,6 +259,18 @@ fn shared_board(core: &Core, org: &str, project: &str) -> Option<SharedBoard> {
         })
         .collect();
     Some(SharedBoard { tasks, decisions })
+}
+
+/// The folder of the project known by `project`, while this host keeps its record and shares it
+/// with `org`.
+fn shared_folder(core: &Core, org: &str, project: &str) -> Option<String> {
+    let folder = (core.workspaces().projects().into_iter())
+        .filter(|known| core.hosts().copies.home_of(core, known).is_none())
+        .find(|known| known.identity.as_deref().map(shares::key).as_deref() == Some(project))?
+        .path
+        .to_string_lossy()
+        .into_owned();
+    (shares::shared_with(core, &folder).as_deref() == Some(org)).then_some(folder)
 }
 
 /// `row` as it may cross to a teammate, naming the CLI its agent runs; none when its title may
@@ -297,10 +348,10 @@ async fn read_teammates(core: &Arc<Core>) {
         core.changed(What::Read(Topic::Boards));
     }
     let mut reading = core.peer().reading.locked();
-    reading.retain(|open, task| {
-        let keep = wanted.contains_key(open) && !task.is_finished();
+    reading.retain(|open, session| {
+        let keep = wanted.contains_key(open) && !session.task.is_finished();
         if !keep {
-            task.abort();
+            session.task.abort();
         }
         keep
     });
@@ -309,11 +360,13 @@ async fn read_teammates(core: &Arc<Core>) {
             continue;
         }
         let core = core.clone();
+        let member = person.member.clone();
+        let (asks, mut asked) = mpsc::channel(4);
         let task = tokio::spawn({
             let open = open.clone();
-            async move { session(&core, open, person).await }
+            async move { session(&core, open, person, &mut asked).await }
         });
-        reading.insert(open, task);
+        reading.insert(open, Session { task, member, asks });
     }
 }
 
@@ -325,23 +378,40 @@ enum Ended {
     },
 }
 
-async fn session(core: &Arc<Core>, open: Reading, person: Teammate) {
+async fn session(
+    core: &Arc<Core>,
+    open: Reading,
+    person: Teammate,
+    asked: &mut mpsc::Receiver<Asking>,
+) {
     let mut wait = RETRY_FIRST;
     loop {
-        match read_once(core, &open, &person).await {
+        match read_once(core, &open, &person, asked).await {
             Ended::Over => return,
             Ended::Lost { heard } => {
                 if heard {
                     wait = RETRY_FIRST;
                 }
-                tokio::time::sleep(wait).await;
+                let retry = tokio::time::sleep(wait);
+                tokio::pin!(retry);
+                loop {
+                    tokio::select! {
+                        () = &mut retry => break,
+                        Some(unanswered) = asked.recv() => drop(unanswered),
+                    }
+                }
                 wait = (wait * 2).min(RETRY_MOST);
             }
         }
     }
 }
 
-async fn read_once(core: &Arc<Core>, open: &Reading, person: &Teammate) -> Ended {
+async fn read_once(
+    core: &Arc<Core>,
+    open: &Reading,
+    person: &Teammate,
+    asked: &mut mpsc::Receiver<Asking>,
+) -> Ended {
     let lost = Ended::Lost { heard: false };
     let Some(mut ticket) = ticket(core, open).await else {
         return lost;
@@ -372,6 +442,8 @@ async fn read_once(core: &Arc<Core>, open: &Reading, person: &Teammate) -> Ended
     }
     let mut heard = frames::<PeerHear>(reader);
     let mut got = false;
+    let mut waiting: HashMap<u64, oneshot::Sender<Result<Value, String>>> = HashMap::new();
+    let mut next_id = 0;
     loop {
         let renew = u64::try_from(ticket.expires_at - RENEW_EARLY_SECS - now()).unwrap_or(0);
         tokio::select! {
@@ -392,7 +464,31 @@ async fn read_once(core: &Arc<Core>, open: &Reading, person: &Teammate) -> Ended
                     eprintln!("sikemux core: a teammate's host would not share its board: {reason}");
                     return Ended::Over;
                 }
+                Some(PeerHear::Answered { id, said }) => {
+                    if let Some(answer) = waiting.remove(&id) {
+                        let _ = answer.send(Ok(said));
+                    }
+                }
+                Some(PeerHear::NotAnswered { id, reason }) => {
+                    if let Some(answer) = waiting.remove(&id) {
+                        let _ = answer.send(Err(reason));
+                    }
+                }
             },
+            Some(asking) = asked.recv() => {
+                next_id += 1;
+                let ask = PeerSay::Ask {
+                    id: next_id,
+                    task: asking.task,
+                    question: asking.question,
+                    agent: asking.agent,
+                    cli: asking.cli,
+                };
+                if join::send(&mut writer, &ask).await.is_err() {
+                    return Ended::Lost { heard: got };
+                }
+                waiting.insert(next_id, asking.answer);
+            }
             () = tokio::time::sleep(Duration::from_secs(renew)) => {
                 let Some(next) = self::ticket(core, open).await else {
                     return Ended::Lost { heard: got };
@@ -500,4 +596,142 @@ fn frames<T: DeserializeOwned + Send + 'static>(mut reader: RecvStream) -> mpsc:
         }
     });
     receive
+}
+
+/// Teammates' tasks on the project at `folder`, each named the way an agent asks about it: the
+/// person's name, or their member id when two share a name, then `#` and the task's number.
+pub(crate) fn named_tasks(core: &Core, folder: &str) -> Vec<(String, TeammateTask)> {
+    let tasks = tasks(core, folder);
+    let named = |task: &TeammateTask| {
+        let same = (tasks.iter()).any(|other| {
+            other.person.name == task.person.name && other.person.member != task.person.member
+        });
+        let who = if same {
+            &task.person.member
+        } else {
+            &task.person.name
+        };
+        match task.row.of {
+            TaskOf::Task { id } => Some(format!("{who}#{id}")),
+            TaskOf::Call { .. } => None,
+        }
+    };
+    (tasks.iter())
+        .filter_map(|task| Some((named(task)?, task.clone())))
+        .collect()
+}
+
+/// The teammate's task `named` names on the project at `folder`, as [`named_tasks`] names it.
+pub(crate) fn teammate_task(core: &Core, folder: &str, named: &str) -> Option<TeammateTask> {
+    let named = named.trim().trim_start_matches('@');
+    (named_tasks(core, folder).into_iter())
+        .find(|(name, _)| name.eq_ignore_ascii_case(named))
+        .map(|(_, task)| task)
+}
+
+/// The teammate's task an agent of theirs named `agent` holds on the project at `folder`.
+pub(crate) fn held_by_teammate(core: &Core, folder: &str, agent: &str) -> Option<String> {
+    let agent = agent.trim().trim_start_matches('@');
+    (named_tasks(core, folder).into_iter())
+        .find(|(_, task)| {
+            (task.row.holder.as_ref()).is_some_and(|holder| holder.name.eq_ignore_ascii_case(agent))
+        })
+        .map(|(name, task)| {
+            format!(
+                "@{agent} is {}'s agent, on their task {name}",
+                task.person.name
+            )
+        })
+}
+
+/// Puts `question` about the teammate's `task` to the host that keeps it, answering what that
+/// host said, or the task as last heard when it can't be reached.
+pub(crate) async fn ask(
+    core: &Core,
+    folder: &str,
+    task: &TeammateTask,
+    question: String,
+    agent: String,
+    cli: Option<String>,
+) -> Result<Value, String> {
+    let TaskOf::Task { id } = task.row.of else {
+        return Err("Only a teammate's task can be asked about".into());
+    };
+    let project = (core.workspaces().projects().into_iter())
+        .find(|known| known.path.as_os_str() == folder)
+        .and_then(|known| known.identity.as_deref().map(shares::key));
+    let asks = project.and_then(|project| {
+        (core.peer().reading.locked().iter())
+            .find(|(open, session)| open.project == project && session.member == task.person.member)
+            .map(|(_, session)| session.asks.clone())
+    });
+    let name = &task.person.name;
+    let heard = |line: String| {
+        let ago = epoch_ms().saturating_sub(task.heard) / 60_000;
+        json!({
+            "task": task.row,
+            "note": format!("{line} This is their task as last heard {ago} min ago."),
+        })
+    };
+    let Some(asks) = asks else {
+        return Ok(heard(format!(
+            "{name}'s host isn't reachable now, so nothing answered."
+        )));
+    };
+    let (answer, answered) = oneshot::channel();
+    let asking = Asking {
+        task: id,
+        question,
+        agent,
+        cli,
+        answer,
+    };
+    if asks.send(asking).await.is_err() {
+        return Ok(heard(format!(
+            "{name}'s host isn't reachable now, so nothing answered."
+        )));
+    }
+    match tokio::time::timeout(ANSWERING, answered).await {
+        Ok(Ok(said)) => said,
+        Ok(Err(_)) => Ok(heard(format!(
+            "{name}'s host isn't reachable now, so nothing answered."
+        ))),
+        Err(_) => Ok(heard(format!("{name}'s host did not answer in time."))),
+    }
+}
+
+/// A whole task list for an agent, with the tasks on teammates' boards for the same project after
+/// its own.
+pub(crate) fn with_teammates(
+    core: &Core,
+    request: &HarnessRequest,
+    listed: Result<Value, String>,
+) -> Result<Value, String> {
+    let mut listed = listed?;
+    if request
+        .params
+        .get("task")
+        .is_some_and(|task| !task.is_null())
+    {
+        return Ok(listed);
+    }
+    let project = super::caller::project_of(core, request);
+    let theirs: Vec<Value> = (named_tasks(core, &project).into_iter())
+        .map(|(name, task)| {
+            json!({
+                "task": name,
+                "title": task.row.title,
+                "section": task.row.section,
+                "holder": task.row.holder.map(|holder| format!("@{}", holder.name)),
+            })
+        })
+        .collect();
+    if let (false, Some(listed)) = (theirs.is_empty(), listed.as_object_mut()) {
+        listed.insert("teammates".into(), Value::Array(theirs));
+        listed.insert(
+            "teammatesNote".into(),
+            "Teammates' tasks, read-only: agent_read with one and a question asks about it.".into(),
+        );
+    }
+    Ok(listed)
 }

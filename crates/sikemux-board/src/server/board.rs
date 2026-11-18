@@ -1378,6 +1378,44 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     Value::Object(fields)
 }
 
+/// What a teammate's agent asking about card `id` is told of it: the card as `task_list` gives it,
+/// with the decisions standing on it or a goal above it, and the agent that holds or held it.
+pub fn told_to_teammate(
+    core: &Core,
+    project: &str,
+    id: u64,
+) -> Result<(Value, Option<String>), String> {
+    let state = core.boards().state.locked();
+    let board = (state.of(project)).ok_or_else(|| format!("There is no task #{id} here"))?;
+    let card = board.card(id)?;
+    let mut facts = agent_view(core, board, card, true);
+    let mut above = vec![card.id];
+    let mut parent = card.parent;
+    while let Some(id) = parent.filter(|id| !above.contains(id)) {
+        above.push(id);
+        parent = board.card(id).ok().and_then(|card| card.parent);
+    }
+    let decisions: Vec<Value> = (board.decided.standing())
+        .filter(|decision| decision.goal.is_some_and(|goal| above.contains(&goal)))
+        .map(|decision| json!({ "decided": decision.says(), "why": decision.why, "by": decision.learned.name }))
+        .collect();
+    if let Some(fields) = facts.as_object_mut().filter(|_| !decisions.is_empty()) {
+        fields.insert("decisions".into(), decisions.into());
+    }
+    Ok((facts, card.owner_id().map(str::to_owned)))
+}
+
+/// The titles of `project`'s tasks `ids`, of those it still holds.
+pub fn titles(core: &Core, project: &str, ids: &[u64]) -> HashMap<u64, String> {
+    let state = core.boards().state.locked();
+    let Some(board) = state.of(project) else {
+        return HashMap::new();
+    };
+    (ids.iter())
+        .filter_map(|id| Some((*id, board.card(*id).ok()?.title.clone())))
+        .collect()
+}
+
 /// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.
 fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card {
     let now = epoch_ms();

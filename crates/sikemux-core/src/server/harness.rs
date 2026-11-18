@@ -627,7 +627,9 @@ async fn dispatch(
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
         "agent.why" => super::why::tool(core, &request).await,
         "task.add" => board::add(core, &request).await,
-        "task.list" => board::list(core, &request).await,
+        "task.list" => {
+            super::peer::with_teammates(core, &request, board::list(core, &request).await)
+        }
         "task.claim" => board::claim(core, &request).await,
         "task.update" if request.params.get("asked").is_some() => {
             super::now::asks::done(core, &request)

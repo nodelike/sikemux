@@ -304,6 +304,17 @@ pub struct BoardTicketCard {
     pub ticket: Option<BoardTicketParams>,
 }
 
+/// Stops teammates' agents asking about a project's tasks, or lets them again: everyone, or the
+/// one person `member` names.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateAskingParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
+    pub stop: bool,
+}
+
 /// What the person changes of a card; what it leaves out stays as it is.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

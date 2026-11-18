@@ -654,6 +654,14 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     if question.is_some() && cursor.is_some() {
         return Err("Pass a question or a cursor, not both".into());
     }
+    if let Some(question) = &question {
+        let project = super::caller::project_of(core, request);
+        if let Some(task) = super::peer::teammate_task(core, &project, &agent) {
+            let name = core.names().name(&caller).unwrap_or_else(|| caller.clone());
+            let cli = super::agent_now::AgentNowCore::agent_now(&**core, &caller).cli();
+            return super::peer::ask(core, &project, &task, question.clone(), name, cli).await;
+        }
+    }
     let target = {
         let (core, request, caller) = (core.clone(), request.clone(), caller.clone());
         blocking(move || {
