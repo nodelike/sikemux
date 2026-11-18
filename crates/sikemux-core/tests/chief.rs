@@ -213,7 +213,7 @@ async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on
         .expect("the chief opens");
     let chief_id = opened["agentId"].as_str().expect("its id").to_owned();
     let mut chief = Agent::open(&socket, &chief_id).await;
-    chief.chat.until(|chat| chat.turns_ended() >= 1).await;
+    chief.chat.until(folded::Folded::has_ended_a_turn).await;
     let (worker_id, _) = app
         .start_chat("omp:fake".into(), "widget".into(), None)
         .await
@@ -422,7 +422,7 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
         .expect("the chief");
     let chief = opened["agentId"].as_str().expect("its id").to_owned();
     let mut boss = Agent::open(&socket, &chief).await;
-    boss.chat.until(|chat| chat.turns_ended() >= 1).await;
+    boss.chat.until(folded::Folded::has_ended_a_turn).await;
     let (worker_id, _) = app
         .start_chat("omp:fake".into(), "widget".into(), None)
         .await
@@ -627,7 +627,7 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
         .expect("the chief");
     let chief = opened["agentId"].as_str().expect("its id").to_owned();
     let mut boss = Agent::open(&socket, &chief).await;
-    boss.chat.until(|chat| chat.turns_ended() >= 1).await;
+    boss.chat.until(folded::Folded::has_ended_a_turn).await;
     let (worker, _) = app
         .start_chat("claude:builtin-claude".into(), "widget".into(), None)
         .await
