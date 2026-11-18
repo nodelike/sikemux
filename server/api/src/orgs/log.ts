@@ -38,6 +38,7 @@ const SHOWN: Record<string, OrgAuditAction> = {
   "org.domain_ours_changed": "domain_ours_changed",
   "org.domain_removed": "domain_removed",
   "org.policy_changed": "policy_changed",
+  "org.seat_moved": "seat_moved",
   "org_vault.created": "vault_created",
   "org_vault.key_added": "vault_host_added",
   "org_vault.rotated": "vault_rotated",

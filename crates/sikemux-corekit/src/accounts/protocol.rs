@@ -1022,6 +1022,8 @@ pub enum OrgAuditAction {
     DomainRemoved,
     #[serde(rename = "policy_changed")]
     PolicyChanged,
+    #[serde(rename = "seat_moved")]
+    SeatMoved,
     #[serde(rename = "vault_created")]
     VaultCreated,
     #[serde(rename = "vault_host_added")]

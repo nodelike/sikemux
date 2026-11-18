@@ -67,6 +67,7 @@ export type AuditAction =
   | "org.domain_ours_changed"
   | "org.domain_removed"
   | "org.policy_changed"
+  | "org.seat_moved"
   | "share.added"
   | "share.moved"
   | "share.removed";

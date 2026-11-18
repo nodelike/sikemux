@@ -989,6 +989,8 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
         : `${by} joined with an invite link, as ${role(entry.role)}`;
     case "left":
       return `${by} left`;
+    case "seat_moved":
+      return `${by} brought their seat over from another account, as ${role(entry.role)}`;
     case "removed":
       return `${by} removed ${about}`;
     case "role_changed":

@@ -1843,6 +1843,7 @@ export const schema = {
         "domain_ours_changed",
         "domain_removed",
         "policy_changed",
+        "seat_moved",
         "vault_created",
         "vault_host_added",
         "vault_rotated",

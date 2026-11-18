@@ -329,25 +329,34 @@ async function moveSeats(trx: Transaction<Tables>, { from, into }: Side) {
       .where("org_id", "=", seat.org_id)
       .where("user_id", "=", into)
       .executeTakeFirst();
+    let role = seat.role;
     if (!kept) {
       await trx
         .updateTable("org_users")
         .set({ user_id: into })
         .where("id", "=", seat.id)
         .execute();
-      continue;
+    } else {
+      if (ROLE_RANK[seat.role] > ROLE_RANK[kept.role])
+        await trx
+          .updateTable("org_users")
+          .set({ role: seat.role })
+          .where("id", "=", kept.id)
+          .execute();
+      else role = kept.role;
+      await sql`
+        insert into org_team_members (team_id, member_id)
+        select team_id, ${kept.id} from org_team_members where member_id = ${seat.id}
+        on conflict do nothing`.execute(trx);
+      await trx.deleteFrom("org_users").where("id", "=", seat.id).execute();
     }
-    if (ROLE_RANK[seat.role] > ROLE_RANK[kept.role])
-      await trx
-        .updateTable("org_users")
-        .set({ role: seat.role })
-        .where("id", "=", kept.id)
-        .execute();
-    await sql`
-      insert into org_team_members (team_id, member_id)
-      select team_id, ${kept.id} from org_team_members where member_id = ${seat.id}
-      on conflict do nothing`.execute(trx);
-    await trx.deleteFrom("org_users").where("id", "=", seat.id).execute();
+    await audit(trx, {
+      userId: into,
+      actor: `user:${into}`,
+      action: "org.seat_moved",
+      subject: seat.org_id,
+      detail: { role, merged: kept !== undefined },
+    });
   }
   if (seats.length) await seatsChanged(trx, [from, into]);
   return seats;
