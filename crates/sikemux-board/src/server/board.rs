@@ -459,6 +459,16 @@ impl State {
             .map_or_else(|| key.to_owned(), |(folder, _)| folder.clone())
     }
 
+    /// The folder `folder` and every other folder on this host whose project is kept under the
+    /// same key, such as a second clone of one repository.
+    fn sharing_board(&self, folder: &str) -> Vec<String> {
+        let key = self.key(folder);
+        let clones = (self.keys.iter()).filter(|(_, kept)| **kept == key);
+        std::iter::once(folder.to_owned())
+            .chain(clones.map(|(clone, _)| clone.clone()))
+            .collect()
+    }
+
     /// The board of the project at `folder`.
     pub fn of(&self, folder: &str) -> Option<&Board> {
         self.boards.get(&self.key(folder))
@@ -2664,7 +2674,13 @@ pub fn settle(core: &Arc<Core>) {
 
 /// Tells every client which boards changed, so each reads them again.
 fn tell_clients(core: &Core) {
-    let dirty = std::mem::take(&mut core.boards().state.locked().dirty);
+    let dirty: BTreeSet<String> = {
+        let mut state = core.boards().state.locked();
+        let dirty = std::mem::take(&mut state.dirty);
+        (dirty.iter())
+            .flat_map(|folder| state.sharing_board(folder))
+            .collect()
+    };
     if !dirty.is_empty() {
         (core.board_above().hosts_rows_moved)(core);
     }
