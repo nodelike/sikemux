@@ -1,6 +1,6 @@
 import type { WorkAddress, WorkAddressProven } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
-import { IconBriefcase } from "@shared/ui/Icons";
+import { IconBriefcase, IconPlus } from "@shared/ui/Icons";
 import { useEffect, useRef, useState } from "react";
 
 import { problemText } from "./api.ts";
@@ -109,9 +109,9 @@ export function WorkAddressesSection() {
         ) : null}
         {verifying ? (
           <ItemRow
-            glyph={<GoogleMark />}
+            glyph={<IconPlus size={16} />}
             name="Verify a work address"
-            detail="Sign in to the Google account at your work domain. Sikemux keeps only the domain."
+            detail="Sign in to the Google account at your work domain. Sikemux keeps the domain, not the address."
             end={
               <button
                 type="button"
