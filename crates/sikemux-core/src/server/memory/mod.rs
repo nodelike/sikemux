@@ -237,6 +237,14 @@ struct State {
 
 impl State {
     /// The key of the store of the project in folder `project`.
+    /// The one folder on this host that stands for a project's key, the same on every read.
+    fn folder_of(&self, key: &str) -> Option<&String> {
+        (self.keys.iter())
+            .filter(|(_, kept)| *kept == key)
+            .map(|(folder, _)| folder)
+            .min()
+    }
+
     fn key_of(&self, project: &str) -> String {
         (self.keys.get(project).cloned()).unwrap_or_else(|| project.to_owned())
     }
@@ -291,12 +299,11 @@ impl State {
     fn folder_of_store(&self, held: &Held) -> Option<PathBuf> {
         match held.store {
             Store::Personal => std::env::var_os("HOME").map(PathBuf::from),
-            Store::Project => (self.keys.iter())
-                .find(|(_, key)| **key == held.key)
-                .map(|(folder, _)| PathBuf::from(folder)),
+            Store::Project => self.folder_of(&held.key).map(PathBuf::from),
             Store::Org => (self.keys.iter())
-                .find(|(_, key)| self.shared.get(*key).is_some_and(|is| is.key() == held.key))
-                .map(|(folder, _)| PathBuf::from(folder)),
+                .filter(|(_, key)| self.shared.get(*key).is_some_and(|is| is.key() == held.key))
+                .map(|(folder, _)| PathBuf::from(folder))
+                .min(),
         }
     }
 

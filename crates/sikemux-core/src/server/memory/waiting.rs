@@ -374,8 +374,7 @@ pub(super) async fn sync(core: &Arc<Core>, local: &str, shared: &Shared) {
 fn withdraw_calls(core: &Core, local: &str, shared: &Shared) {
     let project = {
         let state = core.memory().state.locked();
-        let folder = (state.keys.iter()).find(|(_, key)| **key == local);
-        let Some((folder, _)) = folder else {
+        let Some(folder) = state.folder_of(local) else {
             return;
         };
         folder.clone()
@@ -399,13 +398,13 @@ fn take_up(core: &Core, local: &str) {
         if rechecked {
             memory.save(&mut state, local);
         }
-        let project = (state.keys.iter()).find(|(_, key)| *key == local);
+        let project = state.folder_of(local);
         let waiting = (state
             .held
             .get(local)
             .filter(|held| !held.waiting.is_empty()))
         .zip(project)
-        .map(|(held, (project, _))| (project.clone(), held.waiting.clone()));
+        .map(|(held, project)| (project.clone(), held.waiting.clone()));
         (rechecked, waiting)
     };
     let Some((project, ids)) = waiting else {
@@ -627,8 +626,7 @@ fn record(core: &Core, shared: &Shared, lists: &BTreeMap<String, Mine>, drops: &
 fn ask(core: &Core, local: &str, shared: &Shared, lists: &BTreeMap<String, Mine>, drops: &Drops) {
     let (project, name, in_org) = {
         let state = core.memory().state.locked();
-        let folder = (state.keys.iter()).find(|(_, key)| **key == local);
-        let Some((folder, _)) = folder else {
+        let Some(folder) = state.folder_of(local) else {
             return;
         };
         let in_org: HashSet<String> = (state.held.get(&shared.key()))

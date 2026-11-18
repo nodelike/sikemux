@@ -142,11 +142,7 @@ fn words(text: &str) -> String {
 /// A project as the person knows it: the name of a folder it is open in here, else the last part
 /// of its store's key.
 pub(super) fn project_name(state: &State, key: &str) -> String {
-    let folder = (state.keys.iter())
-        .filter(|(_, kept)| *kept == key)
-        .map(|(folder, _)| folder.as_str())
-        .min();
-    let last = folder
+    let last = (state.folder_of(key).map(String::as_str))
         .unwrap_or(key)
         .trim_end_matches('/')
         .rsplit(['/', ':'])
