@@ -30,8 +30,12 @@ api.sikemux.com {
 	respond @internal 404
 	# /v1/live is one WebSocket per device. A reload leaves open ones up to 5 minutes before
 	# closing them, so devices reconnect spread out instead of all at once.
+	# While the API restarts on a deploy, a request waits for it instead of failing. Caddy sends
+	# a request again only if the API never received it, or if it is a GET.
 	reverse_proxy 127.0.0.1:4000 {
 		stream_close_delay 5m
+		lb_try_duration 15s
+		lb_try_interval 250ms
 	}
 	log {
 		output file /var/log/caddy/sikemux-api.log {
@@ -81,7 +85,10 @@ updates.sikemux.com {
 	encode zstd gzip
 	handle /manifest {
 		rewrite * /updates/manifest
-		reverse_proxy 127.0.0.1:4000
+		reverse_proxy 127.0.0.1:4000 {
+			lb_try_duration 15s
+			lb_try_interval 250ms
+		}
 	}
 	# Assets are stored as <sha256>.<type>.<subtype>, such as <sha256>.image.png, and served at
 	# /assets/<sha256> with the media type their name carries.
