@@ -354,7 +354,14 @@ impl World {
     /// as a member taps the move offer, once that host knows the project is shared.
     pub(super) fn org_move(&self, name: &str, text: &str) -> anyhow::Result<()> {
         let client = self.client_on(name)?;
-        let (project, _) = self.project()?.clone();
+        let project = match name {
+            "here" => self.project()?.1.clone(),
+            name => (self.linked.iter())
+                .find(|linked| linked.name == name)
+                .and_then(|linked| linked.project.clone())
+                .ok_or_else(|| anyhow!("{name} holds no project; add one before the host"))?,
+        };
+        let project = project.to_string_lossy().into_owned();
         let entry = json!({ "kind": "rule", "text": text, "goal": null, "sensitive": false,
             "store": "project" });
         let view = self
