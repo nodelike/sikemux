@@ -9,15 +9,15 @@ chat Wren
 settle 4
 click 875,753
 settle 2
-click 101,362
+click 101,326
 settle 3
-click 369,356
+click 369,320
 settle 2
 snap after-not-set-up
 core setupCheck "{\"project\":\"$project\"}"
 click 381,325
 settle 1
-click 369,356
+click 369,320
 settle 3
 snap after-proved
 patch setup-fail.diff
@@ -25,6 +25,6 @@ core trustProject "{\"project\":\"$project\",\"fingerprint\":\"sha256:336986cc44
 core setupCheck "{\"project\":\"$project\"}"
 click 381,325
 settle 1
-click 369,356
+click 369,320
 settle 3
 snap after-failed

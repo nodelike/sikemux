@@ -21,7 +21,7 @@ click 792,838
 type "shell curl -s -o /dev/null --max-time 3 -X POST -d {} https://api.resend.com/emails" 800
 key enter
 hold 6
-click 101,363
+click 101,327
 settle 3
 click 370,191
 settle 2
