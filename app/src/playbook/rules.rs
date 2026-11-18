@@ -443,6 +443,7 @@ fn update(project: &str, id: u64) -> MemoryUpdateParams {
         goal: None,
         store: None,
         not_now: false,
+        kept: false,
     }
 }
 
@@ -529,12 +530,25 @@ fn not_now(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workbe
     );
 }
 
-pub(crate) fn retire(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workbench>) {
+fn retire(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workbench>) {
+    retire_as(bench, update(folder, id), cx);
+}
+
+/// Retires the rule a chat line says it kept, under whatever number it has now.
+pub(crate) fn undo_kept(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workbench>) {
+    let kept = MemoryUpdateParams {
+        kept: true,
+        ..update(folder, id)
+    };
+    retire_as(bench, kept, cx);
+}
+
+fn retire_as(bench: &mut Workbench, entry: MemoryUpdateParams, cx: &mut Context<Workbench>) {
     let asked = bench
         .target()
         .request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
             retire: true,
-            ..update(folder, id)
+            ..entry
         });
     bench.report(
         asked,
@@ -556,6 +570,7 @@ pub(crate) fn restore(
     if line.moved {
         let asked = target.request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
             store: Some(line.store.other()),
+            kept: true,
             ..update(&line.project, line.rule)
         });
         let back = moved_toast(line.store.other(), &line.project, None);

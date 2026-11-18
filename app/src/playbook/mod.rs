@@ -13,7 +13,7 @@ mod setup;
 
 use crate::ui::Clicks;
 pub(crate) use decisions::{overrule, reopen_card, undo_overrule};
-pub(crate) use rules::{restore as restore_rule, retire as undo_rule};
+pub(crate) use rules::{restore as restore_rule, undo_kept as undo_rule};
 
 use sikemux_calls::tasks::ProjectConfigRead;
 use sikemux_calls::tasks::ProjectParams;

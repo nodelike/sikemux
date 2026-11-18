@@ -29,6 +29,9 @@ pub struct MemoryUpdateParams {
     /// The person turned down the chief's offer to move it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub not_now: bool,
+    /// `id` is the number a chat line kept: an entry renumbered since is found under its new one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept: bool,
 }
 
 #[derive(Serialize, Deserialize)]

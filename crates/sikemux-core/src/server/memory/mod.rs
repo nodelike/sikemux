@@ -138,6 +138,9 @@ struct Held {
     /// The keys this store was kept under before its project's identity changed.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     was: BTreeSet<String>,
+    /// Entries given a new number when the org's store came to hold their old one, old to new.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    renumbered: BTreeMap<u64, u64>,
 }
 
 impl Held {
@@ -164,6 +167,7 @@ impl Held {
             shared_with: None,
             kept_for: None,
             was: BTreeSet::new(),
+            renumbered: BTreeMap::new(),
         }
     }
 
@@ -189,6 +193,7 @@ impl Held {
         self.dropped.extend(from.dropped);
         self.refused.extend(from.refused);
         self.was.extend(from.was);
+        self.renumbered.extend(from.renumbered);
     }
 }
 
@@ -252,6 +257,14 @@ impl State {
     /// The project's own store.
     fn own(&self, project: &str) -> Option<&Held> {
         self.held.get(&self.key_of(project))
+    }
+
+    /// The number entry `id` has now, when `id` is one a chat line kept before the entry was
+    /// renumbered.
+    fn kept_id(&self, project: &str, id: u64) -> u64 {
+        (self.own(project).into_iter().chain(self.held.get(PERSONAL)))
+            .find_map(|held| held.renumbered.get(&id).copied())
+            .unwrap_or(id)
     }
 
     /// The key of the store applying to `project` that keeps entry `id`.
@@ -1457,6 +1470,7 @@ pub(crate) async fn tool_update(
             goal: given.goal.then(|| goal_card(&core, &agent)).transpose()?,
             store: None,
             not_now: false,
+            kept: false,
             project: project.clone(),
             id: given.id,
             text: given.text,
@@ -1581,6 +1595,7 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
 
 /// Retires a rule of the project's in the person's name, as undoing an Overrule does.
 pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result<(), String> {
+    let id = core.memory().state.locked().kept_id(project, id);
     let update = MemoryUpdateParams {
         project: project.to_owned(),
         id,
@@ -1593,6 +1608,7 @@ pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result
         goal: None,
         store: None,
         not_now: false,
+        kept: false,
     };
     change(core, project, update, learned(core, None))
 }
@@ -1629,11 +1645,14 @@ pub(crate) async fn person_add(
 pub(crate) async fn person_update(
     core: &Arc<Core>,
     peer: Peer,
-    params: MemoryUpdateParams,
+    mut params: MemoryUpdateParams,
 ) -> Result<MemoryView, String> {
     let project = project_at(core, &params.project)?;
     let core = core.clone();
     run(move || {
+        if params.kept {
+            params.id = core.memory().state.locked().kept_id(&project, params.id);
+        }
         amend(&core, &project, params, learned(&core, None))?;
         Ok(view(&core, &project, &peer))
     })

@@ -231,6 +231,13 @@ pub(super) fn rekeyed(held: &mut Held, old: &str, new: &str) -> bool {
     changed
 }
 
+/// Points the rules `held` took in for entry `old` at its new number.
+pub(super) fn renumbered(held: &mut Held, old: u64, new: u64) {
+    for taken in held.absorbed.iter_mut().filter(|taken| taken.into == old) {
+        taken.into = new;
+    }
+}
+
 fn put(held: &mut Held, entry: Moving) {
     match entry {
         Moving::Rule(rule) => held.rules.push(*rule),

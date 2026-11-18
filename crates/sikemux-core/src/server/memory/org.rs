@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use sikemux_view::memory::{Knowledge, MemoryRule, Moved, Stale, Store};
 
-use super::{holding, holding_or_personal, tell_clients, Held, State};
+use super::{holding, holding_or_personal, moving, tell_clients, Held, State};
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY, PROJECT_MEMORY_DROPS};
@@ -538,6 +538,7 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
             .flat_map(|held| {
                 (held.rules.iter().map(|rule| rule.id))
                     .chain(held.knowledge.iter().map(|known| known.id))
+                    .chain(held.set_aside.iter().map(|apart| apart.rule.id))
             })
             .filter(|id| taken.contains(id))
             .collect();
@@ -552,6 +553,18 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
             for known in held.knowledge.iter_mut().filter(|known| known.id == id) {
                 known.id = fresh;
             }
+            for apart in held
+                .set_aside
+                .iter_mut()
+                .filter(|apart| apart.rule.id == id)
+            {
+                apart.rule.id = fresh;
+            }
+            moving::renumbered(held, id, fresh);
+            for now in held.renumbered.values_mut().filter(|now| **now == id) {
+                *now = fresh;
+            }
+            held.renumbered.insert(id, fresh);
             if held.not_now.remove(&id) {
                 held.not_now.insert(fresh);
             }
