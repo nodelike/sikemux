@@ -77,6 +77,11 @@ pub fn routed_agents() -> impl Iterator<Item = &'static str> {
     routed.into_iter().map(|(_, kind)| kind)
 }
 
+/// An agent's model id that reaches a provider Sikemux routed it to, not one of its own.
+pub fn routed_model(model: &str) -> bool {
+    model.starts_with(AGENT_ID_PREFIX)
+}
+
 fn routed_api(agent: &str) -> Option<RoutedApi> {
     Some(agent_catalog::agent(agent)?.routed.as_ref()?.api)
 }

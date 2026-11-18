@@ -40,8 +40,7 @@ use sikemux_process::sync::Locked;
 use crate::agent_catalog::AgentKind;
 use crate::launch::model_feed::Feed;
 use crate::launch::named_account;
-use pricing::Prices;
-pub use pricing::{PriceOverride, PricingInfo};
+pub use pricing::{PriceOverride, Prices, PricingInfo};
 pub use report::{ReportedAgent, ReportedAnswers, ReportedDay, ReportedTokens};
 
 use super::Core;
@@ -328,6 +327,12 @@ impl ActivityLog {
             .and_then(|path| fs::read(path).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
+    }
+
+    /// What models cost: the prices the person entered over the published ones.
+    pub fn prices(&self) -> Prices {
+        let feed = self.feed.as_ref().map(Feed::current).unwrap_or_default();
+        Prices::new(&feed, &self.price_overrides())
     }
 
     /// Prices `model` at what the person entered, or at the published price

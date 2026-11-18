@@ -443,7 +443,7 @@ fn start(
         .or_else(|| helper.as_ref().map(|helper| helper.agent.clone()))
         .or_else(|| lead.cli().map(str::to_owned))
         .ok_or("cli must name the agent to start, such as claude or codex")?;
-    if let Some(model) = &model {
+    if let (Some(model), None) = (&model, &named_provider) {
         known_model(core, &provider, model)?;
     }
     let (model, paid) = match (helper, named_provider) {
