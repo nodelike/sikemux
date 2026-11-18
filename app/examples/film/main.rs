@@ -60,8 +60,8 @@
 //!   pan DX,DY [S] / scroll DY [S]          two-finger scrolls at the cursor
 //!   shape arrow|hand|beam|auto  which pointer is drawn
 //!   settings PAGE               opens settings at the page of that name
-//!   ask TITLE / ask whole       opens the person's ask whose title starts with TITLE as its card
-//!                               does, or widens it to the whole chat
+//!   ask NAME AGENT TASK "TEXT"  the teammate NAME's agent AGENT asks the core about task TASK
+//!                               of the shared project over the peer link, on a recorded team
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
 //!   toast "TEXT"                shows a toast saying TEXT, as a finished download does
@@ -74,6 +74,7 @@ mod linked;
 #[cfg(target_os = "macos")]
 mod native;
 mod scene;
+mod teammates;
 mod world;
 
 use director::*;
@@ -87,6 +88,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use teammates::Teammates;
 use world::*;
 
 use anyhow::{anyhow, bail, Context as _};
@@ -193,6 +195,7 @@ fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.work)?;
     let clock = args.work.join("clock");
     std::fs::write(&clock, "0")?;
+    let asks = steps.iter().any(|step| step.verb == "ask");
     let account = (steps.iter())
         .any(|step| matches!(step.verb.as_str(), "signed-in" | "host"))
         .then(|| {
@@ -202,7 +205,15 @@ fn main() -> anyhow::Result<()> {
         })
         .transpose()?;
     let signs_in_at_step = steps.iter().any(|step| step.verb == "signed-in");
-    let mut world = World::start(&args, replies, team, &clock, account, signs_in_at_step)?;
+    let mut world = World::start(
+        &args,
+        replies,
+        team,
+        asks,
+        &clock,
+        account,
+        signs_in_at_step,
+    )?;
     if let Some(origin) = header("origin") {
         world.origin = Some(origin.text(0)?.to_owned());
     }

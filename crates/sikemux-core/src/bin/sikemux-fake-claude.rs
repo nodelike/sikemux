@@ -51,8 +51,9 @@
 //! `FAKE_CLAUDE_MODELS`, a JSON list, the models it lists in place of its own.
 //!
 //! Asked once with `--print`, it keeps what it was sent in `fake-claude-asked.txt` where it runs
-//! and answers with nothing, or for an `initialize` with the models it lists and for a usage
-//! request with its `fake-usage.json`, as Claude Code does.
+//! and answers with the `say` steps of a scripted reply whose words it holds, else with nothing,
+//! or for an `initialize` with the models it lists and for a usage request with its
+//! `fake-usage.json`, as Claude Code does.
 //!
 //! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
 //! `fake-account.json`, or a signed-out status when there is none, and a usage
@@ -838,9 +839,20 @@ fn main() {
             return;
         }
         let _ = std::fs::write("fake-claude-asked.txt", &asked);
+        let said: String = scripted_reply(&asked)
+            .into_iter()
+            .flatten()
+            .filter_map(|step| step.get("say")?.as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let result = if said.is_empty() {
+            "{}".to_owned()
+        } else {
+            said
+        };
         println!(
             "{}",
-            json!({ "type": "result", "subtype": "success", "result": "{}" })
+            json!({ "type": "result", "subtype": "success", "result": result })
         );
         return;
     }

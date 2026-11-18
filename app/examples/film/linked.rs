@@ -9,6 +9,19 @@ use std::io::{BufRead, BufReader};
 
 const VECTOR: &str = include_str!("../../../server/protocol/vectors/join.json");
 
+/// Leaves the join vector's signing key where a debug core reads its accounts server's from, so
+/// the core under `home` trusts tickets signed with it, and hands back the key as PEM.
+pub(super) fn trust_join_key(home: &Path) -> anyhow::Result<String> {
+    let dev = home.join(".config/sikemux/dev");
+    std::fs::create_dir_all(&dev)?;
+    let vector: Value = serde_json::from_str(VECTOR)?;
+    let pem = (vector.get("privateKeyPem"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("the join vector has no key"))?;
+    std::fs::write(dev.join("join-signing-key.pem"), pem)?;
+    Ok(pem.to_owned())
+}
+
 /// The accounts API the film's cores sign in to, with the person and the orgs the world's
 /// `sikemuxAccount` names (see `server/api/dev/film-account.ts`).
 pub(super) struct Account {
@@ -62,15 +75,8 @@ impl Account {
     /// Readies a core under `home` to sign in here: it trusts the API's tickets and dials the
     /// film's other cores where they listen, as test cores have no relay to meet through.
     pub(super) fn prepare(&mut self, home: &Path) -> anyhow::Result<()> {
-        let config = home.join(".config/sikemux");
-        let dev = config.join("dev");
-        std::fs::create_dir_all(&dev)?;
-        let vector: Value = serde_json::from_str(VECTOR)?;
-        let pem = (vector.get("privateKeyPem"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("the join vector has no key"))?;
-        std::fs::write(dev.join("join-signing-key.pem"), pem)?;
-        self.folders.push(config);
+        trust_join_key(home)?;
+        self.folders.push(home.join(".config/sikemux"));
         Ok(())
     }
 

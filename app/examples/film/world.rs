@@ -20,6 +20,8 @@ pub(super) struct World {
     checkout: Option<String>,
     /// The remote every project gets, in a scene on a recorded team or one naming an `origin`.
     pub(super) origin: Option<String>,
+    /// The team's other hosts, in a scene where they ask about its tasks.
+    teammates: Option<Teammates>,
     pub(super) claude: PathBuf,
     pub(super) world: Value,
     pub(super) core_program: PathBuf,
@@ -33,6 +35,7 @@ impl World {
         args: &Args,
         replies: Option<PathBuf>,
         team: Option<(PathBuf, String)>,
+        asks: bool,
         clock: &Path,
         mut account: Option<Account>,
         signs_in_at_step: bool,
@@ -96,6 +99,9 @@ impl World {
         if let Some((folder, _)) = &team {
             seat_team(folder, work, &home, &socket)?;
         }
+        let teammates = (team.is_some() && asks)
+            .then(|| Teammates::seat(work, &home, &args.claude))
+            .transpose()?;
         let log = std::fs::File::create(work.join("core.log"))?;
         let mut command = sikemux_process::user_environment::command(&args.core);
         let path = command
@@ -190,6 +196,7 @@ impl World {
             named: std::collections::HashMap::new(),
             checkout: None,
             origin: team.map(|(_, origin)| origin),
+            teammates,
             claude,
             world: args.world.clone(),
             core_program: args.core.clone(),
@@ -699,6 +706,24 @@ impl World {
             "open" => {
                 let (project, path) = self.project()?.clone();
                 self.open_tab(&project, &path, step.text(0)?)?;
+            }
+            "ask" => {
+                let (teammates, origin) = (self.teammates.as_ref())
+                    .zip(self.origin.as_deref())
+                    .context("only a scene on a recorded team has teammates to ask")?;
+                let task = step.text(2)?.parse()?;
+                let said = self.runtime.block_on(teammates.ask(
+                    &self.client,
+                    origin,
+                    step.text(0)?,
+                    step.text(1)?,
+                    task,
+                    step.text(3)?,
+                ))?;
+                eprintln!(
+                    "film: {} asked about task {task} and heard {said}",
+                    step.text(0)?
+                );
             }
             "core" => {
                 let (_, path) = self.project()?.clone();

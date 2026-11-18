@@ -1,0 +1,49 @@
+# Teammates' agents ask about the tasks of a project the person shares with Acme, over the peer
+# link, and the person reads what was asked and stops one of them.
+stage 1760 1000
+window 1760 1000
+prefer themeId aura-noir
+replies asked.json
+team acme https://acme.invalid/storefront.git
+project storefront shop-site
+chat Senku
+title "Invoice pay button"
+say "Pay button on the invoice does nothing in Safari"
+settle 2
+core closeChat {"agentId":"$chat"}
+chat Kaguya
+title "Gift note"
+say "Add a gift note field at checkout"
+settle 2
+core closeChat {"agentId":"$chat"}
+chat Rimuru
+title "Receipt rounding"
+say "Some orders come out a cent off on the receipt, like @Nami saw with tax"
+core boardAdd {"project":"$project","title":"Receipt\u0020rounding","owner":"$chat"}
+chat Yuno
+title "Search order"
+say "Search puts sold-out items first"
+core boardAdd {"project":"$project","title":"Search\u0020order","owner":"$chat"}
+chat Nami
+title "Tax per country"
+say "Tax shows 19% for every country"
+core boardAdd {"project":"$project","title":"Tax\u0020per\u0020country","owner":"$chat"}
+prefer starAsked true
+core shareProject {"project":"$project","org":"org_acme"}
+settle 4
+ask Theo Pike 14 "Will the tax table cover the EU only, or the US too?"
+ask Priya Sable 10 "Which file does the rounding live in?"
+ask Maya Juno 12 "Will sold-out items still show in search, just last?"
+ask Theo Pike 14 "Is tax looked up by shipping country or billing country?"
+ask Maya Wren 10 "Does the receipt round each line or only the order total?"
+core openChief {"project":"storefront"}
+settle 6
+key cmd-alt-7
+settle 4
+snap asked
+click 1056,770
+settle 2
+snap asked-open
+click "Stop Maya"
+settle 3
+snap asked-stopped
