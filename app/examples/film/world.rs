@@ -557,7 +557,7 @@ impl World {
             "orgplan" => self.org_change("plan", step.text(0)?, step.text(1)?)?,
             "orgkey" => self.org_key(step.text(0)?, step.text(1)?, step.text(2)?)?,
             "orgpolicy" => self.org_change("policy", step.text(0)?, step.text(1)?)?,
-            "orgshare" => self.org_share(step.text(0)?)?,
+            "orgshare" => self.org_share(step.text(0)?, step.text(1).unwrap_or("here"))?,
             "orgmember" => self.org_change("member", step.text(0)?, step.text(1)?)?,
             "orgmove" => self.org_move(step.text(0)?, step.text(1)?)?,
             "orgholds" => self.org_holds(step.text(0)?, step.text(1)?)?,

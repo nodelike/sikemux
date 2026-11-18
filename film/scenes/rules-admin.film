@@ -11,6 +11,7 @@ orgmember priya "Lumen Studio"
 orgshare "Lumen Studio"
 orgmove here "Run pnpm check before every commit."
 host laptop priya
+orgshare "Lumen Studio" laptop
 orgmove laptop "Use pnpm, never npm, for every install."
 settle 6
 chat Wren

@@ -313,22 +313,19 @@ impl World {
         account.tell(&format!("{what} {value} {org}"), &format!("done {value}"))
     }
 
-    /// Shares the scene's project with org `org`, once this core knows the org.
-    pub(super) fn org_share(&self, org: &str) -> anyhow::Result<()> {
-        let project = self.project()?.1.to_string_lossy().into_owned();
-        let mut last = format!("this core never heard of {org}");
+    /// On host `name`, shares its copy of the scene's project with org `org`, once that host
+    /// knows the org, as its person taps Share.
+    pub(super) fn org_share(&self, org: &str, name: &str) -> anyhow::Result<()> {
+        let client = self.client_on(name)?;
+        let project = self.project_on(name)?.to_string_lossy().into_owned();
+        let mut last = format!("{name} never heard of {org}");
         for _ in 0..300 {
-            let vaults = self
-                .runtime
-                .block_on(self.client.call("orgVaults", json!({})))?;
+            let vaults = self.runtime.block_on(client.call("orgVaults", json!({})))?;
             let known =
                 (vaults.as_array().into_iter().flatten()).find(|vault| vault["name"] == org);
             if let Some(vault) = known {
                 let params = json!({ "project": project, "org": vault["org"] });
-                match self
-                    .runtime
-                    .block_on(self.client.call("shareProject", params))
-                {
+                match self.runtime.block_on(client.call("shareProject", params)) {
                     Ok(_) => return Ok(()),
                     Err(error) => last = error.to_string(),
                 }
@@ -336,6 +333,16 @@ impl World {
             std::thread::sleep(Duration::from_millis(100));
         }
         bail!("{project} was never shared with {org}: {last}")
+    }
+
+    fn project_on(&self, name: &str) -> anyhow::Result<PathBuf> {
+        Ok(match name {
+            "here" => self.project()?.1.clone(),
+            name => (self.linked.iter())
+                .find(|linked| linked.name == name)
+                .and_then(|linked| linked.project.clone())
+                .ok_or_else(|| anyhow!("{name} holds no project; add one before the host"))?,
+        })
     }
 
     fn client_on(&self, name: &str) -> anyhow::Result<&CoreClient> {
@@ -354,14 +361,7 @@ impl World {
     /// as a member taps the move offer, once that host knows the project is shared.
     pub(super) fn org_move(&self, name: &str, text: &str) -> anyhow::Result<()> {
         let client = self.client_on(name)?;
-        let project = match name {
-            "here" => self.project()?.1.clone(),
-            name => (self.linked.iter())
-                .find(|linked| linked.name == name)
-                .and_then(|linked| linked.project.clone())
-                .ok_or_else(|| anyhow!("{name} holds no project; add one before the host"))?,
-        };
-        let project = project.to_string_lossy().into_owned();
+        let project = self.project_on(name)?.to_string_lossy().into_owned();
         let entry = json!({ "kind": "rule", "text": text, "goal": null, "sensitive": false,
             "store": "project" });
         let view = self
