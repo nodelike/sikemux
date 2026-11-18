@@ -183,6 +183,8 @@ const FAILED_TTL: Duration = Duration::from_secs(60);
 const REFUSED_TTL: Duration = Duration::from_secs(600);
 /// What a lookup fails with when the agent says its account is signed out.
 pub const SIGNED_OUT: &str = "Not signed in";
+/// How the reason begins when Codex runs but its config.toml does not load, so no chat can start.
+pub const CONFIG_BROKEN: &str = "Codex's config.toml does not load";
 
 type Lookup = Result<Usage, String>;
 /// When a lookup was kept, for how long, and what it answered.
@@ -776,6 +778,7 @@ pub async fn codex_ask(
 
         let mut output_bytes = 0usize;
         let mut initialized = false;
+        let mut broken = None;
         while let Some(line) = lines
             .next_line()
             .await
@@ -788,6 +791,10 @@ pub async fn codex_ask(
             let Ok(value) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            if value.get("method").and_then(Value::as_str) == Some("configWarning") {
+                broken = broken.or_else(|| config_not_loaded(value.get("params")?));
+                continue;
+            }
             let response_id = value.get("id").and_then(Value::as_u64);
             if response_id == Some(CODEX_USAGE_INITIALIZE_ID) && !initialized {
                 if value.get("error").is_some() {
@@ -811,6 +818,9 @@ pub async fn codex_ask(
             if response_id != Some(CODEX_USAGE_REQUEST_ID) {
                 continue;
             }
+            if let Some(broken) = broken {
+                return Err(broken);
+            }
             if let Some(error) = value.get("error") {
                 let message = error.get("message").and_then(Value::as_str);
                 if message.is_some_and(|message| message.contains("authentication required")) {
@@ -832,6 +842,22 @@ pub async fn codex_ask(
     let _ = child.wait().await;
 
     lookup.map_err(|_| format!("Codex {topic} lookup timed out"))?
+}
+
+/// Why Codex runs on defaults, when a config warning says its config.toml did not load: Codex
+/// answers lookups then, but every thread it starts fails. The file is named without its folder.
+fn config_not_loaded(warning: &Value) -> Option<String> {
+    let text = |key: &str| warning.get(key).and_then(Value::as_str);
+    let summary = text("summary")?;
+    if !summary.starts_with("Invalid configuration") {
+        return None;
+    }
+    let details = text("details").unwrap_or(summary);
+    let details = match text("path") {
+        Some(path) => details.replace(path, "config.toml"),
+        None => details.to_owned(),
+    };
+    Some(format!("{CONFIG_BROKEN}: {details}"))
 }
 
 fn usage_reset_at(value: &Value) -> Option<UsageResetAt> {
