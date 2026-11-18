@@ -24,6 +24,7 @@ import type {
   ChangeOutcome,
   ChangePreview,
   CheckoutRequest,
+  HeldAs,
   HeldSubscription,
   Paid,
   PauseOutcome,
@@ -346,6 +347,13 @@ interface Read {
  * calls, so it stops a little earlier, before the second call could land inside the lock.
  */
 const INTERVAL_CHANGE_STOPS_MS = 35 * 60_000;
+
+function heldAs(status: PaddleSubscription["status"]): HeldAs {
+  if (status === "canceled") return "ended";
+  if (status === "past_due") return "lapsed";
+  if (status === "paused") return "paused";
+  return "active";
+}
 
 function renewsShortly() {
   return new ApiFailure(
@@ -779,7 +787,7 @@ export class PaddleProvider implements BillingProvider {
   }
 
   async pause(held: HeldSubscription, since: Date): Promise<PauseOutcome> {
-    const sub = await this.subscription(held.providerSubscriptionId);
+    let sub = await this.subscription(held.providerSubscriptionId);
     if (sub.status === "paused") {
       const pausedAt = sub.paused_at ? new Date(sub.paused_at) : null;
       if (!pausedAt || pausedAt.getTime() < since.getTime() - CLOCK_SLACK_MS)
@@ -791,6 +799,10 @@ export class PaddleProvider implements BillingProvider {
       };
     }
     if (sub.status !== "active") return { refused: "not_active" };
+    if (held.cancelAtPeriodEnd && !sub.scheduled_change) {
+      await this.cancel(held, "period_end");
+      sub = await this.subscription(held.providerSubscriptionId);
+    }
     const now = this.now();
     const scheduled = sub.scheduled_change;
     const cancelling = scheduled?.action === "cancel";
@@ -829,9 +841,9 @@ export class PaddleProvider implements BillingProvider {
     }
   }
 
-  async resumeOn(held: HeldSubscription, at: Date) {
+  async resumeOn(held: HeldSubscription, at: Date): Promise<HeldAs> {
     const sub = await this.subscription(held.providerSubscriptionId);
-    if (sub.status !== "paused") return false;
+    if (sub.status !== "paused") return heldAs(sub.status);
     const now = this.now();
     const scheduled = sub.scheduled_change;
     if (
@@ -839,7 +851,7 @@ export class PaddleProvider implements BillingProvider {
       scheduled?.action === "resume" &&
       Math.abs(Date.parse(scheduled.effective_at) - at.getTime()) < 1000
     )
-      return true;
+      return "paused";
     await this.alter("POST", `/subscriptions/${sub.id}/resume`, {
       effective_from:
         at.getTime() <= now + RESUME_AT_ONCE_WITHIN_MS
@@ -847,17 +859,17 @@ export class PaddleProvider implements BillingProvider {
           : at.toISOString(),
       on_resume: "start_new_billing_period",
     });
-    return true;
+    return "paused";
   }
 
-  async keepPaused(held: HeldSubscription) {
+  async keepPaused(held: HeldSubscription): Promise<HeldAs> {
     const sub = await this.subscription(held.providerSubscriptionId);
-    if (sub.status !== "paused") return false;
+    if (sub.status !== "paused") return heldAs(sub.status);
     if (sub.scheduled_change?.action === "resume")
       await this.alter("PATCH", `/subscriptions/${sub.id}`, {
         scheduled_change: null,
       });
-    return true;
+    return "paused";
   }
 
   async refund(providerPaymentId: string, amount?: number) {

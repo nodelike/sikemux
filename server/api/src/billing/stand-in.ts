@@ -19,6 +19,7 @@ import type {
   ChangeOutcome,
   ChangePreview,
   CheckoutRequest,
+  HeldAs,
   HeldSubscription,
   ProviderEvent,
   ProviderRequest,
@@ -100,6 +101,7 @@ export class StandInProvider implements BillingProvider {
   private readonly pausedAt = new Map<string, Date>();
   /** The subscriptions set here to cancel at their period's end. */
   private readonly cancelling = new Set<string>();
+  private readonly ended = new Set<string>();
   private readonly payments = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
@@ -328,6 +330,7 @@ export class StandInProvider implements BillingProvider {
       );
     if (when === "period_end") return this.setCancel(held, true);
     this.cancelling.delete(held.providerSubscriptionId);
+    this.ended.add(held.providerSubscriptionId);
     this.pausedAt.delete(held.providerSubscriptionId);
     this.resumes.delete(held.providerSubscriptionId);
     await this.send({
@@ -373,12 +376,18 @@ export class StandInProvider implements BillingProvider {
   }
 
   /** Resumes at once when `at` has passed; a later day is kept and never comes, as nothing here waits. */
-  async resumeOn(held: HeldSubscription, at: Date) {
-    if (!this.pausedAt.has(held.providerSubscriptionId)) return false;
+  private heldAs(providerSubscriptionId: string): HeldAs {
+    if (this.pausedAt.has(providerSubscriptionId)) return "paused";
+    return this.ended.has(providerSubscriptionId) ? "ended" : "active";
+  }
+
+  async resumeOn(held: HeldSubscription, at: Date): Promise<HeldAs> {
+    if (!this.pausedAt.has(held.providerSubscriptionId))
+      return this.heldAs(held.providerSubscriptionId);
     const now = new Date();
     if (at > now) {
       this.resumes.set(held.providerSubscriptionId, at);
-      return true;
+      return "paused";
     }
     this.resumes.delete(held.providerSubscriptionId);
     this.pausedAt.delete(held.providerSubscriptionId);
@@ -400,12 +409,12 @@ export class StandInProvider implements BillingProvider {
         periodEnd: currentPeriodEnd,
       },
     );
-    return true;
+    return "paused";
   }
 
   keepPaused(held: HeldSubscription) {
     this.resumes.delete(held.providerSubscriptionId);
-    return Promise.resolve(this.pausedAt.has(held.providerSubscriptionId));
+    return Promise.resolve(this.heldAs(held.providerSubscriptionId));
   }
 
   /** When each paused subscription is set to resume. */
@@ -427,14 +436,27 @@ export class StandInProvider implements BillingProvider {
       await this.settleRefund(refund);
   }
 
-  private settleRefund({
-    providerPaymentId,
-    amount,
-  }: {
-    providerPaymentId: string;
-    amount?: number;
-  }) {
-    if (this.refuseRefunds)
+  /** Pays or refuses one refund that `holdRefunds` kept waiting. */
+  async answerRefund(providerPaymentId: string, refuse: boolean) {
+    const at = this.heldRefunds.findIndex(
+      (refund) => refund.providerPaymentId === providerPaymentId,
+    );
+    const [refund] = at < 0 ? [] : this.heldRefunds.splice(at, 1);
+    if (!refund) throw new Error(`No refund of ${providerPaymentId} waits.`);
+    await this.settleRefund(refund, refuse);
+  }
+
+  private settleRefund(
+    {
+      providerPaymentId,
+      amount,
+    }: {
+      providerPaymentId: string;
+      amount?: number;
+    },
+    refuse = this.refuseRefunds,
+  ) {
+    if (refuse)
       return this.send({
         ...this.event("payment.refund_refused"),
         providerPaymentId,

@@ -19,6 +19,9 @@ export interface HeldSubscription {
   cancelAtPeriodEnd: boolean;
 }
 
+/** How the provider holds a subscription it was asked to keep paused. */
+export type HeldAs = "paused" | "active" | "lapsed" | "ended";
+
 /** A subscription row as a provider acts on it. */
 export function heldSubscription(
   row: {
@@ -249,14 +252,15 @@ export interface BillingProvider {
   pause(subscription: HeldSubscription, since: Date): Promise<PauseOutcome>;
   /**
    * Resumes a paused subscription on `at`, when the provider charges a new period; at once when
-   * `at` has passed. Asking again moves the day. Answers false when the provider holds it unpaused.
+   * `at` has passed. Asking again moves the day. Answers "paused" when the resume is set, or the
+   * status the provider holds it in when it was no longer paused.
    */
-  resumeOn(subscription: HeldSubscription, at: Date): Promise<boolean>;
+  resumeOn(subscription: HeldSubscription, at: Date): Promise<HeldAs>;
   /**
-   * Drops the resume `resumeOn` set, so the subscription stays paused. Answers false when the
-   * provider holds it unpaused.
+   * Drops the resume `resumeOn` set, so the subscription stays paused. Answers "paused", or the
+   * status the provider holds it in when it is no longer paused.
    */
-  keepPaused(subscription: HeldSubscription): Promise<boolean>;
+  keepPaused(subscription: HeldSubscription): Promise<HeldAs>;
   /**
    * Asks for a payment to be refunded, in full or `amount` of it; payment.refunded says when it is.
    * Asking twice for one payment refunds it once.

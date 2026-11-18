@@ -81,6 +81,8 @@ class FakePaddle {
   slowMs = 0;
   /** Fails every pause, as Paddle failing between two calls. */
   failPauses = false;
+  /** Fails every cancel, as Paddle failing between two calls. */
+  failCancels = false;
   subscriptions = new Map<string, PaddleSub>();
   customerOf = new Map<string, string>();
   lastCheckout: string | undefined;
@@ -274,6 +276,8 @@ class FakePaddle {
     const acted = /^\/subscriptions\/([^/]+)\/(cancel|pause)$/.exec(path);
     const target = acted && this.subscriptions.get(acted[1] ?? "");
     if (method === "POST" && acted?.[2] === "cancel") {
+      if (this.failCancels)
+        return Promise.reject(new PaddleError(500, "internal_error", "failed"));
       if (target && body?.effective_from === "next_billing_period") {
         target.scheduled_change = {
           action: "cancel",
@@ -1779,5 +1783,24 @@ describe("a seat pausing a Pro its person set to cancel", () => {
     await expect(provider().pause(held, new Date())).rejects.toThrow();
     expect(sub.scheduled_change?.action).toBe("cancel");
     expect(sub.next_billed_at).toBeNull();
+  });
+
+  it("A3: a pause and its re-cancel both failing, then a retry inside the lock, leave the cancel at Paddle", async () => {
+    const { sub, held } = cancelling(10 * 24 * 60);
+    paddle.failPauses = true;
+    paddle.failCancels = true;
+    await expect(provider().pause(held, new Date())).rejects.toThrow();
+    expect(sub.scheduled_change).toBeNull();
+
+    paddle.failPauses = false;
+    paddle.failCancels = false;
+    ahead =
+      Date.parse(sub.current_billing_period.ends_at) -
+      Date.now() -
+      20 * MINUTE_MS;
+    const outcome = await provider().pause(held, new Date());
+    expect(outcome).toHaveProperty("askAgainAt");
+    expect(sub.scheduled_change?.action).toBe("cancel");
+    expect(sub.status).toBe("active");
   });
 });

@@ -600,11 +600,14 @@ async function apply(
       const keptPending =
         invoice.kept_refund !== null && invoice.kept_refunded_at === null;
       if (event.type === "payment.refund_refused" && keptPending) {
+        if (invoice.kept_refund_refused_at)
+          return { customerId, refused: event.providerPaymentId };
         await trx
           .updateTable("invoices")
           .set({ kept_refund_refused_at: at })
           .where("id", "=", invoice.id)
           .execute();
+        await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
         return { customerId, refused: event.providerPaymentId };
       }
       if (event.type === "payment.refund_refused") {
@@ -627,18 +630,7 @@ async function apply(
           })
           .where("id", "=", invoice.id)
           .execute();
-        const waiting = await trx
-          .selectFrom("invoices")
-          .select("id")
-          .where("customer_id", "=", customerId)
-          .where("provider_subscription_id", "=", subscriptionId)
-          .where("status", "=", "paid")
-          .where("kept_refund", "is not", null)
-          .where("kept_refunded_at", "is", null)
-          .where("kept_refund_refused_at", "is", null)
-          .executeTakeFirst();
-        if (!waiting)
-          await endPlanNow(trx, from, customerId, subscriptionId, at);
+        await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
         return { customerId };
       }
       if (event.chargeback) {
@@ -664,6 +656,56 @@ async function apply(
       return { customerId };
     }
   }
+}
+
+/**
+ * Once the provider has answered every refund of a paused plan's kept time, ends the plan if it paid
+ * them all. Otherwise the person keeps the time whose refund was refused: the kept time is cut by
+ * the share of it paid back, by amount, and the plan runs the rest.
+ */
+async function keptRefundsAnswered(
+  trx: Transaction<Tables>,
+  from: From,
+  customerId: string,
+  providerSubscriptionId: string,
+  at: Date,
+) {
+  const kept = await trx
+    .selectFrom("invoices")
+    .select(["kept_refund", "kept_refunded_at", "kept_refund_refused_at"])
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("kept_refund", "is not", null)
+    .execute();
+  if (
+    kept.some(
+      (invoice) =>
+        invoice.kept_refunded_at === null &&
+        invoice.kept_refund_refused_at === null,
+    )
+  )
+    return;
+  let total = 0;
+  let paidBack = 0;
+  for (const invoice of kept) {
+    const amount = Number(invoice.kept_refund);
+    total += amount;
+    if (invoice.kept_refunded_at) paidBack += amount;
+  }
+  if (paidBack >= total) {
+    await endPlanNow(trx, from, customerId, providerSubscriptionId, at);
+    return;
+  }
+  if (paidBack === 0) return;
+  await trx
+    .updateTable("subscriptions")
+    .set({
+      paid_left: sql<string>`paid_left * ${(total - paidBack) / total}::float8`,
+    })
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("paid_left", "is not", null)
+    .execute();
 }
 
 /** Whether a refund asked for on a plan has been paid in full, its first payment included. */

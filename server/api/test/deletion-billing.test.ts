@@ -16,6 +16,7 @@ import { purgeAccounts } from "../src/account/purge.ts";
 import { applyProviderEvents } from "../src/billing/apply.ts";
 import { sweepDeletedBilling } from "../src/billing/deleted.ts";
 import type { ProviderRequest } from "../src/billing/provider.ts";
+import { settleSeatPause } from "../src/billing/seat-pause.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
@@ -735,9 +736,11 @@ describe("cancelling a Pro a seat pauses", () => {
       status: string;
       cancel_at_period_end: boolean;
       paid_left: string | null;
+      kept_seconds: number | null;
       resumes_at: Date | null;
     }>(
-      `select id, provider_subscription_id, status, cancel_at_period_end, paid_left::text, resumes_at
+      `select id, provider_subscription_id, status, cancel_at_period_end, paid_left::text,
+              extract(epoch from paid_left)::float8 as kept_seconds, resumes_at
          from subscriptions where product = 'pro'`,
     );
     const [row] = rows;
@@ -818,4 +821,86 @@ describe("cancelling a Pro a seat pauses", () => {
       payments,
     );
   });
+
+  async function cancelledOnTwoPayments() {
+    await buy(MEMBER, "pro");
+    const { id } = await pro();
+    const changed = await as(MEMBER, `/v1/billing/subscriptions/${id}`, {
+      method: "PATCH",
+      json: { interval: "year" },
+    });
+    expect(changed.status).toBe(200);
+    await database.pool.query(
+      "update invoices set at = at - interval '20 days'",
+    );
+    const orgId = await createOrg(3);
+    await addMember(orgId, MEMBER, "user");
+    provider.holdRefunds = true;
+    expect((await cancelPro(id)).status).toBe(200);
+    const { rows: asked } = await database.pool.query<{
+      provider_payment_id: string;
+      kept_refund: string;
+    }>(
+      "select provider_payment_id, kept_refund from invoices where kept_refund is not null order by at",
+    );
+    expect(asked).toHaveLength(2);
+    return { orgId, asked, frozen: await pro() };
+  }
+
+  for (const refusedFirst of [true, false])
+    it(`C2: kept days on two payments, one refund refused ${refusedFirst ? "before" : "after"} the other is paid, keep the refused share and end with no new charge`, async () => {
+      const {
+        orgId,
+        asked: [refused, paid],
+        frozen,
+      } = await cancelledOnTwoPayments();
+      if (!refused || !paid || !frozen.kept_seconds)
+        throw new Error("no kept days");
+      const answers = [
+        [refused.provider_payment_id, true],
+        [paid.provider_payment_id, false],
+      ] as const;
+      for (const [payment, refuse] of refusedFirst
+        ? answers
+        : [...answers].reverse())
+        await provider.answerRefund(payment, refuse);
+
+      const share =
+        Number(refused.kept_refund) /
+        (Number(refused.kept_refund) + Number(paid.kept_refund));
+      const kept = await pro();
+      expect(kept).toMatchObject({
+        status: "paused",
+        cancel_at_period_end: true,
+      });
+      expect(
+        Math.abs((kept.kept_seconds ?? 0) - frozen.kept_seconds * share),
+      ).toBeLessThan(1);
+
+      const payments = await count("select count(*)::int as n from invoices");
+      expect(
+        (await as(MEMBER, `/v1/orgs/${orgId}/leave`, { method: "POST" }))
+          .status,
+      ).toBe(204);
+      const running = await pro();
+      expect(
+        Math.abs(
+          (running.resumes_at?.getTime() ?? 0) -
+            Date.now() -
+            frozen.kept_seconds * share * 1000,
+        ),
+      ).toBeLessThan(60_000);
+
+      await database.pool.query(
+        "update subscriptions set resumes_at = now() - interval '1 second' where product = 'pro'",
+      );
+      await settleSeatPause(database.db, provider, MEMBER, log);
+      expect((await pro()).status).toBe("ended");
+      expect(
+        provider.resumesOn(running.provider_subscription_id),
+      ).toBeUndefined();
+      expect(await count("select count(*)::int as n from invoices")).toBe(
+        payments,
+      );
+    });
 });
