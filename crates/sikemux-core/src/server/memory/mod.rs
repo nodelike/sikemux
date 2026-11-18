@@ -600,6 +600,13 @@ fn add(
             (to_keep(text, "text", MAX_TEXT_CHARS)?, *store)
         }
     };
+    if store == Store::Org {
+        return Err(
+            "A new rule can't go straight to the org's rules: add it to the project, \
+            and the org's policy or a move takes it there"
+                .into(),
+        );
+    }
     let mut state = core.memory().state.locked();
     let persons_rule = match &new {
         NewMemory::Rule { sensitive, .. } => typed && !sensitive && !may_hold_secret(&text),
