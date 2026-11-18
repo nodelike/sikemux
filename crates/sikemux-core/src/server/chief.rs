@@ -1329,12 +1329,16 @@ pub(crate) fn overruled(
         Some(_) => "Overruled. Decisions like this come to you from now on",
         None => "Overruled",
     };
+    let (org, waiting) =
+        (rule.map(|rule| super::memory::kept_for_org(core, project, rule))).unwrap_or_default();
     let shown = OverruledDecision {
         project: project.to_owned(),
         goal,
         decision: id,
         text: sentence(text),
         rule,
+        org,
+        waiting,
         undone: false,
         stopped_auto: false,
     };
@@ -1682,6 +1686,8 @@ pub(crate) async fn overrule_undone(
         decision: id,
         text: sentence(text),
         rule: overrule.rule,
+        org: None,
+        waiting: false,
         undone: true,
         stopped_auto: false,
     };

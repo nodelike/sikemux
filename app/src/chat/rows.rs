@@ -1091,16 +1091,33 @@ fn decided(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
 
 /// The quiet line an Overrule leaves in the chief's chat, with Undo until it is undone.
 fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
-    let Some(overruled) = notice.overruled.clone() else {
+    let Some(overruled) = notice.overruled.as_deref().cloned() else {
         return div().into_any_element();
     };
-    let (head, tail) = match (overruled.undone, overruled.rule.is_some()) {
-        (true, _) => (t!("Overruled, then undone"), Some(t!("it stands again"))),
-        (false, true) => (
-            t!("Overruled"),
-            Some(t!("decisions like this come to you from now on")),
+    let (head, tail) = match (overruled.undone, overruled.rule.is_some(), &overruled.org) {
+        (true, ..) => (
+            t!("Overruled, then undone"),
+            Some(t!("it stands again").to_owned()),
         ),
-        (false, false) => (t!("Overruled"), None),
+        (false, true, Some(org)) if overruled.waiting => (
+            t!("Overruled"),
+            Some(t!(
+                "decisions like this come to you from now on, a rule waiting for {org}'s admins",
+                org = org
+            )),
+        ),
+        (false, true, Some(org)) => (
+            t!("Overruled"),
+            Some(t!(
+                "decisions like this come to you from now on, a rule for {org}",
+                org = org
+            )),
+        ),
+        (false, true, None) => (
+            t!("Overruled"),
+            Some(t!("decisions like this come to you from now on").to_owned()),
+        ),
+        (false, false, _) => (t!("Overruled"), None),
     };
     let quoted =
         (!overruled.text.is_empty()).then(|| t!("“{text}”", text = overruled.text.clone()));

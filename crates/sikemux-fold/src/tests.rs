@@ -3222,6 +3222,8 @@ fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
         decision: 1,
         text: "Inbox for shared links".into(),
         rule: None,
+        org: None,
+        waiting: false,
         undone: false,
         stopped_auto: false,
     };
@@ -3230,7 +3232,7 @@ fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
     let lines = decision_lines(&mut chat);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0].decided, None);
-    assert_eq!(lines[0].overruled, Some(overruled));
+    assert_eq!(lines[0].overruled, Some(Box::new(overruled)));
 }
 
 #[test]

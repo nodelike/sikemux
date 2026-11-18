@@ -2904,7 +2904,7 @@ impl Fold {
         let waiting = (self.decided_in_turn.iter_mut()).find(|(_, _, notice)| holds(notice));
         if let Some((_, _, notice)) = waiting {
             notice.decided = None;
-            notice.overruled = Some(now.clone());
+            notice.overruled = Some(Box::new(now.clone()));
             notice.title = title.to_owned();
             return true;
         }
@@ -2922,7 +2922,7 @@ impl Fold {
         };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             notice.decided = None;
-            notice.overruled = Some(now.clone());
+            notice.overruled = Some(Box::new(now.clone()));
             notice.title = title.to_owned();
         }
         held.touch_part(part);

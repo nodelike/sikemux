@@ -36,6 +36,7 @@ use super::kept::{self, Kept};
 use super::wake::Wake;
 use super::Core;
 use crate::cli::protocol::HarnessRequest;
+use crate::sessions::asked::may_hold_secret;
 use crate::text::to_keep;
 
 mod brief;
@@ -510,7 +511,12 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         }
     };
     let mut state = core.memory().state.locked();
-    let persons_rule = matches!(new, NewMemory::Rule { .. }) && learned.agent.is_none();
+    let persons_rule = match &new {
+        NewMemory::Rule { sensitive, .. } => {
+            learned.agent.is_none() && !sensitive && !may_hold_secret(&text)
+        }
+        NewMemory::Knowledge { .. } => false,
+    };
     let store = org::persons(&state, project, store, persons_rule);
     let key = state.key_for(project, store);
     if key.is_empty() {
@@ -1301,18 +1307,7 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
     let Some(start) = chat.feed.start() else {
         return true;
     };
-    let (org, waiting) = {
-        let state = core.memory().state.locked();
-        let shared = state.shared.get(&state.key_of(project));
-        let waiting = (state.own(project)).is_some_and(|held| held.waiting.contains(&id));
-        let holds = |shared: &&org::Shared| {
-            waiting || (state.held.get(&shared.key())).is_some_and(|held| held.holds(id))
-        };
-        (
-            shared.filter(holds).map(|shared| shared.name.clone()),
-            waiting,
-        )
-    };
+    let (org, waiting) = kept_for_org(core, project, id);
     let rule = sikemux_view::chat::KeptRule {
         id,
         project: project.to_owned(),
@@ -1328,6 +1323,21 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
         }),
     );
     true
+}
+
+/// The org whose store rule `id` of `project` went to, and whether it waits there for an
+/// owner or admin; none when it stayed on this host.
+pub(crate) fn kept_for_org(core: &Core, project: &str, id: u64) -> (Option<String>, bool) {
+    let state = core.memory().state.locked();
+    let shared = state.shared.get(&state.key_of(project));
+    let waiting = (state.own(project)).is_some_and(|held| held.waiting.contains(&id));
+    let holds = |shared: &&org::Shared| {
+        waiting || (state.held.get(&shared.key())).is_some_and(|held| held.holds(id))
+    };
+    (
+        shared.filter(holds).map(|shared| shared.name.clone()),
+        waiting,
+    )
 }
 
 /// `memory_update`: corrects, disputes or retires an entry, or changes what

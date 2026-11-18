@@ -1789,7 +1789,7 @@ pub struct AgentNotice {
     pub rule: Option<KeptRule>,
     /// The decision the person overruled, which Undo (`undoOverrule`) puts back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub overruled: Option<OverruledDecision>,
+    pub overruled: Option<Box<OverruledDecision>>,
     /// The chief's count of a week, as numbers the client words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub week: Option<ChiefWeek>,
@@ -1916,6 +1916,12 @@ pub struct OverruledDecision {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule: Option<u64>,
+    /// The name of the org whose store the rule went to, for its members' agents too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
+    /// The rule waits on the org's list for an owner or admin to keep it there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waiting: bool,
     /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
