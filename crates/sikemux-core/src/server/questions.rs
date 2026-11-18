@@ -253,6 +253,7 @@ impl Question {
             about: self.about.clone(),
             page: self.page.clone(),
             more_pages: self.more_pages.clone(),
+            shown_in: Vec::new(),
             link: self.link.clone(),
             question: self.text.clone(),
             context: None,

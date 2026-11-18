@@ -355,13 +355,16 @@ impl Workbench {
         open
     }
 
-    /// The calls agent `agent` asks, oldest first, and those answered since its chat's last row.
+    /// The calls agent `agent`'s chat lists, as the core places them, oldest first, and those
+    /// answered since its chat's last row.
     pub(crate) fn calls_of(&self, place: &Place, agent: &str, last_row: u64) -> CallsOf {
         let Some(view) = self.view_at(place) else {
             return CallsOf::default();
         };
         let mut of = CallsOf::default();
-        for call in view.calls.iter().filter(|call| waits(call, agent)) {
+        for call in
+            (view.calls.iter()).filter(|call| call.shown_in.iter().any(|chat| chat == agent))
+        {
             match call.state {
                 CallState::Open => of.open.push(call.clone()),
                 _ if settled_at(call) >= last_row => of.settled.push(call.clone()),

@@ -139,6 +139,7 @@ impl Raise {
             about: None,
             page: None,
             more_pages: Vec::new(),
+            shown_in: Vec::new(),
             link: None,
             question: self.question,
             context: self.context,

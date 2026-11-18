@@ -1793,6 +1793,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         about: None,
         page: None,
         more_pages: Vec::new(),
+        shown_in: Vec::new(),
         link: None,
         question,
         context: hold.why.clone(),

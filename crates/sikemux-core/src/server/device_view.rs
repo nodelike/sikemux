@@ -314,7 +314,8 @@ impl DeviceViewCore for Core {
             }
         }
         goals::view_moved(self, &inbox);
-        let calls = super::person_calls::shown(self);
+        let mut calls = super::person_calls::shown(self);
+        place_calls(self, &chiefs, &mut calls);
         super::chief::refresh_away(self, &calls);
         let mut workspace = self.workspace_view();
         stand_projects(self, &mut workspace.projects, &turns, &calls);
@@ -512,5 +513,37 @@ fn stand_projects(
         } else {
             ProjectStanding::AtRest
         };
+    }
+}
+
+/// Names on each call the chats that show it: its askers', every lead above them or above the
+/// agent it is about, and its project's chief.
+fn place_calls(core: &Core, chiefs: &HashMap<String, String>, calls: &mut [PersonCall]) {
+    let leads = core.workspaces().agent_leads();
+    let chief_at: HashMap<String, &String> = (core.workspaces().projects().into_iter())
+        .filter_map(|project| {
+            let chief = chiefs.get(&project.id)?;
+            Some((project.path.to_string_lossy().into_owned(), chief))
+        })
+        .collect();
+    for call in calls {
+        let mut chats: Vec<String> = Vec::new();
+        let askers = std::iter::once(&call.asker).chain(&call.joined);
+        let starts = (askers.map(|asker| Some(&asker.agent_id)))
+            .chain((call.about.iter()).map(|about| leads.get(&about.agent_id)));
+        for start in starts {
+            let mut at = start;
+            while let Some(agent) = at.filter(|agent| !chats.contains(agent)) {
+                chats.push(agent.clone());
+                at = leads.get(agent);
+            }
+        }
+        if let Some(chief) = chief_at
+            .get(&call.project)
+            .filter(|chief| !chats.contains(chief))
+        {
+            chats.push((*chief).clone());
+        }
+        call.shown_in = chats;
     }
 }
