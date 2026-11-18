@@ -145,10 +145,33 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
 }
 
 /// The tab on a desk that shows `url`, which Open on its page brings forward.
-fn tab_showing<'a>(strip: &'a BrowserSnapshot, url: &str) -> Option<&'a str> {
+fn tab_showing<'a>(strip: &'a BrowserSnapshot, url: &str, file: Option<&Path>) -> Option<&'a str> {
     (strip.tabs.iter())
-        .find(|tab| tab.url == url)
+        .find(|tab| tab.url == url || (file.is_some() && tab.local_file.as_deref() == file))
         .map(|tab| tab.id.as_str())
+}
+
+/// Shows `url` on `agent`'s desk in the tab already showing its file, loaded again, or in a new
+/// tab. `front` brings that tab in front of the desk's others, as a new tab always comes.
+pub(crate) async fn show_once(
+    engine: &BrowserManager,
+    agent: &str,
+    url: &str,
+    front: bool,
+) -> Result<String, String> {
+    let file = engine.file_of(url);
+    let open = (engine.snapshot(agent).ok())
+        .and_then(|strip| tab_showing(&strip, url, file.as_deref()).map(str::to_owned));
+    let Some(tab) = open else {
+        return (engine.open_tab(agent, Some(url)).await).map_err(|error| error.to_string());
+    };
+    engine.reload_tab(agent, &tab);
+    if front {
+        engine
+            .switch_tab(agent, &tab)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(tab)
 }
 
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
@@ -1643,21 +1666,9 @@ impl Workbench {
         runtime().spawn(async move {
             let shown = async {
                 let url = url.await?;
-                let open = (engine.snapshot(&agent).ok())
-                    .and_then(|strip| tab_showing(&strip, &url).map(str::to_owned));
-                match open {
-                    Some(tab) => engine
-                        .switch_tab(&agent, &tab)
-                        .map_err(|error| error.to_string()),
-                    None => {
-                        let tab_id = engine
-                            .open_tab(&agent, Some(&url))
-                            .await
-                            .map_err(|error| error.to_string())?;
-                        engine.keep(&agent, &tab_id);
-                        Ok(())
-                    }
-                }
+                let tab = show_once(&engine, &agent, &url, true).await?;
+                engine.keep(&agent, &tab);
+                Ok::<_, String>(())
             };
             if let Err(error) = shown.await {
                 eprintln!("sikemux: the page could not open in a tab: {error}");
@@ -3014,8 +3025,11 @@ mod tests {
             ],
             active_tab_id: Some("other".into()),
         };
-        assert_eq!(tab_showing(&strip, page), Some("page"));
-        assert_eq!(tab_showing(&strip, "file:///pages/tabs/gone.html"), None);
+        assert_eq!(tab_showing(&strip, page, None), Some("page"));
+        assert_eq!(
+            tab_showing(&strip, "file:///pages/tabs/gone.html", None),
+            None
+        );
     }
 
     #[gpui::test]

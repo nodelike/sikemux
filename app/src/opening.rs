@@ -534,10 +534,7 @@ impl Workbench {
                 let page = page.await?;
                 let url = files.kept_url(&id, &page)?;
                 let engine = files.engine()?;
-                engine
-                    .open_tab(&agent, Some(&url))
-                    .await
-                    .map_err(|error| error.to_string())?;
+                crate::desk::show_once(&engine, &agent, &url, picture).await?;
                 if !picture {
                     return Ok(json!({}));
                 }

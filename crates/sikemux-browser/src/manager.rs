@@ -210,6 +210,18 @@ impl BrowserManager {
         self.local_files.page_url(path, media, written_in)
     }
 
+    /// The file on this computer `url` serves, when it serves one.
+    pub fn file_of(&self, url: &str) -> Option<PathBuf> {
+        self.local_files.path_of(url)
+    }
+
+    /// Loads tab `tab_id`'s page again, when it is loaded; an unloaded one loads afresh anyway.
+    pub fn reload_tab(&self, agent_id: &str, tab_id: &str) {
+        if let Some(view) = self.loaded_view(agent_id, tab_id) {
+            view.reload();
+        }
+    }
+
     /// Whether `url` is a page an agent showed the person with page_show, which other tools leave be.
     pub fn shows_page(&self, url: &str) -> bool {
         self.local_files
