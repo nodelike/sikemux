@@ -356,10 +356,12 @@ export async function putOrgEntry(
   await unmoved(trx, orgId, checked);
   const existing = await trx
     .selectFrom("org_vault_entries")
-    .select("revision")
+    .select(["revision", "kind"])
     .where("org_id", "=", orgId)
     .where("id", "=", id)
     .executeTakeFirst();
+  if (existing && existing.kind !== kind)
+    throw forbidden("An entry keeps the kind it was first written with.");
   const ended = existing
     ? undefined
     : await trx
@@ -380,7 +382,6 @@ export async function putOrgEntry(
     row = await trx
       .updateTable("org_vault_entries")
       .set({
-        kind,
         generation,
         sealed,
         revision: revision + 1,
