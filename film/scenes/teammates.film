@@ -3,18 +3,19 @@
 stage 1760 1000
 window 1760 1000
 prefer themeId aura-noir
+prefer starAsked true
 replies tasks.json
 team acme https://acme.invalid/storefront.git
 project storefront shop-site
 chat Senku
 title "Invoice pay button"
 say "Pay button on the invoice does nothing in Safari" tasks/invoice.jpg tasks/invoice-phone.jpg tasks/cart-phone.jpg
-settle 2
+settle 6
 core closeChat {"agentId":"$chat"}
 chat Kaguya
 title "Gift note"
 say "Add a gift note field at checkout"
-settle 2
+settle 6
 core closeChat {"agentId":"$chat"}
 chat Rimuru
 title "Receipt rounding"

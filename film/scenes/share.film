@@ -2,6 +2,7 @@
 stage 1760 1000
 window 1760 1000
 prefer themeId aura-noir
+prefer starAsked true
 replies tasks.json
 team acme https://acme.invalid/storefront.git
 project storefront shop-site
