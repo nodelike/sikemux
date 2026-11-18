@@ -271,12 +271,17 @@ pub(super) async fn serve(core: Arc<Core>) {
 }
 
 async fn sync(core: &Arc<Core>) {
+    let signed_in = core.remote().owner().is_some();
+    let sharing = match signed_in {
+        true => sharing(core).await,
+        false => Some(Sharing::default()),
+    };
     let Some(Sharing {
         shared,
         shut,
         unheard,
         orgs,
-    }) = sharing(core).await
+    }) = sharing
     else {
         return;
     };
@@ -313,6 +318,7 @@ async fn sync(core: &Arc<Core>) {
 }
 
 /// The projects open here that this account's person shares with one org, by their store's key.
+#[derive(Default)]
 struct Sharing {
     shared: HashMap<String, Shared>,
     /// Those whose org's vault this host cannot open, with the org's name.
