@@ -430,8 +430,7 @@ impl World {
         let linked = (self.linked.iter_mut())
             .find(|linked| linked.name == name)
             .ok_or_else(|| anyhow!("no host named {name}"))?;
-        // SAFETY: kill only sends a signal to the process this film started.
-        if unsafe { libc::kill(linked.core.id() as i32, libc::SIGSTOP) } != 0 {
+        if !pause(&linked.core, true) {
             bail!("could not stop {name}");
         }
         linked.frozen = true;
@@ -439,11 +438,23 @@ impl World {
     }
 }
 
+/// Stops or resumes a host's core, as a computer going to sleep or waking.
+#[cfg(unix)]
+fn pause(core: &Child, paused: bool) -> bool {
+    let signal = if paused { libc::SIGSTOP } else { libc::SIGCONT };
+    // SAFETY: kill only sends a signal to the process this film started.
+    unsafe { libc::kill(core.id() as i32, signal) == 0 }
+}
+
+#[cfg(not(unix))]
+fn pause(_core: &Child, _paused: bool) -> bool {
+    false
+}
+
 impl Drop for Linked {
     fn drop(&mut self) {
         if self.frozen {
-            // SAFETY: as in freeze, a signal to the process this film started.
-            unsafe { libc::kill(self.core.id() as i32, libc::SIGCONT) };
+            pause(&self.core, false);
         }
         sikemux_process::terminate_tree(self.core.id(), true);
         let _ = self.core.wait();
