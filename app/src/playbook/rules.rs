@@ -224,6 +224,7 @@ fn row(
     };
     let who = match &entry.someone {
         Some(someone) => Some(someone.clone()),
+        None if entry.left => Some(t!("A former member").to_owned()),
         None => writer(&entry.learned),
     };
     match moved {

@@ -44,6 +44,9 @@ pub struct Entry {
     /// The person who said it, when someone other than whoever is signed in here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub someone: Option<String>,
+    /// In the org's store, written by someone no longer in the org.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub left: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<crate::memory::MoveOffer>,
     /// The name of the org the project is shared with: whose store it is, or, for the project's
