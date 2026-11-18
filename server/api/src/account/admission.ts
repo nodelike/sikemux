@@ -14,10 +14,57 @@ export type Refusal =
 
 const REFUSAL_SECONDS = 60;
 
+const refusingSince = new WeakMap<Kysely<Tables>, Promise<Date | null>>();
+
+/** When the migration that began refusing sign-ups ran here: accounts made before it stand. */
+function sinceRefusing(db: Kysely<Tables>): Promise<Date | null> {
+  let since = refusingSince.get(db);
+  if (!since) {
+    since = sql<{ applied_at: Date }>`
+      select applied_at from schema_migrations where name = 'one_account'`
+      .execute(db)
+      .then(({ rows }) => rows[0]?.applied_at ?? null);
+    refusingSince.set(db, since);
+  }
+  return since;
+}
+
 /**
- * Whether a sign-up came after an org proved its address's domain, or after the address was
- * proven on another account. Either way the address is someone's work address and opens no
- * account. A sign-in an account already had is never taken away by a proof made later.
+ * Whether an address added at `addedAt` came after an org verified its domain, or after the
+ * address was proven on an account (other than `exceptUser`). Either way it is someone's work
+ * address and opens no account.
+ */
+export async function workAddressRefusal(
+  db: Kysely<Tables>,
+  proofKey: Buffer | null,
+  email: string,
+  addedAt: Date,
+  { exceptUser }: { exceptUser?: string } = {},
+): Promise<Refusal | null> {
+  const domain = domainOf(email);
+  if (!domain) return null;
+  const org = await db
+    .selectFrom("org_domains")
+    .innerJoin("orgs", "orgs.id", "org_domains.org_id")
+    .select(["orgs.id", "orgs.name"])
+    .where("org_domains.domain", "=", domain)
+    .where("org_domains.verified_at", "<", addedAt)
+    .executeTakeFirst();
+  if (org) return { why: "domain", domain, orgId: org.id, orgName: org.name };
+  if (!proofKey) return null;
+  let proofs = db
+    .selectFrom("address_proofs")
+    .select("user_id")
+    .where("address_hash", "=", addressHash(proofKey, email))
+    .where("proven_at", "<", addedAt);
+  if (exceptUser) proofs = proofs.where("user_id", "!=", exceptUser);
+  return (await proofs.executeTakeFirst()) ? { why: "address", domain } : null;
+}
+
+/**
+ * Whether a sign-up's address may not stand as an account of its own. A sign-in an account
+ * already had is never taken away by a proof made later, and an account made before this server
+ * began refusing stands as it is.
  */
 export async function refusalOf(
   db: Kysely<Tables>,
@@ -25,25 +72,12 @@ export async function refusalOf(
   userId: string,
   signUp: SignUp,
 ): Promise<Refusal | null> {
-  const domain = signUp.email ? domainOf(signUp.email) : null;
-  if (!signUp.email || !domain) return null;
-  const org = await db
-    .selectFrom("org_domains")
-    .innerJoin("orgs", "orgs.id", "org_domains.org_id")
-    .select(["orgs.id", "orgs.name"])
-    .where("org_domains.domain", "=", domain)
-    .where("org_domains.verified_at", "<", signUp.createdAt)
-    .executeTakeFirst();
-  if (org) return { why: "domain", domain, orgId: org.id, orgName: org.name };
-  if (!proofKey) return null;
-  const proof = await db
-    .selectFrom("address_proofs")
-    .select("user_id")
-    .where("address_hash", "=", addressHash(proofKey, signUp.email))
-    .where("user_id", "!=", userId)
-    .where("proven_at", "<", signUp.createdAt)
-    .executeTakeFirst();
-  return proof ? { why: "address", domain } : null;
+  if (!signUp.email) return null;
+  const since = await sinceRefusing(db);
+  if (!since || signUp.createdAt < since) return null;
+  return workAddressRefusal(db, proofKey, signUp.email, signUp.createdAt, {
+    exceptUser: userId,
+  });
 }
 
 export function refusalWords(refusal: Refusal): string {

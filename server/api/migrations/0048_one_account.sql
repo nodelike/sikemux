@@ -16,7 +16,6 @@ create table account_folds (
   id uuid primary key default gen_random_uuid(),
   from_user text references users (id) on delete cascade,
   into_user text references users (id) on delete cascade,
-  made_session text not null,
   secret_hash bytea not null check (length(secret_hash) = 32),
   why text not null check (why in ('invite', 'share', 'browser', 'domain', 'address', 'seat')),
   org_id uuid references orgs (id) on delete set null,

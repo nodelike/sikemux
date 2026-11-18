@@ -42,7 +42,7 @@ export interface Config extends MigrationConfig {
   macClientId: string;
   /** Where Clerk's Backend API is: Clerk's own, or the local stand-in sign-in that names its made-up people. */
   clerkApi: string;
-  /** For Clerk's Backend API. Without it, deleting accounts and revoking removed phones' sessions wait in the database. */
+  /** For Clerk's Backend API. Without it, deleting accounts and revoking removed phones' sessions wait in the database, and sign-ups go unchecked; every release has one. */
   clerkSecretKey: string | null;
   /** Checks the signatures on Clerk's webhooks. Without it, the webhook route refuses everything. */
   clerkWebhookSecret: string | null;
@@ -199,6 +199,8 @@ export function loadConfig(
   const macClientId = text("CLERK_MAC_CLIENT_ID");
 
   const clerkSecretKey = optional("CLERK_SECRET_KEY") ?? null;
+  if (clerkSecretKey === null && release)
+    problems.push("CLERK_SECRET_KEY is not set");
   if (clerkSecretKey && !/^sk_(live|test)_\S+$/.test(clerkSecretKey))
     problems.push("CLERK_SECRET_KEY is not a secret key like sk_live_…");
 

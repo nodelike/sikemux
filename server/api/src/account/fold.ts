@@ -211,6 +211,10 @@ async function fold(
 
     const email = sideAddress ?? "";
     const hash = locked.address_hash ?? addressHash(proofKey, email);
+    if (sideAddress !== null && !hash.equals(addressHash(proofKey, email)))
+      throw conflict(
+        "The address on the account you just made changed since you started, so nothing was brought over. Start again from that account.",
+      );
     const domain = locked.domain ?? domainOf(email) ?? "";
     const proven = await trx
       .selectFrom("address_proofs")
@@ -223,6 +227,7 @@ async function fold(
       );
 
     const seats = await moveSeats(trx, side);
+    const orgId = locked.org_id ?? (await seatOrg(trx, seats, domain));
     await trx
       .updateTable("address_proofs")
       .set({ user_id: side.into })
@@ -230,7 +235,7 @@ async function fold(
       .execute();
     await sql`
       insert into address_proofs (address_hash, user_id, domain, org_id, via)
-      values (${hash}, ${side.into}, ${domain}, ${locked.org_id}, 'fold')
+      values (${hash}, ${side.into}, ${domain}, ${orgId}, 'fold')
       on conflict (address_hash) do update
         set user_id = excluded.user_id, domain = excluded.domain,
             org_id = coalesce(excluded.org_id, address_proofs.org_id), via = 'fold', proven_at = now()`.execute(
@@ -276,10 +281,38 @@ async function fold(
   });
 }
 
+/**
+ * The org a seat fold's proof is made for: the one that has verified the address's domain, else
+ * the one whose seat was taken first.
+ */
+async function seatOrg(
+  trx: Transaction<Tables>,
+  seats: { org_id: string; joined_at: Date }[],
+  domain: string,
+): Promise<string | null> {
+  if (seats.length === 0) return null;
+  const verifying = await trx
+    .selectFrom("org_domains")
+    .select("org_id")
+    .where("domain", "=", domain)
+    .where("verified_at", "is not", null)
+    .where(
+      "org_id",
+      "in",
+      seats.map((seat) => seat.org_id),
+    )
+    .executeTakeFirst();
+  if (verifying) return verifying.org_id;
+  const [first] = [...seats].sort(
+    (a, b) => a.joined_at.getTime() - b.joined_at.getTime(),
+  );
+  return first?.org_id ?? null;
+}
+
 async function moveSeats(trx: Transaction<Tables>, { from, into }: Side) {
   const seats = await trx
     .selectFrom("org_users")
-    .select(["id", "org_id", "role"])
+    .select(["id", "org_id", "role", "joined_at"])
     .where("user_id", "=", from)
     .orderBy("org_id")
     .execute();
@@ -383,8 +416,14 @@ export function foldRoutes({
   Services,
   "database" | "signInVerifier" | "limiter" | "clerk" | "addressProofKey"
 >) {
-  const refusal = async (userId: string, signUp: SignUp) =>
-    refusalOf(db, proofKey, userId, signUp);
+  const refusal = async (userId: string, signUp: SignUp) => {
+    const user = await db
+      .selectFrom("users")
+      .select("admitted_at")
+      .where("id", "=", userId)
+      .executeTakeFirst();
+    return user?.admitted_at ? null : refusalOf(db, proofKey, userId, signUp);
+  };
 
   const refusalOrg = async (found: Refusal, address: string) =>
     found.why === "domain"
@@ -484,11 +523,10 @@ export function foldRoutes({
     .post("/folds", requireRecentSignIn(), async (c) => {
       requireWeb(c);
       const key = requireProofKey();
-      const { userId, sessionId } = c.get("identity");
+      const { userId } = c.get("identity");
       const { why, inviteToken } = await readBody(c, "FoldStart");
       const secret = randomBytes(32).toString("base64url");
       const base = {
-        made_session: sessionId ?? "",
         secret_hash: secretHash(secret),
         why,
         expires_at: new Date(Date.now() + INTENT_MINUTES * 60_000),

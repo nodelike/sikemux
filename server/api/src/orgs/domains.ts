@@ -314,6 +314,11 @@ export function domainRoutes(
             .deleteFrom("org_domains")
             .where("id", "=", row.id)
             .execute();
+          await trx
+            .deleteFrom("address_proofs")
+            .where("org_id", "=", orgId)
+            .where("domain", "=", row.domain)
+            .execute();
           await audit(trx, {
             userId,
             actor: `user:${userId}`,

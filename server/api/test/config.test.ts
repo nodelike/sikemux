@@ -18,7 +18,11 @@ const minimal = {
 };
 
 const proofKey = "ab".repeat(32);
-const releaseMinimal = { ...minimal, ADDRESS_PROOF_KEY: proofKey };
+const releaseKeys = {
+  ADDRESS_PROOF_KEY: proofKey,
+  CLERK_SECRET_KEY: "sk_live_abc",
+};
+const releaseMinimal = { ...minimal, ...releaseKeys };
 
 describe("loadConfig", () => {
   it("listens only on this machine unless told otherwise", () => {
@@ -70,7 +74,7 @@ describe("the join signing key", () => {
     const home = mkdtempSync(join(tmpdir(), "sikemux-home-"));
     expect(() =>
       loadConfig(
-        { ...withoutKey, ADDRESS_PROOF_KEY: proofKey, HOME: home },
+        { ...withoutKey, ...releaseKeys, HOME: home },
         { release: true },
       ),
     ).toThrow("The API cannot start: JOIN_SIGNING_KEY_FILE is not set.");

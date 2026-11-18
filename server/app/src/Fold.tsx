@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
 import { Panel } from "./Consent.tsx";
+import { DeleteAccount } from "./DeleteAccount.tsx";
 import { JOIN, RETURN_KEY, SIGNED_UP_FOR_KEY } from "./navigation.ts";
 import { useReverified } from "./Reverify.tsx";
 
@@ -24,8 +25,6 @@ type Waiting = {
   secret: string;
   expiresAt: string;
   why: FoldWhy;
-  /** The address coming over, shown on the sign-in that confirms it. Absent when a seat comes over. */
-  address?: string;
 };
 
 export function waitingFold(): Waiting | null {
@@ -67,7 +66,10 @@ type Gate =
  * Whether the signed-in account may go on to its pages: a new account may first be asked
  * whether the person already has one, and a fold this tab started is confirmed here.
  */
-export function useFoldGate(signedIn: boolean) {
+export function useFoldGate(
+  signedIn: boolean,
+  onDeleted: (deletesAt?: string) => void,
+) {
   const { getToken, userId } = useAuth();
   const [gate, setGate] = useState<Gate>({ kind: "checking" });
 
@@ -119,7 +121,12 @@ export function useFoldGate(signedIn: boolean) {
 
   const screen =
     gate.kind === "catch" ? (
-      <Catch caught={gate.caught} inviteToken={gate.inviteToken} onNew={open} />
+      <Catch
+        caught={gate.caught}
+        inviteToken={gate.inviteToken}
+        onNew={open}
+        onDeleted={onDeleted}
+      />
     ) : gate.kind === "confirm" ? (
       <ConfirmFold
         waiting={gate.waiting}
@@ -163,10 +170,7 @@ function useStartFold() {
     },
   );
 
-  const start = async (
-    why: FoldWhy,
-    { address, inviteToken }: { address?: string; inviteToken?: string } = {},
-  ) => {
+  const start = async (why: FoldWhy, inviteToken?: string) => {
     setBusy(true);
     setProblem(undefined);
     try {
@@ -176,7 +180,6 @@ function useStartFold() {
         secret: intent.secret,
         expiresAt: intent.expiresAt,
         why,
-        ...(address ? { address } : {}),
       };
       sessionStorage.setItem(WAITING_KEY, JSON.stringify(waiting));
       if (inviteToken)
@@ -195,19 +198,32 @@ function Catch({
   caught,
   inviteToken,
   onNew,
+  onDeleted,
 }: {
   caught: FoldCatch;
   inviteToken?: string;
   onNew: () => void;
+  onDeleted: (deletesAt?: string) => void;
 }) {
   const { getToken } = useAuth();
   const { signOut } = useClerk();
   const { start, busy, problem, confirm } = useStartFold();
   const [keeping, setKeeping] = useState(false);
   const [keepProblem, setKeepProblem] = useState<string>();
+  const [deleting, setDeleting] = useState(false);
   const address = caught.address ?? "this address";
 
   if (confirm) return confirm;
+  if (deleting)
+    return (
+      <DeleteAccount
+        email={caught.address}
+        restorableDays={undefined}
+        load={{ state: "loaded", devices: [] }}
+        onBack={() => setDeleting(false)}
+        onDeleted={onDeleted}
+      />
+    );
 
   const keepNew = async () => {
     setKeeping(true);
@@ -278,15 +294,22 @@ function Catch({
           disabled={busy || keeping}
           data-busy={busy || undefined}
           onClick={() =>
-            void start(why, {
-              ...(caught.address ? { address: caught.address } : {}),
-              ...(why === "invite" && inviteToken ? { inviteToken } : {}),
-            })
+            void start(why, why === "invite" ? inviteToken : undefined)
           }
         >
           Use my account
         </button>
       </div>
+      {caught.mustFold ? (
+        <button
+          type="button"
+          className="link"
+          disabled={busy}
+          onClick={() => setDeleting(true)}
+        >
+          Delete this account instead
+        </button>
+      ) : null}
     </Panel>
   );
 }
@@ -300,7 +323,7 @@ export function FoldWaiting() {
       <p className="lede">
         {waiting.why === "seat"
           ? "Sign in with the account that holds the seat, to bring it to your own."
-          : `Sign in with your own account to bring ${waiting.address ?? "the address"} to it.`}{" "}
+          : "Sign in with your own account to bring over the address you just used."}{" "}
         <a
           href="/"
           onClick={(event) => {

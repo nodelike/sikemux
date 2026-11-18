@@ -15,6 +15,7 @@ import { isStaff } from "./staff.ts";
 export function accountRoutes({
   database: { db },
   verifier,
+  signInVerifier,
   limiter,
   clerk,
   appleSignIn: apple,
@@ -24,14 +25,21 @@ export function accountRoutes({
   Services,
   | "database"
   | "verifier"
+  | "signInVerifier"
   | "limiter"
   | "clerk"
   | "appleSignIn"
   | "push"
   | "billing"
 >) {
+  const admitted = requireIdentity(verifier, db, { allowDeleted: true });
+  const anyAccount = requireIdentity(signInVerifier, db, {
+    allowDeleted: true,
+  });
   return new Hono<AuthEnv>()
-    .use(requireIdentity(verifier, db, { allowDeleted: true }))
+    .use((c, next) =>
+      c.req.method === "DELETE" ? anyAccount(c, next) : admitted(c, next),
+    )
     .get("/", async (c) => {
       const { userId } = c.get("identity");
       const user = await db

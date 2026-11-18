@@ -95,7 +95,16 @@ export function App() {
   const [deleted, setDeleted] = useState<{ deletesAt?: string } | null>(null);
   const signingOut = useRef(false);
   const signedIn = isLoaded ? isSignedIn : SIGNED_IN_BEFORE;
-  const fold = useFoldGate(signedIn && isLoaded);
+  /** Reached from this page or from the account's live connection, so it may run twice. */
+  const onDeleted = (deletesAt?: string) => {
+    if (signingOut.current) return;
+    signingOut.current = true;
+    setDeleted({ deletesAt });
+    go(deletedPage(deletesAt), { replace: true });
+    signOut({ redirectUrl: deletedPage(deletesAt) }).catch(() => undefined);
+  };
+
+  const fold = useFoldGate(signedIn && isLoaded, onDeleted);
   const showDeleted =
     deleted !== null ||
     (path === DELETE_ACCOUNT &&
@@ -145,15 +154,6 @@ export function App() {
   useEffect(() => {
     if (appReturning && isLoaded) location.replace(appReturning);
   }, [appReturning, isLoaded]);
-
-  /** Reached from this page or from the account's live connection, so it may run twice. */
-  const onDeleted = (deletesAt?: string) => {
-    if (signingOut.current) return;
-    signingOut.current = true;
-    setDeleted({ deletesAt });
-    go(deletedPage(deletesAt), { replace: true });
-    signOut({ redirectUrl: deletedPage(deletesAt) }).catch(() => undefined);
-  };
 
   return (
     <>

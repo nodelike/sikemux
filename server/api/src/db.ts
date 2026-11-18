@@ -71,7 +71,6 @@ export interface Tables {
     id: Generated<string>;
     from_user: ColumnType<string | null, string | undefined, string>;
     into_user: ColumnType<string | null, string | undefined, string>;
-    made_session: string;
     secret_hash: Buffer;
     why: FoldWhy;
     org_id: string | null;

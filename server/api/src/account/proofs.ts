@@ -21,8 +21,9 @@ export function domainOf(address: string): string | null {
 }
 
 /**
- * A seat's end: the member's proofs made for that org, and the ones at a domain it has proven,
- * stop counting. Called inside the transaction that ends the seat, before the org is gone.
+ * A seat's end: the member's proofs made for that org, the ones at a domain it has proven, and,
+ * once the member sits in no other org, the ones a fold made for no org, stop counting. Called
+ * inside the transaction that ends the seat, before the org is gone.
  */
 export async function dropSeatProofs(
   trx: Kysely<Tables>,
@@ -37,6 +38,13 @@ export async function dropSeatProofs(
         org_id = ${orgId}
         or domain in (
           select domain from org_domains where org_id = ${orgId} and verified_at is not null
+        )
+        or (
+          org_id is null and via = 'fold'
+          and not exists (
+            select 1 from org_users
+            where org_users.user_id = address_proofs.user_id and org_users.org_id <> ${orgId}
+          )
         )
       )`.execute(trx);
 }

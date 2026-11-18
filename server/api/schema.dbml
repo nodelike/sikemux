@@ -690,7 +690,6 @@ Table account_folds {
   id uuid [pk, default: `gen_random_uuid()`]
   from_user text
   into_user text
-  made_session text [not null]
   secret_hash bytea [not null, note: 'length(secret_hash) = 32']
   why text [not null, note: 'why = ANY (ARRAY[\'invite\', \'share\', \'browser\', \'domain\', \'address\', \'seat\'])']
   org_id uuid
