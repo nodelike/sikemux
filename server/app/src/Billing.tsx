@@ -10,6 +10,7 @@ import type {
   Money,
   Org,
   ScheduledChange,
+  SeatPause,
   Subscription,
   SubscriptionChange,
 } from "@sikemux/protocol";
@@ -474,6 +475,7 @@ function PlanRows({
   };
   const price = product ? priceText(product, sub.interval) : undefined;
   const held = heldChange(sub);
+  const pause = sub.seatPause;
 
   return (
     <>
@@ -577,7 +579,7 @@ function PlanRows({
         </Row>
       ) : (
         <Row
-          label="Renews"
+          label={pause ? (pause.resumesAt ? "Resumes" : "Paused") : "Renews"}
           action={
             <button
               type="button"
@@ -606,14 +608,25 @@ function PlanRows({
                       ).cancelSubscription(sub.id);
                       close();
                       reload();
-                      show(`${name} cancelled. It runs until ${ends}.`, resume);
+                      if (pause)
+                        show(
+                          `${name} cancelled. The days you'd already paid are refunded.`,
+                        );
+                      else
+                        show(
+                          `${name} cancelled. It runs until ${ends}.`,
+                          resume,
+                        );
                     },
-                    (error) => `${problemText(error)} It still renews.`,
+                    (error) =>
+                      `${problemText(error)} ${pause ? "It stays paused." : "It still renews."}`,
                   )
                 }
               >
                 <p>
-                  {name} runs until {ends}, then stops renewing.{" "}
+                  {pause
+                    ? `${name} ends now, and the days you'd already paid are refunded. `
+                    : `${name} runs until ${ends}, then stops renewing. `}
                   {sub.product === "team"
                     ? "Invites and org features freeze then; everyone keeps their own hosts and the org keeps its data."
                     : "Your hosts and data stay as they are."}
@@ -622,12 +635,31 @@ function PlanRows({
             ) : null
           }
         >
-          <span>{ends}</span>
-          <span className="quiet">· {intervalWord(sub.interval)}</span>
+          {pause ? (
+            <span>{pausedLine(pause)}</span>
+          ) : (
+            <>
+              <span>{ends}</span>
+              <span className="quiet">· {intervalWord(sub.interval)}</span>
+            </>
+          )}
         </Row>
       )}
     </>
   );
+}
+
+/** What a Pro paused for a seat runs on, in one line. */
+function pausedLine(pause: SeatPause) {
+  const orgs = [...pause.orgs];
+  const last = orgs.pop();
+  if (last)
+    return orgs.length
+      ? `Paused while your seats in ${orgs.join(", ")} and ${last} include Pro.`
+      : `Paused while your seat in ${last} includes Pro.`;
+  return pause.resumesAt
+    ? `Pro until ${formatDay(pause.resumesAt, "long")} from days you'd already paid. Billing resumes then.`
+    : "Paused, keeping the days you'd already paid.";
 }
 
 function seatsWord(count: number) {
@@ -1246,7 +1278,10 @@ function NextCharge({
   card?: BillingOverview["card"];
 }) {
   const renewing = subs
-    .filter((sub) => sub.status === "active" && !sub.cancelAtPeriodEnd)
+    .filter(
+      (sub) =>
+        sub.status === "active" && !sub.cancelAtPeriodEnd && !sub.seatPause,
+    )
     .flatMap((sub) => {
       const next = sub.atRenewal ?? sub;
       const product = productOf(catalog, next.product);
