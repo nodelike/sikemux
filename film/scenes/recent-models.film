@@ -11,10 +11,7 @@ say "hi"
 settle 6
 chat Pike opencode opencode/big-pickle
 say "hi"
-settle 6
-chat Mira opencode
-title "Order emails"
-settle 8
+settle 14
 click 209,22
 settle 2
 click "Model"
