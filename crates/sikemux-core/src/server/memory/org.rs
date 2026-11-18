@@ -196,6 +196,18 @@ impl Entry {
     }
 }
 
+/// Names `member` the writer of each entry of an org's store that names none yet, as one added
+/// here, and forgets the writers of entries that are gone.
+pub(super) fn own_unwritten(held: &mut Held, member: &str) {
+    let ids: Vec<u64> = (held.rules.iter().map(|rule| rule.id))
+        .chain(held.knowledge.iter().map(|known| known.id))
+        .collect();
+    held.writers.retain(|id, _| ids.contains(id));
+    for id in ids {
+        held.writers.entry(id).or_insert_with(|| member.to_owned());
+    }
+}
+
 /// `mine`'s changes since `base`, made again on top of `remote`. An entry added here under an id
 /// another member's core gave an entry of its own meanwhile takes a fresh id from `fresh`, and one
 /// another member's core added in the same words meanwhile is not added again.
@@ -674,17 +686,6 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
             let Some(voided) = super::waiting::check_keeps(core, held, shared, &written) else {
                 return;
             };
-            for id in (held.rules.iter().map(|rule| rule.id))
-                .chain(held.knowledge.iter().map(|known| known.id))
-            {
-                held.writers
-                    .entry(id)
-                    .or_insert_with(|| shared.member.clone());
-            }
-            let ids: Vec<u64> = (held.rules.iter().map(|rule| rule.id))
-                .chain(held.knowledge.iter().map(|known| known.id))
-                .collect();
-            held.writers.retain(|id, _| ids.contains(id));
             let body = Body::of(held);
             let checked = held.keeps.clone();
             if voided {

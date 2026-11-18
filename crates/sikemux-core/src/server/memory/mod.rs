@@ -346,14 +346,21 @@ impl Memory {
             files,
             promoting,
             saved,
+            shared,
             ..
         } = state;
-        let held = held.get(key)?;
+        let held = held.get_mut(key)?;
         match held.store {
             Store::Project => drop(saved.insert(key.to_owned())),
-            Store::Org => self.org_sync.notify_one(),
+            Store::Org => {
+                if let Some(shared) = shared.values().find(|shared| shared.key() == key) {
+                    org::own_unwritten(held, &shared.member);
+                }
+                self.org_sync.notify_one();
+            }
             Store::Personal => {}
         }
+        let held = &*held;
         let file = files
             .entry(key.to_owned())
             .or_insert_with(|| Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(key))));
