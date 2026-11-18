@@ -650,7 +650,9 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
             memory.save(&mut state, store);
             drop(state);
             tell_clients(core, false);
-            core.vault().orgs().wake();
+            crate::server::remote_state::RemoteParts::vault(&**core)
+                .orgs()
+                .wake();
         }
         Some(DROP) => {
             drop(state);
