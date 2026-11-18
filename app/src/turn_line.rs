@@ -357,13 +357,14 @@ pub fn tint(phase: TurnPhase, cx: &App) -> Option<Hsla> {
 }
 
 /// The word, wrapping to at most `lines`, and the parts after it, at `size`, the first part giving
-/// way when the room runs out. `key` names the working word's shimmer. Given the `bench`, an agent
-/// the word names is drawn as its chip, which opens it.
+/// way when the room runs out, unless `wraps` lets every part wrap whole. `key` names the working
+/// word's shimmer. Given the `bench`, an agent the word names is drawn as its chip, which opens it.
 pub fn words(
     said: &Said,
     key: SharedString,
     size: f32,
     lines: usize,
+    wraps: bool,
     bench: Option<&WeakEntity<Workbench>>,
     cx: &App,
 ) -> Div {
@@ -398,6 +399,7 @@ pub fn words(
         .flex()
         .items_center()
         .gap(px(6.))
+        .when(wraps, |words| words.flex_wrap())
         .text_size(crate::theme::ui_text(size))
         .child(word)
         .children(said.parts.iter().enumerate().flat_map(|(index, part)| {
@@ -408,9 +410,10 @@ pub fn words(
                     t.text_tertiary
                 })
                 .text_size(crate::theme::ui_text(size - 0.5))
-                .map(|shown| match index < last {
-                    true => shown.min_w_0().truncate(),
-                    false => shown.flex_none(),
+                .map(|shown| match (wraps, index < last) {
+                    (true, _) => shown.min_w_0(),
+                    (false, true) => shown.min_w_0().truncate(),
+                    (false, false) => shown.flex_none(),
                 })
                 .child(part.clone());
             [dot().into_any_element(), shown.into_any_element()]
@@ -483,7 +486,8 @@ fn hidden_list(
 }
 
 /// The line at the end of a chat: the agent's `mark`, what `said` says, and `buttons` on the
-/// same row. Given the `bench`, an agent it names opens from its chip.
+/// same row. A failure's reason wraps whole. Given the `bench`, an agent it names opens from its
+/// chip.
 pub fn line(
     mark: AnyElement,
     said: &Said,
@@ -492,13 +496,14 @@ pub fn line(
     buttons: Vec<AnyElement>,
     cx: &App,
 ) -> Div {
+    let wraps = said.phase == TurnPhase::Failed;
     div()
         .min_h(px(32.))
         .flex()
         .items_center()
         .gap(SPACE_2)
         .child(mark)
-        .child(words(said, key, TEXT_SM, 2, bench, cx).flex_1())
+        .child(words(said, key, TEXT_SM, 2, wraps, bench, cx).flex_1())
         .when(!buttons.is_empty(), |line| {
             line.child(
                 div()
@@ -567,5 +572,5 @@ fn header_fact(said: &Said, key: SharedString, cx: &App) -> Div {
         .when(said.phase == TurnPhase::Waiting, |fact| {
             fact.child(ui::icon(Icon::Hourglass, 12.).text_color(t.cmd))
         })
-        .child(words(said, key, TEXT_XS_H, 1, None, cx))
+        .child(words(said, key, TEXT_XS_H, 1, false, None, cx))
 }

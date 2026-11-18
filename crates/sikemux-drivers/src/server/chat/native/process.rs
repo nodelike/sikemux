@@ -214,24 +214,38 @@ impl Process {
         self.stderr.locked().iter().copied().collect()
     }
 
-    /// `error`, with the last thing the agent wrote to its error stream.
+    /// `error`, with the last lines the agent wrote to its error stream before a blank one. The
+    /// source lines a config parse error quotes are left out, since they can hold a secret.
     pub fn start_error(&self, error: String) -> String {
         let stderr = self.stderr();
-        match stderr
+        let mut said: Vec<&str> = stderr
             .lines()
             .rev()
             .map(str::trim)
-            .find(|line| !line.is_empty())
-        {
-            Some(line) => format!("{error}: {line}"),
-            None => error,
+            .filter(|line| !quotes_source(line))
+            .take_while(|line| !line.is_empty())
+            .take(SAID_LINES)
+            .collect();
+        if said.is_empty() {
+            return error;
         }
+        said.reverse();
+        format!("{error}: {}", said.join(" "))
     }
 
     /// Why the agent stopped, in words for the chat.
     pub async fn ended(&self) -> String {
         self.start_error(self.exited().await)
     }
+}
+
+const SAID_LINES: usize = 4;
+
+/// Whether `line` is one of the numbered source lines a parse error quotes, such as `2 | url = "`.
+fn quotes_source(line: &str) -> bool {
+    line.trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start()
+        .starts_with('|')
 }
 
 impl Drop for Process {
