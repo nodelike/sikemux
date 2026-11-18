@@ -82,8 +82,8 @@ mod moving;
 mod now;
 mod rotation;
 pub(crate) use attach::{
-    agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon, Made,
-    Mention, SNIP_NAME,
+    agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon,
+    unknown_agent_pill, Made, Mention, SNIP_NAME,
 };
 pub use mention::Tray;
 mod meta;

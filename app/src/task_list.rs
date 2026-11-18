@@ -877,21 +877,22 @@ fn row_of(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let key = row_key(row);
-    let holder = row.holder.as_ref().map(|holder| {
-        let mark = match bench.agent_by_id(&holder.agent_id) {
-            Some(agent) => agent.mark(12., cx),
-            None => ui::icon(Icon::Agent, 12.).into_any_element(),
-        };
-        crate::chat::agent_pill_of(
-            &holder.agent_id,
-            &holder.name,
-            mark,
-            theme::TEXT_2XS_H,
-            bench.target(),
-            handle,
-            cx,
-        )
-    });
+    let holder =
+        row.holder
+            .as_ref()
+            .map(|holder| match bench.agent_by_id(&holder.agent_id) {
+                Some(agent) => crate::chat::agent_pill(&agent, theme::TEXT_2XS_H, handle, cx)
+                    .into_any_element(),
+                None => crate::chat::unknown_agent_pill(
+                    &holder.agent_id,
+                    &holder.name,
+                    ui::icon(Icon::Agent, 12.).into_any_element(),
+                    theme::TEXT_2XS_H,
+                    bench.target(),
+                    handle,
+                    cx,
+                ),
+            });
     let undo = match (&row.of, row.section) {
         (TaskOf::Task { id }, TaskSection::Dropped) => {
             let (handle, id) = (handle.clone(), *id);

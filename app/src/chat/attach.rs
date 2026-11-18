@@ -898,6 +898,19 @@ pub(crate) fn agent_pill_of(
     if let Some(agent) = known {
         return agent_pill(&agent, size, bench, cx).into_any_element();
     }
+    unknown_agent_pill(id, name, mark, size, from, bench, cx)
+}
+
+/// The chip of an agent this window doesn't know, wearing `mark`, which opens its chat through `from`.
+pub(crate) fn unknown_agent_pill(
+    id: &str,
+    name: &str,
+    mark: gpui_kit::AnyElement,
+    size: f32,
+    from: crate::core::Target,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::AnyElement {
     let face = chip_face(format!("@{name}").into(), None, false, mark, cx)
         .flex_none()
         .text_size(theme::ui_text(size));
