@@ -68,11 +68,11 @@ impl Waiting {
 
     fn of(held: &Held, id: u64) -> Option<Self> {
         let rule = (held.rules.iter().find(|rule| rule.id == id)).map(|rule| Waiting::Rule {
-            rule: Box::new(rule.clone()),
+            rule: Box::new(super::org::unnamed(rule)),
         });
         rule.or_else(|| {
             (held.knowledge.iter().find(|known| known.id == id)).map(|known| Waiting::Knowledge {
-                knowledge: Box::new(known.clone()),
+                knowledge: Box::new(super::org::as_shared(known)),
             })
         })
     }
@@ -574,6 +574,24 @@ pub(super) struct Keep {
     /// The hash of the words the owner or admin read.
     words: String,
     at: u64,
+    /// The call the owner or admin answered.
+    call: String,
+}
+
+/// The Keeps [`check_keeps`] took back.
+pub(super) struct Voided {
+    pub(super) any: bool,
+    /// The calls of those whose member took the entry back.
+    pub(super) withdrawn: Vec<String>,
+}
+
+impl Voided {
+    /// Marks the calls of the entries their member took back as withdrawn.
+    pub(super) fn withdraw(&self, core: &Core) {
+        for call in &self.withdrawn {
+            person_calls::set_outcome(core, call, ended(CallResult::Withdrawn));
+        }
+    }
 }
 
 /// Takes out of the org's store each entry kept here that its member's list no longer holds in
@@ -585,22 +603,27 @@ pub(super) fn check_keeps(
     held: &mut Held,
     shared: &Shared,
     written: &dyn Fn(u64) -> bool,
-) -> Option<bool> {
+) -> Option<Voided> {
     if held.keeps.is_empty() {
-        return Some(false);
+        return Some(Voided {
+            any: false,
+            withdrawn: Vec::new(),
+        });
     }
     let read_after = vault::synced(core, &shared.org)
         .is_some_and(|synced| held.keeps.iter().all(|keep| keep.at < synced));
     if !read_after {
         return None;
     }
-    let mut void = Vec::new();
+    let (mut void, mut withdrawn) = (Vec::new(), Vec::new());
     for keep in &held.keeps {
         let (_, list) = read::<Mine>(core, shared, &shared.waiting_id(&keep.member))?;
-        let still = list.items.get(&keep.item).map(|entry| words(entry.text()));
-        if still.as_ref() != Some(&keep.words) {
-            void.push(keep.clone());
+        match list.items.get(&keep.item).map(|entry| words(entry.text())) {
+            Some(still) if still == keep.words => continue,
+            Some(_) => {}
+            None => withdrawn.push(keep.call.clone()),
         }
+        void.push(keep.clone());
     }
     held.keeps.retain(|keep| !void.contains(keep));
     let voided = |id: u64, text: &str| {
@@ -621,7 +644,10 @@ pub(super) fn check_keeps(
     held.rules.retain(|rule| !ids.contains(&rule.id));
     held.knowledge.retain(|known| !ids.contains(&known.id));
     held.writers.retain(|id, _| !ids.contains(id));
-    Some(!void.is_empty())
+    Some(Voided {
+        any: !void.is_empty(),
+        withdrawn,
+    })
 }
 
 /// The person kept or dropped an entry waiting on a teammate's list: a kept one goes into the
@@ -650,6 +676,7 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
                 item: item.to_owned(),
                 words: shown.to_owned(),
                 at: epoch_ms(),
+                call: call.id.clone(),
             };
             if let Err(problem) = keep(&mut state, store, from, entry) {
                 eprintln!("sikemux core: a waiting rule was not kept: {problem}");
@@ -660,7 +687,7 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
             tell_clients(core, false);
             crate::server::remote_state::RemoteParts::vault(&**core)
                 .orgs()
-                .wake();
+                .wake_and_tell();
         }
         Some(DROP) => {
             let Some(held) = state.held.get_mut(store) else {

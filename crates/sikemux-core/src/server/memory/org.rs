@@ -32,6 +32,8 @@ pub(super) struct Shared {
     project: String,
     /// This account's membership in the org.
     pub(super) member: String,
+    /// Whether the org's plan is paid up.
+    pub(super) active: bool,
     /// Whether this account's person adds to the store without an admin's approval.
     pub(super) writes: bool,
     /// The first name of each of the org's members, by membership, as the org's list has them.
@@ -114,7 +116,7 @@ impl Body {
 
 /// A rule as the org's store keeps it, naming nobody: a row names its writer from the org's
 /// member list, so a member who leaves or deletes their account is named on none.
-fn unnamed(rule: &MemoryRule) -> MemoryRule {
+pub(super) fn unnamed(rule: &MemoryRule) -> MemoryRule {
     let mut rule = rule.clone();
     rule.learned.person = None;
     if let Some(moved) = &mut rule.moved {
@@ -125,7 +127,7 @@ fn unnamed(rule: &MemoryRule) -> MemoryRule {
 
 /// Knowledge as the org's store keeps it, naming nobody, without what testing it found on one
 /// host.
-fn as_shared(known: &Knowledge) -> Knowledge {
+pub(super) fn as_shared(known: &Knowledge) -> Knowledge {
     let mut known = known.clone();
     known.learned.person = None;
     if let Some(moved) = &mut known.moved {
@@ -294,7 +296,14 @@ async fn sync(core: &Arc<Core>) {
         if shared.writes {
             push(core, shared).await;
         } else if unwritten(core, shared) {
-            let why = format!("{}'s owners and admins approve its rules now", shared.name);
+            let why = if shared.active {
+                format!("{}'s owners and admins approve its rules now", shared.name)
+            } else {
+                format!(
+                    "{}'s plan has ended, so its rules can't change",
+                    shared.name
+                )
+            };
             give_back(core, shared, &why);
         }
         super::waiting::sync(core, local, shared).await;
@@ -362,6 +371,7 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
                 name: org.name.clone(),
                 project,
                 member: me.id.clone(),
+                active: org.active,
                 writes,
                 names: (list.members.iter())
                     .filter_map(|member| {
@@ -693,9 +703,10 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
             };
             let body = Body::of(held);
             let checked = held.keeps.clone();
-            if voided {
+            if voided.any {
                 memory.save(&mut state, &key);
                 drop(state);
+                voided.withdraw(core);
                 tell_clients(core, false);
             }
             if body.same_entries(&base.body) {

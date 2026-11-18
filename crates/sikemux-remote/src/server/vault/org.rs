@@ -204,7 +204,7 @@ struct Org {
     /// The vault's count of changes when this host last took in its entries, so the next read
     /// asks only for what changed after it.
     changes: Option<i64>,
-    /// When the round that last read the org's vault in full began, in ms since the epoch.
+    /// When the round that last read the org's vault began, in ms since the epoch.
     synced: Option<u64>,
 }
 
@@ -217,6 +217,8 @@ struct State {
     kept: Option<Option<Copy>>,
     /// The orgs whose vault the accounts server has answered for since the copy was loaded.
     heard: BTreeSet<String>,
+    /// When something asked to hear of the first round begun after it, in ms since the epoch.
+    tell_after: Option<u64>,
 }
 
 #[derive(Default)]
@@ -231,6 +233,16 @@ pub struct OrgVaults {
 
 impl OrgVaults {
     pub fn wake(&self) {
+        self.wake.notify_one();
+    }
+
+    /// Wakes the loop, and tells [`OrgVaults::changed`] once a round begun from now on has
+    /// ended, even when it found nothing new.
+    pub fn wake_and_tell(&self) {
+        let now = epoch_ms();
+        let mut state = self.state.locked();
+        state.tell_after = Some(state.tell_after.map_or(now, |after| after.min(now)));
+        drop(state);
         self.wake.notify_one();
     }
 }
@@ -298,6 +310,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         hand_on(core, &[]);
         return keep(core, None).await;
     };
+    let begun = epoch_ms();
     load(core, &account).await?;
     let Some(orgs) = account_orgs(core) else {
         return Ok(());
@@ -331,6 +344,17 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         }
     }
     hand_on(core, &orgs);
+    let told = {
+        let mut state = core.vault().orgs().state.locked();
+        let told = state.tell_after.is_some_and(|after| after <= begun);
+        if told {
+            state.tell_after = None;
+        }
+        told
+    };
+    if told {
+        core.vault().orgs().changed.notify_one();
+    }
     keep(core, Some(&account)).await
 }
 
