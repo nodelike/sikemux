@@ -308,6 +308,14 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
             }
         }
         Entry::Started { at, .. } => kept.started = Some(at),
+        Entry::Edited { call: edited, .. } => {
+            call.title = edited.title;
+            call.question = edited.question;
+            call.options = edited.options;
+            call.pick = edited.pick;
+            call.page = edited.page;
+            call.link = edited.link;
+        }
         Entry::Shown { by, at, .. } => {
             if !kept.seen.iter().any(|(seer, _)| *seer == by) {
                 kept.seen.push((by, at));
@@ -330,6 +338,25 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
             call.outcome = Some(outcome);
         }
     }
+}
+
+/// Whether `now` asks something other than what the open `call` shows.
+fn edited(call: &PersonCall, now: &PersonCall) -> bool {
+    (
+        &call.title,
+        &call.question,
+        &call.options,
+        &call.pick,
+        &call.page,
+        &call.link,
+    ) != (
+        &now.title,
+        &now.question,
+        &now.options,
+        &now.pick,
+        &now.page,
+        &now.link,
+    )
 }
 
 /// What `entry` closes of a call still open, as the usage report counts it: its kind, who
@@ -627,6 +654,12 @@ impl PersonCalls {
                 Some(kept) if kept.call.state == CallState::Closed => {
                     let id = kept.call.id.clone();
                     entries.push(Entry::Reopened { id, at: epoch_ms() });
+                }
+                Some(kept) if kept.source == source && edited(&kept.call, &call) => {
+                    entries.push(Entry::Edited {
+                        id: kept.call.id.clone(),
+                        call: Box::new(call),
+                    });
                 }
                 Some(_) => {}
                 None => match book.iter().find(same) {

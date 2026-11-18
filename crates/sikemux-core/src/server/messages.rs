@@ -2438,6 +2438,7 @@ fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
 /// them goes on.
 pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
     core.seen().person_wrote(agent_id);
+    core.harness().questions.steered(agent_id);
     let_go(core, agent_id);
 }
 

@@ -333,6 +333,8 @@ struct State {
     keeper: Keeper,
     /// The open questions also put to the person on another host, and which.
     relayed_to: HashMap<String, String>,
+    /// Notes for askers whose pick was cleared, by asker, not yet sent.
+    unpicked: Vec<(String, String)>,
 }
 
 pub(crate) struct Questions {
@@ -737,6 +739,44 @@ impl Questions {
 
     /// The person typed into the terminal of an agent that asked them
     /// something, which answers it there.
+    /// The person wrote to `agent_id` directly, so a call about its work no longer stands behind
+    /// the pick its asker made before: the pick is cleared and the asker told to edit or withdraw.
+    pub(crate) fn steered(&self, agent_id: &str) {
+        let mut state = self.state.locked();
+        let mut notes = Vec::new();
+        for question in &mut state.open {
+            let about = question
+                .about
+                .as_ref()
+                .filter(|about| about.agent_id == agent_id);
+            let Some(about) = about.filter(|_| question.asks_person()) else {
+                continue;
+            };
+            let picked = question
+                .choices
+                .iter_mut()
+                .filter(|choice| choice.recommended);
+            if picked.map(|choice| choice.recommended = false).count() == 0 {
+                continue;
+            }
+            let named = question
+                .header
+                .clone()
+                .unwrap_or_else(|| clipped(&question.text, 80));
+            let note = format!(
+                "The person wrote to @{} directly after your call \"{named}\", so its pick was \
+                 cleared. If it no longer stands, edit it with ask edit: \"{}\" or withdraw it \
+                 with withdraw: true.",
+                about.name, question.id
+            );
+            notes.push((question.agent_id.clone(), note));
+        }
+        if !notes.is_empty() {
+            state.unpicked.extend(notes);
+            self.changed(&mut state);
+        }
+    }
+
     pub(crate) fn typed(&self, agent_id: &str) {
         let mut state = self.state.locked();
         let before = state.open.len();
@@ -1122,6 +1162,9 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         .clone()
         .ok_or("ask needs the calling agent's id")?;
     let params = &request.params;
+    if let Some(id) = text_param(params, "edit", 64)? {
+        return edit(core, request, &agent_id, &id).await;
+    }
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?
         .ok_or("question must be what you want to know, as nonempty text")?;
     let mut choices = choices(params.get("choices"))?;
@@ -1211,6 +1254,77 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         },
         "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), page_wanted.filter(|_| question.page.is_none())),
     }))
+}
+
+/// Changes or withdraws the open question `id` that `agent_id` asked, as the edit of an ask says;
+/// the person's open call then shows the change, or closes as withdrawn.
+async fn edit(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    agent_id: &str,
+    id: &str,
+) -> Result<Value, String> {
+    let params = &request.params;
+    let withdraw = matches!(params.get("withdraw"), Some(Value::Bool(true)));
+    let text = text_param(params, "question", MAX_QUESTION_BYTES)?;
+    let header = (text_param(params, "title", MAX_QUESTION_BYTES)?)
+        .map(|header| clipped(&header, MAX_HEADER_CHARS));
+    let mut choices = match params.get("choices") {
+        None | Some(Value::Null) => None,
+        given => Some(choices(given)?),
+    };
+    if let Some(choices) = &mut choices {
+        (core.harness().questions).keep_pictures(&request.project, choices)?;
+    }
+    let pick = params.get("pick").and_then(Value::as_str);
+    let link = link_param(params.get("link"))?;
+    let page = match text_param(params, "page", 64)? {
+        Some(wanted) => Some(page_of(core, &wanted).ok_or(format!("no page {wanted} to show"))?),
+        None => None,
+    };
+    let questions = &core.harness().questions;
+    let mut state = questions.state.locked();
+    let at = (state.open.iter())
+        .position(|open| open.id == id && open.agent_id == agent_id)
+        .ok_or(
+            "no open call of yours has that id: it was answered, withdrawn or asked by another",
+        )?;
+    if withdraw {
+        let question = state.open.remove(at);
+        questions.changed(&mut state);
+        drop(state);
+        if let Some(lead) = question.lead_id() {
+            messages::withdraw(core, lead, &question.id);
+        }
+        return Ok(json!({ "withdrawn": id }));
+    }
+    let question = state.open.get_mut(at).ok_or("that call just closed")?;
+    if question.kind.and_then(form_choices).is_some() && (choices.is_some() || pick.is_some()) {
+        return Err(
+            "a do or look call's choices are fixed: edit its title, question, page or link".into(),
+        );
+    }
+    if let Some(text) = text {
+        question.asked = text.clone();
+        question.text = text;
+    }
+    if header.is_some() {
+        question.header = header;
+    }
+    if let Some(choices) = choices {
+        question.choices = choices;
+    }
+    if let Some(pick) = pick {
+        mark_pick(pick, &mut question.choices);
+    }
+    if page.is_some() {
+        question.page = page;
+    }
+    if link.is_some() {
+        question.link = link;
+    }
+    questions.changed(&mut state);
+    Ok(json!({ "edited": id }))
 }
 
 /// Refuses a do or look call that lacks what it is drawn with, and a look from an agent that leads
@@ -2094,6 +2208,13 @@ fn reply_text(params: &AnswerParams) -> Result<String, String> {
 /// and tells the window and phones what changed. Runs when questions or the
 /// agents change, and again when a lead's time to answer runs out.
 pub(crate) fn settle(core: &Arc<Core>) {
+    let unpicked = std::mem::take(&mut core.harness().questions.state.locked().unpicked);
+    for (asker, note) in unpicked {
+        let core = core.clone();
+        tokio::spawn(async move {
+            let _ = messages::from_sikemux(&core, asker, note).await;
+        });
+    }
     let (askers, leads): (HashSet<String>, HashSet<String>) = {
         let state = core.harness().questions.state.locked();
         if state.dirty {

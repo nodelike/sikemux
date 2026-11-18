@@ -54,6 +54,9 @@ pub enum Entry {
     /// An agent that waited on it no longer does, while others still do.
     #[serde(rename_all = "camelCase")]
     Left { id: String, source: Source, at: u64 },
+    /// Its asker changed what it asks while it was open.
+    #[serde(rename_all = "camelCase")]
+    Edited { id: String, call: Box<PersonCall> },
     /// What came of it; with no answer, it closes.
     #[serde(rename_all = "camelCase")]
     Came { id: String, outcome: CallOutcome },
@@ -62,7 +65,7 @@ pub enum Entry {
 impl Entry {
     pub fn id(&self) -> &str {
         match self {
-            Entry::Raised { call, .. } => &call.id,
+            Entry::Raised { call, .. } | Entry::Edited { call, .. } => &call.id,
             Entry::Joined { id, .. }
             | Entry::Shown { id, .. }
             | Entry::Answered { id, .. }
