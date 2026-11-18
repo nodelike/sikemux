@@ -32,18 +32,21 @@ function sinceRefusing(db: Kysely<Tables>): Promise<Date | null> {
 
 /**
  * Whether an address added at `addedAt` came after an org verified its domain, or after the
- * address was proven on an account (other than `exceptUser`). Either way it is someone's work
- * address and opens no account.
+ * address was proven on an account (other than `exceptUser`, or only `ofUser`'s). Either way it
+ * is someone's work address and opens no account. One added before this server began refusing
+ * stands as it is.
  */
 export async function workAddressRefusal(
   db: Kysely<Tables>,
   proofKey: Buffer | null,
   email: string,
   addedAt: Date,
-  { exceptUser }: { exceptUser?: string } = {},
+  { exceptUser, ofUser }: { exceptUser?: string; ofUser?: string } = {},
 ): Promise<Refusal | null> {
   const domain = domainOf(email);
   if (!domain) return null;
+  const since = await sinceRefusing(db);
+  if (!since || addedAt < since) return null;
   const org = await db
     .selectFrom("org_domains")
     .innerJoin("orgs", "orgs.id", "org_domains.org_id")
@@ -59,13 +62,13 @@ export async function workAddressRefusal(
     .where("address_hash", "=", addressHash(proofKey, email))
     .where("proven_at", "<", addedAt);
   if (exceptUser) proofs = proofs.where("user_id", "!=", exceptUser);
+  if (ofUser) proofs = proofs.where("user_id", "=", ofUser);
   return (await proofs.executeTakeFirst()) ? { why: "address", domain } : null;
 }
 
 /**
  * Whether a sign-up's address may not stand as an account of its own. A sign-in an account
- * already had is never taken away by a proof made later, and an account made before this server
- * began refusing stands as it is.
+ * already had is never taken away by a proof made later.
  */
 export async function refusalOf(
   db: Kysely<Tables>,
@@ -74,8 +77,6 @@ export async function refusalOf(
   signUp: SignUp,
 ): Promise<Refusal | null> {
   if (!signUp.email) return null;
-  const since = await sinceRefusing(db);
-  if (!since || signUp.createdAt < since) return null;
   return workAddressRefusal(db, proofKey, signUp.email, signUp.createdAt, {
     exceptUser: userId,
   });

@@ -43,6 +43,7 @@ export function SignInWaysSection() {
     step(),
   );
   const tidied = useRef(false);
+  const [removals, setRemovals] = useState<SignInRemoval[]>([]);
 
   useEffect(() => {
     if (tidied.current || !user) return;
@@ -53,9 +54,9 @@ export function SignInWaysSection() {
       const { removed } = await api(token).tidySignIns();
       if (removed.length === 0) return;
       await user.reload();
-      show(removalWords(removed));
+      setRemovals(removed);
     })().catch(() => undefined);
-  }, [user, getToken, show]);
+  }, [user, getToken]);
 
   if (confirm) return confirm;
   if (!user) return null;
@@ -121,6 +122,11 @@ export function SignInWaysSection() {
 
   return (
     <Section label="Signs in with">
+      {removals.map((removal) => (
+        <p key={removal.removedAt + removal.domain} className="section-lede">
+          {removalWords(removal)}
+        </p>
+      ))}
       <Rows>
         {ways.map((way) => (
           <ItemRow
@@ -320,16 +326,11 @@ function AddAddress({
   );
 }
 
-function removalWords(removed: SignInRemoval[]): string {
-  return removed
-    .map((removal) => {
-      const what = removal.provider
-        ? `A ${PROVIDERS[removal.provider]?.name ?? removal.provider} sign-in at ${removal.domain}`
-        : `An address at ${removal.domain}`;
-      const why = removal.orgName
-        ? `${removal.orgName} verified ${removal.domain}, so it's a work address`
-        : "it's already verified as a work address";
-      return `${what} was removed: ${why}, and a work address can't sign in to your account.`;
-    })
-    .join(" ");
+function removalWords(removal: SignInRemoval): string {
+  const what = removal.provider
+    ? `A ${PROVIDERS[removal.provider]?.name ?? removal.provider} sign-in at ${removal.domain}`
+    : `An address at ${removal.domain}`;
+  return removal.orgName
+    ? `${what} was removed. ${removal.orgName} verified that domain, so it's a work address and can't sign in to your account.`
+    : `${what} was removed. It's already verified as a work address, so it can't sign in to your account.`;
 }

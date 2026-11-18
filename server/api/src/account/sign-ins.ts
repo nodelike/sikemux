@@ -98,14 +98,21 @@ function waysLeft(
   return accounts.length + addresses.length;
 }
 
-/** The refusal for an address the person is about to add, or null when it may be added. */
+/**
+ * The refusal for an address the person is about to add, or null when it may be added. Only a
+ * proof on their own account refuses it, so the check never says whether an address is proven
+ * on someone else's; the strip takes that one off once it is added.
+ */
 export async function addressRefusal(
   db: Kysely<Tables>,
   proofKey: Buffer | null,
+  userId: string,
   email: string,
 ) {
   if (!domainOf(email)) return null;
-  return workAddressRefusal(db, proofKey, email, new Date());
+  return workAddressRefusal(db, proofKey, email, new Date(), {
+    ofUser: userId,
+  });
 }
 
 /** What was taken off since the person last asked, marked told. */

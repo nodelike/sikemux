@@ -99,7 +99,12 @@ export function accountRoutes({
       perUser(limiter, "check-sign-in", 30),
       async (c) => {
         const { email } = await readBody(c, "SignInAddressCheck");
-        const refusal = await addressRefusal(db, addressProofKey, email);
+        const refusal = await addressRefusal(
+          db,
+          addressProofKey,
+          c.get("identity").userId,
+          email,
+        );
         if (refusal) throw conflict(signInRefusalWords(refusal));
         return c.body(null, 204);
       },
