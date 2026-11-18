@@ -316,6 +316,7 @@ impl World {
     /// Shares the scene's project with org `org`, once this core knows the org.
     pub(super) fn org_share(&self, org: &str) -> anyhow::Result<()> {
         let (project, _) = self.project()?.clone();
+        let mut last = format!("this core never heard of {org}");
         for _ in 0..300 {
             let vaults = self
                 .runtime
@@ -324,13 +325,17 @@ impl World {
                 (vaults.as_array().into_iter().flatten()).find(|vault| vault["name"] == org);
             if let Some(vault) = known {
                 let params = json!({ "project": project, "org": vault["org"] });
-                self.runtime
-                    .block_on(self.client.call("shareProject", params))?;
-                return Ok(());
+                match self
+                    .runtime
+                    .block_on(self.client.call("shareProject", params))
+                {
+                    Ok(_) => return Ok(()),
+                    Err(error) => last = error.to_string(),
+                }
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        bail!("this core never heard of {org}")
+        bail!("{project} was never shared with {org}: {last}")
     }
 
     fn client_on(&self, name: &str) -> anyhow::Result<&CoreClient> {
