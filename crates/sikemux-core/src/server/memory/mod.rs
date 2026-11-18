@@ -654,10 +654,14 @@ fn add(
         return Err(full);
     }
     if persons_rule && store == Store::Project && state.shared.contains_key(&key) {
-        if let Some(held) = state.held.get_mut(&key) {
-            held.waiting.insert(id);
+        match waiting::wait(&mut state, &key, id) {
+            Ok(()) => core.memory().org_sync.notify_one(),
+            Err(why) => {
+                if let Some(held) = state.held.get_mut(&key) {
+                    held.refused.insert(id, why);
+                }
+            }
         }
-        core.memory().org_sync.notify_one();
     }
     core.memory().save(&mut state, &key);
     drop(state);

@@ -212,35 +212,43 @@ pub(super) fn listed(
     to: Store,
 ) -> Option<Result<(), String>> {
     let local = state.key_of(project);
-    let shared = state.shared.get(&local)?;
-    let (writes, org_key, org_name) = (shared.writes, shared.key(), shared.name.clone());
+    let writes = state.shared.get(&local)?.writes;
     if from != local {
         return None;
     }
-    let in_org = org_words(state, &org_key, |_| true);
     let held = state.held.get_mut(&local)?;
-    let text = Waiting::of(held, id).map(|entry| entry.text().to_lowercase());
     match to {
         Store::Org if writes => None,
         Store::Org if held.waiting.contains(&id) => {
             Some(Err(format!("#{id} waits for an owner or admin already")))
         }
-        Store::Org if text.is_some_and(|text| in_org.contains(&text)) => {
-            Some(Err(format!("{org_name} keeps that already")))
-        }
-        Store::Org if held.waiting.len() >= MAX_WAITING || list_too_big(held, id) => Some(Err(
-            format!("Too much waits for an owner or admin of {org_name} already"),
-        )),
-        Store::Org => {
-            held.waiting.insert(id);
-            held.dropped.remove(&id);
-            held.refused.remove(&id);
-            held.not_now.remove(&id);
-            Some(Ok(()))
-        }
+        Store::Org => Some(wait(state, &local, id)),
         Store::Project if held.waiting.remove(&id) => Some(Ok(())),
         _ => None,
     }
+}
+
+/// Puts entry `id` of the project's own store under `local` on the org's waiting list, unless the
+/// org keeps its words already or the list has no room for it.
+pub(super) fn wait(state: &mut State, local: &str, id: u64) -> Result<(), String> {
+    let shared = (state.shared.get(local)).ok_or("the project is no longer shared")?;
+    let (org_key, org_name) = (shared.key(), shared.name.clone());
+    let in_org = org_words(state, &org_key, |_| true);
+    let held = (state.held.get_mut(local)).ok_or("the store went while it was being written to")?;
+    let text = Waiting::of(held, id).map(|entry| entry.text().to_lowercase());
+    if text.is_some_and(|text| in_org.contains(&text)) {
+        return Err(format!("{org_name} keeps that already"));
+    }
+    if held.waiting.len() >= MAX_WAITING || list_too_big(held, id) {
+        return Err(format!(
+            "Too much waits for an owner or admin of {org_name} already"
+        ));
+    }
+    held.waiting.insert(id);
+    held.dropped.remove(&id);
+    held.refused.remove(&id);
+    held.not_now.remove(&id);
+    Ok(())
 }
 
 /// The words of the entries the org's store under `org_key` holds, lowercased, of writers
