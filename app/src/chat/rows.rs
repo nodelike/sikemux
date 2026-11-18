@@ -1588,8 +1588,8 @@ fn with_reply(
     let chosen: Rc<[usize]> = (looks.bench.upgrade())
         .and_then(|bench| {
             let composing = bench.read(cx).composing(&looks.agent)?;
-            let places = (composing.context.iter())
-                .filter_map(|item| item.uri.strip_prefix(&tagged)?.parse().ok())
+            let places = (composing.draft.read(cx).tokens().iter())
+                .filter_map(|span| span.token().id().strip_prefix(&tagged)?.parse().ok())
                 .collect();
             Some(places)
         })

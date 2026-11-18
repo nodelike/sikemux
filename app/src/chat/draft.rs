@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::base::input::{InlineToken, InputContent};
-use gpui_kit::{App, Context, Focusable, Window};
+use gpui_kit::{App, Context, EntityInputHandler as _, Focusable, Window};
 use sikemux_calls::call;
 use sikemux_calls::drafts::SetDraftParams;
 use sikemux_calls::params::AgentParams;
@@ -206,9 +206,9 @@ impl Workbench {
         );
     }
 
-    /// Quotes the answer `message` of `agent`'s chat in its draft, or the part of it `part`
-    /// names, after any quotes already there, and puts the keys in the draft. Quoting the same
-    /// words again takes them out.
+    /// Puts a token at the caret of `agent`'s draft that quotes the answer `message`, or the
+    /// part of it `part` names, and puts the keys in the draft. Quoting the same words again
+    /// takes their token out.
     pub fn reply_to(
         &mut self,
         agent: &str,
@@ -225,26 +225,66 @@ impl Workbench {
             Some(part) => format!("{REPLY_URI}{message}#{part}"),
             None => format!("{REPLY_URI}{message}"),
         };
-        let before = composing.context.len();
-        composing.context.retain(|item| item.uri != uri);
-        if composing.context.len() == before {
-            let quote = match quote.char_indices().nth(QUOTE_MAX) {
-                Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
-                None => quote.to_owned(),
-            };
-            let after = (composing.context.iter())
-                .take_while(|item| item.uri.starts_with(REPLY_URI))
-                .count();
-            composing.context.insert(
-                after,
-                ChatContext {
-                    uri,
-                    title: "Earlier answer".to_owned(),
-                    text: quote,
-                },
-            );
-        }
         let draft = composing.draft.clone();
+        let held = (draft.read(cx).tokens().iter())
+            .find(|span| **span.token().id() == uri)
+            .map(|span| span.range());
+        match held {
+            Some(range) => {
+                composing.tracked_context.remove(&uri);
+                draft.update(cx, |draft, cx| {
+                    let value = draft.value();
+                    let end = match value
+                        .get(range.end..)
+                        .is_some_and(|rest| rest.starts_with(' '))
+                    {
+                        true => range.end + 1,
+                        false => range.end,
+                    };
+                    let utf16 = |at: usize| {
+                        value
+                            .get(..at)
+                            .map_or(0, |text| text.encode_utf16().count())
+                    };
+                    draft.replace_text_in_range(
+                        Some(utf16(range.start)..utf16(end)),
+                        "",
+                        window,
+                        cx,
+                    );
+                });
+            }
+            None => {
+                let quote = match quote.char_indices().nth(QUOTE_MAX) {
+                    Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
+                    None => quote.to_owned(),
+                };
+                let opening = opening_words(&quote);
+                let token =
+                    InlineToken::new(uri.clone(), format!("“{opening}”")).with_label(opening);
+                composing.tracked_context.insert(
+                    uri.clone(),
+                    ChatContext {
+                        uri,
+                        title: "Earlier answer".to_owned(),
+                        text: quote,
+                    },
+                );
+                draft.update(cx, |draft, cx| {
+                    let value = draft.value();
+                    let start = draft.selected_range().start;
+                    let spaced = (value.get(..start).unwrap_or_default().chars().next_back())
+                        .is_none_or(char::is_whitespace);
+                    if !spaced {
+                        draft.replace(" ", window, cx);
+                    }
+                    if let Err(error) = draft.replace_with_token(token, window, cx) {
+                        eprintln!("sikemux: a reply's token did not go into the draft: {error}");
+                    }
+                    draft.replace(" ", window, cx);
+                });
+            }
+        }
         draft.read(cx).focus_handle(cx).focus(window, cx);
         self.typed_draft(agent, cx);
         cx.notify();
@@ -315,4 +355,25 @@ impl Composing {
         self.context = draft.context;
         self.tracked_context = draft.tracked_context;
     }
+}
+
+/// The first few words of `quote`, without its markdown, as a reply's token shows them.
+fn opening_words(quote: &str) -> String {
+    const MOST: usize = 28;
+    let plain: String = quote
+        .chars()
+        .filter(|letter| !matches!(letter, '*' | '_' | '`' | '#' | '>' | '[' | ']'))
+        .collect();
+    let mut words = plain.split_whitespace().filter(|word| *word != "-");
+    let mut opening = String::new();
+    for word in words.by_ref() {
+        if !opening.is_empty() && opening.chars().count() + 1 + word.chars().count() > MOST {
+            return format!("{opening}…");
+        }
+        if !opening.is_empty() {
+            opening.push(' ');
+        }
+        opening.push_str(word);
+    }
+    opening
 }

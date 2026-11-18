@@ -114,6 +114,11 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
             .text_color(tint)
             .into_any_element();
     }
+    if id.starts_with(REPLY_URI) {
+        return ui::icon(Icon::Reply, 13.)
+            .text_color(tint)
+            .into_any_element();
+    }
     if id.starts_with(EARLIER) {
         return ui::icon(Icon::Message, 13.)
             .text_color(tint)
@@ -1376,18 +1381,9 @@ pub fn tiles(
             false => tile.into_any_element(),
         }
     });
-    let quotes = context.iter().enumerate();
-    let quotes: Vec<_> = quotes
-        .filter(|(_, item)| item.uri.starts_with(REPLY_URI))
-        .map(|(index, item)| {
-            let forget = forget.clone();
-            let remove: Remove = Box::new(move |window, cx| forget(index, window, cx));
-            quote_card(format!("quote-{index}"), &item.text, remove, cx)
-        })
-        .collect();
     let shown = context.iter().enumerate();
     let chips = shown
-        .filter(|(_, item)| !item.for_agent_only() && !item.uri.starts_with(REPLY_URI))
+        .filter(|(_, item)| !item.for_agent_only())
         .map(|(index, item)| {
             let forget = forget.clone();
             context_chip(format!("context-{index}"), &item.uri, &item.title, asks, &t)
@@ -1401,7 +1397,6 @@ pub fn tiles(
             .gap(px(7.))
             .px(SPACE_2H)
             .pt(SPACE_1)
-            .children(quotes)
             .children(tiles)
             .children(chips),
     )
@@ -1515,7 +1510,6 @@ pub(crate) fn context_chip(
         None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
         None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
         None if uri.starts_with(SIDE_URI) => (Icon::Message, title.to_owned()),
-        None if uri.starts_with(REPLY_URI) => (Icon::Reply, title.to_owned()),
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),
@@ -1526,10 +1520,7 @@ pub(crate) fn context_chip(
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(match uri.starts_with(REPLY_URI) {
-            true => title.clone(),
-            false => uri.to_owned(),
-        })
+        .tooltip(uri.to_owned())
         .media(AttachmentMedia::new().child(site_icon(uri, web, icon, asks, t)))
         .content(AttachmentContent::new().title(AttachmentTitle::new(title)))
 }
@@ -1641,55 +1632,6 @@ pub fn sent(
             .children(files)
             .children(context),
     )
-}
-
-/// What takes a quote off a draft.
-type Remove = Box<dyn Fn(&mut Window, &mut App)>;
-
-/// The answer a draft replies to: the reply mark beside two lines of its words, on a sunken
-/// card, with a way to take it off.
-fn quote_card(
-    id: impl Into<SharedString>,
-    quote: &str,
-    remove: Remove,
-    cx: &App,
-) -> gpui_kit::Stateful<Div> {
-    let t = Tokens::get(cx);
-    let quote: String = quote.split_whitespace().collect::<Vec<_>>().join(" ");
-    div()
-        .id(id.into())
-        .w_full()
-        .flex()
-        .items_start()
-        .gap(SPACE_1H)
-        .px(SPACE_2)
-        .py(SPACE_1H)
-        .rounded(theme::radius_3())
-        .bg(Hsla {
-            a: 0.6,
-            ..t.surface_sunken
-        })
-        .child(
-            ui::icon(Icon::Reply, 12.)
-                .flex_none()
-                .mt(px(2.))
-                .text_color(t.text_tertiary),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(theme::ui_text(TEXT_XS))
-                .text_color(t.text_secondary)
-                .line_clamp(2)
-                .child(quote),
-        )
-        .child(
-            ui::IconButton::new("quote-remove", Icon::Close, t!("Remove quote"))
-                .glyph(11.)
-                .width(18.)
-                .on_click(move |_, window, cx| remove(window, cx)),
-        )
 }
 
 /// One file a message carried: a picture as a tile that opens over the window, with the number its
