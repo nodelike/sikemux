@@ -491,7 +491,7 @@ async fn run_batch(
                 use crate::server::edits::generate::regenerate;
                 match regenerate(&owner, &dir, &checkout, &newest, &agents) {
                     Ok(Some(generated)) => Ok(BatchRun::Generated(generated)),
-                    Ok(None) => run_check(&checkout, &command, seed, RUN_LIMIT, Vec::new())
+                    Ok(None) => run_check(&checkout, &command, seed, RUN_LIMIT)
                         .map(BatchRun::Ran),
                     Err(error) => Err(format!(
                         "the files the project generates could not be brought up to date: {error}"
@@ -588,7 +588,6 @@ async fn run_batch(
                     sound,
                     commits: commits.clone(),
                     failing_took: ran.took_ms,
-                    in_queue: false,
                 },
             )
             .await
@@ -1313,14 +1312,8 @@ pub fn stop_running() {
     }
 }
 
-fn run_check(
-    cwd: &Path,
-    command: &str,
-    seed: u32,
-    limit: Duration,
-    env: Vec<(String, String)>,
-) -> Result<Ran, String> {
-    run_timed(cwd, command, seed, limit, env).map_err(String::from)
+fn run_check(cwd: &Path, command: &str, seed: u32, limit: Duration) -> Result<Ran, String> {
+    run_timed(cwd, command, seed, limit, Vec::new()).map_err(String::from)
 }
 
 /// Why a check did not run.
@@ -1463,41 +1456,6 @@ fn drop_old_builds(checkout: &Path) {
 /// run without the cache can say whether the code builds.
 fn compiler_cache_failed(output: &str) -> bool {
     output.contains("daemon compilation did not complete") || output.contains("sccache: error")
-}
-
-/// The first of `commits`, oldest first on top of `sound`, that fails
-/// `command` in the merge queue's checkout, or why none could be named.
-pub async fn first_failing_in_queue(
-    core: &Arc<Core>,
-    dir: &Path,
-    commits: Vec<String>,
-    sound: &str,
-    command: &str,
-    agent: &str,
-    failing_took: u64,
-) -> Result<String, String> {
-    let commits = commits
-        .into_iter()
-        .map(|sha| Commit {
-            sha,
-            subject: String::new(),
-            agents: vec![agent.to_owned()],
-        })
-        .collect();
-    let search = Search {
-        dir: dir.to_owned(),
-        command: command.to_owned(),
-        seed: sample_seed(agent),
-        sound: Some(sound.to_owned()),
-        commits,
-        failing_took,
-        in_queue: true,
-    };
-    match culprit::hunt(core, search).await {
-        Hunted::Found { sha, .. } => Ok(sha),
-        Hunted::Unknown { why, .. } => Err(why),
-        Hunted::NotTried => Err("nothing was searched".to_owned()),
-    }
 }
 
 /// Runs a check or gate's command in the worktree. Whether it passed, and the

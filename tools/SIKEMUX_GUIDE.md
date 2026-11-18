@@ -727,9 +727,9 @@ change. Stage nothing yourself mid-task: what you `git add`, `git mv` or
 
 In a checkout of your own, `sync: true` brings it up to the branch it was cut
 from; use it rather than `git rebase`. `land: true` queues your commits for
-that branch and returns at once; Sikemux runs Clippy and the tests for the
-batch, only of the crates it changes, and lands it, or sends the land that
-broke it back to you. GitHub CI runs the rest. `push: true`
+that branch and returns at once; Sikemux runs rustfmt and `cargo check` on
+the crates the batch changes and lands it, or sends a land that fails back
+to you with the output. GitHub CI runs Clippy and the tests. `push: true`
 beside `land: true` pushes once landed; alone it pushes only your commits and
 those of agents you lead.
 
