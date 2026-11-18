@@ -610,6 +610,10 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
 /// Writes the changes made here to the org's store into its vault.
 async fn push(core: &Arc<Core>, shared: &Shared) {
     let key = shared.key();
+    let erased = match vault::manages_org(core, &shared.org) {
+        true => vault::erased(core, &shared.org),
+        false => Vec::new(),
+    };
     for _ in 0..TRIES {
         let (revision, body) = {
             let mut state = core.memory().state.locked();
@@ -630,6 +634,18 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                 .chain(held.knowledge.iter().map(|known| known.id))
                 .collect();
             held.writers.retain(|id, _| ids.contains(id));
+            let gone = |id: u64| (held.writers.get(&id)).is_some_and(|by| erased.contains(by));
+            for learned in (held.rules.iter_mut())
+                .filter(|rule| gone(rule.id))
+                .map(|rule| &mut rule.learned)
+                .chain(
+                    (held.knowledge.iter_mut())
+                        .filter(|known| gone(known.id))
+                        .map(|known| &mut known.learned),
+                )
+            {
+                learned.person = None;
+            }
             let body = Body::of(held);
             if body.same_entries(&base.body) {
                 return;

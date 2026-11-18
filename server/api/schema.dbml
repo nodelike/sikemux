@@ -670,6 +670,15 @@ Table org_vault_ended {
   }
 }
 
+Table org_vault_erased {
+  org_id uuid [not null]
+  membership uuid [not null]
+
+  indexes {
+    (org_id, membership) [pk]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -711,3 +720,4 @@ Ref: org_vaults.org_id - orgs.id [delete: cascade]
 Ref: org_vault_keys.org_id > org_vaults.org_id [delete: cascade]
 Ref: org_vault_entries.org_id > org_vaults.org_id [delete: cascade]
 Ref: org_vault_ended.org_id > org_vaults.org_id [delete: cascade]
+Ref: org_vault_erased.org_id > org_vaults.org_id [delete: cascade]

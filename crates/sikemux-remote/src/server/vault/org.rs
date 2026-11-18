@@ -203,6 +203,8 @@ struct Org {
     /// The vault's count of changes when this host last took in its entries, so the next read
     /// asks only for what changed after it.
     changes: Option<i64>,
+    /// The memberships of accounts deleted while in the org, whose first names come off its entries.
+    erased: Vec<String>,
 }
 
 #[derive(Default)]
@@ -555,6 +557,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 holders: vault.holders.len(),
                 failed,
                 changes: None,
+                erased: vault.erased.clone(),
             },
         );
         return Ok(());
@@ -570,6 +573,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 holders: vault.holders.len(),
                 failed: None,
                 changes: None,
+                erased: vault.erased.clone(),
             },
         );
         core.vault().orgs().wake();
@@ -638,6 +642,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             holders: vault.holders.len(),
             failed: None,
             changes: Some(vault.changes),
+            erased: vault.erased.clone(),
         },
     );
     Ok(())
@@ -883,6 +888,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                 holders: 1,
                 failed: None,
                 changes: None,
+                erased: Vec::new(),
             },
         );
     }
@@ -1079,6 +1085,12 @@ pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
         revision: entry.revision,
         body: entry.body.clone(),
     }))
+}
+
+/// The memberships of accounts deleted while in `org`, as its vault last listed them.
+pub fn erased(core: &Core, org: &str) -> Vec<String> {
+    let state = core.vault().orgs().state.locked();
+    (state.orgs.get(org)).map_or_else(Vec::new, |org| org.erased.clone())
 }
 
 /// Whether this host holds the key to `org`'s vault, so the org's entries can be read and

@@ -125,6 +125,29 @@ export async function vaultChanged(trx: Transaction<Tables>, orgId: string) {
   );
 }
 
+/** Lists a deleted account's membership for the org's hosts to take its first name off entries. */
+export async function erasedFromVault(
+  trx: Transaction<Tables>,
+  orgId: string,
+  membership: string,
+) {
+  const listed = await trx
+    .insertInto("org_vault_erased")
+    .columns(["org_id", "membership"])
+    .expression((eb) =>
+      eb
+        .selectFrom("org_vaults")
+        .select([
+          eb.val(orgId).as("org_id"),
+          eb.val(membership).as("membership"),
+        ])
+        .where("org_id", "=", orgId),
+    )
+    .onConflict((oc) => oc.doNothing())
+    .executeTakeFirst();
+  if (listed.numInsertedOrUpdatedRows) await vaultChanged(trx, orgId);
+}
+
 /** Keeps the last revision of each removed entry, for the next entry under its id to start above. */
 export async function keepEnded(
   trx: Transaction<Tables>,

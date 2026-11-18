@@ -2267,6 +2267,12 @@ export const schema = {
           type: "array",
           items: { $ref: "#/$defs/OrgVaultEnded" },
         },
+        erased: {
+          description:
+            "The memberships of accounts deleted while the org had this vault. An owner's or admin's host takes their first names off the entries it opens.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgMemberId" },
+        },
         changes: {
           description:
             "How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.",
@@ -2286,6 +2292,7 @@ export const schema = {
         "rotate",
         "entries",
         "ended",
+        "erased",
         "changes",
         "since",
       ],

@@ -1283,6 +1283,8 @@ export interface OrgVault {
   entries: OrgVaultEntry[];
   /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
   ended: OrgVaultEnded[];
+  /** The memberships of accounts deleted while the org had this vault. An owner's or admin's host takes their first names off the entries it opens. */
+  erased: OrgMemberId[];
   /** How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since. */
   changes: OrgVaultChanges;
   /** The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything. */
