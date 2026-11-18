@@ -571,9 +571,13 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
         }
     }
     let mut ended = held.ended;
-    for gone in &vault.ended {
-        let floor = ended.entry(gone.id.clone()).or_default();
-        *floor = gone.revision.max(*floor);
+    let unlisted = (held.entries.iter())
+        .filter(|(id, _)| !entries.contains_key(*id))
+        .map(|(id, entry)| (id, entry.revision));
+    let listed = (vault.ended.iter()).map(|gone| (&gone.id, gone.revision));
+    for (id, revision) in unlisted.chain(listed) {
+        let floor = ended.entry(id.clone()).or_default();
+        *floor = revision.max(*floor);
     }
     ended.retain(|id, _| !entries.contains_key(id));
     set(
