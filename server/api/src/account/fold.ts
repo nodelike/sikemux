@@ -200,7 +200,7 @@ async function fold(
       .select(["id", "deleted_at"])
       .where("id", "in", [side.from, side.into])
       .orderBy("id")
-      .forUpdate()
+      .forNoKeyUpdate()
       .execute();
     if (users.length !== 2 || users.some((user) => user.deleted_at))
       throw conflict(
