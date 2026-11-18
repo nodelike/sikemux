@@ -43,15 +43,7 @@ export async function stripWorkSignIns(
     const brought = signIns.externalAccounts.filter(
       (account) => account.email.toLowerCase() === address.email.toLowerCase(),
     );
-    if (
-      !address.verified &&
-      brought.length === 0 &&
-      signIns.primaryAddressId !== address.id
-    ) {
-      await clerk.removeAddress(address.id);
-      signIns.addresses = signIns.addresses.filter((a) => a.id !== address.id);
-      continue;
-    }
+    if (!address.verified && brought.length === 0) continue;
     if (waysLeft(signIns, address.id, brought) === 0) {
       log.warn(
         { userId, domain },
