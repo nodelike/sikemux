@@ -95,6 +95,9 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.url]
 opt-level = "z"
+# The board's cards change when the person or an agent acts on one.
+[profile.release.package.sikemux-board]
+opt-level = "z"
 
 # Diagrams and formulas are drawn once each, off the main thread.
 [profile.release.package.mermaid-svg]
