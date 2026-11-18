@@ -1,14 +1,14 @@
 import { useEffect } from 'react';
 import { useAuth } from '@clerk/expo';
 import * as SecureStore from 'expo-secure-store';
-import type { FoldCatch, FoldWhy } from '@sikemux/protocol';
+import type { FoldCatch } from '@sikemux/protocol';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
 import { ApiProblem, api, type TokenSource } from './api';
 
 /** A fold this phone started, waiting for the person's other account to confirm it. Kept in memory only. */
-export type Waiting = { id: string; secret: string; expiresAt: string; why: FoldWhy; waitingWords: string };
+export type Waiting = { id: string; secret: string; expiresAt: string; waitingWords: string };
 
 /**
  * Whether the signed-in account may go on to its screens. A new account may first be asked whether

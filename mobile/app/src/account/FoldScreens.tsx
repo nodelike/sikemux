@@ -63,7 +63,7 @@ function Catch({ caught }: { caught: FoldCatch }) {
     setProblem(undefined);
     try {
       const intent = await recent.run(() => api(token).startFold({ why }));
-      holdFold({ id: intent.id, secret: intent.secret, expiresAt: intent.expiresAt, why, waitingWords: intent.waitingWords });
+      holdFold({ id: intent.id, secret: intent.secret, expiresAt: intent.expiresAt, waitingWords: intent.waitingWords });
       await signOutHere(() => signOut(), { confirmed: true });
     } catch (error) {
       setBusy(undefined);
@@ -144,7 +144,6 @@ function ConfirmFold({ waiting }: { waiting: Waiting }) {
   const [read, setRead] = useState<Read>({ state: 'loading' });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const seatComing = waiting.why === 'seat';
 
   useEffect(() => {
     let current = true;
@@ -176,7 +175,7 @@ function ConfirmFold({ waiting }: { waiting: Waiting }) {
         onEnter={recent.enter}
         onCheck={(entry) => void recent.check(entry)}
         onBack={recent.cancel}
-        action={{ title: seatComing ? t('Move the seat') : t('Bring it here'), kind: 'primary' }}
+        action={{ title: t('Bring it here'), kind: 'primary' }}
       />
     );
 
@@ -207,13 +206,7 @@ function ConfirmFold({ waiting }: { waiting: Waiting }) {
         icon="IconCircleCheck"
         title={read.title}
         detail={read.words}
-        actions={
-          <Button
-            kind="primary"
-            title={seatComing ? t('Sign in') : t('Continue')}
-            onPress={() => (seatComing ? signInAgain() : userId ? void openFold(userId) : undefined)}
-          />
-        }
+        actions={<Button kind="primary" title={t('Continue')} onPress={() => (userId ? void openFold(userId) : undefined)} />}
       />
     );
 
@@ -233,18 +226,12 @@ function ConfirmFold({ waiting }: { waiting: Waiting }) {
 
   return (
     <PromptScreen
-      icon={seatComing ? 'IconUser' : 'IconShield'}
+      icon="IconShield"
       title={preview.title}
       detail={<Text style={styles.ink}>{preview.address}</Text>}
       actions={
         <>
-          <Button
-            kind="primary"
-            title={seatComing ? t('Move the seat') : t('Bring it here')}
-            busy={busy}
-            disabled={busy}
-            onPress={() => void bring()}
-          />
+          <Button kind="primary" title={t('Bring it here')} busy={busy} disabled={busy} onPress={() => void bring()} />
           <Button title={t('Cancel')} disabled={busy} onPress={cancel} />
         </>
       }>
