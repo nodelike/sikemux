@@ -14,12 +14,12 @@ use sikemux_view::memory::{Knowledge, MemoryRule, Moved, Stale, Store};
 use super::{holding, holding_or_personal, tell_clients, Held, State};
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
-use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY, PROJECT_MEMORY_WAITING};
+use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY, PROJECT_MEMORY_DROPS};
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::Core;
 
 /// The most the vault's entry of a project's store may hold, under the server's limit.
-const MAX_BODY: usize = 60 * 1024;
+pub(super) const MAX_BODY: usize = 60 * 1024;
 const TRIES: usize = 3;
 
 /// A project open here that this account's person shares with an org.
@@ -47,8 +47,13 @@ impl Shared {
         vault::project_entry_id(PROJECT_MEMORY, &self.project)
     }
 
-    pub(super) fn waiting_id(&self) -> String {
-        vault::project_entry_id(PROJECT_MEMORY_WAITING, &self.project)
+    /// Where the vault keeps the entries `member` has waiting for the project.
+    pub(super) fn waiting_id(&self, member: &str) -> String {
+        vault::waiting_entry_id(&self.project, member)
+    }
+
+    pub(super) fn drops_id(&self) -> String {
+        vault::project_entry_id(PROJECT_MEMORY_DROPS, &self.project)
     }
 }
 
@@ -474,6 +479,15 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
             if held.not_now.remove(&id) {
                 held.not_now.insert(fresh);
             }
+            if held.waiting.remove(&id) {
+                held.waiting.insert(fresh);
+            }
+            if let Some(by) = held.dropped.remove(&id) {
+                held.dropped.insert(fresh, by);
+            }
+            if let Some(why) = held.refused.remove(&id) {
+                held.refused.insert(fresh, why);
+            }
             renumbered.push(key.clone());
         }
     }
@@ -529,14 +543,16 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
         (base.body.rules.iter().any(|rule| rule.id == id))
             || (base.body.knowledge.iter().any(|known| known.id == id))
     };
-    let added: Vec<MemoryRule> = (held.rules.drain(..))
+    let writers = std::mem::take(&mut held.writers);
+    let teammates = |id: u64| writers.get(&id).is_some_and(|by| *by != shared.member);
+    let (theirs, added): (Vec<MemoryRule>, Vec<MemoryRule>) = (held.rules.drain(..))
         .filter(|rule| !kept(rule.id))
-        .collect();
+        .partition(|rule| teammates(rule.id));
     let had = std::mem::take(&mut held.knowledge);
-    let added_knowledge: Vec<Knowledge> = (had.iter())
+    let (theirs_known, added_knowledge): (Vec<Knowledge>, Vec<Knowledge>) = (had.iter())
         .filter(|known| !kept(known.id))
         .cloned()
-        .collect();
+        .partition(|known| teammates(known.id));
     held.rules = base.body.rules;
     held.knowledge = with_local_checks(base.body.knowledge, &had);
     held.writers = base.body.writers;
@@ -548,6 +564,10 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
             .or_else(|| local.clone())
             .unwrap_or_else(|| super::PERSONAL.to_owned())
     };
+    let texts = (theirs.iter().map(|rule| &rule.text)).chain(theirs_known.iter().map(|k| &k.text));
+    for text in texts {
+        super::waiting::not_kept(core, text, why);
+    }
     let mut touched = vec![key.clone()];
     for mut rule in added {
         let to = home(&state, &rule.moved);

@@ -7,22 +7,34 @@ import { keepEnded, vaultChanged } from "./change.ts";
 
 /** A shared project's store of rules and knowledge, which agents read. */
 export const PROJECT_MEMORY = "project-memory";
-/** Rules members added to a shared project, waiting for an owner or admin to keep or drop them. */
+/** One member's rules for a shared project, waiting for an owner or admin to keep or drop them. */
 export const PROJECT_MEMORY_WAITING = "project-memory-waiting";
-const PROJECT_KINDS = [PROJECT_MEMORY, PROJECT_MEMORY_WAITING];
+/** The waiting rules of a shared project that an owner or admin dropped. */
+export const PROJECT_MEMORY_DROPS = "project-memory-drops";
+const PROJECT_KINDS = [
+  PROJECT_MEMORY,
+  PROJECT_MEMORY_WAITING,
+  PROJECT_MEMORY_DROPS,
+];
 
-/** The entry id of a project's `kind`: the first 32 hex of SHA-256 over `<kind>|<project key>`. */
+/**
+ * The entry id of a project's `kind`: the first 32 hex of SHA-256 over `<kind>|<project key>`,
+ * or for a member's waiting rules over `<kind>|<project key>|<membership>`.
+ */
 function entryIdOf(
   kind: string | RawBuilder<unknown>,
   project: RawBuilder<unknown>,
+  membership: string | RawBuilder<unknown>,
 ) {
-  return sql<string>`substr(encode(sha256(convert_to(${kind} || '|' || ${project}, 'UTF8')), 'hex'), 1, 32)`;
+  const of = sql`case when ${kind}::text = ${PROJECT_MEMORY_WAITING}::text then ${project} || '|' || ${membership}::text else ${project} end`;
+  return sql<string>`substr(encode(sha256(convert_to(${kind} || '|' || ${of}, 'UTF8')), 'hex'), 1, 32)`;
 }
 
 /**
  * Who may put an entry of `kind`. A shared project's entries go only at their own id while some
- * member shares the project with the org. Any member writes the waiting list, and the store too
- * while the org lets every member add rules; other kinds are the owners' and admins'.
+ * member shares the project with the org. A member's waiting rules are theirs alone to write, the
+ * drops are the owners' and admins', and the store is too unless the org lets every member add
+ * rules; other kinds are the owners' and admins'.
  */
 export async function allowPut(
   trx: Transaction<Tables>,
@@ -31,21 +43,21 @@ export async function allowPut(
   id: string,
   kind: string,
 ) {
-  if (!PROJECT_KINDS.includes(kind)) {
+  if (!PROJECT_KINDS.includes(kind) || kind === PROJECT_MEMORY_DROPS) {
     if (member.role === "user")
       throw forbidden("Only an org's owner or admin may change its vault.");
-    return;
+    if (kind !== PROJECT_MEMORY_DROPS) return;
   }
   const shared = await trx
     .selectFrom("org_shares")
     .innerJoin("org_users", "org_users.id", "org_shares.member_id")
     .select("org_shares.project")
     .where("org_users.org_id", "=", orgId)
-    .where(entryIdOf(kind, sql.ref("org_shares.project")), "=", id)
+    .where(entryIdOf(kind, sql.ref("org_shares.project"), member.id), "=", id)
     .executeTakeFirst();
   if (!shared)
     throw forbidden("No member shares a project with the org at that id.");
-  if (member.role !== "user" || kind === PROJECT_MEMORY_WAITING) return;
+  if (member.role !== "user" || kind !== PROJECT_MEMORY) return;
   const org = await trx
     .selectFrom("orgs")
     .select("rule_adding")
@@ -57,7 +69,10 @@ export async function allowPut(
     );
 }
 
-/** Removes the entries of projects no member shares with the org any more. */
+/**
+ * Removes the entries of projects no member shares with the org any more, and the waiting rules
+ * of members who left.
+ */
 export async function dropUnshared(trx: Transaction<Tables>, orgId: string) {
   const dropped = await trx
     .deleteFrom("org_vault_entries")
@@ -68,12 +83,18 @@ export async function dropUnshared(trx: Transaction<Tables>, orgId: string) {
         exists(
           selectFrom("org_shares")
             .innerJoin("org_users", "org_users.id", "org_shares.member_id")
+            .innerJoin(
+              "org_users as writer",
+              "writer.org_id",
+              "org_users.org_id",
+            )
             .select(sql`1`.as("one"))
             .where("org_users.org_id", "=", orgId)
             .whereRef(
               entryIdOf(
                 sql.ref("org_vault_entries.kind"),
                 sql.ref("org_shares.project"),
+                sql.ref("writer.id"),
               ),
               "=",
               "org_vault_entries.id",

@@ -289,8 +289,8 @@ pub(crate) struct Memory {
     said_elsewhere: Mutex<HashMap<String, Vec<String>>>,
     /// Told when an org's store is saved here, or shares changed, to sync with the org's vault.
     org_sync: Arc<tokio::sync::Notify>,
-    /// What this host's person decided of entries waiting on an org's list, until the list says so.
-    decided: Mutex<HashMap<String, waiting::Decided>>,
+    /// What this host's owner or admin answered of entries waiting on an org's list.
+    answers: Mutex<waiting::Answers>,
 }
 
 impl Memory {
@@ -318,7 +318,7 @@ impl Memory {
             wake: Wake::default(),
             said_elsewhere: Mutex::default(),
             org_sync: Arc::default(),
-            decided: Mutex::default(),
+            answers: Mutex::default(),
         }
     }
 

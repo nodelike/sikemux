@@ -41,6 +41,8 @@ export const NOT_IN_ORG =
   "Your account is in no org with that id, or plans are not open to it yet.";
 
 export interface Member {
+  /** The membership, as `org_users` keeps it. */
+  id: string;
   role: OrgRole;
   active: boolean;
 }
@@ -54,7 +56,7 @@ export async function memberOf(
 ): Promise<Member> {
   const row = await db
     .selectFrom("org_users")
-    .select("role")
+    .select(["id", "role"])
     .select((eb) =>
       eb
         .exists(
@@ -77,7 +79,7 @@ export async function memberOf(
     .executeTakeFirst();
   if (!row || (!live && !(await isStaff(db, userId))))
     throw notFound(NOT_IN_ORG);
-  return { role: row.role, active: Boolean(row.paid) };
+  return { id: row.id, role: row.role, active: Boolean(row.paid) };
 }
 
 /** The keys of every host on the accounts of the org's members. */

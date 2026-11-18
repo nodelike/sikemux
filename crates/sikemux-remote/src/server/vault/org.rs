@@ -1004,14 +1004,27 @@ pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
 
 /// A project's store of rules and knowledge in an org's vault, which agents read.
 pub const PROJECT_MEMORY: &str = "project-memory";
-/// Rules members added to a project, waiting for an owner or admin to keep or drop them.
+/// One member's rules for a project, waiting for an owner or admin to keep or drop them; the
+/// server lets only that member write them.
 pub const PROJECT_MEMORY_WAITING: &str = "project-memory-waiting";
+/// The waiting rules of a project that an owner or admin dropped; only they may write it.
+pub const PROJECT_MEMORY_DROPS: &str = "project-memory-drops";
 
 /// Where the org's vault keeps `kind` of the project the server knows as `project`, as the
 /// server works it out.
 pub fn project_entry_id(kind: &str, project: &str) -> String {
+    entry_id(&format!("{kind}|{project}"))
+}
+
+/// Where the org's vault keeps the waiting rules of `member`, a membership in the org, for the
+/// project the server knows as `project`.
+pub fn waiting_entry_id(project: &str, member: &str) -> String {
+    entry_id(&format!("{PROJECT_MEMORY_WAITING}|{project}|{member}"))
+}
+
+fn entry_id(of: &str) -> String {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(format!("{kind}|{project}").as_bytes());
+    let digest = Sha256::digest(of.as_bytes());
     hex::encode(digest.into_iter().take(16).collect::<Vec<u8>>())
 }
 
@@ -1079,7 +1092,7 @@ pub async fn put_project(
     revision: i64,
     body: &Value,
 ) -> CoreResult<Put> {
-    if ![PROJECT_MEMORY, PROJECT_MEMORY_WAITING].contains(&kind) {
+    if ![PROJECT_MEMORY, PROJECT_MEMORY_WAITING, PROJECT_MEMORY_DROPS].contains(&kind) {
         return Err(format!("a project's entry is never of kind {kind}").into());
     }
     let _busy = core.vault().orgs().busy.lock().await;
