@@ -11,15 +11,15 @@ key stays offline with the owner, and the restore drill takes it on stdin, never
 
 ## What runs
 
-| Piece               | On citadel                                       | From                             |
-| ------------------- | ------------------------------------------------ | -------------------------------- |
-| Backup script       | `/usr/local/lib/sikemux/backup-database`         | `server/deploy/backup-database`  |
-| Restore script      | `/usr/local/lib/sikemux/restore-database`        | `server/deploy/restore-database` |
-| Stash restore       | `/usr/local/lib/sikemux/restore-stash`           | `server/deploy/restore-stash`    |
-| R2 setup both share | `/usr/local/lib/sikemux/lib.sh`                  | `server/deploy/lib.sh`           |
-| Units               | `sikemux-backup.service`, `sikemux-backup.timer` | `server/deploy/`                 |
-| R2 credentials      | `/etc/sikemux/backup.env` (root, 600)            | written by hand                  |
-| age public keys     | `/etc/sikemux/backup-recipients.txt` (root, 644) | written by hand                  |
+| Piece                 | On citadel                                       | From                             |
+| --------------------- | ------------------------------------------------ | -------------------------------- |
+| Backup script         | `/usr/local/lib/sikemux/backup-database`         | `server/deploy/backup-database`  |
+| Restore script        | `/usr/local/lib/sikemux/restore-database`        | `server/deploy/restore-database` |
+| Stash and key restore | `/usr/local/lib/sikemux/restore-stash`           | `server/deploy/restore-stash`    |
+| R2 setup both share   | `/usr/local/lib/sikemux/lib.sh`                  | `server/deploy/lib.sh`           |
+| Units                 | `sikemux-backup.service`, `sikemux-backup.timer` | `server/deploy/`                 |
+| R2 credentials        | `/etc/sikemux/backup.env` (root, 600)            | written by hand                  |
+| age public keys       | `/etc/sikemux/backup-recipients.txt` (root, 644) | written by hand                  |
 
 `setup-citadel.sh` installs all of it, creates the OS user `sikemux-backup` and the database
 role `sikemux_backup`, which can read everything (`pg_read_all_data`) and write nothing, and
@@ -129,3 +129,13 @@ key instead of making one and hands the files to the API:
 ```sh
 sudo BACKUP_ENV=./backup.env ./restore-stash --dir /var/lib/sikemux-stash --keep
 ```
+
+## The address proof key
+
+The API hashes each proven work address with the key in `/etc/sikemux/address-proof.key`, which
+`setup-citadel.sh` makes once and writes into `api.env` as `ADDRESS_PROOF_KEY`. The database
+holds only the hashes, so losing the key loses every proof: no address could be matched again,
+and every org would have to prove its people's addresses afresh. The nightly run seals the key
+to the same age keys as `proofs/key.age`. The stash's drill opens it too and fails unless it
+matches citadel's key, and its `--keep` recovery above writes it back to
+`/etc/sikemux/address-proof.key` when citadel has none, before `setup-citadel.sh` runs.

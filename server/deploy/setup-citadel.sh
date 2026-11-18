@@ -74,7 +74,7 @@ install -d -m 2750 -o sikemux -g sikemux-stash /var/lib/sikemux-stash
 # Files restore-stash put back before this group existed.
 find /var/lib/sikemux-stash -maxdepth 1 -type f ! -user sikemux \
   -exec chown sikemux:sikemux-stash {} + -exec chmod 640 {} +
-stash_changed=0
+api_env_changed=0
 if [ ! -f /etc/sikemux/stash.key ]; then
   (umask 077 && openssl rand -hex 32 >/etc/sikemux/stash.key)
 fi
@@ -83,15 +83,29 @@ chmod 600 /etc/sikemux/stash.key
 if ! grep -qx 'STASH_DIR=/var/lib/sikemux-stash' /etc/sikemux/api.env; then
   sed -i '/^STASH_DIR=/d' /etc/sikemux/api.env
   echo 'STASH_DIR=/var/lib/sikemux-stash' >>/etc/sikemux/api.env
-  stash_changed=1
+  api_env_changed=1
 fi
 stash_key="$(cat /etc/sikemux/stash.key)"
 if ! grep -qx "STASH_KEY=$stash_key" /etc/sikemux/api.env; then
   sed -i '/^STASH_KEY=/d' /etc/sikemux/api.env
   echo "STASH_KEY=$stash_key" >>/etc/sikemux/api.env
-  stash_changed=1
+  api_env_changed=1
 fi
 unset stash_key
+
+step "address proofs: hashed with a key kept in /etc/sikemux/address-proof.key"
+if [ ! -f /etc/sikemux/address-proof.key ]; then
+  (umask 077 && openssl rand -hex 32 >/etc/sikemux/address-proof.key)
+fi
+chown root:root /etc/sikemux/address-proof.key
+chmod 600 /etc/sikemux/address-proof.key
+proof_key="$(cat /etc/sikemux/address-proof.key)"
+if ! grep -qx "ADDRESS_PROOF_KEY=$proof_key" /etc/sikemux/api.env; then
+  sed -i '/^ADDRESS_PROOF_KEY=/d' /etc/sikemux/api.env
+  echo "ADDRESS_PROOF_KEY=$proof_key" >>/etc/sikemux/api.env
+  api_env_changed=1
+fi
+unset proof_key
 
 step "database, reachable only by the sikemux users through the local socket"
 psql -U "$PG_ADMIN" -d postgres -v ON_ERROR_STOP=1 -q <<'SQL'
@@ -145,7 +159,7 @@ install -m 644 "$here/sikemux-leaderboard.timer" /etc/systemd/system/sikemux-lea
 install -D -m 755 -o root -g root "$here/update-leaderboard" /usr/local/lib/sikemux/update-leaderboard
 systemctl daemon-reload
 systemctl enable sikemux-api >/dev/null
-[ "$stash_changed" = 0 ] || systemctl try-restart sikemux-api
+[ "$api_env_changed" = 0 ] || systemctl try-restart sikemux-api
 systemctl enable --now sikemux-purge.timer >/dev/null
 systemctl enable --now sikemux-places.timer >/dev/null
 [ -f /var/lib/sikemux-places/dbip-asn-lite.mmdb ] || systemctl start sikemux-places
