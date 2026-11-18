@@ -46,6 +46,16 @@
       ],
       "additionalProperties": false
     },
+    "OrgVaultEnded": {
+      "description": "An entry removed from an org's vault, at the last revision it had.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "vault.json#/$defs/VaultEntryId" },
+        "revision": { "$ref": "vault.json#/$defs/VaultRevision" }
+      },
+      "required": ["id", "revision"],
+      "additionalProperties": false
+    },
     "OrgVault": {
       "description": "An org's vault, as one of its members' hosts sees it.",
       "type": "object",
@@ -72,6 +82,11 @@
         "entries": {
           "type": "array",
           "items": { "$ref": "#/$defs/OrgVaultEntry" }
+        },
+        "ended": {
+          "description": "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/OrgVaultEnded" }
         }
       },
       "required": [
@@ -80,7 +95,8 @@
         "holders",
         "waiting",
         "rotate",
-        "entries"
+        "entries",
+        "ended"
       ],
       "additionalProperties": false
     },

@@ -642,7 +642,7 @@ Table org_vault_keys {
 }
 
 Table org_vault_entries {
-  id text [pk, note: 'id ~ \'^[0-9a-f]{32}$\'']
+  id text [not null, note: 'id ~ \'^[0-9a-f]{32}$\'']
   org_id uuid [not null]
   kind text [not null, note: 'kind ~ \'^[a-z][a-z0-9-]{0,47}$\'']
   generation integer [not null, note: 'generation >= 1']
@@ -653,7 +653,17 @@ Table org_vault_entries {
   created_at timestamptz [not null, default: `now()`]
 
   indexes {
-    org_id [name: 'org_vault_entries_by_org']
+    (org_id, id) [pk]
+  }
+}
+
+Table org_vault_ended {
+  org_id uuid [not null]
+  id text [not null, note: 'id ~ \'^[0-9a-f]{32}$\'']
+  revision integer [not null, note: 'revision >= 1']
+
+  indexes {
+    (org_id, id) [pk]
   }
 }
 
@@ -697,3 +707,4 @@ Ref: org_shares.member_id > org_users.id [delete: cascade]
 Ref: org_vaults.org_id - orgs.id [delete: cascade]
 Ref: org_vault_keys.org_id > org_vaults.org_id [delete: cascade]
 Ref: org_vault_entries.org_id > org_vaults.org_id [delete: cascade]
+Ref: org_vault_ended.org_id > org_vaults.org_id [delete: cascade]

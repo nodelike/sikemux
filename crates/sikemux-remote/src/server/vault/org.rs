@@ -75,6 +75,8 @@ struct Held {
     generation: i64,
     key: Option<Key>,
     entries: BTreeMap<String, Opened>,
+    /// The last revision of each entry the vault removed, which a new entry under its id passes.
+    ended: BTreeMap<String, i64>,
 }
 
 impl Held {
@@ -86,6 +88,7 @@ impl Held {
         self.entries
             .get(id)
             .is_none_or(|held| revision >= held.revision)
+            && self.ended.get(id).is_none_or(|&ended| revision > ended)
     }
 }
 
@@ -136,7 +139,7 @@ fn entries_context(account: &str, org: &str, generation: i64) -> String {
 }
 
 fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, key: &KeptKey) -> Held {
-    let entries = data_dir
+    let (entries, ended) = data_dir
         .and_then(|dir| std::fs::read(entries_file(dir, org)).ok())
         .and_then(|sealed| {
             let context = entries_context(account, org, key.generation);
@@ -148,6 +151,7 @@ fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, key: &KeptKey
         generation: key.generation,
         key: Some(key.key),
         entries,
+        ended,
     }
 }
 
@@ -166,7 +170,7 @@ fn write_entries(data_dir: &Path, was: Option<&Copy>, now: Option<&Copy>) -> Cor
             if same_account && held(was, org).as_ref() == Some(kept) {
                 continue;
             }
-            let plain = serde_json::to_vec(&kept.entries)?;
+            let plain = serde_json::to_vec(&(&kept.entries, &kept.ended))?;
             let context = entries_context(&now.account, org, kept.generation);
             let sealed = seal::seal_bytes(&key, &context, &plain)
                 .ok_or_else(|| CoreError::from("the org vault's entries could not be sealed"))?;
@@ -566,6 +570,12 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
             }
         }
     }
+    let mut ended = held.ended;
+    for gone in &vault.ended {
+        let floor = ended.entry(gone.id.clone()).or_default();
+        *floor = gone.revision.max(*floor);
+    }
+    ended.retain(|id, _| !entries.contains_key(id));
     set(
         core,
         &org.id,
@@ -574,6 +584,7 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
                 generation: vault.generation,
                 key: Some(key),
                 entries,
+                ended,
             },
             status: OrgVaultStatus::Open,
             holders: vault.holders.len(),
@@ -771,6 +782,7 @@ async fn rotate(
         generation,
         key: Some(next),
         entries: opened,
+        ended: held.ended,
     })
 }
 
@@ -820,6 +832,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                     generation: 1,
                     key: Some(key),
                     entries: BTreeMap::new(),
+                    ended: BTreeMap::new(),
                 },
                 status: OrgVaultStatus::Open,
                 holders: 1,
@@ -1039,17 +1052,21 @@ pub async fn put_project(
         return Err(format!("a project's entry is never of kind {kind}").into());
     }
     let _busy = core.vault().orgs().busy.lock().await;
-    let (generation, key) = {
+    let (generation, key, revision) = {
         let state = core.vault().orgs().state.locked();
         let held = state
             .orgs
             .get(org)
             .map(|org| org.held.clone())
             .unwrap_or_default();
+        let added_after = (revision == 0 && !held.entries.contains_key(id))
+            .then(|| held.ended.get(id).copied())
+            .flatten();
         (
             held.generation,
             held.key
                 .ok_or_else(|| CoreError::from("this host holds no key to the org's vault"))?,
+            added_after.unwrap_or(revision),
         )
     };
     let put = OrgVaultEntryPut {

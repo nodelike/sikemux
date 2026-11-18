@@ -102,7 +102,7 @@ export async function orgVaultState(
     .where("org_id", "=", orgId)
     .executeTakeFirst();
   if (!vault) return { vault: null };
-  const [keys, hosts, entries] = await Promise.all([
+  const [keys, hosts, entries, ended] = await Promise.all([
     db
       .selectFrom("org_vault_keys")
       .select(["host_key", "generation", "wrapped"])
@@ -121,6 +121,12 @@ export async function orgVaultState(
       .orderBy("created_at")
       .orderBy("id")
       .execute(),
+    db
+      .selectFrom("org_vault_ended")
+      .select(["id", "revision"])
+      .where("org_id", "=", orgId)
+      .orderBy("id")
+      .execute(),
   ]);
   const members = new Set(hosts.map((host) => host.key));
   const current = keys.filter(
@@ -134,6 +140,7 @@ export async function orgVaultState(
     waiting: [...members].filter((key) => !holders.has(key)),
     rotate: keys.some((key) => !members.has(key.host_key)),
     entries: entries.map(toEntry),
+    ended,
   };
   return { vault: state };
 }

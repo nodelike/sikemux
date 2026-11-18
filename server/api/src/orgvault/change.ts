@@ -107,6 +107,26 @@ export async function vaultChanged(trx: Transaction<Tables>, orgId: string) {
   );
 }
 
+/** Keeps the last revision of each removed entry, for the next entry under its id to start above. */
+export async function keepEnded(
+  trx: Transaction<Tables>,
+  orgId: string,
+  removed: { id: string; revision: number }[],
+) {
+  if (!removed.length) return;
+  await trx
+    .insertInto("org_vault_ended")
+    .values(
+      removed.map(({ id, revision }) => ({ org_id: orgId, id, revision })),
+    )
+    .onConflict((oc) =>
+      oc.columns(["org_id", "id"]).doUpdateSet({
+        revision: (eb) => eb.ref("excluded.revision"),
+      }),
+    )
+    .execute();
+}
+
 function auditOrg(
   trx: Transaction<Tables>,
   { orgId, userId, hostKey }: Asker,
@@ -271,16 +291,24 @@ export async function putOrgEntry(
   await requireHolder(trx, asker, generation);
   const existing = await trx
     .selectFrom("org_vault_entries")
-    .select(["org_id", "revision"])
+    .select("revision")
+    .where("org_id", "=", orgId)
     .where("id", "=", id)
     .executeTakeFirst();
-  if (existing && existing.org_id !== orgId)
-    throw conflict("That entry id is taken.");
-  if ((existing?.revision ?? 0) !== revision)
+  const ended = existing
+    ? undefined
+    : await trx
+        .selectFrom("org_vault_ended")
+        .select("revision")
+        .where("org_id", "=", orgId)
+        .where("id", "=", id)
+        .executeTakeFirst();
+  const floor = ended?.revision ?? 0;
+  if ((existing?.revision ?? floor) !== revision)
     throw conflict(
       existing
         ? `The entry is at revision ${existing.revision}, not ${revision}.`
-        : "The vault has no such entry; add it at revision 0.",
+        : `The vault has no such entry; add it at revision ${floor}.`,
     );
   let row;
   if (existing) {
@@ -294,6 +322,7 @@ export async function putOrgEntry(
         updated_by: hostKey,
         updated_at: sql<Date>`now()`,
       })
+      .where("org_id", "=", orgId)
       .where("id", "=", id)
       .returning(ENTRY_COLUMNS)
       .executeTakeFirstOrThrow();
@@ -313,11 +342,17 @@ export async function putOrgEntry(
         kind,
         generation,
         sealed,
-        revision: 1,
+        revision: revision + 1,
         updated_by: hostKey,
       })
       .returning(ENTRY_COLUMNS)
       .executeTakeFirstOrThrow();
+    if (ended)
+      await trx
+        .deleteFrom("org_vault_ended")
+        .where("org_id", "=", orgId)
+        .where("id", "=", id)
+        .execute();
   }
   await vaultChanged(trx, orgId);
   await auditOrg(trx, asker, "org_vault.entry_written", {
@@ -342,7 +377,7 @@ export async function removeOrgEntry(
     .where("id", "=", id)
     .where("org_id", "=", orgId)
     .where("revision", "=", revision)
-    .returning("kind")
+    .returning(["id", "kind", "revision"])
     .executeTakeFirst();
   if (!removed) {
     const existing = await trx
@@ -356,6 +391,7 @@ export async function removeOrgEntry(
       `The entry is at revision ${existing.revision}, not ${revision}.`,
     );
   }
+  await keepEnded(trx, orgId, [removed]);
   await vaultChanged(trx, orgId);
   await auditOrg(trx, asker, "org_vault.entry_removed", {
     entry: id,

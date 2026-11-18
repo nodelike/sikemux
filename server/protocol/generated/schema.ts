@@ -2261,6 +2261,12 @@ export const schema = {
           type: "boolean",
         },
         entries: { type: "array", items: { $ref: "#/$defs/OrgVaultEntry" } },
+        ended: {
+          description:
+            "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultEnded" },
+        },
       },
       required: [
         "generation",
@@ -2269,6 +2275,7 @@ export const schema = {
         "waiting",
         "rotate",
         "entries",
+        "ended",
       ],
       additionalProperties: false,
     },
@@ -2283,6 +2290,17 @@ export const schema = {
         },
       },
       required: ["key"],
+      additionalProperties: false,
+    },
+    OrgVaultEnded: {
+      description:
+        "An entry removed from an org's vault, at the last revision it had.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+      },
+      required: ["id", "revision"],
       additionalProperties: false,
     },
     OrgVaultEntry: {

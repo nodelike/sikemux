@@ -1281,12 +1281,20 @@ export interface OrgVault {
   /** A host that held the key is no longer a member's host, so an owner's or admin's host should replace it. */
   rotate: boolean;
   entries: OrgVaultEntry[];
+  /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
+  ended: OrgVaultEnded[];
 }
 
 /** An owner's or admin's host makes the org's vault, holding its key at generation 1. */
 export interface OrgVaultCreate {
   /** The org's key sealed for the asking host. */
   key: OrgVaultWrapped;
+}
+
+/** An entry removed from an org's vault, at the last revision it had. */
+export interface OrgVaultEnded {
+  id: VaultEntryId;
+  revision: VaultRevision;
 }
 
 /** One entry in an org's vault, sealed under the org's key of its generation. */
@@ -2303,6 +2311,7 @@ export interface Definitions {
   OrgTeamRename: OrgTeamRename;
   OrgVault: OrgVault;
   OrgVaultCreate: OrgVaultCreate;
+  OrgVaultEnded: OrgVaultEnded;
   OrgVaultEntry: OrgVaultEntry;
   OrgVaultEntryKind: OrgVaultEntryKind;
   OrgVaultEntryPut: OrgVaultEntryPut;

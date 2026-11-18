@@ -272,6 +272,11 @@ export interface Tables {
     updated_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;
   };
+  org_vault_ended: {
+    org_id: string;
+    id: string;
+    revision: number;
+  };
   vault_uses: {
     id: Generated<string>;
     user_id: string;

@@ -20,6 +20,8 @@ pub struct OrgVault {
     /// A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.
     pub rotate: bool,
     pub entries: Vec<OrgVaultEntry>,
+    /// Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.
+    pub ended: Vec<OrgVaultEnded>,
 }
 
 /// An owner's or admin's host makes the org's vault, holding its key at generation 1.
@@ -28,6 +30,14 @@ pub struct OrgVault {
 pub struct OrgVaultCreate {
     /// The org's key sealed for the asking host.
     pub key: OrgVaultWrapped,
+}
+
+/// An entry removed from an org's vault, at the last revision it had.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultEnded {
+    pub id: VaultEntryId,
+    pub revision: VaultRevision,
 }
 
 /// One entry in an org's vault, sealed under the org's key of its generation.
@@ -103,6 +113,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
     Some(match name {
         "OrgVault" => through::<OrgVault>(json),
         "OrgVaultCreate" => through::<OrgVaultCreate>(json),
+        "OrgVaultEnded" => through::<OrgVaultEnded>(json),
         "OrgVaultEntry" => through::<OrgVaultEntry>(json),
         "OrgVaultEntryKind" => through::<OrgVaultEntryKind>(json),
         "OrgVaultEntryPut" => through::<OrgVaultEntryPut>(json),

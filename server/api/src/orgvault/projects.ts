@@ -3,7 +3,7 @@ import { sql, type RawBuilder, type Transaction } from "kysely";
 import type { Tables } from "../db.ts";
 import { forbidden } from "../http.ts";
 import type { Member } from "./state.ts";
-import { vaultChanged } from "./change.ts";
+import { keepEnded, vaultChanged } from "./change.ts";
 
 /** A shared project's store of rules and knowledge, which agents read. */
 export const PROJECT_MEMORY = "project-memory";
@@ -81,6 +81,8 @@ export async function dropUnshared(trx: Transaction<Tables>, orgId: string) {
         ),
       ),
     )
-    .executeTakeFirst();
-  if (dropped.numDeletedRows > 0n) await vaultChanged(trx, orgId);
+    .returning(["id", "revision"])
+    .execute();
+  await keepEnded(trx, orgId, dropped);
+  if (dropped.length) await vaultChanged(trx, orgId);
 }
