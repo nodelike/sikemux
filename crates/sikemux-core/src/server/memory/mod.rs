@@ -1057,10 +1057,16 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
         let local = held.store == Store::Project && org.is_some();
         let asks = local && shared.is_some_and(|shared| !shared.writes);
         let refused = |id: u64, sensitive: bool, text: &str| {
-            (held.refused.get(&id).filter(|_| shared.is_some()).cloned()).or_else(|| {
+            let why = (held.refused.get(&id).filter(|_| shared.is_some()).cloned()).or_else(|| {
                 (asks && waiting::Waiting::is_sensitive(sensitive, text))
                     .then(|| waiting::SENSITIVE.to_owned())
-            })
+            });
+            match why {
+                Some(why) if sensitive && why == waiting::SENSITIVE => {
+                    Some(waiting::SENSITIVE_ROW.to_owned())
+                }
+                why => why,
+            }
         };
         let waiting = |id: u64| local && held.waiting.contains(&id);
         let dropped = |id: u64| (held.dropped.get(&id)).filter(|_| local).cloned();

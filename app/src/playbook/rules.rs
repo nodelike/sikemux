@@ -15,7 +15,7 @@ use super::said::{self, Action, Moment};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_4, TEXT_LG, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, TEXT_LG, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -356,27 +356,21 @@ fn row(
         );
     }
     let hover = gpui_kit::div()
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .right(SPACE_4)
         .flex()
         .items_center()
         .gap(SPACE_1)
-        .pl(SPACE_2)
-        .bg(t.surface)
         .opacity(0.)
         .group_hover(said::ROW, |shown| shown.opacity(1.))
         .children(hover);
     rows::row_parts(
         None,
-        entry.text.clone(),
+        gpui_kit::div()
+            .whitespace_normal()
+            .child(entry.text.clone()),
         Some(about.into_any_element()),
-        gpui_kit::div(),
+        hover,
         cx,
     )
-    .relative()
-    .child(hover)
     .id(SharedString::from(format!("playbook-entry-{id}")))
     .group(said::ROW)
     .into_any_element()

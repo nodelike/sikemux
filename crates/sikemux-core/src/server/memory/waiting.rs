@@ -259,6 +259,8 @@ pub(super) fn listed(
 
 /// Why a sensitive entry never waits for an admin: it goes up only by an admin's own move.
 pub(super) const SENSITIVE: &str = "it's sensitive, so ask an owner or admin to add it";
+/// The same, for a row marked sensitive, which says so already.
+pub(super) const SENSITIVE_ROW: &str = "only an owner or admin can add it";
 
 impl Waiting {
     pub(super) fn is_sensitive(sensitive: bool, text: &str) -> bool {
