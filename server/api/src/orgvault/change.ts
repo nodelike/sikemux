@@ -13,9 +13,24 @@ import { audit, type AuditAction } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { ApiFailure, badRequest, forbidden, notFound } from "../http.ts";
-import { ENTRY_COLUMNS, memberHosts, toEntry } from "./state.ts";
+import {
+  ENTRY_COLUMNS,
+  memberHosts,
+  PROJECT_KINDS,
+  PROJECT_MEMORY,
+  PROJECT_MEMORY_DROPS,
+  PROJECT_MEMORY_WAITING,
+  toEntry,
+} from "./state.ts";
 
-const MAX_ENTRIES = 500;
+/** The most entries of each project kind an org's vault holds, so they never crowd out the rest. */
+const MAX_ENTRIES: Record<string, number> = {
+  [PROJECT_MEMORY]: 500,
+  [PROJECT_MEMORY_WAITING]: 2000,
+  [PROJECT_MEMORY_DROPS]: 500,
+};
+/** The most entries of every other kind together, such as model keys. */
+const MAX_OTHER_ENTRIES = 500;
 
 export interface Asker {
   orgId: string;
@@ -327,13 +342,19 @@ export async function putOrgEntry(
       .returning(ENTRY_COLUMNS)
       .executeTakeFirstOrThrow();
   } else {
+    const cap = MAX_ENTRIES[kind];
     const held = await trx
       .selectFrom("org_vault_entries")
       .select((eb) => eb.fn.countAll<string>().as("count"))
       .where("org_id", "=", orgId)
+      .$if(cap !== undefined, (qb) => qb.where("kind", "=", kind))
+      .$if(cap === undefined, (qb) => qb.where("kind", "not in", PROJECT_KINDS))
       .executeTakeFirstOrThrow();
-    if (Number(held.count) >= MAX_ENTRIES)
-      throw conflict(`An org's vault holds at most ${MAX_ENTRIES} entries.`);
+    const most = cap ?? MAX_OTHER_ENTRIES;
+    if (Number(held.count) >= most)
+      throw conflict(
+        `An org's vault holds at most ${most} entries of that kind.`,
+      );
     row = await trx
       .insertInto("org_vault_entries")
       .values({

@@ -2,20 +2,14 @@ import { sql, type RawBuilder, type Transaction } from "kysely";
 
 import type { Tables } from "../db.ts";
 import { forbidden } from "../http.ts";
-import type { Member } from "./state.ts";
-import { keepEnded, vaultChanged } from "./change.ts";
-
-/** A shared project's store of rules and knowledge, which agents read. */
-export const PROJECT_MEMORY = "project-memory";
-/** One member's rules for a shared project, waiting for an owner or admin to keep or drop them. */
-export const PROJECT_MEMORY_WAITING = "project-memory-waiting";
-/** The waiting rules of a shared project that an owner or admin dropped. */
-export const PROJECT_MEMORY_DROPS = "project-memory-drops";
-const PROJECT_KINDS = [
+import {
+  PROJECT_KINDS,
   PROJECT_MEMORY,
-  PROJECT_MEMORY_WAITING,
   PROJECT_MEMORY_DROPS,
-];
+  PROJECT_MEMORY_WAITING,
+  type Member,
+} from "./state.ts";
+import { keepEnded, vaultChanged } from "./change.ts";
 
 /**
  * The entry id of a project's `kind`: the first 32 hex of SHA-256 over `<kind>|<project key>`,

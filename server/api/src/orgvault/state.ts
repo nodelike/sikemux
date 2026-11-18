@@ -10,6 +10,18 @@ import { isStaff } from "../account/staff.ts";
 import type { Tables } from "../db.ts";
 import { notFound } from "../http.ts";
 
+/** A shared project's store of rules and knowledge, which agents read. */
+export const PROJECT_MEMORY = "project-memory";
+/** One member's rules for a shared project, waiting for an owner or admin to keep or drop them. */
+export const PROJECT_MEMORY_WAITING = "project-memory-waiting";
+/** The waiting rules of a shared project that an owner or admin dropped. */
+export const PROJECT_MEMORY_DROPS = "project-memory-drops";
+export const PROJECT_KINDS = [
+  PROJECT_MEMORY,
+  PROJECT_MEMORY_WAITING,
+  PROJECT_MEMORY_DROPS,
+];
+
 type EntryRow = Pick<
   Tables["org_vault_entries"],
   "id" | "kind" | "generation" | "sealed" | "revision" | "updated_by"
