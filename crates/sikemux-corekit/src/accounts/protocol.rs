@@ -653,6 +653,9 @@ pub struct Invoice {
     /// A refund was asked of the provider, which has not made it yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refund_requested_at: Option<String>,
+    /// What the provider paid back of a payment it did not refund in full, such as the unused days of a Pro paused for a seat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partly_refunded: Option<Money>,
     /// Only on a plan's first payment, while the plan may still be refunded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refundable_until: Option<String>,

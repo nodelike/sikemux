@@ -1147,6 +1147,11 @@ export const schema = {
           type: "string",
           format: "date-time",
         },
+        partlyRefunded: {
+          description:
+            "What the provider paid back of a payment it did not refund in full, such as the unused days of a Pro paused for a seat.",
+          $ref: "#/$defs/Money",
+        },
         refundableUntil: {
           description:
             "Only on a plan's first payment, while the plan may still be refunded.",

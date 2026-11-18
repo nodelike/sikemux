@@ -941,6 +941,14 @@ function invoiceBody(
     ...(row.refund_requested_at && row.status !== "refunded"
       ? { refundRequestedAt: row.refund_requested_at.toISOString() }
       : {}),
+    ...(row.kept_refunded_at && row.status !== "refunded"
+      ? {
+          partlyRefunded: {
+            amount: Number(row.kept_refund),
+            currency: row.currency,
+          },
+        }
+      : {}),
     ...(refundableUntil
       ? { refundableUntil: refundableUntil.toISOString() }
       : {}),

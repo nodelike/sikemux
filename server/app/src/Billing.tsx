@@ -1785,7 +1785,9 @@ function InvoiceRow({
       <span className="ink">{invoiceWhat(invoice, catalog)}</span>
       <span className="amount">{money(invoice.total)}</span>
       <span className="status" data-status={invoice.status}>
-        {STATUS_WORDS[invoice.status]}
+        {invoice.partlyRefunded
+          ? `${money(invoice.partlyRefunded)} refunded`
+          : STATUS_WORDS[invoice.status]}
       </span>
       <button
         type="button"

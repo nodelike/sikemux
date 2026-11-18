@@ -665,6 +665,8 @@ export interface Invoice {
   at: string;
   /** A refund was asked of the provider, which has not made it yet. */
   refundRequestedAt?: string;
+  /** What the provider paid back of a payment it did not refund in full, such as the unused days of a Pro paused for a seat. */
+  partlyRefunded?: Money;
   /** Only on a plan's first payment, while the plan may still be refunded. */
   refundableUntil?: string;
 }
