@@ -281,11 +281,12 @@ export async function seatPauseOf(
   db: Kysely<Tables>,
   row: {
     customer_id: string;
+    status: string;
     paused_for_seat_at: Date | null;
     resumes_at: Date | null;
   },
 ): Promise<SeatPause | undefined> {
-  if (!row.paused_for_seat_at) return undefined;
+  if (!row.paused_for_seat_at || row.status !== "paused") return undefined;
   const customer = await db
     .selectFrom("billing_customers")
     .select("user_id")

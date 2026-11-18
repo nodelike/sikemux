@@ -189,9 +189,23 @@ export async function askRefund(
       .where("subscriptions.status", "<>", "ended")
       .where("subscriptions.cancel_at_period_end", "=", false)
       .execute();
+    const paused = renewing.filter((row) => row.status === "paused");
+    if (paused.length)
+      await trx
+        .updateTable("subscriptions")
+        .set({ paid_left: null, resumes_at: null })
+        .where(
+          "id",
+          "in",
+          paused.map((row) => row.id),
+        )
+        .execute();
     const calls: ProviderCall[] = [
       ...renewing.map((row) => ({
-        action: "cancel_at_period_end" as const,
+        action:
+          row.status === "paused"
+            ? ("cancel_now" as const)
+            : ("cancel_at_period_end" as const),
         subscription: heldSubscription(row, row.provider_customer_id),
       })),
       ...refund.covers.map((invoice) => ({
