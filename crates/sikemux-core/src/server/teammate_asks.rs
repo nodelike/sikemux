@@ -159,17 +159,37 @@ impl Teammates {
         Ok(Answering {
             teammates: self,
             member: member.to_owned(),
+            at: now,
+            answered: false,
         })
     }
 }
 
+/// A question being answered. Dropped before `answered`, it gives back its place in the day.
 struct Answering<'a> {
     teammates: &'a Teammates,
     member: String,
+    at: u64,
+    answered: bool,
+}
+
+impl Answering<'_> {
+    fn answered(mut self) {
+        self.answered = true;
+    }
 }
 
 impl Drop for Answering<'_> {
     fn drop(&mut self) {
+        if !self.answered {
+            let mut kept = self.teammates.kept.locked();
+            if let Some(times) = kept.asked.get_mut(&self.member) {
+                if let Some(at) = times.iter().rposition(|at| *at == self.at) {
+                    times.remove(at);
+                }
+            }
+            self.teammates.save(&kept);
+        }
         let mut answering = self.teammates.answering.locked();
         if let Some(at_once) = answering.get_mut(&self.member) {
             *at_once = at_once.saturating_sub(1);
@@ -299,15 +319,22 @@ pub(crate) fn answer(
         keep("", "", line);
         return facts_only(line.into());
     };
-    let _answering = match asks
+    let name = (target.name.clone()).unwrap_or_else(|| target.agent_id.clone());
+    let cannot = || {
+        facts_only(format!(
+            "@{name} can't be asked about this task now. These are the board's facts."
+        ))
+    };
+    let Ok(said) = ask_aside::said(core, &target.agent_id) else {
+        return cannot();
+    };
+    let answering = match asks
         .teammates
         .take(&asker.member, policy.daily_questions as usize, now)
     {
         Ok(answering) => answering,
         Err(line) => return facts_only(format!("{line} These are the board's facts.")),
     };
-    let name = (target.name.clone()).unwrap_or_else(|| target.agent_id.clone());
-    let said = ask_aside::said(core, &target.agent_id)?;
     let started = Instant::now();
     let answer = if said.is_empty() {
         format!("@{name} has said nothing yet that can be passed on.")
@@ -319,13 +346,16 @@ pub(crate) fn answer(
             task_said.replace("</task", "&lt;/task"),
             ask_aside::quoted(&said, question),
         );
-        let answer = ask_aside::model_answer(core, &target.agent_id, &name, &prompt)?;
+        let Ok(answer) = ask_aside::model_answer(core, &target.agent_id, &name, &prompt) else {
+            return cannot();
+        };
         if may_hold_secret(&answer) {
             "The answer was held back, since it may hold a secret.".to_owned()
         } else {
             answer
         }
     };
+    answering.answered();
     let seconds = started.elapsed().as_secs_f32();
     keep(&target.agent_id, &name, &answer);
     Ok(json!({
