@@ -27,13 +27,25 @@ import {
  * The most entries of each project kind an org's vault holds, so they never crowd out the rest.
  * With every other kind's they add up to the 500 one rotation reseals.
  */
-const MAX_ENTRIES: Record<string, number> = {
-  [PROJECT_MEMORY]: 100,
-  [PROJECT_MEMORY_WAITING]: 200,
-  [PROJECT_MEMORY_DROPS]: 100,
+const MAX_ENTRIES: Record<string, { most: number; full: string }> = {
+  [PROJECT_MEMORY]: {
+    most: 100,
+    full: "An org keeps rules for at most 100 projects.",
+  },
+  [PROJECT_MEMORY_WAITING]: {
+    most: 200,
+    full: "An org keeps rules waiting for an admin in at most 200 projects.",
+  },
+  [PROJECT_MEMORY_DROPS]: {
+    most: 100,
+    full: "An org keeps dropped rules for at most 100 projects.",
+  },
 };
 /** The most entries of every other kind together, such as model keys. */
-const MAX_OTHER_ENTRIES = 100;
+const MAX_OTHER_ENTRIES = {
+  most: 100,
+  full: "An org keeps at most 100 model keys.",
+};
 
 export interface Asker {
   orgId: string;
@@ -376,11 +388,8 @@ export async function putOrgEntry(
       .$if(cap !== undefined, (qb) => qb.where("kind", "=", kind))
       .$if(cap === undefined, (qb) => qb.where("kind", "not in", PROJECT_KINDS))
       .executeTakeFirstOrThrow();
-    const most = cap ?? MAX_OTHER_ENTRIES;
-    if (Number(held.count) >= most)
-      throw conflict(
-        `An org's vault holds at most ${most} entries of that kind.`,
-      );
+    const { most, full } = cap ?? MAX_OTHER_ENTRIES;
+    if (Number(held.count) >= most) throw forbidden(full);
     row = await trx
       .insertInto("org_vault_entries")
       .values({
