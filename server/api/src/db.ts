@@ -104,6 +104,7 @@ export interface Tables {
   sign_in_removals: {
     id: Generated<string>;
     user_id: string;
+    address_id: string;
     domain: string;
     org_name: string | null;
     provider: string | null;

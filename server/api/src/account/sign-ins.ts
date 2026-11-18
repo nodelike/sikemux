@@ -1,6 +1,7 @@
 import type { SignInRemoval } from "@sikemux/protocol";
 import type { Kysely } from "kysely";
 
+import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import { workAddressRefusal } from "./admission.ts";
@@ -49,22 +50,46 @@ export async function stripWorkSignIns(
       );
       continue;
     }
-    if (signIns.primaryAddressId === address.id) {
-      const earlier = signIns.addresses.find(
-        (other) =>
-          other.id !== address.id &&
-          other.verified &&
-          other.addedAt <= admittedAt,
+    const primary =
+      signIns.primaryAddressId === address.id
+        ? signIns.addresses.find(
+            (other) =>
+              other.id !== address.id &&
+              other.verified &&
+              other.addedAt <= admittedAt,
+          )
+        : null;
+    if (primary === undefined) {
+      log.warn(
+        { userId, domain },
+        "left a work address: no earlier address to make primary",
       );
-      if (!earlier) {
-        log.warn(
-          { userId, domain },
-          "left a work address: no earlier address to make primary",
-        );
-        continue;
-      }
-      await clerk.setPrimaryAddress(userId, earlier.id);
-      signIns.primaryAddressId = earlier.id;
+      continue;
+    }
+    await db.transaction().execute(async (trx) => {
+      const recorded = await trx
+        .insertInto("sign_in_removals")
+        .values({
+          user_id: userId,
+          address_id: address.id,
+          domain,
+          org_name: refusal.why === "domain" ? refusal.orgName : null,
+          provider: brought[0]?.provider ?? null,
+        })
+        .onConflict((oc) => oc.columns(["user_id", "address_id"]).doNothing())
+        .returning("id")
+        .executeTakeFirst();
+      if (recorded)
+        await audit(trx, {
+          userId,
+          actor: "system",
+          action: "account.work_sign_in_removed",
+          detail: { domain, provider: brought[0]?.provider ?? null },
+        });
+    });
+    if (primary) {
+      await clerk.setPrimaryAddress(userId, primary.id);
+      signIns.primaryAddressId = primary.id;
     }
     for (const account of brought)
       await clerk.removeExternalAccount(userId, account.id);
@@ -73,15 +98,6 @@ export async function stripWorkSignIns(
     signIns.externalAccounts = signIns.externalAccounts.filter(
       (account) => !brought.includes(account),
     );
-    await db
-      .insertInto("sign_in_removals")
-      .values({
-        user_id: userId,
-        domain,
-        org_name: refusal.why === "domain" ? refusal.orgName : null,
-        provider: brought[0]?.provider ?? null,
-      })
-      .execute();
     log.info({ userId, domain }, "took a work address off a sign-in");
   }
 }

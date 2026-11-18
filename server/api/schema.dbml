@@ -713,6 +713,7 @@ Table account_folds {
 Table sign_in_removals {
   id uuid [pk, default: `gen_random_uuid()`]
   user_id text [not null]
+  address_id text [not null, note: '(length(address_id) >= 1) AND (length(address_id) <= 64)']
   domain text [not null, note: '(length(domain) >= 1) AND (length(domain) <= 253)']
   org_name text
   provider text
@@ -720,6 +721,7 @@ Table sign_in_removals {
   told_at timestamptz
 
   indexes {
+    (user_id, address_id) [unique]
     user_id [name: 'sign_in_removals_untold', note: 'where (told_at IS NULL)']
   }
 }
