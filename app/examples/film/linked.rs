@@ -315,7 +315,7 @@ impl World {
 
     /// Shares the scene's project with org `org`, once this core knows the org.
     pub(super) fn org_share(&self, org: &str) -> anyhow::Result<()> {
-        let (project, _) = self.project()?.clone();
+        let project = self.project()?.1.to_string_lossy().into_owned();
         let mut last = format!("this core never heard of {org}");
         for _ in 0..300 {
             let vaults = self
