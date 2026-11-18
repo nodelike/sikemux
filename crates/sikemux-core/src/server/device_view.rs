@@ -316,7 +316,6 @@ impl DeviceViewCore for Core {
         goals::view_moved(self, &inbox);
         let mut calls = super::person_calls::shown(self);
         place_calls(self, &chiefs, &mut calls);
-        super::chief::refresh_away(self, &calls);
         let mut workspace = self.workspace_view();
         stand_projects(self, &mut workspace.projects, &turns, &calls);
         let now = super::now::projects(

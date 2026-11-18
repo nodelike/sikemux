@@ -67,8 +67,6 @@ pub struct ChatAbove {
     pub memory_chat_ready: fn(&Core, &Chat),
     /// What the chief is handed as it starts: how it works, then the project's rules and knowledge.
     pub chief_brief: fn(&Core, &Path) -> String,
-    /// The chief's chat opened on `feed`: what happened while the person was away is shown on it.
-    pub chief_chat_opened: fn(&Core, &str, &Arc<Feed>),
     /// The chief's chat is ready and its saved history shown: the lines it keeps that this feed has
     /// not had go at its end, each under the time it was first made.
     pub chief_chat_ready: fn(&Core, &Chat),

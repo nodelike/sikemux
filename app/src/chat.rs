@@ -93,7 +93,7 @@ mod questions;
 mod rows;
 mod schema;
 mod shown;
-pub(crate) use shown::{take as take_step, turn_picture, turn_picture_held};
+pub(crate) use shown::{turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
@@ -1287,15 +1287,12 @@ impl Chat {
         (through < 1. && !cx.reduce_motion()).then(|| leaves.at(through))
     }
 
-    /// Nothing has been said in it and no While you were away card stands in it.
+    /// Nothing has been said in it.
     pub fn is_new(&self, cx: &App) -> bool {
         if self.narrowed.is_some() {
             return false;
         }
-        let Some(head) = self.state.as_ref() else {
-            return !self.said && self.transcript.read(cx).rows().is_empty();
-        };
-        head.away.is_none() && self.transcript.read(cx).rows().is_empty()
+        (self.state.is_some() || !self.said) && self.transcript.read(cx).rows().is_empty()
     }
 
     /// The account smart accounts started the chat on, and why.
@@ -1742,27 +1739,7 @@ pub fn pane(
         .filter(|question| question.asks(&agent.id))
         .collect();
     let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
-    let head = (chat.state.as_ref()).and_then(|head| head.away.as_ref());
-    let away_calls: Vec<&sikemux_view::calls::PersonCall> = (head.iter())
-        .flat_map(|head| {
-            let open = (head.calls.iter())
-                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
-                .filter(|call| call.state == sikemux_view::calls::CallState::Open);
-            let answered = (head.answered.iter())
-                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
-                .filter(|call| call.state == sikemux_view::calls::CallState::Answered);
-            answered.chain(open)
-        })
-        .collect();
-    let away = match chat.calls.read(cx).shows_away(head, &away_calls) {
-        true => crate::calls::Shown::Same,
-        false => crate::calls::Shown::New(head.map(|head| crate::calls::Away {
-            head: head.clone(),
-            calls: away_calls.into_iter().cloned().collect(),
-        })),
-    };
-    chat.calls
-        .update(cx, |shown, cx| shown.show(calls, away, cx));
+    chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
     let permissions = chat
         .state
         .as_ref()
@@ -1854,13 +1831,9 @@ pub fn pane(
         .composer
         .as_ref()
         .is_some_and(|composing| composing.draft.read(cx).value().is_empty());
-    let keyed_call = bench
-        .keyed_call(chat.target.place(), &agent.id, cx)
-        .is_some();
     let asking = empty
-        && (keyed_call
-            || chat.current(&open).is_some_and(|question| !question.secret)
-                && !chat.is_folded(&open));
+        && chat.current(&open).is_some_and(|question| !question.secret)
+        && !chat.is_folded(&open);
     let id = &agent.id;
     let composing = chat.composer.is_some();
     let pane = div()
@@ -1961,7 +1934,7 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
     bench: &WeakEntity<Workbench>,
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A, F> {
     let (agent, this) = (agent.to_owned(), bench.clone());
-    move |action: &A, window: &mut Window, cx: &mut App| {
+    move |action: &A, _window: &mut Window, cx: &mut App| {
         let taken = this.update(cx, |bench, cx| {
             let open: Vec<&Question> = bench
                 .feeds
@@ -1969,11 +1942,7 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
                 .filter(|question| question.asks(&agent))
                 .collect();
             if open.is_empty() {
-                let place = bench.chats.open.get(&agent)?.target.place().clone();
-                let id = bench.keyed_call(&place, &agent, cx)?;
-                return bench
-                    .press_call(&id, press(action), window, cx)
-                    .then_some(());
+                return None;
             }
             let chat = bench.chats.open.get_mut(&agent)?;
             let (taken, ask) = chat.press(press(action), &open);

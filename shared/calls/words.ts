@@ -285,24 +285,8 @@ export const chiefAway = (at: number, now = Date.now(), say: Say = english) =>
 /** The composer's words in a worker's chat whose project's chief hears what is typed there. */
 export const sendToTold = (name: string, say: Say = english) => say("Send to @{name} · @Chief is told", { name });
 
-// The chief's chat: what happened while the person was away, an Overrule, the week's count
+// The chief's chat: an Overrule, the week's count
 
-export const WHILE_AWAY = "While you were away";
-/** How long the person was away, `back - since`. */
-export function awayFor(ms: number, say: Say = english): string {
-    const total = Math.floor(Math.max(0, ms) / MINUTE);
-    const hours = Math.floor(total / 60);
-    const minutes = total % 60;
-    if (!hours) return say("{minutes} min", { minutes });
-    if (!minutes) return say("{hours} h", { hours });
-    return say("{hours} h {minutes} min", { hours, minutes });
-}
-export const AWAY_NEEDS_YOU = "Needs you";
-export const DECIDED_FOR_YOU = "Decided for you";
-export const LANDED = "Landed";
-/** Under Needs you: the calls are the queue docked above the composer. */
-export const answerBelow = (count: number, say: Say = english) =>
-    count === 1 ? say("Answer it in the card below") : say("Answer them in the card below");
 export const OVERRULE = "Overrule";
 /** What a tap on a call's cut context does, for a screen reader. */
 export const SHOW_ALL = "Shows all of it";

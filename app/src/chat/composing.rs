@@ -1551,15 +1551,6 @@ impl Workbench {
         let outgoing = composing.outgoing(cx);
         let text = draft.read(cx).value().trim().to_owned();
         if text.is_empty() && outgoing.0.is_empty() {
-            let place = (self.chats.open.get(agent)).map(|chat| chat.target.place().clone());
-            let keyed = place.and_then(|place| self.keyed_call(&place, agent, cx));
-            if let Some(id) = keyed.filter(|_| primary) {
-                // A production call is never sent by a key; only its button sends it.
-                if !self.ships_to_production(&id) {
-                    self.go_with(&id, cx);
-                }
-                return;
-            }
             if primary {
                 self.answer(
                     agent,

@@ -942,9 +942,6 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         let waiting = &laid.waiting;
         let stays = land::follow(&waiting.worktree.path, &waiting.head, &laid.tip);
         core.build_outputs().landed(&waiting.agent);
-        let subject = git(repo, &["log", "-1", "--format=%s", &laid.tip]).unwrap_or_default();
-        let lines = crate::server::repo_events::lines_changed(repo, &onto, &laid.tip);
-        (core.repo_above().chief_landed)(core, &project, &waiting.agent, &subject, lines);
         (core.repo_above().turn_state_committed)(core, &waiting.agent);
         let made = format!("{onto}..{}", laid.tip);
         let commits: Vec<(String, String)> =

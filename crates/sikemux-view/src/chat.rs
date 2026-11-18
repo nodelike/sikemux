@@ -330,11 +330,6 @@ pub struct ChatHead {
     /// person types here reaches the chief in its next digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief_hears: Option<String>,
-    /// On the chief's chat, what happened while the person was away, from when they come back
-    /// after an hour or more until every call in it is answered, or, with none in it, until they
-    /// next write to it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub away: Option<ChiefAway>,
     /// The pages its latest turns changed, as the core took them, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<crate::shown::TurnShown>,
@@ -1930,84 +1925,6 @@ pub struct OverruledDecision {
     /// no Undo and says why.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped_auto: bool,
-}
-
-/// What happened while the person was away from their project's chief, as facts the client
-/// words: what needs them, what was decided for them and what landed.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChiefAway {
-    /// When the person was last with the chief, in Unix milliseconds.
-    pub since: u64,
-    /// When they came back and the block began: how long they were away is `back - since`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub back: Option<u64>,
-    /// The project's calls open now, by id, oldest first, as the device view lists them.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub calls: Vec<String>,
-    /// Its calls the person answered since it began, by id, oldest first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub answered: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub decided: Vec<AwayDecision>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub landed: Vec<AwayLanded>,
-}
-
-/// A decision agents made while the person was away, which they can overrule.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwayDecision {
-    pub project: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal: Option<u64>,
-    pub decision: u64,
-    pub text: String,
-    /// What it rested on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub by: Option<AwayAgent>,
-    pub at: u64,
-    /// The person overruled it since the block began, so it is struck and offers no Overrule;
-    /// Undo clears it again.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub overruled: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwayAgent {
-    pub agent_id: String,
-    pub name: String,
-}
-
-/// Work an agent landed while the person was away.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwayLanded {
-    pub agent_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    pub title: String,
-    pub at: u64,
-    /// What its commit says it changed, in one sentence.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub change: Option<String>,
-    /// What all its landings since the card began added and removed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lines: Option<LinesChanged>,
-    /// Its turn offers Try it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub try_it: bool,
-}
-
-/// How many lines a landing added and removed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinesChanged {
-    pub adds: u64,
-    pub dels: u64,
 }
 
 /// A rule kept from what the person said in a chat.

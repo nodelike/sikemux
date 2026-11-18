@@ -543,7 +543,6 @@ impl Chats {
         let chief = core.workspaces().is_chief(&launch.agent_id);
         if chief {
             feed.seat_chief();
-            (core.chat_above().chief_chat_opened)(core, &launch.agent_id, &feed);
         }
         let capped = chief || core.names().role(&launch.agent_id).is_some();
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());

@@ -1,6 +1,6 @@
 //! Calls: decisions put to the person, as each host's core lists them in its view. A call is
-//! answered on its desk's Calls page, in the title bar's popover and in the chief's away block;
-//! its asker's chat keeps it folded to one row that opens the page.
+//! answered on its desk's Calls page and in the title bar's popover; its asker's chat keeps it
+//! folded to one row that opens the page.
 
 use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet};
@@ -30,10 +30,8 @@ use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2}
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
-mod away;
 mod page;
 pub(crate) mod reply;
-pub(crate) use away::Away;
 pub(crate) use page::{on_desk, project_of, waiting_on_desk, Page};
 
 /// The mark of a call of `kind`, as its tab shows it.
@@ -60,7 +58,6 @@ pub(crate) fn tab_title(call: &PersonCall) -> String {
         _ => call.question.lines().next().unwrap_or_default().to_owned(),
     }
 }
-use sikemux_view::chat::ChiefAway;
 
 const CARD_WIDTH: f32 = 452.;
 const ROW_HEIGHT: f32 = 34.;
@@ -378,19 +375,8 @@ impl Workbench {
 
     /// The call agent `agent`'s chat answers when the person presses a key there, on the
     /// host at `place`: the one chosen in the title bar's list while it waits on the agent, else the
-    /// oldest, drawn nearest the composer. While the chat shows a chief's away card, only the card
-    /// drawn open in it, and only when that call is the agent's own or keeps its words private.
+    /// oldest, drawn nearest the composer.
     pub(crate) fn waiting_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
-        let away = (self.chats.open.get(agent))
-            .and_then(|chat| chat.state.as_ref())
-            .and_then(|head| head.away.as_ref());
-        if let Some(away) = away {
-            let opened = self.calls.read(cx).opened.clone();
-            return away::open_of(&away.calls, opened.as_deref(), |id| {
-                (self.view_at(place)?.calls.iter()).find(|call| call.id == id)
-            })
-            .filter(|call| call.secret || waits(call, agent));
-        }
         let opened = self.calls.read(cx).opened.clone();
         let open = (self.view_at(place)?.calls.iter())
             .filter(|call| call.state == CallState::Open && waits(call, agent));
@@ -413,18 +399,6 @@ impl Workbench {
         for owner in closed {
             self.chats.replies.remove(&owner);
         }
-    }
-
-    /// The call whose card takes the keys of `agent`'s chat: the one open in the chief's away
-    /// block, unless it asks for a secret, whose field takes them. Other calls are answered on
-    /// the desk's Calls page.
-    pub(crate) fn keyed_call(&self, place: &Place, agent: &str, cx: &App) -> Option<String> {
-        (self.chats.open.get(agent))
-            .and_then(|chat| chat.state.as_ref())
-            .and_then(|head| head.away.as_ref())?;
-        (self.waiting_call(place, agent, cx))
-            .filter(|call| !call.secret)
-            .map(|call| call.id.clone())
     }
 
     /// A key on call `id`'s card. Return answers it, as Go with this does; the rest choose its
@@ -571,17 +545,6 @@ fn asker_mark(bench: &Workbench, call: &PersonCall, size: f32, cx: &App) -> AnyE
     }
 }
 
-/// Where a card is drawn, which decides what its footer offers: the popover's card opens its
-/// asker's chat, closing the popover.
-enum Seat {
-    Popover(crate::ui::list_picker::Dismiss),
-    /// The open card of a chief's away block, `at` of `of`, which opens a worker's chat.
-    Queue {
-        at: usize,
-        of: usize,
-    },
-}
-
 /// What a card answers through: the core of its call, the cards' store and the window's store.
 #[derive(Clone, Copy)]
 struct Through<'a> {
@@ -618,7 +581,7 @@ fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyE
 /// field under them, the point against, and the footer that answers it.
 fn card(
     call: &PersonCall,
-    seat: Seat,
+    dismiss: crate::ui::list_picker::Dismiss,
     through: Through,
     window: &mut Window,
     cx: &mut App,
@@ -638,18 +601,7 @@ fn card(
         (cards.chosen(call), cards.sending(&call.id))
     };
     let typed = !field.read(cx).value().trim().is_empty();
-    let at_of = match &seat {
-        Seat::Queue { at, of } if *of > 1 => Some(
-            div()
-                .ml_auto()
-                .text_size(theme::ui_text(11.5))
-                .font_features(theme::tabular())
-                .child(t!("{at} of {of}", at = at, of = of))
-                .into_any_element(),
-        ),
-        _ => None,
-    };
-    let who = who(call, through, at_of, cx);
+    let who = who(call, through, None, cx);
     let question = div()
         .mt(SPACE_2)
         .mb(px(3.))
@@ -733,13 +685,8 @@ fn card(
         bench,
         Workbench::go_with,
     );
-    let open_chat = match seat {
-        Seat::Queue { .. } if call.asker.chief => None,
-        Seat::Queue { .. } => Some((None, bench.clone(), call.asker.agent_id.clone())),
-        Seat::Popover(dismiss) => Some((Some(dismiss), bench.clone(), call.asker.agent_id.clone())),
-    };
-    let owner = target.clone();
-    let open_chat = open_chat.map(|(dismiss, bench, agent)| {
+    let (owner, bench, agent) = (target.clone(), bench.clone(), call.asker.agent_id.clone());
+    let open_chat = {
         Button::new(
             SharedString::from(format!("call-chat-{}", call.id)),
             t!("Open chat"),
@@ -749,21 +696,19 @@ fn card(
         .sized(26., 9., 12.)
         .on_click(move |_, window, cx| {
             cx.stop_propagation();
-            if let Some(dismiss) = &dismiss {
-                dismiss(window, cx);
-            }
+            dismiss(window, cx);
             bench
                 .update(cx, |bench, cx| {
                     bench.open_agent_from(&agent, owner.clone(), cx)
                 })
                 .ok();
         })
-    });
+    };
     let buttons = div()
         .flex()
         .items_center()
         .gap(SPACE_1)
-        .children(open_chat)
+        .child(open_chat)
         .child(go);
     let foot = div()
         .mt(px(14.))
@@ -1304,31 +1249,6 @@ fn strip(
         .into_any_element()
 }
 
-/// The card's panel, as it floats in a chat: as wide as the chat's column.
-fn panel(t: &Tokens) -> gpui_kit::Div {
-    div()
-        .w_full()
-        .p(SPACE_1H)
-        .bg(t.surface_overlay)
-        .border(crate::theme::border())
-        .border_color(t.line)
-        .rounded(radius_4())
-        .shadow(crate::theme::shadow(vec![
-            card_shadow(2., 4., 0.35),
-            card_shadow(14., 40., 0.45),
-        ]))
-}
-
-fn card_shadow(down: f32, blur: f32, alpha: f32) -> gpui_kit::BoxShadow {
-    gpui_kit::BoxShadow {
-        color: gpui_kit::hsla(0., 0., 0., alpha),
-        offset: gpui_kit::point(px(0.), px(down)),
-        blur_radius: px(blur),
-        spread_radius: px(0.),
-        inset: false,
-    }
-}
-
 /// What came of a call, in one quiet line where its card stood: what the person said and what
 /// it led to.
 /// How the person answered `call`, as the line left in its place words it; never the words of a
@@ -1392,12 +1312,6 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
     )
 }
 
-/// The away block a chat draw found: the one already shown, or a new one or none.
-pub(crate) enum Shown {
-    Same,
-    New(Option<Away>),
-}
-
 /// The calls an agent asks, at the end of its chat, over the line saying how it stands.
 pub struct InChat {
     bench: WeakEntity<Workbench>,
@@ -1405,7 +1319,6 @@ pub struct InChat {
     cards: Entity<Cards>,
     target: Target,
     calls: CallsOf,
-    away: Option<Away>,
     unfolded: bool,
     _cards: Subscription,
 }
@@ -1425,43 +1338,13 @@ impl InChat {
             cards,
             target,
             calls: CallsOf::default(),
-            away: None,
             unfolded: false,
             _cards: observed,
         }
     }
 
-    /// Whether the away block shown is `head` with `calls`, so a draw need not copy them again.
-    pub(crate) fn shows_away(&self, head: Option<&ChiefAway>, calls: &[&PersonCall]) -> bool {
-        match (&self.away, head) {
-            (None, None) => true,
-            (Some(shown), Some(head)) => {
-                shown.head == *head
-                    && shown.calls.len() == calls.len()
-                    && shown
-                        .calls
-                        .iter()
-                        .zip(calls)
-                        .all(|(shown, call)| shown == *call)
-            }
-            _ => false,
-        }
-    }
-
-    /// Shows `calls`, under the away block when the chief's chat has one, leaving out of `calls`
-    /// those the block already shows.
-    pub(crate) fn show(&mut self, mut calls: CallsOf, away: Shown, cx: &mut Context<Self>) {
-        let changed = match away {
-            Shown::Same => false,
-            Shown::New(away) => {
-                self.away = away;
-                true
-            }
-        };
-        if let Some(away) = &self.away {
-            (calls.open).retain(|call| !away.calls.iter().any(|shown| shown.id == call.id));
-        }
-        if changed || self.calls.open != calls.open || self.calls.settled != calls.settled {
+    pub(crate) fn show(&mut self, calls: CallsOf, cx: &mut Context<Self>) {
+        if self.calls.open != calls.open || self.calls.settled != calls.settled {
             self.calls = calls;
             cx.notify();
         }
@@ -1480,8 +1363,8 @@ fn answered_in_chat<'a>(
 }
 
 impl Render for InChat {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.calls.open.is_empty() && self.calls.settled.is_empty() && self.away.is_none() {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.calls.open.is_empty() && self.calls.settled.is_empty() {
             return div().into_any_element();
         }
         let t = Tokens::get(cx).clone();
@@ -1512,14 +1395,6 @@ impl Render for InChat {
                 .into_iter()
                 .collect(),
         };
-        let away = self.away.as_ref().map(|away| {
-            let through = Through {
-                target: &self.target,
-                cards: &self.cards,
-                bench: &self.bench,
-            };
-            away::block(away, through, window, cx)
-        });
         div()
             .w_full()
             .flex()
@@ -1535,7 +1410,6 @@ impl Render for InChat {
                     .flex_col()
                     .gap(SPACE_2)
                     .children(notices)
-                    .children(away)
                     .children(rows),
             )
             .into_any_element()
@@ -1630,7 +1504,7 @@ fn popover(
         cards,
         bench: &weak,
     };
-    let shown = card(&open, Seat::Popover(dismiss), through, window, cx);
+    let shown = card(&open, dismiss, through, window, cx);
     let rest: Vec<AnyElement> = (calls.iter())
         .filter(|(_, _, call)| call.id != open.id)
         .map(|(target, named, call)| {

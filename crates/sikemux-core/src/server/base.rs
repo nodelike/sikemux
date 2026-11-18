@@ -305,7 +305,6 @@ pub(super) fn chat_above() -> ChatAbove {
         memory_take_removed: memory::take_removed_note,
         memory_chat_ready: memory::chat_ready,
         chief_brief: chief::brief,
-        chief_chat_opened: chief::chat_opened,
         chief_chat_ready: chief::chat_ready,
         feed_moved: |core, agent, from, to| {
             chief::feed_moved(core, agent, from, to);
@@ -380,7 +379,6 @@ pub(super) fn repo_above() -> RepoAbove {
         board_health_of: board::health_of,
         board_project_at: board::project_at,
         chief_all: chief::all,
-        chief_landed: chief::landed,
         questions_asks_production: questions::asks_production,
         questions_cli_of: questions::cli_of,
         roster_listed: roster::listed,

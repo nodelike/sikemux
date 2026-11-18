@@ -37,12 +37,12 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentLetter, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo,
     ChatConnection, ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole,
-    ChatTrigger, ChiefAway, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks,
-    FailureKind, GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity,
-    NoticeState, OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
-    QueuedMessage, RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason,
-    SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail,
-    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
+    ChatTrigger, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind,
+    GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState,
+    OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
+    RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard,
+    SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
+    Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -865,13 +865,6 @@ impl Fold {
         if self.head.chief_hears != chief {
             self.head.chief_hears = chief;
             self.set_head("chiefHears");
-        }
-    }
-
-    pub fn set_away(&mut self, away: Option<ChiefAway>) {
-        if self.head.away != away {
-            self.head.away = away;
-            self.set_head("away");
         }
     }
 

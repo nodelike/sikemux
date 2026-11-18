@@ -16,8 +16,8 @@ use sikemux_process::sync::Locked;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::chat::{
-    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, ChiefAway, GuestMessage, PlanEntry,
-    PlanStatus, QueuedMessage, SentContext, ToolDetail,
+    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, GuestMessage, PlanEntry, PlanStatus,
+    QueuedMessage, SentContext, ToolDetail,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -94,8 +94,6 @@ pub struct Inner {
     chief: bool,
     /// The chief that hears what the person types here.
     chief_hears: Option<String>,
-    /// What happened while the person was away from this chief.
-    away: Option<ChiefAway>,
     /// What other agents need of the person.
     needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
@@ -301,7 +299,6 @@ impl Feed {
                 turn: None,
                 chief: false,
                 chief_hears: None,
-                away: None,
                 needs: Vec::new(),
                 work: None,
                 agents: None,
@@ -396,7 +393,6 @@ impl Feed {
                 turn: None,
                 chief: false,
                 chief_hears: None,
-                away: None,
                 needs: Vec::new(),
                 work: None,
                 agents: None,
@@ -489,7 +485,6 @@ impl Feed {
                 fold.set_turn(inner.turn.clone());
                 fold.set_chief(inner.chief);
                 fold.set_chief_hears(inner.chief_hears.clone());
-                fold.set_away(inner.away.clone());
                 let (shown, results) = self.stand.locked().shown.clone();
                 fold.set_shown(shown, results);
                 fold.set_needs(inner.needs.clone());
@@ -777,19 +772,6 @@ impl Feed {
         inner.chief_hears.clone_from(&chief);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_chief_hears(chief);
-            self.flush_locked(&mut inner);
-        }
-    }
-
-    /// What happened while the person was away from this chief, or none once it is done with.
-    pub fn set_away(&self, away: Option<ChiefAway>) {
-        let mut inner = self.inner.locked();
-        if inner.away == away {
-            return;
-        }
-        inner.away.clone_from(&away);
-        if let Some(fold) = inner.fold.as_mut() {
-            fold.set_away(away);
             self.flush_locked(&mut inner);
         }
     }
