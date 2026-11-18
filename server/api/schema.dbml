@@ -626,6 +626,7 @@ Table org_vaults {
   created_by text [not null]
   created_at timestamptz [not null, default: `now()`]
   rotated_at timestamptz
+  changes bigint [not null, default: 0]
 }
 
 Table org_vault_keys {
@@ -651,6 +652,7 @@ Table org_vault_entries {
   updated_by text [not null]
   updated_at timestamptz [not null, default: `now()`]
   created_at timestamptz [not null, default: `now()`]
+  change bigint [not null, default: 0]
 
   indexes {
     (org_id, id) [pk]
@@ -661,6 +663,7 @@ Table org_vault_ended {
   org_id uuid [not null]
   id text [not null, note: 'id ~ \'^[0-9a-f]{32}$\'']
   revision integer [not null, note: 'revision >= 1']
+  change bigint [not null, default: 0]
 
   indexes {
     (org_id, id) [pk]

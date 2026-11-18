@@ -64,6 +64,7 @@ import type {
   OrgTeamCreate,
   OrgTeamList,
   OrgTeamRename,
+  OrgVaultChangesParam,
   OrgVaultCreate,
   OrgVaultEntry,
   OrgVaultEntryPut,
@@ -409,8 +410,14 @@ export function apiClient(send: Send) {
     listVaultUses: (query: { entry?: VaultEntryId } = {}) =>
       send<VaultUses>("GET", `/v1/vault/uses${search(query)}`),
     /** An org's vault as this member's host sees it: its entries, the org's key sealed for this host, and the members' hosts still waiting for it. */
-    getOrgVault: (orgId: string) =>
-      send<OrgVaultState>("GET", `/v1/orgs/${encodeURIComponent(orgId)}/vault`),
+    getOrgVault: (
+      orgId: string,
+      query: { after?: OrgVaultChangesParam } = {},
+    ) =>
+      send<OrgVaultState>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault${search(query)}`,
+      ),
     /** Make the org's vault, as an owner's or admin's host, with its key sealed for this host. */
     createOrgVault: (orgId: string, body: OrgVaultCreate) =>
       send<OrgVaultState>(

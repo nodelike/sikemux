@@ -20,6 +20,8 @@
         "updatedAt": "2026-11-17T10:00:00.000Z"
       }
     ],
-    "ended": []
+    "ended": [],
+    "changes": 1,
+    "since": null
   }
 }

@@ -2267,6 +2267,16 @@ export const schema = {
           type: "array",
           items: { $ref: "#/$defs/OrgVaultEnded" },
         },
+        changes: {
+          description:
+            "How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.",
+          $ref: "#/$defs/OrgVaultChanges",
+        },
+        since: {
+          description:
+            "The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.",
+          anyOf: [{ $ref: "#/$defs/OrgVaultChanges" }, { type: "null" }],
+        },
       },
       required: [
         "generation",
@@ -2276,8 +2286,20 @@ export const schema = {
         "rotate",
         "entries",
         "ended",
+        "changes",
+        "since",
       ],
       additionalProperties: false,
+    },
+    OrgVaultChanges: {
+      description: "A count of the changes to an org vault's entries.",
+      type: "integer",
+      minimum: 0,
+    },
+    OrgVaultChangesParam: {
+      description: "The changes a host read last, in a query string.",
+      type: "string",
+      pattern: "^(0|[1-9][0-9]{0,14})$",
     },
     OrgVaultCreate: {
       description:

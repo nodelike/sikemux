@@ -26,6 +26,7 @@ import { memberOf, NOT_IN_ORG, orgVaultState, type Member } from "./state.ts";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ENTRY_ID = /^[0-9a-f]{32}$/;
 const REVISION = /^[1-9][0-9]{0,8}$/;
+const CHANGES = /^(0|[1-9][0-9]{0,14})$/;
 
 /** The most one sealed value takes in a body, with room for the fields around it. */
 const SEALED_BYTES = 87_400 + 256;
@@ -99,7 +100,18 @@ export function orgVaultRoutes({
     .get("/", asHost, perUser(limiter, "org-vault-get", 240), async (c) => {
       const { orgId, userId } = asker(c);
       await memberOf(db, live, orgId, userId);
-      return c.json(await state(c));
+      const after = c.req.query("after");
+      if (after !== undefined && !CHANGES.test(after))
+        throw badRequest("after is a count of the vault's changes.");
+      const { hostKey } = asker(c);
+      return c.json(
+        await orgVaultState(
+          db,
+          orgId,
+          hostKey,
+          after === undefined ? undefined : Number(after),
+        ),
+      );
     })
     .post(
       "/",

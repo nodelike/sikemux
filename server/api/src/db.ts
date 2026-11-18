@@ -252,6 +252,7 @@ export interface Tables {
     created_by: string;
     created_at: CreatedAt;
     rotated_at: ColumnType<Date | null, never, Date>;
+    changes: ColumnType<string, never, never>;
   };
   org_vault_keys: {
     org_id: string;
@@ -271,11 +272,13 @@ export interface Tables {
     updated_by: string;
     updated_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;
+    change: ColumnType<string, never, never>;
   };
   org_vault_ended: {
     org_id: string;
     id: string;
     revision: number;
+    change: ColumnType<string, never, never>;
   };
   vault_uses: {
     id: Generated<string>;

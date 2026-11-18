@@ -1283,7 +1283,17 @@ export interface OrgVault {
   entries: OrgVaultEntry[];
   /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
   ended: OrgVaultEnded[];
+  /** How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since. */
+  changes: OrgVaultChanges;
+  /** The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything. */
+  since: OrgVaultChanges | null;
 }
+
+/** A count of the changes to an org vault's entries. */
+export type OrgVaultChanges = number;
+
+/** The changes a host read last, in a query string. */
+export type OrgVaultChangesParam = string;
 
 /** An owner's or admin's host makes the org's vault, holding its key at generation 1. */
 export interface OrgVaultCreate {
@@ -2310,6 +2320,8 @@ export interface Definitions {
   OrgTeamName: OrgTeamName;
   OrgTeamRename: OrgTeamRename;
   OrgVault: OrgVault;
+  OrgVaultChanges: OrgVaultChanges;
+  OrgVaultChangesParam: OrgVaultChangesParam;
   OrgVaultCreate: OrgVaultCreate;
   OrgVaultEnded: OrgVaultEnded;
   OrgVaultEntry: OrgVaultEntry;

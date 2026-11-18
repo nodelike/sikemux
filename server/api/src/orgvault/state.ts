@@ -92,18 +92,24 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
     .where("devices.role", "=", "host");
 }
 
-/** The org's vault as `hostKey` sees it: the key sealed for it, and which members' hosts hold it or wait. */
+/**
+ * The org's vault as `hostKey` sees it: the key sealed for it, and which members' hosts hold it or
+ * wait. With `after`, only the entries changed or removed since that many changes.
+ */
 export async function orgVaultState(
   db: Kysely<Tables>,
   orgId: string,
   hostKey: string,
+  after?: number,
 ): Promise<OrgVaultState> {
   const vault = await db
     .selectFrom("org_vaults")
-    .select("generation")
+    .select(["generation", "changes"])
     .where("org_id", "=", orgId)
     .executeTakeFirst();
   if (!vault) return { vault: null };
+  const changes = Number(vault.changes);
+  const since = after !== undefined && after <= changes ? after : null;
   const [keys, hosts, entries, ended] = await Promise.all([
     db
       .selectFrom("org_vault_keys")
@@ -120,6 +126,7 @@ export async function orgVaultState(
       .selectFrom("org_vault_entries")
       .select(ENTRY_COLUMNS)
       .where("org_id", "=", orgId)
+      .where("change", ">", String(since ?? 0))
       .orderBy("created_at")
       .orderBy("id")
       .execute(),
@@ -127,6 +134,7 @@ export async function orgVaultState(
       .selectFrom("org_vault_ended")
       .select(["id", "revision"])
       .where("org_id", "=", orgId)
+      .where("change", ">", String(since ?? 0))
       .orderBy("id")
       .execute(),
   ]);
@@ -143,6 +151,8 @@ export async function orgVaultState(
     rotate: keys.some((key) => !members.has(key.host_key)),
     entries: entries.map(toEntry),
     ended,
+    changes,
+    since,
   };
   return { vault: state };
 }

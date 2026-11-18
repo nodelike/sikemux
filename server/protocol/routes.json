@@ -1637,6 +1637,9 @@
       "operationId": "getOrgVault",
       "summary": "An org's vault as this member's host sees it: its entries, the org's key sealed for this host, and the members' hosts still waiting for it",
       "auth": "host",
+      "query": {
+        "after": "OrgVaultChangesParam"
+      },
       "responses": {
         "200": {
           "description": "The vault, or null when the org has none yet.",

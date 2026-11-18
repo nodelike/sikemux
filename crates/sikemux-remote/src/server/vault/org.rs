@@ -200,6 +200,9 @@ struct Org {
     status: OrgVaultStatus,
     holders: usize,
     failed: Option<String>,
+    /// The vault's count of changes when this host last took in its entries, so the next read
+    /// asks only for what changed after it.
+    changes: Option<i64>,
 }
 
 #[derive(Default)]
@@ -470,14 +473,16 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
     Ok(())
 }
 
-/// Reads one org's vault and takes in what it holds: opens its key, lets waiting hosts in,
-/// replaces the key when a host left, and opens every entry.
-async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
-    let path = vault_path(&org.id);
+/// One org's vault from the accounts server, only what changed after `after` changes when given;
+/// None when the account is in no such org.
+async fn fetch(core: &Core, org: &str, after: Option<i64>) -> CoreResult<Option<OrgVaultState>> {
+    let path = match after {
+        Some(after) => format!("{}?after={after}", vault_path(org)),
+        None => vault_path(org),
+    };
     let answer = host_send_any(core, Method::GET, &path, None).await?;
     if answer.status() == StatusCode::NOT_FOUND {
-        core.vault().orgs().state.locked().orgs.remove(&org.id);
-        return Ok(());
+        return Ok(None);
     }
     let status = answer.status();
     let bytes = answer.bytes().await.map_err(|error| {
@@ -490,7 +495,25 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         )
         .into());
     }
-    let read: OrgVaultState = serde_json::from_slice(&bytes)?;
+    Ok(Some(serde_json::from_slice(&bytes)?))
+}
+
+/// Reads one org's vault and takes in what it holds: opens its key, lets waiting hosts in,
+/// replaces the key when a host left, and opens every entry.
+async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
+    let after = (core.vault().orgs().state.locked().orgs.get(&org.id))
+        .filter(|held| held.held.key.is_some())
+        .and_then(|held| held.changes);
+    let mut read = fetch(core, &org.id, after).await?;
+    let partial_rotation = (read.as_ref().and_then(|read| read.vault.as_ref()))
+        .is_some_and(|vault| vault.since.is_some() && vault.rotate && manages(org));
+    if partial_rotation {
+        read = fetch(core, &org.id, None).await?;
+    }
+    let Some(read) = read else {
+        core.vault().orgs().state.locked().orgs.remove(&org.id);
+        return Ok(());
+    };
     let held = held(core, &org.id);
     let Some(vault) = read.vault else {
         if held.key.is_some() {
@@ -531,6 +554,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 status: OrgVaultStatus::Waiting,
                 holders: vault.holders.len(),
                 failed,
+                changes: None,
             },
         );
         return Ok(());
@@ -545,6 +569,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 status: OrgVaultStatus::Open,
                 holders: vault.holders.len(),
                 failed: None,
+                changes: None,
             },
         );
         core.vault().orgs().wake();
@@ -553,7 +578,14 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     if !vault.waiting.is_empty() {
         add_keys(core, org, secret, &vault, &key).await?;
     }
-    let mut entries = BTreeMap::new();
+    let partial = vault.since.is_some() && held.generation == vault.generation;
+    let mut entries = match partial {
+        true => held.entries.clone(),
+        false => BTreeMap::new(),
+    };
+    for gone in vault.ended.iter().filter(|_| partial) {
+        entries.remove(&gone.id);
+    }
     for entry in &vault.entries {
         let opened = (entry.generation == vault.generation
             && held.takes_entry(&entry.id, entry.revision))
@@ -583,7 +615,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     }
     let mut ended = held.ended;
     let unlisted = (held.entries.iter())
-        .filter(|(id, _)| !entries.contains_key(*id))
+        .filter(|(id, _)| !partial && !entries.contains_key(*id))
         .map(|(id, entry)| (id, entry.revision));
     let listed = (vault.ended.iter()).map(|gone| (&gone.id, gone.revision));
     for (id, revision) in unlisted.chain(listed) {
@@ -604,6 +636,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             status: OrgVaultStatus::Open,
             holders: vault.holders.len(),
             failed: None,
+            changes: Some(vault.changes),
         },
     );
     Ok(())
@@ -848,6 +881,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                 status: OrgVaultStatus::Open,
                 holders: 1,
                 failed: None,
+                changes: None,
             },
         );
     }

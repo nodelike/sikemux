@@ -2,6 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "orgvault.json",
   "$defs": {
+    "OrgVaultChanges": {
+      "description": "A count of the changes to an org vault's entries.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "OrgVaultChangesParam": {
+      "description": "The changes a host read last, in a query string.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,14})$"
+    },
     "OrgVaultEntryKind": {
       "description": "What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it.",
       "type": "string",
@@ -87,6 +97,14 @@
           "description": "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
           "type": "array",
           "items": { "$ref": "#/$defs/OrgVaultEnded" }
+        },
+        "changes": {
+          "description": "How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.",
+          "$ref": "#/$defs/OrgVaultChanges"
+        },
+        "since": {
+          "description": "The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.",
+          "anyOf": [{ "$ref": "#/$defs/OrgVaultChanges" }, { "type": "null" }]
         }
       },
       "required": [
@@ -96,7 +114,9 @@
         "waiting",
         "rotate",
         "entries",
-        "ended"
+        "ended",
+        "changes",
+        "since"
       ],
       "additionalProperties": false
     },

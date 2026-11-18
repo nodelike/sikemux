@@ -22,7 +22,17 @@ pub struct OrgVault {
     pub entries: Vec<OrgVaultEntry>,
     /// Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.
     pub ended: Vec<OrgVaultEnded>,
+    /// How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.
+    pub changes: OrgVaultChanges,
+    /// The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.
+    pub since: Option<OrgVaultChanges>,
 }
+
+/// A count of the changes to an org vault's entries.
+pub type OrgVaultChanges = i64;
+
+/// The changes a host read last, in a query string.
+pub type OrgVaultChangesParam = String;
 
 /// An owner's or admin's host makes the org's vault, holding its key at generation 1.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +122,8 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
     use super::through;
     Some(match name {
         "OrgVault" => through::<OrgVault>(json),
+        "OrgVaultChanges" => through::<OrgVaultChanges>(json),
+        "OrgVaultChangesParam" => through::<OrgVaultChangesParam>(json),
         "OrgVaultCreate" => through::<OrgVaultCreate>(json),
         "OrgVaultEnded" => through::<OrgVaultEnded>(json),
         "OrgVaultEntry" => through::<OrgVaultEntry>(json),
