@@ -31,6 +31,7 @@ import {
   DeleteAccountIntro,
 } from "./DeleteAccount.tsx";
 import { Devices, useDevices } from "./Devices.tsx";
+import { FoldWaiting, useFoldGate } from "./Fold.tsx";
 import { HostApproval } from "./HostApproval.tsx";
 import { useLive } from "./live.ts";
 import { PricingPage } from "./Pricing.tsx";
@@ -94,6 +95,7 @@ export function App() {
   const [deleted, setDeleted] = useState<{ deletesAt?: string } | null>(null);
   const signingOut = useRef(false);
   const signedIn = isLoaded ? isSignedIn : SIGNED_IN_BEFORE;
+  const fold = useFoldGate(signedIn && isLoaded);
   const showDeleted =
     deleted !== null ||
     (path === DELETE_ACCOUNT &&
@@ -102,6 +104,7 @@ export function App() {
 
   const shellShown =
     signedIn &&
+    fold.open &&
     !showDeleted &&
     ![SIGNED_IN, CONSENT, HOST, PAY, "/sso-callback"].includes(path);
 
@@ -137,7 +140,7 @@ export function App() {
   useEffect(() => {
     if (signedIn && path !== "/sso-callback") resumeReturn();
   }, [signedIn, path]);
-  const appReturning = signedIn ? appReturn() : null;
+  const appReturning = signedIn && fold.open ? appReturn() : null;
 
   useEffect(() => {
     if (appReturning && isLoaded) location.replace(appReturning);
@@ -179,6 +182,8 @@ export function App() {
               />
             </Panel>
           </main>
+        ) : signedIn && path !== SIGNED_IN && !fold.open ? (
+          <main className="center">{fold.screen}</main>
         ) : path === PAY ? (
           <main className="center">
             <Pay />
@@ -206,6 +211,7 @@ export function App() {
         ) : (
           <main className="center">
             {path === DELETE_ACCOUNT ? <DeleteAccountIntro /> : null}
+            <FoldWaiting />
             <SignIn ready={isLoaded} />
             <footer className="legal">
               <a href="https://sikemux.com/privacy">Privacy</a>

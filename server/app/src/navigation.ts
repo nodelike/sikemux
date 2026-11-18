@@ -32,7 +32,8 @@ const PAGES = new Set([
   DELETE_ACCOUNT,
 ]);
 
-const RETURN_KEY = "sikemux.returnTo";
+export const RETURN_KEY = "sikemux.returnTo";
+export const SIGNED_UP_FOR_KEY = "sikemux.signedUpFor";
 
 /** Clerk's own host, which the publishable key carries base64-encoded with a trailing `$`. */
 const CLERK_HOST = atob(config.clerkPublishableKey.split("_")[2] ?? "").replace(
@@ -67,6 +68,16 @@ export function rememberReturn() {
     RETURN_KEY,
     location.pathname + location.search + location.hash,
   );
+}
+
+/** Notes, before a sign-in, what the person came to the page for, so a new account can be asked whether it is their first. */
+export function noteSignUpReason(path = location.pathname) {
+  const hint: "share" | "invite" | null = isSharePath(path)
+    ? "share"
+    : path === JOIN && location.hash.length > 1
+      ? "invite"
+      : null;
+  if (hint) sessionStorage.setItem(SIGNED_UP_FOR_KEY, hint);
 }
 
 /** A shared chat's page, which loads on its own rather than inside the account pages. */

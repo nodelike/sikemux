@@ -10,7 +10,13 @@ import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { AppleMark, GitHubMark, GoogleMark, Logo } from "./icons.tsx";
 import { useInviteOrg } from "./invite.ts";
-import { HOST, isSharePath, JOIN, rememberReturn } from "./navigation.ts";
+import {
+  HOST,
+  isSharePath,
+  JOIN,
+  noteSignUpReason,
+  rememberReturn,
+} from "./navigation.ts";
 
 type Provider = "oauth_apple" | "oauth_google" | "oauth_github";
 
@@ -41,6 +47,7 @@ export function SignIn({ ready }: { ready: boolean }) {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const [step, setStep] = useState<SignInStep>({ kind: "email" });
+  useEffect(() => noteSignUpReason(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");

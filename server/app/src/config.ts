@@ -5,7 +5,9 @@ const { production, dev } = release.accounts;
 /** Where the web app finds the API and Clerk. Both are public; a dev server talks to the API on this machine. */
 export const config = import.meta.env.DEV
   ? {
-      apiUrl: import.meta.env.VITE_API_URL ?? `http://127.0.0.1:${dev.apiPort}`,
+      apiUrl:
+        import.meta.env.VITE_API_URL ??
+        `http://127.0.0.1:${import.meta.env.VITE_API_PORT ?? dev.apiPort}`,
       clerkPublishableKey: dev.clerkPublishableKey,
     }
   : production;

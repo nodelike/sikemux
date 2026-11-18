@@ -56,6 +56,7 @@ import {
   useAction,
   useNotice,
 } from "./ui.tsx";
+import { BringSeat } from "./Fold.tsx";
 
 /** Whether someone with `actor`'s role may change, remove or invite someone with `role`, as the API decides it. */
 function manages(actor: OrgRole, role: OrgRole) {
@@ -823,6 +824,12 @@ function NoOrg({ offered }: { offered: ReactNode }) {
               glyph={<IconLink size={16} />}
               name="Been given an invite link?"
               detail="Open it while signed in here and you join that org. Nothing is mailed, so ask the owner for one."
+            />
+            <ItemRow
+              glyph={<IconUsers size={16} />}
+              name="Hold a seat on another account?"
+              detail="Sign in with that account once and its seat moves here. It must hold nothing but the seat."
+              end={<BringSeat />}
             />
           </Rows>
         </Section>
