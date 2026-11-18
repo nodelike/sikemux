@@ -785,16 +785,6 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
     }
 }
 
-/// The store an entry for `project` goes to: a rule the person typed into the Playbook goes to the
-/// org's, while the project is shared with one that lets them add to it.
-pub(super) fn persons(state: &State, project: &str, store: Store, typed_rule: bool) -> Store {
-    let writes = (state.shared.get(&state.key_of(project))).is_some_and(|shared| shared.writes);
-    match store {
-        Store::Project if typed_rule && writes => Store::Org,
-        store => store,
-    }
-}
-
 /// Why the store under `key` cannot take what it holds now: the org's vault would refuse it.
 pub(super) fn too_big(held: &Held) -> Option<String> {
     let size = serde_json::to_vec(&Body::of(held)).map_or(0, |bytes| bytes.len());

@@ -36,7 +36,6 @@ use super::kept::{self, Kept};
 use super::wake::Wake;
 use super::Core;
 use crate::cli::protocol::HarnessRequest;
-use crate::sessions::asked::may_hold_secret;
 use crate::text::to_keep;
 
 mod brief;
@@ -585,15 +584,9 @@ fn holding_or_personal<'a>(state: &'a mut State, key: &str, store: Store) -> &'a
     (state.held.entry(key.to_owned())).or_insert_with(|| Held::new(key, store))
 }
 
-/// Keeps a new entry. Only a rule the person `typed` into the Playbook goes to the org's store by
-/// its policy; every other entry stays here until the person moves it.
-fn add(
-    core: &Core,
-    project: &str,
-    new: NewMemory,
-    learned: Learned,
-    typed: bool,
-) -> Result<u64, String> {
+/// Keeps a new entry in the store it names. Nothing goes to an org's store this way: an entry
+/// reaches it only by the person's move.
+fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
     let learned = moving::named(core, learned);
     let (text, store) = match &new {
         NewMemory::Rule { text, store, .. } | NewMemory::Knowledge { text, store, .. } => {
@@ -603,16 +596,11 @@ fn add(
     if store == Store::Org {
         return Err(
             "A new rule can't go straight to the org's rules: add it to the project, \
-            and the org's policy or a move takes it there"
+            then move it there"
                 .into(),
         );
     }
     let mut state = core.memory().state.locked();
-    let persons_rule = match &new {
-        NewMemory::Rule { sensitive, .. } => typed && !sensitive && !may_hold_secret(&text),
-        NewMemory::Knowledge { .. } => false,
-    };
-    let store = org::persons(&state, project, store, persons_rule);
     let key = state.key_for(project, store);
     if key.is_empty() {
         return Err(NOT_SHARED.into());
@@ -673,16 +661,6 @@ fn add(
         held.knowledge.retain(|known| known.id != id);
         return Err(full);
     }
-    if persons_rule && store == Store::Project && state.shared.contains_key(&key) {
-        match waiting::wait(&mut state, &key, id) {
-            Ok(()) => core.memory().org_sync.notify_one(),
-            Err(why) => {
-                if let Some(held) = state.held.get_mut(&key) {
-                    held.refused.insert(id, why);
-                }
-            }
-        }
-    }
     core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, false);
@@ -691,13 +669,7 @@ fn add(
 
 /// Keeps a rule or knowledge, or a goal's rule on its card; answers what
 /// happened, in words.
-fn keep(
-    core: &Core,
-    project: &str,
-    new: NewMemory,
-    learned: Learned,
-    typed: bool,
-) -> Result<String, String> {
+fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<String, String> {
     match new {
         NewMemory::Rule {
             text,
@@ -711,7 +683,7 @@ fn keep(
             let rule = goal::Change::of(goal::List::Rules, None, Some(&text), None, false)?;
             goal::change(core, project, Some(card), goal::List::Rules, rule, learned)
         }
-        new => add(core, project, new, learned, typed).map(|id| format!("Kept as #{id}.")),
+        new => add(core, project, new, learned).map(|id| format!("Kept as #{id}.")),
     }
 }
 
@@ -1277,7 +1249,6 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                         store: store_of(yours),
                     },
                     by,
-                    false,
                 )?;
                 let note = format!("Kept as #{id}, as the person's rule.");
                 let note = json!(with_check_asked(note, &said, &[]));
@@ -1321,7 +1292,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 (knowledge, said, paths)
             }
         };
-        let note = keep(&core, &project, new, by, false)?;
+        let note = keep(&core, &project, new, by)?;
         Ok(json!({ "note": with_check_asked(note, &said, &paths) }))
     })
     .await
@@ -1601,7 +1572,7 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
         sensitive: false,
         store: Store::Project,
     };
-    add(core, project, rule, learned(core, None), false)
+    add(core, project, rule, learned(core, None))
 }
 
 /// Retires a rule of the project's in the person's name, as undoing an Overrule does.
@@ -1645,7 +1616,7 @@ pub(crate) async fn person_add(
             Some(brought) => brought?,
             None if now_check::kept_again(&core, &project, &params.entry) => {}
             None => {
-                keep(&core, &project, params.entry, learned(&core, None), true)?;
+                keep(&core, &project, params.entry, learned(&core, None))?;
             }
         }
         Ok(view(&core, &project, &peer))

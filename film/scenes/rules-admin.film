@@ -9,7 +9,7 @@ project storefront shop
 orgpolicy admins_approve "Lumen Studio"
 orgmember priya "Lumen Studio"
 orgshare "Lumen Studio"
-core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Run pnpm check before every commit.\",\"goal\":null,\"sensitive\":false,\"store\":\"org\"}}"
+orgmove here "Run pnpm check before every commit."
 host laptop priya
 orgmove laptop "Use pnpm, never npm, for every install."
 settle 6
