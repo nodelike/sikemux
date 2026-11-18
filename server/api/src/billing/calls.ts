@@ -103,7 +103,12 @@ export async function makeDueCalls(
         .executeTakeFirst();
       if (!owed) continue;
       if (call.action === "settle_seat_pause" && call.user_id) {
-        const askAgainAt = await settleSeatPause(db, provider, call.user_id);
+        const askAgainAt = await settleSeatPause(
+          db,
+          provider,
+          call.user_id,
+          log,
+        );
         if (askAgainAt) {
           await db
             .updateTable("billing_calls")

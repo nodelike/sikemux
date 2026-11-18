@@ -494,6 +494,12 @@ export interface Tables {
     at: Date;
     refund_requested_at: Date | null;
     refunded_at: Date | null;
+    kept_refund: ColumnType<
+      string | null,
+      number | null | undefined,
+      number | null
+    >;
+    kept_refunded_at: Generated<Date | null>;
   };
   billing_events: {
     provider: string;

@@ -117,6 +117,11 @@ export type ProviderEvent = {
   | { type: "payment.refund_refused"; providerPaymentId: string }
 );
 
+export type PauseOutcome =
+  | { paidUntil: Date; pausedAt: Date; wasCancelling: boolean }
+  | { askAgainAt: Date }
+  | { refused: "paused_elsewhere" | "not_active" };
+
 export interface CheckoutRequest {
   /** The person paying, as `customerFor` answered; their checkout cannot be moved to another. */
   providerCustomerId: string;
@@ -233,19 +238,22 @@ export interface BillingProvider {
   resume(subscription: HeldSubscription): Promise<void>;
   /**
    * Pauses the subscription at once, with no end, and answers when the period it had paid for
-   * would have ended. Inside the half hour before a renewal the provider takes no pause, so it
-   * answers when to ask again instead, by which time the renewal has gone through.
+   * would have ended, when the provider paused it, and whether it was set to cancel, which the pause
+   * drops. A pause the provider made before `since` is someone else's and is refused, as is a
+   * subscription that is not active. Inside the half hour before a renewal the provider takes no
+   * pause, so it answers when to ask again instead, by which time the renewal has gone through.
    */
-  pause(
-    subscription: HeldSubscription,
-  ): Promise<{ paidUntil: Date } | { askAgainAt: Date }>;
+  pause(subscription: HeldSubscription, since: Date): Promise<PauseOutcome>;
   /**
    * Resumes a paused subscription on `at`, when the provider charges a new period; at once when
-   * `at` has passed. Asking again moves the day.
+   * `at` has passed. Asking again moves the day. Answers false when the provider holds it unpaused.
    */
-  resumeOn(subscription: HeldSubscription, at: Date): Promise<void>;
-  /** Drops the resume `resumeOn` set, so the subscription stays paused. */
-  keepPaused(subscription: HeldSubscription): Promise<void>;
+  resumeOn(subscription: HeldSubscription, at: Date): Promise<boolean>;
+  /**
+   * Drops the resume `resumeOn` set, so the subscription stays paused. Answers false when the
+   * provider holds it unpaused.
+   */
+  keepPaused(subscription: HeldSubscription): Promise<boolean>;
   /**
    * Asks for a payment to be refunded, in full or `amount` of it; payment.refunded says when it is.
    * Asking twice for one payment refunds it once.

@@ -547,6 +547,42 @@ describe("an account deleted while it joins an org", () => {
 });
 
 describe("restoring a deleted account", () => {
+  it("lets the person take back the cancel of a Pro no seat paused, renewing when its period ends", async () => {
+    await buy(MEMBER, "pro");
+    const before = await body(
+      await as(MEMBER, "/v1/billing"),
+      "BillingOverview",
+    );
+    const paidUntil = before.subscriptions.find(
+      (subscription) => subscription.product === "pro",
+    )?.currentPeriodEnd;
+    expect((await deleteAccount(MEMBER)).status).toBe(202);
+    expect(
+      (await as(MEMBER, "/v1/account/restore", { method: "POST" })).status,
+    ).toBe(200);
+
+    const { subscriptions: held } = await body(
+      await as(MEMBER, "/v1/billing"),
+      "BillingOverview",
+    );
+    const pro = held.find((subscription) => subscription.product === "pro");
+    expect(pro?.cancelAtPeriodEnd).toBe(true);
+    const resumed = await as(
+      MEMBER,
+      `/v1/billing/subscriptions/${pro?.id}/resume`,
+      { method: "POST" },
+    );
+    expect(resumed.status).toBe(200);
+    const taken = await body(resumed, "Subscription");
+    expect(taken.cancelAtPeriodEnd).toBe(false);
+    expect(taken.seatPause).toBeUndefined();
+    expect(
+      Math.abs(
+        Date.parse(taken.currentPeriodEnd) - Date.parse(paidUntil ?? ""),
+      ),
+    ).toBeLessThan(60_000);
+  });
+
   it("gives the person back the Pro their seat had paused, without their orgs", async () => {
     await buy(MEMBER, "pro");
     const orgId = await createOrg(3);

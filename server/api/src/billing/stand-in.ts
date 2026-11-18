@@ -14,6 +14,7 @@ import type {
 import { unitPrice } from "./catalog.ts";
 import type {
   BillingProvider,
+  PauseOutcome,
   ChangeOutcome,
   ChangePreview,
   CheckoutRequest,
@@ -24,6 +25,8 @@ import type {
 } from "./provider.ts";
 
 const SIGNATURE_HEADER = "x-stand-in-signature";
+/** Like Paddle, the stand-in takes no pause or cancel in the half hour before a renewal. */
+const RENEWAL_LOCK_MS = 30 * 60_000;
 
 function periodEnd(from: Date, interval: BillingInterval): Date {
   const end = new Date(from);
@@ -89,6 +92,8 @@ export class StandInProvider implements BillingProvider {
     amount?: number;
   }[] = [];
   private readonly resumes = new Map<string, Date>();
+  /** When each subscription paused here was paused. */
+  private readonly pausedAt = new Map<string, Date>();
   private readonly payments = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
@@ -291,10 +296,22 @@ export class StandInProvider implements BillingProvider {
     });
   }
 
+  private renewsShortly(held: HeldSubscription, now = Date.now()) {
+    const left = held.currentPeriodEnd.getTime() - now;
+    return left > 0 && left < RENEWAL_LOCK_MS;
+  }
+
   async cancel(held: HeldSubscription, when: "period_end" | "now") {
     if (this.refuseCancels)
       throw new Error("The stand-in provider cannot be reached.");
+    const paused = this.pausedAt.has(held.providerSubscriptionId);
+    if (when === "period_end" && paused)
+      throw new Error("A paused subscription can only be cancelled at once.");
+    if (!paused && this.renewsShortly(held))
+      throw new Error("The subscription renews in the next few minutes.");
     if (when === "period_end") return this.setCancel(held, true);
+    this.pausedAt.delete(held.providerSubscriptionId);
+    this.resumes.delete(held.providerSubscriptionId);
     await this.send({
       ...this.event("subscription.ended"),
       providerSubscriptionId: held.providerSubscriptionId,
@@ -305,19 +322,44 @@ export class StandInProvider implements BillingProvider {
     return this.setCancel(held, false);
   }
 
-  async pause(held: HeldSubscription) {
+  async pause(held: HeldSubscription, since: Date): Promise<PauseOutcome> {
+    const id = held.providerSubscriptionId;
+    const already = this.pausedAt.get(id);
+    if (already)
+      return already < since
+        ? { refused: "paused_elsewhere" }
+        : {
+            paidUntil: held.currentPeriodEnd,
+            pausedAt: already,
+            wasCancelling: false,
+          };
+    const now = new Date();
+    if (this.renewsShortly(held, now.getTime()))
+      return {
+        askAgainAt: new Date(held.currentPeriodEnd.getTime() + RENEWAL_LOCK_MS),
+      };
+    this.pausedAt.set(id, now);
     await this.send({
-      ...this.event("subscription.paused"),
-      providerSubscriptionId: held.providerSubscriptionId,
+      ...this.event("subscription.paused", now),
+      providerSubscriptionId: id,
     });
-    return { paidUntil: held.currentPeriodEnd };
+    return {
+      paidUntil: held.currentPeriodEnd,
+      pausedAt: now,
+      wasCancelling: held.cancelAtPeriodEnd,
+    };
   }
 
   /** Resumes at once when `at` has passed; a later day is kept and never comes, as nothing here waits. */
   async resumeOn(held: HeldSubscription, at: Date) {
+    if (!this.pausedAt.has(held.providerSubscriptionId)) return false;
     const now = new Date();
-    if (at > now) return void this.resumes.set(held.providerSubscriptionId, at);
+    if (at > now) {
+      this.resumes.set(held.providerSubscriptionId, at);
+      return true;
+    }
     this.resumes.delete(held.providerSubscriptionId);
+    this.pausedAt.delete(held.providerSubscriptionId);
     const currentPeriodEnd = periodEnd(now, held.interval);
     await this.send(
       {
@@ -336,11 +378,12 @@ export class StandInProvider implements BillingProvider {
         periodEnd: currentPeriodEnd,
       },
     );
+    return true;
   }
 
   keepPaused(held: HeldSubscription) {
     this.resumes.delete(held.providerSubscriptionId);
-    return Promise.resolve();
+    return Promise.resolve(this.pausedAt.has(held.providerSubscriptionId));
   }
 
   /** When each paused subscription is set to resume. */

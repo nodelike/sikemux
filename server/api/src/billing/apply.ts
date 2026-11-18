@@ -78,6 +78,9 @@ async function rowsOf(
       "subscriptions.provider_updated_at",
       "subscriptions.started_at",
       "subscriptions.ended_at",
+      "subscriptions.paused_for_seat_at",
+      "subscriptions.paid_left",
+      "subscriptions.resumes_at",
     ])
     .where("billing_customers.provider", "=", from.name)
     .where(
@@ -222,12 +225,20 @@ async function changeItems(
   }));
   for (const { item, row } of pairs) {
     if (!row || (row.status === "ended" && !live.length)) continue;
-    const back = row.status !== "active" && {
-      status: "active" as const,
-      ended_at: null,
-      paused_for_seat_at: null,
-      paid_left: null,
-      resumes_at: null,
+    const pausing =
+      row.paused_for_seat_at !== null &&
+      row.paid_left === null &&
+      row.resumes_at === null;
+    const back = {
+      ...(row.status !== "active" && {
+        status: "active" as const,
+        ended_at: null,
+      }),
+      ...(!pausing && {
+        paused_for_seat_at: null,
+        paid_left: null,
+        resumes_at: null,
+      }),
     };
     await trx
       .updateTable("subscriptions")
@@ -406,7 +417,11 @@ async function apply(
   trx: Transaction<Tables>,
   from: From,
   event: ProviderEvent,
-): Promise<{ customerId: string | null; cancelled?: string }> {
+): Promise<{
+  customerId: string | null;
+  cancelled?: string;
+  refused?: string;
+}> {
   const provider = from.name;
   const { at } = event;
   switch (event.type) {
@@ -579,6 +594,25 @@ async function apply(
       const customerId = invoice.customer_id;
       const subscriptionId = invoice.provider_subscription_id;
       if (invoice.status !== "paid") return { customerId };
+      const keptPending =
+        invoice.kept_refund !== null && invoice.kept_refunded_at === null;
+      if (event.type === "payment.refund_refused" && keptPending) {
+        await trx
+          .updateTable("invoices")
+          .set({ kept_refund: null })
+          .where("customer_id", "=", customerId)
+          .where("provider_subscription_id", "=", subscriptionId)
+          .where("kept_refunded_at", "is", null)
+          .execute();
+        await trx
+          .updateTable("subscriptions")
+          .set({ cancel_at_period_end: false })
+          .where("customer_id", "=", customerId)
+          .where("provider_subscription_id", "=", subscriptionId)
+          .where("status", "<>", "ended")
+          .execute();
+        return { customerId, refused: event.providerPaymentId };
+      }
       if (event.type === "payment.refund_refused") {
         await trx
           .updateTable("invoices")
@@ -587,6 +621,29 @@ async function apply(
           .where("provider_subscription_id", "=", subscriptionId)
           .where("status", "=", "paid")
           .execute();
+        return { customerId, refused: event.providerPaymentId };
+      }
+      if (keptPending && !event.chargeback) {
+        const whole = event.returned.amount >= Number(invoice.amount);
+        await trx
+          .updateTable("invoices")
+          .set({
+            kept_refunded_at: at,
+            ...(whole && { status: "refunded" as const, refunded_at: at }),
+          })
+          .where("id", "=", invoice.id)
+          .execute();
+        const waiting = await trx
+          .selectFrom("invoices")
+          .select("id")
+          .where("customer_id", "=", customerId)
+          .where("provider_subscription_id", "=", subscriptionId)
+          .where("status", "=", "paid")
+          .where("kept_refund", "is not", null)
+          .where("kept_refunded_at", "is", null)
+          .executeTakeFirst();
+        if (!waiting)
+          await endPlanNow(trx, from, customerId, subscriptionId, at);
         return { customerId };
       }
       if (event.chargeback) {
@@ -732,6 +789,11 @@ async function applyOnce(
         ]),
       );
       await checkSeatPauses(trx, people);
+      if (result.refused)
+        log.error(
+          { provider: name, payment: result.refused },
+          "the payment provider refused a refund: the plan goes on with its paid time, and the person is owed an answer",
+        );
       if (result.cancelled)
         log.warn(
           { provider: name, subscription: result.cancelled },

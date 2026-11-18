@@ -12,7 +12,7 @@ import type {
 import { Hono, type Context } from "hono";
 import { type Kysely, type Selectable } from "kysely";
 
-import { audit } from "../audit.ts";
+import { audit, type AuditAction } from "../audit.ts";
 import { holdStanding, requireIdentity, type AuthEnv } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import {
@@ -32,7 +32,7 @@ import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
 import { openerRole, refusal } from "./checks.ts";
 import { ownCustomer } from "./customers.ts";
-import { callLater, makeDueCalls } from "./calls.ts";
+import { makeDueCalls } from "./calls.ts";
 import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
   heldSubscription,
@@ -48,7 +48,7 @@ import {
   type PlanRefund,
 } from "./refunds.ts";
 import {
-  refundKeptTime,
+  checkSeatPauses,
   seatIncludesPro,
   seatPauseOf,
   seatsIncludingPro,
@@ -771,38 +771,69 @@ export function billingRoutes({
           requirePayer(c, row);
           await refusePending(row);
         }
-        if (cancel && row.status === "paused") {
-          const subscription = heldSubscription(row, row.provider_customer_id);
-          await db.transaction().execute(async (trx) => {
-            const refund = await refundKeptTime(trx, row.id);
-            await callLater(trx, ready.name, [
-              { action: "cancel_now", subscription },
-              ...(refund ? [refund] : []),
-            ]);
-          });
-          await makeDueCalls(db, ready, c.get("log"));
-          const { userId } = c.get("identity");
-          await audit(db, {
+        const { userId } = c.get("identity");
+        const said = (action: AuditAction, detail?: Record<string, unknown>) =>
+          audit(db, {
             userId,
             actor: `user:${userId}`,
-            action: "billing.subscription_canceled",
+            action,
             subject: row.id,
-            detail: { when: "now", why: "paused" },
+            ...(detail && { detail }),
           });
-        } else if (row.cancel_at_period_end !== cancel) {
+        if (row.cancel_at_period_end === cancel)
+          return c.json(await reread(row.id));
+        if (row.paused_for_seat_at) {
+          const firstDays =
+            cancel &&
+            (
+              await planRefund(
+                db,
+                ready.name,
+                row.customer_id,
+                row.provider_subscription_id,
+              )
+            ).covers.length > 0;
+          if (firstDays) await refundPlan(c, ready, row, row.id);
+          else {
+            await db.transaction().execute(async (trx) => {
+              await trx
+                .updateTable("subscriptions")
+                .set({ cancel_at_period_end: cancel })
+                .where("id", "=", row.id)
+                .execute();
+              if (row.user_id) await checkSeatPauses(trx, [row.user_id]);
+            });
+            await makeDueCalls(db, ready, c.get("log"));
+            await said(
+              cancel
+                ? "billing.subscription_canceled"
+                : "billing.subscription_resumed",
+              { why: "paused_for_seat" },
+            );
+          }
+        } else {
           const subscription = heldSubscription(row, row.provider_customer_id);
+          const when = row.status === "paused" ? "now" : "period_end";
           await (cancel
-            ? ready.cancel(subscription, "period_end")
+            ? ready.cancel(subscription, when)
             : ready.resume(subscription));
-          const { userId } = c.get("identity");
-          await audit(db, {
-            userId,
-            actor: `user:${userId}`,
-            action: cancel
+          await db.transaction().execute(async (trx) => {
+            await trx
+              .updateTable("subscriptions")
+              .set({ cancel_at_period_end: cancel })
+              .where("id", "=", row.id)
+              .where("status", "<>", "ended")
+              .execute();
+            if (!cancel && row.user_id && row.product === "pro")
+              await checkSeatPauses(trx, [row.user_id]);
+          });
+          if (!cancel) await makeDueCalls(db, ready, c.get("log"));
+          await said(
+            cancel
               ? "billing.subscription_canceled"
               : "billing.subscription_resumed",
-            subject: row.id,
-          });
+            cancel && when === "now" ? { when } : undefined,
+          );
         }
         return c.json(await reread(row.id));
       },
