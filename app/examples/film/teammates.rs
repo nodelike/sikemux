@@ -24,6 +24,8 @@ impl Teammates {
     pub(super) fn seat(work: &Path, home: &Path, claude: &Path) -> anyhow::Result<Self> {
         #[cfg(unix)]
         std::os::unix::fs::symlink(claude, work.join("bin/claude"))?;
+        #[cfg(not(unix))]
+        let _ = claude;
         let remote = work.join("core.sock.remote.json");
         let mut stored: Value = serde_json::from_slice(&std::fs::read(&remote)?)?;
         (stored.as_object_mut())
