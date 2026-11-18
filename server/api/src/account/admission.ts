@@ -2,7 +2,7 @@ import { sql, type Kysely } from "kysely";
 
 import type { Verifier } from "../auth.ts";
 import type { Tables } from "../db.ts";
-import { ApiFailure } from "../http.ts";
+import { ApiFailure, unauthorized } from "../http.ts";
 import type { Logger } from "../log.ts";
 import type { ClerkBackend, SignUp } from "./clerk.ts";
 import { addressHash, domainOf } from "./proofs.ts";
@@ -123,7 +123,8 @@ export function admittingVerifier(
       .executeTakeFirst();
     if (row?.admitted_at) return;
     const signUp = clerk ? await clerk.signUp(userId) : null;
-    if (clerk && !signUp) return;
+    if (clerk && !signUp)
+      throw unauthorized("This sign-in no longer exists. Sign in again.");
     const refusal = signUp
       ? await refusalOf(db, proofKey, userId, signUp)
       : null;
