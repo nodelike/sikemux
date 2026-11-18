@@ -324,25 +324,8 @@ enum CallWords {
     /// The composer's words in a worker's chat whose project's chief hears what is typed there.
     static func sendToTold(_ name: String) -> String { String(localized: "Send to @\(name) · @Chief is told") }
 
-    // MARK: The chief's chat: what happened while the person was away, an Overrule, the week's count
+    // MARK: The chief's chat: an Overrule, the week's count
 
-    static let whileAway = String(localized: "While you were away")
-    /// How long the person was away, `back - since`.
-    static func awayFor(_ milliseconds: Int) -> String {
-        let total = max(0, milliseconds) / 60_000
-        let (hours, minutes) = (total / 60, total % 60)
-        if hours == 0 { return String(localized: "\(minutes) min") }
-        if minutes == 0 { return String(localized: "\(hours) h") }
-        return String(localized: "\(hours) h \(minutes) min")
-    }
-    static let awayNeedsYou = String(localized: "Needs you")
-    static let decidedForYou = String(localized: "Decided for you")
-    static let landed = String(localized: "Landed")
-    /// Under Needs you: the calls are the queue docked above the composer.
-    static func answerBelow(_ count: Int) -> String {
-        count == 1
-            ? String(localized: "Answer it in the card below") : String(localized: "Answer them in the card below")
-    }
     static let overrule = String(localized: "Overrule")
     /// What a tap on a call's cut context does, for VoiceOver.
     static let showAll = String(localized: "Shows all of it")

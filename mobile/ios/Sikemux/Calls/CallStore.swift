@@ -51,8 +51,6 @@ final class HostCalls {
     @ObservationIgnored private var seeing: Set<String> = []
     /// The call a chat shows, by the chat's agent, when the person chose one other than the oldest.
     private var focused: [String: String] = [:]
-    /// The calls the chief's card from while the person was away counts, by the chief's agent id, which its chat docks.
-    private var awayCalls: [String: [String]] = [:]
     /// Why an answer from a notification did not go, by call.
     private(set) var failed: [String: String] = [:]
 
@@ -76,19 +74,9 @@ final class HostCalls {
             .sorted { Self.settledAt($0) > Self.settledAt($1) }
     }
 
-    /// Docks on the chief's chat every call its card from while the person was away counts, while the card stands.
-    func setAway(_ calls: [String]?, for agentId: String) {
-        awayCalls[agentId] = calls?.isEmpty == false ? calls : nil
-    }
-
-    /// Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first; on the chief's chat
-    /// while its card from while the person was away stands, the open calls that card counts, in its order.
+    /// Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first.
     func queue(for agentId: String) -> [PersonCall] {
-        let open = (view?.calls ?? []).filter { $0.state == .open }
-        if let among = awayCalls[agentId] {
-            return among.compactMap { id in open.first { $0.id == id } }
-        }
-        return (view?.calls ?? [])
+        (view?.calls ?? [])
             .filter { call in
                 call.state == .open
                     && (call.asker.agentId == agentId || (call.joined ?? []).contains { $0.agentId == agentId })
