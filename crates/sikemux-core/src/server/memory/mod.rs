@@ -1035,16 +1035,14 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
         let someone = |id: u64, learned: &Learned| match (held.store, shared) {
             (Store::Org, Some(shared)) => (held.writers.get(&id))
                 .filter(|writer| **writer != shared.member)
-                .and_then(|writer| shared.names.get(writer).cloned()),
+                .and_then(|writer| shared.members.get(writer).cloned().flatten()),
             _ => someone(learned),
         };
-        let left = |id: u64| {
-            held.store == Store::Org
-                && shared.is_some_and(|shared| {
-                    (held.writers.get(&id)).is_some_and(|writer| {
-                        *writer != shared.member && !shared.names.contains_key(writer)
-                    })
-                })
+        let teammate = |id: u64| match (held.store, shared) {
+            (Store::Org, Some(shared)) => (held.writers.get(&id))
+                .filter(|writer| **writer != shared.member)
+                .map(|writer| shared.members.contains_key(writer)),
+            _ => None,
         };
         let undoable = |id: u64, moved: &Option<sikemux_view::memory::Moved>| {
             (moving::back(&state, moved, &came_from) && mine(id))
@@ -1081,7 +1079,8 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 store: held.store,
                 moved: undoable(rule.id, &rule.moved),
                 someone: someone(rule.id, &rule.learned),
-                left: left(rule.id),
+                theirs: teammate(rule.id).is_some(),
+                left: teammate(rule.id) == Some(false),
                 offer: (offers.for_rule(held, rule)).filter(|_| !waiting(rule.id)),
                 org: org_of(rule.id),
                 waiting: waiting(rule.id),
@@ -1110,7 +1109,8 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 store: held.store,
                 moved: undoable(known.id, &known.moved),
                 someone: someone(known.id, &known.learned),
-                left: left(known.id),
+                theirs: teammate(known.id).is_some(),
+                left: teammate(known.id) == Some(false),
                 offer: None,
                 org: org_of(known.id),
                 waiting: waiting(known.id),

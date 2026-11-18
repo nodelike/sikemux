@@ -521,7 +521,7 @@ fn settle(core: &Core, local: &str, shared: &Shared, drops: &Drops, list: &mut M
         match dropped.filter(|dropped| dropped.words == words(entry.text())) {
             Some(dropped) => {
                 held.waiting.remove(&id);
-                let by = shared.names.get(&dropped.by).cloned().unwrap_or_default();
+                let by = (shared.members.get(&dropped.by).cloned().flatten()).unwrap_or_default();
                 held.dropped.insert(id, by);
                 list.items.remove(&key);
                 changed = true;
@@ -551,7 +551,7 @@ fn settle(core: &Core, local: &str, shared: &Shared, drops: &Drops, list: &mut M
 
 /// Each member's list, by membership, as the vault vouches it is theirs.
 fn lists(core: &Core, shared: &Shared) -> BTreeMap<String, Mine> {
-    (shared.names.keys())
+    (shared.members.keys())
         .filter_map(|member| {
             let (_, list) = read::<Mine>(core, shared, &shared.waiting_id(member))?;
             Some((member.clone(), list))
@@ -683,7 +683,7 @@ fn call_for(
     entry: &Waiting,
     not_kept: Option<&str>,
 ) -> Raise {
-    let from = (shared.names.get(member)).map_or("A member", String::as_str);
+    let from = (shared.members.get(member).and_then(Option::as_deref)).unwrap_or("A member");
     let (what, them) = match entry {
         Waiting::Rule { .. } => ("rule", "follow it"),
         Waiting::Knowledge { .. } => ("note", "know it"),

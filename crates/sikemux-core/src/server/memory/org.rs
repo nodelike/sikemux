@@ -36,8 +36,8 @@ pub(super) struct Shared {
     pub(super) active: bool,
     /// Whether this account's person adds to the store without an admin's approval.
     pub(super) writes: bool,
-    /// The first name of each of the org's members, by membership, as the org's list has them.
-    pub(super) names: BTreeMap<String, String>,
+    /// The org's members by membership, each with their first name when the org's list has one.
+    pub(super) members: BTreeMap<String, Option<String>>,
 }
 
 impl Shared {
@@ -403,10 +403,10 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
                 member: me.id.clone(),
                 active: org.active,
                 writes,
-                names: (list.members.iter())
-                    .filter_map(|member| {
-                        let first = member.name.split_whitespace().next()?;
-                        Some((member.id.clone(), first.to_owned()))
+                members: (list.members.iter())
+                    .map(|member| {
+                        let first = member.name.split_whitespace().next();
+                        (member.id.clone(), first.map(str::to_owned))
                     })
                     .collect(),
             },
