@@ -2,7 +2,7 @@ import type { Device, DeviceRegistration } from "@sikemux/protocol";
 import { sql, type Kysely, type Selectable } from "kysely";
 
 import { audit } from "../audit.ts";
-import { accountDeleted } from "../auth.ts";
+import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { ApiFailure, badRequest, forbidden } from "../http.ts";
@@ -63,18 +63,7 @@ export async function registerDevice(
   });
 
   return db.transaction().execute(async (trx) => {
-    await trx
-      .insertInto("users")
-      .values({ id: userId })
-      .onConflict((oc) => oc.column("id").doNothing())
-      .execute();
-    const user = await trx
-      .selectFrom("users")
-      .select("deleted_at")
-      .where("id", "=", userId)
-      .forShare()
-      .executeTakeFirstOrThrow();
-    if (user.deleted_at) throw accountDeleted();
+    await holdStanding(trx, userId);
     const existing = await trx
       .selectFrom("devices")
       .selectAll()

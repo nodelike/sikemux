@@ -17,7 +17,7 @@ import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
 import { dropSeatProofs } from "../account/proofs.ts";
-import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { holdStanding, requireIdentity, type AuthEnv } from "../auth.ts";
 import { requireBillingAccess } from "../billing/access.ts";
 import { makeDueCalls } from "../billing/calls.ts";
 import { payerLeft } from "../billing/payer.ts";
@@ -173,11 +173,7 @@ export function orgRoutes({
       const { userId } = c.get("identity");
       const { name } = await readBody(c, "OrgCreate");
       const org = await db.transaction().execute(async (trx) => {
-        await trx
-          .insertInto("users")
-          .values({ id: userId })
-          .onConflict((oc) => oc.column("id").doNothing())
-          .execute();
+        await holdStanding(trx, userId);
         const created = await trx
           .insertInto("orgs")
           .values({ name: orgName(name), created_by: userId })

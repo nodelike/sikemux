@@ -1,6 +1,7 @@
 import type { Kysely } from "kysely";
 
 import type { ClerkBackend } from "../account/clerk.ts";
+import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { ApiFailure } from "../http.ts";
 import type { Logger } from "../log.ts";
@@ -108,15 +109,19 @@ export async function ownCustomer(
         );
     }
   }
-  await db
-    .insertInto("billing_people")
-    .values({
-      provider: provider.name,
-      user_id: userId,
-      provider_customer_id: found.id,
-    })
-    .onConflict((oc) => oc.columns(["provider", "user_id"]).doNothing())
-    .execute();
+  const customerId = found.id;
+  await db.transaction().execute(async (trx) => {
+    await holdStanding(trx, userId);
+    await trx
+      .insertInto("billing_people")
+      .values({
+        provider: provider.name,
+        user_id: userId,
+        provider_customer_id: customerId,
+      })
+      .onConflict((oc) => oc.columns(["provider", "user_id"]).doNothing())
+      .execute();
+  });
   const kept = await customers.recorded(userId);
   if (!kept) throw new Error("The person's customer was not recorded.");
   return kept;

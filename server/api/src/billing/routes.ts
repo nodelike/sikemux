@@ -12,7 +12,7 @@ import { Hono, type Context } from "hono";
 import { type Kysely, type Selectable } from "kysely";
 
 import { audit } from "../audit.ts";
-import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { holdStanding, requireIdentity, type AuthEnv } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import {
   ApiFailure,
@@ -464,11 +464,7 @@ export function billingRoutes({
       );
 
     const customer = await db.transaction().execute(async (trx) => {
-      await trx
-        .insertInto("users")
-        .values({ id: userId })
-        .onConflict((oc) => oc.column("id").doNothing())
-        .execute();
+      await holdStanding(trx, userId);
       const values =
         "userId" in payer
           ? { user_id: payer.userId, provider: ready.name }
@@ -528,19 +524,22 @@ export function billingRoutes({
       unit,
       returnUrl: `${appOrigin}/billing`,
     });
-    await db
-      .insertInto("billing_checkouts")
-      .values({
-        provider: ready.name,
-        provider_checkout_id: checkout.providerCheckoutId,
-        customer_id: customer.id,
-        opened_by: userId,
-        provider_customer_id: providerCustomerId,
-        product: sold.id,
-        interval: request.interval,
-        quantity: request.quantity,
-      })
-      .execute();
+    await db.transaction().execute(async (trx) => {
+      await holdStanding(trx, userId);
+      await trx
+        .insertInto("billing_checkouts")
+        .values({
+          provider: ready.name,
+          provider_checkout_id: checkout.providerCheckoutId,
+          customer_id: customer.id,
+          opened_by: userId,
+          provider_customer_id: providerCustomerId,
+          product: sold.id,
+          interval: request.interval,
+          quantity: request.quantity,
+        })
+        .execute();
+    });
     await audit(db, {
       userId,
       actor: `user:${userId}`,

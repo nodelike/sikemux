@@ -5,7 +5,7 @@ import type { Kysely, Selectable, Transaction } from "kysely";
 
 import type { ClerkBackend, Person } from "../account/clerk.ts";
 import { audit } from "../audit.ts";
-import { accountDeleted, type AuthEnv } from "../auth.ts";
+import { holdStanding, type AuthEnv } from "../auth.ts";
 import { seatLimit, seatsHeld } from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
@@ -147,18 +147,7 @@ export async function admit(
     detail: Record<string, unknown>;
   },
 ) {
-  await trx
-    .insertInto("users")
-    .values({ id: userId })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
-  const account = await trx
-    .selectFrom("users")
-    .select("deleted_at")
-    .where("id", "=", userId)
-    .forShare()
-    .executeTakeFirstOrThrow();
-  if (account.deleted_at) throw accountDeleted();
+  await holdStanding(trx, userId);
   const org = await trx
     .selectFrom("orgs")
     .selectAll()
