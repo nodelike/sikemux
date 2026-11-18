@@ -7,7 +7,7 @@
 // The app's processes are every process whose program lives inside the bundle, and every
 // process those started. Agent CLIs are the `claude` processes among them and what they
 // started, unless that program is itself inside the bundle.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -87,9 +87,7 @@ function footprint(entries) {
   const file = join(scratch, "footprint.json");
   const args = ["--noCategories", "-f", "bytes", "-j", file];
   for (const entry of entries) args.push("-p", String(entry.pid));
-  try {
-    execFileSync("footprint", args, { stdio: "ignore" });
-  } catch {}
+  spawnSync("footprint", args, { stdio: "ignore" });
   const report = JSON.parse(readFileSync(file, "utf8"));
   return {
     total: report["total footprint"],

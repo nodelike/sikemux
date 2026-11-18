@@ -95,10 +95,12 @@ const server = http.createServer(async (request, response) => {
   };
   if (path.endsWith("/messages/count_tokens")) return json(200, { input_tokens: 10 });
   if (path.endsWith("/messages")) {
-    let parsed = {};
+    let parsed;
     try {
       parsed = JSON.parse(body);
-    } catch {}
+    } catch {
+      parsed = {};
+    }
     for (const match of body.matchAll(/bench session (\d+)/g)) sessions.add(match[1]);
     const model = parsed.model ?? "claude-bench";
     const block = nextWorkspace(parsed) ?? { type: "text", text: reply };

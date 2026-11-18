@@ -10,7 +10,7 @@
 //
 // Orca and Conductor write their settings into the home folder's agent configs, so they
 // run only as a macOS user named `bench`, kept for this.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
@@ -190,9 +190,7 @@ const drivers = {
     },
     quit() {
       run("osascript", ["-e", 'tell application "Orca" to quit']);
-      try {
-        run("pkill", ["-f", `${this.bundle}/Contents/Resources/app.asar.unpacked/.*daemon-entry`]);
-      } catch {}
+      spawnSync("pkill", ["-f", `${this.bundle}/Contents/Resources/app.asar.unpacked/.*daemon-entry`]);
     },
   },
 
@@ -272,7 +270,9 @@ try {
 } finally {
   try {
     driver.quit();
-  } catch {}
+  } catch (error) {
+    say(`could not quit ${appName}: ${error.message}`);
+  }
   await sleep(5000);
   fake.kill();
   if (!options.keep) rmSync(work, { recursive: true, force: true });
