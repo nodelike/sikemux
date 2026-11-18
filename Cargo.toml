@@ -95,6 +95,20 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.url]
 opt-level = "z"
+[profile.release.package.idna]
+opt-level = "z"
+[profile.release.package.idna_adapter]
+opt-level = "z"
+[profile.release.package.icu_normalizer]
+opt-level = "z"
+[profile.release.package.icu_properties]
+opt-level = "z"
+[profile.release.package.icu_collections]
+opt-level = "z"
+[profile.release.package.icu_locale_core]
+opt-level = "z"
+[profile.release.package.icu_provider]
+opt-level = "z"
 # The board's cards change when the person or an agent acts on one.
 [profile.release.package.sikemux-board]
 opt-level = "z"
