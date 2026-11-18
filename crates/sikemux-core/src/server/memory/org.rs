@@ -23,7 +23,7 @@ pub(super) const MAX_BODY: usize = 60 * 1024;
 const TRIES: usize = 3;
 
 /// A project open here that this account's person shares with an org.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(super) struct Shared {
     pub(super) org: String,
     /// The org's name, as its members see it.
@@ -281,8 +281,13 @@ async fn sync(core: &Arc<Core>) {
         let memory = core.memory();
         let mut state = memory.state.locked();
         end(core, &mut state, &shared, &unheard);
+        let reshut = state.shut != shut;
         state.shared = shared.clone();
         state.shut = shut;
+        if reshut {
+            drop(state);
+            tell_clients(core, false);
+        }
     }
     for (local, shared) in &shared {
         mirror(core, shared);
@@ -425,7 +430,7 @@ fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>, unheard: &
         }
         core.memory().forget(state, &key);
     }
-    if told || !state.shared.is_empty() || !now.is_empty() {
+    if told || state.shared != *now {
         tell_clients(core, false);
     }
 }
