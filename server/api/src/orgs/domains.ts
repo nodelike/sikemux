@@ -145,6 +145,7 @@ export function domainRoutes(
   limiter: RateLimiter,
   clerk: ClerkBackend | null,
   txtRecords: Services["txtRecords"],
+  callProvider: (c: Context<AuthEnv>) => Promise<void>,
 ) {
   const managing = async (
     c: Context<AuthEnv>,
@@ -217,6 +218,7 @@ export function domainRoutes(
           detail: { via: "domain", domain: claim.domain },
         });
       });
+      await callProvider(c);
       c.get("log").info({ orgId }, "joined an org by its domain");
       return c.json(await orgBody(db, org, "user"));
     })

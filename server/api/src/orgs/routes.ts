@@ -566,7 +566,7 @@ export function orgRoutes({
       },
     )
     .route("/", teamRoutes(db, limiter))
-    .route("/", domainRoutes(db, limiter, clerk, txtRecords))
+    .route("/", domainRoutes(db, limiter, clerk, txtRecords, callProvider))
     .route("/", auditRoutes(db, people))
     .route("/", policyRoutes(db, limiter));
 }

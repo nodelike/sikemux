@@ -22,6 +22,7 @@ import {
   readBody,
 } from "../http.ts";
 import { perUser } from "../limits.ts";
+import { makeDueCalls } from "../billing/calls.ts";
 import { inviteTokenHash, seatsChanged } from "../orgs/shared.ts";
 import { refusalOf, type SignUpRefusal } from "./admission.ts";
 import type { ClerkBackend, SignUp } from "./clerk.ts";
@@ -434,9 +435,15 @@ export function foldRoutes({
   limiter,
   clerk,
   addressProofKey: proofKey,
+  billing: { provider },
 }: Pick<
   Services,
-  "database" | "signInVerifier" | "limiter" | "clerk" | "addressProofKey"
+  | "database"
+  | "signInVerifier"
+  | "limiter"
+  | "clerk"
+  | "addressProofKey"
+  | "billing"
 >) {
   const refusal = async (userId: string, signUp: SignUp) => {
     const user = await db
@@ -688,6 +695,7 @@ export function foldRoutes({
         },
       });
       const log = c.get("log");
+      if (provider) await makeDueCalls(db, provider, log);
       log.info({ folded: side.from }, "folded an account");
       if (side.from) await deleteInClerk(db, clerk, log, side.from);
       return c.body(null, 204);
