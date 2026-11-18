@@ -14,6 +14,7 @@ use sikemux_process::sync::Locked;
 
 use super::ask_aside::{self, MAX_QUESTION_CHARS};
 use sikemux_calls::board::TeammateAskingParams;
+use sikemux_remote::server::account::OrgPolicy;
 use sikemux_view::task_list::{AskingOff, ProjectTasks, TeammateAsk, TeammateAsks};
 
 use super::changed::{ChangedCore, Topic, What};
@@ -26,8 +27,6 @@ use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::sessions::asked::may_hold_secret;
 
-/// How many questions one person's agents may ask this person's in a day, across projects.
-const ASKS_A_DAY: usize = 30;
 /// How many of one person's questions may be answered at once.
 const AT_ONCE: usize = 2;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -135,7 +134,7 @@ impl Teammates {
 
     /// Takes one of `member`'s questions for the day and one of their places at once, or says
     /// why there is none.
-    fn take(&self, member: &str, now: u64) -> Result<Answering<'_>, String> {
+    fn take(&self, member: &str, daily: usize, now: u64) -> Result<Answering<'_>, String> {
         let mut answering = self.answering.locked();
         let at_once = answering.entry(member.to_owned()).or_default();
         if *at_once >= AT_ONCE {
@@ -149,9 +148,9 @@ impl Teammates {
             !times.is_empty()
         });
         let times = kept.asked.entry(member.to_owned()).or_default();
-        if times.len() >= ASKS_A_DAY {
+        if times.len() >= daily {
             return Err(format!(
-                "Your agents have asked {ASKS_A_DAY} questions here in the last day, as many as a day allows."
+                "Your agents have asked {daily} questions here in the last day, as many as your org allows a day."
             ));
         }
         times.push(now);
@@ -196,8 +195,9 @@ pub(crate) async fn ask(
         .flat_map(|list| &list.members)
         .find(|member| member.id == asker.member)
         .and_then(|member| member.image_url.clone());
+    let policy = sikemux_remote::server::account::org_policy(core, &asker.org).await;
     let core = core.clone();
-    blocking(move || answer(&core, &asker, &project, task, &question).map_err(Into::into))
+    blocking(move || answer(&core, &asker, &policy, &project, task, &question).map_err(Into::into))
         .await
         .map_err(|error| error.to_string())
 }
@@ -206,6 +206,7 @@ pub(crate) async fn ask(
 pub(crate) fn answer(
     core: &Core,
     asker: &Asker,
+    policy: &OrgPolicy,
     project: &str,
     task: u64,
     question: &str,
@@ -232,6 +233,9 @@ pub(crate) fn answer(
         return facts_only(
             "The owner has turned asking off for this project. These are the board's facts.".into(),
         );
+    }
+    if !policy.asking {
+        return facts_only("Your org has turned asking off. These are the board's facts.".into());
     }
     let owner = owner_name(core);
     let asks = &core.harness().mailbox.asks;
@@ -295,7 +299,10 @@ pub(crate) fn answer(
         keep("", "", line);
         return facts_only(line.into());
     };
-    let _answering = match asks.teammates.take(&asker.member, now) {
+    let _answering = match asks
+        .teammates
+        .take(&asker.member, policy.daily_questions as usize, now)
+    {
         Ok(answering) => answering,
         Err(line) => return facts_only(format!("{line} These are the board's facts.")),
     };
