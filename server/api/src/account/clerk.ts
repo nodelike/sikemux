@@ -7,6 +7,8 @@ export interface ClerkBackend {
   profile(userId: string): Promise<Omit<AccountProfile, "staff">>;
   /** The user's primary email once Clerk has verified it, else null. */
   verifiedEmail(userId: string): Promise<string | null>;
+  /** The domains of every address on the user that Clerk has verified, lowercased; the addresses themselves never leave here. */
+  verifiedDomains(userId: string): Promise<string[]>;
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
   revokeSession(sessionId: string): Promise<void>;
@@ -100,6 +102,17 @@ export function clerkBackend(
       return address?.verification?.status === "verified"
         ? (address.email_address ?? null)
         : null;
+    },
+    verifiedDomains: async (userId) => {
+      const { user } = await primaryEmail(userId);
+      const domains = (user?.email_addresses ?? []).flatMap((address) => {
+        const email = address.email_address ?? "";
+        const at = email.lastIndexOf("@");
+        return address.verification?.status === "verified" && at > 0
+          ? [email.slice(at + 1).toLowerCase()]
+          : [];
+      });
+      return [...new Set(domains)];
     },
     people: async (userIds) => {
       const query = new URLSearchParams({ limit: "100" });

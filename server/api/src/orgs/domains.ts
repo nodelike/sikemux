@@ -63,11 +63,9 @@ function domainBody(row: Selectable<Tables["org_domains"]>): OrgDomain {
 const isTaken = (error: unknown) =>
   (error as { code?: string }).code === "23505";
 
-/** The domain of the person's verified sign-in email, read now and never kept. */
-async function emailDomain(clerk: ClerkBackend | null, userId: string) {
-  const email = clerk ? await clerk.verifiedEmail(userId) : null;
-  const at = email?.lastIndexOf("@") ?? -1;
-  return email && at > 0 ? email.slice(at + 1).toLowerCase() : null;
+/** The domains of the person's verified addresses, read now and never kept. */
+async function emailDomains(clerk: ClerkBackend | null, userId: string) {
+  return clerk ? await clerk.verifiedDomains(userId) : [];
 }
 
 /** Email domains an org proves it owns, and joining an org through one. */
@@ -113,8 +111,8 @@ export function domainRoutes(
   return new Hono<AuthEnv>()
     .get("/offers", perUser(limiter, "org-offers", 60), async (c) => {
       const { userId } = c.get("identity");
-      const domain = await emailDomain(clerk, userId);
-      const rows = domain
+      const domains = await emailDomains(clerk, userId);
+      const rows = domains.length
         ? await db
             .selectFrom("org_domains")
             .innerJoin("orgs", "orgs.id", "org_domains.org_id")
@@ -124,7 +122,7 @@ export function domainRoutes(
               "org_domains.domain",
               "org_domains.joining",
             ])
-            .where("org_domains.domain", "=", domain)
+            .where("org_domains.domain", "in", domains)
             .where("org_domains.verified_at", "is not", null)
             .where(({ not, exists, selectFrom }) =>
               not(
@@ -154,17 +152,18 @@ export function domainRoutes(
     .post("/offers/join", perUser(limiter, "join-org", 10), async (c) => {
       const { userId } = c.get("identity");
       const { orgId } = await readBody(c, "OrgDomainJoin");
-      const domain = await emailDomain(clerk, userId);
+      const domains = await emailDomains(clerk, userId);
       const NOT_YOURS =
-        "Your verified sign-in email is not at a domain that org proved it owns.";
-      if (!domain || !isUuid(orgId)) throw notFound(NOT_YOURS);
+        "None of your verified email addresses is at a domain that org proved it owns.";
+      if (!domains.length || !isUuid(orgId)) throw notFound(NOT_YOURS);
       const org = await db.transaction().execute(async (trx) => {
         const claim = await trx
           .selectFrom("org_domains")
           .select("domain")
           .where("org_id", "=", orgId)
-          .where("domain", "=", domain)
+          .where("domain", "in", domains)
           .where("verified_at", "is not", null)
+          .orderBy("domain")
           .executeTakeFirst();
         if (!claim) throw notFound(NOT_YOURS);
         return admit(trx, {
@@ -172,7 +171,7 @@ export function domainRoutes(
           userId,
           role: "user",
           invitedBy: null,
-          detail: { via: "domain", domain },
+          detail: { via: "domain", domain: claim.domain },
         });
       });
       c.get("log").info({ orgId }, "joined an org by its domain");

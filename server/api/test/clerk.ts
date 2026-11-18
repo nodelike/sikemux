@@ -23,6 +23,11 @@ export class FakeClerk implements ClerkBackend {
     return `verified address of ${userId}`;
   }
 
+  async verifiedDomains(): Promise<string[]> {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return [];
+  }
+
   async people(userIds: string[]) {
     if (this.failing) throw new Error("Clerk answered 500");
     return new Map(

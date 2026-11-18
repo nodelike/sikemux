@@ -30,6 +30,7 @@ const PEOPLE = [
     id: "user_standinjonah",
     name: "Jonah Lindqvist",
     domain: "fjord.test",
+    alsoAt: ["lumen.test"],
   },
   {
     key: "amara",
@@ -64,12 +65,17 @@ function user(person: (typeof PEOPLE)[number]) {
     email_address: `${person.key}@${person.domain}`,
     verification: { status: "verified" },
   };
+  const more = ("alsoAt" in person ? person.alsoAt : []).map((domain) => ({
+    id: `idn_${person.key}_${domain}`,
+    email_address: `${person.key}@${domain}`,
+    verification: { status: "verified" },
+  }));
   return {
     id: person.id,
     first_name: first,
     last_name: rest.join(" "),
     primary_email_address_id: email.id,
-    email_addresses: [email],
+    email_addresses: [email, ...more],
   };
 }
 

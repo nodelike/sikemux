@@ -82,7 +82,7 @@ export function TeamPage({ follow }: { follow: Follow }) {
     reload();
   };
   const offered = offers.offers.length ? (
-    <Section label="Orgs at your email's domain">
+    <Section label="Orgs at your email domains">
       <Rows>
         {offers.offers.map((offer) => (
           <OfferRow key={offer.orgId} offer={offer} onJoined={joined} />
