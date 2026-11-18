@@ -32,3 +32,6 @@ snap rules-org-waiting
 core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Deploy previews with the staging token in 1Password.\",\"goal\":null,\"sensitive\":true,\"store\":\"project\"}}"
 settle 4
 snap rules-org-sensitive
+move 1000,320 0.3
+settle 1
+snap rules-org-sensitive-hover
