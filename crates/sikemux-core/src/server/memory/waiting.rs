@@ -264,6 +264,28 @@ impl Waiting {
     pub(super) fn is_sensitive(sensitive: bool, text: &str) -> bool {
         sensitive || may_hold_secret(text)
     }
+
+    /// Whether the entry, in its words and mark as they are now, may go to an org's admins.
+    fn may_leave(&self) -> Result<(), String> {
+        match self.sensitive() {
+            true => Err(SENSITIVE.to_owned()),
+            false => Ok(()),
+        }
+    }
+}
+
+/// Takes off the waiting list each entry that may no longer go to the org's admins, such as one
+/// reworded into a credential while it waited, and marks it refused with why. True when one came
+/// off.
+pub(super) fn recheck(held: &mut Held) -> bool {
+    let unfit: Vec<(u64, String)> = (held.waiting.iter())
+        .filter_map(|id| Some((*id, Waiting::of(held, *id)?.may_leave().err()?)))
+        .collect();
+    for (id, why) in &unfit {
+        held.waiting.remove(id);
+        held.refused.insert(*id, why.clone());
+    }
+    !unfit.is_empty()
 }
 
 /// Puts entry `id` of the project's own store under `local` on the org's waiting list, unless it
@@ -275,8 +297,7 @@ pub(super) fn wait(state: &mut State, local: &str, id: u64) -> Result<(), String
     let in_org = org_words(state, &org_key, |_| true);
     let held = (state.held.get_mut(local)).ok_or("the store went while it was being written to")?;
     let entry = Waiting::of(held, id);
-    if entry.as_ref().is_some_and(Waiting::sensitive) {
-        let why = SENSITIVE.to_owned();
+    if let Some(Err(why)) = entry.as_ref().map(Waiting::may_leave) {
         held.refused.insert(id, why.clone());
         return Err(why);
     }
@@ -367,13 +388,20 @@ fn withdraw_calls(core: &Core, local: &str, shared: &Shared) {
 /// without an owner or admin.
 fn take_up(core: &Core, local: &str) {
     let (project, ids) = {
-        let state = core.memory().state.locked();
+        let memory = core.memory();
+        let mut state = memory.state.locked();
+        let Some(held) = state.held.get_mut(local) else {
+            return;
+        };
+        if recheck(held) {
+            memory.save(&mut state, local);
+        }
         let Some(held) = state
             .held
             .get(local)
             .filter(|held| !held.waiting.is_empty())
         else {
-            return;
+            return tell_clients(core, false);
         };
         let project = (state.keys.iter()).find(|(_, key)| *key == local);
         let Some((project, _)) = project else {
@@ -455,7 +483,7 @@ fn settle(core: &Core, local: &str, shared: &Shared, drops: &Drops, list: &mut M
     };
     let tag = format!("{}:", store_tag(local));
     let text = |held: &Held, id: u64| Waiting::of(held, id).map(|e| e.text().to_lowercase());
-    let mut changed = false;
+    let mut changed = recheck(held);
     let ids: Vec<u64> = (held.waiting.iter().chain(held.dropped.keys()).copied()).collect();
     for id in ids {
         let Some(text) = text(held, id) else {
@@ -616,7 +644,8 @@ fn ask(core: &Core, local: &str, shared: &Shared, lists: &BTreeMap<String, Mine>
         })
         .filter(|(member, item, entry)| {
             let dropped = drops.items.get(&dropped_key(member, item));
-            !dropped.is_some_and(|dropped| dropped.words == words(entry.text()))
+            entry.may_leave().is_ok()
+                && !dropped.is_some_and(|dropped| dropped.words == words(entry.text()))
                 && !in_org.contains(&entry.text().to_lowercase())
         })
         .map(|(member, item, entry)| (call_key(shared, member, item, entry), (member, entry)))

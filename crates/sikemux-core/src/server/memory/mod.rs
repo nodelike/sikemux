@@ -957,6 +957,9 @@ fn change(
     if update.retire {
         state.wanted.remove(&id);
     }
+    if let Some(held) = state.held.get_mut(&key) {
+        waiting::recheck(held);
+    }
     core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, stale_moved);
