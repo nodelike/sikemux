@@ -578,6 +578,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     if !vault.waiting.is_empty() {
         add_keys(core, org, secret, &vault, &key).await?;
     }
+    // A rotation reseals every entry, so an answer at a new generation lists them all.
     let partial = vault.since.is_some() && held.generation == vault.generation;
     let mut entries = match partial {
         true => held.entries.clone(),

@@ -68,6 +68,13 @@ export async function allowPut(
  * of members who left.
  */
 export async function dropUnshared(trx: Transaction<Tables>, orgId: string) {
+  const vault = await trx
+    .selectFrom("org_vaults")
+    .select("org_id")
+    .where("org_id", "=", orgId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!vault) return;
   const dropped = await trx
     .deleteFrom("org_vault_entries")
     .where("org_id", "=", orgId)
