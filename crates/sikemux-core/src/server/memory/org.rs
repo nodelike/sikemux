@@ -3,7 +3,7 @@
 //! and writes its person's changes back over the revision it last read, so a write that crossed
 //! another member's is redone on top of theirs.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use sikemux_view::memory::{Knowledge, MemoryRule, Moved, Store};
 
-use super::{holding, tell_clients, Held, State};
+use super::{holding, holding_or_personal, tell_clients, Held, State};
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY, PROJECT_MEMORY_WAITING};
@@ -50,6 +50,14 @@ impl Shared {
     pub(super) fn waiting_id(&self) -> String {
         vault::project_entry_id(PROJECT_MEMORY_WAITING, &self.project)
     }
+}
+
+/// The project's own store and this account's membership an org's store was kept for.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct KeptFor {
+    pub(super) local: String,
+    member: String,
 }
 
 /// What the vault's entry of a project's store holds.
@@ -239,35 +247,52 @@ async fn shared(core: &Core) -> Option<HashMap<String, Shared>> {
     Some(shared)
 }
 
-/// Ends the org's store of each project open here that nobody shares with the org any more:
-/// what this account's person put there comes back to the project's own store, and the rest goes.
+/// Ends each org's store kept here that no project open here is shared with any more: what this
+/// account's person put there comes back to the project's own store, and the rest goes.
 fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>) {
-    let ended: Vec<(String, String, Shared)> = (state.shared.iter())
-        .filter(|(local, was)| (now.get(*local)).is_none_or(|is| is.key() != was.key()))
-        .map(|(local, was)| (local.clone(), was.key(), was.clone()))
+    let open: HashSet<String> = now.values().map(Shared::key).collect();
+    let was = |key: &str| {
+        (state.shared.iter())
+            .find(|(_, was)| was.key() == key)
+            .map(|(local, was)| KeptFor {
+                local: local.clone(),
+                member: was.member.clone(),
+            })
+    };
+    let ended: Vec<(String, Option<KeptFor>)> = (state.held.values())
+        .filter(|held| held.store == Store::Org && !open.contains(&held.key))
+        .map(|held| {
+            (
+                held.key.clone(),
+                held.kept_for.clone().or_else(|| was(&held.key)),
+            )
+        })
         .collect();
-    for (local, key, was) in ended {
+    let told = !ended.is_empty();
+    for (key, kept_for) in ended {
         let Some(org) = state.held.remove(&key) else {
             continue;
         };
-        let theirs = |id: u64| org.writers.get(&id) == Some(&was.member);
-        let rules: Vec<MemoryRule> = (org.rules.into_iter())
-            .filter(|rule| theirs(rule.id))
-            .collect();
-        let knowledge: Vec<Knowledge> = (org.knowledge.into_iter())
-            .filter(|known| theirs(known.id))
-            .collect();
-        if !rules.is_empty() || !knowledge.is_empty() {
-            if let Ok(own) = holding(state, &local, Store::Project) {
-                own.next = own.next.max(org.next);
-                own.rules.extend(rules);
-                own.knowledge.extend(knowledge);
+        if let Some(KeptFor { local, member }) = kept_for {
+            let theirs = |id: u64| org.writers.get(&id) == Some(&member);
+            let own = holding_or_personal(state, &local, Store::Project);
+            let to = own.key.clone();
+            own.next = own.next.max(org.next);
+            for rule in org.rules.into_iter().filter(|rule| theirs(rule.id)) {
+                if !(own.rules.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&rule.text)) {
+                    own.rules.push(rule);
+                }
             }
-            core.memory().save(state, &local);
+            for known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
+                if !(own.knowledge.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&known.text)) {
+                    own.knowledge.push(known);
+                }
+            }
+            core.memory().save(state, &to);
         }
         core.memory().forget(state, &key);
     }
-    if !state.shared.is_empty() || !now.is_empty() {
+    if told || !state.shared.is_empty() || !now.is_empty() {
         tell_clients(core, false);
     }
 }
@@ -294,10 +319,21 @@ fn mirror(core: &Core, shared: &Shared) {
     let memory = core.memory();
     let mut state = memory.state.locked();
     let key = shared.key();
+    let kept_for = local_key(&state, shared).map(|local| KeptFor {
+        local,
+        member: shared.member.clone(),
+    });
     let Ok(held) = holding(&mut state, &key, Store::Org) else {
         return;
     };
+    let refollowed = kept_for.is_some() && held.kept_for != kept_for;
+    if refollowed {
+        held.kept_for = kept_for;
+    }
     if (held.base.as_ref()).is_some_and(|base| base.revision == remote.revision) {
+        if refollowed {
+            memory.save(&mut state, &key);
+        }
         return;
     }
     let base = held.base.take().unwrap_or_default();
@@ -312,9 +348,12 @@ fn mirror(core: &Core, shared: &Shared) {
     held.knowledge = body.knowledge;
     held.writers = body.writers;
     held.base = Some(remote);
-    let renumbered = renumber_clashes(&mut state, shared);
+    let mut touched = renumber_clashes(&mut state, shared);
+    touched.extend(drop_copies(&mut state, shared));
+    touched.sort();
+    touched.dedup();
     memory.save(&mut state, &key);
-    for local in renumbered {
+    for local in touched {
         memory.save(&mut state, &local);
     }
     drop(state);
@@ -361,6 +400,31 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
     renumbered
 }
 
+/// Drops the entries of the project's own store whose words the org's store holds as this
+/// account's person put them there, so a store that ended and came back is not followed twice.
+fn drop_copies(state: &mut State, shared: &Shared) -> Option<String> {
+    let org = state.held.get(&shared.key())?;
+    let mine = |id: u64| org.writers.get(&id) == Some(&shared.member);
+    let rules: Vec<String> = (org.rules.iter())
+        .filter(|rule| mine(rule.id))
+        .map(|rule| rule.text.to_lowercase())
+        .collect();
+    let knowledge: Vec<String> = (org.knowledge.iter())
+        .filter(|known| mine(known.id))
+        .map(|known| known.text.to_lowercase())
+        .collect();
+    let local = local_key(state, shared)?;
+    let own = state.held.get_mut(&local)?;
+    let before = own.len();
+    let waiting = own.waiting.clone();
+    own.rules
+        .retain(|rule| waiting.contains(&rule.id) || !rules.contains(&rule.text.to_lowercase()));
+    own.knowledge.retain(|known| {
+        waiting.contains(&known.id) || !knowledge.contains(&known.text.to_lowercase())
+    });
+    (own.len() != before).then_some(local)
+}
+
 /// The key of the project's own store on this host.
 fn local_key(state: &State, shared: &Shared) -> Option<String> {
     (state.keys.values())
@@ -399,29 +463,24 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
             .map(|moved| moved.from.clone())
             .filter(|from| *from != key && state.held.contains_key(from))
             .or_else(|| local.clone())
+            .unwrap_or_else(|| super::PERSONAL.to_owned())
     };
     let mut touched = vec![key.clone()];
     for mut rule in added {
-        let Some(to) = home(&state, &rule.moved) else {
-            continue;
-        };
+        let to = home(&state, &rule.moved);
         rule.moved = None;
-        if let Ok(held) = holding(&mut state, &to, Store::Project) {
-            held.refused.insert(rule.id, why.to_owned());
-            held.rules.push(rule);
-            touched.push(to);
-        }
+        let held = holding_or_personal(&mut state, &to, Store::Project);
+        held.refused.insert(rule.id, why.to_owned());
+        held.rules.push(rule);
+        touched.push(held.key.clone());
     }
     for mut known in added_knowledge {
-        let Some(to) = home(&state, &known.moved) else {
-            continue;
-        };
+        let to = home(&state, &known.moved);
         known.moved = None;
-        if let Ok(held) = holding(&mut state, &to, Store::Project) {
-            held.refused.insert(known.id, why.to_owned());
-            held.knowledge.push(known);
-            touched.push(to);
-        }
+        let held = holding_or_personal(&mut state, &to, Store::Project);
+        held.refused.insert(known.id, why.to_owned());
+        held.knowledge.push(known);
+        touched.push(held.key.clone());
     }
     touched.sort();
     touched.dedup();

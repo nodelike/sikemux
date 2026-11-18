@@ -120,9 +120,34 @@ struct Held {
     /// Entries the org's vault would not take, kept here instead, with the vault's reason.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     refused: BTreeMap<u64, String>,
+    /// For an org's store, the project's own store and the membership it was kept for here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kept_for: Option<org::KeptFor>,
 }
 
 impl Held {
+    fn new(key: &str, store: Store) -> Self {
+        Self {
+            key: key.to_owned(),
+            store,
+            next: 1,
+            rules: Vec::new(),
+            knowledge: Vec::new(),
+            seeding: None,
+            set_aside: Vec::new(),
+            removed: Vec::new(),
+            not_now: BTreeSet::new(),
+            absorbed: Vec::new(),
+            mirrored: false,
+            writers: BTreeMap::new(),
+            base: None,
+            waiting: BTreeSet::new(),
+            dropped: BTreeMap::new(),
+            refused: BTreeMap::new(),
+            kept_for: None,
+        }
+    }
+
     fn len(&self) -> usize {
         self.rules.len() + self.knowledge.len()
     }
@@ -367,13 +392,30 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
         .collect();
     let memory = core.memory();
     let mut state = memory.state.locked();
-    let moves: Vec<(String, String)> = (keys.iter())
+    let renames: Vec<(String, String)> = (keys.iter())
         .filter(|(folder, key)| folder != key)
         .map(|(folder, key)| (folder.clone(), key.clone()))
         .chain(renamed.iter().cloned())
-        .filter(|(old, new)| old != new && state.held.contains_key(old))
+        .filter(|(old, new)| old != new)
         .collect();
     state.keys = keys;
+    for (old, new) in &renames {
+        if let Some(shared) = state.shared.remove(old) {
+            state.shared.insert(new.clone(), shared);
+        }
+        let following: Vec<String> = (state.held.values_mut())
+            .filter_map(|held| {
+                kept_for.local = new.clone();
+                Some(held.key.clone())
+            })
+            .collect();
+        for key in following {
+            memory.save(&mut state, &key);
+        }
+    }
+    let moves: Vec<(String, String)> = (renames.into_iter())
+        .filter(|(old, _)| state.held.contains_key(old))
+        .collect();
     if moves.is_empty() {
         return;
     }
@@ -483,24 +525,16 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
             "Sikemux already keeps rules and knowledge for {MAX_STORES} projects, as many as it can"
         ));
     }
-    Ok(state.held.entry(key.to_owned()).or_insert_with(|| Held {
-        key: key.to_owned(),
-        store,
-        next: 1,
-        rules: Vec::new(),
-        knowledge: Vec::new(),
-        seeding: None,
-        set_aside: Vec::new(),
-        removed: Vec::new(),
-        not_now: BTreeSet::new(),
-        absorbed: Vec::new(),
-        mirrored: false,
-        writers: BTreeMap::new(),
-        base: None,
-        waiting: BTreeSet::new(),
-        dropped: BTreeMap::new(),
-        refused: BTreeMap::new(),
-    }))
+    Ok((state.held.entry(key.to_owned())).or_insert_with(|| Held::new(key, store)))
+}
+
+/// What the store under `key` keeps, or the person's own store once no other can be kept.
+fn holding_or_personal<'a>(state: &'a mut State, key: &str, store: Store) -> &'a mut Held {
+    let (key, store) = match key != PERSONAL && holding(state, key, store).is_ok() {
+        true => (key, store),
+        false => (PERSONAL, Store::Personal),
+    };
+    (state.held.entry(key.to_owned())).or_insert_with(|| Held::new(key, store))
 }
 
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {

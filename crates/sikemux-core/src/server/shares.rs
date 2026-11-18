@@ -113,6 +113,37 @@ async fn reconcile(core: &Arc<Core>) {
     }
 }
 
+/// Takes back what this host registered under what renamed projects were known by before, and
+/// registers them under what they are known by now.
+pub(crate) fn renamed(core: &Core, renamed: &[(String, String)]) {
+    let Some(core) = core.arc() else {
+        return;
+    };
+    let before: Vec<String> = renamed.iter().map(|(old, _)| key(old)).collect();
+    tokio::spawn(async move {
+        let (Some(host), Some(registry)) = (core.remote().core_id(), shares::read(&core).await)
+        else {
+            return;
+        };
+        for list in &registry.orgs {
+            for mine in (list.mine.iter())
+                .filter(|mine| mine.host == host && before.contains(&mine.project))
+            {
+                let removal = ShareRemoval {
+                    org: list.org.clone(),
+                    project: mine.project.clone(),
+                };
+                if let Err(error) = shares::remove(&core, &removal).await {
+                    eprintln!(
+                        "sikemux core: a renamed project stayed on the account's registry: {error}"
+                    );
+                }
+            }
+        }
+        reconcile(&core).await;
+    });
+}
+
 /// Shares the project's board with `org`, in place of any org it was shared with.
 pub(crate) async fn share(
     core: &Arc<Core>,
