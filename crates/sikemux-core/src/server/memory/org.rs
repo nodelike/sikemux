@@ -528,7 +528,8 @@ fn local_key(state: &State, shared: &Shared) -> Option<String> {
 }
 
 /// Puts the org's store back as the vault last gave it, after the vault refused a change for
-/// `why`. What was added or moved here goes back to where it came from, saying why.
+/// `why`. What was added or moved here goes back to where it came from, and what was changed or
+/// retired here shows as it was, each saying why.
 fn give_back(core: &Core, shared: &Shared, why: &str) {
     let memory = core.memory();
     let mut state = memory.state.locked();
@@ -543,6 +544,15 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
         (base.body.rules.iter().any(|rule| rule.id == id))
             || (base.body.knowledge.iter().any(|known| known.id == id))
     };
+    let undone: Vec<u64> = (base.body.rules.iter())
+        .filter(|rule| !held.rules.contains(rule))
+        .map(|rule| rule.id)
+        .chain(
+            (base.body.knowledge.iter())
+                .filter(|known| !held.knowledge.iter().any(|mine| as_shared(mine) == **known))
+                .map(|known| known.id),
+        )
+        .collect();
     let writers = std::mem::take(&mut held.writers);
     let teammates = |id: u64| writers.get(&id).is_some_and(|by| *by != shared.member);
     let (theirs, added): (Vec<MemoryRule>, Vec<MemoryRule>) = (held.rules.drain(..))
@@ -556,6 +566,9 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
     held.rules = base.body.rules;
     held.knowledge = with_local_checks(base.body.knowledge, &had);
     held.writers = base.body.writers;
+    for id in undone {
+        (held.refused).insert(id, format!("{} keeps it as it was: {why}", shared.name));
+    }
     let local = local_key(&state, shared);
     let home = |state: &State, moved: &Option<Moved>| {
         (moved.as_ref())
@@ -644,6 +657,7 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                 let mut state = memory.state.locked();
                 if let Some(held) = state.held.get_mut(&key) {
                     held.base = Some(Base { revision, body });
+                    held.refused.clear();
                 }
                 memory.save(&mut state, &key);
                 return;
