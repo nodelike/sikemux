@@ -1,0 +1,69 @@
+name: Nightly
+run-name: Nightly
+
+# Starts Release on the newest commit of main that passed CI, at most once an hour, when it is newer
+# than the last nightly and the one still building. Release then cancels that older build, unless
+# it has not been building long enough to finish, so a busy main still publishes.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  start:
+    name: Start the newest green main
+    if: vars.NIGHTLY_HOLD == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start Release when main has something new
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # A nightly building longer than this is stuck behind the Mac queue, so a newer one replaces it.
+          REPLACE_AFTER_MINUTES: 90
+        run: |
+          newest="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // empty')"
+          if [[ -z "$newest" ]]; then
+            echo "No green CI run on main" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          last_tag="$(gh release list --limit 30 --json tagName --jq '[.[].tagName | select(test("^v.*-nightly\\."))][0] // empty')"
+          last=""
+          [[ -n "$last_tag" ]] && last="$(gh api "repos/$GH_REPO/commits/$last_tag" --jq .sha)"
+
+          building="$(gh run list --workflow release.yml --event workflow_dispatch --limit 20 \
+            --json status,displayTitle,createdAt \
+            --jq '[.[] | select(.status != "completed")][0] // empty | "\(.displayTitle | sub("^Release nightly from "; "")) \(.createdAt)"')"
+          building_sha="${building%% *}"
+          building_since="${building#* }"
+
+          is_newer() {
+            [[ -z "$2" ]] && return 0
+            [[ "$(gh api "repos/$GH_REPO/compare/$2...$1" --jq .status)" == ahead ]]
+          }
+          if ! is_newer "$newest" "$last" || ! is_newer "$newest" "$building_sha"; then
+            echo "Nothing newer than ${last_tag:-the last nightly} or the build in progress: $newest" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [[ -n "$building" ]]; then
+            minutes=$(( ($(date +%s) - $(date -d "$building_since" +%s)) / 60 ))
+            if (( minutes < REPLACE_AFTER_MINUTES )); then
+              echo "Letting the nightly from $building_sha finish (${minutes} min in); $newest goes next hour" >>"$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+
+          gh workflow run release.yml --ref main -f "sha=$newest"
+          echo "Started a nightly from $newest after ${last_tag:-no nightly}" >>"$GITHUB_STEP_SUMMARY"

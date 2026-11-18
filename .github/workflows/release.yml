@@ -1,32 +1,34 @@
 name: Release
-run-name: Release ${{ github.event_name == 'workflow_run' && format('nightly from {0}', github.event.workflow_run.head_sha) || github.ref_name }}
+run-name: Release ${{ github.event_name == 'workflow_dispatch' && format('nightly from {0}', inputs.sha) || github.ref_name }}
 
 # A stable release starts from a v* tag, which only the owner may push, and publishes a candidate
 # that only the staff feed serves; the Ship workflow makes it stable once it soaked there. A
-# nightly is built from each push to main as CI starts checking it, and once CI passes goes to the
-# staff feed at once and to nightly after a soak.
+# nightly is a commit of main that passed CI, which the Nightly workflow starts here at most once
+# an hour; it goes to the staff feed at once and to nightly after a soak.
 on:
   push:
     tags: ["v*"]
-  workflow_run:
-    workflows: [CI]
-    types: [in_progress]
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: The commit of main to build, which CI passed
+        required: true
+        type: string
 
 permissions:
   actions: read
   contents: read
   checks: write
 
-# Of the pushes to main that wait for a run, only the newest gets one.
+# A newer nightly replaces one still building; a stable release never cancels another.
 concurrency:
   group: release-${{ github.event_name }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 # Published builds send crashes to these Sentry projects; the addresses are public client keys.
 # The binaries this workflow starts to check them send nothing.
 env:
-  RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  RELEASE_SHA: ${{ inputs.sha || github.sha }}
   SIKEMUX_SENTRY_DSN: https://f980bd76fa1efc1c3446bbebf4ef1a69@o4512409824919552.ingest.de.sentry.io/4512409865814096
   SIKEMUX_NOTCH_SENTRY_DSN: https://6bd8fd04db6ded3d067200c485966e66@o4512409824919552.ingest.de.sentry.io/4512409865945168
   DO_NOT_TRACK: "1"
@@ -60,9 +62,9 @@ jobs:
           echo "passed=$passed" >>"$GITHUB_OUTPUT"
           echo "CI from the push passed: $passed" >>"$GITHUB_STEP_SUMMARY"
 
-      # A nightly builds while CI checks its commit, so once CI fails the builds have nothing to ship.
+      # A nightly started by hand on a commit that failed CI has nothing to ship.
       - name: Stop a nightly whose commit failed CI
-        if: github.event_name == 'workflow_run' && steps.wait.outputs.passed != 'true'
+        if: github.event_name == 'workflow_dispatch' && steps.wait.outputs.passed != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -79,10 +81,8 @@ jobs:
 
   plan:
     name: Plan the release
-    # Only pushes to main of this repository, while nightlies are not held by `scripts/nightly.sh hold`.
-    if: >-
-      github.event_name == 'push' || (github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository && vars.NIGHTLY_HOLD == '')
+    # Nightlies only while `scripts/nightly.sh hold` has not held them.
+    if: github.event_name == 'push' || vars.NIGHTLY_HOLD == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -92,21 +92,6 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
     steps:
-      # CI reports a run in progress more than once, and a re-run does again; the earliest Release keeps it.
-      - name: Stop if this commit already has a nightly run
-        if: github.event_name == 'workflow_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          earlier="$(gh run list -R "$GITHUB_REPOSITORY" --workflow release.yml --event workflow_run --limit 50 \
-            --json databaseId,displayTitle,conclusion \
-            --jq "[.[] | select(.databaseId < $GITHUB_RUN_ID and .displayTitle == \"Release nightly from $RELEASE_SHA\" and .conclusion != \"cancelled\" and .conclusion != \"skipped\")] | length")"
-          if (( earlier > 0 )); then
-            echo "Run for $RELEASE_SHA already started; stopping this one" >>"$GITHUB_STEP_SUMMARY"
-            gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
-            sleep 60
-          fi
-
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,8 +100,8 @@ jobs:
           fetch-tags: true
           persist-credentials: false
 
-      - name: Give a push to main its nightly version and notes
-        if: github.event_name == 'workflow_run'
+      - name: Give the commit of main its nightly version and notes
+        if: github.event_name == 'workflow_dispatch'
         run: scripts/stamp-nightly.sh
 
       - name: Resolve version, channel, and notes
