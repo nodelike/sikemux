@@ -768,12 +768,18 @@ fn offered_models(core: &Core, kind: &str, on_plan: bool, prices: &Prices) -> Ve
         })
         .collect();
     if !on_plan {
+        let recent = core.workspaces().recent_models(kind);
+        let recency = |value: &str| {
+            (recent.iter().position(|used| used.model == value)).unwrap_or(recent.len())
+        };
         choices.sort_by(|(a, a_price), (b, b_price)| {
             let cost = |price: &Option<(f64, f64)>| price.map(|(input, output)| input + output);
-            (b.is_default.cmp(&a.is_default)).then_with(|| match (cost(a_price), cost(b_price)) {
-                (Some(a), Some(b)) => a.total_cmp(&b),
-                (a, b) => b.is_some().cmp(&a.is_some()),
-            })
+            (recency(&a.value).cmp(&recency(&b.value)))
+                .then_with(|| b.is_default.cmp(&a.is_default))
+                .then_with(|| match (cost(a_price), cost(b_price)) {
+                    (Some(a), Some(b)) => a.total_cmp(&b),
+                    (a, b) => b.is_some().cmp(&a.is_some()),
+                })
         });
     }
     (choices.into_iter())

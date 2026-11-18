@@ -534,6 +534,12 @@ impl Workspaces {
     }
 
     /// The model and effort the person last picked for `kind`.
+    /// The models `kind`'s chats last started on, newest first.
+    pub fn recent_models(&self, kind: &str) -> Vec<RecentModel> {
+        let saved = &self.published.locked().saved;
+        saved.recent_models.get(kind).cloned().unwrap_or_default()
+    }
+
     pub fn model_pick(&self, kind: &str) -> Option<ModelPick> {
         self.published.locked().saved.model_picks.get(kind).cloned()
     }
