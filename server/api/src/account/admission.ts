@@ -12,6 +12,9 @@ export type Refusal =
   | { why: "domain"; domain: string; orgId: string; orgName: string }
   | { why: "address"; domain: string };
 
+/** A sign-up's refusal, with the verified address on it that was refused. */
+export type SignUpRefusal = Refusal & { address: string };
+
 const REFUSAL_SECONDS = 60;
 
 const refusingSince = new WeakMap<Kysely<Tables>, Promise<Date | null>>();
@@ -67,19 +70,27 @@ export async function workAddressRefusal(
 }
 
 /**
- * Whether a sign-up's address may not stand as an account of its own. A sign-in an account
- * already had is never taken away by a proof made later.
+ * Whether any verified address on a sign-up keeps it from standing as an account of its own,
+ * not only the main one: an address added and made main does not hide a work address. A sign-in
+ * an account already had is never taken away by a proof made later.
  */
 export async function refusalOf(
   db: Kysely<Tables>,
   proofKey: Buffer | null,
   userId: string,
   signUp: SignUp,
-): Promise<Refusal | null> {
-  if (!signUp.email) return null;
-  return workAddressRefusal(db, proofKey, signUp.email, signUp.createdAt, {
-    exceptUser: userId,
-  });
+): Promise<SignUpRefusal | null> {
+  for (const address of signUp.addresses) {
+    const refusal = await workAddressRefusal(
+      db,
+      proofKey,
+      address,
+      signUp.createdAt,
+      { exceptUser: userId },
+    );
+    if (refusal) return { ...refusal, address };
+  }
+  return null;
 }
 
 export function refusalWords(refusal: Refusal): string {

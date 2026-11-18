@@ -9,7 +9,7 @@ export interface ClerkBackend {
   verifiedEmail(userId: string): Promise<string | null>;
   /** The domains of every address on the user that Clerk has verified, lowercased; the addresses themselves never leave here. */
   verifiedDomains(userId: string): Promise<string[]>;
-  /** When the user was made and their primary address once verified; null once the user is gone. */
+  /** When the user was made and its verified addresses, main first; null once the user is gone. */
   signUp(userId: string): Promise<SignUp | null>;
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
@@ -33,7 +33,10 @@ export type Person = Pick<AccountProfile, "name" | "imageUrl">;
 
 export interface SignUp {
   createdAt: Date;
+  /** The main address, once Clerk has verified it. */
   email: string | null;
+  /** Every address Clerk has verified on the user, the main one first. */
+  addresses: string[];
 }
 
 type Fetch = (
@@ -135,7 +138,18 @@ export function clerkBackend(
     signUp: async (userId) => {
       const { user, verified } = await primaryEmail(userId);
       if (typeof user?.created_at !== "number") return null;
-      return { createdAt: new Date(user.created_at), email: verified };
+      const others = (user.email_addresses ?? []).flatMap((address) =>
+        address.verification?.status === "verified" &&
+        address.email_address &&
+        address.email_address !== verified
+          ? [address.email_address]
+          : [],
+      );
+      return {
+        createdAt: new Date(user.created_at),
+        email: verified,
+        addresses: verified ? [verified, ...others] : others,
+      };
     },
     verifiedDomains: async (userId) => {
       const { user } = await primaryEmail(userId);

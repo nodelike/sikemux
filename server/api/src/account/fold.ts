@@ -29,7 +29,7 @@ import {
 } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { inviteTokenHash, seatsChanged } from "../orgs/shared.ts";
-import { refusalOf, type Refusal } from "./admission.ts";
+import { refusalOf, type SignUpRefusal } from "./admission.ts";
 import type { ClerkBackend, SignUp } from "./clerk.ts";
 import { deleteInClerk } from "./deletion.ts";
 import { addressHash, domainOf } from "./proofs.ts";
@@ -425,12 +425,16 @@ export function foldRoutes({
     return user?.admitted_at ? null : refusalOf(db, proofKey, userId, signUp);
   };
 
-  const refusalOrg = async (found: Refusal, address: string) =>
+  const refusalOrg = async (found: SignUpRefusal) =>
     found.why === "domain"
       ? { id: found.orgId, name: found.orgName }
       : proofKey
-        ? await proofOrg(db, proofKey, address)
+        ? await proofOrg(db, proofKey, found.address)
         : null;
+
+  /** The address a fold brings over: the refused one, else the main one. */
+  const foldAddress = async (userId: string, signUp: SignUp) =>
+    (await refusal(userId, signUp))?.address ?? verifiedAddress(signUp);
 
   const requireProofKey = () => {
     if (!proofKey)
@@ -480,13 +484,13 @@ export function foldRoutes({
         .where("deleted_at", "is not", null)
         .executeTakeFirst();
       const found = await refusal(userId, signUp);
-      if (found && signUp.email) {
-        const org = await refusalOrg(found, signUp.email);
+      if (found) {
+        const org = await refusalOrg(found);
         const body: FoldCatch = {
           ask: true,
           mustFold: true,
           why: found.why,
-          address: signUp.email,
+          address: found.address,
           ...(org ? { orgName: org.name } : {}),
           ...(deletion?.purge_after
             ? { deletesAt: deletion.purge_after.toISOString() }
@@ -557,12 +561,12 @@ export function foldRoutes({
         const held = await holdings(db, userId);
         if (held.length) throw holdsTooMuch(held);
         const signUp = await signUpOf(clerk, userId);
-        const address = verifiedAddress(signUp);
         const found = await refusal(userId, signUp);
         if ((why === "domain" || why === "address") && found?.why !== why)
           throw conflict("This account's address is not verified for an org.");
+        const address = found?.address ?? verifiedAddress(signUp);
         const org = found
-          ? await refusalOrg(found, address)
+          ? await refusalOrg(found)
           : why === "invite"
             ? await inviteOrg(db, inviteToken)
             : null;
@@ -600,12 +604,14 @@ export function foldRoutes({
         userId,
       );
       const side = sideOf(intent, userId);
-      if (side.into === intent.into_user && intent.from_user === null)
-        await signUpOf(clerk, side.from).then(verifiedAddress);
-      else await requireAdmitted(side.into);
+      if (side.into !== intent.into_user || intent.from_user !== null)
+        await requireAdmitted(side.into);
       const held = await holdings(db, side.from);
       if (held.length) throw holdsTooMuch(held);
-      const address = verifiedAddress(await signUpOf(clerk, side.from));
+      const address = await foldAddress(
+        side.from,
+        await signUpOf(clerk, side.from),
+      );
       const kept = clerk ? await clerk.profile(side.into) : null;
       const seats = await db
         .selectFrom("org_users")
@@ -635,7 +641,7 @@ export function foldRoutes({
         proofKey: key,
         address: async (sides) => {
           if (sides.into === userId) await requireAdmitted(userId);
-          return verifiedAddress(await signUpOf(clerk, sides.from));
+          return foldAddress(sides.from, await signUpOf(clerk, sides.from));
         },
       });
       const log = c.get("log");

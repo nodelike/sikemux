@@ -31,7 +31,13 @@ export class FakeClerk implements ClerkBackend {
 
   async signUp(userId: string): Promise<SignUp | null> {
     if (this.failing) throw new Error("Clerk answered 500");
-    return this.signUps.get(userId) ?? { createdAt: new Date(0), email: null };
+    return (
+      this.signUps.get(userId) ?? {
+        createdAt: new Date(0),
+        email: null,
+        addresses: [],
+      }
+    );
   }
 
   async people(userIds: string[]) {
