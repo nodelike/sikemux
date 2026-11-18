@@ -16,7 +16,18 @@ export interface ClerkBackend {
   revokeSession(sessionId: string): Promise<void>;
   /** The access tokens Clerk holds from the user's web sign-ins with Apple; none for the phone's. */
   appleAccessTokens(userId: string): Promise<string[]>;
+  /** Every address and connected account on the user, for the API's own checks; null once the user is gone. Never log what it holds. */
+  signIns(userId: string): Promise<SignIns | null>;
+  setPrimaryAddress(userId: string, addressId: string): Promise<void>;
+  removeAddress(addressId: string): Promise<void>;
+  removeExternalAccount(userId: string, accountId: string): Promise<void>;
 }
+
+export type SignIns = {
+  primaryAddressId: string | null;
+  addresses: { id: string; email: string; verified: boolean; addedAt: Date }[];
+  externalAccounts: { id: string; provider: string; email: string }[];
+};
 
 export type Person = Pick<AccountProfile, "name" | "imageUrl">;
 
@@ -42,7 +53,13 @@ interface ClerkUser {
   email_addresses?: {
     id?: string;
     email_address?: string;
+    created_at?: number;
     verification?: { status?: string } | null;
+  }[];
+  external_accounts?: {
+    id?: string;
+    provider?: string;
+    email_address?: string;
   }[];
 }
 const TIMEOUT_MS = 10_000;
@@ -64,10 +81,14 @@ export function clerkBackend(
   fetcher: Fetch = fetch,
   base = CLERK_API,
 ): ClerkBackend {
-  const request = async (method: string, path: string) => {
+  const request = async (method: string, path: string, body?: object) => {
     const response = await fetcher(`${base}${path}`, {
       method,
-      headers: { authorization: `Bearer ${secretKey}` },
+      headers: {
+        authorization: `Bearer ${secretKey}`,
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (response.ok) return response;
@@ -75,8 +96,8 @@ export function clerkBackend(
     if (response.status === 404) return null;
     throw new Error(`Clerk answered ${response.status} to ${method} ${path}`);
   };
-  const call = async (method: string, path: string) => {
-    const response = await request(method, path);
+  const call = async (method: string, path: string, body?: object) => {
+    const response = await request(method, path, body);
     await response?.body?.cancel();
   };
   const checked = (id: string, prefix: string) => {
@@ -152,5 +173,46 @@ export function clerkBackend(
         typeof entry?.token === "string" && entry.token ? [entry.token] : [],
       );
     },
+    signIns: async (userId) => {
+      const { user } = await primaryEmail(userId);
+      if (!user) return null;
+      return {
+        primaryAddressId: user.primary_email_address_id ?? null,
+        addresses: (user.email_addresses ?? []).flatMap((address) =>
+          address.id && address.email_address
+            ? [
+                {
+                  id: address.id,
+                  email: address.email_address,
+                  verified: address.verification?.status === "verified",
+                  addedAt: new Date(address.created_at ?? 0),
+                },
+              ]
+            : [],
+        ),
+        externalAccounts: (user.external_accounts ?? []).flatMap((account) =>
+          account.id && account.provider
+            ? [
+                {
+                  id: account.id,
+                  provider: account.provider.replace(/^oauth_/, ""),
+                  email: account.email_address ?? "",
+                },
+              ]
+            : [],
+        ),
+      };
+    },
+    setPrimaryAddress: async (userId, addressId) =>
+      call("PATCH", `/v1/users/${checked(userId, "user")}`, {
+        primary_email_address_id: checked(addressId, "idn"),
+      }),
+    removeAddress: async (addressId) =>
+      call("DELETE", `/v1/email_addresses/${checked(addressId, "idn")}`),
+    removeExternalAccount: async (userId, accountId) =>
+      call(
+        "DELETE",
+        `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "(?:idn|eac)")}`,
+      ),
   };
 }

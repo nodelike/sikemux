@@ -146,6 +146,7 @@ export function createApp(services: Services) {
       webhookSecret,
       services.billing.provider,
       services.clerk,
+      services.addressProofKey,
     ),
   );
   app.route("/v1/hooks", hookRoutes(services));

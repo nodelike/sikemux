@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 
 import type { ClerkBackend } from "../account/clerk.ts";
+import { stripWorkSignIns } from "../account/sign-ins.ts";
 import { markDeleted } from "../account/deletion.ts";
 import { audit } from "../audit.ts";
 import { followAddress } from "../billing/customers.ts";
@@ -71,6 +72,7 @@ export function clerkWebhookRoutes(
   secret: string | null,
   provider: BillingProvider | null,
   clerk: ClerkBackend | null,
+  proofKey: Buffer | null,
 ) {
   const seen = new SeenIds();
   return new Hono<Env>().post("/clerk", async (c) => {
@@ -115,6 +117,8 @@ export function clerkWebhookRoutes(
       throw badRequest("The event names no Clerk user.");
 
     if (event.type === "user.updated") {
+      if (clerk)
+        await stripWorkSignIns(db, clerk, proofKey, c.get("log"), userId);
       if (provider && clerk)
         await followAddress(db, provider, clerk, c.get("log"), userId);
       seen.remember(id);

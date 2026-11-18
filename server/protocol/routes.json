@@ -399,6 +399,36 @@
     },
     {
       "method": "post",
+      "path": "/v1/account/sign-ins/check",
+      "operationId": "checkSignInAddress",
+      "summary": "Whether an address may become a way to sign in, before Clerk is asked to add it",
+      "auth": "session",
+      "request": "SignInAddressCheck",
+      "responses": {
+        "204": {
+          "description": "The address may be added."
+        },
+        "409": {
+          "description": "The address is a work address: at a domain an org verified, or already proven on an account. The message says which.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/sign-ins/tidy",
+      "operationId": "tidySignIns",
+      "summary": "Take work addresses off the account's sign-ins, and say once what was taken off",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "What was taken off since the person last asked; empty when nothing was.",
+          "body": "SignInsTidied"
+        }
+      }
+    },
+    {
+      "method": "post",
       "path": "/v1/account/fold/catch",
       "operationId": "getFoldCatch",
       "summary": "Whether to ask a new account's person if they already have an account",

@@ -706,6 +706,20 @@ Table account_folds {
   Note: '(from_user IS NOT NULL) OR (into_user IS NOT NULL); (done_at IS NULL) OR ((from_user IS NOT NULL) AND (into_user IS NOT NULL) AND (address_hash IS NOT NULL))'
 }
 
+Table sign_in_removals {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id text [not null]
+  domain text [not null, note: '(length(domain) >= 1) AND (length(domain) <= 253)']
+  org_name text
+  provider text
+  removed_at timestamptz [not null, default: `now()`]
+  told_at timestamptz
+
+  indexes {
+    user_id [name: 'sign_in_removals_untold', note: 'where (told_at IS NULL)']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -752,3 +766,4 @@ Ref: address_proofs.user_id > users.id [delete: cascade]
 Ref: account_folds.from_user > users.id [delete: cascade]
 Ref: account_folds.into_user > users.id [delete: cascade]
 Ref: account_folds.org_id > orgs.id [delete: set null]
+Ref: sign_in_removals.user_id > users.id [delete: cascade]

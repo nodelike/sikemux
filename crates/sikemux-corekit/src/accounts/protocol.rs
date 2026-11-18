@@ -1726,6 +1726,32 @@ pub struct ShedBoxes {
     pub quantity: i64,
 }
 
+/// An address the person is about to add as a way to sign in, checked before Clerk sends it a code. It is read and forgotten, never stored.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInAddressCheck {
+    pub email: String,
+}
+
+/// A way to sign in the API took off the account because its address is a work address: at a domain an org verified, or already proven on an account.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInRemoval {
+    pub domain: String,
+    /// The org that verified the domain; null when the address was proven on an account instead.
+    pub org_name: Option<String>,
+    /// The sign-in that brought the address, such as google; null for an address added on its own.
+    pub provider: Option<String>,
+    pub removed_at: String,
+}
+
+/// What was taken off the account since the person last saw it, each told once.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInsTidied {
+    pub removed: Vec<SignInRemoval>,
+}
+
 /// The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.
 pub type Staff = bool;
 
@@ -2146,6 +2172,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "ShareRegistry" => through::<ShareRegistry>(json),
         "ShareRemoval" => through::<ShareRemoval>(json),
         "ShedBoxes" => through::<ShedBoxes>(json),
+        "SignInAddressCheck" => through::<SignInAddressCheck>(json),
+        "SignInRemoval" => through::<SignInRemoval>(json),
+        "SignInsTidied" => through::<SignInsTidied>(json),
         "Staff" => through::<Staff>(json),
         "StashAdd" => through::<StashAdd>(json),
         "StashAddLink" => through::<StashAdd>(json),

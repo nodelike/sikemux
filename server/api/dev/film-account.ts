@@ -156,6 +156,7 @@ startNode(
     API_ORIGIN: api,
     APP_ORIGIN: appOrigin,
     BILLING_PROVIDER: "stand-in",
+    ADDRESS_PROOF_KEY: "0".repeat(64),
     LOG_LEVEL: "warn",
   },
   "api.log",

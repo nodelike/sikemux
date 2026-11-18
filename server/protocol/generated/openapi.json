@@ -881,6 +881,67 @@
         }
       }
     },
+    "/v1/account/sign-ins/check": {
+      "post": {
+        "operationId": "checkSignInAddress",
+        "summary": "Whether an address may become a way to sign in, before Clerk is asked to add it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SignInAddressCheck" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "The address may be added." },
+          "409": {
+            "description": "The address is a work address: at a domain an org verified, or already proven on an account. The message says which.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/sign-ins/tidy": {
+      "post": {
+        "operationId": "tidySignIns",
+        "summary": "Take work addresses off the account's sign-ins, and say once what was taken off",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "What was taken off since the person last asked; empty when nothing was.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SignInsTidied" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/account/fold/catch": {
       "post": {
         "operationId": "getFoldCatch",
@@ -8881,6 +8942,45 @@
           "quantity": { "type": "integer", "minimum": 1 }
         },
         "required": ["product", "quantity"],
+        "additionalProperties": false
+      },
+      "SignInAddressCheck": {
+        "description": "An address the person is about to add as a way to sign in, checked before Clerk sends it a code. It is read and forgotten, never stored.",
+        "type": "object",
+        "properties": {
+          "email": { "type": "string", "minLength": 3, "maxLength": 320 }
+        },
+        "required": ["email"],
+        "additionalProperties": false
+      },
+      "SignInRemoval": {
+        "description": "A way to sign in the API took off the account because its address is a work address: at a domain an org verified, or already proven on an account.",
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string" },
+          "orgName": {
+            "description": "The org that verified the domain; null when the address was proven on an account instead.",
+            "type": ["string", "null"]
+          },
+          "provider": {
+            "description": "The sign-in that brought the address, such as google; null for an address added on its own.",
+            "type": ["string", "null"]
+          },
+          "removedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["domain", "orgName", "provider", "removedAt"],
+        "additionalProperties": false
+      },
+      "SignInsTidied": {
+        "description": "What was taken off the account since the person last saw it, each told once.",
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SignInRemoval" }
+          }
+        },
+        "required": ["removed"],
         "additionalProperties": false
       },
       "Staff": {

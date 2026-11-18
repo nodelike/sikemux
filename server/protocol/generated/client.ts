@@ -87,6 +87,8 @@ import type {
   ShareRegistration,
   ShareRegistry,
   ShareRemoval,
+  SignInAddressCheck,
+  SignInsTidied,
   StashAdd,
   StashItem,
   StashList,
@@ -199,6 +201,11 @@ export function apiClient(send: Send) {
       send<AccountDeletion>("DELETE", `/v1/account`, body),
     /** Take back a deletion before it is final. */
     restoreAccount: () => send<Account>("POST", `/v1/account/restore`),
+    /** Whether an address may become a way to sign in, before Clerk is asked to add it. */
+    checkSignInAddress: (body: SignInAddressCheck) =>
+      send<void>("POST", `/v1/account/sign-ins/check`, body),
+    /** Take work addresses off the account's sign-ins, and say once what was taken off. */
+    tidySignIns: () => send<SignInsTidied>("POST", `/v1/account/sign-ins/tidy`),
     /** Whether to ask a new account's person if they already have an account. */
     getFoldCatch: (body: FoldCatchRequest) =>
       send<FoldCatch>("POST", `/v1/account/fold/catch`, body),

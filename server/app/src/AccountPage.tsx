@@ -1,17 +1,11 @@
 import { useUser } from "@clerk/react";
 import { IconMail, IconTrash } from "@shared/ui/Icons";
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent } from "react";
 
 import { Avatar } from "./Avatar.tsx";
-import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
 import { DELETE_ACCOUNT } from "./navigation.ts";
+import { PROVIDERS, SignInWaysSection } from "./SignInWays.tsx";
 import { ItemRow, PageHead, Row, Rows, Section } from "./ui.tsx";
-
-const PROVIDERS: Record<string, { name: string; mark: ReactNode }> = {
-  google: { name: "Google", mark: <GoogleMark /> },
-  apple: { name: "Apple", mark: <AppleMark /> },
-  github: { name: "GitHub", mark: <GitHubMark /> },
-};
 
 /** The ways the signed-in account can sign in, as the person knows them. */
 export function useSignInWays() {
@@ -32,7 +26,6 @@ export function AccountPage({
 }) {
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const ways = useSignInWays();
 
   return (
     <>
@@ -47,17 +40,9 @@ export function AccountPage({
               <span>{user?.fullName || user?.username || "No name yet"}</span>
             </Row>
             {email ? <Row label="Email">{email}</Row> : null}
-            <Row label="Signs in with">
-              {ways.map((way, index) => (
-                <span className="way" key={way.name}>
-                  {index > 0 ? <span className="quiet">·</span> : null}
-                  {way.mark}
-                  <span>{way.name}</span>
-                </span>
-              ))}
-            </Row>
           </Rows>
         </Section>
+        <SignInWaysSection />
         <Section label="Delete">
           <Rows>
             <ItemRow

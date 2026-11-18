@@ -1922,6 +1922,26 @@ export interface ShedBoxes {
   quantity: number;
 }
 
+/** An address the person is about to add as a way to sign in, checked before Clerk sends it a code. It is read and forgotten, never stored. */
+export interface SignInAddressCheck {
+  email: string;
+}
+
+/** A way to sign in the API took off the account because its address is a work address: at a domain an org verified, or already proven on an account. */
+export interface SignInRemoval {
+  domain: string;
+  /** The org that verified the domain; null when the address was proven on an account instead. */
+  orgName: string | null;
+  /** The sign-in that brought the address, such as google; null for an address added on its own. */
+  provider: string | null;
+  removedAt: string;
+}
+
+/** What was taken off the account since the person last saw it, each told once. */
+export interface SignInsTidied {
+  removed: SignInRemoval[];
+}
+
 /** The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it. */
 export type Staff = boolean;
 
@@ -2484,6 +2504,9 @@ export interface Definitions {
   ShareViewers: ShareViewers;
   ShareWantsSnapshot: ShareWantsSnapshot;
   ShedBoxes: ShedBoxes;
+  SignInAddressCheck: SignInAddressCheck;
+  SignInRemoval: SignInRemoval;
+  SignInsTidied: SignInsTidied;
   Staff: Staff;
   StashAdd: StashAdd;
   StashAddLink: StashAddLink;

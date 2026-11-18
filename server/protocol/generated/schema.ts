@@ -3361,6 +3361,45 @@ export const schema = {
       required: ["product", "quantity"],
       additionalProperties: false,
     },
+    SignInAddressCheck: {
+      description:
+        "An address the person is about to add as a way to sign in, checked before Clerk sends it a code. It is read and forgotten, never stored.",
+      type: "object",
+      properties: { email: { type: "string", minLength: 3, maxLength: 320 } },
+      required: ["email"],
+      additionalProperties: false,
+    },
+    SignInRemoval: {
+      description:
+        "A way to sign in the API took off the account because its address is a work address: at a domain an org verified, or already proven on an account.",
+      type: "object",
+      properties: {
+        domain: { type: "string" },
+        orgName: {
+          description:
+            "The org that verified the domain; null when the address was proven on an account instead.",
+          type: ["string", "null"],
+        },
+        provider: {
+          description:
+            "The sign-in that brought the address, such as google; null for an address added on its own.",
+          type: ["string", "null"],
+        },
+        removedAt: { type: "string", format: "date-time" },
+      },
+      required: ["domain", "orgName", "provider", "removedAt"],
+      additionalProperties: false,
+    },
+    SignInsTidied: {
+      description:
+        "What was taken off the account since the person last saw it, each told once.",
+      type: "object",
+      properties: {
+        removed: { type: "array", items: { $ref: "#/$defs/SignInRemoval" } },
+      },
+      required: ["removed"],
+      additionalProperties: false,
+    },
     Staff: {
       description:
         "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",

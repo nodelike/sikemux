@@ -89,6 +89,15 @@ export interface Tables {
     reason: RevokeReason | null;
     at: CreatedAt;
   };
+  sign_in_removals: {
+    id: Generated<string>;
+    user_id: string;
+    domain: string;
+    org_name: string | null;
+    provider: string | null;
+    removed_at: CreatedAt;
+    told_at: Date | null;
+  };
   removed_devices: {
     key: string;
     user_id: string;

@@ -1,15 +1,25 @@
 import type { Services } from "../app.ts";
-import type { Account, AccountDeletion } from "@sikemux/protocol";
+import type {
+  Account,
+  AccountDeletion,
+  SignInsTidied,
+} from "@sikemux/protocol";
 import { Hono } from "hono";
 
 import type { AuthEnv } from "../auth.ts";
 import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
-import { notFound, readOptionalBody } from "../http.ts";
+import { conflict, notFound, readBody, readOptionalBody } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { planOf } from "../billing/allowance.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
+import {
+  addressRefusal,
+  signInRefusalWords,
+  stripWorkSignIns,
+  takeRemovals,
+} from "./sign-ins.ts";
 import { isStaff } from "./staff.ts";
 
 export function accountRoutes({
@@ -21,6 +31,7 @@ export function accountRoutes({
   appleSignIn: apple,
   push: { app },
   billing: { provider },
+  addressProofKey,
 }: Pick<
   Services,
   | "database"
@@ -31,6 +42,7 @@ export function accountRoutes({
   | "appleSignIn"
   | "push"
   | "billing"
+  | "addressProofKey"
 >) {
   const admitted = requireIdentity(verifier, db, { allowDeleted: true });
   const anyAccount = requireIdentity(signInVerifier, db, {
@@ -82,6 +94,33 @@ export function accountRoutes({
       };
       return c.json(body);
     })
+    .post(
+      "/sign-ins/check",
+      perUser(limiter, "check-sign-in", 30),
+      async (c) => {
+        const { email } = await readBody(c, "SignInAddressCheck");
+        const refusal = await addressRefusal(db, addressProofKey, email);
+        if (refusal) throw conflict(signInRefusalWords(refusal));
+        return c.body(null, 204);
+      },
+    )
+    .post(
+      "/sign-ins/tidy",
+      perUser(limiter, "tidy-sign-ins", 30),
+      async (c) => {
+        const { userId } = c.get("identity");
+        if (clerk)
+          await stripWorkSignIns(
+            db,
+            clerk,
+            addressProofKey,
+            c.get("log"),
+            userId,
+          );
+        const body: SignInsTidied = { removed: await takeRemovals(db, userId) };
+        return c.json(body);
+      },
+    )
     .delete(
       "/",
       perUser(limiter, "delete-account", 10),
