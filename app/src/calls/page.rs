@@ -210,10 +210,10 @@ impl Render for Page {
 fn reply_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
     let production = call.kind == CallKind::Production;
     match (call.options.is_empty(), chosen.is_empty(), production) {
-        (true, ..) => t!("Answer in your own words, or drop a screenshot…"),
+        (true, ..) => t!("Answer or drop a screenshot · ⏎ sends and closes · ⇧⏎ keeps it open"),
         (false, true, _) => t!("Pick one above, or answer in your own words…"),
         (false, false, true) => t!("Add a note, then click Go…"),
-        (false, false, false) => t!("Add a note or drop a screenshot…"),
+        (false, false, false) => t!("Add a note · ⏎ sends and closes · ⇧⏎ keeps it open"),
     }
 }
 
