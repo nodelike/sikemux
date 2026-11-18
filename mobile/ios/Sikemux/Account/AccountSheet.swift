@@ -116,11 +116,8 @@ struct AccountSheet: View {
         return HStack(spacing: 12) {
             Avatar(size: 44)
             VStack(alignment: .leading, spacing: 0) {
-                Text(user?.name ?? user?.email ?? String(localized: "Signed in"))
+                Text(user?.name ?? String(localized: "Your account"))
                     .font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
-                if user?.name != nil, let email = user?.email {
-                    Text(email).metaStyle(palette).lineLimit(1)
-                }
                 Text("Signed in with \(user?.providerName ?? String(localized: "email"))").metaStyle(palette)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
