@@ -49,12 +49,12 @@
         }
     }
 
-    /// With `-SikemuxShowcaseAccount <file>`, the accounts server's answers come from a file that maps "POST /v1/…" to a
+    /// With `-SikemuxShowcase` and `-SikemuxShowcaseAccount <file>`, the accounts server's answers come from a file that maps "POST /v1/…" to a
     /// list of `{"status": 409, "json": …}`, taken in turn; the last one repeats. A route not in it goes to the server.
     @MainActor
     enum ShowcaseAccount {
         private static var answers: [String: [[String: Any]]] = {
-            guard let path = Showcase.argument("-SikemuxShowcaseAccount"),
+            guard Showcase.current != nil, let path = Showcase.argument("-SikemuxShowcaseAccount"),
                 let data = FileManager.default.contents(atPath: path),
                 let file = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]]
             else { return [:] }

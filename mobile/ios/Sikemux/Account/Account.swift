@@ -135,8 +135,6 @@ final class Account {
         }
     }
 
-    /// Ends the session with Clerk and forgets it here. Leaving the account, which also takes the phone off it,
-    /// is `Leave`.
     #if DEBUG
         func signInShowcase() {
             user = Showcase.user
@@ -144,6 +142,8 @@ final class Account {
         }
     #endif
 
+    /// Ends the session with Clerk and forgets it here. Leaving the account, which also takes the phone off it,
+    /// is `Leave`.
     func signOut() async {
         if let session { await Clerk.signOut(session: session) }
         signedOutHere()
