@@ -15,7 +15,7 @@ use super::said::{self, Action, Moment};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, TEXT_LG, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, TEXT_LG, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -290,12 +290,6 @@ fn row(
             .into_any_element(),
         false => line,
     };
-    let about = gpui_kit::div().flex().flex_col().child(line).children(
-        entry
-            .offer
-            .as_ref()
-            .map(|offer| offer_box(entry, offer, folder, project, this, cx)),
-    );
     let mut hover = Vec::new();
     let mut moves = Vec::new();
     if moved.is_none() && store != Store::Org && !entry.waiting {
@@ -312,6 +306,7 @@ fn row(
                 t!("Take back"),
                 Variant::Outline,
             )
+            .sized(20., 7., theme::TEXT_2XS_H)
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| take_back(bench, &folder, id, cx))
             })
@@ -334,6 +329,7 @@ fn row(
                 Variant::Outline,
             )
             .icon(Icon::Move)
+            .sized(20., 7., theme::TEXT_2XS_H)
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| match &asks {
                     Some(org) => ask_admins(bench, &folder, id, org, cx),
@@ -351,24 +347,40 @@ fn row(
                 crate::i18n::tr(undo),
                 Variant::Ghost,
             )
+            .sized(20., 7., theme::TEXT_2XS_H)
             .on_click(move |_, _, cx| this.update(cx, |bench, cx| retire(bench, &folder, id, cx)))
             .into_any_element(),
         );
     }
     let hover = gpui_kit::div()
+        .absolute()
+        .top(-SPACE_0)
+        .right_0()
         .flex()
         .items_center()
         .gap(SPACE_1)
+        .pl(SPACE_2)
+        .bg(t.surface)
         .opacity(0.)
         .group_hover(said::ROW, |shown| shown.opacity(1.))
         .children(hover);
+    let about = gpui_kit::div()
+        .flex()
+        .flex_col()
+        .child(gpui_kit::div().relative().child(line).child(hover))
+        .children(
+            entry
+                .offer
+                .as_ref()
+                .map(|offer| offer_box(entry, offer, folder, project, this, cx)),
+        );
     rows::row_parts(
         None,
         gpui_kit::div()
             .whitespace_normal()
             .child(entry.text.clone()),
         Some(about.into_any_element()),
-        hover,
+        gpui_kit::div(),
         cx,
     )
     .id(SharedString::from(format!("playbook-entry-{id}")))
