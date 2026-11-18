@@ -23,14 +23,17 @@ import {
   toEntry,
 } from "./state.ts";
 
-/** The most entries of each project kind an org's vault holds, so they never crowd out the rest. */
+/**
+ * The most entries of each project kind an org's vault holds, so they never crowd out the rest.
+ * With every other kind's they add up to the 500 one rotation reseals.
+ */
 const MAX_ENTRIES: Record<string, number> = {
-  [PROJECT_MEMORY]: 500,
-  [PROJECT_MEMORY_WAITING]: 2000,
-  [PROJECT_MEMORY_DROPS]: 500,
+  [PROJECT_MEMORY]: 100,
+  [PROJECT_MEMORY_WAITING]: 200,
+  [PROJECT_MEMORY_DROPS]: 100,
 };
 /** The most entries of every other kind together, such as model keys. */
-const MAX_OTHER_ENTRIES = 500;
+const MAX_OTHER_ENTRIES = 100;
 
 export interface Asker {
   orgId: string;
