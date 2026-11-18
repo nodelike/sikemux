@@ -229,6 +229,13 @@ export function orgRoutes({
           throw notFound(
             "No invite has that link, or it was used, revoked or has expired.",
           );
+        await holdStanding(trx, userId);
+        await trx
+          .selectFrom("orgs")
+          .select("id")
+          .where("id", "=", invite.org_id)
+          .forUpdate()
+          .execute();
         const used = await trx
           .updateTable("org_invites")
           .set({ accepted_by: userId, accepted_at: sql<Date>`now()` })
