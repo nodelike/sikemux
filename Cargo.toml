@@ -96,6 +96,12 @@ opt-level = "z"
 [profile.release.package.url]
 opt-level = "z"
 
+# Diagrams and formulas are drawn once each, off the main thread.
+[profile.release.package.mermaid-svg]
+opt-level = "z"
+[profile.release.package.latex-rust]
+opt-level = "z"
+
 # Plugins never sit on a hot path, so they go further and are built for the
 # smallest size.
 [profile.release.package.sikemux-plugin-aws]
