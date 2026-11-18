@@ -15,10 +15,12 @@ import {
   IconPlus,
   IconUsers,
 } from "@shared/ui/Icons";
+import { useClerk, useUser } from "@clerk/react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
+import { useSignInWays } from "./AccountPage.tsx";
 import { problemText } from "./api.ts";
-import { PersonAvatar } from "./Avatar.tsx";
+import { Avatar, PersonAvatar } from "./Avatar.tsx";
 import {
   ChangeSeats,
   heldChange,
@@ -34,7 +36,8 @@ import {
   priceOf,
   productOf,
 } from "./money.ts";
-import { BILLING, TEAM } from "./navigation.ts";
+import { useInviteOrg } from "./invite.ts";
+import { BILLING, JOIN, TEAM } from "./navigation.ts";
 import {
   OfferRow,
   OrgChoice,
@@ -830,13 +833,22 @@ function NoOrg({ offered }: { offered: ReactNode }) {
 
 export function JoinPage({ follow }: { follow: Follow }) {
   const client = useClient();
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const signIns = useSignInWays();
   const [token] = useState(() => location.hash.slice(1));
+  const orgName = useInviteOrg(token);
   const action = useAction();
   const [joined, setJoined] = useState<Org>();
 
   useEffect(() => {
     if (location.hash) history.replaceState(null, "", location.pathname);
   }, []);
+
+  const name = user?.fullName || user?.username || "this account";
+  const ways = new Intl.ListFormat("en", { type: "conjunction" }).format(
+    signIns.map((way) => way.name),
+  );
 
   const body: ReactNode = joined ? (
     <>
@@ -857,11 +869,28 @@ export function JoinPage({ follow }: { follow: Follow }) {
     </>
   ) : (
     <>
-      <PageHead title="Join an org">
-        You've been sent an invite link. Joining takes one of the org's seats
-        and gives you Pro on your own hosts while you hold it. Nobody in the org
-        sees your hosts or your email address.
+      <PageHead title={orgName ? `Join ${orgName}` : "Join an org"}>
+        You've been sent an invite link. Joining takes one of{" "}
+        {orgName ? `${orgName}'s` : "the org's"} seats and gives you Pro on your
+        own hosts while you hold it. Nobody in the org sees your hosts or your
+        email address.
       </PageHead>
+      <Rows>
+        <ItemRow
+          glyph={<Avatar size={28} />}
+          name={`Joining as ${name}`}
+          detail={`The account on this browser. It signs in with ${ways}.`}
+          end={
+            <button
+              type="button"
+              className="remove"
+              onClick={() => void signOut({ redirectUrl: `${JOIN}#${token}` })}
+            >
+              Not you?
+            </button>
+          }
+        />
+      </Rows>
       {action.problem ? (
         <p className="problem" role="alert">
           {action.problem}
@@ -884,8 +913,12 @@ export function JoinPage({ follow }: { follow: Follow }) {
           )
         }
       >
-        Join the org
+        {orgName ? `Join ${orgName}` : "Join the org"}
       </button>
+      <p className="fine">
+        The link works with any account. You don&rsquo;t need an address at{" "}
+        {orgName ?? "the org"} to join.
+      </p>
     </>
   );
 

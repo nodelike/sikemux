@@ -568,6 +568,28 @@
     },
     {
       "method": "post",
+      "path": "/v1/orgs/join/preview",
+      "operationId": "previewOrgInvite",
+      "summary": "The name of the org an invite link joins, read before signing in",
+      "auth": "none",
+      "request": "OrgJoin",
+      "responses": {
+        "200": {
+          "description": "The org's name for a live invite; null for any other link.",
+          "body": "OrgInvitePreview"
+        },
+        "400": {
+          "description": "The body is not a valid OrgJoin.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Too many links read from this address.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
       "path": "/v1/orgs/{orgId}/name",
       "operationId": "renameOrg",
       "summary": "Rename an org, as its owner or an admin",

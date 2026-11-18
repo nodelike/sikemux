@@ -13,6 +13,18 @@ const PROVIDERS: Record<string, { name: string; mark: ReactNode }> = {
   github: { name: "GitHub", mark: <GitHubMark /> },
 };
 
+/** The ways the signed-in account can sign in, as the person knows them. */
+export function useSignInWays() {
+  const { user } = useUser();
+  const providers = (user?.externalAccounts ?? []).flatMap((account) => {
+    const provider = PROVIDERS[account.provider];
+    return provider ? [provider] : [];
+  });
+  return providers.length > 0
+    ? providers
+    : [{ name: "Email code", mark: <IconMail size={16} /> }];
+}
+
 export function AccountPage({
   onDelete,
 }: {
@@ -20,14 +32,7 @@ export function AccountPage({
 }) {
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const providers = (user?.externalAccounts ?? []).flatMap((account) => {
-    const provider = PROVIDERS[account.provider];
-    return provider ? [provider] : [];
-  });
-  const ways =
-    providers.length > 0
-      ? providers
-      : [{ name: "Email code", mark: <IconMail size={16} /> }];
+  const ways = useSignInWays();
 
   return (
     <>

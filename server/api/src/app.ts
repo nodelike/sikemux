@@ -28,7 +28,7 @@ import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import { membershipRoutes } from "./orgs/host.ts";
-import { orgRoutes } from "./orgs/routes.ts";
+import { invitePreviewRoutes, orgRoutes } from "./orgs/routes.ts";
 import { orgVaultRoutes } from "./orgvault/routes.ts";
 import { shareRoutes } from "./orgs/shares.ts";
 import type { Places } from "./places.ts";
@@ -131,6 +131,7 @@ export function createApp(services: Services) {
   app.route("/v1/account/shares", shares);
   app.route("/v1/account/peer-tickets", tickets);
   app.route("/v1/account", accountRoutes(services));
+  app.route("/v1/orgs/join/preview", invitePreviewRoutes(services));
   app.route("/v1/orgs", orgRoutes(services));
   app.route(
     "/v1/webhooks",

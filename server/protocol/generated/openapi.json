@@ -1239,6 +1239,55 @@
         }
       }
     },
+    "/v1/orgs/join/preview": {
+      "post": {
+        "operationId": "previewOrgInvite",
+        "summary": "The name of the org an invite link joins, read before signing in",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OrgJoin" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The org's name for a live invite; null for any other link.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgInvitePreview" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a valid OrgJoin.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many links read from this address.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/orgs/{orgId}/name": {
       "post": {
         "operationId": "renameOrg",
@@ -7264,6 +7313,19 @@
           }
         },
         "required": ["invites"],
+        "additionalProperties": false
+      },
+      "OrgInvitePreview": {
+        "description": "What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more.",
+        "type": "object",
+        "properties": {
+          "orgName": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["orgName"],
         "additionalProperties": false
       },
       "OrgInviteToken": {

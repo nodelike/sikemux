@@ -134,9 +134,10 @@ const clerkPort = await freePort();
 const clerk = `http://127.0.0.1:${clerkPort}`;
 const apiPort = await freePort();
 const api = `http://127.0.0.1:${apiPort}`;
+const appOrigin = process.env.APP_ORIGIN ?? api;
 startNode(
   ["dev/stand-in-clerk.ts"],
-  { PORT: String(clerkPort), APP_ORIGIN: api },
+  { PORT: String(clerkPort), APP_ORIGIN: appOrigin },
   "stand-in-clerk.log",
 );
 const joinKey = join(folder, "join-signing-key.pem");
@@ -153,7 +154,7 @@ startNode(
     JOIN_SIGNING_KEY_ID: "dev-1",
     PORT: String(apiPort),
     API_ORIGIN: api,
-    APP_ORIGIN: api,
+    APP_ORIGIN: appOrigin,
     BILLING_PROVIDER: "stand-in",
     LOG_LEVEL: "warn",
   },

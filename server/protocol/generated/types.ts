@@ -1125,6 +1125,11 @@ export interface OrgInviteList {
   invites: OrgInvite[];
 }
 
+/** What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more. */
+export interface OrgInvitePreview {
+  orgName: string | null;
+}
+
 /** The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash. */
 export type OrgInviteToken = string;
 
@@ -2293,6 +2298,7 @@ export interface Definitions {
   OrgInviteCreated: OrgInviteCreated;
   OrgInviteId: OrgInviteId;
   OrgInviteList: OrgInviteList;
+  OrgInvitePreview: OrgInvitePreview;
   OrgInviteToken: OrgInviteToken;
   OrgJoin: OrgJoin;
   OrgJoinedVia: OrgJoinedVia;

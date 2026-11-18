@@ -51,6 +51,7 @@ import type {
   OrgInviteCreate,
   OrgInviteCreated,
   OrgInviteList,
+  OrgInvitePreview,
   OrgJoin,
   OrgList,
   OrgMember,
@@ -215,6 +216,9 @@ export function apiClient(send: Send) {
     listOrgs: () => send<OrgList>("GET", `/v1/orgs`),
     /** Accept an invite and join its org. */
     joinOrg: (body: OrgJoin) => send<Org>("POST", `/v1/orgs/join`, body),
+    /** The name of the org an invite link joins, read before signing in. */
+    previewOrgInvite: (body: OrgJoin) =>
+      send<OrgInvitePreview>("POST", `/v1/orgs/join/preview`, body),
     /** Rename an org, as its owner or an admin. */
     renameOrg: (orgId: string, body: OrgRename) =>
       send<Org>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/name`, body),

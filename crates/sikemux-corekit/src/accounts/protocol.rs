@@ -1112,6 +1112,13 @@ pub struct OrgInviteList {
     pub invites: Vec<OrgInvite>,
 }
 
+/// What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInvitePreview {
+    pub org_name: Option<String>,
+}
+
 /// The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.
 pub type OrgInviteToken = String;
 
@@ -1972,6 +1979,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgInviteCreated" => through::<OrgInviteCreated>(json),
         "OrgInviteId" => through::<OrgInviteId>(json),
         "OrgInviteList" => through::<OrgInviteList>(json),
+        "OrgInvitePreview" => through::<OrgInvitePreview>(json),
         "OrgInviteToken" => through::<OrgInviteToken>(json),
         "OrgJoin" => through::<OrgJoin>(json),
         "OrgJoinedVia" => through::<OrgJoinedVia>(json),

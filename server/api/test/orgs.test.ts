@@ -10,6 +10,7 @@ import { sessionToken } from "./tokens.ts";
 
 let database: Database;
 let drop: () => Promise<void>;
+let app: ReturnType<typeof testApp>;
 let call: ReturnType<typeof caller>;
 
 const OWNER = "user_owner";
@@ -28,7 +29,8 @@ beforeEach(async () => {
     "insert into users (id, staff) select unnest($1::text[]), true",
     [[OWNER, ADMIN, MEMBER, NEWCOMER]],
   );
-  call = caller(testApp(database, undefined, { clerk: new FakeClerk() }));
+  app = testApp(database, undefined, { clerk: new FakeClerk() });
+  call = caller(app);
 });
 
 afterAll(() => drop());
@@ -232,6 +234,40 @@ describe("invites", () => {
       "update org_invites set expires_at = now() - interval '1 second'",
     );
     expect((await join(MEMBER, token)).status).toBe(404);
+  });
+
+  it("name their org to a reader with no session only while they would join", async () => {
+    const preview = async (token: string) => {
+      const response = await app.request("/v1/orgs/join/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      expect(response.status).toBe(200);
+      return (await body(response, "OrgInvitePreview")).orgName;
+    };
+    const orgId = await createOrg(5);
+    const created = async () =>
+      (await body(await invite(OWNER, orgId, "user"), "OrgInviteCreated"))
+        .token;
+    const live = await created();
+    expect(await preview(live)).toBe("Acme");
+
+    const used = await created();
+    expect((await join(MEMBER, used)).status).toBe(200);
+    const expired = await created();
+    await database.pool.query(
+      "update org_invites set expires_at = now() - interval '1 second' where token_hash = encode(sha256($1::bytea), 'hex')",
+      [expired],
+    );
+    const revoked = await created();
+    await database.pool.query(
+      "update org_invites set revoked_at = now() where token_hash = encode(sha256($1::bytea), 'hex')",
+      [revoked],
+    );
+    for (const token of [used, expired, revoked, "A".repeat(43)])
+      expect(await preview(token)).toBeNull();
+    expect(await preview(live)).toBe("Acme");
   });
 
   it("stop at the seat limit, with each pending invite holding a seat", async () => {

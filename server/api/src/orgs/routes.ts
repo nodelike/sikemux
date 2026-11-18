@@ -3,6 +3,7 @@ import type {
   OrgInvite,
   OrgInviteCreated,
   OrgInviteList,
+  OrgInvitePreview,
   OrgList,
   OrgMember,
   OrgMemberList,
@@ -33,8 +34,9 @@ import {
   forbidden,
   notFound,
   readBody,
+  type Env,
 } from "../http.ts";
-import { perUser } from "../limits.ts";
+import { clientAddress, limit, perUser } from "../limits.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { domainRoutes } from "./domains.ts";
 import { auditRoutes } from "./log.ts";
@@ -113,6 +115,31 @@ async function membersOf(db: Kysely<Tables>, orgId: string) {
     .where("org_id", "=", orgId)
     .execute();
   return rows.map((row) => row.user_id);
+}
+
+/** Names an invite's org for a page whose reader has not signed in yet; any link that would not join answers alike. */
+export function invitePreviewRoutes({
+  database: { db },
+  limiter,
+}: Pick<Services, "database" | "limiter">) {
+  return new Hono<Env>().post(
+    "/",
+    limit<Env>(limiter, "preview-invite", 30, clientAddress),
+    async (c) => {
+      const { token } = await readBody(c, "OrgJoin");
+      const invite = await db
+        .selectFrom("org_invites")
+        .innerJoin("orgs", "orgs.id", "org_invites.org_id")
+        .select("orgs.name")
+        .where("org_invites.token_hash", "=", tokenHash(token))
+        .where("org_invites.accepted_at", "is", null)
+        .where("org_invites.revoked_at", "is", null)
+        .where("org_invites.expires_at", ">", sql<Date>`now()`)
+        .executeTakeFirst();
+      const body: OrgInvitePreview = { orgName: invite?.name ?? null };
+      return c.json(body);
+    },
+  );
 }
 
 export function orgRoutes({

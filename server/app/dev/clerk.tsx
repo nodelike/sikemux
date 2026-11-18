@@ -4,14 +4,19 @@ export * from "@clerk/react";
 
 /**
  * Takes @clerk/react's place on a local run when VITE_STAND_IN_CLERK is set, signing in one of
- * the stand-in sign-in's made-up people: the first, or the one `?as=` names.
+ * the stand-in sign-in's made-up people: the first, or the one `?as=` names. Signing out shows
+ * the sign-in page, where any way in signs that person back in.
  */
 type Person = { key: string; id: string; name: string };
 
 const issuer = import.meta.env.VITE_STAND_IN_CLERK as string;
 const people: Person[] = await (await fetch(`${issuer}/people`)).json();
 const asked = new URLSearchParams(location.search).get("as");
-if (asked) localStorage.setItem("standInPerson", asked);
+if (asked) {
+  localStorage.setItem("standInPerson", asked);
+  localStorage.removeItem("standInSignedOut");
+}
+const signedIn = !localStorage.getItem("standInSignedOut");
 const person =
   people.find((p) => p.key === localStorage.getItem("standInPerson")) ??
   people[0];
@@ -37,9 +42,9 @@ const user = {
 
 const auth = {
   isLoaded: true,
-  isSignedIn: true,
-  userId: person.id,
-  sessionId: `sess_${person.id}`,
+  isSignedIn: signedIn,
+  userId: signedIn ? person.id : null,
+  sessionId: signedIn ? `sess_${person.id}` : null,
   getToken,
 };
 
@@ -48,11 +53,35 @@ export function ClerkProvider({ children }: { children: ReactNode }) {
 }
 
 export const useAuth = () => auth;
-export const useUser = () => ({ isLoaded: true, isSignedIn: true, user });
+export const useUser = () => ({
+  isLoaded: true,
+  isSignedIn: signedIn,
+  user: signedIn ? user : null,
+});
 export const useSession = () => ({ isLoaded: true, session: null });
 export const useClerk = () => ({
-  signOut: async () => location.assign("/"),
+  signOut: async ({ redirectUrl = "/" }: { redirectUrl?: string } = {}) => {
+    localStorage.setItem("standInSignedOut", "1");
+    goFresh(redirectUrl);
+  },
 });
+
+const signIn = {
+  sso: async ({ redirectUrl }: { redirectUrl: string }) => {
+    localStorage.removeItem("standInSignedOut");
+    goFresh(redirectUrl);
+    return { error: null };
+  },
+  reset: async () => undefined,
+};
+export const useSignIn = () => ({ signIn });
+export const useSignUp = () => ({ signUp: {} });
+
+/** Loads the page again even when only its #fragment differs, so the new sign-in state is read. */
+function goFresh(url: string) {
+  history.replaceState(null, "", url);
+  location.reload();
+}
 export function useReverification<Fetcher>(fetcher: Fetcher) {
   return useCallback(fetcher as never, [fetcher]) as Fetcher;
 }

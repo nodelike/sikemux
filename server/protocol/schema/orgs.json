@@ -289,6 +289,19 @@
       "required": ["token"],
       "additionalProperties": false
     },
+    "OrgInvitePreview": {
+      "description": "What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more.",
+      "type": "object",
+      "properties": {
+        "orgName": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": ["orgName"],
+      "additionalProperties": false
+    },
     "OrgTeamId": {
       "description": "A team's id, a UUID in lowercase.",
       "type": "string",

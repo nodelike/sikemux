@@ -1988,6 +1988,16 @@ export const schema = {
       required: ["invites"],
       additionalProperties: false,
     },
+    OrgInvitePreview: {
+      description:
+        "What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more.",
+      type: "object",
+      properties: {
+        orgName: { type: ["string", "null"], minLength: 1, maxLength: 64 },
+      },
+      required: ["orgName"],
+      additionalProperties: false,
+    },
     OrgInviteToken: {
       description:
         "The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.",
