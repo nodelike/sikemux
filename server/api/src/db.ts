@@ -60,6 +60,7 @@ export interface Tables {
     new_kept_at: ColumnType<Date | null, never, Date>;
   };
   address_proofs: {
+    id: Generated<string>;
     address_hash: Buffer;
     user_id: string;
     domain: string;

@@ -4059,7 +4059,8 @@ export const schema = {
         id: {
           description: "Names the proof for removing it.",
           type: "string",
-          pattern: "^[0-9a-f]{64}$",
+          pattern:
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
         },
         domain: { type: "string" },
         orgId: {

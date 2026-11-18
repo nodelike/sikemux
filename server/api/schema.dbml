@@ -682,6 +682,7 @@ Table address_proofs {
   org_id uuid
   via text [not null, note: 'via = ANY (ARRAY[\'fold\', \'google\'])']
   proven_at timestamptz [not null, default: `now()`]
+  id uuid [not null, unique, default: `gen_random_uuid()`]
 
   indexes {
     domain [name: 'address_proofs_by_domain']

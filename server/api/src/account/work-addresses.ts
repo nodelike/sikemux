@@ -15,6 +15,7 @@ import type { Tables } from "../db.ts";
 import { ApiFailure, conflict, notFound, readBody } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { offersFor } from "../orgs/domains.ts";
+import { isUuid } from "../orgs/shared.ts";
 import { addressHash, domainOf } from "./proofs.ts";
 
 /** Where Google sends the person back to: the web app, which finishes on their own session. */
@@ -35,7 +36,7 @@ async function proofsOf(
     .selectFrom("address_proofs")
     .leftJoin("orgs", "orgs.id", "address_proofs.org_id")
     .select([
-      "address_proofs.address_hash",
+      "address_proofs.id",
       "address_proofs.domain",
       "address_proofs.org_id",
       "address_proofs.proven_at",
@@ -45,7 +46,7 @@ async function proofsOf(
     .orderBy("address_proofs.proven_at");
   if (hash) rows = rows.where("address_proofs.address_hash", "=", hash);
   return (await rows.execute()).map((row) => ({
-    id: row.address_hash.toString("hex"),
+    id: row.id,
     domain: row.domain,
     orgId: row.name ? row.org_id : null,
     orgName: row.name,
@@ -194,11 +195,11 @@ export function workAddressRoutes({
     .delete("/:id", async (c) => {
       const { userId } = c.get("identity");
       const id = c.req.param("id");
-      if (!/^[0-9a-f]{64}$/.test(id)) return c.body(null, 204);
+      if (!isUuid(id)) return c.body(null, 204);
       await db.transaction().execute(async (trx) => {
         const gone = await trx
           .deleteFrom("address_proofs")
-          .where("address_hash", "=", Buffer.from(id, "hex"))
+          .where("id", "=", id)
           .where("user_id", "=", userId)
           .returning("domain")
           .executeTakeFirst();
