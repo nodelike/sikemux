@@ -231,11 +231,16 @@ fn row(
     match moved {
         Some(moved) => {
             words.extend(writer(moved));
-            words.push(t!(
-                "moved from {store} {when}",
-                store = store_name(store.other(), project, org),
-                when = when(moved.at)
-            ));
+            words.push(match (store, org) {
+                (Store::Org, Some(org)) => {
+                    t!("moved to {org} {when}", org = org, when = when(moved.at))
+                }
+                _ => t!(
+                    "moved from {store} {when}",
+                    store = store_name(store.other(), project, org),
+                    when = when(moved.at)
+                ),
+            });
         }
         None if new => {
             words.extend(who);
