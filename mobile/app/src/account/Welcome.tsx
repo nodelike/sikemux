@@ -16,6 +16,7 @@ import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
 import { useBottomGap } from '@/ui/screen';
 import { Dot, NeedsYou, Working } from '@/devices/AgentMarks';
+import { FoldWaiting } from '@/account/FoldScreens';
 import { defaultPalette as colors, fonts, typeFor } from '@/ui/theme';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -155,6 +156,7 @@ export function Welcome() {
         <Text style={styles.title}>{t('Your agents,\non your phone.')}</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: bottom }]}>
+        <FoldWaiting />
         <Button
           title={t('Continue with {provider}', { provider: PROVIDER_NAME.oauth_google })}
           icon={<GoogleG />}

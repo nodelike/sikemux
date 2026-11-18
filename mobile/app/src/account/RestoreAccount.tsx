@@ -13,7 +13,7 @@ import { PromptScreen } from '@/ui/prompt';
 import { type Palette, typeFor, useStyles } from '@/ui/theme';
 
 /** Signed in to an account that was deleted but can still be restored. */
-export function RestoreAccount({ deletesAt }: { deletesAt: string }) {
+export function RestoreAccount({ deletesAt, onRestored = retryRegistration }: { deletesAt: string; onRestored?: () => void }) {
   const styles = useStyles(makeStyles);
   const t = useT();
   const { getToken, signOut } = useAuth();
@@ -27,7 +27,7 @@ export function RestoreAccount({ deletesAt }: { deletesAt: string }) {
     setProblem(undefined);
     try {
       await api(() => getToken({ skipCache: true })).restoreAccount();
-      retryRegistration();
+      onRestored();
     } catch (error) {
       setBusy(false);
       setProblem(problemOf(error));

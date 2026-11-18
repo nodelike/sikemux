@@ -15,6 +15,7 @@ import { resourceCache } from '@clerk/expo/resource-cache';
 import { CLERK_PUBLISHABLE_KEY } from '@/account/config';
 import { tokenCache } from '@/account/tokenCache';
 import { useAccountHostsFeed, useAccountSequence } from '@/account/session';
+import { useFoldGateFeed } from '@/account/fold';
 import { useHostJoins } from '@/devices/hostJoins';
 import { goOffline } from '@/phone/identity';
 import { useDevices } from '@/devices/hub';
@@ -173,6 +174,7 @@ function ShareIntake() {
 
 function PhoneOnAccount() {
   useOverTheAirUpdates();
+  useFoldGateFeed();
   useAccountSequence();
   useAccountHostsFeed();
   useStashFeed();

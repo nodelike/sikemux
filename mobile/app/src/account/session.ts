@@ -16,7 +16,8 @@ import { deviceIdentity } from '@/phone/identity';
 import { onNetworkChange } from '@/network/connectivity';
 import { phoneAdded, syncPushToken } from '@/notify/token';
 import { stashChanged } from '@/stash/store';
-import { accountDevice, accountHosts, registerPhone, removeAccountDevice, type TokenSource } from './api';
+import { accountDevice, accountHosts, ApiProblem, registerPhone, removeAccountDevice, type TokenSource } from './api';
+import { checkFoldAgain, useFoldGate } from './fold';
 import { apiUrl } from './config';
 import { farewellFor } from './farewell';
 import { signOutHere } from './leave';
@@ -105,10 +106,11 @@ export function retryRegistration() {
  */
 export function useAccountSequence() {
   const { isSignedIn, userId, getToken, signOut } = useAuth();
+  const open = useFoldGate().kind === 'open';
   const token = useEffectEvent(() => getToken());
   const leave = useEffectEvent((farewell: ReturnType<typeof farewellFor>) => signOutHere(() => signOut(), { farewell, confirmed: true }));
   useEffect(() => {
-    if (!isSignedIn || !userId) return;
+    if (!isSignedIn || !userId || !open) return;
     const live = new LiveAccount({
       url: liveUrl(apiUrl()),
       connect: (url, on) => {
@@ -131,8 +133,13 @@ export function useAccountSequence() {
     runLive(live);
     const sequence = new AccountSequence({
       register: async () => {
-        const phone = await registerPhone(() => token(), userId);
-        await phoneAdded(phone.createdAt);
+        try {
+          const phone = await registerPhone(() => token(), userId);
+          await phoneAdded(phone.createdAt);
+        } catch (error) {
+          if (error instanceof ApiProblem && error.code === 'address_proven') checkFoldAgain();
+          throw error;
+        }
       },
       syncPush: () => syncPushToken(() => token()),
       live,
@@ -155,5 +162,5 @@ export function useAccountSequence() {
       if (running === sequence) running = undefined;
       statusNow.set(undefined);
     };
-  }, [isSignedIn, userId]);
+  }, [isSignedIn, userId, open]);
 }
