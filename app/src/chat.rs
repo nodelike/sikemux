@@ -79,7 +79,6 @@ mod math;
 mod mention;
 mod mermaid;
 mod moving;
-mod now;
 mod rotation;
 pub(crate) use attach::{
     agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon,
@@ -680,8 +679,6 @@ pub struct Chat {
     /// Its agent's record names the session a turn ran in, so until the core first answers
     /// the chat is drawn as one with messages, never as a new one.
     pub(crate) said: bool,
-    /// A chief's Now card is folded to its counts.
-    now_folded: bool,
     /// The person's ask the chat shows alone, while it shows one.
     pub(crate) narrowed: Option<narrowed::Narrowed>,
     /// Rows of other asks came while it showed one alone.
@@ -832,7 +829,6 @@ impl Chat {
             finding: None,
             plan_open: false,
             first_sent: Cell::new(None),
-            now_folded: false,
             activity_line,
             announcer: cx.new(|_| announce::Announcer::default()),
             calls,
@@ -1671,7 +1667,6 @@ pub fn pane(
             .bottom_0()
             .child(Scrollbar::vertical(&list))
     });
-    let now_card = now::card(bench, agent, chat, cx);
     let rows = div()
         .flex_1()
         .min_h_0()
@@ -1740,8 +1735,7 @@ pub fn pane(
         })
         .children(welcome.map(|welcome| crate::home::over_composer(welcome).absolute().inset_0()))
         .children(app::expanded(&agent.id, cx))
-        .children(app::scrolls(cx))
-        .children(now_card);
+        .children(app::scrolls(cx));
     let open: Vec<&Question> = bench
         .feeds
         .questions_outside_calls()
