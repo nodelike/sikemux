@@ -331,6 +331,6 @@ function removalWords(removal: SignInRemoval): string {
     ? `A ${PROVIDERS[removal.provider]?.name ?? removal.provider} sign-in at ${removal.domain}`
     : `An address at ${removal.domain}`;
   return removal.orgName
-    ? `${what} was removed. ${removal.orgName} verified that domain, so it's a work address and can't sign in to your account.`
+    ? `${what} was removed. ${removal.orgName} says addresses there are its own, so it can't sign in to your account.`
     : `${what} was removed. It's already verified as a work address, so it can't sign in to your account.`;
 }
