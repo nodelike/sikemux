@@ -228,7 +228,7 @@ function Catch({
       <h1>
         {caught.mustFold
           ? why === "domain"
-            ? `${caught.orgName ?? "An org"} uses this address`
+            ? `This is an ${caught.orgName ?? "org"} address`
             : "This address is already on Sikemux"
           : "Already on Sikemux?"}
       </h1>
@@ -238,8 +238,8 @@ function Catch({
       <p className="lede">
         {caught.mustFold
           ? why === "domain"
-            ? `${caught.orgName ?? "An org"} has proven this address's domain, so it doesn't open a Sikemux account of its own. Sign in with your own Google, Apple or email instead, and the address comes along to prove your place in ${caught.orgName ?? "the org"}. It never signs you in.`
-            : "Another Sikemux account already proved this address. Sign in with that account's own Google, Apple or email, and this new account folds into it."
+            ? `${caught.orgName ?? "Your org"} has verified ${caught.address?.split("@")[1] ?? "its domain"}, so an address there can't have a Sikemux account of its own. Sign in with your own Google, Apple or email, and this address comes along to show you belong to ${caught.orgName ?? "the org"}. It never signs you in.`
+            : "This address is already verified on a Sikemux account, so it can't have one of its own. Sign in to that account with its own Google, Apple or email, and this new one is removed."
           : `You just made a new account with this address${
               why === "invite" && caught.orgName
                 ? ` to join ${caught.orgName}`
@@ -365,7 +365,7 @@ function ConfirmFold({
         setRead({
           state: "failed",
           problem: problemText(error),
-          sameAccount: status === 409 && waiting.why !== "seat",
+          sameAccount: errorCode(error) === "same_account",
         });
       }
     })();
@@ -390,8 +390,8 @@ function ConfirmFold({
         <p className="problem" role="alert">
           {read.problem}
         </p>
-        <div className="consent-actions">
-          {read.sameAccount ? (
+        {read.sameAccount ? (
+          <div className="consent-actions">
             <button
               type="button"
               className="button primary"
@@ -399,11 +399,15 @@ function ConfirmFold({
             >
               Sign in with another account
             </button>
-          ) : null}
+            <button type="button" className="button" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        ) : (
           <button type="button" className="button" onClick={onCancel}>
-            {read.sameAccount ? "Cancel" : "Continue"}
+            Continue
           </button>
-        </div>
+        )}
       </Panel>
     );
 
@@ -416,19 +420,17 @@ function ConfirmFold({
         <p className="lede">
           {seatComing
             ? `This account is deleted, and its seats are on ${read.kept} now. Sign in with that account from here on.`
-            : "This account proves the address now. The account made with it is deleted, and any seat it held is here."}
+            : "The address is verified on this account now. The account made with it is deleted, and any seat it held is here."}
         </p>
-        <div className="consent-actions">
-          <button
-            type="button"
-            className="button primary"
-            onClick={() =>
-              seatComing ? void signOut({ redirectUrl: "/team" }) : onDone()
-            }
-          >
-            {seatComing ? "Sign in" : "Continue"}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="button primary"
+          onClick={() =>
+            seatComing ? void signOut({ redirectUrl: "/team" }) : onDone()
+          }
+        >
+          {seatComing ? "Sign in" : "Continue"}
+        </button>
       </Panel>
     );
 
@@ -466,7 +468,7 @@ function ConfirmFold({
       <p className="lede">
         {seatComing
           ? `This account, made with the address above, holds nothing but its seat. ${seats} Then this account is deleted, and you sign in as ${kept} from here on.`
-          : `The account made with this address holds nothing but ${preview.seats.length ? "a seat" : "its sign-in"}. ${seats} It is then deleted, and this account proves the address${preview.orgName ? ` for ${preview.orgName}` : ""}. The address never signs you in: keep signing in as you do now.`}
+          : `The account you just made with it holds nothing but ${preview.seats.length ? "a seat" : "its sign-in"}. ${seats} It's deleted, and the address is verified${preview.orgName ? ` for ${preview.orgName}` : ""} on this account. The address never signs you in: keep signing in as you do now.`}
       </p>
       {problem ? (
         <p className="problem" role="alert">

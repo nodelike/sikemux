@@ -45,7 +45,8 @@
         "internal",
         "unavailable",
         "reverify_required",
-        "address_proven"
+        "address_proven",
+        "same_account"
       ]
     }
   }

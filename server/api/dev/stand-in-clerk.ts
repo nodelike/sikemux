@@ -141,7 +141,9 @@ createServer(async (request, response) => {
           (p) =>
             `<p><a style="color:#b9a6ff" href="${appOrigin}/?as=${p.key}">${p.name}</a> · ${p.address ?? `${p.key}@${p.domain}`}</p>`,
         )
-        .join("")}</body>`,
+        .join(
+          "",
+        )}<p><a style="color:#b9a6ff" href="${appOrigin}/?as=out">Nobody</a> · the signed-out page</p></body>`,
     );
     return;
   }

@@ -509,6 +509,7 @@ export const schema = {
         "unavailable",
         "reverify_required",
         "address_proven",
+        "same_account",
       ],
     },
     ErrorDetail: {

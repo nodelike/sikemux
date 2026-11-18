@@ -41,7 +41,7 @@ const NEW_MINUTES = 30;
 const ROLE_RANK: Record<OrgRole, number> = { user: 0, admin: 1, owner: 2 };
 
 const NO_FOLD =
-  "No fold waits with that link on this browser: it expired, was used, or was started elsewhere.";
+  "That link no longer works in this browser: it expired, was used, or was started in another one.";
 
 const secretHash = (secret: string) =>
   createHash("sha256").update(secret).digest();
@@ -81,13 +81,13 @@ export async function holdings(
 
 function holdsTooMuch(held: string[]): ApiFailure {
   return conflict(
-    `That account holds ${held.join(", ")}, so it is never folded. Both accounts stay as they are.`,
+    `That account holds ${held.join(", ")}, so it can't be brought over. Both accounts stay as they are.`,
   );
 }
 
 function requireWeb(c: Context<AuthEnv>) {
   if (!isWeb(c.get("identity")))
-    throw forbidden("Accounts are folded only on app.sikemux.com.");
+    throw forbidden("Accounts are brought together only on app.sikemux.com.");
 }
 
 async function inviteOrg(db: Kysely<Tables>, token: string | undefined) {
@@ -139,7 +139,9 @@ async function signUpOf(clerk: ClerkBackend | null, userId: string) {
 
 function verifiedAddress(signUp: SignUp): string {
   if (!signUp.email || !domainOf(signUp.email))
-    throw conflict("This account's sign-in has no verified address to prove.");
+    throw conflict(
+      "This account's sign-in has no verified address to bring over.",
+    );
   return signUp.email;
 }
 
@@ -202,7 +204,7 @@ async function fold(
       .execute();
     if (users.length !== 2 || users.some((user) => user.deleted_at))
       throw conflict(
-        "One of the two accounts is deleted, so nothing is folded.",
+        "One of the two accounts is deleted, so nothing was brought over.",
       );
     const held = await holdings(trx, side.from);
     if (held.length) throw holdsTooMuch(held);
@@ -217,7 +219,7 @@ async function fold(
       .executeTakeFirst();
     if (proven && proven.user_id !== side.from && proven.user_id !== side.into)
       throw conflict(
-        "This work address is proven on a third account, so nothing is folded.",
+        "This address is verified on a third account, so nothing was brought over.",
       );
 
     const seats = await moveSeats(trx, side);
@@ -357,8 +359,10 @@ async function openIntent(
     !intent.done_at &&
     (intent.from_user === caller || intent.into_user === caller)
   )
-    throw conflict(
-      "This is the account that started the fold. Sign in with your other account to confirm it.",
+    throw new ApiFailure(
+      409,
+      "same_account",
+      "This is the account you started from. Sign in with your other account to confirm it.",
     );
   return intent;
 }
@@ -394,7 +398,7 @@ export function foldRoutes({
       throw new ApiFailure(
         503,
         "unavailable",
-        "Proving work addresses is not set up on this server.",
+        "Verifying work addresses is not set up on this server.",
       );
     return proofKey;
   };
@@ -468,7 +472,7 @@ export function foldRoutes({
       const signUp = clerk ? await clerk.signUp(userId) : null;
       if (signUp && (await refusal(userId, signUp)))
         throw conflict(
-          "This work address doesn't open an account of its own. Sign in with your own Google, Apple or email, and bring the address there.",
+          "This address can't have an account of its own. Sign in with your own Google, Apple or email, and bring the address there.",
         );
       await sql`
         insert into users (id, new_kept_at) values (${userId}, now())
@@ -504,7 +508,7 @@ export function foldRoutes({
         const address = verifiedAddress(signUp);
         const found = await refusal(userId, signUp);
         if ((why === "domain" || why === "address") && found?.why !== why)
-          throw conflict("This account's address is not proven for an org.");
+          throw conflict("This account's address is not verified for an org.");
         const org = found
           ? await refusalOrg(found, address)
           : why === "invite"

@@ -456,6 +456,8 @@ pub enum ErrorCode {
     ReverifyRequired,
     #[serde(rename = "address_proven")]
     AddressProven,
+    #[serde(rename = "same_account")]
+    SameAccount,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,

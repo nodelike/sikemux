@@ -48,8 +48,8 @@ export async function refusalOf(
 
 export function refusalWords(refusal: Refusal): string {
   return refusal.why === "domain"
-    ? `${refusal.orgName} has proven ${refusal.domain}, so this work address doesn't open a Sikemux account of its own. Sign in with your own Google, Apple or email instead, then bring the address to that account on app.sikemux.com.`
-    : `This work address is already proven on another Sikemux account. Sign in with that account's own Google, Apple or email instead, or bring the address over on app.sikemux.com.`;
+    ? `${refusal.orgName} has verified ${refusal.domain}, so an address there can't have a Sikemux account of its own. Sign in with your own Google, Apple or email instead, then bring the address to that account on app.sikemux.com.`
+    : `This address is already verified on a Sikemux account, so it can't have one of its own. Sign in to that account with its own Google, Apple or email instead.`;
 }
 
 /** Records that an account may stand, making its users row if no route has yet. */

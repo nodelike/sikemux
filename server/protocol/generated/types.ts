@@ -325,7 +325,8 @@ export type ErrorCode =
   | "internal"
   | "unavailable"
   | "reverify_required"
-  | "address_proven";
+  | "address_proven"
+  | "same_account";
 export const errorCodeValues: readonly ErrorCode[] = [
   "bad_request",
   "unauthorized",
@@ -338,6 +339,7 @@ export const errorCodeValues: readonly ErrorCode[] = [
   "unavailable",
   "reverify_required",
   "address_proven",
+  "same_account",
 ];
 
 export interface ErrorDetail {
