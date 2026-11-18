@@ -2,6 +2,7 @@ import { resolveTxt } from "node:dns/promises";
 import { mkdirSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import type { Server } from "node:http";
+import type { Duplex } from "node:stream";
 
 import { appleSignIn } from "./account/apple.ts";
 import { workGoogle } from "./account/work-google.ts";
@@ -33,7 +34,7 @@ import { StandInProvider } from "./billing/stand-in.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
 const DRAIN_MS = 25_000;
-/** How long a stop waits for sockets to answer its goodbye; the ones that haven't are dropped with the process. */
+/** How long a stop waits for sockets to answer its goodbye before dropping the ones that haven't. */
 const GOODBYE_MS = 1_000;
 const SWEEP_MS = 60_000;
 
@@ -231,6 +232,12 @@ export async function startServer(config: Config, log: Logger) {
     });
   }, SWEEP_MS);
 
+  const upgraded = new Set<Duplex>();
+  server.on("upgrade", (_request: unknown, socket: Duplex) => {
+    upgraded.add(socket);
+    socket.once("close", () => upgraded.delete(socket));
+  });
+
   let stopping = false;
   const stop = (signal: NodeJS.Signals) => {
     if (stopping) return;
@@ -242,9 +249,13 @@ export async function startServer(config: Config, log: Logger) {
     const liveStopped = Promise.race([
       Promise.all([live.stop(), shares.stop(), hooks.stop()]),
       new Promise((resolve) => setTimeout(resolve, GOODBYE_MS)),
-    ]).catch((error: unknown) =>
-      log.error({ err: error }, "closing live connections failed"),
-    );
+    ])
+      .catch((error: unknown) =>
+        log.error({ err: error }, "closing live connections failed"),
+      )
+      .then(() => {
+        for (const socket of upgraded) socket.destroy();
+      });
     server.close(() => {
       clearTimeout(force);
       liveStopped
