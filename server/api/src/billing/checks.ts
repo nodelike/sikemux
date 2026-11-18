@@ -4,6 +4,7 @@ import type { Kysely } from "kysely";
 import { isStaff } from "../account/staff.ts";
 import type { Tables } from "../db.ts";
 import { product } from "./catalog.ts";
+import { seatIncludesPro, seatsIncludingPro } from "./seat-pause.ts";
 import { hasOpenSubscriptions, lockSeats } from "./seats.ts";
 
 export interface Purchase {
@@ -52,6 +53,10 @@ export async function refusal(
     return `${sold.name} is sold up to ${sold.maxQuantity} at once.`;
   if (sold.kind === "shed" && !(await isStaff(trx, buying.openedBy)))
     return "The Shed is not on sale yet: no box can be provisioned.";
+  if (buying.orgId === null && sold.id === "pro") {
+    const seats = await seatsIncludingPro(trx, buying.openedBy);
+    if (seats.length) return seatIncludesPro(seats);
+  }
   if (buying.orgId !== null) {
     if (buying.openerRole !== "owner")
       return "Only the org's owner acts for its billing.";

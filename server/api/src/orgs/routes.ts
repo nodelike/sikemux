@@ -255,6 +255,7 @@ export function orgRoutes({
         return { org, role: invite.role };
       });
       c.get("log").info({ orgId: joined.org.id }, "joined an org");
+      await callProvider(c);
       return c.json(await orgBody(db, joined.org, joined.role));
     })
     .post("/:orgId/name", perUser(limiter, "rename-org", 30), async (c) => {
@@ -297,6 +298,7 @@ export function orgRoutes({
         await seatsChanged(trx, members);
       });
       c.get("log").info({ orgId }, "deleted an org");
+      await callProvider(c);
       return c.body(null, 204);
     })
     .get("/:orgId/members", async (c) => {

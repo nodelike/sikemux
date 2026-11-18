@@ -6,6 +6,7 @@ import type {
   Invoice,
   InvoiceList,
   PaddleCheckout,
+  SeatPause,
   Subscription,
 } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
@@ -31,7 +32,7 @@ import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
 import { openerRole, refusal } from "./checks.ts";
 import { ownCustomer } from "./customers.ts";
-import { makeDueCalls } from "./calls.ts";
+import { callLater, makeDueCalls } from "./calls.ts";
 import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
   heldSubscription,
@@ -46,6 +47,12 @@ import {
   refundPending,
   type PlanRefund,
 } from "./refunds.ts";
+import {
+  refundKeptTime,
+  seatIncludesPro,
+  seatPauseOf,
+  seatsIncludingPro,
+} from "./seat-pause.ts";
 import { lockSeats, seatsHeld } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
@@ -114,13 +121,15 @@ export function billingProviderRoutes({
 function subscriptionBody(
   row: SubscriptionRow,
   refund: PlanRefund,
+  seatPause: SeatPause | undefined,
 ): Subscription {
   return {
     id: row.id,
     product: row.product,
     interval: row.interval,
     quantity: row.quantity,
-    status: row.status,
+    status:
+      row.status !== "paused" ? row.status : seatPause ? "active" : "lapsed",
     currentPeriodEnd: row.current_period_end.toISOString(),
     cancelAtPeriodEnd: row.cancel_at_period_end,
     startedAt: row.started_at.toISOString(),
@@ -141,6 +150,7 @@ function subscriptionBody(
     ...(refund.amount && (refund.until || refund.requestedAt)
       ? { refundAmount: refund.amount }
       : {}),
+    ...(seatPause ? { seatPause } : {}),
   };
 }
 
@@ -159,7 +169,7 @@ async function subscriptionWithRefund(
           row.customer_id,
           row.provider_subscription_id,
         );
-  return subscriptionBody(row, refund);
+  return subscriptionBody(row, refund, await seatPauseOf(db, row));
 }
 
 function customersOf(db: Kysely<Tables>, payer: Payer) {
@@ -567,6 +577,19 @@ export function billingRoutes({
     requirePayer(c, row);
     const change = await readBody(c, "SubscriptionChange");
     await refusePending(row);
+    if (row.status === "paused")
+      throw new ApiFailure(
+        409,
+        "conflict",
+        row.paused_for_seat_at
+          ? "This plan is paused while a seat includes Pro, so it can't change."
+          : "This plan is paused, so it can't change.",
+      );
+    if (row.user_id !== null && row.product === "pro") {
+      const seats = await seatsIncludingPro(db, row.user_id);
+      if (seats.length)
+        throw new ApiFailure(409, "conflict", seatIncludesPro(seats));
+    }
     const subscription = heldSubscription(row, row.provider_customer_id);
     const paid = await ready.paid(subscription);
     const next = {
@@ -748,7 +771,25 @@ export function billingRoutes({
           requirePayer(c, row);
           await refusePending(row);
         }
-        if (row.cancel_at_period_end !== cancel) {
+        if (cancel && row.status === "paused") {
+          const subscription = heldSubscription(row, row.provider_customer_id);
+          await db.transaction().execute(async (trx) => {
+            const refund = await refundKeptTime(trx, row.id);
+            await callLater(trx, ready.name, [
+              { action: "cancel_now", subscription },
+              ...(refund ? [refund] : []),
+            ]);
+          });
+          await makeDueCalls(db, ready, c.get("log"));
+          const { userId } = c.get("identity");
+          await audit(db, {
+            userId,
+            actor: `user:${userId}`,
+            action: "billing.subscription_canceled",
+            subject: row.id,
+            detail: { when: "now", why: "paused" },
+          });
+        } else if (row.cancel_at_period_end !== cancel) {
           const subscription = heldSubscription(row, row.provider_customer_id);
           await (cancel
             ? ready.cancel(subscription, "period_end")

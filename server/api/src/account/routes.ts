@@ -11,6 +11,7 @@ import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
 import { conflict, notFound, readBody, readOptionalBody } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { planOf } from "../billing/allowance.ts";
+import { makeDueCalls } from "../billing/calls.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
@@ -86,6 +87,7 @@ export function accountRoutes({
           "The account is already deleted and can no longer be restored.",
         );
       c.get("log").info("restored an account");
+      if (provider) await makeDueCalls(db, provider, c.get("log"));
       const body: Account = {
         status: "active",
         restorableDays: PURGE_AFTER_DAYS,

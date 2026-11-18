@@ -547,7 +547,7 @@ describe("an account deleted while it joins an org", () => {
 });
 
 describe("restoring a deleted account", () => {
-  it("lets the person resume their plan, without their orgs", async () => {
+  it("gives the person back the Pro their seat had paused, without their orgs", async () => {
     await buy(MEMBER, "pro");
     const orgId = await createOrg(3);
     await addMember(orgId, MEMBER, "user");
@@ -561,14 +561,12 @@ describe("restoring a deleted account", () => {
       "BillingOverview",
     );
     const pro = held.find((subscription) => subscription.product === "pro");
-    expect(pro?.cancelAtPeriodEnd).toBe(true);
-    const resumed = await as(
-      MEMBER,
-      `/v1/billing/subscriptions/${pro?.id}/resume`,
-      { method: "POST" },
-    );
-    expect(resumed.status).toBe(200);
-    expect((await body(resumed, "Subscription")).cancelAtPeriodEnd).toBe(false);
+    expect(pro).toMatchObject({
+      status: "active",
+      cancelAtPeriodEnd: false,
+      seatPause: { orgs: [] },
+    });
+    expect(pro?.seatPause?.resumesAt).toBeDefined();
     expect(await members(orgId)).toEqual([{ user_id: OWNER, role: "owner" }]);
   });
 });

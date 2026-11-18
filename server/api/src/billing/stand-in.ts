@@ -84,7 +84,11 @@ export class StandInProvider implements BillingProvider {
   private readonly secret = randomBytes(32);
   private readonly checkouts = new Map<string, CheckoutRequest>();
   private readonly paying = new Set<string>();
-  private readonly heldRefunds: string[] = [];
+  private readonly heldRefunds: {
+    providerPaymentId: string;
+    amount?: number;
+  }[] = [];
+  private readonly resumes = new Map<string, Date>();
   private readonly payments = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
@@ -301,26 +305,83 @@ export class StandInProvider implements BillingProvider {
     return this.setCancel(held, false);
   }
 
-  async refund(providerPaymentId: string) {
-    if (this.holdRefunds) this.heldRefunds.push(providerPaymentId);
-    else await this.settleRefund(providerPaymentId);
+  async pause(held: HeldSubscription) {
+    await this.send({
+      ...this.event("subscription.paused"),
+      providerSubscriptionId: held.providerSubscriptionId,
+    });
+    return { paidUntil: held.currentPeriodEnd };
+  }
+
+  /** Resumes at once when `at` has passed; a later day is kept and never comes, as nothing here waits. */
+  async resumeOn(held: HeldSubscription, at: Date) {
+    const now = new Date();
+    if (at > now) return void this.resumes.set(held.providerSubscriptionId, at);
+    this.resumes.delete(held.providerSubscriptionId);
+    const currentPeriodEnd = periodEnd(now, held.interval);
+    await this.send(
+      {
+        ...this.event("subscription.changed", now),
+        subscription: { ...this.subscriptionOf(held), currentPeriodEnd },
+      },
+      {
+        ...this.event("payment.made", now),
+        providerPaymentId: `pay_${randomUUID()}`,
+        providerSubscriptionId: held.providerSubscriptionId,
+        lines: [{ product: held.product, quantity: held.quantity }],
+        reason: "renewal",
+        total: cents(
+          (unitPrice(held.product, held.interval)?.amount ?? 0) * held.quantity,
+        ),
+        periodEnd: currentPeriodEnd,
+      },
+    );
+  }
+
+  keepPaused(held: HeldSubscription) {
+    this.resumes.delete(held.providerSubscriptionId);
+    return Promise.resolve();
+  }
+
+  /** When each paused subscription is set to resume. */
+  resumesOn(providerSubscriptionId: string): Date | undefined {
+    return this.resumes.get(providerSubscriptionId);
+  }
+
+  async refund(providerPaymentId: string, amount?: number) {
+    const refund =
+      amount === undefined
+        ? { providerPaymentId }
+        : { providerPaymentId, amount };
+    if (this.holdRefunds) this.heldRefunds.push(refund);
+    else await this.settleRefund(refund);
   }
 
   async approveRefunds() {
-    for (const providerPaymentId of this.heldRefunds.splice(0))
-      await this.settleRefund(providerPaymentId);
+    for (const refund of this.heldRefunds.splice(0))
+      await this.settleRefund(refund);
   }
 
-  private settleRefund(providerPaymentId: string) {
+  private settleRefund({
+    providerPaymentId,
+    amount,
+  }: {
+    providerPaymentId: string;
+    amount?: number;
+  }) {
     if (this.refuseRefunds)
       return this.send({
         ...this.event("payment.refund_refused"),
         providerPaymentId,
       });
+    const paid = this.payments.get(providerPaymentId) ?? cents(0);
     return this.send({
       ...this.event("payment.refunded"),
       providerPaymentId,
-      returned: this.payments.get(providerPaymentId) ?? cents(0),
+      returned:
+        amount === undefined
+          ? paid
+          : { ...paid, amount: Math.min(amount, paid.amount) },
       chargeback: false,
     });
   }

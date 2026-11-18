@@ -6,6 +6,7 @@ import type { Tables } from "../db.ts";
 import { removeDevice } from "../devices/removal.ts";
 import { holdsOpenSubscriptions } from "../billing/deleted.ts";
 import { payerLeft } from "../billing/payer.ts";
+import { checkSeatPauses } from "../billing/seat-pause.ts";
 import { appendEvent } from "../events/log.ts";
 import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
@@ -255,6 +256,7 @@ export async function restoreAccount(
       })
       .where("id", "=", userId)
       .execute();
+    await checkSeatPauses(trx, [userId]);
     await audit(trx, {
       userId,
       actor: `user:${userId}`,

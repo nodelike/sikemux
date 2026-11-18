@@ -465,7 +465,7 @@ export interface Tables {
     product: BillingProductId;
     interval: BillingInterval;
     quantity: number;
-    status: SubscriptionStatus;
+    status: SubscriptionStatus | "paused";
     current_period_end: Date;
     cancel_at_period_end: boolean;
     started_at: Date;
@@ -476,6 +476,10 @@ export interface Tables {
     provider_updated_at: Date;
     seats_cut_to: Generated<number | null>;
     seats_cut_at: Generated<Date | null>;
+    paused_for_seat_at: Generated<Date | null>;
+    /** An interval, only ever reckoned with in SQL. */
+    paid_left: Generated<string | null>;
+    resumes_at: Generated<Date | null>;
   };
   invoices: {
     id: Generated<string>;
@@ -517,13 +521,16 @@ export interface Tables {
   billing_calls: {
     id: Generated<string>;
     provider: string;
-    action: "cancel_now" | "cancel_at_period_end" | "refund";
+    action:
+      "cancel_now" | "cancel_at_period_end" | "refund" | "settle_seat_pause";
     subscription: ColumnType<
       Record<string, unknown> | null,
       string | null,
       never
     >;
     provider_payment_id: string | null;
+    user_id: string | null;
+    refund_amount: ColumnType<string | null, number | null, never>;
     attempts: ColumnType<number, never, number>;
     retry_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;

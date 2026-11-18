@@ -20,6 +20,7 @@ import {
   type ProviderSubscription,
 } from "./provider.ts";
 import { refundPending } from "./refunds.ts";
+import { checkSeatPauses } from "./seat-pause.ts";
 import { claimSettledBy } from "./seats.ts";
 
 /** An event about something erased, which is acknowledged and changes nothing. */
@@ -224,6 +225,9 @@ async function changeItems(
     const back = row.status !== "active" && {
       status: "active" as const,
       ended_at: null,
+      paused_for_seat_at: null,
+      paid_left: null,
+      resumes_at: null,
     };
     await trx
       .updateTable("subscriptions")
@@ -440,6 +444,21 @@ async function apply(
       if (!held) return STRAY;
       const { rows, customerId } = held;
       if (isNewer(rows, at)) await changeItems(trx, rows, customerId, sub, at);
+      return { customerId };
+    }
+    case "subscription.paused": {
+      const held = await rowsOf(trx, from, event.providerSubscriptionId, at);
+      if (!held) return STRAY;
+      const { rows, customerId } = held;
+      const ids = rows
+        .filter((row) => row.status !== "ended")
+        .map((row) => row.id);
+      if (ids.length && isNewer(rows, at))
+        await trx
+          .updateTable("subscriptions")
+          .set({ status: "paused", provider_updated_at: at })
+          .where("id", "in", ids)
+          .execute();
       return { customerId };
     }
     case "subscription.lapsed":
@@ -712,6 +731,7 @@ async function applyOnce(
           ...(org ? [{ userId, type: "orgs.changed" as const }] : []),
         ]),
       );
+      await checkSeatPauses(trx, people);
       if (result.cancelled)
         log.warn(
           { provider: name, subscription: result.cancelled },

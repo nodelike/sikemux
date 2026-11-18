@@ -11,7 +11,10 @@ import { ALL_FEATURES, featuresOf, product } from "./catalog.ts";
 
 type Payer = { userId: string } | { orgId: string };
 
-/** The products a payer pays for now, with their quantities. Lapsed and ended ones count for nothing. */
+/**
+ * The products a payer pays for now, with their quantities. A Pro paused here for a seat still
+ * counts, as its paid time is kept; lapsed, ended and other paused ones count for nothing.
+ */
 async function paidFor(db: Kysely<Tables>, payer: Payer) {
   return db
     .selectFrom("subscriptions")
@@ -21,7 +24,15 @@ async function paidFor(db: Kysely<Tables>, payer: Payer) {
       "subscriptions.customer_id",
     )
     .select(["subscriptions.product", "subscriptions.quantity"])
-    .where("subscriptions.status", "=", "active")
+    .where((eb) =>
+      eb.or([
+        eb("subscriptions.status", "=", "active"),
+        eb.and([
+          eb("subscriptions.status", "=", "paused"),
+          eb("subscriptions.paused_for_seat_at", "is not", null),
+        ]),
+      ]),
+    )
     .where(
       "userId" in payer
         ? "billing_customers.user_id"

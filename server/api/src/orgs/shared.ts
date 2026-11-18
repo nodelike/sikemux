@@ -6,6 +6,7 @@ import type { Kysely, Selectable, Transaction } from "kysely";
 import type { ClerkBackend, Person } from "../account/clerk.ts";
 import { audit } from "../audit.ts";
 import { holdStanding, type AuthEnv } from "../auth.ts";
+import { checkSeatPauses } from "../billing/seat-pause.ts";
 import { seatLimit, seatsHeld } from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
@@ -113,11 +114,15 @@ export async function orgsChanged(trx: Transaction<Tables>, userIds: string[]) {
   );
 }
 
-/** A seat that starts or ends changes its holder's plan and orgs, so their apps are told. */
+/**
+ * A seat that starts or ends changes its holder's plan and orgs, so their apps are told, and
+ * whether their own Pro is paused.
+ */
 export async function seatsChanged(
   trx: Transaction<Tables>,
   userIds: string[],
 ) {
+  await checkSeatPauses(trx, userIds);
   await appendEvents(
     trx,
     userIds.flatMap((userId) => [

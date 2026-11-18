@@ -89,6 +89,8 @@ export type ProviderEvent = {
   /** A renewal payment failed and the provider is still trying. */
   | { type: "subscription.lapsed"; providerSubscriptionId: string }
   | { type: "subscription.ended"; providerSubscriptionId: string }
+  /** The subscription is paused: the provider bills nothing until it resumes. */
+  | { type: "subscription.paused"; providerSubscriptionId: string }
   | {
       type: "payment.made" | "payment.failed";
       providerPaymentId: string;
@@ -229,8 +231,26 @@ export interface BillingProvider {
   ): Promise<void>;
   /** Takes back a cancellation at the end of the period. */
   resume(subscription: HeldSubscription): Promise<void>;
-  /** Asks for a payment to be refunded in full; payment.refunded says when it is. */
-  refund(providerPaymentId: string): Promise<void>;
+  /**
+   * Pauses the subscription at once, with no end, and answers when the period it had paid for
+   * would have ended. Inside the half hour before a renewal the provider takes no pause, so it
+   * answers when to ask again instead, by which time the renewal has gone through.
+   */
+  pause(
+    subscription: HeldSubscription,
+  ): Promise<{ paidUntil: Date } | { askAgainAt: Date }>;
+  /**
+   * Resumes a paused subscription on `at`, when the provider charges a new period; at once when
+   * `at` has passed. Asking again moves the day.
+   */
+  resumeOn(subscription: HeldSubscription, at: Date): Promise<void>;
+  /** Drops the resume `resumeOn` set, so the subscription stays paused. */
+  keepPaused(subscription: HeldSubscription): Promise<void>;
+  /**
+   * Asks for a payment to be refunded, in full or `amount` of it; payment.refunded says when it is.
+   * Asking twice for one payment refunds it once.
+   */
+  refund(providerPaymentId: string, amount?: number): Promise<void>;
   /**
    * The provider's own page for one subscription's payment method, where it has one, and only
    * while the subscription is under the customer the API holds for it.

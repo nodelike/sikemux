@@ -47,6 +47,8 @@ export type AuditAction =
   | "billing.change_taken_back"
   | "billing.subscription_canceled"
   | "billing.subscription_resumed"
+  | "billing.subscription_paused"
+  | "billing.subscription_resume_set"
   | "billing.refund_requested"
   | "org.created"
   | "org.deleted"
