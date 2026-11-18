@@ -383,7 +383,12 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
                 state.held.insert(new.clone(), moving);
             }
         }
-        memory.save(&mut state, &new);
+        let pointing: Vec<String> = (state.held.values_mut())
+            .filter_map(|held| moving::rekeyed(held, &old, &new).then(|| held.key.clone()))
+            .collect();
+        for key in pointing.iter().chain([&new]) {
+            memory.save(&mut state, key);
+        }
         memory.forget(&mut state, &old);
     }
     drop(state);

@@ -219,6 +219,15 @@ fn take(held: &mut Held, id: u64) -> Option<Moving> {
     Some(Moving::Knowledge(Box::new(held.knowledge.remove(at))))
 }
 
+pub(super) fn rekeyed(held: &mut Held, old: &str, new: &str) -> bool {
+    let mut changed = false;
+    for taken in held.absorbed.iter_mut().filter(|taken| taken.key == old) {
+        taken.key = new.to_owned();
+        changed = true;
+    }
+    changed
+}
+
 fn put(held: &mut Held, entry: Moving) {
     match entry {
         Moving::Rule(rule) => held.rules.push(*rule),
@@ -286,6 +295,13 @@ pub(super) fn move_to(
         let mut trial = state.held.get(&to_key)?.clone();
         put(&mut trial, entry.clone());
         super::org::too_big(&trial)
+    });
+    let refused = refused.or_else(|| {
+        let from = state.held.get(&from_key)?;
+        (from.absorbed.iter())
+            .filter(|taken| taken.into == id && taken.key != to_key)
+            .find(|taken| !state.held.contains_key(&taken.key))
+            .map(|_| "A project it took the same rule from is gone, so it can't go back".to_owned())
     });
     if let Some(refused) = refused {
         if let Some(from) = state.held.get_mut(&from_key) {
