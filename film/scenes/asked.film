@@ -3,6 +3,7 @@
 stage 1760 1000
 window 1760 1000
 prefer themeId aura-noir
+prefer starAsked true
 replies asked.json
 team acme https://acme.invalid/storefront.git
 project storefront shop-site
@@ -28,7 +29,6 @@ chat Nami
 title "Tax per country"
 say "Tax shows 19% for every country"
 core boardAdd {"project":"$project","title":"Tax\u0020per\u0020country","owner":"$chat"}
-prefer starAsked true
 core shareProject {"project":"$project","org":"org_acme"}
 settle 4
 ask Theo Pike 14 "Will the tax table cover the EU only, or the US too?"
