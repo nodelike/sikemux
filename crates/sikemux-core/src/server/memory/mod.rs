@@ -405,6 +405,7 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
         }
         let following: Vec<String> = (state.held.values_mut())
             .filter_map(|held| {
+                let kept_for = (held.kept_for.as_mut()).filter(|kept| kept.local == *old)?;
                 kept_for.local = new.clone();
                 Some(held.key.clone())
             })
