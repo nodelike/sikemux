@@ -473,7 +473,7 @@ impl Workbench {
     pub(crate) fn saw_page(&mut self, id: &str, cx: &mut Context<Self>) {
         let looks: Vec<String> = (self.calls_everywhere().into_iter())
             .filter(|(_, call)| call.kind == CallKind::Look)
-            .filter(|(_, call)| call.page.as_ref().is_some_and(|page| page.id == id))
+            .filter(|(_, call)| call.pages().any(|page| page.id == id))
             .map(|(_, call)| call.id.clone())
             .collect();
         for look in looks {
@@ -595,17 +595,20 @@ fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyE
         cards,
         bench,
     } = through;
-    let page = call.page.as_ref()?;
     let owner = call.about.as_ref().unwrap_or(&call.asker);
-    let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
-    let place = t!("@{name}'s page", name = owner.name).into();
-    let page = sikemux_view::chat::PageRef {
-        id: page.id.clone(),
-        title: page.title.clone(),
-    };
-    let row =
-        crate::chat::page::tab_row(&page, picture, place, false, (&owner.agent_id, bench), cx);
-    Some(crate::chat::page::tab_frame(vec![row], cx))
+    let rows: Vec<AnyElement> = (call.pages().enumerate())
+        .map(|(at, page)| {
+            let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
+            let place = t!("@{name}'s page", name = owner.name).into();
+            let page = sikemux_view::chat::PageRef {
+                id: page.id.clone(),
+                title: page.title.clone(),
+            };
+            let open = crate::chat::page::opens_tab(&page.id, &owner.agent_id, bench);
+            crate::chat::page::tab_row(&page, picture, place, at > 0, open, cx)
+        })
+        .collect();
+    (!rows.is_empty()).then(|| crate::chat::page::tab_frame(rows, cx))
 }
 
 /// The card of `call`: who asks, the question, its context and pictures, the options with the

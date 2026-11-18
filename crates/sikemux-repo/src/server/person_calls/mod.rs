@@ -138,6 +138,7 @@ impl Raise {
             joined: Vec::new(),
             about: None,
             page: None,
+            more_pages: Vec::new(),
             link: None,
             question: self.question,
             context: self.context,
@@ -314,6 +315,7 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
             call.options = edited.options;
             call.pick = edited.pick;
             call.page = edited.page;
+            call.more_pages = edited.more_pages;
             call.link = edited.link;
         }
         Entry::Shown { by, at, .. } => {
@@ -348,6 +350,7 @@ fn edited(call: &PersonCall, now: &PersonCall) -> bool {
         &call.options,
         &call.pick,
         &call.page,
+        &call.more_pages,
         &call.link,
     ) != (
         &now.title,
@@ -355,6 +358,7 @@ fn edited(call: &PersonCall, now: &PersonCall) -> bool {
         &now.options,
         &now.pick,
         &now.page,
+        &now.more_pages,
         &now.link,
     )
 }

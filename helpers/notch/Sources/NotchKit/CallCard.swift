@@ -158,12 +158,14 @@ struct CallCard: View {
     /// The page the call names, which opens its agent in Sikemux, where the page is.
     private func pageRow(_ page: CallPage) -> some View {
         let owner = call.about ?? call.asker
+        let others = call.morePages?.count ?? 0
+        let more = others > 0 ? " · +\(others) more" : ""
         return Button { store.focus(owner.agentId) } label: {
             HStack(spacing: 10) {
                 IconView(icon: Icons.window, size: 14).foregroundStyle(Theme.inkDim)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
-                    Text("@\(owner.name)'s page").font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim)
+                    Text("@\(owner.name)'s page" + more).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim)
                 }
                 Spacer(minLength: 8)
                 Text("Open").font(Theme.ui(12)).foregroundStyle(Theme.inkSoft)

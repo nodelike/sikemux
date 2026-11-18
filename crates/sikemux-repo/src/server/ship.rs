@@ -1792,6 +1792,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         joined: Vec::new(),
         about: None,
         page: None,
+        more_pages: Vec::new(),
         link: None,
         question,
         context: hold.why.clone(),

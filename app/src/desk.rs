@@ -3032,6 +3032,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_page_shown_by_path_then_by_its_id_finds_the_tab_it_opened() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _inside = runtime.enter();
+        let files = sikemux_browser::local_files::LocalFiles::default();
+        let folder = std::env::temp_dir().join(format!("desk-tabs-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let page = folder.join("caa94d955d1b41af97d9ce4ccf0daba9.html");
+        std::fs::write(&page, "<p>mockup</p>").unwrap();
+        let by_path = files.url_for(&page).unwrap();
+        let mut opened = tab("page", &by_path, true);
+        opened.local_file = files.path_of(&by_path);
+        let strip = BrowserSnapshot {
+            tabs: vec![opened, tab("other", "https://example.com", false)],
+            active_tab_id: Some("page".into()),
+        };
+        std::fs::write(&page, "<p>mockup, edited</p>").unwrap();
+        let by_id = files.url_for(&page).unwrap();
+        let file = files.path_of(&by_id);
+        assert_eq!(tab_showing(&strip, &by_id, file.as_deref()), Some("page"));
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
     #[gpui::test]
     fn open_turns_a_desk_on_a_terminal_or_the_simulator_back_to_its_pages(
         cx: &mut gpui::TestAppContext,
