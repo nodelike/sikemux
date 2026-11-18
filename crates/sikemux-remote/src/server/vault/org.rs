@@ -6,6 +6,7 @@
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -44,6 +45,7 @@ const SERVICE: &str = if cfg!(debug_assertions) {
     "sikemux-org-vaults"
 };
 const ITEM: &str = "orgs";
+const ENTRIES_FOLDER: &str = "org-vaults";
 
 /// What a model-key entry holds.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -87,11 +89,105 @@ impl Held {
     }
 }
 
-/// The copy in the secret store: every org vault this host holds, for one account.
-#[derive(Default, PartialEq, Serialize, Deserialize)]
+/// What this host keeps between runs: every org vault it holds, for one account. The secret
+/// store keeps each org's key; each org's entries go in a file of their own, sealed under it.
+#[derive(Clone, Default, PartialEq)]
 struct Copy {
     account: String,
     orgs: BTreeMap<String, Held>,
+}
+
+/// The secret store's part of [`Copy`].
+#[derive(Serialize, Deserialize)]
+struct Keys {
+    account: String,
+    orgs: BTreeMap<String, KeptKey>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct KeptKey {
+    generation: i64,
+    key: Key,
+}
+
+impl Copy {
+    fn keys(&self) -> Keys {
+        Keys {
+            account: self.account.clone(),
+            orgs: (self.orgs.iter())
+                .filter_map(|(id, held)| {
+                    let key = held.key?;
+                    let generation = held.generation;
+                    Some((id.clone(), KeptKey { generation, key }))
+                })
+                .collect(),
+        }
+    }
+}
+
+fn entries_file(data_dir: &Path, org: &str) -> PathBuf {
+    data_dir
+        .join(ENTRIES_FOLDER)
+        .join(URL_SAFE_NO_PAD.encode(org))
+}
+
+fn entries_context(account: &str, org: &str, generation: i64) -> String {
+    format!("sikemux org vault entries\n{account}\n{org}\n{generation}")
+}
+
+fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, key: &KeptKey) -> Held {
+    let entries = data_dir
+        .and_then(|dir| std::fs::read(entries_file(dir, org)).ok())
+        .and_then(|sealed| {
+            let context = entries_context(account, org, key.generation);
+            seal::open_bytes(&key.key, &context, &sealed)
+        })
+        .and_then(|plain| serde_json::from_slice(&plain).ok())
+        .unwrap_or_default();
+    Held {
+        generation: key.generation,
+        key: Some(key.key),
+        entries,
+    }
+}
+
+/// Writes the entries of each org in `now` that differ from `was`, and deletes the files of
+/// orgs no longer held.
+fn write_entries(data_dir: &Path, was: Option<&Copy>, now: Option<&Copy>) -> CoreResult<()> {
+    let folder = data_dir.join(ENTRIES_FOLDER);
+    let held = |copy: Option<&Copy>, org: &str| copy.and_then(|copy| copy.orgs.get(org)).cloned();
+    if let Some(now) = now {
+        std::fs::create_dir_all(&folder)?;
+        for (org, kept) in &now.orgs {
+            let Some(key) = kept.key else {
+                continue;
+            };
+            let same_account = was.is_some_and(|was| was.account == now.account);
+            if same_account && held(was, org).as_ref() == Some(kept) {
+                continue;
+            }
+            let plain = serde_json::to_vec(&kept.entries)?;
+            let context = entries_context(&now.account, org, kept.generation);
+            let sealed = seal::seal_bytes(&key, &context, &plain)
+                .ok_or_else(|| CoreError::from("the org vault's entries could not be sealed"))?;
+            let path = entries_file(data_dir, org);
+            let fresh = path.with_extension("new");
+            std::fs::write(&fresh, sealed)?;
+            std::fs::rename(&fresh, &path)?;
+        }
+    }
+    let Ok(files) = std::fs::read_dir(&folder) else {
+        return Ok(());
+    };
+    for file in files.flatten() {
+        let org = (file.file_name().to_str())
+            .and_then(|name| URL_SAFE_NO_PAD.decode(name).ok())
+            .and_then(|name| String::from_utf8(name).ok());
+        if org.is_none_or(|org| held(now, &org).is_none()) {
+            std::fs::remove_file(file.path())?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Default)]
@@ -223,11 +319,21 @@ async fn load(core: &Core, account: &str) -> CoreResult<()> {
     if core.vault().orgs().state.locked().account.as_deref() == Some(account) {
         return Ok(());
     }
-    let copy = blocking(|| {
-        Ok(sikemux_keychain::read(SERVICE, ITEM)
+    let data_dir = core.data_dir().clone();
+    let copy = blocking(move || {
+        let keys = sikemux_keychain::read(SERVICE, ITEM)
             .map_err(|error| CoreError::from(error.to_string()))?
             .and_then(|text| URL_SAFE_NO_PAD.decode(text.trim()).ok())
-            .and_then(|bytes| serde_json::from_slice::<Copy>(&bytes).ok()))
+            .and_then(|bytes| serde_json::from_slice::<Keys>(&bytes).ok());
+        Ok(keys.map(|keys| Copy {
+            orgs: (keys.orgs.iter())
+                .map(|(org, key)| {
+                    let held = read_entries(data_dir.as_deref(), &keys.account, org, key);
+                    (org.clone(), held)
+                })
+                .collect(),
+            account: keys.account,
+        }))
     })
     .await?;
     let mut state = core.vault().orgs().state.locked();
@@ -279,16 +385,26 @@ async fn keep(core: &Core, account: Option<&str>) -> CoreResult<()> {
     if core.vault().orgs().state.locked().kept.as_ref() == Some(&copy) {
         return Ok(());
     }
-    let text = copy
-        .as_ref()
-        .map(|copy| serde_json::to_vec(copy).map(|bytes| URL_SAFE_NO_PAD.encode(bytes)))
-        .transpose()?;
+    let was = core.vault().orgs().state.locked().kept.clone().flatten();
+    let text = |copy: Option<&Copy>| {
+        copy.map(|copy| serde_json::to_vec(&copy.keys()).map(|bytes| URL_SAFE_NO_PAD.encode(bytes)))
+            .transpose()
+    };
+    let (text, kept_text) = (text(copy.as_ref())?, text(was.as_ref())?);
+    let data_dir = core.data_dir().clone();
+    let now = copy.clone();
     blocking(move || {
-        match text {
-            Some(text) => sikemux_keychain::write(SERVICE, ITEM, &text),
-            None => sikemux_keychain::delete(SERVICE, ITEM),
+        if text != kept_text {
+            match &text {
+                Some(text) => sikemux_keychain::write(SERVICE, ITEM, text),
+                None => sikemux_keychain::delete(SERVICE, ITEM),
+            }
+            .map_err(|error| CoreError::from(error.to_string()))?;
         }
-        .map_err(|error| CoreError::from(error.to_string()))
+        match data_dir {
+            Some(data_dir) => write_entries(&data_dir, was.as_ref(), now.as_ref()),
+            None => Ok(()),
+        }
     })
     .await?;
     core.vault().orgs().state.locked().kept = Some(copy);
