@@ -3,7 +3,9 @@
 
 use super::*;
 use crate::ui::Clicks;
-use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice, WorkerPage, REPLY_URI};
+use sikemux_view::chat::{
+    ChiefWeek, GoalMoment, PageRef, TaskNotice, TriggerFired, WorkerPage, REPLY_URI,
+};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -366,8 +368,7 @@ pub(super) fn tucked(
         .into_any_element()
 }
 
-/// The prompts of the chat's triggers that came due, each in a bubble at the left under the
-/// trigger's name, with the webhook request that fired it folded beneath.
+/// The chat's triggers that came due, each folded to a line with the trigger's name.
 pub(super) fn fired(
     row: &ChatRow,
     pen: &Pen,
@@ -375,30 +376,13 @@ pub(super) fn fired(
     window: &mut Window,
     cx: &mut App,
 ) -> gpui_kit::Div {
-    let t = Tokens::get(cx).clone();
     let drawn: Vec<AnyElement> = row
         .message
         .letters
         .iter()
         .enumerate()
         .filter_map(|(ix, letter)| Some((ix, letter.trigger.as_ref()?)))
-        .map(|(ix, trigger)| {
-            let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
-            let prompt = row.doc(&letter_doc(ix)).map(|doc| {
-                let look = looks.styles.borrow().user.clone();
-                pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
-            });
-            from(trigger_named(&trigger.title, &t), row, prompt, looks)
-                .children(trigger.request.as_ref().map(|request| {
-                    let body = row.doc(&request_doc(ix)).map(|doc| {
-                        let look = looks.styles.borrow().text.clone();
-                        let body_id = SharedString::from(format!("{id}:request"));
-                        pen.markdown_with(&look, body_id, &doc.markdown, window, cx)
-                    });
-                    fired_request(&format!("request:{id}"), request, body, looks, &t)
-                }))
-                .into_any_element()
-        })
+        .map(|(ix, trigger)| trigger_letter(row, ix, trigger, pen, looks, window, cx))
         .collect();
     div()
         .w_full()
@@ -408,27 +392,79 @@ pub(super) fn fired(
         .children(drawn)
 }
 
-/// A trigger's name over its prompt.
-fn trigger_named(title: &str, t: &Tokens) -> Div {
-    div()
-        .min_w_0()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .child(ui::icon(Icon::Timer, 13.).text_color(t.cmd))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(t.text_primary)
-                .child(title.to_owned()),
-        )
+/// A trigger that came due: a line with its name, which opens onto its prompt in a bubble
+/// and the webhook request that fired it.
+fn trigger_letter(
+    row: &ChatRow,
+    ix: usize,
+    trigger: &TriggerFired,
+    pen: &Pen,
+    looks: &Drawn,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
+    let key = format!("fired:{id}");
+    let open = looks.reading.opened.contains(&key);
+    let says = vec![
+        ui::icon(Icon::Timer, 13.)
+            .text_color(t.cmd)
+            .into_any_element(),
+        div()
+            .min_w_0()
+            .truncate()
+            .child(trigger.title.clone())
+            .into_any_element(),
+    ];
+    let line = fold_toggle(&key, open, says, looks).min_w_0();
+    let shown = motion::follow(
+        SharedString::from(format!("{key}:shown")),
+        if open { 1. } else { 0. },
+        if open {
+            motion::UNFOLD
+        } else {
+            motion::FOLD_AWAY
+        },
+        window,
+        cx,
+    );
+    let opened = (shown > 0.).then(|| {
+        let prompt = row.doc(&letter_doc(ix)).map(|doc| {
+            let look = looks.styles.borrow().user.clone();
+            sent_bubble(
+                pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx),
+                looks,
+            )
+        });
+        let request = trigger.request.as_ref().map(|request| {
+            let body = row.doc(&request_doc(ix)).map(|doc| {
+                let look = looks.styles.borrow().text.clone();
+                let body_id = SharedString::from(format!("{id}:request"));
+                pen.markdown_with(&look, body_id, &doc.markdown, window, cx)
+            });
+            fired_request(&format!("request:{id}"), request, body, looks, &t)
+        });
+        let body = div()
+            .flex()
+            .flex_col()
+            .items_start()
+            .gap(SPACE_1H)
+            .children(prompt)
+            .children(request);
+        match open {
+            true => motion::folded(SharedString::from(key.clone()), shown, body, window, cx),
+            false => motion::folding_away(SharedString::from(key.clone()), shown, body, window, cx),
+        }
+    });
+    from(line, row, None, looks)
+        .children(opened)
+        .into_any_element()
 }
 
 /// What another agent or a trigger sent: who over its bubble at the left, and when at the
 /// line's end.
-fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div {
+fn from(who: impl IntoElement, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div {
     let when = row.message.sent_at.and_then(meta::clock).map(|when| {
         div()
             .ml_auto()
@@ -455,18 +491,21 @@ fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div
                 .child(who)
                 .children(when),
         )
-        .child(
-            div()
-                .max_w_full()
-                .px(px(14.))
-                .py(SPACE_2H)
-                .rounded(BUBBLE_RADIUS)
-                .rounded_bl(SPACE_1H)
-                .border(crate::theme::border())
-                .border_color(looks.line)
-                .bg(looks.asked)
-                .children(body),
-        )
+        .children(body.map(|body| sent_bubble(body, looks)))
+}
+
+/// What another agent or a trigger said, in a bubble at the left.
+fn sent_bubble(body: AnyElement, looks: &Looks) -> Div {
+    div()
+        .max_w_full()
+        .px(px(14.))
+        .py(SPACE_2H)
+        .rounded(BUBBLE_RADIUS)
+        .rounded_bl(SPACE_1H)
+        .border(crate::theme::border())
+        .border_color(looks.line)
+        .bg(looks.asked)
+        .child(body)
 }
 
 /// The webhook request that fired a trigger: one line saying what it was, which opens onto
@@ -609,25 +648,27 @@ pub(super) fn letters(
                 continue;
             }
             LetterKind::Message | LetterKind::Trigger => {
+                if let Some(trigger) = &letter.trigger {
+                    drawn.push(trigger_letter(row, ix, trigger, pen, looks, window, cx));
+                    ix += 1;
+                    continue;
+                }
                 let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
                 let text = row.doc(&letter_doc(ix)).map(|doc| {
                     let look = looks.styles.borrow().user.clone();
                     pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
                 });
-                let who = match &letter.trigger {
-                    Some(trigger) => trigger_named(&trigger.title, Tokens::get(cx)),
-                    None => match looks.bench.upgrade() {
-                        Some(bench) => div().flex().child(super::agent_pill_of(
-                            &letter.agent_id,
-                            &letter.name,
-                            looks.mark_of(&letter.agent_id, &letter.cli, TEXT_XS + 1., cx),
-                            TEXT_XS,
-                            bench.read(cx).chat_target(&looks.agent),
-                            &looks.bench,
-                            cx,
-                        )),
-                        None => div(),
-                    },
+                let who = match looks.bench.upgrade() {
+                    Some(bench) => div().flex().child(super::agent_pill_of(
+                        &letter.agent_id,
+                        &letter.name,
+                        looks.mark_of(&letter.agent_id, &letter.cli, TEXT_XS + 1., cx),
+                        TEXT_XS,
+                        bench.read(cx).chat_target(&looks.agent),
+                        &looks.bench,
+                        cx,
+                    )),
+                    None => div(),
                 };
                 from(who, row, text, looks).into_any_element()
             }
