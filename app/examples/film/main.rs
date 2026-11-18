@@ -31,7 +31,8 @@
 //!                               them ROLE there: admin or user
 //!   orgplan active|lapsed "ORG" sets ORG's plan; hosts see it at the next orgrole
 //!   orgkey HOST "ORG" PROVIDER  saves a key to PROVIDER in ORG's vault from HOST, or `here`
-//!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
+//!   chat NAME [AGENT [MODEL]]   opens a chat named NAME in the last project, first in its strip,
+//!                               on AGENT (Claude unless named) and MODEL
 //!   title "TEXT"                gives the last chat that title
 //!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS
 //!   say "TEXT" [FILE...]        sends the last chat TEXT, as the person, with no typing shown,

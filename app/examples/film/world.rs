@@ -563,10 +563,12 @@ impl World {
             "orgholds" => self.org_holds(step.text(0)?, step.text(1)?)?,
             "chat" => {
                 let (project, _) = self.project()?.clone();
+                let launcher = step.text(1).unwrap_or("claude:builtin-claude").to_owned();
+                let model = step.text(2).ok().map(str::to_owned);
                 let (chat, _) = self.runtime.block_on(self.client.start_chat(
-                    "claude:builtin-claude".into(),
+                    launcher,
                     project.clone(),
-                    None,
+                    model,
                 ))?;
                 self.call(
                     "openTab",
