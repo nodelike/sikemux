@@ -193,6 +193,8 @@ pub struct Welcome {
     open_error: Option<String>,
     /// The agent whose install or sign-in was run last, whose failure the poster explains.
     agent: Option<String>,
+    /// The agent the person picked when they moved on to projects, which the first chat opens on.
+    chosen: Option<String>,
     opening: bool,
     /// The terminal of a command just started takes the keys once it has been drawn.
     terminal_due: bool,
@@ -229,6 +231,7 @@ impl Welcome {
             error: None,
             open_error: None,
             agent: None,
+            chosen: None,
             opening: false,
             terminal_due: false,
             was_busy: false,
@@ -588,9 +591,16 @@ fn keyed_tile<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<(usize, &'a
     }
 }
 
-/// The agent the first chat starts on: the first that is ready, else the first installed.
+/// The agent the first chat starts on: the one the person picked, else the first that is ready,
+/// else the first installed.
 fn start_agent(bench: &Workbench) -> Option<&Found> {
-    startable_agents(bench).into_iter().next()
+    let startable = startable_agents(bench);
+    let chosen = welcome_in(bench).and_then(|welcome| welcome.chosen.as_deref());
+    startable
+        .iter()
+        .find(|agent| Some(agent.kind.as_str()) == chosen)
+        .or(startable.first())
+        .copied()
 }
 
 fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
@@ -760,7 +770,15 @@ fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbenc
         return;
     };
     match welcome.stage {
-        Stage::Agents if usable_agents(bench) > 0 => show_stage(bench, Stage::Projects, window, cx),
+        Stage::Agents if usable_agents(bench) > 0 => {
+            let chosen = keyed_tile(bench, welcome)
+                .map(|(_, agent)| agent.kind.clone())
+                .or_else(|| welcome.agent.clone());
+            if let Some(welcome) = welcome_of(bench) {
+                welcome.chosen = chosen;
+            }
+            show_stage(bench, Stage::Projects, window, cx)
+        }
         Stage::Agents => {}
         Stage::Projects if can_continue_projects(welcome) => finish(bench, window, cx),
         Stage::Projects => {}

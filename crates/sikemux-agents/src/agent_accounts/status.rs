@@ -198,6 +198,9 @@ fn sign_in_of(account: &Result<AccountStatus, String>) -> AgentStatus {
             account: account.method.clone(),
         },
         Ok(_) => AgentStatus::SignedOut,
+        Err(reason) if reason.starts_with(super::usage::CONFIG_BROKEN) => AgentStatus::Broken {
+            reason: reason.clone(),
+        },
         Err(_) => AgentStatus::Unknown,
     }
 }
