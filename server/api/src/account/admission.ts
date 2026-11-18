@@ -84,7 +84,7 @@ export async function refusalOf(
 
 export function refusalWords(refusal: Refusal): string {
   return refusal.why === "domain"
-    ? `${refusal.orgName} says addresses at ${refusal.domain} are its own, so an address there can't have a Sikemux account of its own. Sign in with your own Google, Apple or email instead, then bring the address to that account on app.sikemux.com.`
+    ? `Addresses at ${refusal.domain} belong to ${refusal.orgName}, so one can't have a Sikemux account of its own. Sign in with your own Google, Apple or email instead, then bring the address to that account on app.sikemux.com.`
     : `This address is already verified on a Sikemux account, so it can't have one of its own. Sign in to that account with its own Google, Apple or email instead.`;
 }
 

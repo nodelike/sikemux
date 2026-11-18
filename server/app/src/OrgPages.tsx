@@ -784,8 +784,8 @@ function DomainRow({
             <span className="name">Addresses at this domain are ours</span>
             <span className="detail">
               {domain.oursSince
-                ? `Since ${formatDay(domain.oursSince)}, an address at ${domain.domain} can't sign up for a Sikemux account of its own or be added as a way to sign in; people verify it under Work addresses instead. What stood before stays.`
-                : `Off: anyone at ${domain.domain} can still keep a Sikemux account of their own. Turned on, an address there added from then on can't sign up or sign in on its own; people verify it under Work addresses instead. What stands already stays.`}
+                ? `Since ${formatDay(domain.oursSince)}, an address at ${domain.domain} can't sign up for its own Sikemux account or be added as a sign-in. People verify it under Work addresses instead. Accounts and sign-ins from before then stay.`
+                : `Turn this on to stop new Sikemux accounts and sign-ins at ${domain.domain}. People then sign in with their own account and verify their ${domain.domain} address under Work addresses. Accounts and sign-ins that already exist stay.`}
             </span>
           </div>
           {org.role === "owner" ? (

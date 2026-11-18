@@ -266,7 +266,7 @@ function Catch({
       <p className="lede">
         {caught.mustFold
           ? why === "domain"
-            ? `${caught.orgName ?? "Your org"} has verified ${caught.address?.split("@")[1] ?? "its domain"}, so an address there can't have a Sikemux account of its own. Sign in with your own Google, Apple or email, and this address comes along to show you belong to ${caught.orgName ?? "the org"}. It never signs you in.`
+            ? `Addresses at ${caught.address?.split("@")[1] ?? "this domain"} belong to ${caught.orgName ?? "your org"}, so one can't have a Sikemux account of its own. Sign in with your own Google, Apple or email, and this address comes along to show you belong to ${caught.orgName ?? "the org"}. It never signs you in.`
             : "This address is already verified on a Sikemux account, so it can't have one of its own. Sign in to that account with its own Google, Apple or email, and this new one is removed."
           : `You just made a new account with this address${
               why === "invite" && caught.orgName
