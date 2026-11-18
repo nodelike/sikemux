@@ -194,7 +194,7 @@ fn pushes_shared_branch(
     let options = args
         .get(..args.len() - subcommand.len())
         .unwrap_or_default();
-    if checkout(git(), options)?.linked {
+    if checkout(git(), options)?.linked || pushes_to_git_dependency(rest, options, git) {
         return None;
     }
     let refspecs: Vec<&str> = (rest.iter())
@@ -230,6 +230,53 @@ fn pushes_shared_branch(
         "Sikemux refused `git {}`: from the project's own checkout a branch is pushed with the git_commit tool and `push: true`, which runs the land check on what it sends first.",
         subcommand.join(" ")
     ))
+}
+
+/// Whether `git push` with `rest` goes to a GitHub repository the agent's checkout builds from as
+/// a git dependency in its Cargo.lock, such as the project's fork of a crate. git_commit acts only
+/// in the project, so a raw push is the one way to reach it.
+fn pushes_to_git_dependency(
+    rest: &[String],
+    options: &[String],
+    git: &dyn Fn() -> Command,
+) -> bool {
+    let Some(root) = std::env::var_os(sikemux_corekit::tasks::checkout::ROOT_VAR) else {
+        return false;
+    };
+    let Ok(lock) = std::fs::read_to_string(Path::new(&root).join("Cargo.lock")) else {
+        return false;
+    };
+    let remote = (rest.iter().find(|arg| !arg.starts_with('-'))).map_or("origin", String::as_str);
+    let url = {
+        let mut git = git();
+        git.args(options)
+            .args(["remote", "get-url", "--push", remote])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null());
+        git.output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            .unwrap_or_else(|| remote.to_owned())
+    };
+    let Some(target) = github_repository(&url) else {
+        return false;
+    };
+    (lock.lines())
+        .filter_map(|line| line.trim().strip_prefix("source = \"git+"))
+        .filter_map(|source| github_repository(source.split(['?', '#', '"']).next()?))
+        .any(|dependency| dependency == target)
+}
+
+/// The `owner/name` of a GitHub repository address, in lower case.
+fn github_repository(url: &str) -> Option<String> {
+    let (_, path) = url.split_once("github.com")?;
+    let path = path.trim_start_matches([':', '/']);
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let (owner, name) = path.split_once('/')?;
+    (!owner.is_empty() && !name.is_empty() && !name.contains('/'))
+        .then(|| format!("{owner}/{name}").to_lowercase())
 }
 
 /// Whether git, given the global `options`, finds nothing uncommitted anywhere
