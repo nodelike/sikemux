@@ -231,10 +231,27 @@ pub(super) fn rekeyed(held: &mut Held, old: &str, new: &str) -> bool {
     changed
 }
 
-/// Points the rules `held` took in for entry `old` at its new number.
+/// Points what `held` keeps about entry `old` at its new number, and remembers the change for
+/// whoever still names it by the old one.
 pub(super) fn renumbered(held: &mut Held, old: u64, new: u64) {
     for taken in held.absorbed.iter_mut().filter(|taken| taken.into == old) {
         taken.into = new;
+    }
+    for now in held.renumbered.values_mut().filter(|now| **now == old) {
+        *now = new;
+    }
+    held.renumbered.insert(old, new);
+    if held.not_now.remove(&old) {
+        held.not_now.insert(new);
+    }
+    if held.waiting.remove(&old) {
+        held.waiting.insert(new);
+    }
+    if let Some(by) = held.dropped.remove(&old) {
+        held.dropped.insert(new, by);
+    }
+    if let Some(why) = held.refused.remove(&old) {
+        held.refused.insert(new, why);
     }
 }
 

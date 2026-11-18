@@ -212,11 +212,18 @@ pub(super) fn own_unwritten(held: &mut Held, member: &str) {
 
 /// `mine`'s changes since `base`, made again on top of `remote`. An entry added here under an id
 /// another member's core gave an entry of its own meanwhile takes a fresh id from `fresh`, and one
-/// another member's core added in the same words meanwhile is not added again.
-fn rebased(remote: &Body, base: &Body, mine: &Body, mut fresh: impl FnMut() -> u64) -> Body {
+/// another member's core added in the same words meanwhile is not added again. Also answers each
+/// entry added here that ended up under another number, as its number here and its number now.
+fn rebased(
+    remote: &Body,
+    base: &Body,
+    mine: &Body,
+    mut fresh: impl FnMut() -> u64,
+) -> (Body, Vec<(u64, u64)>) {
     let (before, now) = (base.entries(), mine.entries());
     let mut entries = remote.entries();
     let mut writers = remote.writers.clone();
+    let mut moved = Vec::new();
     for id in before.keys().filter(|id| !now.contains_key(id)) {
         entries.remove(id);
         writers.remove(id);
@@ -226,11 +233,20 @@ fn rebased(remote: &Body, base: &Body, mine: &Body, mut fresh: impl FnMut() -> u
         .filter(|(id, entry)| before.get(id) != Some(entry))
     {
         let added = !before.contains_key(id);
-        if added && (entries.values()).any(|there| there != entry && there.same_words(entry)) {
+        let same = (entries.iter())
+            .find(|(_, there)| *there != entry && there.same_words(entry))
+            .map(|(at, _)| *at);
+        if let (true, Some(at)) = (added, same) {
+            if at != *id {
+                moved.push((*id, at));
+            }
             continue;
         }
         let taken = added && entries.get(id).is_some_and(|there| there != entry);
         let at = if taken { fresh() } else { *id };
+        if taken {
+            moved.push((*id, at));
+        }
         entries.insert(at, entry.clone().with_id(at));
         match mine.writers.get(id) {
             Some(writer) => writers.insert(at, writer.clone()),
@@ -247,12 +263,13 @@ fn rebased(remote: &Body, base: &Body, mine: &Body, mut fresh: impl FnMut() -> u
             Entry::Knowledge(known) => knowledge.push(*known),
         }
     }
-    Body {
+    let body = Body {
         next,
         rules,
         knowledge,
         writers,
-    }
+    };
+    (body, moved)
 }
 
 /// Keeps each shared project's store in step with the org's vault: when the vault changes, when
@@ -501,10 +518,13 @@ fn mirror(core: &Core, shared: &Shared) {
     let base = held.base.take().unwrap_or_default();
     let mine = Body::of(held);
     held.next = held.next.max(remote.body.next);
-    let body = rebased(&remote.body, &base.body, &mine, || state.next_id(&key));
+    let (body, moved) = rebased(&remote.body, &base.body, &mine, || state.next_id(&key));
     let Some(held) = state.held.get_mut(&key) else {
         return;
     };
+    for (old, new) in moved {
+        moving::renumbered(held, old, new);
+    }
     held.next = body.next.max(held.next);
     held.rules = body.rules;
     held.knowledge = with_local_checks(body.knowledge, &held.knowledge);
@@ -561,22 +581,6 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
                 apart.rule.id = fresh;
             }
             moving::renumbered(held, id, fresh);
-            for now in held.renumbered.values_mut().filter(|now| **now == id) {
-                *now = fresh;
-            }
-            held.renumbered.insert(id, fresh);
-            if held.not_now.remove(&id) {
-                held.not_now.insert(fresh);
-            }
-            if held.waiting.remove(&id) {
-                held.waiting.insert(fresh);
-            }
-            if let Some(by) = held.dropped.remove(&id) {
-                held.dropped.insert(fresh, by);
-            }
-            if let Some(why) = held.refused.remove(&id) {
-                held.refused.insert(fresh, why);
-            }
             renumbered.push(key.clone());
         }
     }

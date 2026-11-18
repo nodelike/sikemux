@@ -174,6 +174,18 @@ impl Held {
         self.rules.len() + self.knowledge.len()
     }
 
+    fn words(&self, id: u64) -> Option<&str> {
+        let rule = self
+            .rules
+            .iter()
+            .find(|rule| rule.id == id)
+            .map(|rule| &rule.text);
+        rule.or_else(|| {
+            (self.knowledge.iter().find(|known| known.id == id)).map(|known| &known.text)
+        })
+        .map(String::as_str)
+    }
+
     fn holds(&self, id: u64) -> bool {
         self.rules.iter().any(|rule| rule.id == id)
             || self.knowledge.iter().any(|known| known.id == id)
@@ -261,7 +273,7 @@ impl State {
     /// The number entry `id` has now, when `id` is one a chat line kept before the entry was
     /// renumbered.
     fn kept_id(&self, project: &str, id: u64) -> u64 {
-        (self.own(project).into_iter().chain(self.held.get(PERSONAL)))
+        self.applying(project)
             .find_map(|held| held.renumbered.get(&id).copied())
             .unwrap_or(id)
     }
@@ -319,6 +331,9 @@ pub(crate) struct Memory {
     /// What the person said in the turn of each agent on a linked host whose write this host,
     /// the project's home, is doing now.
     said_elsewhere: Mutex<HashMap<String, Vec<String>>>,
+    /// Each agent told that a number it named was renumbered, with that number, so its next update
+    /// by the number is taken as written.
+    told_renumbered: Mutex<HashSet<(String, u64)>>,
     /// Told when an org's store is saved here, or shares changed, to sync with the org's vault.
     org_sync: Arc<tokio::sync::Notify>,
     /// What this host's owner or admin answered of entries waiting on an org's list.
@@ -349,6 +364,7 @@ impl Memory {
             promotes: Mutex::new(()),
             wake: Wake::default(),
             said_elsewhere: Mutex::default(),
+            told_renumbered: Mutex::default(),
             org_sync: Arc::default(),
             answers: Mutex::default(),
         }
@@ -1451,6 +1467,7 @@ pub(crate) async fn tool_update(
         .is_some_and(|label| label.eq_ignore_ascii_case("said again"));
     let core = core.clone();
     run(move || {
+        renumbered_once(&core, &agent, &project, id)?;
         let corrected = (given.text.as_deref())
             .map(|text| with_check_asked(String::new(), text, given.about.as_deref().unwrap_or_default()))
             .filter(|asked| !asked.is_empty());
@@ -1476,6 +1493,36 @@ pub(crate) async fn tool_update(
         })
     })
     .await
+}
+
+/// Refuses, the first time this agent names it, a number that once named an entry since renumbered
+/// and now names another one, since the agent may mean either.
+fn renumbered_once(core: &Core, agent: &str, project: &str, id: u64) -> Result<(), String> {
+    let state = core.memory().state.locked();
+    let moved = state.applying(project).find_map(|held| {
+        let now = *held.renumbered.get(&id)?;
+        Some((now, held.words(now)?))
+    });
+    let holder = state.applying(project).find(|held| held.holds(id));
+    let (Some((now, was)), Some(holder)) = (moved, holder) else {
+        return Ok(());
+    };
+    if !(core.memory().told_renumbered.locked()).insert((agent.to_owned(), id)) {
+        return Ok(());
+    }
+    let words = holder.words(id).unwrap_or_default();
+    let from = match holder.store {
+        Store::Org => (state.shared.get(&state.key_of(project))).map_or_else(
+            || "the org's rules".to_owned(),
+            |shared| shared.name.clone(),
+        ),
+        Store::Project => "this project".to_owned(),
+        Store::Personal => "your own rules".to_owned(),
+    };
+    Err(format!(
+        "#{id} was \"{was}\", which is now #{now}. #{id} is now \"{words}\" from {from}. \
+         Send it again with the number you mean."
+    ))
 }
 
 fn said_by(learned: &Learned) -> &str {
