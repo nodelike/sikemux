@@ -95,7 +95,7 @@ A published nightly reaches the `staff` feed at once. Release then starts **Nigh
 - `scripts/nightly.sh hold "<reason>"` stops Release from building pushes to `main`, through the `NIGHTLY_HOLD` repository variable, and `scripts/nightly.sh unhold` lets them go again.
 - `scripts/nightly.sh pull <version>` marks a published build pulled, so the nightly feed never takes it, and moves any feed that serves it back to the newest build before it that was not pulled. Updaters install only newer versions, so a machine that already runs the pulled build keeps it until the next push ships. Fix forward.
 
-CI on `main` never cancels a run that has started, so each run that starts gives a verdict, and of the pushes that arrive while it runs only the newest is checked next. A run takes about five macOS runners at once, as many as the account may run together, so checking every push would queue them behind each other and delay the newest verdict, which is the one a nightly needs.
+CI on `main` never cancels a run that has started, so each run that starts gives a verdict, and of the pushes that arrive while it runs only the newest is checked next. Only Clippy on macOS and the GPUI app's tests take a Mac; the rest of a run is on Linux, since GitHub's macOS runners are scarce and a job no Mac takes within about 15 minutes is cancelled. Checking every push would still queue runs behind each other and delay the newest verdict, which is the one a nightly needs.
 
 A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `main`'s nightlies are `0.x.(y+1)-nightly.N` by themselves, or `0.(x+1).0-nightly.N` once `main`'s `package.json` is set to `0.(x+1).0` for a bigger one. Stable releases come every few days, each a promoted nightly.
 
