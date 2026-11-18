@@ -130,11 +130,16 @@ struct FoldWaiting: View {
 
     var body: some View {
         if let waiting = fold.waiting {
-            VStack(spacing: 6) {
-                Text(waiting.words).font(Theme.body).foregroundStyle(palette.secondary).multilineTextAlignment(.center)
+            VStack(spacing: 8) {
+                Text(waiting.words)
+                    .font(Theme.body)
+                    .foregroundStyle(palette.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
                 Button("Cancel") { fold.drop() }.font(Theme.meta).foregroundStyle(palette.secondary).buttonStyle(PressFade())
             }
-            .padding(.bottom, 4)
+            .padding(.bottom, 8)
         }
     }
 }
