@@ -2,7 +2,7 @@
  * In the showcase the phone is signed in to a demo account, so it opens on the Mac
  * the demo world pretends to be instead of the welcome screen.
  */
-import type { ReactNode } from 'react';
+import { type ReactNode, useSyncExternalStore } from 'react';
 
 const user = {
   id: 'user_showcase',
@@ -17,25 +17,43 @@ const user = {
   passwordEnabled: false,
 };
 
-const auth = {
-  isLoaded: true,
-  isSignedIn: true,
-  userId: user.id,
-  sessionId: 'sess_showcase',
-  getToken: async () => 'showcase',
-  signOut: async () => {},
+let signedIn = true;
+const listeners = new Set<() => void>();
+const signedInNow = (next: boolean) => {
+  signedIn = next;
+  auth = makeAuth();
+  listeners.forEach((listener) => listener());
 };
+
+const makeAuth = () => ({
+  isLoaded: true,
+  isSignedIn: signedIn,
+  userId: signedIn ? user.id : null,
+  sessionId: signedIn ? 'sess_showcase' : null,
+  getToken: async () => 'showcase',
+  signOut: async () => signedInNow(false),
+});
+let auth = makeAuth();
+
+const signedInAgain = async () => ({
+  createdSessionId: 'sess_showcase',
+  setActive: async () => signedInNow(true),
+});
 
 export function ClerkProvider({ children }: { children: ReactNode }) {
   return children;
 }
 
-export const useAuth = () => auth;
+export const useAuth = () =>
+  useSyncExternalStore(
+    (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    () => auth,
+  );
 export const useUser = () => ({ isLoaded: true, isSignedIn: true, user });
 export const useSession = () => ({ isLoaded: true, isSignedIn: true, session: null });
-export const useReverification = <T,>(action: T) => action;
-export const useSSO = () => ({ startSSOFlow: async () => ({ createdSessionId: null }) });
+export const useReverification = <T>(action: T) => action;
+export const useSSO = () => ({ startSSOFlow: signedInAgain });
 export const useSignIn = () => ({ isLoaded: true, signIn: null, setActive: async () => {} });
 export const useSignUp = () => ({ isLoaded: true, signUp: null, setActive: async () => {} });
-export const useSignInWithGoogle = () => ({ startGoogleAuthenticationFlow: async () => ({ createdSessionId: null }) });
+export const useSignInWithGoogle = () => ({ startGoogleAuthenticationFlow: signedInAgain });
 export const resourceCache = undefined;

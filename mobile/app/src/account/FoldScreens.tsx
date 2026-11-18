@@ -233,7 +233,7 @@ function ConfirmFold({ waiting }: { waiting: Waiting }) {
 
   return (
     <PromptScreen
-      icon={seatComing ? 'IconMove' : 'IconShield'}
+      icon={seatComing ? 'IconUser' : 'IconShield'}
       title={preview.title}
       detail={<Text style={styles.ink}>{preview.address}</Text>}
       actions={
