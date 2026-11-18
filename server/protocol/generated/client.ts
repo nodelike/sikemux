@@ -235,7 +235,7 @@ export function apiClient(send: Send) {
       send<FoldCatch>("POST", `/v1/account/fold/catch`, body),
     /** Keep a new account as it is: the person has no other. */
     keepNewAccount: () => send<void>("POST", `/v1/account/fold/keep-new`),
-    /** Start folding one of your accounts into another, from the web app. */
+    /** Start folding one of your accounts into another. */
     startFold: (body: FoldStart) =>
       send<FoldIntent>("POST", `/v1/account/folds`, body),
     /** What confirming a fold does, read by the account that did not start it. */

@@ -6,18 +6,12 @@ import type {
   FoldWhy,
   OrgRole,
 } from "@sikemux/protocol";
-import type { Context } from "hono";
 import { Hono } from "hono";
 import { sql, type Kysely, type Transaction } from "kysely";
 
 import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
-import {
-  isSession,
-  requireIdentity,
-  requireRecentSignIn,
-  type AuthEnv,
-} from "../auth.ts";
+import { requireIdentity, requireRecentSignIn, type AuthEnv } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import {
@@ -84,14 +78,6 @@ function holdsTooMuch(held: string[]): ApiFailure {
   return conflict(
     `That account holds ${held.join(", ")}, so it can't be brought over. Both accounts stay as they are.`,
   );
-}
-
-/** A fold takes the person's own sign-in on the web app or a phone, never a host's or the Mac's. */
-function requireSignIn(c: Context<AuthEnv>) {
-  if (!isSession(c.get("identity")))
-    throw forbidden(
-      "Accounts are brought together only on app.sikemux.com or the Sikemux phone app.",
-    );
 }
 
 async function inviteOrg(db: Kysely<Tables>, token: string | undefined) {
@@ -509,7 +495,6 @@ export function foldRoutes({
     .use("/folds", perUser(limiter, "fold", 60))
     .use("/folds/*", perUser(limiter, "fold", 60))
     .post("/fold/catch", async (c) => {
-      requireSignIn(c);
       const { userId } = c.get("identity");
       const { hint, inviteToken } = await readBody(c, "FoldCatchRequest");
       const quiet: FoldCatch = { ask: false, mustFold: false };
@@ -574,7 +559,6 @@ export function foldRoutes({
       return c.json(body);
     })
     .post("/fold/keep-new", async (c) => {
-      requireSignIn(c);
       const { userId } = c.get("identity");
       const signUp = clerk ? await clerk.signUp(userId) : null;
       if (signUp && (await refusal(userId, signUp)))
@@ -589,7 +573,6 @@ export function foldRoutes({
       return c.body(null, 204);
     })
     .post("/folds", requireRecentSignIn(), async (c) => {
-      requireSignIn(c);
       const key = requireProofKey();
       const { userId } = c.get("identity");
       const { why, inviteToken } = await readBody(c, "FoldStart");
@@ -647,7 +630,6 @@ export function foldRoutes({
       return c.json(body, 201);
     })
     .post("/folds/:foldId/preview", async (c) => {
-      requireSignIn(c);
       const { userId } = c.get("identity");
       const { secret } = await readBody(c, "FoldSecret");
       const intent = await openIntent(
@@ -692,7 +674,6 @@ export function foldRoutes({
       return c.json(body);
     })
     .post("/folds/:foldId/confirm", requireRecentSignIn(), async (c) => {
-      requireSignIn(c);
       const key = requireProofKey();
       const { userId } = c.get("identity");
       const { secret } = await readBody(c, "FoldSecret");

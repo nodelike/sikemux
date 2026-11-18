@@ -1149,7 +1149,7 @@
     "/v1/account/folds": {
       "post": {
         "operationId": "startFold",
-        "summary": "Start folding one of your accounts into another, from the web app",
+        "summary": "Start folding one of your accounts into another",
         "security": [{ "session": [] }],
         "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "requestBody": {
@@ -1170,7 +1170,7 @@
             }
           },
           "403": {
-            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes, or did not come from the web app.",
+            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -1289,7 +1289,7 @@
             "description": "Folded. Confirming a fold already done answers the same."
           },
           "403": {
-            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes, or did not come from the web app.",
+            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
