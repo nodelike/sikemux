@@ -123,6 +123,9 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.minidumper-child]
 opt-level = "z"
+# Phone simulators are driven at an agent's or the person's request, never per frame.
+[profile.release.package.sikemux-simulator]
+opt-level = "z"
 
 # Plugins never sit on a hot path, so they go further and are built for the
 # smallest size.
