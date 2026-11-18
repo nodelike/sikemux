@@ -123,6 +123,9 @@ struct Held {
     /// For an org's store, the project's own store and the membership it was kept for here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     kept_for: Option<org::KeptFor>,
+    /// The keys this store was kept under before its project's identity changed.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    was: BTreeSet<String>,
 }
 
 impl Held {
@@ -145,6 +148,7 @@ impl Held {
             dropped: BTreeMap::new(),
             refused: BTreeMap::new(),
             kept_for: None,
+            was: BTreeSet::new(),
         }
     }
 
@@ -169,6 +173,7 @@ impl Held {
         self.waiting.extend(from.waiting);
         self.dropped.extend(from.dropped);
         self.refused.extend(from.refused);
+        self.was.extend(from.was);
     }
 }
 
@@ -430,6 +435,7 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
         let Some(mut moving) = state.held.remove(&old) else {
             continue;
         };
+        moving.was.insert(old.clone());
         match state.held.get_mut(&new) {
             Some(held) => held.take_in(moving),
             None => {
@@ -972,7 +978,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 || shared.is_some_and(|shared| held.writers.get(&id) == Some(&shared.member))
         };
         let undoable = |id: u64, moved: &Option<sikemux_view::memory::Moved>| {
-            (moving::back(moved, &came_from) && mine(id))
+            (moving::back(&state, moved, &came_from) && mine(id))
                 .then(|| moved.as_ref().map(|moved| moved.by.clone()))
                 .flatten()
         };

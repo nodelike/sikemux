@@ -93,9 +93,12 @@ fn stays(entry: &Moving, to: Store) -> Result<(), String> {
     }
 }
 
-/// Whether `moved` took the entry from the store keyed `to`, so moving it there is moving it back.
-pub(super) fn back(moved: &Option<Moved>, to: &str) -> bool {
-    moved.as_ref().is_some_and(|moved| moved.from == to)
+/// Whether `moved` took the entry from the store keyed `to`, or kept under a key `to` had before,
+/// so moving it there is moving it back.
+pub(super) fn back(state: &State, moved: &Option<Moved>, to: &str) -> bool {
+    moved.as_ref().is_some_and(|moved| {
+        moved.from == to || (state.held.get(to)).is_some_and(|held| held.was.contains(&moved.from))
+    })
 }
 
 /// Waits for the stores' files, and says when one could not be written.
@@ -313,7 +316,7 @@ pub(super) fn move_to(
         from.not_now.remove(&id);
         from.refused.remove(&id);
     }
-    let back = back(entry.moved(), &to_key);
+    let back = back(&state, entry.moved(), &to_key);
     *entry.moved() = (!back).then(|| Moved {
         by: by.clone(),
         from: from_key.clone(),
@@ -432,7 +435,7 @@ pub(crate) fn take_out(core: &Core, project: &str, id: u64, from: Store) -> Resu
     }
     held.not_now.remove(&id);
     let mut going = was.clone();
-    let back = back(going.moved(), &to_key);
+    let back = back(&state, going.moved(), &to_key);
     *going.moved() = (!back).then(|| Moved {
         by,
         from: key.clone(),
