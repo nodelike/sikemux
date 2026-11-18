@@ -15,11 +15,11 @@ use sikemux_view::memory::{Knowledge, MemoryRule, Store};
 use super::org::Shared;
 use super::{holding, moving, tell_clients, Held, State, MAX_ENTRIES};
 use crate::server::board::goal::learned;
-use crate::sessions::asked::may_hold_secret;
 use crate::server::parts::Parts;
 use crate::server::person_calls::{self, Raise, ORG_WAITING};
 use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY_DROPS, PROJECT_MEMORY_WAITING};
 use crate::server::Core;
+use crate::sessions::asked::may_hold_secret;
 
 const TRIES: usize = 3;
 const KEEP: &str = "keep";
@@ -98,9 +98,15 @@ pub(super) struct Answers {
 
 /// Ends the waiting, dropped and refused marks of each project open here whose share changed
 /// since they were kept, so a rule sent to one org's admins is never listed for another's.
-/// `orgs` holds the org each project open here is shared with, by its own store's key.
-pub(super) fn follow_shares(core: &Core, state: &mut State, orgs: &HashMap<String, String>) {
+/// `orgs` holds the org each project open here is shared with, by its own store's key. True when
+/// a mark ended, so the Playbook no longer shows it.
+pub(super) fn follow_shares(
+    core: &Core,
+    state: &mut State,
+    orgs: &HashMap<String, String>,
+) -> bool {
     let open: HashSet<&String> = state.keys.values().collect();
+    let mut cleared = false;
     let changed: Vec<String> = (state.held.values_mut())
         .filter(|held| held.store == Store::Project && !held.mirrored && open.contains(&held.key))
         .filter_map(|held| {
@@ -109,6 +115,8 @@ pub(super) fn follow_shares(core: &Core, state: &mut State, orgs: &HashMap<Strin
                 return None;
             }
             held.shared_with = now.cloned();
+            cleared |=
+                !(held.waiting.is_empty() && held.dropped.is_empty() && held.refused.is_empty());
             held.waiting.clear();
             held.dropped.clear();
             held.refused.clear();
@@ -118,6 +126,7 @@ pub(super) fn follow_shares(core: &Core, state: &mut State, orgs: &HashMap<Strin
     for key in changed {
         core.memory().save(state, &key);
     }
+    cleared
 }
 
 /// Where the store under `local` puts its entries on its member's list, without naming the

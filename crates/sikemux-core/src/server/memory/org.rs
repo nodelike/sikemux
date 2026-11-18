@@ -290,10 +290,10 @@ async fn sync(core: &Arc<Core>) {
         let mut state = memory.state.locked();
         end(core, &mut state, &shared, &unheard);
         let reshut = state.shut != shut;
-        super::waiting::follow_shares(core, &mut state, &orgs);
+        let cleared = super::waiting::follow_shares(core, &mut state, &orgs);
         state.shared = shared.clone();
         state.shut = shut;
-        if reshut {
+        if reshut || cleared {
             drop(state);
             tell_clients(core, false);
         }
