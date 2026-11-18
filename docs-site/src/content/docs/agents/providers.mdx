@@ -49,6 +49,8 @@ Settings lists the providers Sikemux knows on three pages:
 - **API providers**: hosted models you pay for by the token. **Add provider** at the end opens the same paste as the model picker.
 - **Local models**: Ollama or LM Studio on this host. They need no key, and nothing leaves this host.
 
+When an org you belong to is on a paid plan and has saved model keys, **API providers** and **Coding plans** list them in a group of their own under the org's name, and the model picker lists the org's models under its name too. Your agents use them as they do your own keys; they are kept sealed in the org's vault, which opens on your computer once a host that has it, or an owner's or admin's, is online.
+
 The Chinese labs are there too: Alibaba Cloud Model Studio (its Coding Plan, Token Plan and pay-as-you-go keys), Volcengine Ark and its Coding Plan, Xiaomi MiMo, StepFun, Tencent, Z.ai, Kimi, Moonshot and MiniMax. A key from a mainland account works only on that account's own endpoints, so a provider with a mainland service is listed again with **(China)** after its name, and Xiaomi's Token Plan once for each of its Singapore, Europe and China clusters. Connect the one your key comes from.
 
 A provider you haven't connected offers **Get a key**, which opens its site, and **Add key**. A connected one says which agents can run it and the model it starts on, and **Check tool calls** tries whether its models work with agents. **Disconnect** forgets a known provider's key, and **Remove** takes away one you added by its URL, key and all.

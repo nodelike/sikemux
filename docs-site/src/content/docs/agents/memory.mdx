@@ -11,7 +11,9 @@ Sikemux keeps what you would otherwise repeat in every chat, so you say it once 
 | **Knowledge** | You, or the project                       | "The service is called ai-service now" | It is proven wrong                         |
 | **Decisions** | The project, marked with the goal it was for | "One project is one concept"        | Someone retires it                         |
 
-Rules and knowledge kept for you are in your own store, which every project reads: how you like to work everywhere, rather than how one project does. Tell an agent how you like to work everywhere, and it keeps that as yours. The project's own store follows its repository, so every checkout of it reads the same one.
+Rules and knowledge kept for you are in your own store, which every project reads: how you like to work everywhere, rather than how one project does. Tell an agent how you like to work everywhere, and it keeps that as yours. The project's own store follows its repository, so every checkout of it reads the same one, and it is the same on every computer of yours that holds the project: one added on a linked computer is kept at the project's home.
+
+A rule or knowledge can move between yours and the project's from its row on the [Playbook](/agents/playbook/#rules). Knowledge tested by a path inside the project stays with the project.
 
 Agents keep rules and knowledge with the `memory_add`, `memory_update` and `memory_list` tools, and decisions with `decide`, when you tell them to remember something or when they find it out. Each one says which agent learned it, in which chat and when, so you can check where it came from. A correction keeps what it said before. The project keeps one list of decisions, each marked with the goal the agent was working toward, or with none when it had no goal; past 512 it drops its oldest retired ones first. A goal keeps its own rules on its card, 64 of them, dropping its oldest retired ones first. A goal is a card with no card above it, and once it has decisions or rules of its own it can't be moved under another card.
 
@@ -41,6 +43,18 @@ When you tell an agent how agents should always or never work in the project, it
 ## Sensitive entries
 
 A rule or knowledge marked sensitive, such as a host or an address, never goes into the repository. Agents in the project are still handed it, since that is what it is for, so it shows in their chats. Where Sikemux lists what it keeps, only its own window shows sensitive entries; phones and other programs see how many were left out, not what they say, and the inbox says only that sensitive knowledge no longer holds.
+
+## Projects shared with an org
+
+Once you share a project with an org you belong to, its rules are the org's too: every teammate at the org who has the project gets them, and their agents are handed them. An org's rules apply to a project only after you share it with that org yourself. The Rules page lists the org's rules, naming the teammate who added each while they are a member, and no one once they leave or delete their account.
+
+Rules that stay with you are marked **Only you**. Only a rule you type on the Playbook goes to the org. One kept from a chat, made by an Overrule or picked from past sessions stays **Only you** until you move it with **Move to** and the org's name on its row. So does a sensitive rule, or one that looks like a key or a password.
+
+The org's rules are kept sealed in its vault. Until the vault is set up on this computer, the project's rules stay **Only you** and the Rules page says so. An owner's or admin's computer sets the vault up once a project is shared, and a computer waiting for it opens it once one of your hosts that has it, or an owner's or admin's host, is online.
+
+An org can have its admins approve rules first, on its Policy page at [app.sikemux.com](https://app.sikemux.com). Then a rule you add or move goes to the org's admins, who are asked to keep or drop it. Its row reads **Waits for an admin**, with **Take back**, and **dropped by** and the admin's name if they drop it. A sensitive rule never waits for them: it stays **Only you**, and its row says to ask an owner or admin to add it. Moving a rule the org keeps already, or adding one while the waiting list is full, is refused and the row says why. Rules still waiting join the org's once the org lets every member add, and go back to **Only you** if the project stops being shared with it. Rules written while offline, before the org switched to approvals, come back to your own store, saying why.
+
+When the org won't take a rule or a change, such as when it has reached a cap, the rule stays on this computer and its row says why: **Only you, Acme didn't take it** and the reason.
 
 ## When knowledge no longer holds
 
