@@ -122,7 +122,7 @@ export async function orgVaultState(
   if (!vault) return { vault: null };
   const changes = Number(vault.changes);
   const since = after !== undefined && after <= changes ? after : null;
-  const [keys, hosts, entries, ended, erased] = await Promise.all([
+  const [keys, hosts, entries, ended] = await Promise.all([
     db
       .selectFrom("org_vault_keys")
       .select(["host_key", "generation", "wrapped"])
@@ -149,12 +149,6 @@ export async function orgVaultState(
       .where("change", ">", String(since ?? 0))
       .orderBy("id")
       .execute(),
-    db
-      .selectFrom("org_vault_erased")
-      .select("membership")
-      .where("org_id", "=", orgId)
-      .orderBy("membership")
-      .execute(),
   ]);
   const members = new Set(hosts.map((host) => host.key));
   const current = keys.filter(
@@ -169,7 +163,6 @@ export async function orgVaultState(
     rotate: keys.some((key) => !members.has(key.host_key)),
     entries: entries.map(toEntry),
     ended,
-    erased: erased.map((row) => row.membership),
     changes,
     since,
   };

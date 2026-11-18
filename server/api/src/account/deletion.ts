@@ -9,7 +9,6 @@ import { payerLeft } from "../billing/payer.ts";
 import { appendEvent } from "../events/log.ts";
 import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
-import { erasedFromVault } from "../orgvault/change.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { retryLater } from "../retry.ts";
 import type { ClerkBackend } from "./clerk.ts";
@@ -199,13 +198,11 @@ async function leaveOrgs(
       }
       counts.orgsHandedOver += 1;
     }
-    const left = await trx
+    await trx
       .deleteFrom("org_users")
       .where("org_id", "=", orgId)
       .where("user_id", "=", userId)
-      .returning("id")
-      .executeTakeFirst();
-    if (left) await erasedFromVault(trx, orgId, left.id);
+      .execute();
     await payerLeft(trx, orgId, userId);
     await dropUnshared(trx, orgId);
     await audit(trx, {

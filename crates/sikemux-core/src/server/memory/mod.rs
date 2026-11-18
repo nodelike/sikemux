@@ -982,6 +982,12 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
             held.store != Store::Org
                 || shared.is_some_and(|shared| held.writers.get(&id) == Some(&shared.member))
         };
+        let someone = |id: u64, learned: &Learned| match (held.store, shared) {
+            (Store::Org, Some(shared)) => (held.writers.get(&id))
+                .filter(|writer| **writer != shared.member)
+                .and_then(|writer| shared.names.get(writer).cloned()),
+            _ => someone(learned),
+        };
         let undoable = |id: u64, moved: &Option<sikemux_view::memory::Moved>| {
             (moving::back(&state, moved, &came_from) && mine(id))
                 .then(|| moved.as_ref().map(|moved| moved.by.clone()))
@@ -1015,7 +1021,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 sensitive: rule.sensitive,
                 store: held.store,
                 moved: undoable(rule.id, &rule.moved),
-                someone: someone(&rule.learned),
+                someone: someone(rule.id, &rule.learned),
                 offer: (offers.for_rule(held, rule)).filter(|_| !waiting(rule.id)),
                 org: org_of(rule.id),
                 waiting: waiting(rule.id),
@@ -1043,7 +1049,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 sensitive: known.sensitive,
                 store: held.store,
                 moved: undoable(known.id, &known.moved),
-                someone: someone(&known.learned),
+                someone: someone(known.id, &known.learned),
                 offer: None,
                 org: org_of(known.id),
                 waiting: waiting(known.id),

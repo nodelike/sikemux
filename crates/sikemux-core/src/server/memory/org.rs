@@ -81,13 +81,14 @@ impl Body {
     fn of(held: &Held) -> Self {
         Self {
             next: held.next,
-            rules: held.rules.clone(),
+            rules: held.rules.iter().map(unnamed).collect(),
             knowledge: held.knowledge.iter().map(as_shared).collect(),
             writers: held.writers.clone(),
         }
     }
 
     fn shared_part(mut self) -> Self {
+        self.rules = self.rules.iter().map(unnamed).collect();
         self.knowledge = self.knowledge.iter().map(as_shared).collect();
         self
     }
@@ -111,9 +112,25 @@ impl Body {
     }
 }
 
-/// Knowledge as the org's store keeps it, without what testing it found on one host.
+/// A rule as the org's store keeps it, naming nobody: a row names its writer from the org's
+/// member list, so a member who leaves or deletes their account is named on none.
+fn unnamed(rule: &MemoryRule) -> MemoryRule {
+    let mut rule = rule.clone();
+    rule.learned.person = None;
+    if let Some(moved) = &mut rule.moved {
+        moved.by.person = None;
+    }
+    rule
+}
+
+/// Knowledge as the org's store keeps it, naming nobody, without what testing it found on one
+/// host.
 fn as_shared(known: &Knowledge) -> Knowledge {
     let mut known = known.clone();
+    known.learned.person = None;
+    if let Some(moved) = &mut known.moved {
+        moved.by.person = None;
+    }
     known.checked = None;
     if matches!(known.stale, Some(Stale::Failed { .. })) {
         known.stale = None;
@@ -559,7 +576,7 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
             || (base.body.knowledge.iter().any(|known| known.id == id))
     };
     let undone: Vec<u64> = (base.body.rules.iter())
-        .filter(|rule| !held.rules.contains(rule))
+        .filter(|rule| !held.rules.iter().any(|mine| unnamed(mine) == **rule))
         .map(|rule| rule.id)
         .chain(
             (base.body.knowledge.iter())
@@ -625,10 +642,6 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
 /// Writes the changes made here to the org's store into its vault.
 async fn push(core: &Arc<Core>, shared: &Shared) {
     let key = shared.key();
-    let erased = match vault::manages_org(core, &shared.org) {
-        true => vault::erased(core, &shared.org),
-        false => Vec::new(),
-    };
     for _ in 0..TRIES {
         let (revision, body, checked) = {
             let memory = core.memory();
@@ -657,18 +670,6 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                 .chain(held.knowledge.iter().map(|known| known.id))
                 .collect();
             held.writers.retain(|id, _| ids.contains(id));
-            let gone = |id: u64| (held.writers.get(&id)).is_some_and(|by| erased.contains(by));
-            for learned in (held.rules.iter_mut())
-                .filter(|rule| gone(rule.id))
-                .map(|rule| &mut rule.learned)
-                .chain(
-                    (held.knowledge.iter_mut())
-                        .filter(|known| gone(known.id))
-                        .map(|known| &mut known.learned),
-                )
-            {
-                learned.person = None;
-            }
             let body = Body::of(held);
             let checked = held.keeps.clone();
             if voided {

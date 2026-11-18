@@ -280,10 +280,6 @@ export interface Tables {
     revision: number;
     change: ColumnType<string, never, never>;
   };
-  org_vault_erased: {
-    org_id: string;
-    membership: string;
-  };
   vault_uses: {
     id: Generated<string>;
     user_id: string;
