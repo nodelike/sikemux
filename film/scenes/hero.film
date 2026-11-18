@@ -9,7 +9,11 @@ patch site-fix.diff
 chat Wren
 title "Cart totals a cent off"
 settle 6
-# The app opens a fresh chat of its own at start, so pick Wren's before typing.
+# The app opens an empty chat of its own at start, under Wren's: close it, then pick Wren's.
+click 1544,514
+wait 0.5
+key cmd-w
+wait 1
 click 1544,480
 wait 0.5
 click 871,435

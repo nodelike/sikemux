@@ -24,7 +24,8 @@
     "steps": [
       { "say": "Starting the site on 5173 and opening the cart in my tab.", "perSecond": 20 },
       { "tool": "mcp__sikemux-tools__process_start", "call": "process.start", "input": { "processId": "run", "idempotencyKey": "site" }, "ms": 1500 },
-      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "http://localhost:5173/cart.html" }, "ms": 1200 }
+      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "http://localhost:5173/cart.html" }, "ms": 1200 },
+      { "tool": "mcp__sikemux-tools__browser_viewport", "call": "browser.viewport", "input": { "preset": "fit" }, "ms": 400 }
     ]
   },
   {
