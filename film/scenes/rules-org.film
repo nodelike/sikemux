@@ -1,5 +1,6 @@
 # The Rules page of a project Ines shares with Fjord Labs, where she is a member: a rule kept on
-# this Mac beside one in the org's store, then admins approve first and her next one waits.
+# this Mac beside one in the org's store, with the pointer on it, then admins approve first: her
+# next one waits and a sensitive one stays hers.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
@@ -19,8 +20,15 @@ settle 2
 key cmd-alt-6
 settle 3
 snap rules-org
+move 900,375 0.3
+settle 1
+snap rules-org-move
+move 1300,860 0.3
 orgpolicy admins_approve "Fjord Labs"
 settle 3
 core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Ask before adding a dependency.\",\"goal\":null,\"sensitive\":false,\"store\":\"project\"}}"
 settle 4
 snap rules-org-waiting
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Deploy previews with the staging token in 1Password.\",\"goal\":null,\"sensitive\":true,\"store\":\"project\"}}"
+settle 4
+snap rules-org-sensitive

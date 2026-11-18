@@ -50,6 +50,20 @@ pub(super) fn page(
     let (project, yours): (Vec<&Entry>, Vec<&Entry>) =
         (playbook.rules.iter()).partition(|rule| rule.store != Store::Personal);
     let (yours_count, project_count) = (count(yours.len()), count(project.len()));
+    let org = (project.iter())
+        .find(|rule| !rule.shut)
+        .and_then(|rule| rule.org.clone());
+    let project_about = match &org {
+        Some(org) => t!(
+            "Every agent on {project} follows these. Teammates at {org} get them too, except the ones marked Only you.",
+            project = name,
+            org = org
+        ),
+        None => t!(
+            "Every agent on {project} follows these. Kept by Sikemux, never in the repository.",
+            project = name
+        ),
+    };
     let has_project_rules = !project.is_empty();
     let yours = group(
         yours,
@@ -80,7 +94,7 @@ pub(super) fn page(
             name.clone(),
             project_count,
             has_project_rules.then(|| project_menu(folder, this, cx)),
-            Some(t!("Every agent on {project} follows these. Kept by Sikemux, never in the repository.", project = name).into()),
+            Some(project_about.into()),
             false,
             gpui_kit::div().children(project),
             cx,
@@ -180,10 +194,6 @@ fn row(
     let (id, store, org) = (entry.id, entry.store, entry.org.as_deref());
     let moved = (entry.moved.as_ref()).filter(|moved| recent(moved.at));
     let new = entry.someone.is_some() && moved.is_none() && recent(entry.learned.at);
-    let who = match &entry.someone {
-        Some(someone) => someone.clone(),
-        None => said::who(&entry.learned),
-    };
     let mut words = Vec::new();
     if entry.sensitive {
         words.push(t!("Sensitive").to_owned());
@@ -207,9 +217,18 @@ fn row(
         _ if store == Store::Project && org.is_some() => words.push(t!("Only you").to_owned()),
         _ => {}
     }
+    let only_you = !entry.waiting && store != Store::Org && org.is_some();
+    let writer = |learned: &sikemux_view::memory::Learned| {
+        let the_person = learned.agent.is_none() && learned.with.is_none();
+        (!(only_you && the_person)).then(|| said::who(learned))
+    };
+    let who = match &entry.someone {
+        Some(someone) => Some(someone.clone()),
+        None => writer(&entry.learned),
+    };
     match moved {
         Some(moved) => {
-            words.push(said::who(moved));
+            words.extend(writer(moved));
             words.push(t!(
                 "moved from {store} {when}",
                 store = store_name(store.other(), project, org),
@@ -217,12 +236,12 @@ fn row(
             ));
         }
         None if new => {
-            words.push(who);
+            words.extend(who);
             words.push(when(entry.learned.at));
             words.push(t!("new").to_owned());
         }
         None => {
-            words.push(who);
+            words.extend(who);
             words.push(said::day(entry.learned.at));
         }
     }
