@@ -263,6 +263,25 @@ pub(super) async fn sync(core: &Arc<Core>, local: &str, shared: &Shared) {
     }
     if vault::manages_org(core, &shared.org) {
         judge(core, local, shared).await;
+    } else {
+        withdraw_calls(core, local, shared);
+    }
+}
+
+/// Closes the calls this host's person had about the org's waiting entries, once they no longer
+/// own or run the org.
+fn withdraw_calls(core: &Core, local: &str, shared: &Shared) {
+    let project = {
+        let state = core.memory().state.locked();
+        let folder = (state.keys.iter()).find(|(_, key)| **key == local);
+        let Some((folder, _)) = folder else {
+            return;
+        };
+        folder.clone()
+    };
+    let prefix = format!("{ORG_WAITING}{}|", shared.key());
+    for (id, _) in person_calls::open_keyed(core, &project, &prefix) {
+        person_calls::set_outcome(core, &id, ended(CallResult::Withdrawn));
     }
 }
 
@@ -591,7 +610,9 @@ fn waiting_entry(
     member: &str,
     item: &str,
 ) -> Option<Waiting> {
-    let shared = state.shared.values().find(|shared| shared.key() == store)?;
+    let shared = (state.shared.values())
+        .find(|shared| shared.key() == store)
+        .filter(|shared| vault::manages_org(core, &shared.org))?;
     let (_, mut list) = read::<Mine>(core, shared, &shared.waiting_id(member))?;
     list.items.remove(item)
 }

@@ -244,6 +244,9 @@ async fn sync(core: &Arc<Core>) {
         mirror(core, shared);
         if shared.writes {
             push(core, shared).await;
+        } else if unwritten(core, shared) {
+            let why = format!("{}'s owners and admins approve its rules now", shared.name);
+            give_back(core, shared, &why);
         }
         super::waiting::sync(core, local, shared).await;
     }
@@ -525,6 +528,17 @@ fn local_key(state: &State, shared: &Shared) -> Option<String> {
     (state.keys.values())
         .find(|key| (state.shared.get(*key)).is_some_and(|is| is.key() == shared.key()))
         .cloned()
+}
+
+/// Whether this host's copy of the org's store holds changes the vault does not have yet.
+fn unwritten(core: &Core, shared: &Shared) -> bool {
+    let state = core.memory().state.locked();
+    (state.held.get(&shared.key())).is_some_and(|held| {
+        (held.base.as_ref()).is_some_and(|base| {
+            let mine = Body::of(held);
+            mine.rules != base.body.rules || mine.knowledge != base.body.knowledge
+        })
+    })
 }
 
 /// Puts the org's store back as the vault last gave it, after the vault refused a change for
