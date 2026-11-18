@@ -1678,6 +1678,14 @@ export interface ScheduledChange {
 /** What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it. */
 export type Sealed = string;
 
+/** A person's own Pro, paused at the provider while a seat in an org includes Pro, so it is never paid twice. Its status stays active: the paid time it had left is kept and counts as Pro once no seat does. */
+export interface SeatPause {
+  /** The names of the orgs whose seat includes Pro now. Empty once the last seat ended and the kept time is running. */
+  orgs: string[];
+  /** Once no seat includes Pro: when the kept time runs out and the provider bills a new period. */
+  resumesAt?: string;
+}
+
 /** Host only: the sealed answer to one viewer's question. */
 export interface ShareAnswer {
   type: "answer";
@@ -2131,6 +2139,7 @@ export interface Subscription {
   refundRequestedAt?: string;
   /** What the refund returns, or returns once paid: every payment on the plan in its first refundDays. */
   refundAmount?: Money;
+  seatPause?: SeatPause;
 }
 
 /** A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box. */
@@ -2540,6 +2549,7 @@ export interface Definitions {
   RevokeReason: RevokeReason;
   ScheduledChange: ScheduledChange;
   Sealed: Sealed;
+  SeatPause: SeatPause;
   ShareAnswer: ShareAnswer;
   ShareAnswered: ShareAnswered;
   ShareAsk: ShareAsk;

@@ -2975,6 +2975,27 @@ export const schema = {
       pattern: "^[A-Za-z0-9_-]+$",
       maxLength: 6000000,
     },
+    SeatPause: {
+      description:
+        "A person's own Pro, paused at the provider while a seat in an org includes Pro, so it is never paid twice. Its status stays active: the paid time it had left is kept and counts as Pro once no seat does.",
+      type: "object",
+      properties: {
+        orgs: {
+          description:
+            "The names of the orgs whose seat includes Pro now. Empty once the last seat ended and the kept time is running.",
+          type: "array",
+          items: { type: "string" },
+        },
+        resumesAt: {
+          description:
+            "Once no seat includes Pro: when the kept time runs out and the provider bills a new period.",
+          type: "string",
+          format: "date-time",
+        },
+      },
+      required: ["orgs"],
+      additionalProperties: false,
+    },
     ShareAnswer: {
       description: "Host only: the sealed answer to one viewer's question.",
       type: "object",
@@ -3792,6 +3813,7 @@ export const schema = {
             "What the refund returns, or returns once paid: every payment on the plan in its first refundDays.",
           $ref: "#/$defs/Money",
         },
+        seatPause: { $ref: "#/$defs/SeatPause" },
       },
       required: [
         "id",

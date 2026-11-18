@@ -1710,6 +1710,17 @@ pub struct ScheduledChange {
     pub quantity: i64,
 }
 
+/// A person's own Pro, paused at the provider while a seat in an org includes Pro, so it is never paid twice. Its status stays active: the paid time it had left is kept and counts as Pro once no seat does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeatPause {
+    /// The names of the orgs whose seat includes Pro now. Empty once the last seat ended and the kept time is running.
+    pub orgs: Vec<String>,
+    /// Once no seat includes Pro: when the kept time runs out and the provider bills a new period.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumes_at: Option<String>,
+}
+
 /// A project a teammate shares with the org, and the host to ask for its record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2018,6 +2029,8 @@ pub struct Subscription {
     /// What the refund returns, or returns once paid: every payment on the plan in its first refundDays.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refund_amount: Option<Money>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seat_pause: Option<SeatPause>,
 }
 
 /// A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.
@@ -2249,6 +2262,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushTokenState" => through::<PushTokenState>(json),
         "RenewalCharge" => through::<RenewalCharge>(json),
         "ScheduledChange" => through::<ScheduledChange>(json),
+        "SeatPause" => through::<SeatPause>(json),
         "SharedProject" => through::<SharedProject>(json),
         "ShareMember" => through::<ShareMember>(json),
         "ShareRegistration" => through::<ShareRegistration>(json),

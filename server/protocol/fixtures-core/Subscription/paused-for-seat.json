@@ -1,0 +1,13 @@
+{
+  "id": "7c2e1a4b-3d5f-4a6b-8c9d-0e1f2a3b4c5d",
+  "product": "pro",
+  "interval": "month",
+  "quantity": 1,
+  "status": "active",
+  "currentPeriodEnd": "2026-12-03T09:00:00.000Z",
+  "cancelAtPeriodEnd": false,
+  "startedAt": "2026-10-03T09:00:00.000Z",
+  "seatPause": {
+    "orgs": ["Acme"]
+  }
+}
