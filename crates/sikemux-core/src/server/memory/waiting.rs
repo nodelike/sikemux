@@ -14,6 +14,7 @@ use sikemux_view::memory::{Knowledge, MemoryRule, Store};
 
 use super::org::Shared;
 use super::{holding, moving, tell_clients, Held, State, MAX_ENTRIES};
+use crate::server::board::goal::learned;
 use crate::server::parts::Parts;
 use crate::server::person_calls::{self, Raise, ORG_WAITING};
 use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY_DROPS, PROJECT_MEMORY_WAITING};
@@ -297,6 +298,9 @@ fn list_too_big(held: &Held, id: u64) -> bool {
 /// for an owner or admin, what they dropped and a call for each entry still waiting.
 pub(super) async fn sync(core: &Arc<Core>, local: &str, shared: &Shared) {
     let home = (core.memory().state.locked().held.get(local)).is_some_and(|held| !held.mirrored);
+    if home && shared.writes {
+        take_up(core, local);
+    }
     if home {
         settle_mine(core, local, shared).await;
     }
@@ -322,6 +326,39 @@ fn withdraw_calls(core: &Core, local: &str, shared: &Shared) {
     for (id, _) in person_calls::open_keyed(core, &project, &prefix) {
         person_calls::set_outcome(core, &id, ended(CallResult::Withdrawn));
     }
+}
+
+/// Moves the entries still waiting here into the org's store, once its members may add to it
+/// without an owner or admin.
+fn take_up(core: &Core, local: &str) {
+    let (project, ids) = {
+        let state = core.memory().state.locked();
+        let Some(held) = state
+            .held
+            .get(local)
+            .filter(|held| !held.waiting.is_empty())
+        else {
+            return;
+        };
+        let project = (state.keys.iter()).find(|(_, key)| *key == local);
+        let Some((project, _)) = project else {
+            return;
+        };
+        (project.clone(), held.waiting.clone())
+    };
+    for id in ids {
+        let moved = moving::move_to(core, &project, id, Store::Org, learned(core, None));
+        let memory = core.memory();
+        let mut state = memory.state.locked();
+        if let Some(held) = state.held.get_mut(local) {
+            held.waiting.remove(&id);
+            if let Err(why) = moved {
+                held.refused.insert(id, why);
+            }
+            memory.save(&mut state, local);
+        }
+    }
+    tell_clients(core, false);
 }
 
 async fn settle_mine(core: &Core, local: &str, shared: &Shared) {
