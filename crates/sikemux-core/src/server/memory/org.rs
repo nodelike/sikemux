@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
-use sikemux_view::memory::{Knowledge, MemoryRule, Moved, Store};
+use sikemux_view::memory::{Knowledge, MemoryRule, Moved, Stale, Store};
 
 use super::{holding, holding_or_personal, tell_clients, Held, State};
 use crate::server::parts::Parts;
@@ -77,9 +77,14 @@ impl Body {
         Self {
             next: held.next,
             rules: held.rules.clone(),
-            knowledge: held.knowledge.clone(),
+            knowledge: held.knowledge.iter().map(as_shared).collect(),
             writers: held.writers.clone(),
         }
+    }
+
+    fn shared_part(mut self) -> Self {
+        self.knowledge = self.knowledge.iter().map(as_shared).collect();
+        self
     }
 
     fn same_entries(&self, other: &Body) -> bool {
@@ -99,6 +104,35 @@ impl Body {
         )
         .collect()
     }
+}
+
+/// Knowledge as the org's store keeps it, without what testing it found on one host.
+fn as_shared(known: &Knowledge) -> Knowledge {
+    let mut known = known.clone();
+    known.checked = None;
+    if matches!(known.stale, Some(Stale::Failed { .. })) {
+        known.stale = None;
+    }
+    known
+}
+
+/// `knowledge` from the org's store, with what testing it found on this host as `had` holds it.
+fn with_local_checks(knowledge: Vec<Knowledge>, had: &[Knowledge]) -> Vec<Knowledge> {
+    (knowledge.into_iter())
+        .map(|mut known| {
+            let tested = had.iter().find(|was| {
+                was.id == known.id && was.text == known.text && was.check == known.check
+            });
+            if let Some(tested) = tested {
+                known.checked = tested.checked.clone();
+                if known.stale.is_none() {
+                    known.stale = (tested.stale.clone())
+                        .filter(|stale| matches!(stale, Stale::Failed { .. }));
+                }
+            }
+            known
+        })
+        .collect()
 }
 
 /// The vault's entry as this core last read it, which its own changes are made against.
@@ -321,10 +355,10 @@ fn mirror(core: &Core, shared: &Shared) {
         return;
     };
     let remote = match read {
-        Some(read) => match serde_json::from_value(read.body) {
+        Some(read) => match serde_json::from_value::<Body>(read.body) {
             Ok(body) => Base {
                 revision: read.revision,
-                body,
+                body: body.shared_part(),
             },
             Err(error) => {
                 eprintln!("sikemux core: an org's store of rules could not be read: {error}");
@@ -362,7 +396,7 @@ fn mirror(core: &Core, shared: &Shared) {
     };
     held.next = body.next.max(held.next);
     held.rules = body.rules;
-    held.knowledge = body.knowledge;
+    held.knowledge = with_local_checks(body.knowledge, &held.knowledge);
     held.writers = body.writers;
     held.base = Some(remote);
     let mut touched = renumber_clashes(&mut state, shared);
@@ -468,11 +502,13 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
     let added: Vec<MemoryRule> = (held.rules.drain(..))
         .filter(|rule| !kept(rule.id))
         .collect();
-    let added_knowledge: Vec<Knowledge> = (held.knowledge.drain(..))
+    let had = std::mem::take(&mut held.knowledge);
+    let added_knowledge: Vec<Knowledge> = (had.iter())
         .filter(|known| !kept(known.id))
+        .cloned()
         .collect();
     held.rules = base.body.rules;
-    held.knowledge = base.body.knowledge;
+    held.knowledge = with_local_checks(base.body.knowledge, &had);
     held.writers = base.body.writers;
     let local = local_key(&state, shared);
     let home = |state: &State, moved: &Option<Moved>| {
