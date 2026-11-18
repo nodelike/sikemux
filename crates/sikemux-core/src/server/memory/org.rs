@@ -206,11 +206,21 @@ async fn sync(core: &Arc<Core>) {
 }
 
 /// The projects open here that this account's person shares with one org, by their store's
-/// key, and those whose org's vault this host cannot open yet, with the org's name; none while
-/// this host has not heard the registry.
+/// key, and those whose org's vault this host cannot open, with the org's name; none until this
+/// host has heard the registry, the account's orgs and each of those orgs' vaults.
 async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<String, String>)> {
     let registry = crate::server::account::shares::read(core).await?;
-    let orgs = sikemux_corekit::accounts::orgs(core.account().shown().as_ref()).to_vec();
+    let account = core.account().shown()?;
+    let orgs = sikemux_corekit::accounts::orgs(Some(&account));
+    for list in &registry.orgs {
+        let shared = !list.shares.is_empty() || !list.mine.is_empty();
+        let active = orgs.iter().any(|org| org.id == list.org && org.active);
+        if shared && active && vault::manages_org(core, &list.org) {
+            if let Err(error) = vault::make(core, &list.org).await {
+                eprintln!("sikemux core: an org's vault could not be made: {error}");
+            }
+        }
+    }
     let (mut shared, mut shut) = (HashMap::new(), HashMap::new());
     for identity in (core.workspaces().projects().into_iter()).filter_map(|known| known.identity) {
         let project = crate::server::shares::key(&identity);
@@ -225,16 +235,11 @@ async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<St
         ) else {
             continue;
         };
-        let manages = vault::manages_org(core, &list.org);
-        if manages && org.active {
-            if let Err(error) = vault::make(core, &list.org).await {
-                eprintln!("sikemux core: an org's vault could not be made: {error}");
-            }
-        }
-        if !vault::holds_key(core, &list.org) {
+        if !vault::holds_key(core, &list.org)? {
             shut.insert(identity, org.name.clone());
             continue;
         }
+        let manages = vault::manages_org(core, &list.org);
         let approves = crate::server::account::org_policy(core, &list.org)
             .await
             .admins_approve_rules;

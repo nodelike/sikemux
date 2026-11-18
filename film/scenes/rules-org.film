@@ -6,7 +6,11 @@ prefer themeId aura-noir
 signed-in
 origin https://fjord.invalid/storefront.git
 project storefront shop
+orgrole admin "Fjord Labs"
 orgshare "Fjord Labs"
+settle 5
+orgrole user "Fjord Labs"
+settle 5
 core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Run pnpm check before every commit.\",\"goal\":null,\"sensitive\":false,\"store\":\"org\"}}"
 core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Keep each test in test/ beside the file it covers in src/.\",\"goal\":null,\"sensitive\":false,\"store\":\"project\"}}"
 settle 4

@@ -209,13 +209,15 @@ struct State {
     orgs: BTreeMap<String, Org>,
     /// What the secret store holds, as last written or read; None until this run looked.
     kept: Option<Option<Copy>>,
+    /// The orgs whose vault the accounts server has answered for since the copy was loaded.
+    heard: BTreeSet<String>,
 }
 
 #[derive(Default)]
 pub struct OrgVaults {
     state: Mutex<State>,
     wake: Arc<Notify>,
-    /// Told each time an org's entries, as this host holds them, change.
+    /// Told when this host first hears an org's vault, and each time its key or entries change.
     pub changed: Arc<Notify>,
     /// One round or change at a time, so a write never races the loop's reading of the vault.
     busy: tokio::sync::Mutex<()>,
@@ -459,9 +461,18 @@ fn model_keys(held: &Held) -> impl Iterator<Item = (&String, ModelKey)> {
         .filter_map(|(id, entry)| Some((id, serde_json::from_value(entry.body.clone()).ok()?)))
 }
 
+async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
+    take_in(core, org, me, secret).await?;
+    let orgs = core.vault().orgs();
+    if (orgs.state.locked().heard).insert(org.id.clone()) {
+        orgs.changed.notify_one();
+    }
+    Ok(())
+}
+
 /// Reads one org's vault and takes in what it holds: opens its key, lets waiting hosts in,
 /// replaces the key when a host left, and opens every entry.
-async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
+async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
     let path = vault_path(&org.id);
     let answer = host_send_any(core, Method::GET, &path, None).await?;
     if answer.status() == StatusCode::NOT_FOUND {
@@ -623,14 +634,10 @@ fn open_wrap(wrapped: &str, secret: &Key, org: &str, vault: &Remote, me: &str) -
 
 fn set(core: &Core, org: &str, value: Org) {
     let orgs = core.vault().orgs();
+    let seen = |org: &Org| (org.held.key.is_some(), org.held.entries.clone());
+    let now = seen(&value);
     let before = orgs.state.locked().orgs.insert(org.to_owned(), value);
-    let now = orgs
-        .state
-        .locked()
-        .orgs
-        .get(org)
-        .map(|org| org.held.entries.clone());
-    if before.map(|org| org.held.entries) != now {
+    if before.as_ref().map(seen) != Some(now) {
         orgs.changed.notify_one();
     }
 }
@@ -1026,9 +1033,14 @@ pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
     }))
 }
 
-/// Whether this host holds the key to `org`'s vault, so the org's entries can be read and written.
-pub fn holds_key(core: &Core, org: &str) -> bool {
-    (core.vault().orgs().state.locked().orgs.get(org)).is_some_and(|org| org.held.key.is_some())
+/// Whether this host holds the key to `org`'s vault, so the org's entries can be read and
+/// written; None while it holds none and the accounts server has not answered for the vault yet.
+pub fn holds_key(core: &Core, org: &str) -> Option<bool> {
+    let state = core.vault().orgs().state.locked();
+    match (state.orgs.get(org)).is_some_and(|org| org.held.key.is_some()) {
+        true => Some(true),
+        false => state.heard.contains(org).then_some(false),
+    }
 }
 
 /// Makes `org`'s vault when nobody has yet, from an owner's or admin's host.
