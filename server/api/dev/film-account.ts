@@ -144,6 +144,8 @@ startNode(
     DATABASE_URL: databaseUrl,
     CLERK_ISSUER: clerk,
     CLERK_MAC_CLIENT_ID: "film",
+    // Only read by the stand-in Clerk above, which takes any key.
+    CLERK_SECRET_KEY: "sk_test_standin",
     JOIN_SIGNING_KEY_FILE: joinKey,
     JOIN_SIGNING_KEY_ID: "dev-1",
     PORT: String(apiPort),

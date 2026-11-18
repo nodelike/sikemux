@@ -526,6 +526,7 @@ impl World {
                 }
                 self.project = Some((name, path));
             }
+            "signed-in" => {}
             "host" => self.link_host(step.text(0)?)?,
             "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
             "asleep" => self.freeze(step.text(0)?)?,

@@ -341,9 +341,9 @@ fn main() -> anyhow::Result<()> {
         stand_in,
         calls: Vec::new(),
         update: None,
-        signed_in: args
-            .world
-            .pointer("/signedIn/name")
+        signed_in: (world.account.is_none())
+            .then(|| args.world.pointer("/signedIn/name"))
+            .flatten()
             .and_then(Value::as_str)
             .map(|name| sikemux_view::device::AccountInfo {
                 name: Some(name.into()),
