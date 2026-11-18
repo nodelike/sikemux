@@ -741,12 +741,12 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
     }
 }
 
-/// The store an entry for `project` goes to: a rule the person said goes to the org's, while the
-/// project is shared with one that lets them add to it.
-pub(super) fn persons(state: &State, project: &str, store: Store, persons_rule: bool) -> Store {
+/// The store an entry for `project` goes to: a rule the person typed into the Playbook goes to the
+/// org's, while the project is shared with one that lets them add to it.
+pub(super) fn persons(state: &State, project: &str, store: Store, typed_rule: bool) -> Store {
     let writes = (state.shared.get(&state.key_of(project))).is_some_and(|shared| shared.writes);
     match store {
-        Store::Project if persons_rule && writes => Store::Org,
+        Store::Project if typed_rule && writes => Store::Org,
         store => store,
     }
 }

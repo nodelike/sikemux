@@ -555,7 +555,15 @@ fn holding_or_personal<'a>(state: &'a mut State, key: &str, store: Store) -> &'a
     (state.held.entry(key.to_owned())).or_insert_with(|| Held::new(key, store))
 }
 
-fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
+/// Keeps a new entry. Only a rule the person `typed` into the Playbook goes to the org's store by
+/// its policy; every other entry stays here until the person moves it.
+fn add(
+    core: &Core,
+    project: &str,
+    new: NewMemory,
+    learned: Learned,
+    typed: bool,
+) -> Result<u64, String> {
     let learned = moving::named(core, learned);
     let (text, store) = match &new {
         NewMemory::Rule { text, store, .. } | NewMemory::Knowledge { text, store, .. } => {
@@ -564,9 +572,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
     };
     let mut state = core.memory().state.locked();
     let persons_rule = match &new {
-        NewMemory::Rule { sensitive, .. } => {
-            learned.agent.is_none() && !sensitive && !may_hold_secret(&text)
-        }
+        NewMemory::Rule { sensitive, .. } => typed && !sensitive && !may_hold_secret(&text),
         NewMemory::Knowledge { .. } => false,
     };
     let store = org::persons(&state, project, store, persons_rule);
@@ -644,7 +650,13 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
 
 /// Keeps a rule or knowledge, or a goal's rule on its card; answers what
 /// happened, in words.
-fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<String, String> {
+fn keep(
+    core: &Core,
+    project: &str,
+    new: NewMemory,
+    learned: Learned,
+    typed: bool,
+) -> Result<String, String> {
     match new {
         NewMemory::Rule {
             text,
@@ -658,7 +670,7 @@ fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<
             let rule = goal::Change::of(goal::List::Rules, None, Some(&text), None, false)?;
             goal::change(core, project, Some(card), goal::List::Rules, rule, learned)
         }
-        new => add(core, project, new, learned).map(|id| format!("Kept as #{id}.")),
+        new => add(core, project, new, learned, typed).map(|id| format!("Kept as #{id}.")),
     }
 }
 
@@ -1220,6 +1232,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                         store: store_of(yours),
                     },
                     by,
+                    false,
                 )?;
                 let note = format!("Kept as #{id}, as the person's rule.");
                 let note = json!(with_check_asked(note, &said, &[]));
@@ -1263,7 +1276,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 (knowledge, said, paths)
             }
         };
-        let note = keep(&core, &project, new, by)?;
+        let note = keep(&core, &project, new, by, false)?;
         Ok(json!({ "note": with_check_asked(note, &said, &paths) }))
     })
     .await
@@ -1542,7 +1555,7 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
         sensitive: false,
         store: Store::Project,
     };
-    add(core, project, rule, learned(core, None))
+    add(core, project, rule, learned(core, None), false)
 }
 
 /// Retires a rule of the project's in the person's name, as undoing an Overrule does.
@@ -1584,7 +1597,7 @@ pub(crate) async fn person_add(
             Some(brought) => brought?,
             None if now_check::kept_again(&core, &project, &params.entry) => {}
             None => {
-                keep(&core, &project, params.entry, learned(&core, None))?;
+                keep(&core, &project, params.entry, learned(&core, None), true)?;
             }
         }
         Ok(view(&core, &project, &peer))

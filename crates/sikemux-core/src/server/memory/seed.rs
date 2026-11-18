@@ -213,7 +213,7 @@ pub(crate) async fn keep(
                 sensitive: false,
                 store: Store::Project,
             };
-            match add(&core, &project, new, learned(&core, None)) {
+            match add(&core, &project, new, learned(&core, None), false) {
                 Ok(_) => kept += 1,
                 Err(error) => {
                     eprintln!("sikemux core: a rule from past sessions was not kept: {error}")
