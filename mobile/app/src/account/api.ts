@@ -19,7 +19,10 @@ export class AccountDeleting extends Error {
 
 export const OFFLINE = "Can't reach Sikemux. Check the phone is online.";
 
-export const api = (token: TokenSource) => connectApi({ url: apiUrl(), token, offline: translate(OFFLINE), say: translate });
+const TIMEOUT_MS = 30_000;
+
+export const api = (token: TokenSource) =>
+  connectApi({ url: apiUrl(), token, offline: translate(OFFLINE), timeoutMs: TIMEOUT_MS, say: translate });
 
 /**
  * Adds this phone to the account, proving it holds its key. Doing it again only updates its name.
