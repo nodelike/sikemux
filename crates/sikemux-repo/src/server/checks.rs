@@ -36,6 +36,10 @@ use culprit::{Hunted, Search};
 /// How long a check may run, and how much of what it says is kept.
 const RUN_LIMIT: Duration = Duration::from_secs(30 * 60);
 const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
+/// How long the merge queue's checkout keeps a build result no check has written since. Each
+/// check's set of crates can give every crate new feature flags, so Cargo builds them again
+/// under new names and the old ones pile up by the hundred gigabytes.
+const QUEUE_BUILDS_KEPT_FOR: Duration = Duration::from_secs(3 * 60 * 60);
 /// Checks running at once across projects, one per this many cores.
 const CORES_PER_CHECK: usize = 2;
 const MIN_RUNNING: usize = 2;
@@ -1417,6 +1421,7 @@ pub async fn run_in_queue(
     let env = before_commit(agent);
     let ran = tokio::task::spawn_blocking(move || {
         refresh(&owner, &dir, &checkout)?;
+        drop_old_builds(&checkout);
         let ran = run_timed(&checkout, &command, seed, RUN_LIMIT, env.clone())?;
         if ran.passed || !compiler_cache_failed(&ran.text) {
             return Ok(ran);
@@ -1432,6 +1437,26 @@ pub async fn run_in_queue(
         output: ran.text,
         took_ms: ran.took_ms,
     })
+}
+
+fn drop_old_builds(checkout: &Path) {
+    let Some(before) = std::time::SystemTime::now().checked_sub(QUEUE_BUILDS_KEPT_FOR) else {
+        return;
+    };
+    let entries = |dir: &Path| std::fs::read_dir(dir).into_iter().flatten().flatten();
+    for profile in entries(&checkout.join("target")) {
+        for folder in ["deps", "examples"] {
+            for built in entries(&profile.path().join(folder)) {
+                let old = (built.metadata().ok())
+                    .filter(|meta| meta.is_file())
+                    .and_then(|meta| meta.modified().ok())
+                    .is_some_and(|modified| modified < before);
+                if old {
+                    let _ = std::fs::remove_file(built.path());
+                }
+            }
+        }
+    }
 }
 
 /// Whether a build failed because its compiler cache did, not its code, so a
