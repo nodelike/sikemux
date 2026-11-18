@@ -2,8 +2,8 @@
 //! noted while working.
 
 use gpui_kit::{
-    AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Styled,
+    AnyElement, Context, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
+    SharedString, Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::memory::{MemoryAddParams, MemoryParams, MemoryUpdateParams, NewMemory};
@@ -15,7 +15,7 @@ use super::said::{self, Action, Moment};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, TEXT_LG, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_6, TEXT_LG, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -357,18 +357,29 @@ fn row(
             .into_any_element(),
         );
     }
+    let fade = gpui_kit::div()
+        .w(SPACE_6)
+        .self_stretch()
+        .bg(gpui_kit::linear_gradient(
+            90.,
+            gpui_kit::linear_color_stop(Hsla { a: 0., ..t.surface }, 0.),
+            gpui_kit::linear_color_stop(t.surface, 1.),
+        ));
+    let buttons = gpui_kit::div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .bg(t.surface)
+        .children(hover);
     let hover = gpui_kit::div()
         .absolute()
         .top(-SPACE_0)
         .right_0()
         .flex()
-        .items_center()
-        .gap(SPACE_1)
-        .pl(SPACE_2)
-        .bg(t.surface)
         .opacity(0.)
         .group_hover(said::ROW, |shown| shown.opacity(1.))
-        .children(hover);
+        .child(fade)
+        .child(buttons);
     let about = gpui_kit::div()
         .flex()
         .flex_col()
