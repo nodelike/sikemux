@@ -689,6 +689,7 @@ impl World {
                     Ok("null") => Value::Null,
                     Ok(text) => {
                         let projects = self.work.join("projects");
+                        let projects = std::fs::canonicalize(&projects).unwrap_or(projects);
                         let text = text.replace("$projects", &projects.to_string_lossy());
                         serde_json::from_str(&text).unwrap_or_else(|_| json!(text))
                     }
