@@ -455,7 +455,11 @@ export function foldRoutes({
   };
 
   return new Hono<AuthEnv>()
-    .use("/fold/*", requireIdentity(signInVerifier, db))
+    .use(
+      "/fold/catch",
+      requireIdentity(signInVerifier, db, { allowDeleted: true }),
+    )
+    .use("/fold/keep-new", requireIdentity(signInVerifier, db))
     .use("/folds", requireIdentity(signInVerifier, db))
     .use("/folds/*", requireIdentity(signInVerifier, db))
     .use("/fold/*", perUser(limiter, "fold", 60))
@@ -468,6 +472,12 @@ export function foldRoutes({
       const quiet: FoldCatch = { ask: false, mustFold: false };
       const signUp = clerk ? await clerk.signUp(userId) : null;
       if (!signUp) return c.json(quiet);
+      const deletion = await db
+        .selectFrom("users")
+        .select("purge_after")
+        .where("id", "=", userId)
+        .where("deleted_at", "is not", null)
+        .executeTakeFirst();
       const found = await refusal(userId, signUp);
       if (found && signUp.email) {
         const org = await refusalOrg(found, signUp.email);
@@ -477,10 +487,13 @@ export function foldRoutes({
           why: found.why,
           address: signUp.email,
           ...(org ? { orgName: org.name } : {}),
+          ...(deletion?.purge_after
+            ? { deletesAt: deletion.purge_after.toISOString() }
+            : {}),
         };
         return c.json(body);
       }
-      if (!hint || !signUp.email) return c.json(quiet);
+      if (deletion || !hint || !signUp.email) return c.json(quiet);
       if (Date.now() - signUp.createdAt.getTime() > NEW_MINUTES * 60_000)
         return c.json(quiet);
       const user = await db

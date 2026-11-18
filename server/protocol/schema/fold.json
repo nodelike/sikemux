@@ -42,6 +42,11 @@
         "orgName": {
           "description": "The org the invite, the proven domain or the address's proof is for.",
           "type": "string"
+        },
+        "deletesAt": {
+          "description": "With mustFold: the account was deleted and can be restored until then.",
+          "type": "string",
+          "format": "date-time"
         }
       },
       "required": ["ask", "mustFold"],

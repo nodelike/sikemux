@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
 import { Panel } from "./Consent.tsx";
+import { RestoreAccount } from "./RestoreAccount.tsx";
 import { DeleteAccount } from "./DeleteAccount.tsx";
 import { JOIN, RETURN_KEY, SIGNED_UP_FOR_KEY } from "./navigation.ts";
 import { useReverified } from "./Reverify.tsx";
@@ -72,6 +73,7 @@ export function useFoldGate(
 ) {
   const { getToken, userId } = useAuth();
   const [gate, setGate] = useState<Gate>({ kind: "checking" });
+  const [round, setRound] = useState(0);
 
   useEffect(() => {
     if (!signedIn || !userId) return;
@@ -110,7 +112,7 @@ export function useFoldGate(
     return () => {
       current = false;
     };
-  }, [signedIn, userId, getToken]);
+  }, [signedIn, userId, getToken, round]);
 
   const open = () => {
     if (userId) localStorage.setItem(settledKey(userId), "1");
@@ -126,6 +128,10 @@ export function useFoldGate(
         inviteToken={gate.inviteToken}
         onNew={open}
         onDeleted={onDeleted}
+        onRestored={() => {
+          setGate({ kind: "checking" });
+          setRound((r) => r + 1);
+        }}
       />
     ) : gate.kind === "confirm" ? (
       <ConfirmFold
@@ -199,11 +205,13 @@ function Catch({
   inviteToken,
   onNew,
   onDeleted,
+  onRestored,
 }: {
   caught: FoldCatch;
   inviteToken?: string;
   onNew: () => void;
   onDeleted: (deletesAt?: string) => void;
+  onRestored: () => void;
 }) {
   const { getToken } = useAuth();
   const { signOut } = useClerk();
@@ -214,6 +222,10 @@ function Catch({
   const address = caught.address ?? "this address";
 
   if (confirm) return confirm;
+  if (caught.deletesAt)
+    return (
+      <RestoreAccount deletesAt={caught.deletesAt} onRestored={onRestored} />
+    );
   if (deleting)
     return (
       <DeleteAccount

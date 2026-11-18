@@ -381,6 +381,8 @@ export interface FoldCatch {
   address?: string;
   /** The org the invite, the proven domain or the address's proof is for. */
   orgName?: string;
+  /** With mustFold: the account was deleted and can be restored until then. */
+  deletesAt?: string;
 }
 
 export interface FoldCatchRequest {

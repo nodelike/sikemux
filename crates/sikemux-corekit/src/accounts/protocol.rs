@@ -513,6 +513,9 @@ pub struct FoldCatch {
     /// The org the invite, the proven domain or the address's proof is for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub org_name: Option<String>,
+    /// With mustFold: the account was deleted and can be restored until then.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletes_at: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
