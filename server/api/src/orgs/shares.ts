@@ -12,10 +12,11 @@ import { ownedDevice } from "../devices/owned.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { appendEvents } from "../events/log.ts";
 import { teamPaid } from "./host.ts";
-import { notFound, readBody } from "../http.ts";
+import { conflict, notFound, readBody } from "../http.ts";
 import { signPeerTicket } from "../join/signer.ts";
 import { perUser } from "../limits.ts";
 
+const MEMBER_SHARE_LIMIT = 200;
 const NOT_IN_PAID_ORG =
   "You are not in an org with that id whose Team plan is paid.";
 
@@ -202,6 +203,18 @@ export function shareRoutes({
         .where("project", "=", project)
         .executeTakeFirst();
       if (before?.host === host) return c.body(null, 204);
+      if (!before) {
+        const { count } = await db
+          .selectFrom("org_shares")
+          .select((eb) => eb.fn.countAll<string>().as("count"))
+          .where("member_id", "=", membership.member)
+          .executeTakeFirstOrThrow();
+        if (Number(count) >= MEMBER_SHARE_LIMIT) {
+          throw conflict(
+            `You already share ${MEMBER_SHARE_LIMIT} projects with this org, the most one person can. Stop sharing one to share another.`,
+          );
+        }
+      }
       await db.transaction().execute(async (trx) => {
         await trx
           .insertInto("org_shares")
