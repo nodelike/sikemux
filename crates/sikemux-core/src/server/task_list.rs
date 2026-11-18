@@ -32,6 +32,7 @@ pub(crate) fn of_folder(core: &Core, folder: &str) -> ProjectTasks {
         project: folder.to_owned(),
         rows,
         teammates: super::peer::tasks(core, folder),
+        shared_by: super::peer::shared_by(core, folder),
         asked: super::teammate_asks::of_project(core, folder),
     }
 }

@@ -194,6 +194,7 @@ icons!(
     Unlink => "unlink",
     Upload => "upload",
     User => "user",
+    Users => "users",
     Vercel => "vercel",
     PhoneQr => "phone-qr",
     Viewport => "viewport",

@@ -82,6 +82,7 @@ const DRAWN = {
   activity: [ICONS, "IconActivity"],
   book: [ICONS, "IconBook"],
   user: [ICONS, "IconUser"],
+  users: [ICONS, "IconUsers"],
   building: [ICONS, "IconBuilding"],
   home: [ICONS, "IconHome"],
   briefcase: [ICONS, "IconBriefcase"],

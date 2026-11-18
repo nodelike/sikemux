@@ -15,7 +15,7 @@ use sikemux_client::join;
 use sikemux_corekit::peer::{PeerHear, PeerSay, SharedBoard, SharedDecision, PEER_ALPN};
 use sikemux_process::clock::{epoch_ms, epoch_secs};
 use sikemux_process::sync::Locked;
-use sikemux_view::task_list::{TaskOf, TaskRow, TeammateTask};
+use sikemux_view::task_list::{SharedBy, TaskOf, TaskRow, TeammateTask};
 use sikemux_view::teammates::Teammate;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -555,9 +555,8 @@ fn forget(core: &Core, gone: impl Fn(&Copy) -> bool) -> bool {
     forgot
 }
 
-/// The tasks on teammates' boards for the repository of the project at `folder`, in the order
-/// of the person's own list.
-pub(crate) fn tasks(core: &Core, folder: &str) -> Vec<TeammateTask> {
+/// The kept copies of teammates' boards for the repository of the project at `folder`.
+fn copies_of(core: &Core, folder: &str) -> Vec<Copy> {
     let Some(project) = (core.workspaces().projects().into_iter())
         .find(|known| known.path.as_os_str() == folder)
         .and_then(|known| known.identity.as_deref().map(shares::key))
@@ -569,8 +568,16 @@ pub(crate) fn tasks(core: &Core, folder: &str) -> Vec<TeammateTask> {
     if copies.owner != owner {
         return Vec::new();
     }
-    let mut tasks: Vec<TeammateTask> = (copies.boards.iter())
+    (copies.boards.iter())
         .filter(|copy| copy.project == project)
+        .cloned()
+        .collect()
+}
+
+/// The tasks on teammates' boards for the repository of the project at `folder`, in the order
+/// of the person's own list.
+pub(crate) fn tasks(core: &Core, folder: &str) -> Vec<TeammateTask> {
+    let mut tasks: Vec<TeammateTask> = (copies_of(core, folder).iter())
         .flat_map(|copy| {
             (copy.board.tasks.iter()).map(|row| TeammateTask {
                 person: copy.person.clone(),
@@ -583,6 +590,31 @@ pub(crate) fn tasks(core: &Core, folder: &str) -> Vec<TeammateTask> {
         (one.row.section.cmp(&other.row.section)).then(other.row.since.cmp(&one.row.since))
     });
     tasks
+}
+
+/// Each org whose members share the repository of the project at `folder` with the person, and
+/// those of them who have tasks on it.
+pub(crate) fn shared_by(core: &Core, folder: &str) -> Vec<SharedBy> {
+    let mut orgs: Vec<SharedBy> = Vec::new();
+    for copy in copies_of(core, folder) {
+        if copy.board.tasks.is_empty() {
+            continue;
+        }
+        if let Some(org) = orgs.iter_mut().find(|org| org.org == copy.org) {
+            org.people.push(copy.person);
+            continue;
+        }
+        let Some(name) = shares::org_name(core, &copy.org) else {
+            continue;
+        };
+        orgs.push(SharedBy {
+            can_ask: shares::active(core, &copy.org),
+            org: copy.org,
+            name,
+            people: vec![copy.person],
+        });
+    }
+    orgs
 }
 
 /// Each control frame read from `reader`, until it ends or sends something else.

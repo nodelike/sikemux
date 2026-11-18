@@ -16,7 +16,8 @@ use gpui_kit::{
 use sikemux_calls::board::{BoardParams, BoardUpdateParams, TeammateAskingParams};
 use sikemux_calls::call;
 use sikemux_view::task_list::{
-    AskingOff, ProjectTasks, TaskFact, TaskOf, TaskRow, TaskSection, TeammateAsk, TeammateAsks,
+    AskingOff, ProjectTasks, SharedBy, TaskFact, TaskOf, TaskRow, TaskSection, TeammateAsk,
+    TeammateAsks,
 };
 use sikemux_view::teammates::Teammate;
 use sikemux_view::workspace::PullChecks;
@@ -357,6 +358,20 @@ pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) 
         );
         blocks.insert(before, block);
     }
+    let theirs_shown = lines.iter().any(|line| line.by.is_some());
+    if let (true, Some(first)) = (theirs_shown, blocks.first_mut()) {
+        let notes = (list.shared_by.iter()).map(|org| shared_note(org, &t));
+        *first = div()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .pb(px(18.))
+                    .children(notes),
+            )
+            .child(std::mem::replace(first, div()));
+    }
     let last = blocks.len().saturating_sub(1);
     div()
         .id(SharedString::from(format!("tasks-{agent}")))
@@ -390,6 +405,41 @@ fn cap(words: &str, count: usize, t: &Tokens, cx: &App) -> Div {
                 .font_features(theme::tabular()),
         )
         .child(div().flex_1().h(px(1.)).bg(t.line))
+}
+
+/// Who shares the project with the person through org `org`, and what the person can do with
+/// their tasks.
+fn shared_note(org: &SharedBy, t: &Tokens) -> Div {
+    let who = match org.people.as_slice() {
+        [one] => t!(
+            "{one} shares this project with {org}.",
+            one = one.name,
+            org = org.name
+        ),
+        [one, two] => t!(
+            "{one} and {two} share this project with {org}.",
+            one = one.name,
+            two = two.name,
+            org = org.name
+        ),
+        people => t!(
+            "{count} teammates share this project with {org}.",
+            count = people.len(),
+            org = org.name
+        ),
+    };
+    let what = match org.can_ask {
+        true => t!("Others' tasks are read only; your agents can ask about them."),
+        false => t!("Others' tasks are read only."),
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .text_size(theme::ui_text(theme::TEXT_XS_H))
+        .text_color(t.text_tertiary)
+        .child(ui::icon(Icon::Users, 14.).text_color(t.text_tertiary))
+        .child(div().min_w_0().child(format!("{who} {what}")))
 }
 
 /// The section of what teammates' agents asked about the project's tasks.

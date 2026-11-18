@@ -27,6 +27,13 @@ fn orgs(core: &Core) -> Vec<AccountOrg> {
     sikemux_corekit::accounts::orgs(core.account().shown().as_ref()).to_vec()
 }
 
+/// The name of org `org` the account is in.
+pub(crate) fn org_name(core: &Core, org: &str) -> Option<String> {
+    (orgs(core).into_iter())
+        .find(|known| known.id == org)
+        .map(|known| known.name)
+}
+
 pub(crate) fn active(core: &Core, org: &str) -> bool {
     orgs(core)
         .iter()

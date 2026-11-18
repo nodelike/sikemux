@@ -17,6 +17,10 @@ pub struct ProjectTasks {
     /// The tasks on teammates' boards for the same repository, read-only, in the same order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teammates: Vec<TeammateTask>,
+    /// Each org whose members share the repository's board, while any of their tasks are in
+    /// `teammates`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shared_by: Vec<SharedBy>,
     /// None while no teammate has asked and nobody is stopped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<TeammateAsks>,
@@ -31,6 +35,18 @@ pub struct TeammateTask {
     pub heard: u64,
     #[serde(flatten)]
     pub row: TaskRow,
+}
+
+/// An org whose members share the repository's board with the person.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedBy {
+    pub org: String,
+    pub name: String,
+    /// The members whose tasks are in the list.
+    pub people: Vec<Teammate>,
+    /// Whether the person's agents can ask about those tasks: the org's Team plan is paid.
+    pub can_ask: bool,
 }
 
 /// What teammates' agents asked about this project's tasks, drawn after Dropped.
