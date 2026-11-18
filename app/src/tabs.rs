@@ -188,7 +188,7 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(SPACE_1H)
+                .gap(SPACE_1)
                 .ml(SPACE_4)
                 .pr(SPACE_2H)
                 .children(crate::tasks::cards(bench, cx))
