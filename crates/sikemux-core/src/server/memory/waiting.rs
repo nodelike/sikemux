@@ -160,7 +160,7 @@ async fn write<T: Serialize>(
         return true;
     };
     match vault::put_project(core, &shared.org, kind, id, revision, &value).await {
-        Ok(Put::Written) => true,
+        Ok(Put::Written(_)) => true,
         Ok(Put::Stale) => false,
         Ok(Put::Refused(why)) => {
             eprintln!(

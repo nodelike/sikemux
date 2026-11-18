@@ -1122,7 +1122,8 @@ pub fn manages_org(core: &Core, org: &str) -> bool {
 }
 
 pub enum Put {
-    Written,
+    /// Written at this revision.
+    Written(i64),
     /// Another host wrote it after `revision`; read it again and redo the change.
     Stale,
     /// The server will not take it, saying why in words for the person.
@@ -1192,7 +1193,7 @@ pub async fn put_project(
                 },
             );
         }
-        Put::Written
+        Put::Written(written.revision)
     } else if status.is_client_error() && !answers_later(status) {
         let said = answer.bytes().await.unwrap_or_default();
         let why = serde_json::from_slice::<Value>(&said)

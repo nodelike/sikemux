@@ -665,10 +665,7 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
         )
         .await
         {
-            Ok(Put::Written) => {
-                let revision = (vault::read(core, &shared.org, &shared.entry_id()))
-                    .flatten()
-                    .map_or(revision, |read| read.revision);
+            Ok(Put::Written(revision)) => {
                 let memory = core.memory();
                 let mut state = memory.state.locked();
                 if let Some(held) = state.held.get_mut(&key) {
