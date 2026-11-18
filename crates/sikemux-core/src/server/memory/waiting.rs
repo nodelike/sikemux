@@ -557,6 +557,65 @@ fn ended(result: CallResult) -> CallOutcome {
     }
 }
 
+/// An entry an owner or admin here kept from a member's waiting list.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Keep {
+    member: String,
+    item: String,
+    /// The hash of the words the owner or admin read.
+    words: String,
+    at: u64,
+}
+
+/// Takes out of the org's store each entry kept here that its member's list no longer holds in
+/// the words the owner or admin read, so only those still waiting are written. False while the
+/// vault was last read before a Keep, when the list cannot be trusted yet; otherwise whether any
+/// was taken out.
+pub(super) fn check_keeps(
+    core: &Core,
+    held: &mut Held,
+    shared: &Shared,
+    written: &dyn Fn(u64) -> bool,
+) -> Option<bool> {
+    if held.keeps.is_empty() {
+        return Some(false);
+    }
+    let read_after = vault::synced(core, &shared.org)
+        .is_some_and(|synced| held.keeps.iter().all(|keep| keep.at < synced));
+    if !read_after {
+        return None;
+    }
+    let mut void = Vec::new();
+    for keep in &held.keeps {
+        let (_, list) = read::<Mine>(core, shared, &shared.waiting_id(&keep.member))?;
+        let still = list.items.get(&keep.item).map(|entry| words(entry.text()));
+        if still.as_ref() != Some(&keep.words) {
+            void.push(keep.clone());
+        }
+    }
+    held.keeps.retain(|keep| !void.contains(keep));
+    let voided = |id: u64, text: &str| {
+        !written(id)
+            && void.iter().any(|keep| {
+                keep.words == words(text) && held.writers.get(&id) == Some(&keep.member)
+            })
+    };
+    let ids: Vec<u64> = (held.rules.iter().map(|rule| (rule.id, rule.text.as_str())))
+        .chain(
+            held.knowledge
+                .iter()
+                .map(|known| (known.id, known.text.as_str())),
+        )
+        .filter(|(id, text)| voided(*id, text))
+        .map(|(id, _)| id)
+        .collect();
+    held.rules.retain(|rule| !ids.contains(&rule.id));
+    held.knowledge.retain(|known| !ids.contains(&known.id));
+    held.writers.retain(|id, _| !ids.contains(id));
+    Some(!void.is_empty())
+}
+
 /// The person kept or dropped an entry waiting on a teammate's list: a kept one goes into the
 /// org's store under that member's name, and a dropped one onto the org's drops at the next sync.
 pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
@@ -578,13 +637,20 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
     }
     match picked {
         Some(KEEP) => {
-            if let Err(problem) = keep(&mut state, store, member, entry) {
+            let from = Keep {
+                member: member.to_owned(),
+                item: item.to_owned(),
+                words: shown.to_owned(),
+                at: epoch_ms(),
+            };
+            if let Err(problem) = keep(&mut state, store, from, entry) {
                 eprintln!("sikemux core: a waiting rule was not kept: {problem}");
                 return;
             }
             memory.save(&mut state, store);
             drop(state);
             tell_clients(core, false);
+            core.vault().orgs().wake();
         }
         Some(DROP) => {
             drop(state);
@@ -617,7 +683,8 @@ fn waiting_entry(
     list.items.remove(item)
 }
 
-fn keep(state: &mut State, store: &str, member: &str, entry: Waiting) -> Result<(), String> {
+fn keep(state: &mut State, store: &str, from: Keep, entry: Waiting) -> Result<(), String> {
+    let member = from.member.as_str();
     let held = holding(state, store, Store::Org)?;
     let same = |text: &str| text.eq_ignore_ascii_case(entry.text());
     if held.rules.iter().any(|rule| same(&rule.text))
@@ -651,5 +718,6 @@ fn keep(state: &mut State, store: &str, member: &str, entry: Waiting) -> Result<
         held.writers.remove(&id);
         return Err(full);
     }
+    held.keeps.push(from);
     Ok(())
 }

@@ -580,6 +580,7 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
     held.rules = base.body.rules;
     held.knowledge = with_local_checks(base.body.knowledge, &had);
     held.writers = base.body.writers;
+    held.keeps.clear();
     for id in undone {
         (held.refused).insert(id, format!("{} keeps it as it was: {why}", shared.name));
     }
@@ -629,12 +630,20 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
         false => Vec::new(),
     };
     for _ in 0..TRIES {
-        let (revision, body) = {
-            let mut state = core.memory().state.locked();
+        let (revision, body, checked) = {
+            let memory = core.memory();
+            let mut state = memory.state.locked();
             let Some(held) = state.held.get_mut(&key) else {
                 return;
             };
             let Some(base) = held.base.clone() else {
+                return;
+            };
+            let written = |id: u64| {
+                (base.body.rules.iter().any(|rule| rule.id == id))
+                    || (base.body.knowledge.iter().any(|known| known.id == id))
+            };
+            let Some(voided) = super::waiting::check_keeps(core, held, shared, &written) else {
                 return;
             };
             for id in (held.rules.iter().map(|rule| rule.id))
@@ -661,10 +670,16 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                 learned.person = None;
             }
             let body = Body::of(held);
+            let checked = held.keeps.clone();
+            if voided {
+                memory.save(&mut state, &key);
+                drop(state);
+                tell_clients(core, false);
+            }
             if body.same_entries(&base.body) {
                 return;
             }
-            (base.revision, body)
+            (base.revision, body, checked)
         };
         let Ok(value) = serde_json::to_value(&body) else {
             return;
@@ -685,6 +700,7 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                 if let Some(held) = state.held.get_mut(&key) {
                     held.base = Some(Base { revision, body });
                     held.refused.clear();
+                    held.keeps.retain(|keep| !checked.contains(keep));
                 }
                 memory.save(&mut state, &key);
                 return;

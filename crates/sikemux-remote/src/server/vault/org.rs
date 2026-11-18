@@ -19,6 +19,7 @@ use sikemux_agents::launch::providers::{catalogue, OrgKey, ProviderOrg};
 use sikemux_calls::vault::{
     OrgEntryParams, OrgModelKeyAdd, OrgVaultStatus, ShownOrgModelKey, ShownOrgVault,
 };
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::device::{AccountOrg, OrgRole};
 use tokio::sync::Notify;
@@ -205,6 +206,8 @@ struct Org {
     changes: Option<i64>,
     /// The memberships of accounts deleted while in the org, whose first names come off its entries.
     erased: Vec<String>,
+    /// When the round that last read the org's vault in full began, in ms since the epoch.
+    synced: Option<u64>,
 }
 
 #[derive(Default)]
@@ -309,7 +312,15 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
         state.orgs.retain(|id, _| listed.contains(id.as_str()));
     }
     for org in &orgs {
-        if let Err(error) = sync_org(core, org, &me, &secret).await {
+        let started = epoch_ms();
+        let synced = sync_org(core, org, &me, &secret).await;
+        if synced.is_ok() {
+            let mut state = core.vault().orgs().state.locked();
+            if let Some(held) = state.orgs.get_mut(&org.id) {
+                held.synced = Some(started);
+            }
+        }
+        if let Err(error) = synced {
             core.vault()
                 .orgs()
                 .state
@@ -558,6 +569,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 failed,
                 changes: None,
                 erased: vault.erased.clone(),
+                synced: None,
             },
         );
         return Ok(());
@@ -574,6 +586,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 failed: None,
                 changes: None,
                 erased: vault.erased.clone(),
+                synced: None,
             },
         );
         core.vault().orgs().wake();
@@ -643,6 +656,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             failed: None,
             changes: Some(vault.changes),
             erased: vault.erased.clone(),
+            synced: None,
         },
     );
     Ok(())
@@ -889,6 +903,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                 failed: None,
                 changes: None,
                 erased: Vec::new(),
+                synced: None,
             },
         );
     }
@@ -1085,6 +1100,13 @@ pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
         revision: entry.revision,
         body: entry.body.clone(),
     }))
+}
+
+/// When the round that last read `org`'s vault began, in ms since the epoch: what this host
+/// reads of the vault is no older than that.
+pub fn synced(core: &Core, org: &str) -> Option<u64> {
+    let state = core.vault().orgs().state.locked();
+    state.orgs.get(org)?.synced
 }
 
 /// The memberships of accounts deleted while in `org`, as its vault last listed them.
