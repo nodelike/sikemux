@@ -33,8 +33,8 @@ fn main() -> Result {
 }
 
 /// The languages the app speaks besides English, as the catalog tags them, each named in itself.
-/// A language comes back here once someone has reviewed its translation.
-const LANGUAGES: [(&str, &str); 7] = [
+/// A language goes here once its translation has been reviewed.
+const LANGUAGES: [(&str, &str); 8] = [
     ("es", "Español"),
     ("zh-Hans", "简体中文"),
     ("de", "Deutsch"),
@@ -42,6 +42,7 @@ const LANGUAGES: [(&str, &str); 7] = [
     ("ja", "日本語"),
     ("ko", "한국어"),
     ("ru", "Русский"),
+    ("pt-BR", "Português (Brasil)"),
 ];
 
 /// Turns the string catalog into a table per language of each English string and what it
