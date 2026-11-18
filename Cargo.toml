@@ -78,6 +78,24 @@ opt-level = 3
 [profile.release.package.gpui-transcript]
 opt-level = 3
 
+# Accounts, pairing, sharing, sign-in keys, config files and web addresses are
+# read on a person's action, never per byte or per frame, so they are built for
+# the smallest size too.
+[profile.release.package.sikemux-remote]
+opt-level = "z"
+[profile.release.package.sikemux-hostkit]
+opt-level = "z"
+[profile.release.package.sikemux-trust]
+opt-level = "z"
+[profile.release.package.sikemux-keychain]
+opt-level = "z"
+[profile.release.package.toml_edit]
+opt-level = "z"
+[profile.release.package.toml_writer]
+opt-level = "z"
+[profile.release.package.url]
+opt-level = "z"
+
 # Plugins never sit on a hot path, so they go further and are built for the
 # smallest size.
 [profile.release.package.sikemux-plugin-aws]
