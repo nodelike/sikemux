@@ -19,5 +19,6 @@ settle 2
 key cmd-alt-6
 settle 4
 click 1076,22
+move 864,600 0.3
 settle 2
 snap rules-admin-asked

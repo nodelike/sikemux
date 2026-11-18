@@ -18,7 +18,8 @@ pub(super) struct World {
     named: std::collections::HashMap<String, String>,
     /// The folder of the checkout the last `core` call made, for `$checkout`.
     checkout: Option<String>,
-    /// The remote every project gets, in a scene on a recorded team or one naming an `origin`.
+    /// The remote each project a scene adds gets, in a scene on a recorded team or one naming an
+    /// `origin`; the world's other projects have none.
     pub(super) origin: Option<String>,
     /// The team's other hosts, in a scene where they ask about its tasks.
     teammates: Option<Teammates>,
@@ -286,7 +287,7 @@ impl World {
             .flatten()
             .filter_map(Value::as_str)
         {
-            self.add_project(other, None)?;
+            self.add_project(other, None, None)?;
         }
         let spaces: Vec<&Value> = world["spaces"].as_array().into_iter().flatten().collect();
         if !spaces.is_empty() {
@@ -387,7 +388,12 @@ impl World {
     }
 
     /// Adds a git project called `name`, a copy of `from` or else a folder holding only a README.
-    pub(super) fn add_project(&self, name: &str, from: Option<&Path>) -> anyhow::Result<PathBuf> {
+    pub(super) fn add_project(
+        &self,
+        name: &str,
+        from: Option<&Path>,
+        remote: Option<&str>,
+    ) -> anyhow::Result<PathBuf> {
         let path = self.work.join("projects").join(name);
         std::fs::create_dir_all(path.parent().unwrap_or(&self.work))?;
         match from {
@@ -420,8 +426,8 @@ impl World {
             Ok(())
         };
         git(&["init", "-q", "-b", "main"])?;
-        if let Some(origin) = &self.origin {
-            git(&["remote", "add", "origin", origin])?;
+        if let Some(remote) = remote {
+            git(&["remote", "add", "origin", remote])?;
         }
         let mut copied: Vec<String> = std::fs::read_dir(&path)?
             .filter_map(|entry| entry.ok())
@@ -543,7 +549,8 @@ impl World {
         match step.verb.as_str() {
             "project" => {
                 let name = step.text(0)?.to_owned();
-                let path = self.add_project(&name, Some(&self.scenes.join(step.text(1)?)))?;
+                let from = self.scenes.join(step.text(1)?);
+                let path = self.add_project(&name, Some(&from), self.origin.as_deref())?;
                 if self.project.is_none() {
                     self.populate(&name, &path)?;
                 }

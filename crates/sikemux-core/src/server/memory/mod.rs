@@ -236,7 +236,6 @@ struct State {
 }
 
 impl State {
-    /// The key of the store of the project in folder `project`.
     /// The one folder on this host that stands for a project's key, the same on every read.
     fn folder_of(&self, key: &str) -> Option<&String> {
         (self.keys.iter())
@@ -245,6 +244,7 @@ impl State {
             .min()
     }
 
+    /// The key of the store of the project in folder `project`.
     fn key_of(&self, project: &str) -> String {
         (self.keys.get(project).cloned()).unwrap_or_else(|| project.to_owned())
     }

@@ -17,7 +17,7 @@
 //!   replies FILE                the stand-in Claude's scripted replies (see sikemux-fake-claude)
 //!   team FOLDER ORIGIN          wakes the core on the account FOLDER, beside the scene, recorded:
 //!                               its orgs, what teammates share and its copies of their boards;
-//!                               each project gets ORIGIN as its remote, so it is the shared one
+//!                               each project step gets ORIGIN as its remote, so it is the shared one
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   signed-in                   signs the film's core in to a local accounts API, as the
 //!                               person, host and orgs the world's sikemuxAccount names; a

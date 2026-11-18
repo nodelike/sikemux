@@ -31,11 +31,11 @@ say "Tax shows 19% for every country"
 core boardAdd {"project":"$project","title":"Tax\u0020per\u0020country","owner":"$chat"}
 core shareProject {"project":"$project","org":"org_acme"}
 settle 4
-ask Theo Pike 14 "Will the tax table cover the EU only, or the US too?"
-ask Priya Sable 10 "Which file does the rounding live in?"
-ask Maya Juno 12 "Will sold-out items still show in search, just last?"
-ask Theo Pike 14 "Is tax looked up by shipping country or billing country?"
-ask Maya Wren 10 "Does the receipt round each line or only the order total?"
+ask Theo Pike 12 "Will the tax table cover the EU only, or the US too?"
+ask Priya Sable 8 "Which file does the rounding live in?"
+ask Maya Juno 10 "Will sold-out items still show in search, just last?"
+ask Theo Pike 12 "Is tax looked up by shipping country or billing country?"
+ask Maya Wren 8 "Does the receipt round each line or only the order total?"
 core openChief {"project":"storefront"}
 settle 6
 key cmd-alt-7
