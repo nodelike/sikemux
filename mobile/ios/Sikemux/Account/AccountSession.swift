@@ -122,12 +122,13 @@ final class AccountSession {
     }
 
     private func register() {
-        guard let userId, !registering else { return }
+        guard let userId, Fold.shared.gate == .open, !registering else { return }
         retrying?.cancel()
         registering = true
         status = .registering
         Task {
             do {
+                try await Fold.shared.askBeforeJoining(userId)
                 let phone = try await AccountCalls.registerPhone(userId: userId)
                 registering = false
                 guard self.userId == userId else { return }
@@ -138,6 +139,7 @@ final class AccountSession {
             } catch {
                 registering = false
                 guard self.userId == userId else { return }
+                if error is Fold.Asking || error is CancellationError { return status = nil }
                 if let deleting = error as? AccountDeleting {
                     status = .deleting(deletesAt: deleting.deletesAt)
                     return

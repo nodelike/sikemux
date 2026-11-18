@@ -27,10 +27,16 @@ final class Fold {
     private(set) var waiting: Waiting?
 
     @ObservationIgnored private var userId: String?
+    /// The account whose sign-in couldn't ask "Already on Sikemux?", and how often the server has since answered with an error.
+    @ObservationIgnored private var unasked: (userId: String, failures: Int)?
     @ObservationIgnored private var deciding: Task<Void, Never>?
 
     private static let signedInHere = "sikemux.signed-in-here"
     private static func settled(_ userId: String) -> String { "sikemux.one-account.\(userId)" }
+    private static let giveUpAfter = 3
+
+    /// Thrown when the person is asked before the phone may join.
+    struct Asking: Error {}
 
     private init() {}
 
@@ -75,17 +81,42 @@ final class Fold {
         waiting = nil
     }
 
-    private func ask(_ userId: String) {
+    /// Before the phone joins an account whose sign-in couldn't ask "Already on Sikemux?", asks it now, since joining
+    /// ends the offer. Throws while the server can't be reached, so joining waits and tries again.
+    func askBeforeJoining(_ userId: String) async throws {
+        guard unasked?.userId == userId else { return }
+        do {
+            let caught = try await askCatch()
+            guard self.userId == userId else { throw CancellationError() }
+            unasked = nil
+            if caught.ask {
+                gate = .caught(caught)
+                throw Asking()
+            }
+            open()
+        } catch let problem as ApiProblem {
+            guard let status = problem.status, unasked?.userId == userId else { throw problem }
+            unasked?.failures += 1
+            if (problem.unreachable || status == 429) && unasked!.failures < Self.giveUpAfter { throw problem }
+            unasked = nil
+        }
+    }
+
+    private func askCatch() async throws -> FoldCatch {
         let before = UserDefaults.standard.bool(forKey: Self.signedInHere)
+        return try await AccountAPI.send(
+            "POST", "/v1/account/fold/catch", body: FoldCatchRequest(hint: before ? .browser : nil), as: FoldCatch.self)
+    }
+
+    private func ask(_ userId: String) {
         deciding = Task {
             do {
-                let caught = try await AccountAPI.send(
-                    "POST", "/v1/account/fold/catch", body: FoldCatchRequest(hint: before ? .browser : nil),
-                    as: FoldCatch.self)
+                let caught = try await askCatch()
                 guard !Task.isCancelled, self.userId == userId else { return }
                 if caught.ask { gate = .caught(caught) } else { open() }
             } catch {
                 guard !Task.isCancelled, self.userId == userId else { return }
+                unasked = (userId, 0)
                 gate = .open
                 AccountSession.shared.admit()
             }
