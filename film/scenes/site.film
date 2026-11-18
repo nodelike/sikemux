@@ -5,6 +5,7 @@ stage 1760 900
 window 1760 900
 replies replies.json
 prefer themeId aura-noir
+prefer starAsked true
 page c4a7f00d000000000000000000000001 pages/latency.html
 page c4a7f00d000000000000000000000002 pages/mockups.html
 project storefront shop
@@ -12,7 +13,14 @@ patch site-fix.diff
 chat Wren
 title "Cart totals a cent off"
 settle 6
-click 871,774
+# The app opens an empty chat of its own at start, under Wren's: close it, then pick Wren's.
+click 1544,514
+wait 0.5
+key cmd-w
+wait 1
+click 1544,480
+wait 0.5
+click 871,435
 type "Some orders come out a cent off at checkout. Find out why and fix it properly, with a test." 200
 key enter
 # Snaps run the stand-in Claude on the clock on the wall, so each reply takes its real time.
@@ -29,7 +37,7 @@ snap agents
 chat Rhea
 title "Orders schema"
 settle 2
-click 871,774
+click 871,435
 type "draw the database schema so I can see how orders connect" 200
 key enter
 hold 8
@@ -38,7 +46,7 @@ snap visual-diagram
 chat Kaito
 title "Checkout latency after the fix"
 settle 2
-click 871,774
+click 871,435
 type "did the payments fix bring checkout p95 back down?" 200
 key enter
 hold 4
@@ -47,7 +55,7 @@ snap visual-chart
 chat Mio
 title "Empty projects page"
 settle 2
-click 871,774
+click 871,435
 type "sketch the empty projects page three ways before you build it" 200
 key enter
 hold 5
