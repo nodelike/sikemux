@@ -45,7 +45,7 @@
 //!                               for the checkout an earlier call answered
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
 //!   prefer KEY [VALUE]          sets a preference, VALUE as JSON or else as text, or puts
-//!                               back the world's
+//!                               back the world's; $projects stands for the projects' folder
 //!   settle S                    lets the core and the window catch up, unfilmed
 //!   hold S                      gives the core S real seconds with the film's time stopped, so
 //!                               an answer that takes a round trip lands between two frames

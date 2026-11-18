@@ -687,7 +687,11 @@ impl World {
                             .unwrap_or(&Value::Null),
                     ),
                     Ok("null") => Value::Null,
-                    Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
+                    Ok(text) => {
+                        let projects = self.work.join("projects");
+                        let text = text.replace("$projects", &projects.to_string_lossy());
+                        serde_json::from_str(&text).unwrap_or_else(|_| json!(text))
+                    }
                 };
                 for (method, params) in setting(key, &value) {
                     self.call(method, params)?;

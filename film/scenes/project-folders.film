@@ -1,0 +1,16 @@
+# The project picker with a project folder's settings, and the same settings in Settings.
+stage 1760 900
+window 1760 900
+prefer paneImage null
+project storefront shop
+project marketing line-shop
+prefer projectRoots [{"path":"$projects","depth":1,"selfIndex":false}]
+settle 6
+key cmd-o
+settle 3
+snap project-picker
+key escape
+settle 1
+settings General
+settle 2
+snap project-folders
