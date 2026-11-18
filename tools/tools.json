@@ -2061,7 +2061,8 @@
         "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
         "edit": {"description": "questionId of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
         "withdraw": {"description": "With edit: take the call back", "type": "boolean"}
-      }
+      },
+      "required": []
     },
     {
       "name": "task_add",
