@@ -9,7 +9,8 @@ chat Pike opencode opencode/big-pickle
 chat Mira opencode
 title "Order emails"
 settle 8
-type "/model" 30
-key enter
+click 1201,569
+settle 2
+click "Model"
 settle 3
 snap recent-models
