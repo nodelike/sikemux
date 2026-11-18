@@ -7,7 +7,7 @@
         "members": [
           {
             "id": "mem_edon",
-            "name": "edon",
+            "name": "Edon",
             "imageUrl": null,
             "you": true
           },
@@ -50,7 +50,7 @@
         "members": [
           {
             "id": "mem_edon_nw",
-            "name": "edon",
+            "name": "Edon",
             "imageUrl": null,
             "you": true
           },
