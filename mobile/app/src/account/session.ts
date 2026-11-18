@@ -17,7 +17,7 @@ import { onNetworkChange } from '@/network/connectivity';
 import { phoneAdded, syncPushToken } from '@/notify/token';
 import { stashChanged } from '@/stash/store';
 import { accountDevice, accountHosts, ApiProblem, registerPhone, removeAccountDevice, type TokenSource } from './api';
-import { checkFoldAgain, useFoldGate } from './fold';
+import { askBeforeAddingPhone, checkFoldAgain, useFoldGate } from './fold';
 import { apiUrl } from './config';
 import { farewellFor } from './farewell';
 import { signOutHere } from './leave';
@@ -134,6 +134,7 @@ export function useAccountSequence() {
     const sequence = new AccountSequence({
       register: async () => {
         try {
+          await askBeforeAddingPhone(() => token(), userId);
           const phone = await registerPhone(() => token(), userId);
           await phoneAdded(phone.createdAt);
         } catch (error) {

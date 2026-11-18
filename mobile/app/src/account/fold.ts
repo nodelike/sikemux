@@ -5,7 +5,7 @@ import type { FoldCatch, FoldWhy } from '@sikemux/protocol';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
-import { api } from './api';
+import { ApiProblem, api, type TokenSource } from './api';
 
 /** A fold this phone started, waiting for the person's other account to confirm it. Kept in memory only. */
 export type Waiting = { id: string; secret: string; expiresAt: string; why: FoldWhy; waitingWords: string };
@@ -20,9 +20,13 @@ export type FoldGate =
 const SIGNED_IN_HERE = 'sikemux.signed-in-here';
 const settledItem = (userId: string) => `sikemux.one-account.${userId.replace(/[^A-Za-z0-9._-]/g, '')}`;
 
+const GIVE_UP_AFTER = 3;
+const TOO_MANY = 429;
+
 const gateNow = externalValue<FoldGate>({ kind: 'checking' });
 const waitingNow = externalValue<Waiting | null>(null);
 const round = externalValue(0);
+let unasked: { userId: string; failures: number } | null = null;
 
 export function useFoldGate(): FoldGate {
   return useExternalValue(gateNow);
@@ -54,6 +58,35 @@ export async function openFold(userId: string) {
   await SecureStore.setItemAsync(SIGNED_IN_HERE, '1').catch(() => {});
 }
 
+async function askCatch(token: TokenSource) {
+  const before = await SecureStore.getItemAsync(SIGNED_IN_HERE).catch(() => null);
+  return api(token).getFoldCatch(before ? { hint: 'browser' } : {});
+}
+
+/**
+ * Before the phone joins an account whose sign-in couldn't ask "Already on Sikemux?", asks it now, since
+ * joining ends the offer. Throws while the server can't be reached, so joining waits and tries again.
+ */
+export async function askBeforeAddingPhone(token: TokenSource, userId: string) {
+  if (unasked?.userId !== userId) return;
+  try {
+    const caught = await askCatch(token);
+    unasked = null;
+    if (caught.ask) {
+      gateNow.set({ kind: 'catch', caught });
+      throw new Error('This account asks the person first.');
+    }
+    await openFold(userId);
+  } catch (error) {
+    if (!(error instanceof ApiProblem) || !unasked) throw error;
+    if (error.status === undefined) throw error;
+    unasked.failures += 1;
+    if ((error.unreachable || error.status === TOO_MANY) && unasked.failures < GIVE_UP_AFTER) throw error;
+    console.warn('sikemux: adding the phone without asking whether this account may stand', error);
+    unasked = null;
+  }
+}
+
 /** Decides the gate on each sign-in, before the phone is added to the account. */
 export function useFoldGateFeed() {
   const { isSignedIn, userId, getToken } = useAuth();
@@ -76,17 +109,17 @@ export function useFoldGateFeed() {
         return;
       }
       try {
-        const before = await SecureStore.getItemAsync(SIGNED_IN_HERE).catch(() => null);
-        const caught = await api(() => getToken()).getFoldCatch(before ? { hint: 'browser' } : {});
+        const caught = await askCatch(() => getToken());
         if (!current) return;
         if (caught.ask) {
           gateNow.set({ kind: 'catch', caught });
           return;
         }
       } catch (error) {
-        // The screens say what went wrong.
         console.warn('sikemux: could not ask whether this account may stand', error);
-        if (current) gateNow.set({ kind: 'open' });
+        if (!current) return;
+        unasked = { userId, failures: 0 };
+        gateNow.set({ kind: 'open' });
         return;
       }
       if (current) await openFold(userId);
