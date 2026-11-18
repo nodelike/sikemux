@@ -663,7 +663,7 @@ async fn a_land_trims_the_merge_queues_old_builds_and_keeps_the_newest() {
         }
         worker
             .run(&format!(
-                "printf '{change}\\n' > {change}.txt && git add {change}.txt && git commit -qm 'worker: {change}'"
+                "printf '{change}\\n' > {change}.txt && git add {change}.txt && git -c user.name=Test -c user.email=test@example.com commit -qm 'worker: {change}'"
             ))
             .await;
         let before = git(&project, &["rev-parse", "main"]);
