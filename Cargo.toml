@@ -102,6 +102,28 @@ opt-level = "z"
 [profile.release.package.latex-rust]
 opt-level = "z"
 
+# Crash reports are written once, after a crash.
+[profile.release.package.sentry]
+opt-level = "z"
+[profile.release.package.sentry-core]
+opt-level = "z"
+[profile.release.package.sentry-types]
+opt-level = "z"
+[profile.release.package.sentry-contexts]
+opt-level = "z"
+[profile.release.package.sentry-debug-images]
+opt-level = "z"
+[profile.release.package.sentry-minidump]
+opt-level = "z"
+[profile.release.package.minidump-writer]
+opt-level = "z"
+[profile.release.package.minidump-common]
+opt-level = "z"
+[profile.release.package.minidumper]
+opt-level = "z"
+[profile.release.package.minidumper-child]
+opt-level = "z"
+
 # Plugins never sit on a hot path, so they go further and are built for the
 # smallest size.
 [profile.release.package.sikemux-plugin-aws]
