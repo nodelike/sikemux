@@ -23,6 +23,7 @@ pub mod shimmer;
 pub mod sign_in;
 pub(crate) mod slice_state;
 mod state_mark;
+mod stepper;
 pub mod time;
 pub mod yolo;
 
@@ -41,6 +42,7 @@ pub use model_name::model_name;
 pub use pane::{floating_panel, notice_bar, pane, pane_frame, PaneHeader, AGENT_INSET};
 pub use select::{select, Pick};
 pub use state_mark::{status_mark, turn_mark, turn_time};
+pub use stepper::stepper;
 
 use std::f32::consts::TAU;
 

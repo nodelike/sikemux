@@ -33,6 +33,8 @@ const NUMBER_WIDTH: f32 = 8.;
 /// A row too narrow cuts its detail before its title.
 const META_GIVES_WAY: f32 = 1000.;
 const PAGE: isize = 8;
+/// The strip some palettes keep under their list, for the row chosen.
+const FOOT_HEIGHT: f32 = 40.;
 
 pub fn install(cx: &mut App) {
     let context = "Palette > Input";
@@ -164,6 +166,7 @@ impl Row {
 type Pick = Rc<dyn Fn(&Row, &mut Workbench, &mut Window, &mut Context<Workbench>)>;
 type Leave = Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>;
 type Typed = Rc<dyn Fn(&str) -> Option<Row>>;
+type Foot = Rc<dyn Fn(&Row, &Workbench, &mut Context<Workbench>) -> Option<AnyElement>>;
 
 /// One palette as its opener describes it.
 pub struct Spec {
@@ -190,6 +193,8 @@ pub struct Spec {
     pub aside: Option<Aside>,
     /// A row made from what is typed, offered first, such as a folder named by its path.
     typed: Option<Typed>,
+    /// A strip under the list about the row chosen, such as the project folder it lies in.
+    foot: Option<Foot>,
     /// Drawn as the command deck: wider and taller, its rows' words in tracked capitals and
     /// their keys in keycaps.
     deck: bool,
@@ -244,6 +249,7 @@ impl Spec {
             choice: None,
             aside: None,
             typed: None,
+            foot: None,
             deck: false,
             numbered: false,
             on_stage: false,
@@ -293,6 +299,14 @@ impl Spec {
 
     pub fn typed(mut self, typed: impl Fn(&str) -> Option<Row> + 'static) -> Self {
         self.typed = Some(Rc::new(typed));
+        self
+    }
+
+    pub fn foot(
+        mut self,
+        foot: impl Fn(&Row, &Workbench, &mut Context<Workbench>) -> Option<AnyElement> + 'static,
+    ) -> Self {
+        self.foot = Some(Rc::new(foot));
         self
     }
 
@@ -437,6 +451,11 @@ impl Palette {
     /// What is typed in its field.
     pub fn query(&self, cx: &App) -> String {
         self.input.read(cx).value().to_string()
+    }
+
+    /// Gives the field its focus back, after a control in the palette took it.
+    pub fn refocus(&self, window: &mut Window, cx: &mut App) {
+        self.input.update(cx, |input, cx| input.focus(window, cx));
     }
 
     /// The key of the row highlighted now.
@@ -673,14 +692,14 @@ impl Workbench {
 }
 
 /// The tallest list a palette shows under its search, in whole rows so none is cut through.
-pub(crate) fn list_room(window: &Window, deck: bool) -> f32 {
+pub(crate) fn list_room(window: &Window, deck: bool, below: f32) -> f32 {
     let height = f32::from(window.viewport_size().height);
     let panel = match deck {
         true => 680_f32.min(height * 0.72),
         false => height * 0.62,
     };
     let row = crate::theme::dense(ROW_HEIGHT);
-    let rows = ((panel - HEAD_HEIGHT - 1. - 2. * INSET - 2.) / row).floor();
+    let rows = ((panel - HEAD_HEIGHT - below - 1. - 2. * INSET - 2.) / row).floor();
     rows.max(1.) * row
 }
 
@@ -695,7 +714,11 @@ pub fn overlay(
     let deck = palette.spec.deck;
     let lines_height: f32 = palette.lines.iter().map(|line| line.height()).sum();
     let viewport = window.viewport_size();
-    let list_height = lines_height.min(list_room(window, deck));
+    let foot = (palette.spec.foot.clone())
+        .zip(palette.selected.and_then(|line| palette.row(line)).cloned())
+        .and_then(|(foot, row)| foot(&row, bench, cx));
+    let below = if foot.is_some() { FOOT_HEIGHT + 1. } else { 0. };
+    let list_height = lines_height.min(list_room(window, deck, below));
     let stage = palette
         .spec
         .on_stage
@@ -839,7 +862,19 @@ pub fn overlay(
                             .flex_shrink(1.)
                             .py(px(INSET)),
                         )
-                    }),
+                    })
+                    .children(foot.map(|foot| {
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .h(px(FOOT_HEIGHT))
+                            .pl(px(2. * INSET))
+                            .pr(px(INSET + 2.))
+                            .border_t(crate::theme::border())
+                            .border_color(t.border)
+                            .child(foot)
+                    })),
             )
             .into_any_element(),
     )

@@ -164,50 +164,6 @@ fn add_typed(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
     .detach();
 }
 
-/// − and + around a depth, from 0 to the deepest the core searches.
-fn stepper(
-    id: &'static str,
-    key: SharedString,
-    depth: u32,
-    set: impl Fn(u32, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx);
-    let set = std::rc::Rc::new(set);
-    let (less, more) = (set.clone(), set);
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_1)
-        .child(
-            ui::IconButton::new(
-                SharedString::from(format!("{id}-less-{key}")),
-                Icon::Minus,
-                t!("One level less"),
-            )
-            .small()
-            .on_click(move |_, _, cx| less(depth.saturating_sub(1), cx)),
-        )
-        .child(
-            div()
-                .w(px(18.))
-                .text_center()
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .text_color(t.text_primary)
-                .child(depth.to_string()),
-        )
-        .child(
-            ui::IconButton::new(
-                SharedString::from(format!("{id}-more-{key}")),
-                Icon::Plus,
-                t!("One level more"),
-            )
-            .small()
-            .on_click(move |_, _, cx| more((depth + 1).min(MAX_PROJECT_DEPTH), cx)),
-        )
-        .into_any_element()
-}
-
 pub fn render(
     bench: &Workbench,
     pages: &super::State,
@@ -269,11 +225,11 @@ pub fn render(
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(stepper(
-                        "root-depth",
-                        key.clone(),
+                    .child(ui::stepper(
+                        format!("root-depth-{key}"),
                         root.depth,
-                        move |depth, cx| {
+                        MAX_PROJECT_DEPTH,
+                        move |depth, _, cx| {
                             let path = path_b.clone();
                             deeper.update(cx, |bench, _| {
                                 change(bench, |roots| {
@@ -317,11 +273,11 @@ pub fn render(
                     .items_center()
                     .gap(SPACE_2)
                     .child(div().flex_1().child(ui::Field::new(&fields.path).mono()))
-                    .child(stepper(
+                    .child(ui::stepper(
                         "add-depth",
-                        "new".into(),
                         fields.depth,
-                        move |depth, cx| {
+                        MAX_PROJECT_DEPTH,
+                        move |depth, _, cx| {
                             depth_this.update(cx, |bench, cx| {
                                 change_fields(bench, cx, |fields, _| fields.depth = depth);
                             })

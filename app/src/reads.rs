@@ -481,6 +481,7 @@ impl Workbench {
                     crate::see_through::set(&preferences, cx);
                     crate::screens::experience::preferences_read(self, &preferences, cx);
                     self.preferences = Some(preferences);
+                    self.parts.redraw(&self.parts.finder, cx);
                 }
                 self.terminals.redraw_all(cx);
                 crate::notifications::introduce(self, cx);
