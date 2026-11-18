@@ -310,19 +310,29 @@ async function seatOrg(
 }
 
 async function moveSeats(trx: Transaction<Tables>, { from, into }: Side) {
-  const seats = await trx
+  const orgs = await trx
     .selectFrom("org_users")
-    .select(["id", "org_id", "role", "joined_at"])
+    .select("org_id")
+    .distinct()
     .where("user_id", "=", from)
     .orderBy("org_id")
     .execute();
-  for (const seat of seats) {
+  const seats: { org_id: string; joined_at: Date }[] = [];
+  for (const { org_id } of orgs) {
     await trx
       .selectFrom("orgs")
       .select("id")
-      .where("id", "=", seat.org_id)
+      .where("id", "=", org_id)
       .forUpdate()
       .execute();
+    const seat = await trx
+      .selectFrom("org_users")
+      .select(["id", "org_id", "role", "joined_at"])
+      .where("org_id", "=", org_id)
+      .where("user_id", "=", from)
+      .executeTakeFirst();
+    if (!seat) continue;
+    seats.push(seat);
     const kept = await trx
       .selectFrom("org_users")
       .select(["id", "role"])
