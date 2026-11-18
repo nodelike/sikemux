@@ -146,7 +146,9 @@ export function clerkBackend(
                 email: address.email_address,
                 addedAt:
                   typeof address.created_at === "number"
-                    ? new Date(address.created_at)
+                    ? new Date(
+                        Math.max(address.created_at, createdAt.getTime()),
+                      )
                     : createdAt,
               },
             ]
