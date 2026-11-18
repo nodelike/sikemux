@@ -50,6 +50,10 @@ const FRESH_FOR: Duration = Duration::from_secs(20);
 const ROW: f32 = 30.;
 const ROW_COMPACT: f32 = 28.;
 const ROW_GAP: f32 = 2.;
+
+/// The top bar chip's agent marks, each on a disc of the bar's colour that rings it where they overlap.
+const MARK: f32 = 12.;
+const DISC: f32 = 18.;
 const HEADER: f32 = 24.;
 const AGENT_HEAD: f32 = 34.;
 const ACCOUNT_LINE: f32 = 24.;
@@ -1593,7 +1597,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                 };
                 let marks = pairs.iter().enumerate().rev().map(|(at, (provider, _))| {
                     div()
-                        .size(px(18.))
+                        .size(px(DISC))
                         .flex_none()
                         .flex()
                         .items_center()
@@ -1601,12 +1605,13 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                         .rounded_full()
                         .bg(t.surface)
                         .when(at > 0, |disc| disc.ml(px(-5.)))
-                        .child(ui::mark(provider, 12.))
+                        .child(ui::mark(provider, MARK))
                 });
                 div()
                     .id("limits-chip-button")
                     .h(px(26.))
-                    .px(px(5.))
+                    .pl(px(crate::tabs::CHIP_INSET - (DISC - MARK) / 2.))
+                    .pr(px(crate::tabs::CHIP_INSET))
                     .flex()
                     .items_center()
                     .gap(SPACE_1H)

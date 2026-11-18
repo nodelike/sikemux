@@ -1558,10 +1558,10 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
             BaseButton::new("calls-chip-button")
                 .accessibility_label(t!("Calls"))
                 .h(px(22.))
-                .px(SPACE_1H)
+                .px(px(crate::tabs::CHIP_INSET))
                 .flex()
                 .items_center()
-                .gap(SPACE_1)
+                .gap(SPACE_1H)
                 .rounded(radius_2())
                 .cursor_pointer()
                 .map(|chip| {

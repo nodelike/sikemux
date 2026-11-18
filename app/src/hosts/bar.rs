@@ -15,7 +15,7 @@ use crate::hosts::HostChoice;
 use crate::icons::Icon;
 use crate::keymap;
 use crate::theme::{Tokens, SPACE_1H, SPACE_2H, TEXT_XS};
-use crate::ui::{self, IconButton};
+use crate::ui;
 use crate::workbench::actions;
 use crate::workbench::Workbench;
 use sikemux_calls::hosts::Unanswered as HostUnanswered;
@@ -24,15 +24,14 @@ use sikemux_calls::hosts::Unanswered as HostUnanswered;
 pub fn devices(cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let bench = cx.entity().downgrade();
-    let trigger = IconButton::new(
+    let trigger = crate::tabs::glyph_chip(
         "devices",
         Icon::Gauge,
         match keymap::hint(actions::FocusHosts::ID, cx) {
             Some(keys) => t!("Devices — {keys}", keys = keys),
             None => t!("Devices").to_owned(),
         },
-    )
-    .width(30.);
+    );
     ui::menu_button(
         "devices-menu",
         Anchor::TopRight,

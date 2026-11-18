@@ -353,6 +353,7 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
     Some(
         div()
             .id("battery")
+            .px(px(crate::tabs::CHIP_INSET))
             .flex()
             .items_center()
             .tooltip(ui::tooltip(about))

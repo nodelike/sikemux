@@ -91,7 +91,7 @@ pub(crate) fn chip(
                 let chip = div()
                     .id("overload-chip-button")
                     .h(px(22.))
-                    .px(px(8.))
+                    .px(px(crate::tabs::CHIP_INSET))
                     .flex()
                     .items_center()
                     .gap(SPACE_1H)
