@@ -27,6 +27,7 @@ const gateNow = externalValue<FoldGate>({ kind: 'checking' });
 const waitingNow = externalValue<Waiting | null>(null);
 const round = externalValue(0);
 let unasked: { userId: string; failures: number } | null = null;
+let signedIn: string | null = null;
 
 export function useFoldGate(): FoldGate {
   return useExternalValue(gateNow);
@@ -71,6 +72,7 @@ export async function askBeforeAddingPhone(token: TokenSource, userId: string) {
   if (unasked?.userId !== userId) return;
   try {
     const caught = await askCatch(token);
+    stillSignedIn(userId);
     unasked = null;
     if (caught.ask) {
       gateNow.set({ kind: 'catch', caught });
@@ -78,7 +80,7 @@ export async function askBeforeAddingPhone(token: TokenSource, userId: string) {
     }
     await openFold(userId);
   } catch (error) {
-    if (!(error instanceof ApiProblem) || !unasked) throw error;
+    if (!(error instanceof ApiProblem) || unasked?.userId !== userId) throw error;
     if (error.status === undefined) throw error;
     unasked.failures += 1;
     if ((error.unreachable || error.status === TOO_MANY) && unasked.failures < GIVE_UP_AFTER) throw error;
@@ -87,11 +89,21 @@ export async function askBeforeAddingPhone(token: TokenSource, userId: string) {
   }
 }
 
+/** Whether the phone may join this account now: it is still the one signed in, and its gate is open. */
+export function mayJoin(userId: string): boolean {
+  return signedIn === userId && gateNow.get().kind === 'open';
+}
+
+function stillSignedIn(userId: string) {
+  if (signedIn !== userId) throw new Error('Another account signed in while this one was being asked.');
+}
+
 /** Decides the gate on each sign-in, before the phone is added to the account. */
 export function useFoldGateFeed() {
   const { isSignedIn, userId, getToken } = useAuth();
   const again = useExternalValue(round);
   useEffect(() => {
+    signedIn = isSignedIn && userId ? userId : null;
     if (!isSignedIn || !userId) {
       gateNow.set({ kind: 'checking' });
       return;

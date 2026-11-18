@@ -17,7 +17,7 @@ import { onNetworkChange } from '@/network/connectivity';
 import { phoneAdded, syncPushToken } from '@/notify/token';
 import { stashChanged } from '@/stash/store';
 import { accountDevice, accountHosts, ApiProblem, registerPhone, removeAccountDevice, type TokenSource } from './api';
-import { askBeforeAddingPhone, checkFoldAgain, useFoldGate } from './fold';
+import { askBeforeAddingPhone, checkFoldAgain, mayJoin, useFoldGate } from './fold';
 import { apiUrl } from './config';
 import { farewellFor } from './farewell';
 import { signOutHere } from './leave';
@@ -135,6 +135,7 @@ export function useAccountSequence() {
       register: async () => {
         try {
           await askBeforeAddingPhone(() => token(), userId);
+          if (!mayJoin(userId)) throw new Error('This account may not take the phone yet.');
           const phone = await registerPhone(() => token(), userId);
           await phoneAdded(phone.createdAt);
         } catch (error) {
