@@ -154,10 +154,11 @@ impl Activity {
     }
 
     /// The line once the turn has ended, or while it works on a step it named: how it stands,
-    /// said by the core, with the next steps as buttons. A failed turn's line is `trouble`'s.
+    /// said by the core, with the next steps as buttons. A failed turn's line is `trouble`'s, and
+    /// the calls a turn needs the person for are the chat's own rows above it.
     fn state_line(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let turn = self.turn.as_ref()?;
-        if turn.state == TurnPhase::Failed {
+        if matches!(turn.state, TurnPhase::Failed | TurnPhase::NeedsYou) {
             return None;
         }
         let said = turn_line::said(turn, turn_line::maker(&self.provider), ui::time::now_ms())?;

@@ -4,8 +4,9 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px, relative, AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    WeakEntity, Window,
 };
 use sikemux_view::chat::FailureKind;
 use sikemux_view::turn::{
@@ -381,15 +382,15 @@ pub fn words(
                     .text_color(tint)
                     .child(t!("Waiting on"))
                     .children(pills),
-                (tint, _) => {
-                    word.min_w_0()
-                        .line_clamp(lines)
-                        .text_ellipsis()
-                        .map(|word| match tint {
-                            Some(tint) => word.text_color(tint).child(said.word.clone()),
-                            None => word.child(ui::shimmer::shimmer(key, said.word.clone())),
-                        })
-                }
+                (tint, _) => word
+                    .flex_shrink_0()
+                    .max_w(relative(0.6))
+                    .line_clamp(lines)
+                    .text_ellipsis()
+                    .map(|word| match tint {
+                        Some(tint) => word.text_color(tint).child(said.word.clone()),
+                        None => word.child(ui::shimmer::shimmer(key, said.word.clone())),
+                    }),
             });
     let last = said.parts.len().saturating_sub(1);
     div()
