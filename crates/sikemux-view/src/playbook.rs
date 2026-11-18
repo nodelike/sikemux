@@ -63,6 +63,10 @@ pub struct Entry {
     /// A move to the org's store waits for an owner or admin.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub asks: bool,
+    /// The project is shared with `org`, but its vault is not set up on this host yet, so
+    /// nothing kept here reaches the org.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shut: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

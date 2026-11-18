@@ -186,7 +186,7 @@ pub(super) async fn serve(core: Arc<Core>) {
 }
 
 async fn sync(core: &Arc<Core>) {
-    let Some(shared) = shared(core).await else {
+    let Some((shared, shut)) = shared(core).await else {
         return;
     };
     {
@@ -194,6 +194,7 @@ async fn sync(core: &Arc<Core>) {
         let mut state = memory.state.locked();
         end(core, &mut state, &shared);
         state.shared = shared.clone();
+        state.shut = shut;
     }
     for (local, shared) in &shared {
         mirror(core, shared);
@@ -205,11 +206,12 @@ async fn sync(core: &Arc<Core>) {
 }
 
 /// The projects open here that this account's person shares with one org, by their store's
-/// key; none while this host has not heard the registry.
-async fn shared(core: &Core) -> Option<HashMap<String, Shared>> {
+/// key, and those whose org's vault this host cannot open yet, with the org's name; none while
+/// this host has not heard the registry.
+async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<String, String>)> {
     let registry = crate::server::account::shares::read(core).await?;
     let orgs = sikemux_corekit::accounts::orgs(core.account().shown().as_ref()).to_vec();
-    let mut shared = HashMap::new();
+    let (mut shared, mut shut) = (HashMap::new(), HashMap::new());
     for identity in (core.workspaces().projects().into_iter()).filter_map(|known| known.identity) {
         let project = crate::server::shares::key(&identity);
         let mut mine = (registry.orgs.iter())
@@ -223,10 +225,20 @@ async fn shared(core: &Core) -> Option<HashMap<String, Shared>> {
         ) else {
             continue;
         };
+        let manages = vault::manages_org(core, &list.org);
+        if manages && org.active {
+            if let Err(error) = vault::make(core, &list.org).await {
+                eprintln!("sikemux core: an org's vault could not be made: {error}");
+            }
+        }
+        if !vault::holds_key(core, &list.org) {
+            shut.insert(identity, org.name.clone());
+            continue;
+        }
         let approves = crate::server::account::org_policy(core, &list.org)
             .await
             .admins_approve_rules;
-        let writes = org.active && (vault::manages_org(core, &list.org) || !approves);
+        let writes = org.active && (manages || !approves);
         shared.insert(
             identity,
             Shared {
@@ -244,7 +256,7 @@ async fn shared(core: &Core) -> Option<HashMap<String, Shared>> {
             },
         );
     }
-    Some(shared)
+    Some((shared, shut))
 }
 
 /// Ends each org's store kept here that no project open here is shared with any more: what this

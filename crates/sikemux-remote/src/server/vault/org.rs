@@ -1026,6 +1026,21 @@ pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
     }))
 }
 
+/// Whether this host holds the key to `org`'s vault, so the org's entries can be read and written.
+pub fn holds_key(core: &Core, org: &str) -> bool {
+    (core.vault().orgs().state.locked().orgs.get(org)).is_some_and(|org| org.held.key.is_some())
+}
+
+/// Makes `org`'s vault when nobody has yet, from an owner's or admin's host.
+pub async fn make(core: &Arc<Core>, org: &str) -> CoreResult<()> {
+    if org_status(core, org) != OrgVaultStatus::Unmade {
+        return Ok(());
+    }
+    let _busy = core.vault().orgs().busy.lock().await;
+    writable(core, org).await?;
+    settle(core).await
+}
+
 /// Whether this host's account manages `org`.
 pub fn manages_org(core: &Core, org: &str) -> bool {
     account_orgs(core)

@@ -200,6 +200,10 @@ fn row(
             words.push(t!("Only you, dropped by {by}", by = by))
         }
         (Some(_), Some(_)) => words.push(t!("Only you, dropped by an admin").to_owned()),
+        (_, Some(org)) if entry.shut => words.push(t!(
+            "Only you, {org}'s vault isn't set up on this computer yet",
+            org = org
+        )),
         _ if store == Store::Project && org.is_some() => words.push(t!("Only you").to_owned()),
         _ => {}
     }
@@ -269,7 +273,7 @@ fn row(
     let mut moves = Vec::new();
     if moved.is_none() && store != Store::Org && !entry.waiting {
         moves.push(store.other());
-        if store == Store::Project && org.is_some() {
+        if store == Store::Project && org.is_some() && !entry.shut {
             moves.push(Store::Org);
         }
     }

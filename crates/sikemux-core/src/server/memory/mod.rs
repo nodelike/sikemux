@@ -194,6 +194,9 @@ struct State {
     free_elsewhere: u64,
     /// The projects open here shared with an org, by their own store's key.
     shared: HashMap<String, org::Shared>,
+    /// The projects open here shared with an org whose vault this host cannot open yet, by their
+    /// own store's key, with the org's name.
+    shut: HashMap<String, String>,
 }
 
 impl State {
@@ -402,6 +405,9 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
     for (old, new) in &renames {
         if let Some(shared) = state.shared.remove(old) {
             state.shared.insert(new.clone(), shared);
+        }
+        if let Some(shut) = state.shut.remove(old) {
+            state.shut.insert(new.clone(), shut);
         }
         let following: Vec<String> = (state.held.values_mut())
             .filter_map(|held| {
@@ -956,7 +962,8 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
     let state = core.memory().state.locked();
     let offers = moving::Offers::new(&state, project);
     let shared = state.shared.get(&state.key_of(project));
-    let org = shared.map(|shared| shared.name.clone());
+    let shut = (state.shut.get(&state.key_of(project))).filter(|_| shared.is_none());
+    let org = (shared.map(|shared| &shared.name)).or(shut).cloned();
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
         let came_from = state.key_for(project, held.store.other());
@@ -1004,6 +1011,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 dropped: dropped(rule.id),
                 refused: refused(rule.id),
                 asks,
+                shut: local && shut.is_some(),
             };
             match rule.learned.agent {
                 None => rules.push(kept),
@@ -1031,6 +1039,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 dropped: dropped(known.id),
                 refused: refused(known.id),
                 asks,
+                shut: local && shut.is_some(),
             });
         }
     }
