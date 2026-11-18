@@ -26,9 +26,9 @@ function entryIdOf(
 
 /**
  * Who may put an entry of `kind`. A shared project's entries go only at their own id while some
- * member shares the project with the org. A member's waiting rules are theirs alone to write, the
- * drops are the owners' and admins', and the store is too unless the org lets every member add
- * rules; other kinds are the owners' and admins'.
+ * member shares the project with the org. A member's waiting rules are theirs alone to write, and
+ * only while they share the project themselves; the drops are the owners' and admins', and the
+ * store is too unless the org lets every member add rules; other kinds are the owners' and admins'.
  */
 export async function allowPut(
   trx: Transaction<Tables>,
@@ -48,7 +48,14 @@ export async function allowPut(
     .select("org_shares.project")
     .where("org_users.org_id", "=", orgId)
     .where(entryIdOf(kind, sql.ref("org_shares.project"), member.id), "=", id)
+    .$if(kind === PROJECT_MEMORY_WAITING, (query) =>
+      query.where("org_users.id", "=", member.id),
+    )
     .executeTakeFirst();
+  if (!shared && kind === PROJECT_MEMORY_WAITING)
+    throw forbidden(
+      "Only a member who shares the project with the org may add to its waiting list.",
+    );
   if (!shared)
     throw forbidden("No member shares a project with the org at that id.");
   if (member.role !== "user" || kind !== PROJECT_MEMORY) return;
