@@ -26,13 +26,14 @@ final class Fold {
     private(set) var waiting: Waiting?
 
     @ObservationIgnored private var userId: String?
-    /// The account whose sign-in couldn't ask "Already on Sikemux?", and how often the server has since answered with an error.
-    @ObservationIgnored private var unasked: (userId: String, failures: Int)?
+    /// The account whose sign-in couldn't ask "Already on Sikemux?", how often the server has since answered with an error, and when the first came.
+    @ObservationIgnored private var unasked: (userId: String, failures: Int, since: Date)?
     @ObservationIgnored private var deciding: Task<Void, Never>?
 
     private static let signedInHere = "sikemux.signed-in-here"
     private static func settled(_ userId: String) -> String { "sikemux.one-account.\(userId)" }
     private static let giveUpAfter = 3
+    private static let giveUpAfterSeconds: TimeInterval = 60
 
     /// Thrown when the person is asked before the phone may join.
     struct Asking: Error {}
@@ -100,8 +101,10 @@ final class Fold {
             open()
         } catch let problem as ApiProblem {
             guard let status = problem.status, unasked?.userId == userId else { throw problem }
-            unasked?.failures += 1
-            if (problem.unreachable || status == 429) && unasked!.failures < Self.giveUpAfter { throw problem }
+            unasked!.failures += 1
+            if unasked!.failures == 1 { unasked!.since = .now }
+            let lasting = unasked!.failures >= Self.giveUpAfter && -unasked!.since.timeIntervalSinceNow >= Self.giveUpAfterSeconds
+            if (problem.unreachable || status == 429) && !lasting { throw problem }
             unasked = nil
         }
     }
@@ -126,7 +129,7 @@ final class Fold {
                 if caught.ask { gate = .caught(caught) } else { open() }
             } catch {
                 guard !Task.isCancelled, self.userId == userId else { return }
-                unasked = (userId, 0)
+                unasked = (userId, 0, .now)
                 gate = .open
                 AccountSession.shared.admit()
             }

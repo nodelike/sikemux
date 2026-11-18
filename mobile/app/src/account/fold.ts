@@ -23,12 +23,13 @@ const SIGNED_IN_HERE = 'sikemux.signed-in-here';
 const settledItem = (userId: string) => `sikemux.one-account.${userId.replace(/[^A-Za-z0-9._-]/g, '')}`;
 
 const GIVE_UP_AFTER = 3;
+const GIVE_UP_AFTER_MS = 60_000;
 const TOO_MANY = 429;
 
 const gateNow = externalValue<FoldGate>({ kind: 'checking' });
 const waitingNow = externalValue<Waiting | null>(null);
 const round = externalValue(0);
-let unasked: { userId: string; failures: number } | null = null;
+let unasked: { userId: string; failures: number; since?: number } | null = null;
 let signedIn: string | null = null;
 
 export function useFoldGate(): FoldGate {
@@ -96,7 +97,9 @@ export async function askBeforeAddingPhone(token: TokenSource, userId: string) {
     if (!(error instanceof ApiProblem) || unasked?.userId !== userId) throw error;
     if (error.status === undefined) throw error;
     unasked.failures += 1;
-    if ((error.unreachable || error.status === TOO_MANY) && unasked.failures < GIVE_UP_AFTER) throw error;
+    unasked.since ??= Date.now();
+    const lasting = unasked.failures >= GIVE_UP_AFTER && Date.now() - unasked.since >= GIVE_UP_AFTER_MS;
+    if ((error.unreachable || error.status === TOO_MANY) && !lasting) throw error;
     console.warn('sikemux: adding the phone without asking whether this account may stand', error);
     unasked = null;
   }
