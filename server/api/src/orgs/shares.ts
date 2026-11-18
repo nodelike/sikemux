@@ -2,7 +2,7 @@ import type { Services } from "../app.ts";
 import type { ShareRegistry, SharedProject } from "@sikemux/protocol";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import type { Kysely } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 
 import { isStaff } from "../account/staff.ts";
 import { audit } from "../audit.ts";
@@ -38,21 +38,43 @@ async function paidMemberships(
 }
 
 /** Tells every member of the org that its shares changed. */
-async function sharesChanged(db: Kysely<Tables>, orgId: string) {
-  await db.transaction().execute(async (trx) => {
-    const members = await trx
-      .selectFrom("org_users")
-      .select("user_id")
-      .where("org_id", "=", orgId)
-      .execute();
-    await appendEvents(
-      trx,
-      members.map(({ user_id }) => ({
-        userId: user_id,
-        type: "shares.changed" as const,
-      })),
-    );
-  });
+async function sharesChanged(trx: Transaction<Tables>, orgId: string) {
+  const members = await trx
+    .selectFrom("org_users")
+    .select("user_id")
+    .where("org_id", "=", orgId)
+    .execute();
+  await appendEvents(
+    trx,
+    members.map(({ user_id }) => ({
+      userId: user_id,
+      type: "shares.changed" as const,
+    })),
+  );
+}
+
+/** Ends every share a host held, when the host leaves its account. */
+export async function endHostShares(trx: Transaction<Tables>, hostKey: string) {
+  const ended = await trx
+    .deleteFrom("org_shares")
+    .where("host", "=", hostKey)
+    .returning("member_id")
+    .execute();
+  if (ended.length === 0) return;
+  const orgs = await trx
+    .selectFrom("org_users")
+    .select("org_id")
+    .distinct()
+    .where(
+      "id",
+      "in",
+      ended.map(({ member_id }) => member_id),
+    )
+    .execute();
+  for (const { org_id } of orgs) {
+    await dropUnshared(trx, org_id);
+    await sharesChanged(trx, org_id);
+  }
 }
 
 /**
@@ -180,29 +202,31 @@ export function shareRoutes({
         .where("project", "=", project)
         .executeTakeFirst();
       if (before?.host === host) return c.body(null, 204);
-      await db
-        .insertInto("org_shares")
-        .values({ member_id: membership.member, project, host })
-        .onConflict((oc) =>
-          oc
-            .columns(["member_id", "project"])
-            .doUpdateSet({ host, updated_at: new Date() }),
-        )
-        .execute();
-      await audit(db, {
-        userId,
-        actor: `user:${userId}`,
-        action: before ? "share.moved" : "share.added",
-        subject: org,
-        detail: { host: host.slice(0, 8) },
+      await db.transaction().execute(async (trx) => {
+        await trx
+          .insertInto("org_shares")
+          .values({ member_id: membership.member, project, host })
+          .onConflict((oc) =>
+            oc
+              .columns(["member_id", "project"])
+              .doUpdateSet({ host, updated_at: new Date() }),
+          )
+          .execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: before ? "share.moved" : "share.added",
+          subject: org,
+          detail: { host: host.slice(0, 8) },
+        });
+        await sharesChanged(trx, org);
       });
-      await sharesChanged(db, org);
       return c.body(null, 204);
     })
     .post("/remove", perUser(limiter, "share-remove", 30), async (c) => {
       const { userId } = c.get("identity");
       const { org, project } = await readBody(c, "ShareRemoval");
-      const removed = await db.transaction().execute(async (trx) => {
+      await db.transaction().execute(async (trx) => {
         const removed = await trx
           .deleteFrom("org_shares")
           .where("project", "=", project)
@@ -214,18 +238,17 @@ export function shareRoutes({
               .where("user_id", "=", userId),
           )
           .executeTakeFirst();
-        if (removed.numDeletedRows > 0n) await dropUnshared(trx, org);
-        return removed;
+        if (removed.numDeletedRows > 0n) {
+          await dropUnshared(trx, org);
+          await audit(trx, {
+            userId,
+            actor: `user:${userId}`,
+            action: "share.removed",
+            subject: org,
+          });
+          await sharesChanged(trx, org);
+        }
       });
-      if (removed.numDeletedRows > 0n) {
-        await audit(db, {
-          userId,
-          actor: `user:${userId}`,
-          action: "share.removed",
-          subject: org,
-        });
-        await sharesChanged(db, org);
-      }
       return c.body(null, 204);
     });
   const tickets = new Hono<AuthEnv>()
