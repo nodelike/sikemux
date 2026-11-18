@@ -165,8 +165,14 @@ pub fn launcher_info(saved: &Saved, launcher: &Launcher) -> LauncherInfo {
             .map(|status| status.state().to_owned()),
         model,
         effort,
+        recent_models: (saved.recent_models.get(&launcher.agent.provider))
+            .cloned()
+            .unwrap_or_default(),
     }
 }
+
+/// How many models a kind of agent's recent list keeps.
+const MOST_RECENT_MODELS: usize = 5;
 
 /// The efforts `provider`'s CLI takes, for a launcher no session has said them for yet.
 fn catalog_efforts(provider: &str) -> Option<ConfigPicker> {
@@ -482,6 +488,47 @@ impl Workspaces {
         }
         let _ = self.change(|saved| {
             saved.launcher_options.insert(launcher.to_owned(), options);
+            Ok(())
+        });
+    }
+
+    /// Puts the model a new chat starts on first in its agent's recent list. Claude and Codex
+    /// offer a handful of models, so they keep none.
+    pub fn note_started_model(&self, launch: &ChatLaunch) {
+        let listed = !matches!(
+            AgentKind::from_name(&launch.provider),
+            None | Some(AgentKind::Claude | AgentKind::Codex)
+        );
+        let Some(model) = launch
+            .model
+            .clone()
+            .filter(|_| listed && launch.resume_id.is_none())
+        else {
+            return;
+        };
+        let used = RecentModel {
+            model,
+            provider: launch.model_provider.clone(),
+        };
+        let first = (self
+            .published
+            .locked()
+            .saved
+            .recent_models
+            .get(&launch.provider))
+        .and_then(|recent| recent.first())
+            == Some(&used);
+        if first {
+            return;
+        }
+        let _ = self.change(|saved| {
+            let recent = saved
+                .recent_models
+                .entry(launch.provider.clone())
+                .or_default();
+            recent.retain(|kept| *kept != used);
+            recent.insert(0, used);
+            recent.truncate(MOST_RECENT_MODELS);
             Ok(())
         });
     }

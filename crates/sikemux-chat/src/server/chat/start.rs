@@ -96,6 +96,7 @@ pub fn launch(
         if ending.unstarted() {
             ending.wanted.notified().await;
             crate::server::activity_log::chat_launched(&owner, &ending.launch);
+            owner.workspaces().note_started_model(&ending.launch);
             ending.keep(kept::Progress::STARTING);
         }
         // The agent can be started again under the chat, on another account
@@ -294,6 +295,7 @@ pub fn start(
     }
     if !waits_for_person {
         crate::server::activity_log::chat_launched(core, &chat.launch);
+        core.workspaces().note_started_model(&chat.launch);
     }
     if waits_for_person {
         wait_for_person(&chat);

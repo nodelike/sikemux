@@ -331,6 +331,18 @@ pub struct LauncherInfo {
     /// How hard the model thinks, as a picker shows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<ConfigPicker>,
+    /// The models new chats of its agent started on lately, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_models: Vec<RecentModel>,
+}
+
+/// A model a chat started on, and the connected provider that paid for it, if one did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentModel {
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 /// One of a session's select options, read for a picker.

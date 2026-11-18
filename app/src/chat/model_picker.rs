@@ -14,7 +14,7 @@ use gpui_kit::{
     IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
-use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
+use sikemux_view::workspace::{ConfigChoice, ConfigPicker, RecentModel};
 
 use crate::agents::setup::Installing;
 use crate::core;
@@ -141,6 +141,11 @@ impl Named for Route {
         current == model || current == format!("sikemux-{}/{model}", self.id)
     }
 }
+
+/// The group of models new chats of the agent started on lately, drawn first.
+const RECENT: usize = 0;
+/// The group of the agent's own models.
+const OWN: usize = 1;
 
 /// What picking a row does.
 #[derive(Clone)]
@@ -340,7 +345,10 @@ impl Menu {
         };
         let paying = paying.map(|route| route.label.clone());
         let maker = maker.unwrap_or_else(|| bench.agent_name(own).to_owned());
-        let mut groups = vec![(paying.unwrap_or(maker), None)];
+        let mut groups = vec![
+            (t!("Recent").to_owned(), None),
+            (paying.unwrap_or(maker), None),
+        ];
         let mut options: Vec<Row> = Vec::new();
         let query = self.query.read(cx).value().trim().to_lowercase();
         let unfolded = self.older || !query.is_empty();
@@ -357,7 +365,7 @@ impl Menu {
                     .filter(|choice| self.picked.locked || !choice.value.starts_with("sikemux-"))
                     .filter(|choice| shows(choice))
                     .map(|choice| Row {
-                        group: 0,
+                        group: OWN,
                         mark: Some(own_mark),
                         label: choice.label.clone(),
                         meta: choice.is_default.then(|| t!("Default").to_owned()),
@@ -385,7 +393,7 @@ impl Menu {
             };
             match offered.is_empty() {
                 true => options.push(Row {
-                    group: 0,
+                    group: OWN,
                     mark: Some(own_mark),
                     label: t!("Default model").into(),
                     meta: None,
@@ -393,7 +401,7 @@ impl Menu {
                     act: Act::Move(going(None)),
                 }),
                 false => options.extend(offered.iter().map(|choice| Row {
-                    group: 0,
+                    group: OWN,
                     mark: Some(own_mark),
                     label: choice.label.clone(),
                     meta: choice.is_default.then(|| t!("Default").to_owned()),
@@ -409,7 +417,7 @@ impl Menu {
             (self.picked.unread.as_ref()).and_then(|unread| unread.sign_in.clone())
         {
             options.push(Row {
-                group: 0,
+                group: OWN,
                 mark: None,
                 label: t!("Sign in to {agent}", agent = bench.agent_name(own)),
                 meta: None,
@@ -419,7 +427,7 @@ impl Menu {
         }
         if folded && query.is_empty() {
             options.push(Row {
-                group: 0,
+                group: OWN,
                 mark: None,
                 label: if self.older {
                     t!("Show less")
@@ -496,7 +504,41 @@ impl Menu {
             .to_lowercase()
             .contains(&query)
         });
+        if query.is_empty() {
+            let recent = self.recent(bench, &options);
+            options.splice(0..0, recent);
+        }
         (groups, options)
+    }
+
+    /// The rows of the models new chats of the agent started on lately, as they stand below.
+    fn recent(&self, bench: &Workbench, options: &[Row]) -> Vec<Row> {
+        let paying = (self.routes.iter())
+            .find(|route| self.picked.model_provider.as_deref() == Some(route.id.as_str()));
+        let used = |row: &Row, recent: &RecentModel| match &row.act {
+            Act::Move(going) => {
+                going.model.as_ref() == Some(&recent.model)
+                    && going.model_provider == recent.provider
+            }
+            Act::Set(value) => {
+                recent.provider == self.picked.model_provider
+                    && paying.map_or(*value == recent.model, |route| {
+                        route.named(&recent.model, value)
+                    })
+            }
+            _ => false,
+        };
+        (bench.launchers().iter())
+            .find(|launcher| launcher.provider == self.picked.provider)
+            .map(|launcher| launcher.recent_models.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|recent| options.iter().find(|row| used(row, recent)))
+            .map(|row| Row {
+                group: RECENT,
+                ..row.clone()
+            })
+            .collect()
     }
 
     fn pick(&mut self, act: Act, window: &mut Window, cx: &mut Context<Self>) {
@@ -561,7 +603,7 @@ impl Menu {
             ),
         };
         Some(Row {
-            group: 0,
+            group: OWN,
             mark: None,
             label,
             meta: agent.latest.clone(),
@@ -1081,7 +1123,7 @@ impl Render for Menu {
             ui::found_mark(cx),
         );
         let this = cx.entity();
-        let empty_own = options.iter().all(|row| row.group != 0);
+        let empty_own = options.iter().all(|row| row.group != OWN);
         let unread = (self.picked.unread.as_ref())
             .filter(|_| typed.is_empty())
             .map(|unread| unread.said.clone());
@@ -1115,7 +1157,7 @@ impl Render for Menu {
                 .enumerate()
                 .filter(|(_, row)| row.group == group && !matches!(row.act, Act::AddProvider))
                 .collect();
-            let noted = group == 0 && note.is_some();
+            let noted = group == OWN && note.is_some();
             if rows.is_empty() && !noted {
                 continue;
             }

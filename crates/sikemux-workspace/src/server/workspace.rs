@@ -37,7 +37,8 @@ use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest
 use sikemux_view::device::RecentInfo;
 use sikemux_view::prefs::{PreferenceChange, ProjectSort};
 use sikemux_view::workspace::{
-    Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace, WorkspaceAgent,
+    Backdrop, LauncherInfo, PinnedChat, ProjectInfo, RecentModel, SpaceInfo, Workspace,
+    WorkspaceAgent,
 };
 use sikemux_wire::protocol::{ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo};
 
@@ -158,6 +159,9 @@ pub struct Saved {
     /// chats start on.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     model_picks: BTreeMap<String, ModelPick>,
+    /// The models new chats of each kind of agent started on lately, newest first.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    recent_models: BTreeMap<String, Vec<RecentModel>>,
     /// The agents closed lately as they stood when they closed, newest first, so reopening one
     /// puts back what its session does not keep: its lead, checkout branch, mode and labels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
