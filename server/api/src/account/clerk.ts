@@ -9,7 +9,7 @@ export interface ClerkBackend {
   verifiedEmail(userId: string): Promise<string | null>;
   /** The domains of every address on the user that Clerk has verified, lowercased; the addresses themselves never leave here. */
   verifiedDomains(userId: string): Promise<string[]>;
-  /** When the user was made and its verified addresses, main first; null once the user is gone. */
+  /** When the user was made and the addresses it signs in with, main first; null once the user is gone. */
   signUp(userId: string): Promise<SignUp | null>;
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
@@ -25,7 +25,13 @@ export interface ClerkBackend {
 
 export type SignIns = {
   primaryAddressId: string | null;
-  addresses: { id: string; email: string; verified: boolean; addedAt: Date }[];
+  addresses: {
+    id: string;
+    email: string;
+    signsIn: boolean;
+    verified: boolean;
+    addedAt: Date;
+  }[];
   externalAccounts: { id: string; provider: string; email: string }[];
 };
 
@@ -35,14 +41,20 @@ export interface SignUp {
   createdAt: Date;
   /** The main address, once Clerk has verified it. */
   email: string | null;
-  /** Every address Clerk has verified on the user, the main one first. */
-  addresses: { email: string; addedAt: Date }[];
+  /** Every address the user can sign in with, the main one first. */
+  addresses: { email: string; verified: boolean; addedAt: Date }[];
 }
 
 type Fetch = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
+
+/** Clerk lets a reserved address sign in before it is verified. */
+function signsIn(address: { verification?: { status?: string } | null }) {
+  const status = address.verification?.status;
+  return status === "verified" || status === "reserved";
+}
 
 export const CLERK_API = "https://api.clerk.com";
 
@@ -136,14 +148,15 @@ export function clerkBackend(
     },
     verifiedEmail: async (userId) => (await primaryEmail(userId)).verified,
     signUp: async (userId) => {
-      const { user, verified } = await primaryEmail(userId);
+      const { user, address: main, verified } = await primaryEmail(userId);
       if (typeof user?.created_at !== "number") return null;
       const createdAt = new Date(user.created_at);
       const addresses = (user.email_addresses ?? []).flatMap((address) =>
-        address.verification?.status === "verified" && address.email_address
+        signsIn(address) && address.email_address
           ? [
               {
                 email: address.email_address,
+                verified: address.verification?.status === "verified",
                 addedAt:
                   typeof address.created_at === "number"
                     ? new Date(
@@ -158,7 +171,9 @@ export function clerkBackend(
         createdAt,
         email: verified,
         addresses: addresses.sort(
-          (a, b) => Number(b.email === verified) - Number(a.email === verified),
+          (a, b) =>
+            Number(b.email === main?.email_address) -
+            Number(a.email === main?.email_address),
         ),
       };
     },
@@ -209,6 +224,7 @@ export function clerkBackend(
                 {
                   id: address.id,
                   email: address.email_address,
+                  signsIn: signsIn(address),
                   verified: address.verification?.status === "verified",
                   addedAt: new Date(address.created_at ?? 0),
                 },

@@ -43,7 +43,7 @@ export async function stripWorkSignIns(
     const brought = signIns.externalAccounts.filter(
       (account) => account.email.toLowerCase() === address.email.toLowerCase(),
     );
-    if (!address.verified && brought.length === 0) continue;
+    if (!address.signsIn && brought.length === 0) continue;
     if (waysLeft(signIns, address.id, brought) === 0) {
       log.warn(
         { userId, domain },
@@ -110,7 +110,7 @@ function waysLeft(
 ) {
   const accounts = signIns.externalAccounts.filter((a) => !brought.includes(a));
   const addresses = signIns.addresses.filter(
-    (a) => a.id !== addressId && a.verified,
+    (a) => a.id !== addressId && a.signsIn,
   );
   return accounts.length + addresses.length;
 }

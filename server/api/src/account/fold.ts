@@ -137,6 +137,15 @@ async function signUpOf(clerk: ClerkBackend | null, userId: string) {
   return signUp;
 }
 
+/** A refused address is brought over, and so proven, only once Clerk has verified it. */
+function provableAddress(found: SignUpRefusal): string {
+  if (!found.verified)
+    throw conflict(
+      "This address isn't verified yet, so it can't be brought over. Verify it, then start again.",
+    );
+  return found.address;
+}
+
 function verifiedAddress(signUp: SignUp): string {
   if (!signUp.email || !domainOf(signUp.email))
     throw conflict(
@@ -456,8 +465,10 @@ export function foldRoutes({
         : null;
 
   /** The address a fold brings over: the refused one, else the main one. */
-  const foldAddress = async (userId: string, signUp: SignUp) =>
-    (await refusal(userId, signUp))?.address ?? verifiedAddress(signUp);
+  const foldAddress = async (userId: string, signUp: SignUp) => {
+    const found = await refusal(userId, signUp);
+    return found ? provableAddress(found) : verifiedAddress(signUp);
+  };
 
   const requireProofKey = () => {
     if (!proofKey)
@@ -587,7 +598,9 @@ export function foldRoutes({
         const found = await refusal(userId, signUp);
         if ((why === "domain" || why === "address") && found?.why !== why)
           throw conflict("This account's address is not verified for an org.");
-        const address = found?.address ?? verifiedAddress(signUp);
+        const address = found
+          ? provableAddress(found)
+          : verifiedAddress(signUp);
         const org = found
           ? await refusalOrg(found)
           : why === "invite"

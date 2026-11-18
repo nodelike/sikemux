@@ -12,8 +12,8 @@ export type Refusal =
   | { why: "domain"; domain: string; orgId: string; orgName: string }
   | { why: "address"; domain: string };
 
-/** A sign-up's refusal, with the verified address on it that was refused. */
-export type SignUpRefusal = Refusal & { address: string };
+/** A sign-up's refusal, with the address on it that was refused. */
+export type SignUpRefusal = Refusal & { address: string; verified: boolean };
 
 const REFUSAL_SECONDS = 60;
 
@@ -84,12 +84,12 @@ export async function refusalOf(
   userId: string,
   signUp: SignUp,
 ): Promise<SignUpRefusal | null> {
-  for (const { email, addedAt } of signUp.addresses) {
+  for (const { email, verified, addedAt } of signUp.addresses) {
     const refusal = await workAddressRefusal(db, proofKey, email, addedAt, {
       exceptUser: userId,
       madeAt: signUp.createdAt,
     });
-    if (refusal) return { ...refusal, address: email };
+    if (refusal) return { ...refusal, address: email, verified };
   }
   return null;
 }
