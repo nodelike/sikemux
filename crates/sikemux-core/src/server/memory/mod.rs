@@ -572,7 +572,13 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
             "Sikemux already keeps rules and knowledge for {MAX_STORES} projects, as many as it can"
         ));
     }
-    Ok((state.held.entry(key.to_owned())).or_insert_with(|| Held::new(key, store)))
+    let shared_with = (store == Store::Project)
+        .then(|| state.shared.get(key).map(|shared| shared.org.clone()))
+        .flatten();
+    Ok((state.held.entry(key.to_owned())).or_insert_with(|| Held {
+        shared_with,
+        ..Held::new(key, store)
+    }))
 }
 
 /// What the store under `key` keeps, or the person's own store once no other can be kept.
