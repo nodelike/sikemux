@@ -15,7 +15,7 @@ use super::said::{self, Action, Moment};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_4, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_4, TEXT_LG, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -275,10 +275,16 @@ fn row(
     let line = match entry.sensitive {
         true => gpui_kit::div()
             .flex()
-            .items_center()
+            .items_start()
             .gap(SPACE_1)
-            .child(ui::icon(Icon::Lock, 10.).text_color(t.text_tertiary))
-            .child(line)
+            .child(
+                gpui_kit::div()
+                    .flex()
+                    .items_center()
+                    .h(theme::ui_text(TEXT_LG))
+                    .child(ui::icon(Icon::Lock, 10.).text_color(t.text_tertiary)),
+            )
+            .child(gpui_kit::div().flex_1().min_w_0().child(line))
             .into_any_element(),
         false => line,
     };
