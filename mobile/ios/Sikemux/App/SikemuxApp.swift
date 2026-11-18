@@ -27,6 +27,7 @@ struct RootView: View {
     private let account = Account.shared
     private let hub = Hub.shared
     private let session = AccountSession.shared
+    private let fold = Fold.shared
     private let lock = Lock.shared
     private let network = Network.shared
 
@@ -97,7 +98,9 @@ struct RootView: View {
             if !lock.opened {
                 if lock.on { LockScreen() }
             } else {
-                if case .deleting(let deletesAt) = session.status {
+                if fold.gate != .open {
+                    FoldScreen(gate: fold.gate)
+                } else if case .deleting(let deletesAt) = session.status {
                     RestoreAccountScreen(deletesAt: deletesAt)
                 } else if hub.loaded {
                     NavigationStack(path: $router.path) {

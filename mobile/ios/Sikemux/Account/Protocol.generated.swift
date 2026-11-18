@@ -179,6 +179,99 @@ struct Flags: Codable, Hashable, Sendable {
     var off: [String]
 }
 
+/// Whether to ask a new account's person if they already have an account.
+struct FoldCatch: Codable, Hashable, Sendable {
+    var ask: Bool
+    var why: FoldWhy?
+    /// The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in.
+    var mustFold: Bool
+    /// The new account's own sign-in address, shown only to its own person.
+    var address: String?
+    /// The org the invite, the proven domain or the address's proof is for.
+    var orgName: String?
+    /// With mustFold: the account was deleted and can be restored until then.
+    var deletesAt: String?
+    /// With ask: the screen's heading, in the words every client shows.
+    var title: String?
+    /// With ask: why the person is asked, in the words every client shows.
+    var words: String?
+}
+
+struct FoldCatchRequest: Codable, Hashable, Sendable {
+    var hint: FoldHint?
+    /// With hint invite: the invite link's token, so the answer can name its org.
+    var inviteToken: String?
+}
+
+/// What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before.
+enum FoldHint: String, Codable, Hashable, Sendable {
+    case invite = "invite"
+    case share = "share"
+    case browser = "browser"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// A fold waiting for the person's other account to confirm it, on this browser, within ten minutes.
+struct FoldIntent: Codable, Hashable, Sendable {
+    var id: String
+    /// Kept by the browser that started the fold; the other account sends it to confirm.
+    var secret: String
+    var expiresAt: String
+    /// The line shown above the sign-in while the fold waits for the person's other account.
+    var waitingWords: String
+}
+
+/// What confirming the fold does, for the confirmation screen.
+struct FoldPreview: Codable, Hashable, Sendable {
+    var why: FoldWhy
+    /// The work address the kept account proves.
+    var address: String
+    /// The name of the account that stays.
+    var keptName: String?
+    /// The sign-in address of the account that stays, which started the fold, so the person can tell which of their accounts takes the seat.
+    var keptAddress: String?
+    var orgName: String?
+    /// The orgs whose seats move to the account that stays.
+    var seats: [String]
+    var title: String
+    /// What confirming does, in the words every client shows.
+    var words: String
+    var doneTitle: String
+    /// What the confirmation screen says once the fold is done.
+    var doneWords: String
+}
+
+struct FoldSecret: Codable, Hashable, Sendable {
+    var secret: String
+}
+
+struct FoldStart: Codable, Hashable, Sendable {
+    var why: FoldWhy
+    /// With why invite: the invite link's token, so the confirmation names its org.
+    var inviteToken: String?
+}
+
+/// Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.
+enum FoldWhy: String, Codable, Hashable, Sendable {
+    case invite = "invite"
+    case share = "share"
+    case browser = "browser"
+    case domain = "domain"
+    case address = "address"
+    case seat = "seat"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
 /// Which host on the account the phone wants to join.
 struct JoinRequest: Codable, Hashable, Sendable {
     var host: DeviceKey

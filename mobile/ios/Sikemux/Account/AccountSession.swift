@@ -61,7 +61,7 @@ final class AccountSession {
         end()
         self.userId = userId
         HostJoins.shared.follow(userId)
-        guard userId != nil else { return }
+        guard userId != nil else { return Fold.shared.follow(nil) }
         live = LiveAccount(
             handlers: .init(
                 hostsChanged: { AccountHosts.shared.read() },
@@ -73,6 +73,13 @@ final class AccountSession {
                 }
             ))
         AccountHosts.shared.read()
+        Fold.shared.follow(userId)
+    }
+
+    /// Adds this phone to the account once the fold gate lets the account in.
+    func admit() {
+        guard userId != nil, !registered, !registering else { return }
+        attempt = 0
         register()
     }
 
@@ -90,7 +97,7 @@ final class AccountSession {
 
     /// Tries adding this phone to the account again now, as the person asked.
     func retryNow() {
-        guard userId != nil, !registered, !registering else { return }
+        guard userId != nil, Fold.shared.gate == .open, !registered, !registering else { return }
         attempt = 0
         register()
     }
@@ -136,6 +143,7 @@ final class AccountSession {
                     return
                 }
                 let problem = error as? ApiProblem
+                if problem?.code == .addressProven { return Fold.shared.askAgain() }
                 let retryable = problem == nil || problem!.unreachable || problem!.status == 429
                 status = .failed(problem: Sikemux.problem(error), retrying: retryable)
                 guard retryable, front else { return }

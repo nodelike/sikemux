@@ -216,6 +216,7 @@ struct FarewellScreen: View {
 struct RestoreAccountScreen: View {
     @Environment(\.palette) private var palette
     let deletesAt: String
+    var onRestored: () -> Void = { AccountSession.shared.retryNow() }
     @State private var busy = false
     @State private var problem: String?
 
@@ -254,7 +255,7 @@ struct RestoreAccountScreen: View {
             do {
                 _ = try await Account.shared.token(fresh: true)
                 _ = try await AccountCalls.restore()
-                AccountSession.shared.retryNow()
+                onRestored()
             } catch {
                 busy = false
                 problem = Sikemux.problem(error)
