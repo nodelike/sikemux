@@ -4,7 +4,9 @@
 //! Teammates' tasks on a board shared with them sit in the same sections, read-only, except For
 //! you, which stays the person's own.
 
+use std::cell::Cell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -45,6 +47,8 @@ pub(crate) struct View {
     teammates_unfolded: bool,
     /// The teammates' asks drawn open, by when they were asked and who asked.
     open_asks: HashSet<(u64, String)>,
+    /// Which of the Share button's labels fits beside the counts, longest first.
+    pub(crate) share_fit: Rc<Cell<usize>>,
 }
 
 /// One task in the list: the person's own, or one on the board a teammate shares.

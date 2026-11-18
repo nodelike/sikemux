@@ -273,6 +273,7 @@ pub struct Button {
     tooltip: Option<SharedString>,
     wide: bool,
     mouse_only: bool,
+    icon_only: bool,
 }
 
 /// A button can open a popover; it looks the same open or closed.
@@ -304,7 +305,14 @@ impl Button {
             tooltip: None,
             wide: false,
             mouse_only: false,
+            icon_only: false,
         }
+    }
+
+    /// Drawn as its icon alone, its label kept for VoiceOver and shown over it.
+    pub fn icon_only(mut self, icon_only: bool) -> Self {
+        self.icon_only = icon_only;
+        self
     }
 
     /// Across the whole column and taller, its words centred, as a sign-in form's buttons.
@@ -497,9 +505,10 @@ impl RenderOnce for Button {
             .when(self.pressed, |button| {
                 button.bg(t.surface_chosen).text_color(t.text_primary)
             })
-            .when_some(self.tooltip, |button, tip| {
-                button.tooltip(super::tooltip(tip))
-            });
+            .when_some(
+                (self.tooltip).or(self.icon_only.then(|| self.label.clone())),
+                |button, tip| button.tooltip(super::tooltip(tip)),
+            );
         base.when_some(on_click, |button, handler| {
             button.on_click(move |event, window, cx| handler(event, window, cx))
         })
@@ -507,7 +516,7 @@ impl RenderOnce for Button {
         .children(self.icon.map(|icon_name| {
             icon(icon_name, glyph).text_color(fade("glyph", if lit { hover } else { rest }))
         }))
-        .child(self.label)
+        .when(!self.icon_only, |button| button.child(self.label))
         .children(self.trail)
         .children(self.keys.map(|keys| {
             kbd(keys, cx)

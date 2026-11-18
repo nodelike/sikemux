@@ -2,7 +2,13 @@
 //! whose Team plan is paid.
 
 use gpui_kit::component::menu::PopupMenuItem;
-use gpui_kit::{div, px, Anchor, AnyElement, App, Context, IntoElement, ParentElement, Styled};
+use std::cell::Cell;
+use std::rc::Rc;
+
+use gpui_kit::{
+    div, px, Anchor, AnyElement, App, Context, FontWeight, IntoElement, ParentElement,
+    SharedString, Styled,
+};
 use sikemux_calls::board::{BoardParams, ShareProjectParams};
 use sikemux_calls::call;
 use sikemux_view::teammates::{ProjectSharing, Teammate};
@@ -29,23 +35,50 @@ fn people(count: usize) -> String {
     }
 }
 
-/// The button, while the board is shared or there is an org to share it with.
-pub(crate) fn button(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+/// What the button can say, longest first; with no room for the last it shows its icon alone.
+fn labels(sharing: &ProjectSharing) -> Vec<SharedString> {
+    match &sharing.shared {
+        None => vec![t!("Share").into()],
+        Some(shared) if !shared.on => vec![t!("{org} sharing paused", org = shared.name).into()],
+        Some(shared) => vec![
+            t!(
+                "Shared with {org} · {people}",
+                org = shared.name,
+                people = people(shared.people.len())
+            )
+            .into(),
+            t!("Shared with {org}", org = shared.name).into(),
+        ],
+    }
+}
+
+/// The button, while the board is shared or there is an org to share it with, at the right of
+/// agent `agent`'s Tasks bar, its label shortened to the room the counts leave it.
+pub(crate) fn button(
+    bench: &Workbench,
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
     let sharing = sharing(bench)?.clone();
-    let label: String = match &sharing.shared {
-        None => t!("Share").to_owned(),
-        Some(shared) if !shared.on => t!("{org} sharing paused", org = shared.name),
-        Some(shared) => t!(
-            "Shared with {org} · {people}",
-            org = shared.name,
-            people = people(shared.people.len())
-        ),
-    };
+    let labels = labels(&sharing);
+    let fit = bench.desks.update(cx, |desks, _| {
+        (desks
+            .task_views
+            .entry(agent.to_owned())
+            .or_default()
+            .share_fit)
+            .clone()
+    });
+    let shown = fit.get().min(labels.len());
     let handle = cx.weak_entity();
     let asks = bench.asks.clone();
     let t = Tokens::get(cx);
+    let label = (labels.get(shown).or(labels.first()))
+        .cloned()
+        .unwrap_or_default();
     let trigger = ui::Button::new("tasks-share-button", label, ui::Variant::Ghost)
         .icon(Icon::Share)
+        .icon_only(shown == labels.len())
         .solid(t.surface_raised, t.surface_hover)
         .sized(24., 8., theme::TEXT_XS_H);
     let menu = ui::menu_button(
@@ -100,7 +133,41 @@ pub(crate) fn button(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<A
             popup.item(PopupMenuItem::element(|_, cx| footnote(cx)).disabled(true))
         },
     );
-    Some(menu.into_any_element())
+    let drawn = Rc::new(Cell::new(0.));
+    let told = drawn.clone();
+    let right = div()
+        .w_full()
+        .flex()
+        .justify_end()
+        .child(menu)
+        .on_children_prepainted(move |bounds, _, _| {
+            told.set(bounds.first().map_or(0., |button| button.size.width.into()));
+        });
+    let room = div()
+        .flex_1()
+        .min_w_0()
+        .pl(theme::SPACE_3)
+        .child(right)
+        .on_children_prepainted(move |bounds, window, cx| {
+            let Some(room) = bounds.first().map(|right| f32::from(right.size.width)) else {
+                return;
+            };
+            let mut width = |label: &SharedString| -> f32 {
+                ui::text_width(label, theme::TEXT_XS_H, FontWeight::MEDIUM, window, cx).into()
+            };
+            let around = match labels.get(shown) {
+                Some(label) => drawn.get() - width(label),
+                None => drawn.get() + f32::from(theme::SPACE_2),
+            };
+            let best = (labels.iter())
+                .position(|label| around + width(label) <= room)
+                .unwrap_or(labels.len());
+            if best != fit.get() {
+                fit.set(best);
+                ui::redraw_after_paint(window, cx);
+            }
+        });
+    Some(room.into_any_element())
 }
 
 fn person_row(person: &Teammate, asks: &UnboundedSender<Ask>, cx: &App) -> AnyElement {

@@ -2902,8 +2902,7 @@ fn tasks_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> An
         .pl(px(SWITCH_W + GAP + 14.))
         .pr(SPACE_1H)
         .child(crate::task_list::counts(bench, agent, cx))
-        .child(div().flex_1())
-        .children(crate::task_share::button(bench, cx));
+        .children(crate::task_share::button(bench, agent, cx));
     let sheet = crate::task_sheet::sheet_over(bench, cx);
     frame(
         bench,
