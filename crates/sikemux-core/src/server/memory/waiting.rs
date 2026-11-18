@@ -121,6 +121,7 @@ pub(super) fn listed(
         Store::Org => {
             held.waiting.insert(id);
             held.dropped.remove(&id);
+            held.refused.remove(&id);
             held.not_now.remove(&id);
             Some(Ok(()))
         }

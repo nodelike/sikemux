@@ -905,7 +905,7 @@ pub enum Put {
     Written,
     /// Another host wrote it after `revision`; read it again and redo the change.
     Stale,
-    /// The server will not take it, saying why.
+    /// The server will not take it, saying why in words for the person.
     Refused(String),
 }
 
@@ -969,8 +969,13 @@ pub async fn put_project(
             );
         }
         Put::Written
-    } else if status.is_client_error() {
-        Put::Refused(answer.text().await.unwrap_or_default())
+    } else if status.is_client_error() && !answers_later(status) {
+        let said = answer.bytes().await.unwrap_or_default();
+        let why = serde_json::from_slice::<Value>(&said)
+            .ok()
+            .and_then(|said| Some(said.get("error")?.get("message")?.as_str()?.to_owned()))
+            .unwrap_or_else(|| String::from_utf8_lossy(&said).into_owned());
+        Put::Refused(why)
     } else {
         return Err(format!("the accounts server answered {status}").into());
     };
@@ -985,6 +990,16 @@ pub async fn put_project(
         }
     }
     Ok(outcome)
+}
+
+/// A refusal the server takes back by itself: an expired sign-in, or too many writes at once.
+fn answers_later(status: StatusCode) -> bool {
+    [
+        StatusCode::UNAUTHORIZED,
+        StatusCode::REQUEST_TIMEOUT,
+        StatusCode::TOO_MANY_REQUESTS,
+    ]
+    .contains(&status)
 }
 
 fn new_id() -> CoreResult<String> {

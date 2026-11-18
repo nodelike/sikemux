@@ -188,8 +188,14 @@ fn row(
     if entry.sensitive {
         words.push(t!("Sensitive").to_owned());
     }
+    let refused = entry.refused.as_deref().unwrap_or_default();
     match (&entry.dropped, org) {
         _ if entry.waiting => words.push(t!("Waits for an admin").to_owned()),
+        (_, Some(org)) if entry.refused.is_some() => words.push(t!(
+            "Only you, {org} didn't take it: {why}",
+            org = org,
+            why = refused.trim_end_matches('.')
+        )),
         (Some(by), Some(_)) if !by.is_empty() => {
             words.push(t!("Only you, dropped by {by}", by = by))
         }

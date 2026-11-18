@@ -311,6 +311,7 @@ pub(super) fn move_to(
     }
     if let Some(from) = state.held.get_mut(&from_key) {
         from.not_now.remove(&id);
+        from.refused.remove(&id);
     }
     let back = back(entry.moved(), &to_key);
     *entry.moved() = (!back).then(|| Moved {

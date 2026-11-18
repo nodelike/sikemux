@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
-use sikemux_view::memory::{Knowledge, MemoryRule, Store};
+use sikemux_view::memory::{Knowledge, MemoryRule, Moved, Store};
 
 use super::{holding, tell_clients, Held, State};
 use crate::server::parts::Parts;
@@ -322,14 +322,7 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
     let taken: Vec<u64> = (org.rules.iter().map(|rule| rule.id))
         .chain(org.knowledge.iter().map(|known| known.id))
         .collect();
-    let local = (state.keys.iter())
-        .find(|(_, key)| {
-            state
-                .shared
-                .get(*key)
-                .is_some_and(|is| is.key() == shared.key())
-        })
-        .map(|(_, key)| key.clone());
+    let local = local_key(state, shared);
     let mut renumbered = Vec::new();
     for key in local.into_iter().chain([super::PERSONAL.to_owned()]) {
         let clashing: Vec<u64> = (state.held.get(&key).into_iter())
@@ -358,6 +351,77 @@ fn renumber_clashes(state: &mut State, shared: &Shared) -> Vec<String> {
     }
     renumbered.dedup();
     renumbered
+}
+
+/// The key of the project's own store on this host.
+fn local_key(state: &State, shared: &Shared) -> Option<String> {
+    (state.keys.values())
+        .find(|key| (state.shared.get(*key)).is_some_and(|is| is.key() == shared.key()))
+        .cloned()
+}
+
+/// Puts the org's store back as the vault last gave it, after the vault refused a change for
+/// `why`. What was added or moved here goes back to where it came from, saying why.
+fn give_back(core: &Core, shared: &Shared, why: &str) {
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    let key = shared.key();
+    let Some(held) = state.held.get_mut(&key) else {
+        return;
+    };
+    let Some(base) = held.base.clone() else {
+        return;
+    };
+    let kept = |id: u64| {
+        (base.body.rules.iter().any(|rule| rule.id == id))
+            || (base.body.knowledge.iter().any(|known| known.id == id))
+    };
+    let added: Vec<MemoryRule> = (held.rules.drain(..))
+        .filter(|rule| !kept(rule.id))
+        .collect();
+    let added_knowledge: Vec<Knowledge> = (held.knowledge.drain(..))
+        .filter(|known| !kept(known.id))
+        .collect();
+    held.rules = base.body.rules;
+    held.knowledge = base.body.knowledge;
+    held.writers = base.body.writers;
+    let local = local_key(&state, shared);
+    let home = |state: &State, moved: &Option<Moved>| {
+        (moved.as_ref())
+            .map(|moved| moved.from.clone())
+            .filter(|from| *from != key && state.held.contains_key(from))
+            .or_else(|| local.clone())
+    };
+    let mut touched = vec![key.clone()];
+    for mut rule in added {
+        let Some(to) = home(&state, &rule.moved) else {
+            continue;
+        };
+        rule.moved = None;
+        if let Ok(held) = holding(&mut state, &to, Store::Project) {
+            held.refused.insert(rule.id, why.to_owned());
+            held.rules.push(rule);
+            touched.push(to);
+        }
+    }
+    for mut known in added_knowledge {
+        let Some(to) = home(&state, &known.moved) else {
+            continue;
+        };
+        known.moved = None;
+        if let Ok(held) = holding(&mut state, &to, Store::Project) {
+            held.refused.insert(known.id, why.to_owned());
+            held.knowledge.push(known);
+            touched.push(to);
+        }
+    }
+    touched.sort();
+    touched.dedup();
+    for key in &touched {
+        memory.save(&mut state, key);
+    }
+    drop(state);
+    tell_clients(core, false);
 }
 
 /// Writes the changes made here to the org's store into its vault.
@@ -420,18 +484,7 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                     "sikemux core: {}'s store of rules refused a change: {why}",
                     shared.name
                 );
-                let memory = core.memory();
-                let mut state = memory.state.locked();
-                if let Some(held) = state.held.get_mut(&key) {
-                    if let Some(base) = held.base.clone() {
-                        held.rules = base.body.rules;
-                        held.knowledge = base.body.knowledge;
-                        held.writers = base.body.writers;
-                    }
-                }
-                memory.save(&mut state, &key);
-                drop(state);
-                tell_clients(core, false);
+                give_back(core, shared, &why);
                 return;
             }
             Err(error) => {

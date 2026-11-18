@@ -57,6 +57,9 @@ pub struct Entry {
     /// not known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dropped: Option<String>,
+    /// Why the org's vault would not take it, so it stays only on this host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
     /// A move to the org's store waits for an owner or admin.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub asks: bool,

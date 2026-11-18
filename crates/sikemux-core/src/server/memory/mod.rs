@@ -116,6 +116,9 @@ struct Held {
     /// Entries an owner or admin dropped from the org's waiting list, by that admin's first name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     dropped: BTreeMap<u64, String>,
+    /// Entries the org's vault would not take, kept here instead, with the vault's reason.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    refused: BTreeMap<u64, String>,
 }
 
 impl Held {
@@ -139,6 +142,7 @@ impl Held {
         self.absorbed.extend(from.absorbed);
         self.waiting.extend(from.waiting);
         self.dropped.extend(from.dropped);
+        self.refused.extend(from.refused);
     }
 }
 
@@ -494,6 +498,7 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
         base: None,
         waiting: BTreeSet::new(),
         dropped: BTreeMap::new(),
+        refused: BTreeMap::new(),
     }))
 }
 
@@ -923,6 +928,15 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 .then(|| moved.as_ref().map(|moved| moved.by.clone()))
                 .flatten()
         };
+        let refused = |id: u64| {
+            (held.refused.get(&id))
+                .filter(|_| shared.is_some())
+                .cloned()
+        };
+        let org_of = |id: u64| {
+            (org.clone())
+                .filter(|_| held.store != Store::Personal || held.refused.contains_key(&id))
+        };
         let org = org.clone().filter(|_| held.store != Store::Personal);
         let local = held.store == Store::Project && org.is_some();
         let asks = local && shared.is_some_and(|shared| !shared.writes);
@@ -944,9 +958,10 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 moved: undoable(rule.id, &rule.moved),
                 someone: someone(&rule.learned),
                 offer: (offers.for_rule(held, rule)).filter(|_| !waiting(rule.id)),
-                org: org.clone(),
+                org: org_of(rule.id),
                 waiting: waiting(rule.id),
                 dropped: dropped(rule.id),
+                refused: refused(rule.id),
                 asks,
             };
             match rule.learned.agent {
@@ -970,9 +985,10 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 moved: undoable(known.id, &known.moved),
                 someone: someone(&known.learned),
                 offer: None,
-                org: org.clone(),
+                org: org_of(known.id),
                 waiting: waiting(known.id),
                 dropped: dropped(known.id),
+                refused: refused(known.id),
                 asks,
             });
         }
