@@ -530,6 +530,9 @@ impl World {
             "host" => self.link_host(step.text(0)?)?,
             "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
             "asleep" => self.freeze(step.text(0)?)?,
+            "orgrole" => self.org_change("role", step.text(0)?, step.text(1)?)?,
+            "orgplan" => self.org_change("plan", step.text(0)?, step.text(1)?)?,
+            "orgkey" => self.org_key(step.text(0)?, step.text(1)?, step.text(2)?)?,
             "chat" => {
                 let (project, _) = self.project()?.clone();
                 let (chat, _) = self.runtime.block_on(self.client.start_chat(

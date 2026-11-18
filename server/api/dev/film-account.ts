@@ -11,8 +11,9 @@ import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
 /**
  * The accounts API a film's cores sign in to: a throwaway Postgres, the stand-in sign-in and the
  * real API, all in the folder it is given and gone when its input closes. It prints the API's
- * address, then answers `approve CODE` lines on its input by approving that host sign-in as the
- * person.
+ * address, then answers lines on its input: `approve CODE` approves that host sign-in as the
+ * person, `role ROLE ORG` has the owner of an org the person doesn't own give them ROLE in it,
+ * and `plan active|lapsed ORG` sets the org's plan, which hosts read at their next role change.
  *
  *   node dev/film-account.ts FOLDER '{"person":"ines","orgs":[...]}'
  *
@@ -195,6 +196,10 @@ async function as<Answer = unknown>(
   return (response.status === 204 ? null : response.json()) as Promise<Answer>;
 }
 
+const seeded = new Map<
+  string,
+  { id: string; owner: string; customer: string }
+>();
 for (const org of account.orgs ?? []) {
   const owner = org.role === "admin" ? person : other;
   const { id } = await as<{ id: string }>(owner, "/v1/orgs", {
@@ -231,6 +236,7 @@ for (const org of account.orgs ?? []) {
       body: JSON.stringify({ token }),
     });
   }
+  seeded.set(org.name, { id, owner, customer: rows[0].id });
   if (org.plan === "lapsed")
     await db.query(
       "update subscriptions set status = 'ended', ended_at = now() where customer_id = $1",
@@ -240,11 +246,40 @@ for (const org of account.orgs ?? []) {
 
 console.log(JSON.stringify({ api }));
 
+async function setRole(name: string, role: string) {
+  const org = seeded.get(name);
+  if (!org || org.owner === person)
+    throw new Error(`${name} is not an org another person owns`);
+  const { rows } = await db.query(
+    "select id from org_users where org_id = $1 and role <> 'owner'",
+    [org.id],
+  );
+  await as(org.owner, `/v1/orgs/${org.id}/members/${rows[0].id}/role`, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
+}
+
+async function setPlan(name: string, plan: string) {
+  const org = seeded.get(name);
+  if (!org) throw new Error(`no org named ${name}`);
+  await db.query(
+    plan === "lapsed"
+      ? "update subscriptions set status = 'ended', ended_at = now() where customer_id = $1"
+      : "update subscriptions set status = 'active', ended_at = null where customer_id = $1",
+    [org.customer],
+  );
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
-  const [verb, code] = line.trim().split(" ");
-  if (verb !== "approve" || !code) continue;
-  await as(person, `/v1/host-sign-ins/${code}/approve`, { method: "POST" });
-  console.log(`approved ${code}`);
+  const [verb, arg, ...rest] = line.trim().split(" ");
+  if (!verb || !arg) continue;
+  if (verb === "approve")
+    await as(person, `/v1/host-sign-ins/${arg}/approve`, { method: "POST" });
+  else if (verb === "role") await setRole(rest.join(" "), arg);
+  else if (verb === "plan") await setPlan(rest.join(" "), arg);
+  else continue;
+  console.log(`${verb === "approve" ? "approved" : "done"} ${arg}`);
 }
 await db.end();
 process.exit(0);

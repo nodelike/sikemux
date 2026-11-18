@@ -26,6 +26,10 @@
 //!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST
 //!                               or `here`
 //!   asleep HOST                 stops HOST answering, as a computer gone to sleep
+//!   orgrole ROLE "ORG"          has the owner of ORG, an org the person is a member of, give
+//!                               them ROLE there: admin or user
+//!   orgplan active|lapsed "ORG" sets ORG's plan; hosts see it at the next orgrole
+//!   orgkey HOST "ORG" PROVIDER  saves a key to PROVIDER in ORG's vault from HOST, or `here`
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
 //!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS

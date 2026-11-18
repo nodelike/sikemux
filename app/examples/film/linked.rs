@@ -87,13 +87,7 @@ impl Account {
         let code = (shown.get("code"))
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("signing in by code gave no code"))?;
-        let input = (self.input.as_mut()).ok_or_else(|| anyhow!("the accounts API stopped"))?;
-        writeln!(input, "approve {code}")?;
-        let mut line = String::new();
-        self.output.read_line(&mut line)?;
-        if line.trim() != format!("approved {code}") {
-            bail!("the accounts API did not approve {code}: {line}");
-        }
+        self.tell(&format!("approve {code}"), &format!("approved {code}"))?;
         runtime.block_on(client.call("accountSignInFinish", json!({})))?;
         let status = listening(runtime, client)?;
         name_on_account(runtime, client, &status.core_id, data, name)?;
@@ -102,6 +96,20 @@ impl Account {
         for folder in &self.folders {
             std::fs::create_dir_all(folder.join("dev"))?;
             std::fs::write(folder.join("dev/host-addresses.json"), &named)?;
+        }
+        Ok(())
+    }
+}
+
+impl Account {
+    /// Sends the accounts API one line of its input and waits for it to say `done`.
+    pub(super) fn tell(&mut self, line: &str, done: &str) -> anyhow::Result<()> {
+        let input = (self.input.as_mut()).ok_or_else(|| anyhow!("the accounts API stopped"))?;
+        writeln!(input, "{line}")?;
+        let mut said = String::new();
+        self.output.read_line(&mut said)?;
+        if said.trim() != done {
+            bail!("the accounts API did not do `{line}`: {said}");
         }
         Ok(())
     }
@@ -282,6 +290,41 @@ impl World {
         };
         let saved = saved_on(claude, &path);
         save_transcript(claude, &path, first + saved, title, 2 + 60 * saved as u64)
+    }
+
+    /// Has the accounts API set the person's `role` in org `org`, or its `plan`.
+    pub(super) fn org_change(&mut self, what: &str, value: &str, org: &str) -> anyhow::Result<()> {
+        let account =
+            (self.account.as_mut()).ok_or_else(|| anyhow!("the film is not signed in"))?;
+        account.tell(&format!("{what} {value} {org}"), &format!("done {value}"))
+    }
+
+    /// Saves a key to `provider` in org `org`'s vault from host `name` or `here`, once that
+    /// host may write there.
+    pub(super) fn org_key(&self, name: &str, org: &str, provider: &str) -> anyhow::Result<()> {
+        let client = match name {
+            "here" => &self.client,
+            name => {
+                &(self.linked.iter())
+                    .find(|linked| linked.name == name)
+                    .ok_or_else(|| anyhow!("no host named {name}"))?
+                    .client
+            }
+        };
+        for _ in 0..300 {
+            let vaults = self.runtime.block_on(client.call("orgVaults", json!({})))?;
+            let writable = (vaults.as_array().into_iter().flatten())
+                .find(|vault| vault["name"] == org && vault["writes"] == true);
+            if let Some(vault) = writable {
+                let params =
+                    json!({ "org": vault["org"], "provider": provider, "key": "sk-film-0000" });
+                self.runtime
+                    .block_on(client.call("orgModelKeyAdd", params))?;
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        bail!("{name} never could write to {org}'s vault")
     }
 
     /// Stops host `name` answering, as a computer that went to sleep.
