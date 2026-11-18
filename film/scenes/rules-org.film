@@ -1,0 +1,22 @@
+# The Rules page of a project Ines shares with Fjord Labs, where she is a member: a rule kept on
+# this Mac beside one in the org's store, then admins approve first and her next one waits.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+signed-in
+origin https://fjord.invalid/storefront.git
+project storefront shop
+orgshare "Fjord Labs"
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Run pnpm check before every commit.\",\"goal\":null,\"sensitive\":false,\"store\":\"org\"}}"
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Keep each test in test/ beside the file it covers in src/.\",\"goal\":null,\"sensitive\":false,\"store\":\"project\"}}"
+settle 4
+chat Wren
+settle 2
+key cmd-alt-6
+settle 3
+snap rules-org
+orgpolicy admins_approve "Fjord Labs"
+settle 3
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Ask before adding a dependency.\",\"goal\":null,\"sensitive\":false,\"store\":\"org\"}}"
+settle 4
+snap rules-org-waiting
