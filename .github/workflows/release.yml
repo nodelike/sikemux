@@ -383,7 +383,7 @@ jobs:
     needs: plan
     if: *planned
     env:
-      CARGO_PROFILE_RELEASE_LTO: fat
+      CARGO_PROFILE_RELEASE_LTO: &lto ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
     runs-on: macos-26
     timeout-minutes: 90
     permissions:
@@ -679,7 +679,7 @@ jobs:
         include: *linux_machines
     runs-on: ${{ matrix.runner }}
     env:
-      CARGO_PROFILE_RELEASE_LTO: ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
+      CARGO_PROFILE_RELEASE_LTO: *lto
     timeout-minutes: 90
     permissions:
       actions: read
