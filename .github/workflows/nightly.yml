@@ -1,12 +1,17 @@
 name: Nightly
 run-name: Nightly
 
-# Starts Release on the newest commit of main that passed CI, at most once an hour, when it is newer
+# Starts Release on the newest commit of main that passed CI, after each green CI and hourly, when it is newer
 # than the last nightly and the one still building. Release then cancels that older build, unless
 # it has not been building long enough to finish, so a busy main still publishes.
 on:
   schedule:
     - cron: "7 * * * *"
+  # GitHub often skips the schedule, so a green CI on main starts it too.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +25,9 @@ concurrency:
 jobs:
   start:
     name: Start the newest green main
-    if: vars.NIGHTLY_HOLD == ''
+    if: >-
+      vars.NIGHTLY_HOLD == '' && (github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
