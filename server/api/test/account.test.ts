@@ -559,6 +559,7 @@ describe("purging", () => {
       audit: 1,
       shares: 0,
       challenges: 1,
+      folds: 0,
     });
     const { rows } = await database.pool.query(
       "select events_pruned_through::int as through from users",
