@@ -387,27 +387,30 @@ fn withdraw_calls(core: &Core, local: &str, shared: &Shared) {
 /// Moves the entries still waiting here into the org's store, once its members may add to it
 /// without an owner or admin.
 fn take_up(core: &Core, local: &str) {
-    let (project, ids) = {
+    let (rechecked, waiting) = {
         let memory = core.memory();
         let mut state = memory.state.locked();
         let Some(held) = state.held.get_mut(local) else {
             return;
         };
-        if recheck(held) {
+        let rechecked = recheck(held);
+        if rechecked {
             memory.save(&mut state, local);
         }
-        let Some(held) = state
+        let project = (state.keys.iter()).find(|(_, key)| *key == local);
+        let waiting = (state
             .held
             .get(local)
-            .filter(|held| !held.waiting.is_empty())
-        else {
-            return tell_clients(core, false);
-        };
-        let project = (state.keys.iter()).find(|(_, key)| *key == local);
-        let Some((project, _)) = project else {
-            return;
-        };
-        (project.clone(), held.waiting.clone())
+            .filter(|held| !held.waiting.is_empty()))
+        .zip(project)
+        .map(|(held, (project, _))| (project.clone(), held.waiting.clone()));
+        (rechecked, waiting)
+    };
+    let Some((project, ids)) = waiting else {
+        if rechecked {
+            tell_clients(core, false);
+        }
+        return;
     };
     for id in ids {
         let moved = moving::move_to(core, &project, id, Store::Org, learned(core, None));
