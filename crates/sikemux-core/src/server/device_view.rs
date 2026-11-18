@@ -452,7 +452,10 @@ pub(super) async fn serve(core: Arc<Core>) {
             window = now;
             core.changed(What::Agents);
         }
-        moving = core.publish_device_view();
+        let publishing = core.clone();
+        moving = tokio::task::spawn_blocking(move || publishing.publish_device_view())
+            .await
+            .unwrap_or(true);
         built = tokio::time::Instant::now();
     }
 }

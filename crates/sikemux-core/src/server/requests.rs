@@ -544,7 +544,7 @@ pub(super) async fn run(
                 client.watches_view.store(true, Ordering::Release);
                 core.view_watched();
                 client.answer::<ask::WatchView>(request_id, Ok(()));
-                core.send_device_view(&client);
+                let _ = tokio::task::spawn_blocking(move || core.send_device_view(&client)).await;
             }
             Request::Host => {
                 tokio::spawn(async move {

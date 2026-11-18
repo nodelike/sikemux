@@ -313,7 +313,9 @@ pub async fn serve_client(
     let client = ClientConn::new(&core, peer, pid, frames);
     core.register_client(client.clone());
     if !client.peer.is_local() {
-        (core.above().send_device_view)(&core, &client);
+        let send = core.above().send_device_view;
+        let (core, client) = (core.clone(), client.clone());
+        let _ = tokio::task::spawn_blocking(move || send(&core, &client)).await;
     }
     let (work, work_queue) = mpsc::unbounded_channel();
     tokio::select! {
