@@ -65,7 +65,7 @@ export async function allowPut(
 
 /**
  * Removes the entries of projects no member shares with the org any more, and the waiting rules
- * of members who left.
+ * of members who left or no longer share that project themselves.
  */
 export async function dropUnshared(trx: Transaction<Tables>, orgId: string) {
   const vault = await trx
@@ -91,6 +91,12 @@ export async function dropUnshared(trx: Transaction<Tables>, orgId: string) {
             )
             .select(sql`1`.as("one"))
             .where("org_users.org_id", "=", orgId)
+            .where((eb) =>
+              eb.or([
+                eb("org_vault_entries.kind", "<>", PROJECT_MEMORY_WAITING),
+                eb("org_users.id", "=", eb.ref("writer.id")),
+              ]),
+            )
             .whereRef(
               entryIdOf(
                 sql.ref("org_vault_entries.kind"),
