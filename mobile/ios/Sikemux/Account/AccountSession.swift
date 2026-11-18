@@ -79,7 +79,6 @@ final class AccountSession {
     /// Adds this phone to the account once the fold gate lets the account in.
     func admit() {
         guard userId != nil, !registered, !registering else { return }
-        attempt = 0
         register()
     }
 
@@ -116,6 +115,7 @@ final class AccountSession {
         live = nil
         registered = false
         registering = false
+        attempt = 0
         status = nil
         newDevice = nil
         AccountHosts.shared.clear()
@@ -145,17 +145,23 @@ final class AccountSession {
                     return
                 }
                 let problem = error as? ApiProblem
-                if problem?.code == .addressProven { return Fold.shared.askAgain() }
+                if problem?.code == .addressProven { return later { Fold.shared.askAgain() } }
                 let retryable = problem == nil || problem!.unreachable || problem!.status == 429
                 status = .failed(problem: Sikemux.problem(error), retrying: retryable)
-                guard retryable, front else { return }
-                let wait = Self.backoff(attempt)
-                attempt += 1
-                retrying = Task {
-                    try? await Task.sleep(for: .seconds(wait))
-                    if !Task.isCancelled { register() }
-                }
+                guard retryable else { return }
+                later { self.register() }
             }
+        }
+    }
+
+    /// Runs `step` after the backoff, while the app is in front; coming back to the front tries again at once.
+    private func later(_ step: @escaping @MainActor () -> Void) {
+        guard front else { return }
+        let wait = Self.backoff(attempt)
+        attempt += 1
+        retrying = Task {
+            try? await Task.sleep(for: .seconds(wait))
+            if !Task.isCancelled { step() }
         }
     }
 
