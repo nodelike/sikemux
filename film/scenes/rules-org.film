@@ -21,6 +21,6 @@ settle 3
 snap rules-org
 orgpolicy admins_approve "Fjord Labs"
 settle 3
-orgmove here "Ask before adding a dependency."
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Ask before adding a dependency.\",\"goal\":null,\"sensitive\":false,\"store\":\"project\"}}"
 settle 4
 snap rules-org-waiting
