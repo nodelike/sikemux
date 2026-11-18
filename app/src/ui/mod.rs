@@ -27,7 +27,9 @@ mod stepper;
 pub mod time;
 pub mod yolo;
 
-pub use controls::{Button, Field, IconButton, Segmented, Toggle, Variant};
+pub use controls::{
+    corner_dot, count_badge, Button, Field, IconButton, Segmented, Toggle, Variant,
+};
 pub use dialog::{Cheatsheet, Choice, Choices, Confirm, Prompt, Section};
 pub use dock::{shell as dock_shell, DockMenu, DockRow, DockScope};
 pub use file_card::{file_head, Opens};

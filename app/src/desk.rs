@@ -2725,8 +2725,6 @@ fn kinds(
         .map_or(&[][..], Vec::as_slice);
     let held = |kind: DeskKind| items.iter().filter(|item| item.kind() == kind).count();
     let calls = crate::calls::waiting_on_desk(bench, agent);
-    let t = Tokens::get(cx).clone();
-    let ground = crate::see_through::ground(t.surface, cx);
     let thumb_radius = (radius_3() - px(SWITCH_INSET)).max(px(0.));
     let mut row = div().flex().items_center().gap(px(KIND_GAP));
     for (id, icon, label, kind, count, busy) in [
@@ -2810,34 +2808,11 @@ fn kinds(
                         ),
                 )
                 .when(kind == DeskKind::Calls && count > 0, |button| {
-                    button.child(count_badge(count, ground, &t))
+                    button.child(ui::count_badge(count, cx))
                 }),
         );
     }
     row
-}
-
-/// The amber count on the calls' bell while calls wait.
-fn count_badge(count: usize, ground: gpui_kit::Hsla, t: &Tokens) -> impl IntoElement {
-    div()
-        .absolute()
-        .top(px(-3.))
-        .right(px(-3.))
-        .min_w(px(14.))
-        .h(px(14.))
-        .px(px(3.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .bg(t.warn)
-        .border_2()
-        .border_color(ground)
-        .text_color(ground)
-        .text_size(crate::theme::ui_text(9.5))
-        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-        .font_features(crate::theme::tabular())
-        .child(count.to_string())
 }
 
 fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {

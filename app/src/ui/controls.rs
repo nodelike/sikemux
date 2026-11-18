@@ -1027,3 +1027,37 @@ impl RenderOnce for Toggle {
             }))
     }
 }
+
+/// The amber count on a bell's top-right corner while calls wait; its parent must be `relative`.
+pub fn count_badge(count: usize, cx: &App) -> impl IntoElement {
+    let t = Tokens::get(cx);
+    corner_badge(t.warn, cx)
+        .min_w(px(14.))
+        .h(px(14.))
+        .px(px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(crate::theme::ui_text(9.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .font_features(crate::theme::tabular())
+        .child(count.to_string())
+}
+
+/// A plain `color` dot in the same corner as `count_badge`, for a state without a count.
+pub fn corner_dot(color: Hsla, cx: &App) -> impl IntoElement {
+    corner_badge(color, cx).size(px(10.))
+}
+
+fn corner_badge(color: Hsla, cx: &App) -> gpui_kit::Div {
+    let ground = crate::see_through::ground(Tokens::get(cx).surface, cx);
+    div()
+        .absolute()
+        .top(px(-3.))
+        .right(px(-3.))
+        .rounded_full()
+        .bg(color)
+        .border_2()
+        .border_color(ground)
+        .text_color(ground)
+}

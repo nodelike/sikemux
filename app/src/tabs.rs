@@ -203,7 +203,7 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                 .children(crate::agents::limits::chip(bench, cx))
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
-                .child(crate::hosts::bar::devices(cx))
+                .child(crate::hosts::bar::devices(bench, cx))
                 .child(
                     glyph_chip(
                         "focus",

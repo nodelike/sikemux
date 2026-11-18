@@ -1554,14 +1554,13 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
     let chip = Popover::new("calls-chip")
         .anchor(Anchor::TopRight)
         .offset(SPACE_1H)
-        .trigger_with(move |open, _, _| {
-            BaseButton::new("calls-chip-button")
+        .trigger_with(move |open, _, cx| {
+            let button = BaseButton::new("calls-chip-button")
                 .accessibility_label(t!("Calls"))
                 .h(px(22.))
                 .px(px(crate::tabs::CHIP_INSET))
                 .flex()
                 .items_center()
-                .gap(SPACE_1H)
                 .rounded(radius_2())
                 .cursor_pointer()
                 .map(|chip| {
@@ -1574,12 +1573,11 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     true => chip.bg(t.surface_chosen),
                     false => chip.hover(move |style| style.bg(hover)),
                 })
-                .child(crate::ui::icon(Icon::Bell, 14.).text_color(t.text_primary))
-                .child(
-                    crate::ui::text(count.to_string(), 12., FontWeight::MEDIUM)
-                        .font_features(theme::tabular())
-                        .text_color(t.warn),
-                )
+                .child(crate::ui::icon(Icon::Bell, 14.).text_color(t.text_primary));
+            div()
+                .relative()
+                .child(button)
+                .child(crate::ui::count_badge(count, cx))
                 .into_any_element()
         })
         .content(move |_, window, cx| {
