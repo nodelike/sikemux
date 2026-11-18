@@ -33,6 +33,8 @@ import { StandInProvider } from "./billing/stand-in.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
 const DRAIN_MS = 25_000;
+/** How long a stop waits for sockets to answer its goodbye; the ones that haven't are dropped with the process. */
+const GOODBYE_MS = 1_000;
 const SWEEP_MS = 60_000;
 
 export async function startServer(config: Config, log: Logger) {
@@ -237,10 +239,9 @@ export async function startServer(config: Config, log: Logger) {
     clearInterval(sweep);
     const force = setTimeout(() => server.closeAllConnections(), DRAIN_MS);
     force.unref();
-    const liveStopped = Promise.all([
-      live.stop(),
-      shares.stop(),
-      hooks.stop(),
+    const liveStopped = Promise.race([
+      Promise.all([live.stop(), shares.stop(), hooks.stop()]),
+      new Promise((resolve) => setTimeout(resolve, GOODBYE_MS)),
     ]).catch((error: unknown) =>
       log.error({ err: error }, "closing live connections failed"),
     );
