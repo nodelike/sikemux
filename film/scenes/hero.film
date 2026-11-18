@@ -9,7 +9,7 @@ patch site-fix.diff
 chat Wren
 title "Cart totals a cent off"
 settle 6
-click 871,774
+click 871,435
 type "Some orders come out a cent off at checkout. Find out why and fix it properly, with a test." 200
 key enter
 hold 22
