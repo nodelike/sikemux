@@ -364,18 +364,17 @@ impl World {
         let project = self.project_on(name)?.to_string_lossy().into_owned();
         let entry = json!({ "kind": "rule", "text": text, "goal": null, "sensitive": false,
             "store": "project" });
-        let view = self
-            .runtime
+        self.runtime
             .block_on(client.call("memoryAdd", json!({ "project": project, "entry": entry })))?;
-        let id = rules_in(&view, "project")
-            .find(|rule| rule.get("text") == Some(&json!(text)))
-            .and_then(|rule| rule.get("id")?.as_u64())
-            .ok_or_else(|| anyhow!("{name} did not keep the rule {text}"))?;
         for _ in 0..300 {
             let view = self
                 .runtime
                 .block_on(client.call("memory", json!({ "project": project })))?;
             if stores(&view).any(|store| store.get("store") == Some(&json!("org"))) {
+                let id = rules_in(&view, "project")
+                    .find(|rule| rule.get("text") == Some(&json!(text)))
+                    .and_then(|rule| rule.get("id")?.as_u64())
+                    .ok_or_else(|| anyhow!("{name} did not keep the rule {text}"))?;
                 let params = json!({ "project": project, "id": id, "store": "org" });
                 self.runtime.block_on(client.call("memoryUpdate", params))?;
                 return Ok(());
