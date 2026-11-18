@@ -172,6 +172,16 @@ enum Entry {
 }
 
 impl Entry {
+    fn same_words(&self, other: &Entry) -> bool {
+        match (self, other) {
+            (Entry::Rule(one), Entry::Rule(two)) => one.text.eq_ignore_ascii_case(&two.text),
+            (Entry::Knowledge(one), Entry::Knowledge(two)) => {
+                one.text.eq_ignore_ascii_case(&two.text)
+            }
+            _ => false,
+        }
+    }
+
     fn with_id(self, id: u64) -> Self {
         match self {
             Entry::Rule(mut rule) => {
@@ -187,7 +197,8 @@ impl Entry {
 }
 
 /// `mine`'s changes since `base`, made again on top of `remote`. An entry added here under an id
-/// another member's core gave an entry of its own meanwhile takes a fresh id from `fresh`.
+/// another member's core gave an entry of its own meanwhile takes a fresh id from `fresh`, and one
+/// another member's core added in the same words meanwhile is not added again.
 fn rebased(remote: &Body, base: &Body, mine: &Body, mut fresh: impl FnMut() -> u64) -> Body {
     let (before, now) = (base.entries(), mine.entries());
     let mut entries = remote.entries();
@@ -200,7 +211,11 @@ fn rebased(remote: &Body, base: &Body, mine: &Body, mut fresh: impl FnMut() -> u
         .iter()
         .filter(|(id, entry)| before.get(id) != Some(entry))
     {
-        let taken = !before.contains_key(id) && entries.get(id).is_some_and(|there| there != entry);
+        let added = !before.contains_key(id);
+        if added && (entries.values()).any(|there| there != entry && there.same_words(entry)) {
+            continue;
+        }
+        let taken = added && entries.get(id).is_some_and(|there| there != entry);
         let at = if taken { fresh() } else { *id };
         entries.insert(at, entry.clone().with_id(at));
         match mine.writers.get(id) {
