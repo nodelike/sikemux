@@ -156,6 +156,11 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     let core = core.clone();
     blocking(move || {
         let (dir, named) = checkout_for(&core, &agent_id, &project, &named)?;
+        let own =
+            super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
+        if land && own.as_ref().is_some_and(|tree| super::push::on_release_line(&tree.path)) {
+            return Err("This checkout is on a release line, which never lands on the branch it was cut from; push it with push: true and no land".to_owned().into());
+        }
         let (committed, nothing_committed) = match &message {
             Some(message) => match commit(&core, &dir, &agent_id, message, &named) {
                 Ok(committed) => (Some(committed), None),
@@ -179,8 +184,6 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             },
             false => None,
         };
-        let own =
-            super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
         let ship = || crate::ship::Ship {
             kind: sikemux_view::inbox::ShipKind::Push,
             what: "git push origin HEAD".to_owned(),
@@ -217,7 +220,12 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         let pushed = match push && !land {
             true => {
                 let from = match own {
-                    Some(tree) if super::land::unlanded(&tree)? => tree.path,
+                    Some(tree)
+                        if super::push::on_release_line(&tree.path)
+                            || super::land::unlanded(&tree)? =>
+                    {
+                        tree.path
+                    }
                     Some(tree) => tree.repo,
                     None => dir,
                 };

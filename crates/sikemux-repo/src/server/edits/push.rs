@@ -114,6 +114,8 @@ pub struct Landing<'a> {
 /// Pushes the unpushed commits on `dir`'s branch made by any of `agents`, or
 /// by agents they lead. From the project's own checkout, rather than an
 /// agent's, it pushes every one: the land queue or git_commit checked them.
+/// So it does from a checkout on a release line, whose cherry-picks carry no
+/// note of who made them.
 /// Where the remote knows agents by an identity of their own, the caller's
 /// changes to CI workflows that can reach secrets wait for the person, who is
 /// asked.
@@ -141,7 +143,7 @@ fn push_from(
     remote: &str,
     landing: Option<&Landing>,
 ) -> Result<Pushed, String> {
-    let whole_branch = is_main_checkout(dir);
+    let whole_branch = is_main_checkout(dir) || on_release_line(dir);
     let sessions: Vec<String> = (agents.iter())
         .filter_map(|agent| core.names().last_session(agent))
         .collect();
@@ -222,10 +224,13 @@ fn push_holding(
     let top = PathBuf::from(git(dir, &["rev-parse", "--show-toplevel"])?.trim());
     let branch = match landing {
         Some(landing) => landing.branch.to_owned(),
-        None => git(&top, &["symbolic-ref", "--short", "-q", "HEAD"])
-            .map_err(|_| "git_push pushes a branch; this checkout is not on one".to_owned())?
-            .trim()
-            .to_owned(),
+        None => match release_line(&top) {
+            Some(release) => release,
+            None => git(&top, &["symbolic-ref", "--short", "-q", "HEAD"])
+                .map_err(|_| "git_push pushes a branch; this checkout is not on one".to_owned())?
+                .trim()
+                .to_owned(),
+        },
     };
     for _ in 0..ATTEMPTS {
         let head = match landing {
@@ -926,6 +931,24 @@ pub fn note_again<Holds: DeserializeOwned>(
 pub(super) fn is_main_checkout(dir: &Path) -> bool {
     let path = |what| git(dir, &["rev-parse", "--path-format=absolute", what]).map(line);
     matches!((path("--git-dir"), path("--git-common-dir")), (Ok(own), Ok(common)) if own == common)
+}
+
+const RELEASE_LINE: &str = "release/";
+
+/// The `release/*` branch `dir` stands on, or follows from a branch of its own.
+fn release_line(dir: &Path) -> Option<String> {
+    let named = |args: &[&str]| git(dir, args).map(line).ok();
+    let branch = named(&["symbolic-ref", "--short", "-q", "HEAD"])?;
+    let upstream = named(&["rev-parse", "--abbrev-ref", "-q", "@{upstream}"]);
+    let followed = upstream.and_then(|upstream| Some(upstream.split_once('/')?.1.to_owned()));
+    [Some(branch), followed]
+        .into_iter()
+        .flatten()
+        .find(|branch| branch.starts_with(RELEASE_LINE))
+}
+
+pub(super) fn on_release_line(dir: &Path) -> bool {
+    release_line(dir).is_some()
 }
 
 fn tree(top: &Path, commit: &str) -> Result<String, String> {
