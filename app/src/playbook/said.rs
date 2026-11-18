@@ -124,7 +124,7 @@ pub(super) fn line(
         .text_size(theme::ui_text(TEXT_2XS_H))
         .line_height(theme::ui_text(TEXT_LG))
         .text_color(t.text_tertiary)
-        .child(words.into())
+        .child(div().min_w_0().child(words.into()))
         .children(
             open.into_iter()
                 .chain(actions)
