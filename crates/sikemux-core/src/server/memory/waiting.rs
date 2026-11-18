@@ -81,8 +81,6 @@ impl Waiting {
 /// What this host's owner or admin answered that the org's vault does not hold yet.
 #[derive(Default)]
 pub(super) struct Answers {
-    /// Entries dropped here, by org store, member and entry, with the hash of the words read.
-    drops: HashMap<String, String>,
     /// Why the org's store would not take an entry kept here, by its words.
     not_kept: HashMap<String, String>,
 }
@@ -413,23 +411,33 @@ fn record(core: &Core, shared: &Shared, lists: &BTreeMap<String, Mine>, drops: &
         let entry = lists.get(member)?.items.get(item)?;
         (words(entry.text()) == shown).then_some(())
     };
-    let prefix = format!("{}|", shared.key());
-    let mut answers = core.memory().answers.locked();
-    answers.drops.retain(|at, shown| {
-        let Some(at) = at.strip_prefix(&prefix) else {
-            return true;
-        };
-        if listed(at, shown).is_some() {
-            drops.items.insert(
-                at.to_owned(),
-                Dropped {
-                    words: shown.clone(),
-                    by: shared.member.clone(),
-                },
-            );
+    let written = drops.clone();
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    let store = shared.key();
+    let Some(held) = state.held.get_mut(&store) else {
+        return;
+    };
+    let before = held.drops.len();
+    held.drops.retain(|at, shown| {
+        if listed(at, shown).is_none()
+            || (written.items.get(at)).is_some_and(|dropped| dropped.words == *shown)
+        {
+            return false;
         }
-        false
+        drops.items.insert(
+            at.clone(),
+            Dropped {
+                words: shown.clone(),
+                by: shared.member.clone(),
+            },
+        );
+        true
     });
+    if held.drops.len() != before {
+        memory.save(&mut state, &store);
+    }
+    drop(state);
     (drops.items).retain(|at, dropped| listed(at, &dropped.words).is_some());
 }
 
@@ -655,9 +663,11 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
                 .wake();
         }
         Some(DROP) => {
-            drop(state);
-            (memory.answers.locked().drops)
-                .insert(format!("{store}|{member}|{item}"), shown.to_owned());
+            let Some(held) = state.held.get_mut(store) else {
+                return;
+            };
+            (held.drops).insert(format!("{member}|{item}"), shown.to_owned());
+            memory.save(&mut state, store);
         }
         _ => return,
     }

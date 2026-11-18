@@ -124,6 +124,10 @@ struct Held {
     /// the vault does not hold yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     keeps: Vec<waiting::Keep>,
+    /// For an org's store, what an owner or admin here dropped from a teammate's waiting list
+    /// and the vault does not hold yet, by member and entry, with the hash of the words read.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    drops: BTreeMap<String, String>,
     /// For an org's store, the project's own store and the membership it was kept for here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     kept_for: Option<org::KeptFor>,
@@ -152,6 +156,7 @@ impl Held {
             dropped: BTreeMap::new(),
             refused: BTreeMap::new(),
             keeps: Vec::new(),
+            drops: BTreeMap::new(),
             kept_for: None,
             was: BTreeSet::new(),
         }
