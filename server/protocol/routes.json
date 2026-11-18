@@ -409,7 +409,7 @@
           "description": "The address may be added."
         },
         "409": {
-          "description": "The address is a work address: at a domain an org verified, or already proven on an account. The message says which.",
+          "description": "The address is a work address: at a domain an org's owner says is the org's, or already proven on this account. The message says which.",
           "body": "ApiError"
         }
       }
@@ -1293,6 +1293,36 @@
         },
         "409": {
           "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/domains/{domainId}/ours",
+      "operationId": "setOrgDomainOurs",
+      "summary": "Say whether addresses at a verified domain are the org's own, as an owner",
+      "auth": "session",
+      "request": "OrgDomainOursChange",
+      "responses": {
+        "200": {
+          "description": "The domain with its new choice. Turning it on refuses an account or sign-in of its own only to addresses added from now on.",
+          "body": "OrgDomain"
+        },
+        "400": {
+          "description": "The body is not a valid OrgDomainOursChange.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owners may do this.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or the org has no domain with that id.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The domain is not verified yet, or the org's Team plan lapsed, so its features are frozen until it is renewed.",
           "body": "ApiError"
         }
       }

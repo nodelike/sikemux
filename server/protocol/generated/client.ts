@@ -53,6 +53,7 @@ import type {
   OrgDomainJoin,
   OrgDomainJoiningChange,
   OrgDomainList,
+  OrgDomainOursChange,
   OrgId,
   OrgInviteCreate,
   OrgInviteCreated,
@@ -392,6 +393,17 @@ export function apiClient(send: Send) {
       send<OrgDomain>(
         "PUT",
         `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/joining`,
+        body,
+      ),
+    /** Say whether addresses at a verified domain are the org's own, as an owner. */
+    setOrgDomainOurs: (
+      orgId: string,
+      domainId: string,
+      body: OrgDomainOursChange,
+    ) =>
+      send<OrgDomain>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/ours`,
         body,
       ),
     /** Give up a domain, as an owner or an admin. */

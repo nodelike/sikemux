@@ -1840,6 +1840,7 @@ export const schema = {
         "domain_added",
         "domain_verified",
         "domain_joining_changed",
+        "domain_ours_changed",
         "domain_removed",
         "policy_changed",
         "vault_created",
@@ -1893,6 +1894,11 @@ export const schema = {
         },
         domain: { $ref: "#/$defs/OrgDomainName" },
         joining: { $ref: "#/$defs/OrgDomainJoining" },
+        ours: {
+          description:
+            "Whether a domain's addresses are the org's own, as an owner set it.",
+          type: "boolean",
+        },
         ruleAdding: {
           description: "Who may add a rule, as a policy change set it.",
           $ref: "#/$defs/OrgRuleAdding",
@@ -1972,6 +1978,12 @@ export const schema = {
           type: ["string", "null"],
           format: "date-time",
         },
+        oursSince: {
+          description:
+            "When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
         createdAt: { type: "string", format: "date-time" },
       },
       required: [
@@ -1980,6 +1992,7 @@ export const schema = {
         "joining",
         "record",
         "verifiedAt",
+        "oursSince",
         "createdAt",
       ],
       additionalProperties: false,
@@ -2041,6 +2054,17 @@ export const schema = {
       type: "string",
       minLength: 4,
       maxLength: 253,
+    },
+    OrgDomainOursChange: {
+      type: "object",
+      properties: {
+        ours: {
+          description: "Whether addresses at the domain are the org's own.",
+          type: "boolean",
+        },
+      },
+      required: ["ours"],
+      additionalProperties: false,
     },
     OrgDomainRecord: {
       description: "The DNS TXT record that proves the org owns the domain.",

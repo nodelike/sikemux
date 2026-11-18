@@ -1115,6 +1115,26 @@ a.button {
   margin-top: 8px;
 }
 
+.row > .row-choice {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.row-choice > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.row-choice .name {
+  white-space: normal;
+}
+
 .row > .row-code {
   grid-column: 2 / -1;
   max-width: 320px;

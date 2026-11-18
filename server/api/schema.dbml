@@ -603,11 +603,14 @@ Table org_domains {
   added_by text [not null]
   created_at timestamptz [not null, default: `now()`]
   verified_at timestamptz
+  ours_since timestamptz
 
   indexes {
     (org_id, domain) [unique]
     domain [name: 'org_domains_verified', unique, note: 'where (verified_at IS NOT NULL)']
   }
+
+  Note: '(ours_since IS NULL) OR (verified_at IS NOT NULL)'
 }
 
 Table org_shares {

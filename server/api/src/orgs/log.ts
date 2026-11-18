@@ -35,6 +35,7 @@ const SHOWN: Record<string, OrgAuditAction> = {
   "org.domain_added": "domain_added",
   "org.domain_verified": "domain_verified",
   "org.domain_joining_changed": "domain_joining_changed",
+  "org.domain_ours_changed": "domain_ours_changed",
   "org.domain_removed": "domain_removed",
   "org.policy_changed": "policy_changed",
   "org_vault.created": "vault_created",
@@ -106,6 +107,7 @@ function entryBody(
     joining: joining(detail.joining),
     ruleAdding: ruleAdding(detail.ruleAdding),
     asking: typeof detail.asking === "boolean" ? detail.asking : undefined,
+    ours: typeof detail.ours === "boolean" ? detail.ours : undefined,
     dailyQuestions:
       typeof detail.dailyQuestions === "number"
         ? detail.dailyQuestions

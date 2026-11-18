@@ -31,10 +31,10 @@ function sinceRefusing(db: Kysely<Tables>): Promise<Date | null> {
 }
 
 /**
- * Whether an address added at `addedAt` came after an org verified its domain, or after the
- * address was proven on an account (other than `exceptUser`, or only `ofUser`'s). Either way it
- * is someone's work address and opens no account. One added before this server began refusing
- * stands as it is.
+ * Whether an address added at `addedAt` came after an org's owner said its domain is the org's,
+ * or after the address was proven on an account (other than `exceptUser`, or only `ofUser`'s).
+ * Either way it is someone's work address and opens no account. One added before this server
+ * began refusing stands as it is.
  */
 export async function workAddressRefusal(
   db: Kysely<Tables>,
@@ -52,7 +52,7 @@ export async function workAddressRefusal(
     .innerJoin("orgs", "orgs.id", "org_domains.org_id")
     .select(["orgs.id", "orgs.name"])
     .where("org_domains.domain", "=", domain)
-    .where("org_domains.verified_at", "<", addedAt)
+    .where("org_domains.ours_since", "<", addedAt)
     .executeTakeFirst();
   if (org) return { why: "domain", domain, orgId: org.id, orgName: org.name };
   if (!proofKey) return null;
@@ -84,7 +84,7 @@ export async function refusalOf(
 
 export function refusalWords(refusal: Refusal): string {
   return refusal.why === "domain"
-    ? `${refusal.orgName} has verified ${refusal.domain}, so an address there can't have a Sikemux account of its own. Sign in with your own Google, Apple or email instead, then bring the address to that account on app.sikemux.com.`
+    ? `${refusal.orgName} says addresses at ${refusal.domain} are its own, so an address there can't have a Sikemux account of its own. Sign in with your own Google, Apple or email instead, then bring the address to that account on app.sikemux.com.`
     : `This address is already verified on a Sikemux account, so it can't have one of its own. Sign in to that account with its own Google, Apple or email instead.`;
 }
 

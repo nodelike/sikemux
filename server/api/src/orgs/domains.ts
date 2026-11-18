@@ -56,6 +56,7 @@ function domainBody(row: Selectable<Tables["org_domains"]>): OrgDomain {
       value: `${VALUE_PREFIX}${row.token}`,
     },
     verifiedAt: row.verified_at?.toISOString() ?? null,
+    oursSince: row.ours_since?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -337,6 +338,43 @@ export function domainRoutes(
             action: "org.domain_joining_changed",
             subject: orgId,
             detail: { domainId: row.id, domain: row.domain, joining },
+          });
+          return changed;
+        });
+        return c.json(domainBody(row));
+      },
+    )
+    .put(
+      "/:orgId/domains/:domainId/ours",
+      perUser(limiter, "org-domain", 30),
+      async (c) => {
+        const { userId } = c.get("identity");
+        const orgId = orgIdOf(c);
+        const { ours } = await readBody(c, "OrgDomainOursChange");
+        const row = await db.transaction().execute(async (trx) => {
+          const { role } = await membership(trx, orgId, userId, {
+            lock: true,
+          });
+          requireRole(role, ["owner"]);
+          if (ours) await requireTeamPlan(trx, orgId);
+          const row = await domainOf(c, trx, orgId);
+          if (ours === (row.ours_since !== null)) return row;
+          if (!row.verified_at)
+            throw conflict(
+              `Verify ${row.domain} first: until then nobody has shown the org owns it.`,
+            );
+          const changed = await trx
+            .updateTable("org_domains")
+            .set({ ours_since: ours ? new Date() : null })
+            .where("id", "=", row.id)
+            .returningAll()
+            .executeTakeFirstOrThrow();
+          await audit(trx, {
+            userId,
+            actor: `user:${userId}`,
+            action: "org.domain_ours_changed",
+            subject: orgId,
+            detail: { domainId: row.id, domain: row.domain, ours },
           });
           return changed;
         });

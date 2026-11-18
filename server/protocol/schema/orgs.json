@@ -427,6 +427,11 @@
           "type": ["string", "null"],
           "format": "date-time"
         },
+        "oursSince": {
+          "description": "When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own.",
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -438,6 +443,7 @@
         "joining",
         "record",
         "verifiedAt",
+        "oursSince",
         "createdAt"
       ],
       "additionalProperties": false
@@ -477,6 +483,17 @@
         }
       },
       "required": ["joining"],
+      "additionalProperties": false
+    },
+    "OrgDomainOursChange": {
+      "type": "object",
+      "properties": {
+        "ours": {
+          "description": "Whether addresses at the domain are the org's own.",
+          "type": "boolean"
+        }
+      },
+      "required": ["ours"],
       "additionalProperties": false
     },
     "OrgOffer": {
@@ -584,6 +601,7 @@
         "domain_added",
         "domain_verified",
         "domain_joining_changed",
+        "domain_ours_changed",
         "domain_removed",
         "policy_changed",
         "vault_created",
@@ -644,6 +662,10 @@
         },
         "joining": {
           "$ref": "#/$defs/OrgDomainJoining"
+        },
+        "ours": {
+          "description": "Whether a domain's addresses are the org's own, as an owner set it.",
+          "type": "boolean"
         },
         "ruleAdding": {
           "description": "Who may add a rule, as a policy change set it.",

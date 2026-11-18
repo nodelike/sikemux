@@ -1026,6 +1026,7 @@ export type OrgAuditAction =
   | "domain_added"
   | "domain_verified"
   | "domain_joining_changed"
+  | "domain_ours_changed"
   | "domain_removed"
   | "policy_changed"
   | "vault_created"
@@ -1052,6 +1053,7 @@ export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "domain_added",
   "domain_verified",
   "domain_joining_changed",
+  "domain_ours_changed",
   "domain_removed",
   "policy_changed",
   "vault_created",
@@ -1084,6 +1086,8 @@ export interface OrgAuditEntry {
   previousName?: OrgTeamName;
   domain?: OrgDomainName;
   joining?: OrgDomainJoining;
+  /** Whether a domain's addresses are the org's own, as an owner set it. */
+  ours?: boolean;
   /** Who may add a rule, as a policy change set it. */
   ruleAdding?: OrgRuleAdding;
   /** Whether teammates' agents may ask, as a policy change set it. */
@@ -1123,6 +1127,8 @@ export interface OrgDomain {
   record: OrgDomainRecord;
   /** When the record was found; null until then, and nobody joins by the domain before it. */
   verifiedAt: string | null;
+  /** When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own. */
+  oursSince: string | null;
   createdAt: string;
 }
 
@@ -1159,6 +1165,11 @@ export interface OrgDomainList {
 
 /** An email domain, such as example.com, in lowercase. */
 export type OrgDomainName = string;
+
+export interface OrgDomainOursChange {
+  /** Whether addresses at the domain are the org's own. */
+  ours: boolean;
+}
 
 /** The DNS TXT record that proves the org owns the domain. */
 export interface OrgDomainRecord {
@@ -2431,6 +2442,7 @@ export interface Definitions {
   OrgDomainJoiningChange: OrgDomainJoiningChange;
   OrgDomainList: OrgDomainList;
   OrgDomainName: OrgDomainName;
+  OrgDomainOursChange: OrgDomainOursChange;
   OrgDomainRecord: OrgDomainRecord;
   OrgId: OrgId;
   OrgInvite: OrgInvite;

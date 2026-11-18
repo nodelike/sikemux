@@ -709,6 +709,18 @@ function DomainRow({
       },
       (error) => `${problemText(error)} It is unchanged.`,
     );
+  const setOurs = (ours: boolean) =>
+    void action.run(
+      async () => {
+        await (
+          await client("change whether the domain's addresses are yours")
+        ).setOrgDomainOurs(org.id, domain.id, { ours });
+        onChanged(
+          `Addresses at ${domain.domain} ${ours ? "are" : "aren't"} ${possessive(org.name)} own`,
+        );
+      },
+      (error) => `${problemText(error)} It is unchanged.`,
+    );
 
   return (
     <ItemRow
@@ -766,6 +778,28 @@ function DomainRow({
         )
       }
     >
+      {verified && !removing ? (
+        <div className="row-choice">
+          <div>
+            <span className="name">Addresses at this domain are ours</span>
+            <span className="detail">
+              {domain.oursSince
+                ? `Since ${formatDay(domain.oursSince)}, an address at ${domain.domain} can't sign up for a Sikemux account of its own or be added as a way to sign in; people verify it under Work addresses instead. What stood before stays.`
+                : `Off: anyone at ${domain.domain} can still keep a Sikemux account of their own. Turned on, an address there added from then on can't sign up or sign in on its own; people verify it under Work addresses instead. What stands already stays.`}
+            </span>
+          </div>
+          {org.role === "owner" ? (
+            <Switch
+              label="Addresses at this domain are ours"
+              on={domain.oursSince !== null}
+              disabled={frozen || action.busy}
+              onChange={setOurs}
+            />
+          ) : (
+            <span className="value">{domain.oursSince ? "On" : "Off"}</span>
+          )}
+        </div>
+      ) : null}
       {!verified && !removing ? (
         <dl className="txt-record">
           <RecordLine label="Name" value={domain.record.name} />
@@ -991,6 +1025,10 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
       return entry.joining
         ? `${by} set ${domain} to ${JOINING_WORDS[entry.joining].toLowerCase()}`
         : `${by} changed how people join through ${domain}`;
+    case "domain_ours_changed":
+      return entry.ours === false
+        ? `${by} said addresses at ${domain} aren't ${possessive(org.name)} own any more`
+        : `${by} said addresses at ${domain} are ${possessive(org.name)} own`;
     case "domain_removed":
       return `${by} removed ${domain}`;
     case "policy_changed":

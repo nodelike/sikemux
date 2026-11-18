@@ -1016,6 +1016,8 @@ pub enum OrgAuditAction {
     DomainVerified,
     #[serde(rename = "domain_joining_changed")]
     DomainJoiningChanged,
+    #[serde(rename = "domain_ours_changed")]
+    DomainOursChanged,
     #[serde(rename = "domain_removed")]
     DomainRemoved,
     #[serde(rename = "policy_changed")]
@@ -1068,6 +1070,9 @@ pub struct OrgAuditEntry {
     pub domain: Option<OrgDomainName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub joining: Option<OrgDomainJoining>,
+    /// Whether a domain's addresses are the org's own, as an owner set it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ours: Option<bool>,
     /// Who may add a rule, as a policy change set it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_adding: Option<OrgRuleAdding>,
@@ -1120,6 +1125,8 @@ pub struct OrgDomain {
     pub record: OrgDomainRecord,
     /// When the record was found; null until then, and nobody joins by the domain before it.
     pub verified_at: Option<String>,
+    /// When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own.
+    pub ours_since: Option<String>,
     pub created_at: String,
 }
 
@@ -1170,6 +1177,13 @@ pub struct OrgDomainList {
 
 /// An email domain, such as example.com, in lowercase.
 pub type OrgDomainName = String;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDomainOursChange {
+    /// Whether addresses at the domain are the org's own.
+    pub ours: bool,
+}
 
 /// The DNS TXT record that proves the org owns the domain.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2162,6 +2176,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgDomainJoiningChange" => through::<OrgDomainJoiningChange>(json),
         "OrgDomainList" => through::<OrgDomainList>(json),
         "OrgDomainName" => through::<OrgDomainName>(json),
+        "OrgDomainOursChange" => through::<OrgDomainOursChange>(json),
         "OrgDomainRecord" => through::<OrgDomainRecord>(json),
         "OrgId" => through::<OrgId>(json),
         "OrgInvite" => through::<OrgInvite>(json),

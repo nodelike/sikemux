@@ -428,6 +428,7 @@ export interface Tables {
     added_by: string;
     created_at: CreatedAt;
     verified_at: Date | null;
+    ours_since: Date | null;
   };
   billing_customers: {
     id: Generated<string>;

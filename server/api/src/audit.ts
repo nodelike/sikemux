@@ -63,6 +63,7 @@ export type AuditAction =
   | "org.domain_added"
   | "org.domain_verified"
   | "org.domain_joining_changed"
+  | "org.domain_ours_changed"
   | "org.domain_removed"
   | "org.policy_changed"
   | "share.added"
