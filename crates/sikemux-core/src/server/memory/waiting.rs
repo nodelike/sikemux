@@ -169,7 +169,16 @@ fn read<T: serde::de::DeserializeOwned + Default>(
     }
 }
 
-/// Writes `body` over the vault's entry `id` at `revision`: false when another wrote it first.
+enum Wrote {
+    /// Written, or not written for a while and tried again on the next round.
+    Done,
+    /// Another wrote it first; read it again and redo the change.
+    Stale,
+    /// The server will not take it, saying why in words for the person.
+    Refused(String),
+}
+
+/// Writes `body` over the vault's entry `id` at `revision`.
 async fn write<T: Serialize>(
     core: &Core,
     shared: &Shared,
@@ -177,26 +186,26 @@ async fn write<T: Serialize>(
     id: &str,
     revision: i64,
     body: &T,
-) -> bool {
+) -> Wrote {
     let Ok(value) = serde_json::to_value(body) else {
-        return true;
+        return Wrote::Done;
     };
     match vault::put_project(core, &shared.org, kind, id, revision, &value).await {
-        Ok(Put::Written(_)) => true,
-        Ok(Put::Stale) => false,
+        Ok(Put::Written(_)) => Wrote::Done,
+        Ok(Put::Stale) => Wrote::Stale,
         Ok(Put::Refused(why)) => {
             eprintln!(
                 "sikemux core: {}'s waiting rules refused a change: {why}",
                 shared.name
             );
-            true
+            Wrote::Refused(why)
         }
         Err(error) => {
             eprintln!(
                 "sikemux core: {}'s waiting rules were not written: {error}",
                 shared.name
             );
-            true
+            Wrote::Done
         }
     }
 }
@@ -326,10 +335,38 @@ async fn settle_mine(core: &Core, local: &str, shared: &Shared) {
             .1;
         let mut now = list.clone();
         settle(core, local, shared, &drops, &mut now);
-        if now == list || write(core, shared, PROJECT_MEMORY_WAITING, &id, revision, &now).await {
+        if now == list {
             return;
         }
+        match write(core, shared, PROJECT_MEMORY_WAITING, &id, revision, &now).await {
+            Wrote::Done => return,
+            Wrote::Stale => {}
+            Wrote::Refused(why) => return not_listed(core, local, &list, &why),
+        }
     }
+}
+
+/// Marks the entries waiting here that the member's list in the vault does not hold as refused,
+/// after the server would not take the list with them.
+fn not_listed(core: &Core, local: &str, list: &Mine, why: &str) {
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    let Some(held) = state.held.get_mut(local) else {
+        return;
+    };
+    let unlisted: Vec<u64> = (held.waiting.iter().copied())
+        .filter(|id| !list.items.contains_key(&item_key(local, *id)))
+        .collect();
+    if unlisted.is_empty() {
+        return;
+    }
+    for id in unlisted {
+        held.waiting.remove(&id);
+        held.refused.insert(id, why.to_owned());
+    }
+    memory.save(&mut state, local);
+    drop(state);
+    tell_clients(core, false);
 }
 
 /// Puts this host's waiting entries on the member's list as they are now, and takes in what an
@@ -431,7 +468,13 @@ async fn judge(core: &Arc<Core>, local: &str, shared: &Shared) {
         let mut now = drops.clone();
         record(core, shared, &lists, &mut now);
         ask(core, local, shared, &lists, &now);
-        if now == drops || write(core, shared, PROJECT_MEMORY_DROPS, &id, revision, &now).await {
+        if now == drops {
+            return;
+        }
+        if !matches!(
+            write(core, shared, PROJECT_MEMORY_DROPS, &id, revision, &now).await,
+            Wrote::Stale
+        ) {
             return;
         }
     }
