@@ -462,7 +462,8 @@ export function foldRoutes({
     .use("/fold/keep-new", requireIdentity(signInVerifier, db))
     .use("/folds", requireIdentity(signInVerifier, db))
     .use("/folds/*", requireIdentity(signInVerifier, db))
-    .use("/fold/*", perUser(limiter, "fold", 60))
+    .use("/fold/catch", perUser(limiter, "fold", 60))
+    .use("/fold/keep-new", perUser(limiter, "fold", 60))
     .use("/folds", perUser(limiter, "fold", 60))
     .use("/folds/*", perUser(limiter, "fold", 60))
     .post("/fold/catch", async (c) => {
