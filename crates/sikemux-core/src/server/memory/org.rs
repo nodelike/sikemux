@@ -530,6 +530,7 @@ fn mirror(core: &Core, shared: &Shared) {
     held.knowledge = with_local_checks(body.knowledge, &held.knowledge);
     held.writers = body.writers;
     held.base = Some(remote);
+    held.refused.clear();
     let mut touched = renumber_clashes(&mut state, shared);
     touched.extend(drop_copies(&mut state, shared));
     touched.sort();
@@ -632,8 +633,8 @@ fn unwritten(core: &Core, shared: &Shared) -> bool {
 }
 
 /// Puts the org's store back as the vault last gave it, after the vault refused a change for
-/// `why`. What was added or moved here goes back to where it came from, and what was changed or
-/// retired here shows as it was, each saying why.
+/// `why`. What was added, moved or reworded here goes back to the person, saying why; what was
+/// retired here shows as it was, saying why until the store next changes.
 fn give_back(core: &Core, shared: &Shared, why: &str) {
     let memory = core.memory();
     let mut state = memory.state.locked();
@@ -657,6 +658,14 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
                 .map(|known| known.id),
         )
         .collect();
+    let reworded: Vec<MemoryRule> = (held.rules.iter())
+        .filter(|rule| undone.contains(&rule.id))
+        .cloned()
+        .collect();
+    let reworded_knowledge: Vec<Knowledge> = (held.knowledge.iter())
+        .filter(|known| undone.contains(&known.id))
+        .cloned()
+        .collect();
     let writers = std::mem::take(&mut held.writers);
     let teammates = |id: u64| writers.get(&id).is_some_and(|by| *by != shared.member);
     let (theirs, added): (Vec<MemoryRule>, Vec<MemoryRule>) = (held.rules.drain(..))
@@ -671,8 +680,14 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
     held.knowledge = with_local_checks(base.body.knowledge, &had);
     held.writers = base.body.writers;
     held.keeps.clear();
-    for id in undone {
-        (held.refused).insert(id, format!("{} keeps it as it was: {why}", shared.name));
+    held.drops.clear();
+    held.refused.clear();
+    let retired = (undone.iter())
+        .filter(|id| !reworded.iter().any(|rule| rule.id == **id))
+        .filter(|id| !reworded_knowledge.iter().any(|known| known.id == **id));
+    let kept_as_it_was = format!("{} keeps it as it was: {why}", shared.name);
+    for id in retired.copied().collect::<Vec<_>>() {
+        held.refused.insert(id, kept_as_it_was.clone());
     }
     let local = local_key(&state, shared);
     let home = |state: &State, moved: &Option<Moved>| {
@@ -702,6 +717,27 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
         held.refused.insert(known.id, why.to_owned());
         held.knowledge.push(known);
         touched.push(held.key.clone());
+    }
+    if !(reworded.is_empty() && reworded_knowledge.is_empty()) {
+        let to = local.clone().unwrap_or_else(|| super::PERSONAL.to_owned());
+        let to = holding_or_personal(&mut state, &to, Store::Project)
+            .key
+            .clone();
+        for mut rule in reworded {
+            rule.id = state.next_id(&to);
+            rule.moved = None;
+            let held = holding_or_personal(&mut state, &to, Store::Project);
+            held.refused.insert(rule.id, kept_as_it_was.clone());
+            held.rules.push(rule);
+        }
+        for mut known in reworded_knowledge {
+            known.id = state.next_id(&to);
+            known.moved = None;
+            let held = holding_or_personal(&mut state, &to, Store::Project);
+            held.refused.insert(known.id, kept_as_it_was.clone());
+            held.knowledge.push(known);
+        }
+        touched.push(to);
     }
     touched.sort();
     touched.dedup();
