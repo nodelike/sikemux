@@ -2015,6 +2015,9 @@ pub struct KeptRule {
     /// The name of the org whose store it went to, for its members' agents too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub org: Option<String>,
+    /// It waits on the org's list for an owner or admin to keep it there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waiting: bool,
 }
 
 /// Where a goal began, passed a step or ended in a chat, and how it stood then.

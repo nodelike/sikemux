@@ -138,7 +138,7 @@ fn words(text: &str) -> String {
 
 /// A project as the person knows it: the name of a folder it is open in here, else the last part
 /// of its store's key.
-fn project_name(state: &State, key: &str) -> String {
+pub(super) fn project_name(state: &State, key: &str) -> String {
     let folder = (state.keys.iter())
         .filter(|(_, kept)| *kept == key)
         .map(|(folder, _)| folder.as_str())
@@ -244,6 +244,16 @@ pub(super) fn move_to(
     let to_key = state.key_for(project, to);
     if to_key.is_empty() {
         return Err(super::NOT_SHARED.into());
+    }
+    if by.agent.is_none() {
+        if let Some(listed) = super::waiting::listed(&mut state, project, &from_key, id, to) {
+            listed?;
+            core.memory().save(&mut state, &from_key);
+            core.memory().org_sync.notify_one();
+            drop(state);
+            super::tell_clients(core, false);
+            return Ok(());
+        }
     }
     if from_key == to_key {
         return Err(format!("#{id} is kept there already"));

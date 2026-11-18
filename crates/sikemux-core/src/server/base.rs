@@ -470,6 +470,7 @@ pub(super) fn repo_above() -> RepoAbove {
         accounts_call_answered: |core, call, key| {
             Box::pin(account_calls::answered(core, call, key))
         },
+        memory_call_answered: super::memory::waiting_answered,
     }
 }
 

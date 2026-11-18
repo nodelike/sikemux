@@ -47,6 +47,7 @@ mod promote;
 mod record;
 mod removed;
 mod seed;
+mod waiting;
 
 pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
@@ -61,6 +62,7 @@ pub(crate) use removed::{
     chat_ready, feed_moved, show_on as rules_missing, take_note as take_removed_note,
 };
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
+pub(crate) use waiting::answered as waiting_answered;
 
 const FOLDER: &str = "memory";
 const MAX_STORES: usize = 256;
@@ -107,6 +109,13 @@ struct Held {
     /// For an org's store, its entry in the org's vault as last read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     base: Option<org::Base>,
+    /// Entries of a project's own store the person moved to its org's, waiting for an owner or
+    /// admin to keep them there.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    waiting: BTreeSet<u64>,
+    /// Entries an owner or admin dropped from the org's waiting list, by that admin's first name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    dropped: BTreeMap<u64, String>,
 }
 
 impl Held {
@@ -128,6 +137,8 @@ impl Held {
         self.removed.extend(from.removed);
         self.not_now.extend(from.not_now);
         self.absorbed.extend(from.absorbed);
+        self.waiting.extend(from.waiting);
+        self.dropped.extend(from.dropped);
     }
 }
 
@@ -245,6 +256,8 @@ pub(crate) struct Memory {
     said_elsewhere: Mutex<HashMap<String, Vec<String>>>,
     /// Told when an org's store is saved here, or shares changed, to sync with the org's vault.
     org_sync: Arc<tokio::sync::Notify>,
+    /// What this host's person decided of entries waiting on an org's list, until the list says so.
+    decided: Mutex<HashMap<String, waiting::Decided>>,
 }
 
 impl Memory {
@@ -272,6 +285,7 @@ impl Memory {
             wake: Wake::default(),
             said_elsewhere: Mutex::default(),
             org_sync: Arc::default(),
+            decided: Mutex::default(),
         }
     }
 
@@ -473,6 +487,8 @@ fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut 
         mirrored: false,
         writers: BTreeMap::new(),
         base: None,
+        waiting: BTreeSet::new(),
+        dropped: BTreeMap::new(),
     }))
 }
 
@@ -545,6 +561,12 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         held.rules.retain(|rule| rule.id != id);
         held.knowledge.retain(|known| known.id != id);
         return Err(full);
+    }
+    if persons_rule && store == Store::Project && state.shared.contains_key(&key) {
+        if let Some(held) = state.held.get_mut(&key) {
+            held.waiting.insert(id);
+        }
+        core.memory().org_sync.notify_one();
     }
     core.memory().save(&mut state, &key);
     drop(state);
@@ -897,6 +919,10 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 .flatten()
         };
         let org = org.clone().filter(|_| held.store != Store::Personal);
+        let local = held.store == Store::Project && org.is_some();
+        let asks = local && shared.is_some_and(|shared| !shared.writes);
+        let waiting = |id: u64| local && held.waiting.contains(&id);
+        let dropped = |id: u64| (held.dropped.get(&id)).filter(|_| local).cloned();
         for rule in held
             .rules
             .iter()
@@ -912,8 +938,11 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 store: held.store,
                 moved: undoable(rule.id, &rule.moved),
                 someone: someone(&rule.learned),
-                offer: offers.for_rule(held, rule),
+                offer: (offers.for_rule(held, rule)).filter(|_| !waiting(rule.id)),
                 org: org.clone(),
+                waiting: waiting(rule.id),
+                dropped: dropped(rule.id),
+                asks,
             };
             match rule.learned.agent {
                 None => rules.push(kept),
@@ -937,6 +966,9 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 someone: someone(&known.learned),
                 offer: None,
                 org: org.clone(),
+                waiting: waiting(known.id),
+                dropped: dropped(known.id),
+                asks,
             });
         }
     }
@@ -1248,17 +1280,24 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
     let Some(start) = chat.feed.start() else {
         return true;
     };
-    let org = {
+    let (org, waiting) = {
         let state = core.memory().state.locked();
         let shared = state.shared.get(&state.key_of(project));
-        (shared.filter(|shared| (state.held.get(&shared.key())).is_some_and(|held| held.holds(id))))
-            .map(|shared| shared.name.clone())
+        let waiting = (state.own(project)).is_some_and(|held| held.waiting.contains(&id));
+        let holds = |shared: &&org::Shared| {
+            waiting || (state.held.get(&shared.key())).is_some_and(|held| held.holds(id))
+        };
+        (
+            shared.filter(holds).map(|shared| shared.name.clone()),
+            waiting,
+        )
     };
     let rule = sikemux_view::chat::KeptRule {
         id,
         project: project.to_owned(),
         undone: false,
         org,
+        waiting,
     };
     chat.emit(
         sikemux_fold::ChatEventKind::SessionUpdate,

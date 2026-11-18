@@ -994,6 +994,9 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     };
     let head = match (rule.undone, &rule.org) {
         (true, _) => t!("Kept as a rule, then undone").to_owned(),
+        (false, Some(org)) if rule.waiting => {
+            t!("Kept as a rule, waiting for {org}'s admins", org = org)
+        }
         (false, Some(org)) => t!("Kept as a rule for {org}", org = org),
         (false, None) => t!("Kept as a rule").to_owned(),
     };

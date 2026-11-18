@@ -290,7 +290,8 @@ fn store_asked(params: &Value) -> Option<Store> {
 }
 
 /// The store a move from the app takes an entry to across the person's store, kept here, and the
-/// project's, kept at its home; none for a move to or from the org's store, which the home does.
+/// project's, kept at its home; none for a move to or from the org's store, or off its waiting
+/// list, which the home does.
 pub(crate) fn moving_to(core: &Core, folder: &str, params: &Value) -> Option<Store> {
     let to = store_asked(params)?;
     let id = params.get("id").and_then(Value::as_u64);
@@ -298,7 +299,9 @@ pub(crate) fn moving_to(core: &Core, folder: &str, params: &Value) -> Option<Sto
     let in_org = (state.org_key(folder))
         .and_then(|key| state.held.get(&key))
         .is_some_and(|held| id.is_some_and(|id| held.holds(id)));
-    (to != Store::Org && !in_org).then_some(to)
+    let taking_back = to == Store::Project
+        && (state.own(folder)).is_some_and(|held| id.is_some_and(|id| held.holds(id)));
+    (to != Store::Org && !in_org && !taking_back).then_some(to)
 }
 
 /// The view of the project at `folder` after its home did an app's write and sent back what the

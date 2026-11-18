@@ -198,6 +198,8 @@ fn outcome(result: CallResult) -> CallOutcome {
 
 /// The start of the key of a call Sikemux raises for chats an account's provider refused.
 pub const ACCOUNT_REFUSED: &str = "account-refused:";
+/// The start of the key of a call Sikemux raises for an entry waiting on an org's list.
+pub const ORG_WAITING: &str = "org-waiting:";
 
 /// The open calls of `project` raised with a key starting `prefix`, by id, with their keys.
 pub fn open_keyed(core: &Core, project: &str, prefix: &str) -> Vec<(String, String)> {
@@ -1195,6 +1197,12 @@ async fn deliver(
         {
             let key = key_of(core, &call.id).unwrap_or_default();
             (core.repo_above().accounts_call_answered)(core, call, &key).await;
+        }
+        Source::Raised
+            if key_of(core, &call.id).is_some_and(|key| key.starts_with(ORG_WAITING)) =>
+        {
+            let key = key_of(core, &call.id).unwrap_or_default();
+            (core.repo_above().memory_call_answered)(core, call, &key);
         }
         Source::Raised if key_of(core, &call.id).is_some_and(|key| workflows::is_key(&key)) => {
             let key = key_of(core, &call.id).unwrap_or_default();

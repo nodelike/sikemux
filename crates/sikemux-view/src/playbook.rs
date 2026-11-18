@@ -50,6 +50,16 @@ pub struct Entry {
     /// own entries, who does not get it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub org: Option<String>,
+    /// Moved to the org's store, it waits there for an owner or admin to keep it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waiting: bool,
+    /// The owner or admin who dropped it from the org's waiting list, by first name; empty when
+    /// not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<String>,
+    /// A move to the org's store waits for an owner or admin.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub asks: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

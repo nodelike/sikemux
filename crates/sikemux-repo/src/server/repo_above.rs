@@ -160,4 +160,6 @@ pub struct RepoAbove {
     pub plugins_run_agent_tool: AgentTool,
     /// The person answered a call about chats an account's provider refused, keyed `key`.
     pub accounts_call_answered: for<'a> fn(&'a Arc<Core>, &'a PersonCall, &'a str) -> Doing<'a, ()>,
+    /// The person kept or dropped an entry waiting on an org's list, keyed `key`.
+    pub memory_call_answered: fn(&Arc<Core>, &PersonCall, &str),
 }

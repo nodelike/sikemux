@@ -14,7 +14,7 @@ use sikemux_view::memory::{Knowledge, MemoryRule, Store};
 use super::{holding, tell_clients, Held, State};
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
-use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY};
+use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY, PROJECT_MEMORY_WAITING};
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::Core;
 
@@ -43,6 +43,10 @@ impl Shared {
 
     fn entry_id(&self) -> String {
         vault::project_entry_id(PROJECT_MEMORY, &self.project)
+    }
+
+    pub(super) fn waiting_id(&self) -> String {
+        vault::project_entry_id(PROJECT_MEMORY_WAITING, &self.project)
     }
 }
 
@@ -181,11 +185,12 @@ async fn sync(core: &Arc<Core>) {
         end(core, &mut state, &shared);
         state.shared = shared.clone();
     }
-    for shared in shared.values() {
+    for (local, shared) in &shared {
         mirror(core, shared);
         if shared.writes {
             push(core, shared).await;
         }
+        super::waiting::sync(core, local, shared).await;
     }
 }
 

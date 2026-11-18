@@ -188,8 +188,14 @@ fn row(
     if entry.sensitive {
         words.push(t!("Sensitive").to_owned());
     }
-    if store == Store::Project && org.is_some() {
-        words.push(t!("Only you").to_owned());
+    match (&entry.dropped, org) {
+        _ if entry.waiting => words.push(t!("Waits for an admin").to_owned()),
+        (Some(by), Some(_)) if !by.is_empty() => {
+            words.push(t!("Only you, dropped by {by}", by = by))
+        }
+        (Some(_), Some(_)) => words.push(t!("Only you, dropped by an admin").to_owned()),
+        _ if store == Store::Project && org.is_some() => words.push(t!("Only you").to_owned()),
+        _ => {}
     }
     match moved {
         Some(moved) => {
@@ -255,28 +261,46 @@ fn row(
     );
     let mut hover = Vec::new();
     let mut moves = Vec::new();
-    if moved.is_none() && store != Store::Org {
+    if moved.is_none() && store != Store::Org && !entry.waiting {
         moves.push(store.other());
         if store == Store::Project && org.is_some() {
             moves.push(Store::Org);
         }
     }
+    if entry.waiting {
+        let (folder, this) = (folder.to_owned(), this.clone());
+        hover.push(
+            Button::new(
+                SharedString::from(format!("playbook-take-back-{id}")),
+                t!("Take back"),
+                Variant::Outline,
+            )
+            .on_click(move |_, _, cx| {
+                this.update(cx, |bench, cx| take_back(bench, &folder, id, cx))
+            })
+            .into_any_element(),
+        );
+    }
     for to in moves {
         let (folder, this) = (folder.to_owned(), this.clone());
-        let org = org.map(str::to_owned);
+        let org = (org.map(str::to_owned)).filter(|_| !(to == Store::Org && entry.asks));
+        let asks = (to == Store::Org && entry.asks)
+            .then(|| entry.org.clone())
+            .flatten();
         hover.push(
             Button::new(
                 SharedString::from(format!("playbook-move-{id}-{to:?}")),
                 t!(
                     "Move to {store}",
-                    store = store_name(to, project, org.as_deref())
+                    store = store_name(to, project, org.as_deref().or(asks.as_deref()))
                 ),
                 Variant::Outline,
             )
             .icon(Icon::Move)
             .on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| {
-                    move_entry(bench, &folder, id, to, org.as_deref(), cx)
+                this.update(cx, |bench, cx| match &asks {
+                    Some(org) => ask_admins(bench, &folder, id, org, cx),
+                    None => move_entry(bench, &folder, id, to, org.as_deref(), cx),
                 })
             })
             .into_any_element(),
@@ -427,6 +451,46 @@ fn move_entry(
         asked,
         t!("It was not moved"),
         move |bench, _, cx| bench.notify(toast::success(said), cx),
+        cx,
+    );
+}
+
+/// Moves an entry to the org's store whose owners and admins approve its rules: it waits on
+/// their list, still applying here meanwhile.
+fn ask_admins(
+    bench: &mut Workbench,
+    folder: &str,
+    id: u64,
+    org: &str,
+    cx: &mut Context<Workbench>,
+) {
+    let asked = bench
+        .target()
+        .request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
+            store: Some(Store::Org),
+            ..update(folder, id)
+        });
+    let said = t!("Sent to {org}'s admins", org = org);
+    bench.report(
+        asked,
+        t!("It was not sent"),
+        move |bench, _, cx| bench.notify(toast::success(said), cx),
+        cx,
+    );
+}
+
+/// Takes an entry back off the org's waiting list; it stays in the project's own store.
+fn take_back(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workbench>) {
+    let asked = bench
+        .target()
+        .request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
+            store: Some(Store::Project),
+            ..update(folder, id)
+        });
+    bench.report(
+        asked,
+        t!("It was not taken back"),
+        |bench, _, cx| bench.notify(toast::success(t!("Taken back")), cx),
         cx,
     );
 }
