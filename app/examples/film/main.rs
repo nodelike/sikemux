@@ -203,6 +203,9 @@ fn main() -> anyhow::Result<()> {
         .transpose()?;
     let signs_in_at_step = steps.iter().any(|step| step.verb == "signed-in");
     let mut world = World::start(&args, replies, team, &clock, account, signs_in_at_step)?;
+    if let Some(origin) = header("origin") {
+        world.origin = Some(origin.text(0)?.to_owned());
+    }
 
     let bench = Rc::new(RefCell::new(None));
     let kept = bench.clone();

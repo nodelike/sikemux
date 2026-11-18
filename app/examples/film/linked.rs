@@ -299,6 +299,26 @@ impl World {
         account.tell(&format!("{what} {value} {org}"), &format!("done {value}"))
     }
 
+    /// Shares the scene's project with org `org`, once this core knows the org.
+    pub(super) fn org_share(&self, org: &str) -> anyhow::Result<()> {
+        let (project, _) = self.project()?.clone();
+        for _ in 0..300 {
+            let vaults = self
+                .runtime
+                .block_on(self.client.call("orgVaults", json!({})))?;
+            let known =
+                (vaults.as_array().into_iter().flatten()).find(|vault| vault["name"] == org);
+            if let Some(vault) = known {
+                let params = json!({ "project": project, "org": vault["org"] });
+                self.runtime
+                    .block_on(self.client.call("shareProject", params))?;
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        bail!("this core never heard of {org}")
+    }
+
     /// Saves a key to `provider` in org `org`'s vault from host `name` or `here`, once that
     /// host may write there.
     pub(super) fn org_key(&self, name: &str, org: &str, provider: &str) -> anyhow::Result<()> {

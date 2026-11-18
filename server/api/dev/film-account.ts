@@ -13,7 +13,8 @@ import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
  * real API, all in the folder it is given and gone when its input closes. It prints the API's
  * address, then answers lines on its input: `approve CODE` approves that host sign-in as the
  * person, `role ROLE ORG` has the owner of an org the person doesn't own give them ROLE in it,
- * and `plan active|lapsed ORG` sets the org's plan, which hosts read at their next role change.
+ * `plan active|lapsed ORG` sets the org's plan, which hosts read at their next role change, and
+ * `policy every_member|admins_approve ORG` has the org's owner set who may add its rules.
  *
  *   node dev/film-account.ts FOLDER '{"person":"ines","orgs":[...]}'
  *
@@ -271,6 +272,15 @@ async function setPlan(name: string, plan: string) {
   );
 }
 
+async function setPolicy(name: string, ruleAdding: string) {
+  const org = seeded.get(name);
+  if (!org) throw new Error(`no org named ${name}`);
+  await as(org.owner, `/v1/orgs/${org.id}/policy`, {
+    method: "PUT",
+    body: JSON.stringify({ ruleAdding, asking: true, dailyQuestions: 30 }),
+  });
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
   const [verb, arg, ...rest] = line.trim().split(" ");
   if (!verb || !arg) continue;
@@ -278,6 +288,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     await as(person, `/v1/host-sign-ins/${arg}/approve`, { method: "POST" });
   else if (verb === "role") await setRole(rest.join(" "), arg);
   else if (verb === "plan") await setPlan(rest.join(" "), arg);
+  else if (verb === "policy") await setPolicy(rest.join(" "), arg);
   else continue;
   console.log(`${verb === "approve" ? "approved" : "done"} ${arg}`);
 }

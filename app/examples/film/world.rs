@@ -18,8 +18,8 @@ pub(super) struct World {
     named: std::collections::HashMap<String, String>,
     /// The folder of the checkout the last `core` call made, for `$checkout`.
     checkout: Option<String>,
-    /// The remote every project gets, in a scene on a recorded team.
-    origin: Option<String>,
+    /// The remote every project gets, in a scene on a recorded team or one naming an `origin`.
+    pub(super) origin: Option<String>,
     pub(super) claude: PathBuf,
     pub(super) world: Value,
     pub(super) core_program: PathBuf,
@@ -543,6 +543,8 @@ impl World {
             "orgrole" => self.org_change("role", step.text(0)?, step.text(1)?)?,
             "orgplan" => self.org_change("plan", step.text(0)?, step.text(1)?)?,
             "orgkey" => self.org_key(step.text(0)?, step.text(1)?, step.text(2)?)?,
+            "orgpolicy" => self.org_change("policy", step.text(0)?, step.text(1)?)?,
+            "orgshare" => self.org_share(step.text(0)?)?,
             "chat" => {
                 let (project, _) = self.project()?.clone();
                 let (chat, _) = self.runtime.block_on(self.client.start_chat(
