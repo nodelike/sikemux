@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::ui::Clicks;
-use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice, WorkerPage};
+use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice, WorkerPage, REPLY_URI};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -1574,6 +1574,104 @@ pub(super) fn subagent(
         .into_any_element()
 }
 
+/// `look` with a reply button beside each paragraph and list item of the text `text`, which
+/// puts that part in the draft's reply.
+fn with_reply(
+    look: Rc<Style>,
+    row: &ChatRow,
+    text: &SharedString,
+    looks: &Drawn,
+    cx: &App,
+) -> Rc<Style> {
+    let message = row.message.id.clone();
+    let tagged = format!("{REPLY_URI}{message}#{text}.");
+    let chosen: Rc<[usize]> = (looks.bench.upgrade())
+        .and_then(|bench| {
+            let composing = bench.read(cx).composing(&looks.agent)?;
+            let places = (composing.context.iter())
+                .filter_map(|item| item.uri.strip_prefix(&tagged)?.parse().ok())
+                .collect();
+            Some(places)
+        })
+        .unwrap_or_else(|| Rc::from([]));
+    let hovered = (looks.reading.quoting.as_ref())
+        .filter(|(over, _)| over == text)
+        .map(|(_, place)| *place);
+    let on_hover = {
+        let (reader, text) = (looks.reader.clone(), text.clone());
+        Rc::new(
+            move |place: usize, over: bool, _: &mut Window, cx: &mut App| {
+                reader.update(cx, |reading, cx| {
+                    let here = Some((text.clone(), place));
+                    if over {
+                        reading.quoting = here;
+                    } else if reading.quoting == here {
+                        reading.quoting = None;
+                    } else {
+                        return;
+                    }
+                    cx.notify();
+                })
+            },
+        )
+    };
+    let button = {
+        let (bench, agent, reader, text) = (
+            looks.bench.clone(),
+            looks.agent.clone(),
+            looks.reader.clone(),
+            text.clone(),
+        );
+        let accent = looks.accent;
+        Rc::new(
+            move |place: usize, quote: String, chosen: bool, _: &mut Window, _: &mut App| {
+                let (bench, agent, reader, message) = (
+                    bench.clone(),
+                    agent.clone(),
+                    reader.clone(),
+                    message.clone(),
+                );
+                let part = format!("{text}.{place}");
+                let label = match chosen {
+                    true => t!("Take out of the reply"),
+                    false => t!("Reply to this part"),
+                };
+                IconButton::new(
+                    SharedString::from(format!("reply:{part}")),
+                    Icon::Reply,
+                    label,
+                )
+                .glyph(13.)
+                .width(24.)
+                .pressed(chosen)
+                .when(chosen, |button| button.tint(accent))
+                .on_click(move |_, window, cx| {
+                    bench
+                        .update(cx, |bench, cx| {
+                            bench.reply_to(&agent, &message, Some(&part), &quote, window, cx)
+                        })
+                        .ok();
+                    reader.update(cx, |_, cx| cx.notify());
+                })
+                .into_any_element()
+            },
+        )
+    };
+    Rc::new(Style {
+        reply: Some(gpui_transcript::Reply {
+            hovered,
+            chosen,
+            gutter: px(REPLY_GUTTER),
+            on_hover,
+            button,
+        }),
+        ..(*look).clone()
+    })
+}
+
+/// The room right of an answer's text that holds a paragraph's reply button.
+const REPLY_GUTTER: f32 = 32.;
+
 pub(super) fn part(
     row: &ChatRow,
     part: &ChatPart,
@@ -1619,6 +1717,10 @@ pub(super) fn part(
                 attach::with_chips(look, &row.message, &looks.bench, window)
             } else {
                 attach::with_why(look, &row.message, &looks.agent, &looks.bench, window, cx)
+            };
+            let look = match part {
+                ChatPart::Text { .. } if !user => with_reply(look, row, &id, looks, cx),
+                _ => look,
             };
             let cut = (doc.units > LONG_TEXT && looks.reading.folds(&row.message.id, &id))
                 .then(|| doc.markdown.cut(LONG_TEXT))

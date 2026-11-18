@@ -53,6 +53,24 @@ pub type OnLink = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// is now done.
 pub type OnTask = Rc<dyn Fn(usize, &str, bool, &mut Window, &mut App)>;
 pub type DrawFence = Rc<dyn Fn(Fence, &mut Window, &mut App) -> AnyElement>;
+
+/// Lets the reader reply to one paragraph or top-level list item of a text. Each such part is
+/// known by its place among them, in reading order.
+#[derive(Clone)]
+pub struct Reply {
+    pub hovered: Option<usize>,
+    /// The parts already in the reader's reply, which keep their button showing.
+    pub chosen: Rc<[usize]>,
+    /// The room to the right of the text that holds the button.
+    pub gutter: Pixels,
+    pub on_hover: OnPartHover,
+    pub button: PartButton,
+}
+
+/// Hears the pointer come onto a part, or leave it.
+pub type OnPartHover = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
+/// Draws a part's button from its place, its words as markdown, and whether it is chosen.
+pub type PartButton = Rc<dyn Fn(usize, String, bool, &mut Window, &mut App) -> AnyElement>;
 /// Styled runs over a code block's text, in bytes from its start.
 pub type CodeRuns = Rc<[(Range<usize>, HighlightStyle)]>;
 /// A fenced code block's colours from its language and text, once the host has them.
@@ -184,6 +202,7 @@ pub struct Style {
     pub on_link: Option<OnLink>,
     /// Makes task boxes clickable.
     pub on_task: Option<OnTask>,
+    pub reply: Option<Reply>,
     /// Draws the names that are files the host holds as files, and opens them.
     pub file_of: Option<FileOf>,
     pub on_file: Option<OnFile>,
@@ -250,6 +269,7 @@ impl Default for Style {
             link_underline: None,
             on_link: None,
             on_task: None,
+            reply: None,
             file_of: None,
             on_file: None,
             file_icon: None,
@@ -402,6 +422,15 @@ impl Blocks {
                 .sum(),
             None => 0,
         };
+        let parts = match self.style.reply {
+            Some(_) => self
+                .blocks
+                .iter()
+                .take(ix)
+                .map(|block| parts_in(block))
+                .sum(),
+            None => 0,
+        };
         let mut draw = Draw {
             on: self,
             block: ix,
@@ -410,6 +439,8 @@ impl Blocks {
             folds: 0,
             depth: 0,
             tasks,
+            parts,
+            underlined: false,
             align: TextAlign::Left,
             capitals: false,
         };
@@ -803,6 +834,10 @@ struct Draw<'a> {
     depth: usize,
     /// Task boxes drawn before the next, in the whole text.
     tasks: usize,
+    /// Parts a reply can quote drawn before the next, in the whole text.
+    parts: usize,
+    /// The text being drawn is underlined, as the part the pointer is over.
+    underlined: bool,
     /// The side the blocks being drawn line up to.
     align: TextAlign,
     /// Draws the text's letters as capitals, for a heading set as a label.
@@ -922,14 +957,68 @@ impl Draw<'_> {
             }
             Kind::Paragraph => match node.pictures() {
                 Some(pictures) => self.pictures(pictures, window, cx),
-                None if style.editorial && self.leads(node, ix) => div()
-                    .text_size(style.text_size * 1.07)
-                    .child(self.flow(node, window, cx))
-                    .into_any_element(),
-                None => self.flow(node, window, cx),
+                None if style.editorial && self.leads(node, ix) => {
+                    let size = style.text_size * 1.07;
+                    self.quotable(node, 0, window, cx, move |draw, window, cx| {
+                        div()
+                            .text_size(size)
+                            .child(draw.flow(node, window, cx))
+                            .into_any_element()
+                    })
+                }
+                None => self.quotable(node, 0, window, cx, |draw, window, cx| {
+                    draw.flow(node, window, cx)
+                }),
             },
             _ => self.flow(node, window, cx),
         }
+    }
+
+    /// A paragraph or top-level list item, with a reply button in the gutter while the pointer
+    /// is over it or the reader chose it, and its words underlined while the pointer is over it.
+    fn quotable(
+        &mut self,
+        node: &Node,
+        depth: usize,
+        window: &mut Window,
+        cx: &mut App,
+        draw: impl FnOnce(&mut Self, &mut Window, &mut App) -> AnyElement,
+    ) -> AnyElement {
+        let reply = match &self.on.style.reply {
+            Some(reply) if self.depth == depth => reply.clone(),
+            _ => return draw(self, window, cx),
+        };
+        let place = self.parts;
+        self.parts += 1;
+        let hovered = reply.hovered == Some(place);
+        let chosen = reply.chosen.contains(&place);
+        let outer = std::mem::replace(&mut self.underlined, hovered);
+        let drawn = draw(self, window, cx);
+        self.underlined = outer;
+        let button =
+            (hovered || chosen).then(|| (reply.button)(place, node.quoted(), chosen, window, cx));
+        let line = self.on.style.text_size * self.on.style.line_height;
+        let on_hover = reply.on_hover.clone();
+        div()
+            .id(self.id("part"))
+            .relative()
+            .mr(-reply.gutter)
+            .pr(reply.gutter)
+            .on_hover(move |hovered, window, cx| on_hover(place, *hovered, window, cx))
+            .child(drawn)
+            .children(button.map(|button| {
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .w(reply.gutter)
+                    .h(line)
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .child(button)
+            }))
+            .into_any_element()
     }
 
     /// An element's content: its inline runs as text, its blocks as blocks.
@@ -1146,6 +1235,20 @@ impl Draw<'_> {
             }
         }
         let own = hide_chip_words(own, &chips);
+        let own = match self.underlined {
+            true => {
+                let line = HighlightStyle {
+                    underline: Some(UnderlineStyle {
+                        thickness: px(1.),
+                        color: Some(style.accent),
+                        wavy: false,
+                    }),
+                    ..HighlightStyle::default()
+                };
+                combine_highlights([(0..rich.text.len(), line)], own).collect()
+            }
+            false => own,
+        };
         let looks = match colours {
             Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
             None => own,
@@ -1402,10 +1505,13 @@ impl Draw<'_> {
                         .into_any_element(),
                     _ => div().pl(px(6.)).child(bullet).into_any_element(),
                 };
-                div()
-                    .flex()
-                    .child(div().w(px(22.)).flex_none().child(marker))
-                    .child(div().flex_1().min_w_0().child(self.flow(item, window, cx)))
+                self.quotable(item, 1, window, cx, move |draw, window, cx| {
+                    div()
+                        .flex()
+                        .child(div().w(px(22.)).flex_none().child(marker))
+                        .child(div().flex_1().min_w_0().child(draw.flow(item, window, cx)))
+                        .into_any_element()
+                })
             })
             .collect();
         self.depth -= 1;
@@ -2084,6 +2190,15 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
 
 fn spaced(row: Div) -> Div {
     row.letter_spacing(0.06)
+}
+
+/// The parts of `node` a reply can quote: its paragraphs of words and its lists' items.
+fn parts_in(node: &Node) -> usize {
+    match node.kind {
+        Kind::Paragraph => usize::from(node.pictures().is_none()),
+        Kind::Bullets | Kind::Numbers(_) => node.children.len(),
+        _ => node.children.iter().map(parts_in).sum(),
+    }
 }
 
 fn tasks_in(node: &Node) -> usize {

@@ -532,6 +532,8 @@ struct Reading {
     /// The whole briefs fresh sessions started from that the reader asked to read, by when
     /// each started, or why it could not be read.
     briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
+    /// The paragraph or list item the pointer is over, by its text and its place in the text.
+    quoting: Option<(SharedString, usize)>,
 }
 
 impl Reading {

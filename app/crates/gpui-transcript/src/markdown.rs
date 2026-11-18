@@ -164,16 +164,54 @@ impl Node {
 
     /// A cell's content as the markdown that wrote it.
     fn inline_source(&self) -> String {
+        self.written(true)
+    }
+
+    /// A paragraph or list item written back as markdown, as a reply quotes it.
+    pub fn quoted(&self) -> String {
+        match &self.kind {
+            Kind::Bullets | Kind::Numbers(_) => (self.children.iter())
+                .map(|item| format!("- {}", item.quoted()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Kind::Paragraph | Kind::Item(_) | Kind::Quote => {
+                let mut lines: Vec<String> = Vec::new();
+                let mut inline = String::new();
+                for child in &self.children {
+                    if child.kind.is_inline() {
+                        inline.push_str(&child.written(false));
+                        continue;
+                    }
+                    if !inline.trim().is_empty() {
+                        lines.push(std::mem::take(&mut inline).trim().to_owned());
+                    }
+                    lines.push(child.quoted());
+                }
+                if !inline.trim().is_empty() {
+                    lines.push(inline.trim().to_owned());
+                }
+                lines.join("\n")
+            }
+            _ => self.written(false),
+        }
+    }
+
+    /// Inline content as the markdown that wrote it, with a cell's bars escaped when `cell`.
+    fn written(&self, cell: bool) -> String {
         let inner = || {
             self.children
                 .iter()
-                .map(Node::inline_source)
+                .map(|child| child.written(cell))
                 .collect::<String>()
         };
+        let raw = |text: &str| match cell {
+            true => text.replace('|', "\\|"),
+            false => text.to_owned(),
+        };
         match &self.kind {
-            Kind::Text => self.text.replace('|', "\\|"),
-            Kind::InlineCode => format!("`{}`", self.text.replace('|', "\\|")),
-            Kind::Math => format!("${}$", self.text.replace('|', "\\|")),
+            Kind::Text => raw(&self.text),
+            Kind::InlineCode => format!("`{}`", raw(&self.text)),
+            Kind::Math => format!("${}$", raw(&self.text)),
             Kind::Strong => format!("**{}**", inner()),
             Kind::Emphasis => format!("*{}*", inner()),
             Kind::Strike => format!("~~{}~~", inner()),

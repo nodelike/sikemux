@@ -20,7 +20,7 @@ mod transcript;
 
 pub use draw::{
     Chip, CodeCard, CodeColours, CodeIcon, CodeRuns, DrawFence, DrawImage, Fence, Fences, FileIcon,
-    FileKind, FileOf, FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Style,
+    FileKind, FileOf, FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Reply, Style,
 };
 pub use find::{DocFind, FoundChanged, Query};
 pub use markdown::{Kind, Markdown, Marks, Node, Picture, Piece, Rich, Table};

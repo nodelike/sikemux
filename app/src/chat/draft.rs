@@ -206,12 +206,14 @@ impl Workbench {
         );
     }
 
-    /// Quotes the answer `message` of `agent`'s chat in its draft, in place of any quote there,
-    /// and puts the keys in the draft.
+    /// Quotes the answer `message` of `agent`'s chat in its draft, or the part of it `part`
+    /// names, after any quotes already there, and puts the keys in the draft. Quoting the same
+    /// words again takes them out.
     pub fn reply_to(
         &mut self,
         agent: &str,
         message: &str,
+        part: Option<&str>,
         quote: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -219,21 +221,29 @@ impl Workbench {
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };
-        let quote = match quote.char_indices().nth(QUOTE_MAX) {
-            Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
-            None => quote.to_owned(),
+        let uri = match part {
+            Some(part) => format!("{REPLY_URI}{message}#{part}"),
+            None => format!("{REPLY_URI}{message}"),
         };
-        composing
-            .context
-            .retain(|item| !item.uri.starts_with(REPLY_URI));
-        composing.context.insert(
-            0,
-            ChatContext {
-                uri: format!("{REPLY_URI}{message}"),
-                title: "Earlier answer".to_owned(),
-                text: quote,
-            },
-        );
+        let before = composing.context.len();
+        composing.context.retain(|item| item.uri != uri);
+        if composing.context.len() == before {
+            let quote = match quote.char_indices().nth(QUOTE_MAX) {
+                Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
+                None => quote.to_owned(),
+            };
+            let after = (composing.context.iter())
+                .take_while(|item| item.uri.starts_with(REPLY_URI))
+                .count();
+            composing.context.insert(
+                after,
+                ChatContext {
+                    uri,
+                    title: "Earlier answer".to_owned(),
+                    text: quote,
+                },
+            );
+        }
         let draft = composing.draft.clone();
         draft.read(cx).focus_handle(cx).focus(window, cx);
         self.typed_draft(agent, cx);
