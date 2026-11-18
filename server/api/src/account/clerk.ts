@@ -51,9 +51,13 @@ type Fetch = (
 ) => Promise<Response>;
 
 /** Clerk lets a reserved address sign in before it is verified. */
-function signsIn(address: { verification?: { status?: string } | null }) {
-  const status = address.verification?.status;
-  return status === "verified" || status === "reserved";
+function signsIn(address: {
+  reserved?: boolean;
+  verification?: { status?: string } | null;
+}) {
+  return (
+    address.verification?.status === "verified" || address.reserved === true
+  );
 }
 
 export const CLERK_API = "https://api.clerk.com";
@@ -69,6 +73,7 @@ interface ClerkUser {
     id?: string;
     email_address?: string;
     created_at?: number;
+    reserved?: boolean;
     verification?: { status?: string } | null;
   }[];
   external_accounts?: {
