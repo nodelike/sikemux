@@ -35,8 +35,6 @@ struct List {
 #[serde(rename_all = "camelCase")]
 struct Item {
     member: String,
-    /// The member's first name.
-    from: Option<String>,
     entry: Waiting,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     decided: Option<Decided>,
@@ -78,24 +76,29 @@ impl Waiting {
 )]
 pub(super) enum Decided {
     Kept,
-    Dropped { by: Option<String> },
+    /// By the membership of the owner or admin who dropped it.
+    Dropped {
+        by: String,
+    },
 }
 
 fn item_key(member: &str, id: u64) -> String {
     format!("{member}:{id}")
 }
 
-fn call_key(shared: &Shared, item: &str, entry: &Waiting) -> String {
+fn words(entry: &Waiting) -> String {
     use sha2::{Digest, Sha256};
-    let words = Sha256::digest(entry.text().as_bytes());
-    let words = hex::encode(words.into_iter().take(6).collect::<Vec<u8>>());
-    format!("{ORG_WAITING}{}|{item}|{words}", shared.key())
+    hex::encode(Sha256::digest(entry.text().as_bytes()))
 }
 
-/// The org's store and the waiting entry it was asked about, from a call's key.
-fn parse(key: &str) -> Option<(&str, &str)> {
+fn call_key(shared: &Shared, item: &str, entry: &Waiting) -> String {
+    format!("{ORG_WAITING}{}|{item}|{}", shared.key(), words(entry))
+}
+
+/// The org's store, the waiting entry it was asked about and its words' hash, from a call's key.
+fn parse(key: &str) -> Option<(&str, &str, &str)> {
     let mut parts = key.strip_prefix(ORG_WAITING)?.split('|');
-    Some((parts.next()?, parts.next()?))
+    Some((parts.next()?, parts.next()?, parts.next()?))
 }
 
 /// Moving entry `id` of the project's own store to the org's, while its owners and admins approve
@@ -193,10 +196,19 @@ pub(super) async fn sync(core: &Arc<Core>, local: &str, shared: &Shared) {
 }
 
 /// Puts this host's waiting entries on the list as they are now, and takes in what an owner or
-/// admin decided of them: a kept entry leaves the project's own store, a dropped one stays there.
+/// admin decided of them: a kept entry leaves the project's own store once the org's store has
+/// its words, a dropped one stays there.
 fn settle_mine(core: &Core, local: &str, shared: &Shared, list: &mut List) {
     let memory = core.memory();
     let mut state = memory.state.locked();
+    let in_org: Vec<String> = (state.held.get(&shared.key()))
+        .map(|org| {
+            let rules = org.rules.iter().map(|rule| &rule.text);
+            (rules.chain(org.knowledge.iter().map(|known| &known.text)))
+                .map(|text| text.to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
     let Some(held) = state.held.get_mut(local) else {
         return;
     };
@@ -215,6 +227,11 @@ fn settle_mine(core: &Core, local: &str, shared: &Shared, list: &mut List) {
         let waits = held.waiting.contains(&id);
         match item.decided.clone() {
             Some(Decided::Kept) => {
+                let kept = Waiting::of(held, id)
+                    .is_some_and(|mine| in_org.contains(&mine.text().to_lowercase()));
+                if waits && !kept {
+                    continue;
+                }
                 if waits {
                     held.rules.retain(|rule| rule.id != id);
                     held.knowledge.retain(|known| known.id != id);
@@ -226,7 +243,8 @@ fn settle_mine(core: &Core, local: &str, shared: &Shared, list: &mut List) {
             Some(Decided::Dropped { by }) => {
                 if waits {
                     held.waiting.remove(&id);
-                    held.dropped.insert(id, by.unwrap_or_default());
+                    let by = shared.names.get(&by).cloned().unwrap_or_default();
+                    held.dropped.insert(id, by);
                     changed = true;
                 }
                 list.items.remove(&key);
@@ -237,7 +255,6 @@ fn settle_mine(core: &Core, local: &str, shared: &Shared, list: &mut List) {
             },
         }
     }
-    let from = moving::first_name(core);
     for id in held.waiting.clone() {
         let key = item_key(&shared.member, id);
         if list.items.contains_key(&key) {
@@ -249,7 +266,6 @@ fn settle_mine(core: &Core, local: &str, shared: &Shared, list: &mut List) {
                     key,
                     Item {
                         member: shared.member.clone(),
-                        from: from.clone(),
                         entry,
                         decided: None,
                     },
@@ -321,7 +337,7 @@ fn ask(core: &Core, local: &str, shared: &Shared, list: &List) {
 }
 
 fn call_for(project: String, name: &str, shared: &Shared, key: String, item: &Item) -> Raise {
-    let from = item.from.as_deref().unwrap_or("A member");
+    let from = (shared.names.get(&item.member)).map_or("A member", String::as_str);
     let (what, them) = match item.entry {
         Waiting::Rule { .. } => ("rule", "follow it"),
         Waiting::Knowledge { .. } => ("note", "know it"),
@@ -379,26 +395,27 @@ fn ended(result: CallResult) -> CallOutcome {
 /// store under its member's name, and the list hears the answer at the next sync.
 pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
     person_calls::set_outcome(core, &call.id, ended(CallResult::Heard));
-    let Some((store, item_at)) = parse(key) else {
+    let Some((store, item_at, shown)) = parse(key) else {
         return;
     };
     let picked = call
         .answer
         .as_ref()
         .and_then(|answer| answer.option.as_deref());
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    let Some((member, item)) = waiting_item(core, &state, store, item_at) else {
+        return;
+    };
+    if words(&item.entry) != shown {
+        return;
+    }
     let decision = match picked {
         Some(KEEP) => Decided::Kept,
-        Some(DROP) => Decided::Dropped {
-            by: moving::first_name(core),
-        },
+        Some(DROP) => Decided::Dropped { by: member },
         _ => return,
     };
-    let memory = core.memory();
     if decision == Decided::Kept {
-        let mut state = memory.state.locked();
-        let Some(item) = waiting_item(core, &state, store, item_at) else {
-            return;
-        };
         if let Err(problem) = keep(&mut state, store, item) {
             eprintln!("sikemux core: a waiting rule was not kept: {problem}");
             return;
@@ -406,6 +423,8 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
         memory.save(&mut state, store);
         drop(state);
         tell_clients(core, false);
+    } else {
+        drop(state);
     }
     memory
         .decided
@@ -414,13 +433,13 @@ pub(crate) fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
     memory.org_sync.notify_one();
 }
 
-fn waiting_item(core: &Core, state: &State, store: &str, item: &str) -> Option<Item> {
+/// This host's membership in the org, and the entry still waiting under `item` on its list.
+fn waiting_item(core: &Core, state: &State, store: &str, item: &str) -> Option<(String, Item)> {
     let shared = state.shared.values().find(|shared| shared.key() == store)?;
     let read = vault::read(core, &shared.org, &shared.waiting_id())??;
     let mut list: List = serde_json::from_value(read.body).ok()?;
-    list.items
-        .remove(item)
-        .filter(|item| item.decided.is_none())
+    let item = (list.items.remove(item)).filter(|item| item.decided.is_none())?;
+    Some((shared.member.clone(), item))
 }
 
 fn keep(state: &mut State, store: &str, item: Item) -> Result<(), String> {
