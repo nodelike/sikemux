@@ -220,13 +220,18 @@ pub(super) async fn serve(core: Arc<Core>) {
 }
 
 async fn sync(core: &Arc<Core>) {
-    let Some((shared, shut)) = shared(core).await else {
+    let Some(Sharing {
+        shared,
+        shut,
+        unheard,
+    }) = sharing(core).await
+    else {
         return;
     };
     {
         let memory = core.memory();
         let mut state = memory.state.locked();
-        end(core, &mut state, &shared);
+        end(core, &mut state, &shared, &unheard);
         state.shared = shared.clone();
         state.shut = shut;
     }
@@ -239,10 +244,18 @@ async fn sync(core: &Arc<Core>) {
     }
 }
 
-/// The projects open here that this account's person shares with one org, by their store's
-/// key, and those whose org's vault this host cannot open, with the org's name; none until this
-/// host has heard the registry, the account's orgs and each of those orgs' vaults.
-async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<String, String>)> {
+/// The projects open here that this account's person shares with one org, by their store's key.
+struct Sharing {
+    shared: HashMap<String, Shared>,
+    /// Those whose org's vault this host cannot open, with the org's name.
+    shut: HashMap<String, String>,
+    /// The orgs whose vault this host holds no key to and has not heard from yet, whose projects
+    /// are in neither map.
+    unheard: HashSet<String>,
+}
+
+/// None until this host has heard the registry and the account's orgs.
+async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
     let registry = crate::server::account::shares::read(core).await?;
     let account = core.account().shown()?;
     let orgs = sikemux_corekit::accounts::orgs(Some(&account));
@@ -255,7 +268,7 @@ async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<St
             }
         }
     }
-    let (mut shared, mut shut) = (HashMap::new(), HashMap::new());
+    let (mut shared, mut shut, mut unheard) = (HashMap::new(), HashMap::new(), HashSet::new());
     for identity in (core.workspaces().projects().into_iter()).filter_map(|known| known.identity) {
         let project = crate::server::shares::key(&identity);
         let mut mine = (registry.orgs.iter())
@@ -269,9 +282,16 @@ async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<St
         ) else {
             continue;
         };
-        if !vault::holds_key(core, &list.org)? {
-            shut.insert(identity, org.name.clone());
-            continue;
+        match vault::holds_key(core, &list.org) {
+            Some(true) => {}
+            Some(false) => {
+                shut.insert(identity, org.name.clone());
+                continue;
+            }
+            None => {
+                unheard.insert(list.org.clone());
+                continue;
+            }
         }
         let manages = vault::manages_org(core, &list.org);
         let approves = crate::server::account::org_policy(core, &list.org)
@@ -295,13 +315,23 @@ async fn shared(core: &Arc<Core>) -> Option<(HashMap<String, Shared>, HashMap<St
             },
         );
     }
-    Some((shared, shut))
+    Some(Sharing {
+        shared,
+        shut,
+        unheard,
+    })
 }
 
-/// Ends each org's store kept here that no project open here is shared with any more: what this
-/// account's person put there comes back to the project's own store, and the rest goes.
-fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>) {
+/// Ends each org's store kept here that no project open here is shared with any more, leaving
+/// those of `unheard` orgs alone: what this account's person put there comes back to the project's
+/// own store, and the rest goes.
+fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>, unheard: &HashSet<String>) {
     let open: HashSet<String> = now.values().map(Shared::key).collect();
+    let waits = |key: &str| {
+        (key.strip_prefix("org:")
+            .and_then(|rest| rest.split(':').next()))
+        .is_some_and(|org| unheard.contains(org))
+    };
     let was = |key: &str| {
         (state.shared.iter())
             .find(|(_, was)| was.key() == key)
@@ -311,7 +341,7 @@ fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>) {
             })
     };
     let ended: Vec<(String, Option<KeptFor>)> = (state.held.values())
-        .filter(|held| held.store == Store::Org && !open.contains(&held.key))
+        .filter(|held| held.store == Store::Org && !open.contains(&held.key) && !waits(&held.key))
         .map(|held| {
             (
                 held.key.clone(),
