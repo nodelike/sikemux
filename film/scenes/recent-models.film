@@ -4,8 +4,11 @@ window 1440 900
 signed-in
 project storefront shop
 chat Scout opencode opencode/nemotron-3.5-super-vl-free
+settle 6
 chat Tally opencode opencode/deepseek-v4.1-flash-free
+settle 6
 chat Pike opencode opencode/big-pickle
+settle 6
 chat Mira opencode
 title "Order emails"
 settle 8
