@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Org, OrgRole } from "@sikemux/protocol";
 import type { Context } from "hono";
 import type { Kysely, Selectable, Transaction } from "kysely";
@@ -9,6 +10,10 @@ import { seatLimit, seatsHeld } from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { conflict, forbidden, notFound } from "../http.ts";
+
+/** An invite link's token is kept only as this hash. */
+export const inviteTokenHash = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NOT_IN_ORG = "You are not in an org with that id.";

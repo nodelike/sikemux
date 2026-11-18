@@ -454,6 +454,8 @@ pub enum ErrorCode {
     Unavailable,
     #[serde(rename = "reverify_required")]
     ReverifyRequired,
+    #[serde(rename = "address_proven")]
+    AddressProven,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -492,6 +494,106 @@ pub struct FcmTokenRegistration {
 pub struct Flags {
     /// The names of the features switched off, such as staffFeed.
     pub off: Vec<String>,
+}
+
+/// Whether to ask a new account's person if they already have an account.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldCatch {
+    pub ask: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<FoldWhy>,
+    /// The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in.
+    pub must_fold: bool,
+    /// The new account's own sign-in address, shown only to its own person.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// The org the invite, the proven domain or the address's proof is for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_name: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldCatchRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<FoldHint>,
+    /// With hint invite: the invite link's token, so the answer can name its org.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite_token: Option<String>,
+}
+
+/// What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FoldHint {
+    #[serde(rename = "invite")]
+    Invite,
+    #[serde(rename = "share")]
+    Share,
+    #[serde(rename = "browser")]
+    Browser,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A fold waiting for the person's other account to confirm it, on this browser, within ten minutes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldIntent {
+    pub id: String,
+    /// Kept by the browser that started the fold; the other account sends it to confirm.
+    pub secret: String,
+    pub expires_at: String,
+}
+
+/// What confirming the fold does, for the confirmation screen.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldPreview {
+    pub why: FoldWhy,
+    /// The work address the kept account proves.
+    pub address: String,
+    /// The name of the account that stays.
+    pub kept_name: Option<String>,
+    pub org_name: Option<String>,
+    /// The orgs whose seats move to the account that stays.
+    pub seats: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldSecret {
+    pub secret: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldStart {
+    pub why: FoldWhy,
+    /// With why invite: the invite link's token, so the confirmation names its org.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite_token: Option<String>,
+}
+
+/// Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FoldWhy {
+    #[serde(rename = "invite")]
+    Invite,
+    #[serde(rename = "share")]
+    Share,
+    #[serde(rename = "browser")]
+    Browser,
+    #[serde(rename = "domain")]
+    Domain,
+    #[serde(rename = "address")]
+    Address,
+    #[serde(rename = "seat")]
+    Seat,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Whether the API can serve requests, and which build is answering.
@@ -1927,6 +2029,14 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "EventId" => through::<EventId>(json),
         "FcmTokenRegistration" => through::<PushTokenRegistration>(json),
         "Flags" => through::<Flags>(json),
+        "FoldCatch" => through::<FoldCatch>(json),
+        "FoldCatchRequest" => through::<FoldCatchRequest>(json),
+        "FoldHint" => through::<FoldHint>(json),
+        "FoldIntent" => through::<FoldIntent>(json),
+        "FoldPreview" => through::<FoldPreview>(json),
+        "FoldSecret" => through::<FoldSecret>(json),
+        "FoldStart" => through::<FoldStart>(json),
+        "FoldWhy" => through::<FoldWhy>(json),
         "Health" => through::<Health>(json),
         "HealthStatus" => through::<HealthStatus>(json),
         "Invoice" => through::<Invoice>(json),

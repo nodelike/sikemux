@@ -881,6 +881,244 @@
         }
       }
     },
+    "/v1/account/fold/catch": {
+      "post": {
+        "operationId": "getFoldCatch",
+        "summary": "Whether to ask a new account's person if they already have an account",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FoldCatchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Whether to ask, and why. An account whose address opens no account of its own is asked whatever its age.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FoldCatch" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/fold/keep-new": {
+      "post": {
+        "operationId": "keepNewAccount",
+        "summary": "Keep a new account as it is: the person has no other",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "204": { "description": "The account is not asked again." },
+          "409": {
+            "description": "The address opens no account of its own, so the account can only be folded into another.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/folds": {
+      "post": {
+        "operationId": "startFold",
+        "summary": "Start folding one of your accounts into another, from the web app",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FoldStart" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The fold waits for the other account to confirm it within ten minutes. Why seat: this account stays and the other is folded into it; otherwise this account is folded.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FoldIntent" }
+              }
+            }
+          },
+          "403": {
+            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes, or did not come from the web app.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "This account holds more than seats, so it is never folded.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "Proving work addresses is not set up on this server.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/folds/{foldId}/preview": {
+      "post": {
+        "operationId": "previewFold",
+        "summary": "What confirming a fold does, read by the account that did not start it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "foldId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FoldSecret" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The address, the org and the seats the fold moves.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FoldPreview" }
+              }
+            }
+          },
+          "404": {
+            "description": "No fold waits with that id and secret: it expired, was used, or another browser started it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "It would fold an account into itself, or the account to fold holds more than seats.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/folds/{foldId}/confirm": {
+      "post": {
+        "operationId": "confirmFold",
+        "summary": "Fold the account: its seats and the work address's proof move, and it is deleted",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "foldId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FoldSecret" }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Folded. Confirming a fold already done answers the same."
+          },
+          "403": {
+            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes, or did not come from the web app.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No fold waits with that id and secret: it expired, or another browser started it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "It would fold an account into itself, the account to fold holds more than seats, or the address is proven on a third account.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/account/profile": {
       "get": {
         "operationId": "getAccountProfile",
@@ -5903,7 +6141,8 @@
           "rate_limited",
           "internal",
           "unavailable",
-          "reverify_required"
+          "reverify_required",
+          "address_proven"
         ]
       },
       "ErrorDetail": {
@@ -5966,6 +6205,110 @@
         },
         "required": ["off"],
         "additionalProperties": false
+      },
+      "FoldCatch": {
+        "description": "Whether to ask a new account's person if they already have an account.",
+        "type": "object",
+        "properties": {
+          "ask": { "type": "boolean" },
+          "why": { "$ref": "#/components/schemas/FoldWhy" },
+          "mustFold": {
+            "description": "The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in.",
+            "type": "boolean"
+          },
+          "address": {
+            "description": "The new account's own sign-in address, shown only to its own person.",
+            "type": "string"
+          },
+          "orgName": {
+            "description": "The org the invite, the proven domain or the address's proof is for.",
+            "type": "string"
+          }
+        },
+        "required": ["ask", "mustFold"],
+        "additionalProperties": false
+      },
+      "FoldCatchRequest": {
+        "type": "object",
+        "properties": {
+          "hint": { "$ref": "#/components/schemas/FoldHint" },
+          "inviteToken": {
+            "description": "With hint invite: the invite link's token, so the answer can name its org.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": false
+      },
+      "FoldHint": {
+        "description": "What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before.",
+        "type": "string",
+        "enum": ["invite", "share", "browser"]
+      },
+      "FoldIntent": {
+        "description": "A fold waiting for the person's other account to confirm it, on this browser, within ten minutes.",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "secret": {
+            "description": "Kept by the browser that started the fold; the other account sends it to confirm.",
+            "type": "string"
+          },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "secret", "expiresAt"],
+        "additionalProperties": false
+      },
+      "FoldPreview": {
+        "description": "What confirming the fold does, for the confirmation screen.",
+        "type": "object",
+        "properties": {
+          "why": { "$ref": "#/components/schemas/FoldWhy" },
+          "address": {
+            "description": "The work address the kept account proves.",
+            "type": "string"
+          },
+          "keptName": {
+            "description": "The name of the account that stays.",
+            "type": ["string", "null"]
+          },
+          "orgName": { "type": ["string", "null"] },
+          "seats": {
+            "description": "The orgs whose seats move to the account that stays.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["why", "address", "keptName", "orgName", "seats"],
+        "additionalProperties": false
+      },
+      "FoldSecret": {
+        "type": "object",
+        "properties": {
+          "secret": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "required": ["secret"],
+        "additionalProperties": false
+      },
+      "FoldStart": {
+        "type": "object",
+        "properties": {
+          "why": { "$ref": "#/components/schemas/FoldWhy" },
+          "inviteToken": {
+            "description": "With why invite: the invite link's token, so the confirmation names its org.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["why"],
+        "additionalProperties": false
+      },
+      "FoldWhy": {
+        "description": "Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.",
+        "type": "string",
+        "enum": ["invite", "share", "browser", "domain", "address", "seat"]
       },
       "Health": {
         "description": "Whether the API can serve requests, and which build is answering.",

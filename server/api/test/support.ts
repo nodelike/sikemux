@@ -89,6 +89,8 @@ export function testApp(
     appOrigin: APP_ORIGIN,
     apiOrigin: "https://api.sikemux.com",
     verifier,
+    signInVerifier: verifier,
+    addressProofKey: null,
     limiter,
     relayAccess: new RelayAccess(database.db),
     clerk: null,

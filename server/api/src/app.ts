@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import type { AppleSignIn } from "./account/apple.ts";
 import { profileRoutes } from "./account/profile.ts";
 import type { ClerkBackend } from "./account/clerk.ts";
+import { foldRoutes } from "./account/fold.ts";
 import { accountRoutes } from "./account/routes.ts";
 import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
@@ -48,6 +49,10 @@ export interface Services {
   /** The API's own public origin, which webhook addresses start with. */
   apiOrigin: string;
   verifier: Verifier;
+  /** Clerk's sign-ins before the sign-up check, for the routes that fold a refused account away. */
+  signInVerifier: Verifier;
+  /** The key proven work addresses are hashed with, or null when ADDRESS_PROOF_KEY is not set. */
+  addressProofKey: Buffer | null;
   limiter: RateLimiter;
   relayAccess: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
@@ -130,6 +135,7 @@ export function createApp(services: Services) {
   const { shares, tickets } = shareRoutes(services);
   app.route("/v1/account/shares", shares);
   app.route("/v1/account/peer-tickets", tickets);
+  app.route("/v1/account", foldRoutes(services));
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/orgs/join/preview", invitePreviewRoutes(services));
   app.route("/v1/orgs", orgRoutes(services));

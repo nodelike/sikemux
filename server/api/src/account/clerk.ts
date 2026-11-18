@@ -9,6 +9,8 @@ export interface ClerkBackend {
   verifiedEmail(userId: string): Promise<string | null>;
   /** The domains of every address on the user that Clerk has verified, lowercased; the addresses themselves never leave here. */
   verifiedDomains(userId: string): Promise<string[]>;
+  /** When the user was made and their primary address once verified; null once the user is gone. */
+  signUp(userId: string): Promise<SignUp | null>;
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
   revokeSession(sessionId: string): Promise<void>;
@@ -17,6 +19,11 @@ export interface ClerkBackend {
 }
 
 export type Person = Pick<AccountProfile, "name" | "imageUrl">;
+
+export interface SignUp {
+  createdAt: Date;
+  email: string | null;
+}
 
 type Fetch = (
   input: string | URL | Request,
@@ -30,6 +37,7 @@ interface ClerkUser {
   first_name?: string | null;
   last_name?: string | null;
   image_url?: string | null;
+  created_at?: number;
   primary_email_address_id?: string | null;
   email_addresses?: {
     id?: string;
@@ -82,11 +90,16 @@ export function clerkBackend(
       `/v1/users/${checked(userId, "user")}`,
     );
     const user = (await response?.json()) as ClerkUser | undefined;
+    const address = user?.email_addresses?.find(
+      (address) => address.id === user.primary_email_address_id,
+    );
     return {
       user,
-      address: user?.email_addresses?.find(
-        (address) => address.id === user.primary_email_address_id,
-      ),
+      address,
+      verified:
+        address?.verification?.status === "verified"
+          ? (address.email_address ?? null)
+          : null,
     };
   };
   return {
@@ -97,11 +110,11 @@ export function clerkBackend(
       const email = address?.email_address?.slice(0, 320) ?? null;
       return { email, ...personOf(user) };
     },
-    verifiedEmail: async (userId) => {
-      const { address } = await primaryEmail(userId);
-      return address?.verification?.status === "verified"
-        ? (address.email_address ?? null)
-        : null;
+    verifiedEmail: async (userId) => (await primaryEmail(userId)).verified,
+    signUp: async (userId) => {
+      const { user, verified } = await primaryEmail(userId);
+      if (typeof user?.created_at !== "number") return null;
+      return { createdAt: new Date(user.created_at), email: verified };
     },
     verifiedDomains: async (userId) => {
       const { user } = await primaryEmail(userId);

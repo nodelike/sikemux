@@ -44,7 +44,8 @@
         "rate_limited",
         "internal",
         "unavailable",
-        "reverify_required"
+        "reverify_required",
+        "address_proven"
       ]
     }
   }

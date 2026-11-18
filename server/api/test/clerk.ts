@@ -1,10 +1,11 @@
-import type { ClerkBackend } from "../src/account/clerk.ts";
+import type { ClerkBackend, SignUp } from "../src/account/clerk.ts";
 
 /** Clerk's Backend API as the tests want it to answer: done, or failing until told otherwise. */
 export class FakeClerk implements ClerkBackend {
   readonly deleted: string[] = [];
   readonly revoked: string[] = [];
   readonly appleTokens = new Map<string, string[]>();
+  readonly signUps = new Map<string, SignUp>();
   failing = false;
 
   async deleteUser(userId: string) {
@@ -26,6 +27,11 @@ export class FakeClerk implements ClerkBackend {
   async verifiedDomains(): Promise<string[]> {
     if (this.failing) throw new Error("Clerk answered 500");
     return [];
+  }
+
+  async signUp(userId: string): Promise<SignUp | null> {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return this.signUps.get(userId) ?? { createdAt: new Date(0), email: null };
   }
 
   async people(userIds: string[]) {

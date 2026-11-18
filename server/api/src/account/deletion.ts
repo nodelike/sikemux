@@ -12,6 +12,7 @@ import type { Logger } from "../log.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { retryLater } from "../retry.ts";
 import type { ClerkBackend } from "./clerk.ts";
+import { dropSeatProofs } from "./proofs.ts";
 
 /**
  * How long a deleted account can still be restored. Then the sign-in is deleted in Clerk and
@@ -204,6 +205,7 @@ async function leaveOrgs(
       .where("user_id", "=", userId)
       .execute();
     await payerLeft(trx, orgId, userId);
+    await dropSeatProofs(trx, orgId, [userId]);
     await dropUnshared(trx, orgId);
     await audit(trx, {
       userId,
@@ -234,6 +236,13 @@ export async function restoreAccount(
       .executeTakeFirst();
     if (!user?.deleted_at) return true;
     if (user.clerk_deleted_at) return false;
+    const folded = await trx
+      .selectFrom("account_folds")
+      .select("id")
+      .where("from_user", "=", userId)
+      .where("done_at", "is not", null)
+      .executeTakeFirst();
+    if (folded) return false;
     await trx
       .updateTable("users")
       .set({

@@ -324,7 +324,8 @@ export type ErrorCode =
   | "rate_limited"
   | "internal"
   | "unavailable"
-  | "reverify_required";
+  | "reverify_required"
+  | "address_proven";
 export const errorCodeValues: readonly ErrorCode[] = [
   "bad_request",
   "unauthorized",
@@ -336,6 +337,7 @@ export const errorCodeValues: readonly ErrorCode[] = [
   "internal",
   "unavailable",
   "reverify_required",
+  "address_proven",
 ];
 
 export interface ErrorDetail {
@@ -366,6 +368,74 @@ export interface Flags {
   /** The names of the features switched off, such as staffFeed. */
   off: string[];
 }
+
+/** Whether to ask a new account's person if they already have an account. */
+export interface FoldCatch {
+  ask: boolean;
+  why?: FoldWhy;
+  /** The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in. */
+  mustFold: boolean;
+  /** The new account's own sign-in address, shown only to its own person. */
+  address?: string;
+  /** The org the invite, the proven domain or the address's proof is for. */
+  orgName?: string;
+}
+
+export interface FoldCatchRequest {
+  hint?: FoldHint;
+  /** With hint invite: the invite link's token, so the answer can name its org. */
+  inviteToken?: string;
+}
+
+/** What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before. */
+export type FoldHint = "invite" | "share" | "browser";
+export const foldHintValues: readonly FoldHint[] = [
+  "invite",
+  "share",
+  "browser",
+];
+
+/** A fold waiting for the person's other account to confirm it, on this browser, within ten minutes. */
+export interface FoldIntent {
+  id: string;
+  /** Kept by the browser that started the fold; the other account sends it to confirm. */
+  secret: string;
+  expiresAt: string;
+}
+
+/** What confirming the fold does, for the confirmation screen. */
+export interface FoldPreview {
+  why: FoldWhy;
+  /** The work address the kept account proves. */
+  address: string;
+  /** The name of the account that stays. */
+  keptName: string | null;
+  orgName: string | null;
+  /** The orgs whose seats move to the account that stays. */
+  seats: string[];
+}
+
+export interface FoldSecret {
+  secret: string;
+}
+
+export interface FoldStart {
+  why: FoldWhy;
+  /** With why invite: the invite link's token, so the confirmation names its org. */
+  inviteToken?: string;
+}
+
+/** Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds. */
+export type FoldWhy =
+  "invite" | "share" | "browser" | "domain" | "address" | "seat";
+export const foldWhyValues: readonly FoldWhy[] = [
+  "invite",
+  "share",
+  "browser",
+  "domain",
+  "address",
+  "seat",
+];
 
 /** Whether the API can serve requests, and which build is answering. */
 export interface Health {
@@ -2198,6 +2268,14 @@ export interface Definitions {
   EventId: EventId;
   FcmTokenRegistration: FcmTokenRegistration;
   Flags: Flags;
+  FoldCatch: FoldCatch;
+  FoldCatchRequest: FoldCatchRequest;
+  FoldHint: FoldHint;
+  FoldIntent: FoldIntent;
+  FoldPreview: FoldPreview;
+  FoldSecret: FoldSecret;
+  FoldStart: FoldStart;
+  FoldWhy: FoldWhy;
   Health: Health;
   HealthStatus: HealthStatus;
   Hook: Hook;

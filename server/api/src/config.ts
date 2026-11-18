@@ -59,6 +59,8 @@ export interface Config extends MigrationConfig {
   relayAccessToken: string | null;
   /** Null when STASH_DIR and STASH_KEY are not set, and the stash answers that it is not set up. */
   stash: StashSettings | null;
+  /** Keys the hash a proven work address is kept as. Null leaves addresses unproven; every release has one. */
+  addressProofKey: Buffer | null;
   billing: BillingSettings;
 }
 
@@ -225,6 +227,12 @@ export function loadConfig(
       ? { dir: stashDir, key: Buffer.from(stashKey, "hex") }
       : null;
 
+  const addressProofKey = optional("ADDRESS_PROOF_KEY") ?? null;
+  if (addressProofKey !== null && !/^[0-9a-f]{64}$/.test(addressProofKey))
+    problems.push("ADDRESS_PROOF_KEY is not 32 bytes in lowercase hex");
+  if (addressProofKey === null && release)
+    problems.push("ADDRESS_PROOF_KEY is not set");
+
   const provider = oneOf(
     "BILLING_PROVIDER",
     ["none", "stand-in", "paddle"],
@@ -261,6 +269,9 @@ export function loadConfig(
     placesDir,
     relayAccessToken,
     stash,
+    addressProofKey: addressProofKey
+      ? Buffer.from(addressProofKey, "hex")
+      : null,
     billing,
     logLevel,
   });

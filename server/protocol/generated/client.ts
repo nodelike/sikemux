@@ -19,6 +19,12 @@ import type {
   DeviceRegistration,
   DeviceRename,
   DeviceRole,
+  FoldCatch,
+  FoldCatchRequest,
+  FoldIntent,
+  FoldPreview,
+  FoldSecret,
+  FoldStart,
   Health,
   Hook,
   HookAdd,
@@ -193,6 +199,28 @@ export function apiClient(send: Send) {
       send<AccountDeletion>("DELETE", `/v1/account`, body),
     /** Take back a deletion before it is final. */
     restoreAccount: () => send<Account>("POST", `/v1/account/restore`),
+    /** Whether to ask a new account's person if they already have an account. */
+    getFoldCatch: (body: FoldCatchRequest) =>
+      send<FoldCatch>("POST", `/v1/account/fold/catch`, body),
+    /** Keep a new account as it is: the person has no other. */
+    keepNewAccount: () => send<void>("POST", `/v1/account/fold/keep-new`),
+    /** Start folding one of your accounts into another, from the web app. */
+    startFold: (body: FoldStart) =>
+      send<FoldIntent>("POST", `/v1/account/folds`, body),
+    /** What confirming a fold does, read by the account that did not start it. */
+    previewFold: (foldId: string, body: FoldSecret) =>
+      send<FoldPreview>(
+        "POST",
+        `/v1/account/folds/${encodeURIComponent(foldId)}/preview`,
+        body,
+      ),
+    /** Fold the account: its seats and the work address's proof move, and it is deleted. */
+    confirmFold: (foldId: string, body: FoldSecret) =>
+      send<void>(
+        "POST",
+        `/v1/account/folds/${encodeURIComponent(foldId)}/confirm`,
+        body,
+      ),
     /** The name, email and picture of the account a host is on. */
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
     /** The plan of the account a host is on, and what it may use. */

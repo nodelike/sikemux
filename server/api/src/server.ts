@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import type { Server } from "node:http";
 
 import { appleSignIn } from "./account/apple.ts";
+import { admittingVerifier } from "./account/admission.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
 import { makeDueCalls } from "./billing/calls.ts";
@@ -35,7 +36,7 @@ const SWEEP_MS = 60_000;
 
 export async function startServer(config: Config, log: Logger) {
   const database = openDatabase(config.databaseUrl, log);
-  const verifier = clerkVerifier({
+  const signInVerifier = clerkVerifier({
     issuer: config.clerkIssuer,
     macClientId: config.macClientId,
     authorizedParties: [config.appOrigin],
@@ -48,6 +49,13 @@ export async function startServer(config: Config, log: Logger) {
     log.warn(
       "CLERK_SECRET_KEY is not set: deleted accounts and removed phones' sessions wait to be deleted in Clerk",
     );
+  const verifier = admittingVerifier(
+    signInVerifier,
+    database.db,
+    clerk,
+    config.addressProofKey,
+    log,
+  );
   const apple = config.appleSignIn ? appleSignIn(config.appleSignIn) : null;
   if (apple)
     log.info(
@@ -143,6 +151,8 @@ export async function startServer(config: Config, log: Logger) {
     appOrigin: config.appOrigin,
     apiOrigin: config.apiOrigin,
     verifier,
+    signInVerifier,
+    addressProofKey: config.addressProofKey,
     limiter,
     relayAccess,
     clerk,

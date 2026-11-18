@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fold.json",
+  "$defs": {
+    "FoldWhy": {
+      "description": "Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.",
+      "type": "string",
+      "enum": ["invite", "share", "browser", "domain", "address", "seat"]
+    },
+    "FoldHint": {
+      "description": "What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before.",
+      "type": "string",
+      "enum": ["invite", "share", "browser"]
+    },
+    "FoldCatchRequest": {
+      "type": "object",
+      "properties": {
+        "hint": { "$ref": "#/$defs/FoldHint" },
+        "inviteToken": {
+          "description": "With hint invite: the invite link's token, so the answer can name its org.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    },
+    "FoldCatch": {
+      "description": "Whether to ask a new account's person if they already have an account.",
+      "type": "object",
+      "properties": {
+        "ask": { "type": "boolean" },
+        "why": { "$ref": "#/$defs/FoldWhy" },
+        "mustFold": {
+          "description": "The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in.",
+          "type": "boolean"
+        },
+        "address": {
+          "description": "The new account's own sign-in address, shown only to its own person.",
+          "type": "string"
+        },
+        "orgName": {
+          "description": "The org the invite, the proven domain or the address's proof is for.",
+          "type": "string"
+        }
+      },
+      "required": ["ask", "mustFold"],
+      "additionalProperties": false
+    },
+    "FoldStart": {
+      "type": "object",
+      "properties": {
+        "why": { "$ref": "#/$defs/FoldWhy" },
+        "inviteToken": {
+          "description": "With why invite: the invite link's token, so the confirmation names its org.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["why"],
+      "additionalProperties": false
+    },
+    "FoldIntent": {
+      "description": "A fold waiting for the person's other account to confirm it, on this browser, within ten minutes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "secret": {
+          "description": "Kept by the browser that started the fold; the other account sends it to confirm.",
+          "type": "string"
+        },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "secret", "expiresAt"],
+      "additionalProperties": false
+    },
+    "FoldSecret": {
+      "type": "object",
+      "properties": {
+        "secret": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["secret"],
+      "additionalProperties": false
+    },
+    "FoldPreview": {
+      "description": "What confirming the fold does, for the confirmation screen.",
+      "type": "object",
+      "properties": {
+        "why": { "$ref": "#/$defs/FoldWhy" },
+        "address": {
+          "description": "The work address the kept account proves.",
+          "type": "string"
+        },
+        "keptName": {
+          "description": "The name of the account that stays.",
+          "type": ["string", "null"]
+        },
+        "orgName": { "type": ["string", "null"] },
+        "seats": {
+          "description": "The orgs whose seats move to the account that stays.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["why", "address", "keptName", "orgName", "seats"],
+      "additionalProperties": false
+    }
+  }
+}

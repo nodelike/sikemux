@@ -1,0 +1,7 @@
+{
+  "ask": true,
+  "why": "domain",
+  "mustFold": true,
+  "address": "maya@acme.example",
+  "orgName": "Acme"
+}

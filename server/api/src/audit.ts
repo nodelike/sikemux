@@ -22,6 +22,7 @@ export type AuditAction =
   | "account.apple_revoked"
   | "account.apple_revoke_failed"
   | "account.purged"
+  | "account.folded"
   | "webhook.user_deleted"
   | "update.published"
   | "update.promoted"

@@ -38,6 +38,9 @@ import type { UpdateChannel, UpdatePlatform } from "./updates/update.ts";
 
 type CreatedAt = ColumnType<Date, never, never>;
 
+export type FoldWhy =
+  "invite" | "share" | "browser" | "domain" | "address" | "seat";
+
 /** The tables the API reads and writes. Each one arrives with the migration that creates it. */
 export interface Tables {
   users: {
@@ -53,6 +56,30 @@ export interface Tables {
     events_pruned_through: ColumnType<string, never, string | number>;
     stash_seen_at: ColumnType<Date | null, never, Date>;
     staff: ColumnType<boolean, never, boolean>;
+    admitted_at: ColumnType<Date | null, Date | undefined, Date>;
+    new_kept_at: ColumnType<Date | null, never, Date>;
+  };
+  address_proofs: {
+    address_hash: Buffer;
+    user_id: string;
+    domain: string;
+    org_id: string | null;
+    via: "fold" | "google";
+    proven_at: ColumnType<Date, never, never>;
+  };
+  account_folds: {
+    id: Generated<string>;
+    from_user: ColumnType<string | null, string | undefined, string>;
+    into_user: ColumnType<string | null, string | undefined, string>;
+    made_session: string;
+    secret_hash: Buffer;
+    why: FoldWhy;
+    org_id: string | null;
+    address_hash: ColumnType<Buffer | null, Buffer | undefined, Buffer>;
+    domain: ColumnType<string | null, string | undefined, string>;
+    created_at: CreatedAt;
+    expires_at: Date;
+    done_at: ColumnType<Date | null, never, Date>;
   };
   events: {
     id: Generated<string>;

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type {
   OrgInvite,
   OrgInviteCreated,
@@ -16,6 +16,7 @@ import { sql, type Kysely, type Selectable } from "kysely";
 import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
+import { dropSeatProofs } from "../account/proofs.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
 import { requireBillingAccess } from "../billing/access.ts";
 import { makeDueCalls } from "../billing/calls.ts";
@@ -45,6 +46,7 @@ import { manages } from "./roles.ts";
 import {
   admit,
   idParam,
+  inviteTokenHash,
   memberOf,
   membership,
   orgBody,
@@ -57,8 +59,6 @@ import {
 import { teamRoutes } from "./teams.ts";
 
 const INVITE_DAYS = 7;
-const tokenHash = (token: string) =>
-  createHash("sha256").update(token).digest("hex");
 
 function orgName(name: string) {
   const trimmed = name.trim();
@@ -224,7 +224,7 @@ export function orgRoutes({
         const invite = await trx
           .selectFrom("org_invites")
           .selectAll()
-          .where("token_hash", "=", tokenHash(token))
+          .where("token_hash", "=", inviteTokenHash(token))
           .where("accepted_at", "is", null)
           .where("revoked_at", "is", null)
           .where("expires_at", ">", sql<Date>`now()`)
@@ -283,6 +283,7 @@ export function orgRoutes({
             "The org still has a subscription that has not ended; cancel it first.",
           );
         const members = await membersOf(trx, orgId);
+        await dropSeatProofs(trx, orgId, members);
         await trx.deleteFrom("orgs").where("id", "=", orgId).execute();
         await audit(trx, {
           userId,
@@ -401,6 +402,7 @@ export function orgRoutes({
             .where("user_id", "=", target)
             .execute();
           await payerLeft(trx, orgId, target);
+          await dropSeatProofs(trx, orgId, [target]);
           await dropUnshared(trx, orgId);
           await audit(trx, {
             userId: target,
@@ -433,6 +435,7 @@ export function orgRoutes({
           .where("user_id", "=", userId)
           .execute();
         await payerLeft(trx, orgId, userId);
+        await dropSeatProofs(trx, orgId, [userId]);
         await dropUnshared(trx, orgId);
         await audit(trx, {
           userId,
@@ -471,7 +474,7 @@ export function orgRoutes({
             .values({
               org_id: orgId,
               role: invited,
-              token_hash: tokenHash(token),
+              token_hash: inviteTokenHash(token),
               invited_by: userId,
               expires_at: sql<Date>`now() + make_interval(days => ${INVITE_DAYS})`,
             })

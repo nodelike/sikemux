@@ -398,6 +398,109 @@
       }
     },
     {
+      "method": "post",
+      "path": "/v1/account/fold/catch",
+      "operationId": "getFoldCatch",
+      "summary": "Whether to ask a new account's person if they already have an account",
+      "auth": "session",
+      "request": "FoldCatchRequest",
+      "responses": {
+        "200": {
+          "description": "Whether to ask, and why. An account whose address opens no account of its own is asked whatever its age.",
+          "body": "FoldCatch"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/fold/keep-new",
+      "operationId": "keepNewAccount",
+      "summary": "Keep a new account as it is: the person has no other",
+      "auth": "session",
+      "responses": {
+        "204": {
+          "description": "The account is not asked again."
+        },
+        "409": {
+          "description": "The address opens no account of its own, so the account can only be folded into another.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/folds",
+      "operationId": "startFold",
+      "summary": "Start folding one of your accounts into another, from the web app",
+      "auth": "session",
+      "request": "FoldStart",
+      "responses": {
+        "201": {
+          "description": "The fold waits for the other account to confirm it within ten minutes. Why seat: this account stays and the other is folded into it; otherwise this account is folded.",
+          "body": "FoldIntent"
+        },
+        "403": {
+          "description": "The sign-in was not verified again within the error's reverifyWithinMinutes, or did not come from the web app.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "This account holds more than seats, so it is never folded.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "Proving work addresses is not set up on this server.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/folds/{foldId}/preview",
+      "operationId": "previewFold",
+      "summary": "What confirming a fold does, read by the account that did not start it",
+      "auth": "session",
+      "request": "FoldSecret",
+      "responses": {
+        "200": {
+          "description": "The address, the org and the seats the fold moves.",
+          "body": "FoldPreview"
+        },
+        "404": {
+          "description": "No fold waits with that id and secret: it expired, was used, or another browser started it.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "It would fold an account into itself, or the account to fold holds more than seats.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/folds/{foldId}/confirm",
+      "operationId": "confirmFold",
+      "summary": "Fold the account: its seats and the work address's proof move, and it is deleted",
+      "auth": "session",
+      "request": "FoldSecret",
+      "responses": {
+        "204": {
+          "description": "Folded. Confirming a fold already done answers the same."
+        },
+        "403": {
+          "description": "The sign-in was not verified again within the error's reverifyWithinMinutes, or did not come from the web app.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No fold waits with that id and secret: it expired, or another browser started it.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "It would fold an account into itself, the account to fold holds more than seats, or the address is proven on a third account.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "get",
       "path": "/v1/account/profile",
       "operationId": "getAccountProfile",
