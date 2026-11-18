@@ -1158,13 +1158,16 @@ a.button {
   white-space: nowrap;
 }
 
+.name > .chip {
+  margin-left: 6px;
+}
+
 .chip.accent {
   background: color-mix(in oklab, var(--acc) 18%, transparent);
   color: color-mix(in oklab, var(--acc) 55%, var(--ink));
 }
 
 .chip.warn {
-  margin-left: 6px;
   background: color-mix(in oklab, var(--warn) 16%, transparent);
   color: color-mix(in oklab, var(--warn) 60%, var(--ink));
 }
