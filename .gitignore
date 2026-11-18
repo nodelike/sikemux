@@ -5,6 +5,7 @@ dist
 *.local
 /latest.json
 data/
+!film/scenes/acme/data/
 /target/
 packaging/icons/build/
 packaging/binaries/
