@@ -48,6 +48,7 @@ fn labels(sharing: &ProjectSharing) -> Vec<SharedString> {
             )
             .into(),
             t!("Shared with {org}", org = shared.name).into(),
+            shared.name.clone().into(),
         ],
     }
 }
