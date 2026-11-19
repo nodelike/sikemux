@@ -31,8 +31,13 @@ pub fn tr(english: &str) -> &str {
     let Ok(at) = ENGLISH.binary_search(&english) else {
         return english;
     };
-    let start = at.checked_sub(1).map_or(0, |before| language.ends[before]) as usize;
-    match language.said.get(start..language.ends[at] as usize) {
+    let start = at
+        .checked_sub(1)
+        .map_or(Some(0), |before| language.ends.get(before).copied());
+    let word = start
+        .zip(language.ends.get(at).copied())
+        .and_then(|(start, end)| language.said.get(start as usize..end as usize));
+    match word {
         Some(word) if !word.is_empty() => word,
         _ => english,
     }
