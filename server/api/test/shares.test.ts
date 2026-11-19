@@ -237,6 +237,36 @@ describe("a share's one registration", () => {
     expect(renamed.status).toBe(204);
     expect(await registrations()).toEqual([{ org: lapsed, project: RENAMED }]);
   });
+
+  it("keeps the later tap when a rename meets one already under the new name", async () => {
+    const [a, b] = [await org(true), await org(true)];
+    const home = await registered(app, ARJUN, "host");
+    const copy = await registered(app, ARJUN, "host");
+    expect((await share(home, a)).status).toBe(204);
+    const moved = await signed(copy, "/v1/account/shares/move", "POST", {
+      org: a,
+      project: PROJECT,
+      host: copy.key,
+    });
+    expect(moved.status).toBe(204);
+    const rename = { from: PROJECT, project: RENAMED };
+    const copyRenamed = await signed(
+      copy,
+      "/v1/account/shares/rename",
+      "POST",
+      rename,
+    );
+    expect(copyRenamed.status).toBe(204);
+    expect((await share(home, b)).status).toBe(204);
+    const homeRenamed = await signed(
+      home,
+      "/v1/account/shares/rename",
+      "POST",
+      rename,
+    );
+    expect(homeRenamed.status).toBe(204);
+    expect(await registrations()).toEqual([{ org: b, project: RENAMED }]);
+  });
 });
 
 describe("peer tickets", () => {

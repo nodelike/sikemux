@@ -396,6 +396,7 @@ export interface Tables {
     user_id: string;
     project: string;
     host: string;
+    tapped_at: ColumnType<Date, Date | undefined, Date>;
     created_at: CreatedAt;
     updated_at: ColumnType<Date, never, Date>;
   };

@@ -242,7 +242,7 @@ export function shareRoutes({
           });
           await sharesChanged(trx, left);
         }
-        if (before?.host === host) return;
+        const tapped_at = new Date();
         await trx
           .insertInto("org_shares")
           .values({
@@ -250,13 +250,15 @@ export function shareRoutes({
             user_id: userId,
             project,
             host,
+            tapped_at,
           })
           .onConflict((oc) =>
             oc
               .columns(["member_id", "project"])
-              .doUpdateSet({ host, updated_at: new Date() }),
+              .doUpdateSet({ host, tapped_at, updated_at: tapped_at }),
           )
           .execute();
+        if (before?.host === host) return;
         await audit(trx, {
           userId,
           actor: `user:${userId}`,
@@ -312,7 +314,7 @@ export function shareRoutes({
           .where("user_id", "=", userId)
           .where("project", "=", from)
           .where("host", "=", deviceKey ?? "")
-          .returning(["member_id", "host"])
+          .returning(["member_id", "host", "tapped_at"])
           .execute();
         if (moved.length === 0) {
           const held = await trx
@@ -329,18 +331,40 @@ export function shareRoutes({
             "You share that project with no org, so there is nothing to move.",
           );
         }
-        await trx
-          .insertInto("org_shares")
-          .values(
-            moved.map(({ member_id, host }) => ({
-              member_id,
-              user_id: userId,
-              project,
-              host,
-            })),
-          )
-          .onConflict((oc) => oc.columns(["user_id", "project"]).doNothing())
-          .execute();
+        const tapped = moved.reduce((later, row) =>
+          row.tapped_at > later.tapped_at ? row : later,
+        );
+        const already = await trx
+          .selectFrom("org_shares")
+          .select(["member_id", "tapped_at"])
+          .where("user_id", "=", userId)
+          .where("project", "=", project)
+          .executeTakeFirst();
+        const ended: string[] = [];
+        if (!already || already.tapped_at < tapped.tapped_at) {
+          if (already) {
+            await trx
+              .deleteFrom("org_shares")
+              .where("member_id", "=", already.member_id)
+              .where("project", "=", project)
+              .execute();
+            ended.push(already.member_id);
+          }
+          await trx
+            .insertInto("org_shares")
+            .values({ ...tapped, user_id: userId, project })
+            .execute();
+        }
+        for (const org of await orgsOf(trx, ended)) {
+          await dropUnshared(trx, org);
+          await audit(trx, {
+            userId,
+            actor: `user:${userId}`,
+            action: "share.removed",
+            subject: org,
+          });
+          await sharesChanged(trx, org);
+        }
         for (const org of await orgsOf(
           trx,
           moved.map(({ member_id }) => member_id),
