@@ -72,7 +72,9 @@ pub(super) fn page(
     );
     let project = group(
         project,
-        t!("None yet. Tell any agent how you want things done here, and it keeps it for this project."),
+        t!(
+            "None yet. Tell any agent how you want things done here, and it keeps it for this project."
+        ),
         cx,
     );
     let noted = match playbook.notes.is_empty() {
@@ -272,18 +274,12 @@ fn row(
             retire(bench, &folder, id, cx)
         }));
     }
-    let line = said::line(
-        format!("playbook-rule-{id}"),
-        words.join(" · "),
-        match entry.learned.agent {
-            None => Moment::of(&entry.learned),
-            Some(_) => None,
-        },
-        inline,
-        this,
-        cx,
-    );
-    let line = match entry.sensitive {
+    let moment = match entry.learned.agent {
+        None => Moment::of(&entry.learned),
+        Some(_) => None,
+    };
+    let words = words.join(" · ");
+    let locked = |line: AnyElement| match entry.sensitive {
         true => gpui_kit::div()
             .flex()
             .items_start()
@@ -299,6 +295,22 @@ fn row(
             .into_any_element(),
         false => line,
     };
+    let line = locked(said::line(
+        format!("playbook-rule-{id}"),
+        words.clone(),
+        moment.clone(),
+        inline.clone(),
+        this,
+        cx,
+    ));
+    let line_hovered = locked(said::one_line(
+        format!("playbook-rule-{id}-hovered"),
+        words,
+        moment,
+        inline,
+        this,
+        cx,
+    ));
     let mut hover = Vec::new();
     let mut moves = Vec::new();
     if moved.is_none() && store != Store::Org && !entry.waiting {
@@ -362,26 +374,36 @@ fn row(
         );
     }
     let buttons = gpui_kit::div()
-        .id("playbook-entry-buttons")
         .flex()
         .flex_none()
-        .w_0()
-        .overflow_x_hidden()
-        .opacity(0.)
-        .group_hover(said::ROW, |shown| shown.w_auto().pl(SPACE_2).opacity(1.))
         .items_center()
         .gap(SPACE_1)
-        .h(theme::ui_text(TEXT_LG))
+        .pl(SPACE_2)
         .children(hover);
+    let hovered = gpui_kit::div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .flex()
+        .items_center()
+        .h(theme::ui_text(TEXT_LG))
+        .opacity(0.)
+        .group_hover(said::ROW, |shown| shown.opacity(1.))
+        .child(gpui_kit::div().flex_1().min_w_0().child(line_hovered))
+        .child(buttons);
     let about = gpui_kit::div()
         .flex()
         .flex_col()
         .child(
             gpui_kit::div()
-                .flex()
-                .items_center()
-                .child(gpui_kit::div().flex_1().min_w_0().child(line))
-                .child(buttons),
+                .relative()
+                .child(
+                    gpui_kit::div()
+                        .group_hover(said::ROW, |hidden| hidden.opacity(0.))
+                        .child(line),
+                )
+                .child(hovered),
         )
         .children(
             entry

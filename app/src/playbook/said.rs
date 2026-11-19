@@ -71,6 +71,7 @@ pub(super) fn day(at: u64) -> String {
 type Act = Rc<dyn Fn(&mut Workbench, &mut Context<Workbench>)>;
 
 /// A quiet action at the end of the line.
+#[derive(Clone)]
 pub(super) struct Action {
     label: &'static str,
     act: Act,
@@ -97,8 +98,31 @@ pub(super) fn line(
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
+    drawn(id.into(), words.into(), moment, actions, false, this, cx)
+}
+
+/// The same line kept to one, its words cut short with an ellipsis where they don't fit.
+pub(super) fn one_line(
+    id: impl Into<SharedString>,
+    words: impl Into<SharedString>,
+    moment: Option<Moment>,
+    actions: Vec<Action>,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    drawn(id.into(), words.into(), moment, actions, true, this, cx)
+}
+
+fn drawn(
+    id: SharedString,
+    words: SharedString,
+    moment: Option<Moment>,
+    actions: Vec<Action>,
+    one_line: bool,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id: SharedString = id.into();
     let open = moment.map(|moment| {
         Action::new(t!("Open"), move |bench, cx| {
             open_moment(bench, moment.clone(), cx)
@@ -106,7 +130,7 @@ pub(super) fn line(
     });
     let link = |at: usize, action: Action| {
         let (this, act) = (this.clone(), action.act.clone());
-        div().flex().gap(SPACE_1).child("·").child(
+        div().flex().flex_none().gap(SPACE_1).child("·").child(
             div()
                 .id(SharedString::from(format!("{id}-{at}")))
                 .text_color(t.text_secondary)
@@ -117,22 +141,19 @@ pub(super) fn line(
                 }),
         )
     };
-    div()
-        .id(SharedString::from(format!("{id}-line")))
-        .flex()
-        .flex_wrap()
-        .group_hover(ROW, |line| line.flex_nowrap())
-        .gap(SPACE_1)
-        .text_size(theme::ui_text(TEXT_2XS_H))
+    let line = div().flex().gap(SPACE_1);
+    let line = match one_line {
+        true => line.overflow_x_hidden(),
+        false => line.flex_wrap(),
+    };
+    let words = div().min_w_0().child(words);
+    line.text_size(theme::ui_text(TEXT_2XS_H))
         .line_height(theme::ui_text(TEXT_LG))
         .text_color(t.text_tertiary)
-        .child(
-            div()
-                .id(SharedString::from(format!("{id}-words")))
-                .min_w_0()
-                .group_hover(ROW, |words| words.truncate())
-                .child(words.into()),
-        )
+        .child(match one_line {
+            true => words.truncate(),
+            false => words,
+        })
         .children(
             open.into_iter()
                 .chain(actions)

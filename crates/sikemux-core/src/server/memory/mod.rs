@@ -1722,7 +1722,7 @@ pub(crate) fn line_entry(
     });
     match same {
         true => Ok(id),
-        false => Err("That entry has changed since, so nothing was undone".to_owned()),
+        false => Err("That has changed since, so nothing was undone".to_owned()),
     }
 }
 
