@@ -10,9 +10,13 @@ export function addressHash(key: Buffer, address: string): Buffer {
     .digest();
 }
 
+/**
+ * The domain an address gives standing at, or null. Clerk's test mode verifies any `+clerk_test`
+ * address with a fixed code and sends no mail, so one proves nothing about its domain.
+ */
 export function domainOf(address: string): string | null {
   const at = address.lastIndexOf("@");
-  return at > 0
+  return at > 0 && !/clerk_test/i.test(address)
     ? address
         .slice(at + 1)
         .trim()

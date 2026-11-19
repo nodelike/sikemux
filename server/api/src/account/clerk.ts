@@ -1,5 +1,7 @@
 import type { AccountProfile } from "@sikemux/protocol";
 
+import { domainOf } from "./proofs.ts";
+
 /** The calls the API makes to Clerk's Backend API. Each counts "already gone" as done. */
 export interface ClerkBackend {
   deleteUser(userId: string): Promise<void>;
@@ -185,10 +187,9 @@ export function clerkBackend(
     verifiedDomains: async (userId) => {
       const { user } = await primaryEmail(userId);
       const domains = (user?.email_addresses ?? []).flatMap((address) => {
-        const email = address.email_address ?? "";
-        const at = email.lastIndexOf("@");
-        return address.verification?.status === "verified" && at > 0
-          ? [email.slice(at + 1).toLowerCase()]
+        const domain = domainOf(address.email_address ?? "");
+        return address.verification?.status === "verified" && domain
+          ? [domain]
           : [];
       });
       return [...new Set(domains)];

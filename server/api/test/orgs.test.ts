@@ -1,6 +1,7 @@
 import type { OrgRole } from "@sikemux/protocol";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { clerkBackend } from "../src/account/clerk.ts";
 import type { Database } from "../src/db.ts";
 import { caller, emptyTables, events, migratedDatabase } from "./accounts.ts";
 import { teamPlan } from "./billing.ts";
@@ -292,5 +293,49 @@ describe("invites", () => {
   it("are refused while the org has no Team plan", async () => {
     const orgId = await createOrg(0);
     expect((await invite(OWNER, orgId, "user")).status).toBe(409);
+  });
+});
+
+describe("joining by domain", () => {
+  it("gives a Clerk test address no standing at its domain", async () => {
+    const orgId = await createOrg(10);
+    await database.pool.query(
+      `insert into org_domains (org_id, domain, token, added_by, verified_at, ours_since)
+       values ($1, 'acme.example', 'abcdefghijklmnopqrstuv', $2, now(), now())`,
+      [orgId, OWNER],
+    );
+    let addresses: string[] = [];
+    const clerk = clerkBackend("sk_test_abc", async () =>
+      Response.json({
+        id: NEWCOMER,
+        email_addresses: addresses.map((email_address, index) => ({
+          id: `idn_${index}`,
+          email_address,
+          verification: { status: "verified" },
+        })),
+      }),
+    );
+    call = caller(testApp(database, undefined, { clerk }));
+    const offered = async () =>
+      (await body(await as(NEWCOMER, "/v1/orgs/offers"), "OrgOfferList"))
+        .offers;
+
+    for (const address of [
+      "maya+clerk_test@acme.example",
+      "maya+CLERK_TEST@ACME.example",
+      "maya+clerk_test_2@acme.example",
+      "maya+foo+clerk_test@acme.example",
+    ]) {
+      addresses = [address];
+      expect(await offered()).toEqual([]);
+      const joined = await as(NEWCOMER, "/v1/orgs/offers/join", {
+        method: "POST",
+        json: { orgId },
+      });
+      expect(joined.status).toBe(404);
+    }
+
+    addresses = ["maya@acme.example"];
+    expect((await offered()).map((offer) => offer.orgId)).toEqual([orgId]);
   });
 });
