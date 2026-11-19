@@ -154,8 +154,10 @@ impl CoreProcess {
             match std::fs::symlink_metadata(path) {
                 Ok(kind) if kind.is_dir() => std::fs::read_dir(path)
                     .map(|entries| {
+                        // A name starting with a dot is a file still being written.
                         entries
                             .flatten()
+                            .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
                             .map(|entry| holding(&entry.path(), text))
                             .sum()
                     })
@@ -1293,6 +1295,7 @@ async fn a_core_that_crashes_while_a_turn_waits_on_a_background_shell_wakes_the_
     drop(events);
     core.until_written(1, "Poll the render").await;
     core.until_written(1, "waiting on the render").await;
+    core.until_written_in("chats", 1, "\"resumeId\":\"").await;
 
     core.crash_and_start_again();
 
