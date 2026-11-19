@@ -248,60 +248,6 @@ fn whose(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElem
     .into_any_element()
 }
 
-/// The Calls page's foot: how much finished and dropped, each opening the tasks at its section.
-pub(crate) fn calls_foot(
-    bench: &WeakEntity<Workbench>,
-    agent: &str,
-    cx: &App,
-) -> Option<AnyElement> {
-    let strong = bench.upgrade()?;
-    let bench_now = strong.read(cx);
-    let list = of_desk(bench_now, agent)?;
-    let lines = lines(list, yours_only(bench_now, agent, cx));
-    let t = Tokens::get(cx).clone();
-    let parts: Vec<AnyElement> = [TaskSection::Finished, TaskSection::Dropped]
-        .into_iter()
-        .map(|section| (section, count(&lines, section)))
-        .filter(|(_, count)| *count > 0)
-        .map(|(section, count)| {
-            let (bench, agent) = (bench.clone(), agent.to_owned());
-            div()
-                .id(SharedString::from(format!("calls-foot-{section:?}")))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .px(px(6.))
-                .py(px(3.))
-                .mx(px(-6.))
-                .my(px(-3.))
-                .rounded(px(5.))
-                .cursor_pointer()
-                .hover(|part| part.bg(t.surface_hover))
-                .child(ui::caps(words(section), cx))
-                .child(
-                    ui::caps(&count.to_string(), cx)
-                        .text_color(t.text_primary)
-                        .font_features(theme::tabular()),
-                )
-                .clicks(move |_, _, cx| {
-                    let _ = bench.update(cx, |bench, cx| show_section(bench, &agent, section, cx));
-                })
-                .into_any_element()
-        })
-        .collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let mut foot = div().flex().justify_center().items_center().gap(SPACE_2);
-    for (at, part) in parts.into_iter().enumerate() {
-        if at > 0 {
-            foot = foot.child(ui::caps("·", cx).text_color(t.text_disabled));
-        }
-        foot = foot.child(part);
-    }
-    Some(foot.into_any_element())
-}
-
 /// The list itself, a column of its sections.
 pub(crate) fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();

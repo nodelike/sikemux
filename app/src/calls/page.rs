@@ -102,8 +102,6 @@ impl Render for Page {
         };
         let shown = self.shown(&calls, cx).cloned();
         self.last = shown.as_ref().map(|call| (call.id.clone(), call.raised_at));
-        let foot = crate::task_list::calls_foot(&self.bench, &self.agent, cx)
-            .map(|foot| div().flex_none().pt(SPACE_2).pb(px(14.)).child(foot));
         let Some(open) = shown else {
             return div()
                 .size_full()
@@ -120,7 +118,6 @@ impl Render for Page {
                         .child(ui::icon(Icon::Bell, 18.).text_color(t.text_disabled))
                         .child(ui::meta(t!("Nothing waits on you"), cx)),
                 )
-                .children(foot)
                 .into_any_element();
         };
         let through = Through {
@@ -189,7 +186,6 @@ impl Render for Page {
                     .child(answered_with),
             ),
         )
-        .children(foot)
         .when(reply.is_some() && cx.has_active_drag(), |page| {
             let words = t!("Drop files to send with your answer");
             let hint = crate::chat::drop_hint(words, &owner, bench.read(cx), cx);
