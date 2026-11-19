@@ -51,6 +51,7 @@ Table challenges {
   nonce text [pk]
   user_id text [not null]
   expires_at timestamptz [not null]
+  mac_signed_in_at timestamptz
 
   indexes {
     expires_at [name: 'challenges_by_expiry']

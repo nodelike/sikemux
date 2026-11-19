@@ -189,7 +189,12 @@ export interface Tables {
       Date | null
     >;
   };
-  challenges: { nonce: string; user_id: string; expires_at: Date };
+  challenges: {
+    nonce: string;
+    user_id: string;
+    expires_at: Date;
+    mac_signed_in_at: Date | null;
+  };
   host_sign_ins: {
     code_hash: string;
     user_code: string;

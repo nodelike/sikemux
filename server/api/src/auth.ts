@@ -377,7 +377,10 @@ export function requireIdentity(
     admit(identity, accept);
     c.set("identity", identity);
     c.set("checkBody", checkBody);
-    c.set("log", c.get("log").child({ userId: identity.userId }));
+    c.set(
+      "log",
+      c.get("log").child({ userId: identity.userId, via: identity.via }),
+    );
     reportAs(identity.userId);
     await next();
   };

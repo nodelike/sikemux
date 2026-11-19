@@ -1,0 +1,140 @@
+import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+
+import type { Database } from "../src/db.ts";
+import {
+  bodySha256,
+  registrationMessage,
+  requestMessage,
+} from "../src/devices/signature.ts";
+import {
+  caller,
+  challenge,
+  emptyTables,
+  migratedDatabase,
+  newDevice,
+  registration,
+  signInMac,
+  signText,
+  type TestDevice,
+} from "./accounts.ts";
+import { body, macCodes, testApp } from "./support.ts";
+import { macToken, sessionToken } from "./tokens.ts";
+
+const MAYA = "user_maya";
+
+let database: Database;
+let drop: () => Promise<void>;
+
+beforeAll(async () => {
+  ({ database, drop } = await migratedDatabase());
+});
+
+beforeEach(async () => {
+  await emptyTables(database);
+  macCodes.clear();
+});
+
+afterAll(() => drop());
+
+function post(app: ReturnType<typeof testApp>, path: string, json: unknown) {
+  return app.request(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(json),
+  });
+}
+
+const SIGN_IN = {
+  codeVerifier: "v".repeat(43),
+  redirectUri: "http://127.0.0.1:53682/callback",
+};
+
+let skew = 0;
+
+function signedGet(
+  app: ReturnType<typeof testApp>,
+  host: TestDevice,
+  path: string,
+) {
+  const time = String(Math.floor(Date.now() / 1000) - skew++);
+  const message = requestMessage(
+    "host",
+    "GET",
+    path,
+    time,
+    bodySha256(new Uint8Array()),
+  );
+  return app.request(path, {
+    headers: {
+      authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+    },
+  });
+}
+
+it("trades a sign-in code only once, and refuses one Clerk does not know", async () => {
+  const app = testApp(database);
+  const mac = await signInMac(app, MAYA, { code: "code_once" });
+  expect(mac.response.status).toBe(201);
+
+  macCodes.set("code_once", await macToken(MAYA));
+  const again = await post(app, "/v1/mac-sign-ins", {
+    ...SIGN_IN,
+    code: "code_once",
+  });
+  expect(again.status).toBe(401);
+
+  const junk = await post(app, "/v1/mac-sign-ins", {
+    ...SIGN_IN,
+    code: "code_junk",
+  });
+  expect(junk.status).toBe(401);
+});
+
+it("adds a Mac only with the challenge its traded code got", async () => {
+  const app = testApp(database);
+  const refreshed = await macToken(MAYA);
+  const device = newDevice();
+  const nonce = await challenge(app, refreshed);
+  const fromToken = await post(app, "/v1/mac-sign-ins/finish", {
+    key: device.key,
+    name: "Studio Mac",
+    platform: "macos",
+    channel: "stable",
+    nonce,
+    signature: signText(device, registrationMessage(nonce, MAYA, device.key)),
+  });
+  expect(fromToken.status).toBe(400);
+
+  macCodes.set("code_maya", await macToken(MAYA));
+  const started = await post(app, "/v1/mac-sign-ins", {
+    ...SIGN_IN,
+    code: "code_maya",
+  });
+  const state = await body(started, "MacSignInState");
+  expect(state.account).toBe(MAYA);
+  const session = await sessionToken(MAYA);
+  const throughBearer = await caller(app)("/v1/devices", session, {
+    method: "POST",
+    json: await registration(app, device, MAYA, session, {
+      nonce: state.nonce,
+    }),
+  });
+  expect(throughBearer.status).toBe(400);
+});
+
+it("lets a removed Mac reach nothing", async () => {
+  const app = testApp(database);
+  const mac = await signInMac(app, MAYA);
+  expect(mac.response.status).toBe(201);
+  expect((await signedGet(app, mac, "/v1/devices")).status).toBe(200);
+
+  const removed = await caller(app)(
+    `/v1/devices/${mac.key}`,
+    await sessionToken(MAYA),
+    { method: "DELETE" },
+  );
+  expect(removed.status).toBe(204);
+
+  expect((await signedGet(app, mac, "/v1/devices")).status).toBe(401);
+  expect((await signedGet(app, mac, "/v1/vault/uses")).status).toBe(401);
+});

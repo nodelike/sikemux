@@ -36,6 +36,8 @@ interface Registrant {
   issuedAt?: Date | undefined;
   /** The host that signed the request, when one did. */
   deviceKey?: string | undefined;
+  /** Whether the nonce is a challenge the API issued for a Mac's browser sign-in. */
+  macSignIn?: boolean;
 }
 
 /**
@@ -44,7 +46,7 @@ interface Registrant {
  */
 export async function registerDevice(
   db: Kysely<Tables>,
-  { userId, via, sessionId, issuedAt, deviceKey }: Registrant,
+  { userId, via, sessionId, issuedAt, deviceKey, macSignIn }: Registrant,
   registration: DeviceRegistration,
 ): Promise<{ row: Selectable<Tables["devices"]>; added: boolean }> {
   if (via === "host" && registration.role !== "client")
@@ -59,12 +61,21 @@ export async function registerDevice(
   const name = registration.name.trim();
   if (!name) throw badRequest("The device needs a name.");
 
-  await proveKey(db, userId, {
-    nonce: registration.nonce,
-    key: registration.key,
-    message: registrationMessage(registration.nonce, userId, registration.key),
-    signature: registration.signature,
-  });
+  await proveKey(
+    db,
+    userId,
+    {
+      nonce: registration.nonce,
+      key: registration.key,
+      message: registrationMessage(
+        registration.nonce,
+        userId,
+        registration.key,
+      ),
+      signature: registration.signature,
+    },
+    { macSignIn },
+  );
 
   return db.transaction().execute(async (trx) => {
     await holdStanding(trx, userId);

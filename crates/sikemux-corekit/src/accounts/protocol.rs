@@ -974,6 +974,38 @@ pub enum LiveServerMessage {
     Unknown,
 }
 
+/// What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacSignIn {
+    pub code: String,
+    /// The PKCE verifier the Mac made for this sign-in.
+    pub code_verifier: String,
+    /// Where the browser handed the code back, on the Mac itself.
+    pub redirect_uri: String,
+}
+
+/// Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacSignInFinish {
+    pub key: DeviceKey,
+    pub name: String,
+    pub platform: Platform,
+    pub channel: Channel,
+    pub nonce: String,
+    pub signature: String,
+}
+
+/// The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacSignInState {
+    pub account: String,
+    pub nonce: String,
+    pub expires_at: String,
+}
+
 /// The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.
 pub type MemberName = String;
 
@@ -2211,6 +2243,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveRevoked" => through::<LiveServerMessage>(json),
         "LiveRole" => through::<LiveRole>(json),
         "LiveServerMessage" => through::<LiveServerMessage>(json),
+        "MacSignIn" => through::<MacSignIn>(json),
+        "MacSignInFinish" => through::<MacSignInFinish>(json),
+        "MacSignInState" => through::<MacSignInState>(json),
         "MemberName" => through::<MemberName>(json),
         "Money" => through::<Money>(json),
         "Org" => through::<Org>(json),

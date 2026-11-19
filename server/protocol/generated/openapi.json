@@ -730,6 +730,120 @@
         }
       }
     },
+    "/v1/mac-sign-ins": {
+      "post": {
+        "operationId": "startMacSignIn",
+        "summary": "Trade the Mac app's browser sign-in for a challenge that adds its host to the account",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MacSignIn" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The sign-in is good. Its tokens are thrown away.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MacSignInState" }
+              }
+            }
+          },
+          "401": {
+            "description": "Clerk would not trade the code: it is wrong, used, expired or for another app.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many sign-ins from this address, or from everywhere at once.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mac-sign-ins/finish": {
+      "post": {
+        "operationId": "finishMacSignIn",
+        "summary": "Add the signed-in Mac's host to the account, proving it holds its key",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MacSignInFinish" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The host was already on the account and is updated. The challenge is used up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "201": {
+            "description": "The host is on the account. The challenge is used up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "400": {
+            "description": "The challenge is unknown, used, expired, or not one a Mac's sign-in made.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "The signature does not prove the host holds its key, or the host was removed from the account.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests from this address.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/live": {
       "get": {
         "operationId": "openLive",
@@ -4387,7 +4501,7 @@
         "operationId": "listVaultUses",
         "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
         "security": [{ "session": [] }, { "host": [] }, { "device": [] }],
-        "description": "The phone's or the web app's sign-in, the Mac app's OAuth token, or a request signed by a host or a phone on the account.",
+        "description": "The phone's or the web app's sign-in, or a request signed by a host or a phone on the account.",
         "parameters": [
           {
             "name": "entry",
@@ -7513,6 +7627,67 @@
           { "$ref": "#/components/schemas/LivePushed" }
         ],
         "discriminator": { "propertyName": "type" }
+      },
+      "MacSignIn": {
+        "description": "What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one.",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 512,
+            "pattern": "^[A-Za-z0-9._~-]+$"
+          },
+          "codeVerifier": {
+            "description": "The PKCE verifier the Mac made for this sign-in.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._~-]{43,128}$"
+          },
+          "redirectUri": {
+            "description": "Where the browser handed the code back, on the Mac itself.",
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^http://127\\.0\\.0\\.1:[0-9]{1,5}/callback$"
+          }
+        },
+        "required": ["code", "codeVerifier", "redirectUri"],
+        "additionalProperties": false
+      },
+      "MacSignInFinish": {
+        "description": "Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState.",
+        "type": "object",
+        "properties": {
+          "key": { "$ref": "#/components/schemas/DeviceKey" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "platform": { "$ref": "#/components/schemas/Platform" },
+          "channel": { "$ref": "#/components/schemas/Channel" },
+          "nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+        },
+        "required": [
+          "key",
+          "name",
+          "platform",
+          "channel",
+          "nonce",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "MacSignInState": {
+        "description": "The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish.",
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "pattern": "^user_[A-Za-z0-9]+$",
+            "maxLength": 64
+          },
+          "nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["account", "nonce", "expiresAt"],
+        "additionalProperties": false
       },
       "MemberName": {
         "description": "The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.",

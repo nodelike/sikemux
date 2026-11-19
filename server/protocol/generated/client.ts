@@ -37,6 +37,9 @@ import type {
   InvoiceList,
   JoinRequest,
   JoinTicket,
+  MacSignIn,
+  MacSignInFinish,
+  MacSignInState,
   ModFiles,
   ModSeqParam,
   ModsPulled,
@@ -201,6 +204,12 @@ export function apiClient(send: Send) {
     /** Refuse the waiting host. */
     refuseHostSignIn: (userCode: string) =>
       send<void>("DELETE", `/v1/host-sign-ins/${encodeURIComponent(userCode)}`),
+    /** Trade the Mac app's browser sign-in for a challenge that adds its host to the account. */
+    startMacSignIn: (body: MacSignIn) =>
+      send<MacSignInState>("POST", `/v1/mac-sign-ins`, body),
+    /** Add the signed-in Mac's host to the account, proving it holds its key. */
+    finishMacSignIn: (body: MacSignInFinish) =>
+      send<Device>("POST", `/v1/mac-sign-ins/finish`, body),
     /** Whether your account is in use or waiting to be deleted. */
     getAccount: () => send<Account>("GET", `/v1/account`),
     /** Delete your account and take every device off it. */

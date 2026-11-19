@@ -320,6 +320,58 @@
       }
     },
     {
+      "method": "post",
+      "path": "/v1/mac-sign-ins",
+      "operationId": "startMacSignIn",
+      "summary": "Trade the Mac app's browser sign-in for a challenge that adds its host to the account",
+      "auth": "none",
+      "request": "MacSignIn",
+      "responses": {
+        "200": {
+          "description": "The sign-in is good. Its tokens are thrown away.",
+          "body": "MacSignInState"
+        },
+        "401": {
+          "description": "Clerk would not trade the code: it is wrong, used, expired or for another app.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Too many sign-ins from this address, or from everywhere at once.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/mac-sign-ins/finish",
+      "operationId": "finishMacSignIn",
+      "summary": "Add the signed-in Mac's host to the account, proving it holds its key",
+      "auth": "none",
+      "request": "MacSignInFinish",
+      "responses": {
+        "200": {
+          "description": "The host was already on the account and is updated. The challenge is used up.",
+          "body": "Device"
+        },
+        "201": {
+          "description": "The host is on the account. The challenge is used up.",
+          "body": "Device"
+        },
+        "400": {
+          "description": "The challenge is unknown, used, expired, or not one a Mac's sign-in made.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "The signature does not prove the host holds its key, or the host was removed from the account.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Too many requests from this address.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "get",
       "path": "/v1/live",
       "operationId": "openLive",
@@ -1911,7 +1963,7 @@
       "path": "/v1/vault/uses",
       "operationId": "listVaultUses",
       "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
-      "auth": "sessionDeviceOrMac",
+      "auth": "sessionOrDevice",
       "query": {
         "entry": "VaultEntryId"
       },

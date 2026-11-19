@@ -132,7 +132,10 @@ async fn send(path: &str, body: &impl Serialize) -> Result<Response, String> {
         .map_err(|error| error.to_string())
 }
 
-async fn post<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> Result<T, String> {
+pub(super) async fn post<T: DeserializeOwned>(
+    path: &str,
+    body: &impl Serialize,
+) -> Result<T, String> {
     let response = send(path, body).await?;
     if !response.status().is_success() {
         return Err(crate::accounts::refusal(response).await);

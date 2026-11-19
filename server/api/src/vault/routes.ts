@@ -45,7 +45,7 @@ export function vaultRoutes({
 }: Pick<Services, "database" | "verifier" | "limiter">) {
   const asHost = requireIdentity(verifier, db, { accept: ["host"] });
   const onAccount = requireIdentity(verifier, db, {
-    accept: ["session", "host", "device", "mac"],
+    accept: ["session", "host", "device"],
   });
   const state = (c: Context<AuthEnv>) => {
     const { userId, hostKey } = asker(c);

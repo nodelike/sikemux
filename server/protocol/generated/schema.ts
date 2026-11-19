@@ -1595,6 +1595,64 @@ export const schema = {
       ],
       discriminator: { propertyName: "type" },
     },
+    MacSignIn: {
+      description:
+        "What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one.",
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          minLength: 8,
+          maxLength: 512,
+          pattern: "^[A-Za-z0-9._~-]+$",
+        },
+        codeVerifier: {
+          description: "The PKCE verifier the Mac made for this sign-in.",
+          type: "string",
+          pattern: "^[A-Za-z0-9._~-]{43,128}$",
+        },
+        redirectUri: {
+          description:
+            "Where the browser handed the code back, on the Mac itself.",
+          type: "string",
+          maxLength: 64,
+          pattern: "^http://127\\.0\\.0\\.1:[0-9]{1,5}/callback$",
+        },
+      },
+      required: ["code", "codeVerifier", "redirectUri"],
+      additionalProperties: false,
+    },
+    MacSignInFinish: {
+      description:
+        "Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState.",
+      type: "object",
+      properties: {
+        key: { $ref: "#/$defs/DeviceKey" },
+        name: { type: "string", minLength: 1, maxLength: 64 },
+        platform: { $ref: "#/$defs/Platform" },
+        channel: { $ref: "#/$defs/Channel" },
+        nonce: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
+      },
+      required: ["key", "name", "platform", "channel", "nonce", "signature"],
+      additionalProperties: false,
+    },
+    MacSignInState: {
+      description:
+        "The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish.",
+      type: "object",
+      properties: {
+        account: {
+          type: "string",
+          pattern: "^user_[A-Za-z0-9]+$",
+          maxLength: 64,
+        },
+        nonce: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        expiresAt: { type: "string", format: "date-time" },
+      },
+      required: ["account", "nonce", "expiresAt"],
+      additionalProperties: false,
+    },
     MemberName: {
       description:
         "The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.",

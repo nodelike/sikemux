@@ -884,6 +884,32 @@ export type LiveServerMessage =
   | LiveBye
   | LivePushed;
 
+/** What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one. */
+export interface MacSignIn {
+  code: string;
+  /** The PKCE verifier the Mac made for this sign-in. */
+  codeVerifier: string;
+  /** Where the browser handed the code back, on the Mac itself. */
+  redirectUri: string;
+}
+
+/** Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState. */
+export interface MacSignInFinish {
+  key: DeviceKey;
+  name: string;
+  platform: Platform;
+  channel: Channel;
+  nonce: string;
+  signature: string;
+}
+
+/** The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish. */
+export interface MacSignInState {
+  account: string;
+  nonce: string;
+  expiresAt: string;
+}
+
 /** The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none. */
 export type MemberName = string;
 
@@ -2455,6 +2481,9 @@ export interface Definitions {
   LiveRevoked: LiveRevoked;
   LiveRole: LiveRole;
   LiveServerMessage: LiveServerMessage;
+  MacSignIn: MacSignIn;
+  MacSignInFinish: MacSignInFinish;
+  MacSignInState: MacSignInState;
   MemberName: MemberName;
   MinimumVersions: MinimumVersions;
   ModConflict: ModConflict;

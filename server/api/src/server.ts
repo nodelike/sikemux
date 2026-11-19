@@ -5,6 +5,7 @@ import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { appleSignIn } from "./account/apple.ts";
+import { clerkMacSignIn } from "./devices/mac-sign-in.ts";
 import { workGoogle } from "./account/work-google.ts";
 import { admittingVerifier } from "./account/admission.ts";
 import { clerkBackend } from "./account/clerk.ts";
@@ -163,6 +164,7 @@ export async function startServer(config: Config, log: Logger) {
     relayAccess,
     clerk,
     appleSignIn: apple,
+    macSignIn: clerkMacSignIn(config.clerkIssuer, config.macClientId),
     webhookSecret: config.clerkWebhookSecret,
     network: config.network,
     push: config.push,
