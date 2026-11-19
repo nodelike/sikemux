@@ -1646,8 +1646,10 @@ fn with_reply(
                     let here = Some((text.clone(), place));
                     if over {
                         reading.quoting = here;
+                        reading.quoting_button = false;
                     } else if reading.quoting == here {
                         reading.quoting = None;
+                        reading.quoting_button = false;
                     } else {
                         return;
                     }
@@ -1655,6 +1657,17 @@ fn with_reply(
                 })
             },
         )
+    };
+    let on_point = {
+        let reader = looks.reader.clone();
+        Rc::new(move |over: bool, _: &mut Window, cx: &mut App| {
+            reader.update(cx, |reading, cx| {
+                if reading.quoting_button != over {
+                    reading.quoting_button = over;
+                    cx.notify();
+                }
+            })
+        })
     };
     let button = {
         let (bench, agent, reader, text) = (
@@ -1701,9 +1714,11 @@ fn with_reply(
     Rc::new(Style {
         reply: Some(gpui_transcript::Reply {
             hovered,
+            pointed: hovered.is_some() && looks.reading.quoting_button,
             chosen,
             gutter: px(REPLY_GUTTER),
             on_hover,
+            on_point,
             button,
         }),
         ..(*look).clone()

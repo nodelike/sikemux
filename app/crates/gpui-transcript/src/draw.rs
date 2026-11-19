@@ -59,16 +59,21 @@ pub type DrawFence = Rc<dyn Fn(Fence, &mut Window, &mut App) -> AnyElement>;
 #[derive(Clone)]
 pub struct Reply {
     pub hovered: Option<usize>,
+    /// The pointer is over the hovered part's button, which underlines the words it quotes.
+    pub pointed: bool,
     /// The parts already in the reader's reply, which keep their button showing.
     pub chosen: Rc<[usize]>,
     /// The room to the right of the text that holds the button.
     pub gutter: Pixels,
     pub on_hover: OnPartHover,
+    pub on_point: OnButtonHover,
     pub button: PartButton,
 }
 
 /// Hears the pointer come onto a part, or leave it.
 pub type OnPartHover = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
+/// Hears the pointer come onto the hovered part's button, or leave it.
+pub type OnButtonHover = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 /// Draws a part's button from its place, its words as markdown, and whether it is chosen.
 pub type PartButton = Rc<dyn Fn(usize, String, bool, &mut Window, &mut App) -> AnyElement>;
 /// Styled runs over a code block's text, in bytes from its start.
@@ -836,7 +841,7 @@ struct Draw<'a> {
     tasks: usize,
     /// Parts a reply can quote drawn before the next, in the whole text.
     parts: usize,
-    /// The text being drawn is underlined, as the part the pointer is over.
+    /// The text being drawn is underlined, as the part whose reply button the pointer is on.
     underlined: bool,
     /// The side the blocks being drawn line up to.
     align: TextAlign,
@@ -975,7 +980,7 @@ impl Draw<'_> {
     }
 
     /// A paragraph or top-level list item, with a reply button in the gutter while the pointer
-    /// is over it or the reader chose it, and its words underlined while the pointer is over it.
+    /// is over it or the reader chose it, and its words underlined while the pointer is on that button.
     fn quotable(
         &mut self,
         node: &Node,
@@ -992,13 +997,14 @@ impl Draw<'_> {
         self.parts += 1;
         let hovered = reply.hovered == Some(place);
         let chosen = reply.chosen.contains(&place);
-        let outer = std::mem::replace(&mut self.underlined, hovered);
+        let outer = std::mem::replace(&mut self.underlined, hovered && reply.pointed);
         let drawn = draw(self, window, cx);
         self.underlined = outer;
         let button =
             (hovered || chosen).then(|| (reply.button)(place, node.quoted(), chosen, window, cx));
         let line = self.on.style.text_size * self.on.style.line_height;
         let on_hover = reply.on_hover.clone();
+        let on_point = reply.on_point.clone();
         div()
             .id(self.id("part"))
             .relative()
@@ -1008,6 +1014,8 @@ impl Draw<'_> {
             .child(drawn)
             .children(button.map(|button| {
                 div()
+                    .id(self.id("reply"))
+                    .on_hover(move |over, window, cx| on_point(*over, window, cx))
                     .absolute()
                     .top_0()
                     .right_0()
