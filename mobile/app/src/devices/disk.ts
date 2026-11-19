@@ -4,7 +4,7 @@ import { File } from 'expo-file-system';
 export function writeWhole(file: File, text: string) {
   const next = new File(`${file.uri}.next`);
   next.write(text);
-  next.move(file, { overwrite: true });
+  next.moveSync(file, { overwrite: true });
 }
 
 export type Read<T> = { value: T | undefined; damaged: boolean };
@@ -20,7 +20,7 @@ export async function readWhole<T>(file: File, valid: (value: unknown) => value 
     if (valid(value)) return { value, damaged: false };
   } catch {}
   try {
-    source.move(new File(`${file.uri}.damaged`), { overwrite: true });
+    source.moveSync(new File(`${file.uri}.damaged`), { overwrite: true });
   } catch {
     source.delete();
   }

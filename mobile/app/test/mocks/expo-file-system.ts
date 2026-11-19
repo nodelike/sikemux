@@ -35,7 +35,7 @@ export class File {
     files.delete(this.uri);
   }
 
-  move(destination: File, options: { overwrite?: boolean } = {}) {
+  moveSync(destination: File, options: { overwrite?: boolean } = {}) {
     const text = files.get(this.uri);
     if (text === undefined) throw new Error(`no file at ${this.uri}`);
     if (files.has(destination.uri) && !options.overwrite) throw new Error(`a file is already at ${destination.uri}`);
