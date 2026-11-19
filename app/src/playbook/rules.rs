@@ -295,7 +295,7 @@ fn row(
             .into_any_element(),
         false => line,
     };
-    let line = locked(said::line(
+    let line = locked(said::resting(
         format!("playbook-rule-{id}"),
         words.clone(),
         moment.clone(),

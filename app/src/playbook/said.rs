@@ -98,7 +98,36 @@ pub(super) fn line(
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
-    drawn(id.into(), words.into(), moment, actions, false, this, cx)
+    drawn(
+        id.into(),
+        words.into(),
+        moment,
+        actions,
+        Form::Wrapped,
+        this,
+        cx,
+    )
+}
+
+/// The line as it looks at rest, with links that take no clicks, for a row that swaps it for
+/// [`one_line`] while the pointer is over it.
+pub(super) fn resting(
+    id: impl Into<SharedString>,
+    words: impl Into<SharedString>,
+    moment: Option<Moment>,
+    actions: Vec<Action>,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    drawn(
+        id.into(),
+        words.into(),
+        moment,
+        actions,
+        Form::Resting,
+        this,
+        cx,
+    )
 }
 
 /// The same line kept to one, its words cut short with an ellipsis where they don't fit.
@@ -110,7 +139,22 @@ pub(super) fn one_line(
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
-    drawn(id.into(), words.into(), moment, actions, true, this, cx)
+    drawn(
+        id.into(),
+        words.into(),
+        moment,
+        actions,
+        Form::OneLine,
+        this,
+        cx,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Form {
+    Wrapped,
+    Resting,
+    OneLine,
 }
 
 fn drawn(
@@ -118,7 +162,7 @@ fn drawn(
     words: SharedString,
     moment: Option<Moment>,
     actions: Vec<Action>,
-    one_line: bool,
+    form: Form,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
@@ -130,17 +174,20 @@ fn drawn(
     });
     let link = |at: usize, action: Action| {
         let (this, act) = (this.clone(), action.act.clone());
-        div().flex().flex_none().gap(SPACE_1).child("·").child(
-            div()
+        let word = div().text_color(t.text_secondary).child(action.label);
+        let word = match form {
+            Form::Resting => word.into_any_element(),
+            Form::Wrapped | Form::OneLine => word
                 .id(SharedString::from(format!("{id}-{at}")))
-                .text_color(t.text_secondary)
                 .hover(|word| word.text_color(t.text_primary))
-                .child(action.label)
                 .clicks(move |_, _: &mut Window, cx| {
                     this.update(cx, |bench, cx| act(bench, cx));
-                }),
-        )
+                })
+                .into_any_element(),
+        };
+        div().flex().flex_none().gap(SPACE_1).child("·").child(word)
     };
+    let one_line = form == Form::OneLine;
     let line = div().flex().gap(SPACE_1);
     let line = match one_line {
         true => line.overflow_x_hidden(),
