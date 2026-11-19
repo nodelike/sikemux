@@ -339,10 +339,10 @@ pub fn main_checkout(path: &std::path::Path) -> Option<std::path::PathBuf> {
     if common.file_name()? != ".git" || gitdir.parent()? != common.join("worktrees") {
         return None;
     }
-    // Anyone can write a `.git` file naming another repository; git trusts the link only when
-    // that repository's own record of the worktree points back here.
+    // Anyone can write or link a `.git` file naming another repository; git trusts the link only
+    // when that repository's own record of the worktree points back at this folder.
     let back = std::fs::read_to_string(gitdir.join("gitdir")).ok()?;
-    if real(gitdir.join(back.trim())).ok()? != real(&dot_git).ok()? {
+    if real(gitdir.join(back.trim())).ok()? != real(root).ok()?.join(".git") {
         return None;
     }
     common.parent().map(std::path::Path::to_path_buf)
@@ -532,6 +532,13 @@ mod tests {
             .into_owned();
         fs::write(fake.join(".git"), format!("gitdir: {borrowed}\n")).unwrap();
         assert_eq!(main_checkout(&fake), None);
+
+        #[cfg(unix)]
+        {
+            fs::remove_file(fake.join(".git")).unwrap();
+            std::os::unix::fs::symlink(linked.join(".git"), fake.join(".git")).unwrap();
+            assert_eq!(main_checkout(&fake), None);
+        }
     }
 
     #[test]
