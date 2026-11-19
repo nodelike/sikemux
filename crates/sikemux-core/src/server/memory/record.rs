@@ -2,6 +2,7 @@
 //! project, and their writes to it go to the home. The person's own store stays on each host.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -265,7 +266,7 @@ pub(crate) fn personal(core: &Core, method: &str, params: &Value) -> bool {
         .get("goal")
         .is_some_and(|goal| !goal.is_null() && goal != false);
     let held_here = || {
-        let Some(id) = params.get("id").and_then(Value::as_u64) else {
+        let Some(id) = id_now(core, params) else {
             return false;
         };
         let state = core.memory().state.locked();
@@ -284,6 +285,19 @@ pub(crate) fn personal(core: &Core, method: &str, params: &Value) -> bool {
     }
 }
 
+/// The number the entry `params` name has now, for choosing which host writes it: a chat line's
+/// Undo names it by the number it had then. The number sent on stays as it was, since the host
+/// that writes maps it again.
+fn id_now(core: &Core, params: &Value) -> Option<u64> {
+    let id = params.get("id").and_then(Value::as_u64)?;
+    if params.get("kept").and_then(Value::as_bool) != Some(true) {
+        return Some(id);
+    }
+    let project = params.get("project").and_then(Value::as_str)?;
+    let folder = (core.workspaces()).project_of(std::path::Path::new(project));
+    Some(core.memory().state.locked().kept_id(&folder, id))
+}
+
 /// The store a move from the app takes an entry to, when `params` of its memoryUpdate are one.
 fn store_asked(params: &Value) -> Option<Store> {
     serde_json::from_value(params.get("store")?.clone()).ok()
@@ -294,7 +308,7 @@ fn store_asked(params: &Value) -> Option<Store> {
 /// list, which the home does.
 pub(crate) fn moving_to(core: &Core, folder: &str, params: &Value) -> Option<Store> {
     let to = store_asked(params)?;
-    let id = params.get("id").and_then(Value::as_u64);
+    let id = id_now(core, params);
     let state = core.memory().state.locked();
     let in_org = (state.org_key(folder))
         .and_then(|key| state.held.get(&key))
