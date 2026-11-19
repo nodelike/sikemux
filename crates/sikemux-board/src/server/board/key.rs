@@ -102,8 +102,10 @@ impl Board {
     /// Takes in the board `other` kept as the project's home, matching cards by id and when they
     /// were made: the one changed last wins, keeping the commits, pulls, recordings, arrivals and
     /// goal rules either had, and its cards this board lacks get new ids unless this board archived them. It
-    /// removes nothing else, so a card `other` removed comes back.
+    /// removes nothing else, so a card `other` removed comes back. The board is shared with
+    /// whoever `other` shared it with, since this host is the project's home now.
     pub(super) fn merge(&mut self, other: Board, archived: &HashSet<(u64, u64)>) {
+        self.settings.shared_with = other.settings.shared_with.clone();
         let cards: Vec<Card> = (other.cards.into_iter())
             .filter(|card| !archived.contains(&(card.id, card.at)))
             .collect();
