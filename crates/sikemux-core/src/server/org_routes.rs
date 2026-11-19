@@ -85,7 +85,7 @@ impl Drop for Mover {
     }
 }
 
-/// Moves every running chat on an org's key it may no longer use, once its turn is over.
+/// Moves every running chat on an org's key it may no longer use, once its turn and the subagents it started are over.
 pub(crate) fn sweep(core: &Arc<Core>) {
     for chat in core.chats().all() {
         let launch = chat.current_launch();
@@ -101,7 +101,7 @@ pub(crate) fn sweep(core: &Arc<Core>) {
         let core = core.clone();
         tokio::spawn(async move {
             let _mover = mover;
-            chat.turn_ended().await;
+            chat.settled().await;
             let agent_id = chat.agent_id().to_owned();
             if !(core.chats().get(&agent_id)).is_some_and(|now| Arc::ptr_eq(&now, &chat)) {
                 return;

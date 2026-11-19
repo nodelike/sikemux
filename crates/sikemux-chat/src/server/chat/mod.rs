@@ -792,6 +792,7 @@ impl Chat {
                 }
                 state.turn = Turn::Idle;
             }
+            chat.turn_over.notify_waiters();
             if giving_up {
                 chat.feed.give_up_subagents();
             }
@@ -1057,6 +1058,25 @@ impl Chat {
                 return;
             }
             over.await;
+        }
+    }
+
+    /// Waits until no turn is at work and no subagent of one still runs, or the chat ends.
+    pub async fn settled(&self) {
+        let mut readiness = self.readiness.subscribe();
+        loop {
+            let over = self.turn_over.notified();
+            let at_work = {
+                let state = self.turn.locked();
+                state.running() || state.turn == Turn::Held
+            };
+            if !at_work {
+                return;
+            }
+            tokio::select! {
+                () = over => {}
+                _ = readiness.wait_for(|readiness| matches!(readiness, Readiness::Ended(_))) => return,
+            }
         }
     }
 
