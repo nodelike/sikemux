@@ -279,6 +279,9 @@ fn account_orgs(core: &Core) -> Option<Vec<AccountOrg>> {
 }
 
 async fn round(core: &Arc<Core>) -> CoreResult<()> {
+    if !core.remote().loaded() {
+        return Ok(());
+    }
     let (Some(account), Some(host), true) = (
         core.remote().owner(),
         core.remote().host_key(),
