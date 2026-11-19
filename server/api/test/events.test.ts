@@ -238,7 +238,7 @@ describe("a deleted account", () => {
   it("is not brought back by registering", async () => {
     await registered(app, "user_a", "host");
     await markDeleted("user_a");
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     expect(
       (await call("/v1/devices/challenge", token, { method: "POST" })).status,
     ).toBe(401);

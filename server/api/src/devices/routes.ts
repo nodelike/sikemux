@@ -34,20 +34,20 @@ export function deviceRoutes(
     new Hono<AuthEnv>()
       .use(
         requireIdentity(verifier, db, {
-          accept: ["session", "host", "macRegistration"],
+          accept: ["session", "host"],
         }),
       )
       .route("/", pushTokenRoutes(services))
       .route("/", joinRoutes(services))
       .post(
         "/challenge",
-        allow("session", "macRegistration", "host"),
+        allow("session", "host"),
         perUser(limiter, "challenge", 30),
         async (c) => c.json(await issueChallenge(db, c.get("identity").userId)),
       )
       .post(
         "/",
-        allow("session", "macRegistration", "host"),
+        allow("session", "host"),
         perUser(limiter, "register", 20),
         async (c) => {
           const registration = await readBody(c, "DeviceRegistration");
@@ -146,7 +146,7 @@ export function deviceRoutes(
       )
       .get(
         "/",
-        allow("session", "host", "mac"),
+        allow("session", "host"),
         perUser(limiter, "list", 120),
         async (c) => {
           const { userId } = c.get("identity");

@@ -73,8 +73,8 @@
       "post": {
         "operationId": "createChallenge",
         "summary": "A one-time value for a device to sign before it registers",
-        "security": [{ "session": [] }],
-        "description": "The phone's or the web app's sign-in, or the Mac app's OAuth token from a sign-in in the last ten minutes, which it uses only to register its host.",
+        "security": [{ "session": [] }, { "host": [] }],
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
         "responses": {
           "200": {
             "description": "The challenge, valid for two minutes.",
@@ -99,8 +99,8 @@
       "post": {
         "operationId": "registerDevice",
         "summary": "Add a device to your account, or update it",
-        "security": [{ "session": [] }],
-        "description": "The phone's or the web app's sign-in, or the Mac app's OAuth token from a sign-in in the last ten minutes, which it uses only to register its host.",
+        "security": [{ "session": [] }, { "host": [] }],
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
         "requestBody": {
           "required": true,
           "content": {
@@ -140,7 +140,7 @@
         "operationId": "listDevices",
         "summary": "Your devices",
         "security": [{ "session": [] }, { "host": [] }],
-        "description": "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
         "parameters": [
           {
             "name": "role",
@@ -251,7 +251,7 @@
         "operationId": "setPushToken",
         "summary": "Deliver this phone's notifications to a push token",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "key",
@@ -315,7 +315,7 @@
         "operationId": "clearPushToken",
         "summary": "Stop delivering notifications to this phone",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "key",
@@ -352,7 +352,7 @@
         "operationId": "createJoinTicket",
         "summary": "A ticket for this phone to join one of your hosts without a code",
         "security": [{ "session": [] }, { "host": [] }],
-        "description": "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
         "parameters": [
           {
             "name": "key",
@@ -677,7 +677,7 @@
         "operationId": "getPendingHost",
         "summary": "The host waiting behind a user code, to check before approving it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "userCode",
@@ -717,7 +717,7 @@
         "operationId": "refuseHostSignIn",
         "summary": "Refuse the waiting host",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "userCode",
@@ -752,7 +752,7 @@
         "operationId": "approveHostSignIn",
         "summary": "Add the waiting host to your account",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "userCode",
@@ -994,7 +994,7 @@
         "operationId": "getAccount",
         "summary": "Whether your account is in use or waiting to be deleted",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "The account's status. A deleted account still answers, so an app can offer to restore it.",
@@ -1018,7 +1018,7 @@
         "operationId": "deleteAccount",
         "summary": "Delete your account and take every device off it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": false,
           "content": {
@@ -1078,7 +1078,7 @@
         "operationId": "restoreAccount",
         "summary": "Take back a deletion before it is final",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "The account is in use again, with no devices on it; each signs in again. Restoring an account in use changes nothing.",
@@ -1112,7 +1112,7 @@
         "operationId": "checkSignInAddress",
         "summary": "Whether an address may become a way to sign in, before Clerk is asked to add it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1147,7 +1147,7 @@
         "operationId": "tidySignIns",
         "summary": "Take work addresses off the account's sign-ins, and say once what was taken off",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "What was taken off since the person last asked; empty when nothing was.",
@@ -1173,7 +1173,7 @@
         "operationId": "listWorkAddresses",
         "summary": "The work addresses the person proved they hold, by domain and org, never the address",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "Every proof on the account, oldest first.",
@@ -1199,7 +1199,7 @@
         "operationId": "startWorkAddressVerify",
         "summary": "Start proving a work address by signing in to its Google account",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "Where to send the person; it comes back to the web app within ten minutes.",
@@ -1235,7 +1235,7 @@
         "operationId": "finishWorkAddressVerify",
         "summary": "Prove the work address Google signed in, on the account that started it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1287,7 +1287,7 @@
         "operationId": "removeWorkAddress",
         "summary": "Forget a proven work address",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "id",
@@ -1316,7 +1316,7 @@
         "operationId": "getFoldCatch",
         "summary": "Whether to ask a new account's person if they already have an account",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1350,7 +1350,7 @@
         "operationId": "keepNewAccount",
         "summary": "Keep a new account as it is: the person has no other",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "204": { "description": "The account is not asked again." },
           "409": {
@@ -1377,7 +1377,7 @@
         "operationId": "startFold",
         "summary": "Start folding one of your accounts into another",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1435,7 +1435,7 @@
         "operationId": "previewFold",
         "summary": "What confirming a fold does, read by the account that did not start it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "foldId",
@@ -1493,7 +1493,7 @@
         "operationId": "confirmFold",
         "summary": "Fold the account: its seats and the work address's proof move, and it is deleted",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "foldId",
@@ -1862,7 +1862,7 @@
         "operationId": "createOrg",
         "summary": "Make an org, with you as its owner",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1910,7 +1910,7 @@
         "operationId": "listOrgs",
         "summary": "The orgs you are in",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "Each org with your role and its seats.",
@@ -1944,7 +1944,7 @@
         "operationId": "joinOrg",
         "summary": "Accept an invite and join its org",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2051,7 +2051,7 @@
         "operationId": "renameOrg",
         "summary": "Rename an org, as its owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2117,7 +2117,7 @@
         "operationId": "deleteOrg",
         "summary": "Delete an org, as its owner",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2170,7 +2170,7 @@
         "operationId": "listOrgMembers",
         "summary": "Everyone in an org",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2212,7 +2212,7 @@
         "operationId": "setOrgMemberRole",
         "summary": "Change a member's role",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2292,7 +2292,7 @@
         "operationId": "removeOrgMember",
         "summary": "Take someone out of an org",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2351,7 +2351,7 @@
         "operationId": "leaveOrg",
         "summary": "Leave an org",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2396,7 +2396,7 @@
         "operationId": "createOrgInvite",
         "summary": "Make an invite link, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2468,7 +2468,7 @@
         "operationId": "listOrgInvites",
         "summary": "An org's pending invites, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2518,7 +2518,7 @@
         "operationId": "revokeOrgInvite",
         "summary": "Revoke an invite, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2569,7 +2569,7 @@
         "operationId": "listOrgOffers",
         "summary": "The orgs your email's domain lets you join",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "Each org whose verified domain your verified sign-in email is at. Your address is read now and never kept.",
@@ -2603,7 +2603,7 @@
         "operationId": "joinOrgByDomain",
         "summary": "Join an org through your email's domain",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2661,7 +2661,7 @@
         "operationId": "listOrgTeams",
         "summary": "An org's teams",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2701,7 +2701,7 @@
         "operationId": "createOrgTeam",
         "summary": "Make a team, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2775,7 +2775,7 @@
         "operationId": "renameOrgTeam",
         "summary": "Rename a team, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2855,7 +2855,7 @@
         "operationId": "deleteOrgTeam",
         "summary": "Delete a team, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2914,7 +2914,7 @@
         "operationId": "addOrgTeamMember",
         "summary": "Put a member on a team, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -2982,7 +2982,7 @@
         "operationId": "removeOrgTeamMember",
         "summary": "Take a member off a team, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3052,7 +3052,7 @@
         "operationId": "listOrgDomains",
         "summary": "An org's email domains, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3100,7 +3100,7 @@
         "operationId": "addOrgDomain",
         "summary": "Claim an email domain, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3174,7 +3174,7 @@
         "operationId": "verifyOrgDomain",
         "summary": "Look for a domain's TXT record, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3238,7 +3238,7 @@
         "operationId": "setOrgDomainJoining",
         "summary": "Choose how people at a domain come in, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3320,7 +3320,7 @@
         "operationId": "setOrgDomainOurs",
         "summary": "Say whether addresses at a verified domain are the org's own, as an owner",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3400,7 +3400,7 @@
         "operationId": "removeOrgDomain",
         "summary": "Give up a domain, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3451,7 +3451,7 @@
         "operationId": "listOrgAudit",
         "summary": "What happened in an org, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3507,7 +3507,7 @@
         "operationId": "getOrgPolicy",
         "summary": "How an org's agents work together, as any member",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -3547,7 +3547,7 @@
         "operationId": "setOrgPolicy",
         "summary": "Change how an org's agents work together, as an owner or an admin",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "orgId",
@@ -5716,7 +5716,7 @@
         "operationId": "getBillingCatalog",
         "summary": "Every plan and product on sale, with prices",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "responses": {
           "200": {
             "description": "The catalog.",
@@ -5750,7 +5750,7 @@
         "operationId": "getBilling",
         "summary": "Your plan, or an org's, and what it pays for",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "org",
@@ -5800,7 +5800,7 @@
         "operationId": "startCheckout",
         "summary": "Open the provider's page to buy a product",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "requestBody": {
           "required": true,
           "content": {
@@ -5874,7 +5874,7 @@
         "operationId": "changeSubscription",
         "summary": "Change a subscription's quantity, product or interval, now and prorated or at renewal",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -5956,7 +5956,7 @@
         "operationId": "previewSubscriptionChange",
         "summary": "What a change would charge now and at the next renewal, changing nothing",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -6038,7 +6038,7 @@
         "operationId": "cancelSubscription",
         "summary": "End a subscription when its paid period ends",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -6104,7 +6104,7 @@
         "operationId": "resumeSubscription",
         "summary": "Take back a cancellation before the period ends",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -6170,7 +6170,7 @@
         "operationId": "refundSubscription",
         "summary": "Refund a plan in its first days and end it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "subscriptionId",
@@ -6236,7 +6236,7 @@
         "operationId": "listInvoices",
         "summary": "Your payments, or an org's",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "org",
@@ -6286,7 +6286,7 @@
         "operationId": "refundInvoice",
         "summary": "Refund the plan an invoice paid for, in its first days, and end it",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "invoiceId",
@@ -6352,7 +6352,7 @@
         "operationId": "getInvoiceReceipt",
         "summary": "Where one payment's receipt is",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "invoiceId",
@@ -6402,7 +6402,7 @@
         "operationId": "getBillingPortal",
         "summary": "The provider's own page for payment methods and receipts",
         "security": [{ "session": [] }],
-        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
           {
             "name": "org",
@@ -10874,7 +10874,7 @@
       "session": {
         "type": "http",
         "scheme": "bearer",
-        "description": "A Clerk sign-in: a session token from the phone or the web app, or the Mac app's OAuth access token."
+        "description": "A Clerk session token from the phone or the web app. The Mac app's OAuth token is refused with 401: a Mac signs in through /v1/mac-sign-ins and then signs its own requests."
       },
       "device": {
         "type": "http",

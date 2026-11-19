@@ -768,32 +768,23 @@ export function swift(
 
 const AUTH = new Set([
   "none",
-  "signedIn",
   "session",
   "sessionOrHost",
-  "sessionHostOrMac",
   "sessionOrDevice",
   "host",
   "device",
   "webhook",
 ]);
 const SECURITY = {
-  signedIn: [{ session: [] }],
   session: [{ session: [] }],
   sessionOrHost: [{ session: [] }, { host: [] }],
-  sessionHostOrMac: [{ session: [] }, { host: [] }],
   sessionOrDevice: [{ session: [] }, { host: [] }, { device: [] }],
   host: [{ host: [] }],
 };
 const AUTH_NOTES = {
-  signedIn:
-    "The phone's or the web app's sign-in, or the Mac app's OAuth token from a sign-in in the last ten minutes, which it uses only to register its host.",
-  session:
-    "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+  session: "Only the phone's and the web app's sign-ins.",
   sessionOrHost:
     "The phone's or the web app's sign-in, or a request signed by a host on the account.",
-  sessionHostOrMac:
-    "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
   sessionOrDevice:
     "The phone's or the web app's sign-in, or a request signed by a host or a phone on the account.",
   host: "Only a request signed by a host on the account.",
@@ -956,7 +947,7 @@ export function openapi(definitions, routes) {
           type: "http",
           scheme: "bearer",
           description:
-            "A Clerk sign-in: a session token from the phone or the web app, or the Mac app's OAuth access token.",
+            "A Clerk session token from the phone or the web app. The Mac app's OAuth token is refused with 401: a Mac signs in through /v1/mac-sign-ins and then signs its own requests.",
         },
         device: {
           type: "http",

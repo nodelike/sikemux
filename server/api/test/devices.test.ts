@@ -12,7 +12,7 @@ import {
   type TestDevice,
 } from "./accounts.ts";
 import { body, testApp } from "./support.ts";
-import { macToken, sessionToken } from "./tokens.ts";
+import { sessionToken } from "./tokens.ts";
 
 let database: Database;
 let drop: () => Promise<void>;
@@ -46,11 +46,9 @@ function registration(
 
 describe("registering a device", () => {
   it("adds a Mac to the account it proves its key for", async () => {
-    const token = await macToken("user_a");
     const mac = newDevice();
-    const response = await call("/v1/devices", token, {
-      method: "POST",
-      json: await registration(mac, "user_a", token),
+    const { response } = await harness.signInMac(app, "user_a", {
+      device: mac,
     });
     expect(response.status).toBe(201);
     expect(await body(response, "Device")).toMatchObject({
@@ -93,7 +91,7 @@ describe("registering a device", () => {
   });
 
   it("updates a device registered again, keeping one row and its name", async () => {
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const mac = newDevice();
     await call("/v1/devices", token, {
       method: "POST",
@@ -119,12 +117,12 @@ describe("registering a device", () => {
 
   it("refuses a key another account registered", async () => {
     const mac = newDevice();
-    const first = await macToken("user_a");
+    const first = await sessionToken("user_a");
     await call("/v1/devices", first, {
       method: "POST",
       json: await registration(mac, "user_a", first),
     });
-    const second = await macToken("user_b");
+    const second = await sessionToken("user_b");
     const response = await call("/v1/devices", second, {
       method: "POST",
       json: await registration(mac, "user_b", second),
@@ -134,7 +132,7 @@ describe("registering a device", () => {
   });
 
   it("refuses a signature made for another account", async () => {
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const mac = newDevice();
     const nonce = await challenge(token);
     const signature = harness.signText(
@@ -149,7 +147,7 @@ describe("registering a device", () => {
   });
 
   it("refuses a key the request does not hold", async () => {
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const claimed = newDevice();
     const holder = newDevice();
     const json = await registration(holder, "user_a", token, {});
@@ -161,7 +159,7 @@ describe("registering a device", () => {
   });
 
   it("uses each challenge once", async () => {
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const mac = newDevice();
     const json = await registration(mac, "user_a", token);
     expect(
@@ -175,8 +173,8 @@ describe("registering a device", () => {
   });
 
   it("refuses another account's challenge", async () => {
-    const nonce = await challenge(await macToken("user_b"));
-    const token = await macToken("user_a");
+    const nonce = await challenge(await sessionToken("user_b"));
+    const token = await sessionToken("user_a");
     const response = await call("/v1/devices", token, {
       method: "POST",
       json: await registration(newDevice(), "user_a", token, { nonce }),
@@ -185,7 +183,7 @@ describe("registering a device", () => {
   });
 
   it("refuses an expired challenge", async () => {
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const nonce = await challenge(token);
     await database.pool.query(
       "update challenges set expires_at = now() - interval '1 second'",
@@ -234,7 +232,7 @@ describe("registering a device", () => {
 
 describe("listing devices", () => {
   it("shows only your own, newest first, filtered by role", async () => {
-    const mine = await macToken("user_a");
+    const mine = await sessionToken("user_a");
     const mac = newDevice();
     const phone = newDevice();
     await call("/v1/devices", mine, {
@@ -248,7 +246,7 @@ describe("listing devices", () => {
     });
     delete phoneJson.channel;
     await call("/v1/devices", mine, { method: "POST", json: phoneJson });
-    const theirs = await macToken("user_b");
+    const theirs = await sessionToken("user_b");
     await call("/v1/devices", theirs, {
       method: "POST",
       json: await registration(newDevice(), "user_b", theirs),
@@ -280,7 +278,7 @@ describe("listing devices", () => {
 
 describe("removing a device", () => {
   it("takes one of your devices off the account and records it", async () => {
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const mac = newDevice();
     await call("/v1/devices", token, {
       method: "POST",
@@ -307,7 +305,7 @@ describe("removing a device", () => {
   });
 
   it("cannot remove someone else's device", async () => {
-    const theirs = await macToken("user_b");
+    const theirs = await sessionToken("user_b");
     const mac = newDevice();
     await call("/v1/devices", theirs, {
       method: "POST",
@@ -330,7 +328,7 @@ describe("removing a device", () => {
 describe("rate limits", () => {
   it("caps challenges per user", async () => {
     app = testApp(database, new RateLimiter());
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const statuses = [];
     for (let i = 0; i < 31; i++)
       statuses.push(
@@ -340,7 +338,7 @@ describe("rate limits", () => {
     expect(statuses[30]).toBe(429);
     const other = await call(
       "/v1/devices/challenge",
-      await macToken("user_b"),
+      await sessionToken("user_b"),
       { method: "POST" },
     );
     expect(other.status).toBe(200);

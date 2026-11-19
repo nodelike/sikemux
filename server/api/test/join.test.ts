@@ -157,12 +157,14 @@ describe("POST /v1/devices/{key}/join", () => {
     expect((await join(phone.key, other.key, token)).status).toBe(404);
   });
 
-  it("links hosts for the Mac app's sign-in, as Macs on 0.5.3 ask, but joins no phone", async () => {
-    const { host, phone } = await account();
+  it("refuses the Mac app's sign-in token, telling it to update", async () => {
+    const { host } = await account();
     const other = await registered(app, "user_a", "host");
-    const token = await macToken("user_a");
-    expect((await join(other.key, host.key, token)).status).toBe(200);
-    expect((await join(phone.key, host.key, token)).status).toBe(404);
+    const response = await join(other.key, host.key, await macToken("user_a"));
+    expect(response.status).toBe(401);
+    expect((await body(response, "ApiError")).error.message).toBe(
+      "Update Sikemux to sign in.",
+    );
   });
 
   it("refuses a request without a host key", async () => {

@@ -129,9 +129,8 @@ it("keeps a code good when Clerk could not be reached", async () => {
 
 it("adds a Mac only with the challenge its traded code got", async () => {
   const app = testApp(database);
-  const refreshed = await macToken(MAYA);
   const device = newDevice();
-  const nonce = await challenge(app, refreshed);
+  const nonce = await challenge(app, await sessionToken(MAYA));
   const fromToken = await post(app, "/v1/mac-sign-ins/finish", {
     key: device.key,
     name: "Studio Mac",
@@ -227,4 +226,35 @@ it("holds no Mac sign-in after a phone removed with no Clerk signs in again", as
     sessionId: "sess_phone_again",
   });
   expect((await signInMac(app, MAYA)).response.status).toBe(201);
+});
+
+it("lets a Mac's sign-in token of any age reach nothing", async () => {
+  const app = testApp(database);
+  const mac = await signInMac(app, MAYA);
+  const token = await macToken(MAYA);
+  const call = caller(app);
+  const refusals = [
+    await call("/v1/devices", token),
+    await call("/v1/devices/challenge", token, { method: "POST" }),
+    await call("/v1/devices", token, {
+      method: "POST",
+      json: await registration(
+        app,
+        newDevice(),
+        MAYA,
+        await sessionToken(MAYA),
+      ),
+    }),
+    await call(`/v1/devices/${newDevice().key}/join`, token, {
+      method: "POST",
+      json: { host: mac.key },
+    }),
+    await call("/v1/vault/uses", token),
+  ];
+  for (const refused of refusals) {
+    expect(refused.status).toBe(401);
+    expect((await body(refused, "ApiError")).error.message).toBe(
+      "Update Sikemux to sign in.",
+    );
+  }
 });

@@ -29,7 +29,7 @@ export function joinRoutes({
 
   return new Hono<AuthEnv>().post(
     "/:key/join",
-    allow("session", "host", "mac"),
+    allow("session", "host"),
     perJoiner,
     async (c) => {
       const identity = c.get("identity");

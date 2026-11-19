@@ -244,15 +244,10 @@ export type AuthEnv = Env & {
 };
 
 /**
- * The ways in a route takes. The Mac app's OAuth token is only for adding its host, right after
- * the person signs in in the browser; from then on the host signs its own requests, so removing
- * it from the account cuts it off. "mac" takes that token at any age, for the routes Macs on
- * 0.5.3 and earlier call with it.
+ * The ways in a route takes. A Mac's OAuth token is taken by none: the Mac adds its host through
+ * /v1/mac-sign-ins and signs its own requests, so removing it from the account cuts it off.
  */
-export type SignIn = "session" | "host" | "device" | "macRegistration" | "mac";
-
-/** How long after its sign-in the Mac app's OAuth token may add its host. */
-const MAC_REGISTRATION_MINUTES = 10;
+export type SignIn = Exclude<Identity["via"], "mac">;
 /** How far a signed request's time may be from the server's. */
 const HOST_CLOCK_SECONDS = 60;
 const SIGNED_SCHEME =
@@ -337,16 +332,9 @@ async function signedIdentity(
 
 /** Refuses a sign-in that is none of the ways in `accept`. */
 function admit(identity: Identity, accept: readonly SignIn[]) {
-  const admitted =
-    identity.via === "mac"
-      ? accept.includes("macRegistration") || accept.includes("mac")
-      : accept.includes(identity.via);
-  if (!admitted)
-    throw forbidden(
-      identity.via === "mac"
-        ? "The Mac app's sign-in only adds its host to your account."
-        : "Only the phone app and app.sikemux.com may do this.",
-    );
+  if (identity.via === "mac") throw unauthorized("Update Sikemux to sign in.");
+  if (!accept.includes(identity.via))
+    throw forbidden("Only the phone app and app.sikemux.com may do this.");
 }
 
 /**
@@ -411,15 +399,6 @@ export function allow(...accept: SignIn[]): MiddlewareHandler<AuthEnv> {
   return async (c, next) => {
     const identity = c.get("identity");
     admit(identity, accept);
-    if (
-      identity.via === "mac" &&
-      !accept.includes("mac") &&
-      Date.now() - (identity.issuedAt?.getTime() ?? 0) >
-        MAC_REGISTRATION_MINUTES * 60_000
-    )
-      throw unauthorized(
-        "The Mac app's sign-in is too old to add a host; sign in again.",
-      );
     await next();
   };
 }

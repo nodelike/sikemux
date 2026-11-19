@@ -288,7 +288,7 @@ describe("PUT /v1/devices/{key}/push", () => {
         ),
       },
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
   });
 
   it("refuses the other app's tokens, and Apple's sandbox unless allowed", async () => {
@@ -365,7 +365,7 @@ describe("DELETE /v1/devices/{key}/push", () => {
       await macToken("user_a"),
       { method: "DELETE" },
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(await storedTokens()).toHaveLength(1);
   });
 });

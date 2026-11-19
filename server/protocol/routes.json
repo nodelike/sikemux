@@ -39,7 +39,7 @@
       "path": "/v1/devices/challenge",
       "operationId": "createChallenge",
       "summary": "A one-time value for a device to sign before it registers",
-      "auth": "signedIn",
+      "auth": "sessionOrHost",
       "responses": {
         "200": {
           "description": "The challenge, valid for two minutes.",
@@ -52,7 +52,7 @@
       "path": "/v1/devices",
       "operationId": "registerDevice",
       "summary": "Add a device to your account, or update it",
-      "auth": "signedIn",
+      "auth": "sessionOrHost",
       "request": "DeviceRegistration",
       "responses": {
         "200": {
@@ -70,7 +70,7 @@
       "path": "/v1/devices",
       "operationId": "listDevices",
       "summary": "Your devices",
-      "auth": "sessionHostOrMac",
+      "auth": "sessionOrHost",
       "query": {
         "role": "DeviceRole"
       },
@@ -158,7 +158,7 @@
       "path": "/v1/devices/{key}/join",
       "operationId": "createJoinTicket",
       "summary": "A ticket for this phone to join one of your hosts without a code",
-      "auth": "sessionHostOrMac",
+      "auth": "sessionOrHost",
       "request": "JoinRequest",
       "responses": {
         "200": {

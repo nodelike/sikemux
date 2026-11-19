@@ -320,7 +320,7 @@ describe("deleting an account", () => {
   it("cannot be done with the Mac app's token", async () => {
     await accountWithDevices("user_a");
     const response = await deleteAccount("user_a", await macToken("user_a"));
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(await count("select count(*)::int as n from devices")).toBe(2);
   });
 

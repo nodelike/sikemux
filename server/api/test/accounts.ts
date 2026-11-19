@@ -1,4 +1,9 @@
-import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import {
+  generateKeyPairSync,
+  randomUUID,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import type { Device, DeviceRegistration, DeviceRole } from "@sikemux/protocol";
 import { expect } from "vitest";
 
@@ -111,24 +116,20 @@ export async function registration(
   return json;
 }
 
-/** Registers a host with a Mac token, or a client with a session token for `sessionId`. */
+/** Adds a host as a Mac's browser sign-in does, or a client with a session token for `sessionId`. */
 export async function register(
   app: Requester,
   userId: string,
   role: DeviceRole,
   { device = newDevice(), sessionId = "sess_phone" } = {},
 ): Promise<TestDevice & { response: Response }> {
-  const token =
-    role === "host"
-      ? await macToken(userId)
-      : await sessionToken(userId, { claims: { sid: sessionId } });
-  const json = await registration(
-    app,
-    device,
-    userId,
-    token,
-    role === "client" ? { role, platform: "ios", name: "iPhone" } : {},
-  );
+  if (role === "host") return signInMac(app, userId, { device });
+  const token = await sessionToken(userId, { claims: { sid: sessionId } });
+  const json = await registration(app, device, userId, token, {
+    role,
+    platform: "ios",
+    name: "iPhone",
+  });
   const response = await caller(app)("/v1/devices", token, {
     method: "POST",
     json,
@@ -168,7 +169,7 @@ export async function events(database: Database): Promise<EventRow[]> {
 export async function signInMac(
   app: Requester,
   userId: string,
-  { device = newDevice(), code = `code_${device.key.slice(0, 16)}` } = {},
+  { device = newDevice(), code = `code_${randomUUID()}` } = {},
 ): Promise<TestDevice & { response: Response }> {
   macCodes.set(code, await macToken(userId));
   const post = (path: string, json: unknown) =>

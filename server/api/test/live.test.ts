@@ -423,7 +423,7 @@ describe("replay", () => {
     });
     expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
 
-    const token = await macToken("user_a");
+    const token = await sessionToken("user_a");
     const registerNonce = await challenge(api.app, token);
     const response = await caller(api.app)("/v1/devices", token, {
       method: "POST",
