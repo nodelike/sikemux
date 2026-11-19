@@ -2199,4 +2199,47 @@ mod tests {
             PermissionMode::WorkspaceWrite
         );
     }
+
+    #[test]
+    fn a_routed_model_alone_starts_omp_on_its_provider() {
+        let data = tempfile::tempdir().unwrap();
+        let workspaces = Workspaces::new(Some(data.path()), None);
+        workspaces
+            .providers()
+            .unwrap()
+            .add_custom(
+                crate::launch::providers::Custom {
+                    id: "wokey".into(),
+                    label: "Wokey".into(),
+                    base_url: "http://127.0.0.1:9/v1".into(),
+                    keyed: false,
+                    responses: false,
+                    anthropic: None,
+                },
+                None,
+            )
+            .unwrap();
+        let launcher = Launcher {
+            id: "omp".into(),
+            label: "OMP".into(),
+            agent: AgentSpec::new("omp"),
+            permission_mode: PermissionMode::Bypass,
+            status: None,
+            program: Some("/usr/local/bin/omp".into()),
+        };
+        let launch = workspaces
+            .chat_launch(
+                &launcher,
+                "/usr/local/bin/omp".into(),
+                Path::new(PROJECT_PATH),
+                None,
+                Some("sikemux-wokey/gpt-6.2-sol".into()),
+            )
+            .unwrap();
+        assert_eq!(launch.model_provider.as_deref(), Some("wokey"));
+        assert!(launch
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--model", "sikemux-wokey/gpt-6.2-sol"]));
+    }
 }

@@ -805,13 +805,8 @@ pub(crate) async fn start_new(
     if started.unstarted() {
         return Ok((agent_id, not_started()));
     }
-    match chat::until_started(core, started).await {
-        Ok(start) => Ok((agent_id, start)),
-        Err(error) => {
-            super::workspace::close_gone(core, &[agent_id]);
-            Err(error)
-        }
-    }
+    let start = chat::until_started(core, started).await?;
+    Ok((agent_id, start))
 }
 
 /// Gives an agent taken up again what it had when it closed and its session does not keep: its

@@ -764,6 +764,11 @@ impl Providers {
         self.find(name.strip_prefix(AGENT_ID_PREFIX)?)
     }
 
+    /// The provider a model OMP or OpenCode names `sikemux-<id>/<model>` runs on.
+    pub fn routing(&self, model: &str) -> Option<Arc<Provider>> {
+        self.named_by_agent(model.split_once('/')?.0)
+    }
+
     /// The catalogue's providers, then those the person added, then the orgs' keys.
     pub fn all(&self) -> Vec<Arc<Provider>> {
         let state = self.fresh();

@@ -375,7 +375,12 @@ fn start(
     let params = &request.params;
     let cli = text_param(params, "cli", 64)?.map(|cli| cli.trim().to_lowercase());
     let model = text_param(params, "model", MAX_MODEL_CHARS)?.map(|model| model.trim().to_owned());
-    let named_provider = text_param(params, "provider", 64)?.map(|id| id.trim().to_owned());
+    let named_provider = text_param(params, "provider", 64)?
+        .map(|id| id.trim().to_owned())
+        .or_else(|| {
+            let providers = core.workspaces().providers()?;
+            Some(providers.routing(model.as_deref()?)?.id.clone())
+        });
     let reports = reports_back(params)?;
     let task = task_title(params)?;
     let own = own_checkout(params)?;
