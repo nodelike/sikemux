@@ -62,6 +62,10 @@ struct CoreProcess {
 
 impl CoreProcess {
     fn start(build: &str) -> Self {
+        Self::start_from(Path::new(CORE), build)
+    }
+
+    fn start_from(program: &Path, build: &str) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
         let endpoint = dir.path().join("cli.json");
@@ -69,7 +73,7 @@ impl CoreProcess {
             .expect("canonical")
             .join("project");
         std::fs::create_dir(&project).expect("project");
-        let child = Self::spawn(dir.path(), &socket, &endpoint, build);
+        let child = Self::spawn(program, dir.path(), &socket, &endpoint, build);
         let core = Self {
             child,
             dir,
@@ -81,13 +85,13 @@ impl CoreProcess {
         core
     }
 
-    fn spawn(dir: &Path, socket: &Path, endpoint: &Path, build: &str) -> Child {
+    fn spawn(program: &Path, dir: &Path, socket: &Path, endpoint: &Path, build: &str) -> Child {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(dir.join("core.log"))
             .expect("log");
-        sikemux_process::user_environment::command(CORE)
+        sikemux_process::user_environment::command(program)
             .arg("core")
             .arg("--socket")
             .arg(socket)
@@ -127,7 +131,13 @@ impl CoreProcess {
     fn crash_and_start_again(&mut self) {
         self.child.kill().expect("kill the core");
         self.child.wait().expect("reap the core");
-        self.child = Self::spawn(self.dir.path(), &self.socket, &self.endpoint, "first");
+        self.child = Self::spawn(
+            Path::new(CORE),
+            self.dir.path(),
+            &self.socket,
+            &self.endpoint,
+            "first",
+        );
         self.until_answering();
     }
 
@@ -609,6 +619,43 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
         .collect();
     assert!(left.is_empty(), "the hand-over was left behind: {left:?}");
+}
+
+/// On nexus, `sikemux restart` after pacman replaced the core's binary failed with
+/// "/usr/lib/sikemux/sikemux-host (deleted) cannot be read".
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_after_the_binary_was_replaced_runs_the_new_file() {
+    use std::os::unix::fs::MetadataExt;
+    let installed = tempfile::tempdir().expect("temp dir");
+    let binary = installed.path().join("sikemux-host");
+    std::fs::copy(CORE, &binary).expect("install the core");
+    let core = CoreProcess::start_from(&binary, "first");
+    let update = installed.path().join("sikemux-host.new");
+    std::fs::copy(CORE, &update).expect("download the update");
+    std::fs::rename(&update, &binary).expect("replace the core");
+    let exe = format!("/proc/{}/exe", core.pid());
+    assert!(std::fs::read_link(&exe)
+        .expect("exe")
+        .to_string_lossy()
+        .ends_with(" (deleted)"));
+
+    let socket = core.socket.clone();
+    let restart =
+        tokio::task::spawn_blocking(move || sikemux_core::client::restart(&socket, UPDATE_WAIT))
+            .await
+            .expect("join")
+            .unwrap_or_else(|error| panic!("{error}\n{}", core.log()));
+    assert!(
+        matches!(restart, sikemux_core::client::Restart::Done { pid } if pid == core.pid()),
+        "{}",
+        core.log()
+    );
+    assert_eq!(std::fs::read_link(&exe).expect("exe"), binary);
+    assert_eq!(
+        std::fs::metadata(&exe).expect("exe").ino(),
+        std::fs::metadata(&binary).expect("binary").ino()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
