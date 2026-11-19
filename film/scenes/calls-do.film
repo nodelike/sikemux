@@ -11,6 +11,6 @@ say "Wire card payments into checkout"
 settle 8
 front Wren
 settle 2
-click 709,612
+click "Open the Stripe dashboard in test mode and copy the publishable and secret keys."
 settle 2
 snap calls-do

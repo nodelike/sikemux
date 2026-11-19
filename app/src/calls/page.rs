@@ -1052,7 +1052,9 @@ pub(super) fn chat_fold(
         (asker.into_iter().flatten()).chain([div().flex_1().into_any_element()])
     });
     let hover = t.surface_hover;
+    let count = t!("{count} calls", count = calls.len());
     let head = BaseButton::new("call-chat-fold")
+        .accessibility_label(count.clone())
         .w_full()
         .h(px(36.))
         .pl(SPACE_2)
@@ -1069,7 +1071,7 @@ pub(super) fn chat_fold(
             div()
                 .flex_none()
                 .font_weight(FontWeight::MEDIUM)
-                .child(t!("{count} calls", count = calls.len())),
+                .child(count),
         )
         .children(folded.into_iter().flatten())
         .children(unfolded.into_iter().flatten())
@@ -1157,6 +1159,7 @@ pub(super) fn chat_row(
             .into_any_element(),
     };
     BaseButton::new(SharedString::from(format!("call-chat-row-{}", call.id)))
+        .accessibility_label(SharedString::from(headline(&call.question).to_owned()))
         .group(CHAT_ROW)
         .w_full()
         .h(px(36.))
