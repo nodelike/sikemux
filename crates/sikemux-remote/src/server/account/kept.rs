@@ -25,39 +25,43 @@ pub async fn read<T: DeserializeOwned>(dir: &Path, file: &str, user_id: &str) ->
     (kept.user_id == user_id).then_some(kept.answer)
 }
 
-/// Asks the account `path`, keeps the answer in `file` and shows it. An account server that does
-/// not know the question yet leaves nothing kept; one that cannot be reached leaves the last answer.
-pub async fn refresh<T: Serialize + DeserializeOwned>(core: &Core, path: &str, file: &str) {
+/// Asks the account `path`, keeps the answer in `file`, shows it and answers it. An account server
+/// that does not know the question yet leaves nothing kept; one that cannot be reached leaves the
+/// last answer. Either answers nothing.
+pub async fn refresh<T: Serialize + DeserializeOwned>(
+    core: &Core,
+    path: &str,
+    file: &str,
+) -> Option<T> {
     let (Some(user_id), Some(dir)) = (core.remote().owner(), folder(core)) else {
-        return;
+        return None;
     };
     let Ok(answer) = host_send_any(core, Method::GET, path, None).await else {
-        return;
+        return None;
     };
     let kept_at = dir.join(file);
-    let written = match answer.status() {
+    let (written, fresh) = match answer.status() {
         StatusCode::NOT_FOUND => match tokio::fs::remove_file(&kept_at).await {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
-            _ => Ok(()),
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => (Err(error), None),
+            _ => (Ok(()), None),
         },
         status if status.is_success() => {
-            let Ok(answer) = answer.json::<T>().await else {
-                return;
-            };
-            let Ok(bytes) = serde_json::to_vec(&Kept { user_id, answer }) else {
-                return;
-            };
-            tokio::task::spawn_blocking(move || {
+            let answer = answer.json::<T>().await.ok()?;
+            let kept = Kept { user_id, answer };
+            let bytes = serde_json::to_vec(&kept).ok()?;
+            let written = tokio::task::spawn_blocking(move || {
                 std::fs::create_dir_all(kept_at.parent().unwrap_or(&kept_at))?;
                 sikemux_process::files::write_atomic(&kept_at, &bytes, true)
             })
             .await
-            .unwrap_or_else(|error| Err(std::io::Error::other(error)))
+            .unwrap_or_else(|error| Err(std::io::Error::other(error)));
+            (written, Some(kept.answer))
         }
-        _ => return,
+        _ => return None,
     };
     if let Err(error) = written {
         eprintln!("sikemux core: could not keep the account's answer to {path}: {error}");
     }
     show(core).await;
+    fresh
 }

@@ -21,8 +21,9 @@ pub async fn read(core: &Core) -> Option<ShareRegistry> {
     kept::read(&dir, FILE, &owner).await
 }
 
-pub async fn refresh(core: &Core) {
-    kept::refresh::<ShareRegistry>(core, PATH, FILE).await;
+/// Reads the registry again from the account, answering it only if the account answered.
+pub async fn refresh(core: &Core) -> Option<ShareRegistry> {
+    kept::refresh(core, PATH, FILE).await
 }
 
 /// Shares `project` with `org` from `host`, or moves it there.

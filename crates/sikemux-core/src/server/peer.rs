@@ -52,6 +52,7 @@ pub(crate) struct Peer {
     reading: Mutex<HashMap<Reading, Session>>,
     copies: Mutex<Copies>,
     kept: Kept,
+    pub(crate) shares: shares::Reconciling,
 }
 
 impl Peer {
@@ -62,6 +63,7 @@ impl Peer {
             reading: Mutex::default(),
             copies: Mutex::new(kept.load()),
             kept,
+            shares: shares::Reconciling::default(),
         }
     }
 }

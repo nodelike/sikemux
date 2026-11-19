@@ -209,8 +209,8 @@ impl live::Account for HostAccount {
                 crate::server::account::devices::keep_name_current(&reconciling).await;
                 crate::server::account::refresh_allowance(&reconciling).await;
                 crate::server::account::refresh_orgs(&reconciling).await;
-                crate::server::account::shares::refresh(&reconciling).await;
-                (reconciling.remote_above().shares_heard)(&reconciling);
+                let registry = crate::server::account::shares::refresh(&reconciling).await;
+                (reconciling.remote_above().shares_heard)(&reconciling, registry);
             });
             (core.remote_above().hosts_relink)(&core);
             core.vault().wake();
@@ -342,8 +342,8 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
             if orgs_changed {
                 crate::server::account::refresh_orgs(&core).await;
             }
-            crate::server::account::shares::refresh(&core).await;
-            (core.remote_above().shares_heard)(&core);
+            let registry = crate::server::account::shares::refresh(&core).await;
+            (core.remote_above().shares_heard)(&core, registry);
         });
     }
     let last = events.iter().map(|event| event.id).max().unwrap_or(0);

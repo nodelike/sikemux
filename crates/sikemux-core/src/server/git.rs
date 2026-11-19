@@ -512,13 +512,15 @@ fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
             (old != new).then_some((old, new))
         })
         .collect();
+    if !renamed.is_empty() {
+        super::shares::renamed(core, &renamed);
+    }
     core.workspaces().set_identities(identities);
     super::board::rekey(core);
     super::memory::rekey(core, &renamed);
     if renamed.is_empty() {
         return;
     }
-    super::shares::renamed(core, &renamed);
     let preferences = core.preferences().get();
     let moved = |keyed: &std::collections::BTreeMap<String, String>| {
         let mut keyed = keyed.clone();
