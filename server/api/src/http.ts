@@ -26,17 +26,21 @@ export class ApiFailure extends Error {
   readonly status: ContentfulStatusCode;
   readonly code: ErrorCode;
   readonly extras: ErrorExtras;
+  /** Sent as retry-after, when the caller should wait before asking again. */
+  readonly retryAfterSeconds: number | undefined;
 
   constructor(
     status: ContentfulStatusCode,
     code: ErrorCode,
     message: string,
     extras: ErrorExtras = {},
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.status = status;
     this.code = code;
     this.extras = extras;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

@@ -172,7 +172,8 @@ export const MAC_SIGN_IN_CODE_MS = 11 * 60_000;
 /**
  * Refuses a token that is still unexpired but no longer stands: its account was deleted or frozen, it
  * belongs to the session of a phone removed from the account or of one the strip ended, or it is
- * a Mac's sign-in made while such a session was open, or any Mac's while the strip has yet to end one.
+ * a Mac's sign-in made while such a session was open, or any Mac's while the strip has yet to end one,
+ * or while a host removal's sign-out is unfinished or so recent that a code minted before it may still be good.
  */
 export async function checkStanding(
   db: Kysely<Tables>,
@@ -189,12 +190,14 @@ export async function checkStanding(
   const macSignedInAt =
     identity.macSignedInAt ??
     (identity.via === "mac" ? identity.issuedAt : undefined);
+  const codeLife = `${MAC_SIGN_IN_CODE_MS} milliseconds`;
   const { rows } = await sql<{
     deleted: boolean;
     frozen: boolean;
     removed: boolean;
     ended: boolean;
     ending: boolean;
+    removal_wait_s: number | null;
   }>`
     select
       exists (select 1 from users where id = ${identity.userId} and deleted_at is not null) as deleted,
@@ -217,11 +220,32 @@ export async function checkStanding(
       ${macSignedInAt !== undefined} and exists (
         select 1 from ended_sessions
         where user_id = ${identity.userId} and ended_at is null
-      ) as ending`.execute(db);
+      ) as ending,
+      (
+        select ceil(extract(epoch from
+          case when bool_or(done_at is null) then ${codeLife}::interval
+          else max(done_at) + ${codeLife}::interval - now() end
+        ))::int
+        from host_removal_sign_outs
+        where user_id = ${identity.userId}
+          and ${identity.via === "mac"}
+          and (done_at is null or done_at > now() - ${codeLife}::interval)
+      ) as removal_wait_s`.execute(db);
   if (rows[0]?.deleted && !allowDeleted) throw accountDeleted();
   if (rows[0]?.frozen) throw accountFrozen();
   if (rows[0]?.removed)
     throw unauthorized("This sign-in was removed from the account.");
+  const removalWait = rows[0]?.removal_wait_s;
+  if (removalWait !== null && removalWait !== undefined) {
+    const minutes = Math.max(1, Math.ceil(removalWait / 60));
+    throw new ApiFailure(
+      401,
+      "unauthorized",
+      `A computer was just removed from this account. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+      {},
+      minutes * 60,
+    );
+  }
   if (rows[0]?.ended)
     throw unauthorized(
       "This sign-in was ended because it came through a work address. Sign in again with your own.",

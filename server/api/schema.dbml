@@ -857,6 +857,7 @@ Table host_removal_sign_outs {
   done_at timestamptz
 
   indexes {
+    user_id [name: 'host_removal_sign_outs_by_user']
     clerk_retry_at [name: 'host_removal_sign_outs_due', note: 'where (done_at IS NULL)']
   }
 }

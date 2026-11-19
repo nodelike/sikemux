@@ -11,3 +11,4 @@ create table host_removal_sign_outs (
 );
 
 create index host_removal_sign_outs_due on host_removal_sign_outs (clerk_retry_at) where done_at is null;
+create index host_removal_sign_outs_by_user on host_removal_sign_outs (user_id);

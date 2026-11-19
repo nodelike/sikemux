@@ -189,7 +189,9 @@ export function createApp(services: Services) {
     ),
   );
   app.onError((error, c) => {
-    if (error instanceof ApiFailure)
+    if (error instanceof ApiFailure) {
+      if (error.retryAfterSeconds !== undefined)
+        c.header("retry-after", String(error.retryAfterSeconds));
       return errorResponse(
         c,
         error.status,
@@ -197,6 +199,7 @@ export function createApp(services: Services) {
         error.message,
         error.extras,
       );
+    }
     c.get("log").error({ err: error }, "a request failed");
     return errorResponse(c, 500, "internal", "Something failed on the server.");
   });

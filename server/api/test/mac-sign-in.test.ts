@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 
+import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import type { Database } from "../src/db.ts";
 import { registerDevice } from "../src/devices/register.ts";
 import { approveHost } from "../src/host/codes.ts";
@@ -20,7 +21,8 @@ import {
   signText,
   type TestDevice,
 } from "./accounts.ts";
-import { body, macCodes, testApp } from "./support.ts";
+import { FakeClerk } from "./clerk.ts";
+import { body, log, macCodes, testApp } from "./support.ts";
 import { macToken, sessionToken } from "./tokens.ts";
 
 const MAYA = "user_maya";
@@ -125,6 +127,57 @@ it("keeps a code good when Clerk could not be reached", async () => {
   expect((await sign()).status).toBe(503);
   down = false;
   expect((await sign()).status).toBe(200);
+});
+
+it("refuses a Mac sign-in until a host removal has signed the account out and its codes ran out", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  const mac = await signInMac(app, MAYA);
+  macCodes.set("code_before", await macToken(MAYA));
+  const { nonce } = await body(
+    await post(app, "/v1/mac-sign-ins", { ...SIGN_IN, code: "code_before" }),
+    "MacSignInState",
+  );
+  clerk.failing = true;
+  const removed = await app.request(`/v1/devices/${mac.key}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${await sessionToken(MAYA)}` },
+  });
+  expect(removed.status).toBe(204);
+
+  const trade = async () => {
+    const code = `code_${crypto.randomUUID()}`;
+    macCodes.set(code, await macToken(MAYA));
+    return post(app, "/v1/mac-sign-ins", { ...SIGN_IN, code });
+  };
+  const stuck = await trade();
+  expect(stuck.status).toBe(401);
+  expect((await body(stuck, "ApiError")).error.message).toBe(
+    "A computer was just removed from this account. Try again in 10 minutes.",
+  );
+  expect(stuck.headers.get("retry-after")).toBe("600");
+  const device = newDevice();
+  const finish = await post(app, "/v1/mac-sign-ins/finish", {
+    key: device.key,
+    name: "Studio Mac",
+    platform: "macos",
+    channel: "stable",
+    nonce,
+    signature: signText(device, registrationMessage(nonce, MAYA, device.key)),
+  });
+  expect(finish.status).toBe(401);
+
+  clerk.failing = false;
+  await database.pool.query(
+    "update host_removal_sign_outs set clerk_retry_at = now()",
+  );
+  await sweepClerk(database.db, clerk, null, log);
+  expect((await trade()).status).toBe(401);
+
+  await database.pool.query(
+    "update host_removal_sign_outs set done_at = now() - interval '11 minutes'",
+  );
+  expect((await trade()).status).toBe(200);
 });
 
 it("adds a Mac only with the challenge its traded code got", async () => {
