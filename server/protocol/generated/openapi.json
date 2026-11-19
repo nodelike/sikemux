@@ -1441,7 +1441,7 @@
         },
         "responses": {
           "204": {
-            "description": "The org's other members' hosts find it, and hear shares.changed."
+            "description": "The org's other members' hosts find it, and hear shares.changed. The account's registration of the project in any other org of its own ends in the same step."
           },
           "404": {
             "description": "You are not in an org with that id whose Team plan is paid, or none of your hosts has that key.",
@@ -1494,7 +1494,7 @@
     "/v1/account/shares/move": {
       "post": {
         "operationId": "moveShare",
-        "summary": "Move a shared project to its home host, or to its repository's new name",
+        "summary": "Move a shared project to its home host",
         "security": [{ "host": [] }],
         "description": "Only a request signed by a host on the account.",
         "requestBody": {
@@ -1519,6 +1519,43 @@
           },
           "409": {
             "description": "You no longer share that project with the org, so there is nothing to move.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/shares/rename": {
+      "post": {
+        "operationId": "renameShare",
+        "summary": "Move a shared project to its repository's new name",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ShareRename" }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The org that holds it lists the new name, and its members hear shares.changed."
+          },
+          "409": {
+            "description": "You share that project with no org, so there is nothing to move.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -9122,15 +9159,14 @@
         "additionalProperties": false
       },
       "ShareMove": {
-        "description": "Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.",
+        "description": "Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended.",
         "type": "object",
         "properties": {
           "org": { "$ref": "#/components/schemas/OrgId" },
-          "from": { "$ref": "#/components/schemas/ProjectKey" },
           "project": { "$ref": "#/components/schemas/ProjectKey" },
           "host": { "$ref": "#/components/schemas/DeviceKey" }
         },
-        "required": ["org", "from", "project", "host"],
+        "required": ["org", "project", "host"],
         "additionalProperties": false
       },
       "ShareOpen": {
@@ -9251,6 +9287,16 @@
           "project": { "$ref": "#/components/schemas/ProjectKey" }
         },
         "required": ["org", "project"],
+        "additionalProperties": false
+      },
+      "ShareRename": {
+        "description": "Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Refused when the account shares `from` with no org.",
+        "type": "object",
+        "properties": {
+          "from": { "$ref": "#/components/schemas/ProjectKey" },
+          "project": { "$ref": "#/components/schemas/ProjectKey" }
+        },
+        "required": ["from", "project"],
         "additionalProperties": false
       },
       "ShareRole": {

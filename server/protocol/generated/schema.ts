@@ -3278,15 +3278,14 @@ export const schema = {
     },
     ShareMove: {
       description:
-        "Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.",
+        "Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended.",
       type: "object",
       properties: {
         org: { $ref: "#/$defs/OrgId" },
-        from: { $ref: "#/$defs/ProjectKey" },
         project: { $ref: "#/$defs/ProjectKey" },
         host: { $ref: "#/$defs/DeviceKey" },
       },
-      required: ["org", "from", "project", "host"],
+      required: ["org", "project", "host"],
       additionalProperties: false,
     },
     ShareOpen: {
@@ -3411,6 +3410,17 @@ export const schema = {
         project: { $ref: "#/$defs/ProjectKey" },
       },
       required: ["org", "project"],
+      additionalProperties: false,
+    },
+    ShareRename: {
+      description:
+        "Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Refused when the account shares `from` with no org.",
+      type: "object",
+      properties: {
+        from: { $ref: "#/$defs/ProjectKey" },
+        project: { $ref: "#/$defs/ProjectKey" },
+      },
+      required: ["from", "project"],
       additionalProperties: false,
     },
     ShareRole: {

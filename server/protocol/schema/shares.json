@@ -29,15 +29,24 @@
       "additionalProperties": false
     },
     "ShareMove": {
-      "description": "Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.",
+      "description": "Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended.",
       "type": "object",
       "properties": {
         "org": { "$ref": "orgs.json#/$defs/OrgId" },
-        "from": { "$ref": "#/$defs/ProjectKey" },
         "project": { "$ref": "#/$defs/ProjectKey" },
         "host": { "$ref": "devices.json#/$defs/DeviceKey" }
       },
-      "required": ["org", "from", "project", "host"],
+      "required": ["org", "project", "host"],
+      "additionalProperties": false
+    },
+    "ShareRename": {
+      "description": "Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Refused when the account shares `from` with no org.",
+      "type": "object",
+      "properties": {
+        "from": { "$ref": "#/$defs/ProjectKey" },
+        "project": { "$ref": "#/$defs/ProjectKey" }
+      },
+      "required": ["from", "project"],
       "additionalProperties": false
     },
     "SharedProject": {

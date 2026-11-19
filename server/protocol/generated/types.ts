@@ -1843,10 +1843,9 @@ export interface ShareMember {
   you: boolean;
 }
 
-/** Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended. */
+/** Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended. */
 export interface ShareMove {
   org: OrgId;
-  from: ProjectKey;
   project: ProjectKey;
   host: DeviceKey;
 }
@@ -1924,6 +1923,12 @@ export interface ShareRegistry {
 /** A project the account no longer shares with the org. */
 export interface ShareRemoval {
   org: OrgId;
+  project: ProjectKey;
+}
+
+/** Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Refused when the account shares `from` with no org. */
+export interface ShareRename {
+  from: ProjectKey;
   project: ProjectKey;
 }
 
@@ -2591,6 +2596,7 @@ export interface Definitions {
   ShareRegistration: ShareRegistration;
   ShareRegistry: ShareRegistry;
   ShareRemoval: ShareRemoval;
+  ShareRename: ShareRename;
   ShareRole: ShareRole;
   ShareSeq: ShareSeq;
   ShareServerMessage: ShareServerMessage;

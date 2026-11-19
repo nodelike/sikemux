@@ -89,6 +89,7 @@ import type {
   ShareRegistration,
   ShareRegistry,
   ShareRemoval,
+  ShareRename,
   SignInAddressCheck,
   SignInsTidied,
   StashAdd,
@@ -267,9 +268,12 @@ export function apiClient(send: Send) {
     /** Stop sharing a project with an org. */
     removeShare: (body: ShareRemoval) =>
       send<void>("POST", `/v1/account/shares/remove`, body),
-    /** Move a shared project to its home host, or to its repository's new name. */
+    /** Move a shared project to its home host. */
     moveShare: (body: ShareMove) =>
       send<void>("POST", `/v1/account/shares/move`, body),
+    /** Move a shared project to its repository's new name. */
+    renameShare: (body: ShareRename) =>
+      send<void>("POST", `/v1/account/shares/rename`, body),
     /** A ticket for this host to read what a teammate's host shares with an org. */
     createPeerTicket: (body: PeerTicketRequest) =>
       send<PeerTicket>("POST", `/v1/account/peer-tickets`, body),

@@ -4,10 +4,11 @@
 
 use reqwest::Method;
 
-use super::api::{as_host, host_request};
+use super::api::{as_host, host_request, host_send_any, Upload};
 use super::{folder, kept};
 use crate::accounts::protocol::{
     PeerTicket, PeerTicketRequest, ShareMove, ShareRegistration, ShareRegistry, ShareRemoval,
+    ShareRename,
 };
 use crate::server::remote_state::RemoteParts;
 use crate::server::{Core, CoreResult};
@@ -33,11 +34,31 @@ pub async fn register(core: &Core, registration: &ShareRegistration) -> CoreResu
     Ok(())
 }
 
-/// Moves a share to the project's home or new name. The account refuses when the share is gone.
+/// Moves a share to the project's home. The account refuses when the share is gone.
 pub async fn move_share(core: &Core, share: &ShareMove) -> CoreResult<()> {
     let body = serde_json::to_value(share)?;
     host_request(core, Method::POST, &format!("{PATH}/move"), Some(body)).await?;
     Ok(())
+}
+
+/// Moves the account's share of a renamed project to its new name, answering whether the account
+/// had one to move.
+pub async fn rename_share(core: &Core, rename: &ShareRename) -> CoreResult<bool> {
+    let body = Upload {
+        bytes: serde_json::to_vec(rename)?,
+        content_type: "application/json".into(),
+        headers: Vec::new(),
+    };
+    let response = host_send_any(core, Method::POST, &format!("{PATH}/rename"), Some(body)).await?;
+    let status = response.status();
+    if status == reqwest::StatusCode::CONFLICT {
+        return Ok(false);
+    }
+    if !status.is_success() {
+        let said = response.text().await.unwrap_or_default();
+        return Err(format!("the accounts server answered {status}: {said}").into());
+    }
+    Ok(true)
 }
 
 /// Stops sharing `project` with `org`, whether or not it was shared.

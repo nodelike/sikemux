@@ -12,7 +12,7 @@ use sikemux_view::device::AccountOrg;
 use sikemux_view::teammates::{OrgChoice, ProjectSharing, SharedOrg, SharedWith, Teammate};
 
 use crate::accounts::protocol::{
-    OrgShareList, ShareMove, ShareRegistration, ShareRegistry, ShareRemoval,
+    OrgShareList, ShareMove, ShareRegistration, ShareRegistry, ShareRemoval, ShareRename,
 };
 use crate::server::account::shares;
 use crate::server::board;
@@ -155,29 +155,6 @@ fn keys(core: &Core, identity: &str) -> Vec<String> {
     keys
 }
 
-/// Drops the renames whose old name `registry`, read under the reconcile lock, no longer lists:
-/// their shares have moved, or ended. While the read leaves out one of the account's orgs, as it
-/// does one whose Team plan is unpaid, the old name may still be shared there, so every rename
-/// stays. Answers the renames left.
-fn drop_moved(core: &Core, registry: &ShareRegistry) -> Vec<(String, String)> {
-    let left_out =
-        (orgs(core).iter()).any(|org| !(registry.orgs.iter()).any(|list| list.org == org.id));
-    let listed = |name: &str| {
-        if left_out {
-            return true;
-        }
-        let old = key(name);
-        (registry.orgs.iter()).any(|list| list.mine.iter().any(|mine| mine.project == old))
-    };
-    let shares = &core.peer().shares;
-    let renames = shares.renames.locked().clone();
-    if renames.iter().all(|(old, _)| listed(old)) {
-        return renames;
-    }
-    shares.change_renames(|renames| renames.retain(|(old, _)| listed(old)));
-    shares.renames.locked().clone()
-}
-
 /// The account's registry or orgs were read again, with the registry if the account answered.
 pub(crate) fn heard(core: &Arc<Core>, registry: Option<ShareRegistry>) {
     told(core);
@@ -261,7 +238,6 @@ fn plan(
                 if at != host && takes_over(item, at, linked) {
                     steps.push(Step::Move(ShareMove {
                         org: org.to_owned(),
-                        from: item.project.clone(),
                         project: item.project.clone(),
                         host: host.to_owned(),
                     }));
@@ -294,11 +270,10 @@ async fn reconcile(core: &Arc<Core>, mut registry: ShareRegistry) {
     let linked: Vec<String> = (core.remote().links().into_iter())
         .map(|link| link.id)
         .collect();
-    if move_renamed(core, &host, &linked).await {
+    if move_renamed(core).await {
         let Some(again) = shares::refresh(core).await else {
             return;
         };
-        drop_moved(core, &again);
         registry = again;
     }
     let held = held(core);
@@ -343,54 +318,30 @@ async fn follow_account(core: &Arc<Core>, project: &str, was: Option<String>, no
     }
 }
 
-/// How the registrations under a renamed project's old key move to `item`, its new key. A
-/// registration moves only by the host that acts for it, so a host that sees the rename first
-/// never moves its home's share out from under it.
-fn plan_move(
-    old: &str,
-    item: &Held,
-    registry: &ShareRegistry,
-    host: &str,
-    linked: &[String],
-) -> Vec<ShareMove> {
-    (registry.orgs.iter())
-        .filter_map(|list| {
-            let mine = (list.mine.iter()).find(|mine| mine.project == old)?;
-            (mine.host == host || takes_over(item, &mine.host, linked)).then(|| ShareMove {
-                org: list.org.clone(),
-                from: old.to_owned(),
-                project: item.project.clone(),
-                host: host.to_owned(),
-            })
-        })
-        .collect()
-}
-
-/// Moves each renamed project this host keeps to its new name, on a registry read under the
-/// reconcile lock. Answers whether anything reached the account.
-async fn move_renamed(core: &Arc<Core>, host: &str, linked: &[String]) -> bool {
-    if core.peer().shares.renames.locked().is_empty() {
-        return false;
-    }
-    let Some(registry) = shares::refresh(core).await else {
-        return false;
-    };
-    let held = held(core);
-    let mut reached = false;
-    for (old, new) in drop_moved(core, &registry) {
-        let Some(item) = (held.iter()).find(|item| item.project == key(&new)) else {
-            continue;
+/// Moves each renamed project's share to its new name. The account's answer settles a rename,
+/// whether it had a share to move or none; only a call that failed leaves it for the next try.
+/// Answers whether a share moved.
+async fn move_renamed(core: &Arc<Core>) -> bool {
+    let renames = core.peer().shares.renames.locked().clone();
+    let mut moved = false;
+    for (old, new) in renames {
+        let rename = ShareRename {
+            from: key(&old),
+            project: key(&new),
         };
-        for share in plan_move(&key(&old), item, &registry, host, linked) {
-            match shares::move_share(core, &share).await {
-                Ok(()) => reached = true,
-                Err(error) => eprintln!(
-                    "sikemux core: a renamed project's share did not move on the account: {error}"
-                ),
+        match shares::rename_share(core, &rename).await {
+            Ok(had) => {
+                moved |= had;
+                (core.peer().shares).change_renames(|renames| {
+                    renames.retain(|pending| *pending != (old.clone(), new.clone()))
+                });
             }
+            Err(error) => eprintln!(
+                "sikemux core: a renamed project's share did not move on the account: {error}"
+            ),
         }
     }
-    reached
+    moved
 }
 
 /// Adds renames to the pending ones. A pending rename to a name now renamed again moves straight
@@ -439,54 +390,22 @@ pub(crate) async fn share(
     let host = (core.remote().core_id())
         .ok_or("this computer isn't signed in to the account, so the board can't be shared")?;
     let running = core.peer().shares.running.lock().await;
-    let registry = shares::refresh(core).await;
     let registration = ShareRegistration {
         org: params.org.clone(),
         project: key(&identity),
         host,
     };
-    let orgs = (orgs(core).into_iter().map(|org| org.id)).chain(shared_with(core, &folder));
-    let others = share_steps(
-        registry.as_ref(),
-        &registration,
-        &keys(core, &identity),
-        orgs,
-    )?;
     shares::register(core, &registration)
         .await
         .map_err(|error| {
             format!("the account didn't take the share, so the board isn't shared: {error}")
         })?;
     board::person_share(core, folder, Some(params.org.clone())).await?;
-    for removal in others {
-        if let Err(error) = shares::remove(core, &removal).await {
-            eprintln!("sikemux core: a project shared elsewhere stayed on its old org: {error}");
-        }
-    }
-    if let Some(registry) = shares::refresh(core).await {
-        drop_moved(core, &registry);
-    }
+    shares::refresh(core).await;
     drop(running);
     super::peer::changed(core);
     core.changed(What::View);
     Ok(sharing(core, &params.project).await)
-}
-
-/// What tapping Share takes back from the account once `registration` took: the project, under
-/// its name or an old one, from every other org. Nothing goes ahead on an unread registry, which
-/// would leave a registration another host made in place for good.
-fn share_steps(
-    registry: Option<&ShareRegistry>,
-    registration: &ShareRegistration,
-    keys: &[String],
-    orgs: impl IntoIterator<Item = String>,
-) -> Result<Vec<ShareRemoval>, String> {
-    let registry = registry.ok_or("the account couldn't be reached, so the board isn't shared")?;
-    let mut others = removals(registry, keys, orgs);
-    others.retain(|removal| {
-        removal.org != registration.org || removal.project != registration.project
-    });
-    Ok(others)
 }
 
 /// What taking a share back removes from the account: the project under each of `keys` from every org the
@@ -543,9 +462,7 @@ pub(crate) async fn unshare(
         })?;
     }
     board::person_share(core, folder, None).await?;
-    if let Some(registry) = shares::refresh(core).await {
-        drop_moved(core, &registry);
-    }
+    shares::refresh(core).await;
     drop(running);
     super::peer::changed(core);
     core.changed(What::View);
@@ -636,25 +553,6 @@ mod tests {
     }
 
     #[test]
-    fn a_rename_seen_first_off_the_home_leaves_the_home_its_share() {
-        let registry = registry(&[("org", &[("old", "home")])]);
-        let item = held("new", Some("org"), false);
-        let linked = ["home".to_owned()];
-        assert_eq!(plan_move("old", &item, &registry, "other", &linked), []);
-    }
-
-    #[test]
-    fn sharing_with_another_org_takes_back_one_another_host_made() {
-        let registry = registry(&[("a", &[("project", "other")]), ("b", &[])]);
-        let keys = ["project".to_owned()];
-        let orgs = ["a".to_owned(), "b".to_owned(), "unpaid".to_owned()];
-        let orgs: Vec<String> = (removals(&registry, &keys, orgs).into_iter())
-            .map(|removal| removal.org)
-            .collect();
-        assert_eq!(orgs, ["a", "unpaid"]);
-    }
-
-    #[test]
     fn unshare_reaches_the_old_name_of_a_rename_yet_to_move() {
         let registry = registry(&[("org", &[("old", "other")])]);
         let keys = ["new".to_owned(), "old".to_owned()];
@@ -711,7 +609,6 @@ mod tests {
             [
                 Step::Move(ShareMove {
                     org: "x".into(),
-                    from: "project".into(),
                     project: "project".into(),
                     host: "here".into(),
                 }),
@@ -729,17 +626,6 @@ mod tests {
         let registry = registry(&[("paid", &[])]);
         let held = [held("project", Some("unpaid"), true)];
         assert_eq!(plan(&held, &registry, "here", &[], &[]), []);
-    }
-
-    #[test]
-    fn share_does_nothing_on_an_unread_registry() {
-        let registration = ShareRegistration {
-            org: "y".into(),
-            project: "project".into(),
-            host: "here".into(),
-        };
-        let keys = ["project".to_owned()];
-        assert!(share_steps(None, &registration, &keys, ["y".to_owned()]).is_err());
     }
 
     #[test]
