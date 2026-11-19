@@ -1056,6 +1056,16 @@ fn project_tree(
                 cx,
             ))
     });
+    let shared = (front.as_ref()).and_then(|copy| {
+        bench
+            .project_on(&copy.place, &copy.project)?
+            .shared
+            .as_ref()
+    });
+    let mark = match shared {
+        Some(shared) => ui::org_mark(&shared.name, &shared.org, 14.).into_any_element(),
+        None => project_glyph(13., cx).into_any_element(),
+    };
     let go = {
         let (front, identity) = (front, folded.identity.clone());
         cx.listener(move |bench, _, _, cx| {
@@ -1069,7 +1079,7 @@ fn project_tree(
         SharedString::from(format!("project-{key}")),
         folded.name.clone(),
     )
-    .mark(16., project_glyph(13., cx))
+    .mark(16., mark)
     .quiet()
     .bold(active)
     .chosen(active)
