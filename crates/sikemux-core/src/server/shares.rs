@@ -7,12 +7,13 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
 use sikemux_view::device::AccountOrg;
-use sikemux_view::teammates::{OrgChoice, ProjectSharing, SharedWith, Teammate};
+use sikemux_view::teammates::{OrgChoice, ProjectSharing, SharedOrg, SharedWith, Teammate};
 
 use crate::accounts::protocol::{OrgShareList, ShareRegistration, ShareRemoval};
 use crate::server::account::shares;
 use crate::server::board;
 use crate::server::board_state::BoardParts;
+use crate::server::changed::{ChangedCore, What};
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -55,10 +56,18 @@ pub(crate) fn shared_with(core: &Core, folder: &str) -> Option<String> {
     state.of(folder)?.settings.shared_with.clone()
 }
 
+/// The org the project's board is shared with, as both the rail and the Share control show it.
+pub(crate) fn shared_org(core: &Core, folder: &str) -> Option<SharedOrg> {
+    let org = shared_with(core, folder)?;
+    let name = org_name(core, &org).unwrap_or_default();
+    Some(SharedOrg { org, name })
+}
+
 /// The registry's account answered again, or a board this host keeps was saved.
 pub(crate) fn heard(core: &Arc<Core>) {
     super::peer::heard(core);
     super::memory::shares_changed(core);
+    core.changed(What::View);
     let core = core.clone();
     tokio::spawn(async move { reconcile(&core).await });
 }
@@ -179,6 +188,7 @@ pub(crate) async fn share(
     }
     reconcile(core).await;
     super::peer::changed(core);
+    core.changed(What::View);
     Ok(sharing(core, &params.project).await)
 }
 
@@ -193,6 +203,7 @@ pub(crate) async fn unshare(
         take_back(core, org, &identity).await;
     }
     super::peer::changed(core);
+    core.changed(What::View);
     Ok(sharing(core, &params.project).await)
 }
 
@@ -215,25 +226,22 @@ pub(crate) async fn sharing(core: &Arc<Core>, project_named: &str) -> ProjectSha
     };
     let orgs = orgs(core);
     let folder = project(core, project_named).map(|(folder, _)| folder);
-    let shared = (folder.as_deref()).and_then(|folder| shared_with(core, folder));
+    let shared = (folder.as_deref()).and_then(|folder| shared_org(core, folder));
     ProjectSharing {
         project: project_named.to_owned(),
-        shared: shared.map(|org| {
-            let known = orgs.iter().find(|known| known.id == org);
-            SharedWith {
-                name: known.map(|known| known.name.clone()).unwrap_or_default(),
-                on: known.is_some_and(|known| known.active),
-                people: (list(&org).into_iter())
-                    .flat_map(|list| &list.members)
-                    .map(|member| Teammate {
-                        member: member.id.clone(),
-                        name: member.name.clone(),
-                        picture: member.image_url.clone(),
-                        you: member.you,
-                    })
-                    .collect(),
-                org,
-            }
+        shared: shared.map(|SharedOrg { org, name }| SharedWith {
+            name,
+            on: active(core, &org),
+            people: (list(&org).into_iter())
+                .flat_map(|list| &list.members)
+                .map(|member| Teammate {
+                    member: member.id.clone(),
+                    name: member.name.clone(),
+                    picture: member.image_url.clone(),
+                    you: member.you,
+                })
+                .collect(),
+            org,
         }),
         orgs: (orgs.iter())
             .filter(|org| org.active)

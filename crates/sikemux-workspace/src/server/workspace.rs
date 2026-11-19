@@ -634,6 +634,7 @@ impl Workspaces {
                 standing: Default::default(),
                 calls: 0,
                 cloning: None,
+                shared: None,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -1839,6 +1840,7 @@ mod tests {
             standing: Default::default(),
             calls: 0,
             cloning: None,
+            shared: None,
         }
     }
 

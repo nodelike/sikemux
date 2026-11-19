@@ -466,8 +466,9 @@ impl super::part::Part for DeviceViews {
     }
 }
 
-/// How each project stands for the person, from its open calls and its agents' turns. An agent
-/// the person snoozed does not make its project need them; a settled one that needs them does.
+/// How each project stands for the person, from its open calls and its agents' turns, and the
+/// org its board is shared with. An agent the person snoozed does not make its project need
+/// them; a settled one that needs them does.
 fn stand_projects(
     core: &Core,
     projects: &mut [ProjectInfo],
@@ -498,6 +499,7 @@ fn stand_projects(
         let open =
             (calls.iter()).filter(|call| call.project == path && call.state == CallState::Open);
         project.calls = open.clone().count() as u32;
+        project.shared = super::shares::shared_org(core, &path);
         let asks_you = open.clone().any(|call| call.kind != CallKind::Look);
         let phases = phases
             .get(&project.id)

@@ -83,6 +83,9 @@ pub struct ProjectInfo {
     /// How far its repository has come down, while the core clones it. The core fills it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloning: Option<Cloning>,
+    /// The org its board is shared with. The core fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<crate::teammates::SharedOrg>,
 }
 
 /// A clone the core is making of a project's repository, as git last said.
