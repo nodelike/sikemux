@@ -1157,17 +1157,15 @@ pub(crate) fn overruled(
         None => format!("decision {id} of the project"),
     };
     let said = first_sentence(text);
-    let rule = super::memory::keep_persons_rule(
-        core,
-        project,
-        format!(
-            "Decisions like the person's overruled {named} are theirs to make: raise them as a call. It read, as an agent wrote it: {said}"
-        ),
-    )
-    .inspect_err(|error| eprintln!("sikemux core: an Overrule kept no rule: {error}"))
-    .ok();
+    let kept = format!(
+        "Decisions like the person's overruled {named} are theirs to make: raise them as a call. It read, as an agent wrote it: {said}"
+    );
+    let words = crate::text::one_line(&kept);
+    let rule = super::memory::keep_persons_rule(core, project, kept)
+        .inspect_err(|error| eprintln!("sikemux core: an Overrule kept no rule: {error}"))
+        .ok();
     core.chiefs().change(|saved| {
-        let overrule = Overrule { rule, told };
+        let overrule = Overrule { rule, words, told };
         saved
             .overrules
             .insert(overrule_key(project, goal, id), overrule);
@@ -1510,7 +1508,8 @@ pub(crate) async fn overrule_undone(
     core.chiefs()
         .change(|saved| saved.overrules.remove(&overrule_key(project, goal, id)));
     if let Some(rule) = overrule.rule {
-        if let Err(error) = super::memory::retire_persons_rule(core, project, rule) {
+        if let Err(error) = super::memory::retire_persons_rule(core, project, rule, &overrule.words)
+        {
             eprintln!("sikemux core: an undone Overrule's rule was not retired: {error}");
         }
     }

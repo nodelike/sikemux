@@ -1658,9 +1658,15 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
     add(core, project, rule, learned(core, None))
 }
 
-/// Retires a rule of the project's in the person's name, as undoing an Overrule does.
-pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result<(), String> {
-    let id = core.memory().state.locked().kept_id(project, id);
+/// Retires a rule of the project's in the person's name, as undoing an Overrule does, when what
+/// has its number now still has `words`.
+pub(crate) fn retire_persons_rule(
+    core: &Core,
+    project: &str,
+    id: u64,
+    words: &str,
+) -> Result<(), String> {
+    let id = line_entry(core, project, id, Some(words))?;
     let update = MemoryUpdateParams {
         project: project.to_owned(),
         id,
@@ -1721,11 +1727,12 @@ pub(crate) fn line_entry(
     let Some(words) = words.map(crate::text::one_line) else {
         return Ok(id);
     };
-    let same = state.applying(project).any(|held| {
-        (held.rules.iter().map(|rule| (rule.id, &rule.text)))
-            .chain(held.knowledge.iter().map(|known| (known.id, &known.text)))
-            .any(|(at, text)| at == id && crate::text::one_line(text) == words)
-    });
+    let same = !words.is_empty()
+        && state.applying(project).any(|held| {
+            (held.rules.iter().map(|rule| (rule.id, &rule.text)))
+                .chain(held.knowledge.iter().map(|known| (known.id, &known.text)))
+                .any(|(at, text)| at == id && crate::text::one_line(text) == words)
+        });
     match same {
         true => Ok(id),
         false => Err("That has changed since, so nothing was undone".to_owned()),

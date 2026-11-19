@@ -855,5 +855,8 @@ pub fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, 
 #[serde(rename_all = "camelCase")]
 pub struct Overrule {
     pub rule: Option<u64>,
+    /// The kept rule's words on one line, so undoing the Overrule retires only that rule.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub words: String,
     pub told: Vec<String>,
 }
