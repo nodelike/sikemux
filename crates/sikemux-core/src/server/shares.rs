@@ -417,14 +417,6 @@ pub(crate) fn renamed(core: &Core, renamed: &[(String, String)]) {
     });
 }
 
-/// The orgs other than `keep` the registry lists the project with, from whichever host.
-fn other_orgs(registry: &ShareRegistry, project: &str, keep: &str) -> Vec<String> {
-    (registry.orgs.iter())
-        .filter(|list| list.org != keep && list.mine.iter().any(|mine| mine.project == project))
-        .map(|list| list.org.clone())
-        .collect()
-}
-
 /// Shares the project's board with `org`, in place of any org it was shared with from any of the
 /// person's hosts.
 pub(crate) async fn share(
@@ -452,15 +444,18 @@ pub(crate) async fn share(
             format!("the account didn't take the share, so the board isn't shared: {error}")
         })?;
     let before = board::person_share(core, folder.clone(), Some(params.org.clone())).await?;
+    let account = orgs(core).into_iter().map(|org| org.id);
     let mut others = (registry.as_ref()).map_or_else(Vec::new, |registry| {
-        other_orgs(registry, &project, &params.org)
+        removals(registry, std::slice::from_ref(&project), account)
     });
-    others.extend(before.filter(|before| *before != params.org && !others.contains(before)));
-    for org in others {
-        let removal = ShareRemoval {
+    if let Some(org) = before.filter(|before| !others.iter().any(|other| other.org == *before)) {
+        others.push(ShareRemoval {
             org,
             project: project.clone(),
-        };
+        });
+    }
+    others.retain(|removal| removal.org != params.org);
+    for removal in others {
         if let Err(error) = shares::remove(core, &removal).await {
             eprintln!("sikemux core: a project shared elsewhere stayed on its old org: {error}");
         }
@@ -472,7 +467,7 @@ pub(crate) async fn share(
     Ok(sharing(core, &params.project).await)
 }
 
-/// What an Unshare removes from the account: the project under each of `keys` from every org the
+/// What taking a share back removes from the account: the project under each of `keys` from every org the
 /// registry lists it with, and from every org the registry leaves out, as it does one whose Team
 /// plan is unpaid, since another host may have registered it there.
 fn removals(
@@ -637,7 +632,12 @@ mod tests {
     #[test]
     fn sharing_with_another_org_takes_back_one_another_host_made() {
         let registry = registry(&[("a", &[("project", "other")]), ("b", &[])]);
-        assert_eq!(other_orgs(&registry, "project", "b"), ["a"]);
+        let keys = ["project".to_owned()];
+        let orgs = ["a".to_owned(), "b".to_owned(), "unpaid".to_owned()];
+        let orgs: Vec<String> = (removals(&registry, &keys, orgs).into_iter())
+            .map(|removal| removal.org)
+            .collect();
+        assert_eq!(orgs, ["a", "unpaid"]);
     }
 
     #[test]
