@@ -331,11 +331,18 @@ pub fn main_checkout(path: &std::path::Path) -> Option<std::path::PathBuf> {
     if dot_git.is_dir() {
         return Some(root.to_path_buf());
     }
+    use sikemux_process::files::real_path as real;
     let link = std::fs::read_to_string(&dot_git).ok()?;
-    let gitdir = root.join(link.strip_prefix("gitdir:")?.trim());
+    let gitdir = real(root.join(link.strip_prefix("gitdir:")?.trim())).ok()?;
     let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
-    let common = sikemux_process::files::real_path(gitdir.join(common.trim())).ok()?;
-    if common.file_name()? != ".git" {
+    let common = real(gitdir.join(common.trim())).ok()?;
+    if common.file_name()? != ".git" || gitdir.parent()? != common.join("worktrees") {
+        return None;
+    }
+    // Anyone can write a `.git` file naming another repository; git trusts the link only when
+    // that repository's own record of the worktree points back here.
+    let back = std::fs::read_to_string(gitdir.join("gitdir")).ok()?;
+    if real(gitdir.join(back.trim())).ok()? != real(&dot_git).ok()? {
         return None;
     }
     common.parent().map(std::path::Path::to_path_buf)
@@ -493,6 +500,39 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn main_checkout_trusts_only_worktrees_the_repository_lists() {
+        let repo = init_repo();
+        commit_base(repo.path());
+        let dir = tempdir().unwrap();
+        let linked = dir.path().join("linked");
+        git(
+            repo.path(),
+            &["worktree", "add", "-q", &linked.to_string_lossy()],
+        );
+        let main = sikemux_process::files::real_path(repo.path()).unwrap();
+        assert_eq!(main_checkout(&linked), Some(main.clone()));
+
+        let fake = dir.path().join("fake");
+        fs::create_dir_all(fake.join("g")).unwrap();
+        fs::write(fake.join(".git"), "gitdir: g\n").unwrap();
+        let common = main.join(".git").to_string_lossy().into_owned();
+        fs::write(fake.join("g/commondir"), &common).unwrap();
+        fs::write(
+            fake.join("g/gitdir"),
+            fake.join(".git").to_string_lossy().as_ref(),
+        )
+        .unwrap();
+        assert_eq!(main_checkout(&fake), None);
+
+        let borrowed = main
+            .join(".git/worktrees/linked")
+            .to_string_lossy()
+            .into_owned();
+        fs::write(fake.join(".git"), format!("gitdir: {borrowed}\n")).unwrap();
+        assert_eq!(main_checkout(&fake), None);
+    }
 
     #[test]
     fn ignored_paths_names_what_gitignore_covers_and_nothing_outside_a_repo() {
