@@ -512,6 +512,11 @@ jobs:
           certificate: ${{ secrets.APPLE_CERTIFICATE }}
           password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Install libdeflate, which packs the updater archive
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install libdeflate
+
       - name: Sign, notarize and pack the app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

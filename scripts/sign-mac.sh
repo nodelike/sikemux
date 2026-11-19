@@ -137,8 +137,11 @@ echo "→ Packing and signing the updater archive"
 rm -f "$TAR" "$SIG"
 # The updater drops the first path component of every entry, so the archive
 # holds the app alone, without macOS metadata entries beside it.
+# libdeflate's slowest gzip level packs the archive about 1.3 MB smaller than tar's own, in seconds,
+# and stays plain gzip, which every updater already unpacks.
+command -v libdeflate-gzip >/dev/null || fail "libdeflate-gzip is missing: brew install libdeflate"
 COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-acls --no-fflags \
-  -czf "$TAR" -C "$(dirname "$APP")" "$(basename "$APP")"
+  -cf - -C "$(dirname "$APP")" "$(basename "$APP")" | libdeflate-gzip -12 >"$TAR"
 TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
   "$TAURI_CLI" signer sign --app-version "$VERSION" "$TAR" >/dev/null
 node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
