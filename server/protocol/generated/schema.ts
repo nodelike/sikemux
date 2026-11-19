@@ -3276,6 +3276,19 @@ export const schema = {
       required: ["id", "name", "imageUrl", "you"],
       additionalProperties: false,
     },
+    ShareMove: {
+      description:
+        "Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        from: { $ref: "#/$defs/ProjectKey" },
+        project: { $ref: "#/$defs/ProjectKey" },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["org", "from", "project", "host"],
+      additionalProperties: false,
+    },
     ShareOpen: {
       description:
         "Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link.",

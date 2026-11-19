@@ -1491,6 +1491,51 @@
         }
       }
     },
+    "/v1/account/shares/move": {
+      "post": {
+        "operationId": "moveShare",
+        "summary": "Move a shared project to its home host, or to its repository's new name",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ShareMove" }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The org's other members' hosts find it there, and hear shares.changed."
+          },
+          "404": {
+            "description": "You are not in an org with that id whose Team plan is paid, or none of your hosts has that key.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "You no longer share that project with the org, so there is nothing to move.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/account/peer-tickets": {
       "post": {
         "operationId": "createPeerTicket",
@@ -9074,6 +9119,18 @@
           }
         },
         "required": ["id", "name", "imageUrl", "you"],
+        "additionalProperties": false
+      },
+      "ShareMove": {
+        "description": "Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.",
+        "type": "object",
+        "properties": {
+          "org": { "$ref": "#/components/schemas/OrgId" },
+          "from": { "$ref": "#/components/schemas/ProjectKey" },
+          "project": { "$ref": "#/components/schemas/ProjectKey" },
+          "host": { "$ref": "#/components/schemas/DeviceKey" }
+        },
+        "required": ["org", "from", "project", "host"],
         "additionalProperties": false
       },
       "ShareOpen": {

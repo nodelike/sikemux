@@ -1843,6 +1843,14 @@ export interface ShareMember {
   you: boolean;
 }
 
+/** Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended. */
+export interface ShareMove {
+  org: OrgId;
+  from: ProjectKey;
+  project: ProjectKey;
+  host: DeviceKey;
+}
+
 /** Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link. */
 export interface ShareOpen {
   type: "open";
@@ -2571,6 +2579,7 @@ export interface Definitions {
   ShareHost: ShareHost;
   ShareId: ShareId;
   ShareMember: ShareMember;
+  ShareMove: ShareMove;
   ShareOpen: ShareOpen;
   ShareOpened: ShareOpened;
   SharePing: SharePing;

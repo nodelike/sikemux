@@ -1745,6 +1745,16 @@ pub struct ShareMember {
     pub you: bool,
 }
 
+/// Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareMove {
+    pub org: OrgId,
+    pub from: ProjectKey,
+    pub project: ProjectKey,
+    pub host: DeviceKey,
+}
+
 /// A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2268,6 +2278,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "SeatPause" => through::<SeatPause>(json),
         "SharedProject" => through::<SharedProject>(json),
         "ShareMember" => through::<ShareMember>(json),
+        "ShareMove" => through::<ShareMove>(json),
         "ShareRegistration" => through::<ShareRegistration>(json),
         "ShareRegistry" => through::<ShareRegistry>(json),
         "ShareRemoval" => through::<ShareRemoval>(json),

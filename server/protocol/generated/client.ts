@@ -85,6 +85,7 @@ import type {
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
+  ShareMove,
   ShareRegistration,
   ShareRegistry,
   ShareRemoval,
@@ -266,6 +267,9 @@ export function apiClient(send: Send) {
     /** Stop sharing a project with an org. */
     removeShare: (body: ShareRemoval) =>
       send<void>("POST", `/v1/account/shares/remove`, body),
+    /** Move a shared project to its home host, or to its repository's new name. */
+    moveShare: (body: ShareMove) =>
+      send<void>("POST", `/v1/account/shares/move`, body),
     /** A ticket for this host to read what a teammate's host shares with an org. */
     createPeerTicket: (body: PeerTicketRequest) =>
       send<PeerTicket>("POST", `/v1/account/peer-tickets`, body),

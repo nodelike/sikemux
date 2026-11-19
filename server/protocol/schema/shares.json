@@ -28,6 +28,18 @@
       "required": ["org", "project"],
       "additionalProperties": false
     },
+    "ShareMove": {
+      "description": "Moves the account's registration of `from` with the org to `project`, a renamed project's new key or `from` itself, held by `host`, the project's home. Refused when the account no longer shares `from` with the org, so a move never brings back a share the person ended.",
+      "type": "object",
+      "properties": {
+        "org": { "$ref": "orgs.json#/$defs/OrgId" },
+        "from": { "$ref": "#/$defs/ProjectKey" },
+        "project": { "$ref": "#/$defs/ProjectKey" },
+        "host": { "$ref": "devices.json#/$defs/DeviceKey" }
+      },
+      "required": ["org", "from", "project", "host"],
+      "additionalProperties": false
+    },
     "SharedProject": {
       "description": "A project a teammate shares with the org, and the host to ask for its record.",
       "type": "object",

@@ -678,6 +678,27 @@
     },
     {
       "method": "post",
+      "path": "/v1/account/shares/move",
+      "operationId": "moveShare",
+      "summary": "Move a shared project to its home host, or to its repository's new name",
+      "auth": "host",
+      "request": "ShareMove",
+      "responses": {
+        "204": {
+          "description": "The org's other members' hosts find it there, and hear shares.changed."
+        },
+        "404": {
+          "description": "You are not in an org with that id whose Team plan is paid, or none of your hosts has that key.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "You no longer share that project with the org, so there is nothing to move.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
       "path": "/v1/account/peer-tickets",
       "operationId": "createPeerTicket",
       "summary": "A ticket for this host to read what a teammate's host shares with an org",

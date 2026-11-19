@@ -236,6 +236,44 @@ export function shareRoutes({
       });
       return c.body(null, 204);
     })
+    .post("/move", perUser(limiter, "share-move", 30), async (c) => {
+      const { userId } = c.get("identity");
+      const { org, from, project, host } = await readBody(c, "ShareMove");
+      const [membership] = await paidMemberships(db, userId, live, org);
+      if (!membership) throw notFound(NOT_IN_PAID_ORG);
+      await ownedDevice(db, userId, host, { role: "host" });
+      await db.transaction().execute(async (trx) => {
+        const moved = await trx
+          .deleteFrom("org_shares")
+          .where("member_id", "=", membership.member)
+          .where("project", "=", from)
+          .returning("project")
+          .executeTakeFirst();
+        if (!moved)
+          throw conflict(
+            "You no longer share that project with the org, so there is nothing to move.",
+          );
+        await trx
+          .insertInto("org_shares")
+          .values({ member_id: membership.member, project, host })
+          .onConflict((oc) =>
+            oc
+              .columns(["member_id", "project"])
+              .doUpdateSet({ host, updated_at: new Date() }),
+          )
+          .execute();
+        if (from !== project) await dropUnshared(trx, org);
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "share.moved",
+          subject: org,
+          detail: { host: host.slice(0, 8) },
+        });
+        await sharesChanged(trx, org);
+      });
+      return c.body(null, 204);
+    })
     .post("/remove", perUser(limiter, "share-remove", 30), async (c) => {
       const { userId } = c.get("identity");
       const { org, project } = await readBody(c, "ShareRemoval");
