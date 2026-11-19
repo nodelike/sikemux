@@ -12,13 +12,16 @@ import { ownedDevice } from "../devices/owned.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { appendEvents } from "../events/log.ts";
 import { teamPaid } from "./host.ts";
-import { conflict, notFound, readBody } from "../http.ts";
+import { conflict, forbidden, notFound, readBody } from "../http.ts";
 import { signPeerTicket } from "../join/signer.ts";
 import { perUser } from "../limits.ts";
 
 const MEMBER_SHARE_LIMIT = 200;
 const NOT_IN_PAID_ORG =
   "You are not in an org with that id whose Team plan is paid.";
+
+const isRegisteredMeanwhile = (error: unknown) =>
+  (error as { code?: string }).code === "23505";
 
 /** The account's memberships in orgs whose Team plan is paid. Until plans go live, staff only. */
 async function paidMemberships(
@@ -218,17 +221,12 @@ export function shareRoutes({
           );
         }
       }
-      await db.transaction().execute(async (trx) => {
+      const registered = db.transaction().execute(async (trx) => {
         const elsewhere = await trx
           .deleteFrom("org_shares")
+          .where("user_id", "=", userId)
           .where("project", "=", project)
           .where("member_id", "!=", membership.member)
-          .where("member_id", "in", (eb) =>
-            eb
-              .selectFrom("org_users")
-              .select("id")
-              .where("user_id", "=", userId),
-          )
           .returning("member_id")
           .execute();
         for (const left of await orgsOf(
@@ -247,7 +245,12 @@ export function shareRoutes({
         if (before?.host === host) return;
         await trx
           .insertInto("org_shares")
-          .values({ member_id: membership.member, project, host })
+          .values({
+            member_id: membership.member,
+            user_id: userId,
+            project,
+            host,
+          })
           .onConflict((oc) =>
             oc
               .columns(["member_id", "project"])
@@ -262,6 +265,13 @@ export function shareRoutes({
           detail: { host: host.slice(0, 8) },
         });
         await sharesChanged(trx, org);
+      });
+      await registered.catch((error: unknown) => {
+        if (isRegisteredMeanwhile(error))
+          throw conflict(
+            "Another of your computers shared this project at the same moment. Try again.",
+          );
+        throw error;
       });
       return c.body(null, 204);
     })
@@ -294,46 +304,43 @@ export function shareRoutes({
       return c.body(null, 204);
     })
     .post("/rename", perUser(limiter, "share-rename", 30), async (c) => {
-      const { userId } = c.get("identity");
+      const { userId, deviceKey } = c.get("identity");
       const { from, project } = await readBody(c, "ShareRename");
       await db.transaction().execute(async (trx) => {
         const moved = await trx
           .deleteFrom("org_shares")
+          .where("user_id", "=", userId)
           .where("project", "=", from)
-          .where("member_id", "in", (eb) =>
-            eb
-              .selectFrom("org_users")
-              .select("id")
-              .where("user_id", "=", userId),
-          )
+          .where("host", "=", deviceKey ?? "")
           .returning(["member_id", "host"])
           .execute();
-        if (moved.length === 0)
+        if (moved.length === 0) {
+          const held = await trx
+            .selectFrom("org_shares")
+            .select("host")
+            .where("user_id", "=", userId)
+            .where("project", "=", from)
+            .executeTakeFirst();
+          if (held)
+            throw forbidden(
+              "Another of your computers holds that share, and moves it once it sees the rename.",
+            );
           throw conflict(
             "You share that project with no org, so there is nothing to move.",
           );
-        const already = await trx
-          .selectFrom("org_shares")
-          .select("member_id")
-          .where("project", "=", project)
-          .where("member_id", "in", (eb) =>
-            eb
-              .selectFrom("org_users")
-              .select("id")
-              .where("user_id", "=", userId),
+        }
+        await trx
+          .insertInto("org_shares")
+          .values(
+            moved.map(({ member_id, host }) => ({
+              member_id,
+              user_id: userId,
+              project,
+              host,
+            })),
           )
-          .executeTakeFirst();
-        if (!already)
-          await trx
-            .insertInto("org_shares")
-            .values(
-              moved.map(({ member_id, host }) => ({
-                member_id,
-                project,
-                host,
-              })),
-            )
-            .execute();
+          .onConflict((oc) => oc.columns(["user_id", "project"]).doNothing())
+          .execute();
         for (const org of await orgsOf(
           trx,
           moved.map(({ member_id }) => member_id),

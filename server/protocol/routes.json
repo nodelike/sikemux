@@ -708,6 +708,10 @@
         "204": {
           "description": "The org that holds it lists the new name, and its members hear shares.changed."
         },
+        "403": {
+          "description": "Another of your computers holds that share, and moves it once it sees the rename.",
+          "body": "ApiError"
+        },
         "409": {
           "description": "You share that project with no org, so there is nothing to move.",
           "body": "ApiError"

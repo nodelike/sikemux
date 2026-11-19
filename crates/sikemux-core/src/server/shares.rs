@@ -3,6 +3,7 @@
 //! only at the person's Share tap. Nothing is shared, registered or served for an org whose Team
 //! plan is unpaid; the share stays in place.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +15,7 @@ use sikemux_view::teammates::{OrgChoice, ProjectSharing, SharedOrg, SharedWith, 
 use crate::accounts::protocol::{
     OrgShareList, ShareMove, ShareRegistration, ShareRegistry, ShareRemoval, ShareRename,
 };
-use crate::server::account::shares;
+use crate::server::account::shares::{self, Renamed};
 use crate::server::board;
 use crate::server::board_state::BoardParts;
 use crate::server::changed::{ChangedCore, What};
@@ -85,6 +86,9 @@ pub(crate) struct Reconciling {
     /// a rename never ends a share.
     renames: Mutex<Vec<(String, String)>>,
     renames_kept: Kept,
+    /// Renames another of the person's hosts holds the share of, with the registry as it was
+    /// then: asked again only once the registry changes.
+    held_elsewhere: Mutex<HashMap<(String, String), ShareRegistry>>,
     held: Mutex<Vec<Held>>,
 }
 
@@ -95,6 +99,7 @@ impl Reconciling {
             running: tokio::sync::Mutex::default(),
             renames: Mutex::new(renames_kept.load()),
             renames_kept,
+            held_elsewhere: Mutex::default(),
             held: Mutex::default(),
         }
     }
@@ -270,7 +275,7 @@ async fn reconcile(core: &Arc<Core>, mut registry: ShareRegistry) {
     let linked: Vec<String> = (core.remote().links().into_iter())
         .map(|link| link.id)
         .collect();
-    if move_renamed(core).await {
+    if move_renamed(core, &registry, &host, &linked).await {
         let Some(again) = shares::refresh(core).await else {
             return;
         };
@@ -318,23 +323,67 @@ async fn follow_account(core: &Arc<Core>, project: &str, was: Option<String>, no
     }
 }
 
-/// Moves each renamed project's share to its new name. The account's answer settles a rename,
-/// whether it had a share to move or none; only a call that failed leaves it for the next try.
-/// Answers whether a share moved.
-async fn move_renamed(core: &Arc<Core>) -> bool {
-    let renames = core.peer().shares.renames.locked().clone();
+/// What this host moves to itself before renaming a share it keeps the board of: the old name's
+/// registrations it acts for. A registration whose host is still linked and holds the chief stays
+/// with it, so a host that sees the rename first never moves its home's share out from under it.
+fn takes_before_rename(
+    old: &str,
+    item: &Held,
+    registry: &ShareRegistry,
+    host: &str,
+    linked: &[String],
+) -> Vec<ShareMove> {
+    (registry.orgs.iter())
+        .filter_map(|list| {
+            let mine = (list.mine.iter()).find(|mine| mine.project == old)?;
+            (mine.host != host && takes_over(item, &mine.host, linked)).then(|| ShareMove {
+                org: list.org.clone(),
+                project: old.to_owned(),
+                host: host.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Moves each renamed project's share to its new name. Only the host a share names moves it, so
+/// the account settles each rename: moved, or nothing under the old name, takes it off the list;
+/// held by another of the person's hosts keeps it until `registry` changes; a failed call keeps
+/// it for the next try. Answers whether a share moved.
+async fn move_renamed(
+    core: &Arc<Core>,
+    registry: &ShareRegistry,
+    host: &str,
+    linked: &[String],
+) -> bool {
+    let shares = &core.peer().shares;
+    let renames = shares.renames.locked().clone();
+    (shares.held_elsewhere.locked()).retain(|rename, _| renames.contains(rename));
+    let held = held(core);
     let mut moved = false;
     for (old, new) in renames {
+        let pending = (old.clone(), new.clone());
+        if shares.held_elsewhere.locked().get(&pending) == Some(registry) {
+            continue;
+        }
         let rename = ShareRename {
             from: key(&old),
             project: key(&new),
         };
+        if let Some(item) = held.iter().find(|item| item.project == rename.project) {
+            for share in takes_before_rename(&rename.from, item, registry, host, linked) {
+                if let Err(error) = shares::move_share(core, &share).await {
+                    eprintln!("sikemux core: a renamed project's share did not move here: {error}");
+                }
+            }
+        }
         match shares::rename_share(core, &rename).await {
-            Ok(had) => {
-                moved |= had;
-                (core.peer().shares).change_renames(|renames| {
-                    renames.retain(|pending| *pending != (old.clone(), new.clone()))
-                });
+            Ok(Renamed::HeldElsewhere) => {
+                (shares.held_elsewhere.locked()).insert(pending, registry.clone());
+            }
+            Ok(answer) => {
+                moved |= answer == Renamed::Moved;
+                shares.held_elsewhere.locked().remove(&pending);
+                shares.change_renames(|renames| renames.retain(|rename| *rename != pending));
             }
             Err(error) => eprintln!(
                 "sikemux core: a renamed project's share did not move on the account: {error}"
@@ -550,6 +599,17 @@ mod tests {
             org: org.map(Into::into),
             chief_here,
         }
+    }
+
+    #[test]
+    fn a_rename_seen_first_off_the_home_leaves_the_home_its_share() {
+        let registry = registry(&[("org", &[("old", "home")])]);
+        let item = held("new", Some("org"), false);
+        let linked = ["home".to_owned()];
+        assert_eq!(
+            takes_before_rename("old", &item, &registry, "other", &linked),
+            []
+        );
     }
 
     #[test]

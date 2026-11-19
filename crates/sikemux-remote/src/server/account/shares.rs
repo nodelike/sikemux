@@ -2,7 +2,7 @@
 //! account folder. The account says shares.changed or orgs.changed when it changes, and the host
 //! reads it again then and each time its live connection comes back.
 
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 
 use super::api::{as_host, host_request, host_send_any, Upload};
 use super::{folder, kept};
@@ -11,7 +11,7 @@ use crate::accounts::protocol::{
     ShareRename,
 };
 use crate::server::remote_state::RemoteParts;
-use crate::server::{Core, CoreResult};
+use crate::server::{Core, CoreError, CoreResult};
 
 const FILE: &str = "shares.json";
 const PATH: &str = "/v1/account/shares";
@@ -27,11 +27,21 @@ pub async fn refresh(core: &Core) -> Option<ShareRegistry> {
     kept::refresh(core, PATH, FILE).await
 }
 
-/// Shares `project` with `org` from `host`, or moves it there.
+/// Shares `project` with `org` from `host`, or moves it there. A share another of the person's
+/// hosts made at the same moment is refused once, so it is asked again.
 pub async fn register(core: &Core, registration: &ShareRegistration) -> CoreResult<()> {
-    let body = serde_json::to_value(registration)?;
-    host_request(core, Method::PUT, PATH, Some(body)).await?;
-    Ok(())
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let response = send(core, Method::PUT, PATH, registration).await?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        if status != StatusCode::CONFLICT || tries == 2 {
+            return Err(refused(response).await);
+        }
+    }
 }
 
 /// Moves a share to the project's home. The account refuses when the share is gone.
@@ -41,24 +51,45 @@ pub async fn move_share(core: &Core, share: &ShareMove) -> CoreResult<()> {
     Ok(())
 }
 
-/// Moves the account's share of a renamed project to its new name, answering whether the account
-/// had one to move.
-pub async fn rename_share(core: &Core, rename: &ShareRename) -> CoreResult<bool> {
+/// What the account did with a renamed project's share.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Renamed {
+    Moved,
+    /// The account shares the old name with no org.
+    Nothing,
+    /// Another of the person's hosts holds the share; it moves it once it sees the rename.
+    HeldElsewhere,
+}
+
+/// Moves the account's share of a renamed project to its new name.
+pub async fn rename_share(core: &Core, rename: &ShareRename) -> CoreResult<Renamed> {
+    let response = send(core, Method::POST, &format!("{PATH}/rename"), rename).await?;
+    match response.status() {
+        status if status.is_success() => Ok(Renamed::Moved),
+        StatusCode::CONFLICT => Ok(Renamed::Nothing),
+        StatusCode::FORBIDDEN => Ok(Renamed::HeldElsewhere),
+        _ => Err(refused(response).await),
+    }
+}
+
+async fn send(
+    core: &Core,
+    method: Method,
+    path: &str,
+    body: &impl serde::Serialize,
+) -> CoreResult<reqwest::Response> {
     let body = Upload {
-        bytes: serde_json::to_vec(rename)?,
+        bytes: serde_json::to_vec(body)?,
         content_type: "application/json".into(),
         headers: Vec::new(),
     };
-    let response = host_send_any(core, Method::POST, &format!("{PATH}/rename"), Some(body)).await?;
+    host_send_any(core, method, path, Some(body)).await
+}
+
+async fn refused(response: reqwest::Response) -> CoreError {
     let status = response.status();
-    if status == reqwest::StatusCode::CONFLICT {
-        return Ok(false);
-    }
-    if !status.is_success() {
-        let said = response.text().await.unwrap_or_default();
-        return Err(format!("the accounts server answered {status}: {said}").into());
-    }
-    Ok(true)
+    let said = response.text().await.unwrap_or_default();
+    format!("the accounts server answered {status}: {said}").into()
 }
 
 /// Stops sharing `project` with `org`, whether or not it was shared.

@@ -393,6 +393,7 @@ export interface Tables {
   };
   org_shares: {
     member_id: string;
+    user_id: string;
     project: string;
     host: string;
     created_at: CreatedAt;

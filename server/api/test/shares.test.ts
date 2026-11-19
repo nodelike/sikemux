@@ -204,6 +204,14 @@ describe("a share's one registration", () => {
     expect(await registrations()).toEqual([{ org: second, project: PROJECT }]);
   });
 
+  it("stays one when Shares to different orgs race", async () => {
+    const orgs = [await org(true), await org(true), await org(true)];
+    const arjun = await registered(app, ARJUN, "host");
+    const answers = await Promise.all(orgs.map((one) => share(arjun, one)));
+    expect(answers.map((answer) => answer.status)).not.toContain(500);
+    expect(await registrations()).toHaveLength(1);
+  });
+
   it("follows a rename in an org whose plan lapsed", async () => {
     const lapsed = await org(false);
     const arjun = await registered(app, ARJUN, "host");
@@ -215,7 +223,12 @@ describe("a share's one registration", () => {
       .executeTakeFirstOrThrow();
     await database.db
       .insertInto("org_shares")
-      .values({ member_id: id, project: PROJECT, host: arjun.key })
+      .values({
+        member_id: id,
+        user_id: ARJUN,
+        project: PROJECT,
+        host: arjun.key,
+      })
       .execute();
     const renamed = await signed(arjun, "/v1/account/shares/rename", "POST", {
       from: PROJECT,

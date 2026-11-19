@@ -393,6 +393,7 @@ Table org_users {
 
   indexes {
     (org_id, user_id) [pk]
+    (id, user_id) [unique]
     user_id [name: 'org_users_by_user']
   }
 }
@@ -627,9 +628,11 @@ Table org_shares {
   host text [not null, note: 'host ~ \'^[0-9a-f]{64}$\'']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
+  user_id text [not null]
 
   indexes {
     (member_id, project) [pk]
+    (user_id, project) [unique]
   }
 }
 
@@ -788,6 +791,7 @@ Ref: org_team_members.member_id > org_users.id [delete: cascade]
 Ref: org_team_members.team_id > org_teams.id [delete: cascade]
 Ref: org_domains.org_id > orgs.id [delete: cascade]
 Ref: org_shares.member_id > org_users.id [delete: cascade]
+Ref: org_shares.(member_id, user_id) > org_users.(id, user_id) [delete: cascade]
 Ref: org_vaults.org_id - orgs.id [delete: cascade]
 Ref: org_vault_keys.org_id > org_vaults.org_id [delete: cascade]
 Ref: org_vault_entries.org_id > org_vaults.org_id [delete: cascade]

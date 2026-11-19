@@ -1926,7 +1926,7 @@ export interface ShareRemoval {
   project: ProjectKey;
 }
 
-/** Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Refused when the account shares `from` with no org. */
+/** Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Only the host the registration names moves it; another of the account's hosts is refused, and so is a rename of a project the account shares with no org. */
 export interface ShareRename {
   from: ProjectKey;
   project: ProjectKey;

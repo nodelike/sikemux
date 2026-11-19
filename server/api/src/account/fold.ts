@@ -24,6 +24,7 @@ import {
 import { perUser } from "../limits.ts";
 import { makeDueCalls } from "../billing/calls.ts";
 import { inviteTokenHash, seatsChanged } from "../orgs/shared.ts";
+import { dropUnshared } from "../orgvault/projects.ts";
 import { refusalOf, type SignUpRefusal } from "./admission.ts";
 import type { ClerkBackend, SignUp } from "./clerk.ts";
 import { deleteInClerk } from "./deletion.ts";
@@ -345,6 +346,17 @@ async function moveSeats(trx: Transaction<Tables>, { from, into }: Side) {
       .executeTakeFirst();
     let role = seat.role;
     if (!kept) {
+      const doubled = await trx
+        .deleteFrom("org_shares")
+        .where("member_id", "=", seat.id)
+        .where("project", "in", (eb) =>
+          eb
+            .selectFrom("org_shares")
+            .select("project")
+            .where("user_id", "=", into),
+        )
+        .executeTakeFirst();
+      if (doubled.numDeletedRows > 0n) await dropUnshared(trx, seat.org_id);
       await trx
         .updateTable("org_users")
         .set({ user_id: into })

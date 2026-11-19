@@ -1554,6 +1554,14 @@
           "204": {
             "description": "The org that holds it lists the new name, and its members hear shares.changed."
           },
+          "403": {
+            "description": "Another of your computers holds that share, and moves it once it sees the rename.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "409": {
             "description": "You share that project with no org, so there is nothing to move.",
             "content": {
@@ -9290,7 +9298,7 @@
         "additionalProperties": false
       },
       "ShareRename": {
-        "description": "Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Refused when the account shares `from` with no org.",
+        "description": "Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. Only the host the registration names moves it; another of the account's hosts is refused, and so is a rename of a project the account shares with no org.",
         "type": "object",
         "properties": {
           "from": { "$ref": "#/components/schemas/ProjectKey" },
