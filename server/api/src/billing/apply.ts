@@ -20,7 +20,7 @@ import {
   type ProviderSubscription,
 } from "./provider.ts";
 import { refundPending } from "./refunds.ts";
-import { checkSeatPauses } from "./seat-pause.ts";
+import { checkSeatPauses, keptShare } from "./seat-pause.ts";
 import { claimSettledBy } from "./seats.ts";
 
 /** An event about something erased, which is acknowledged and changes nothing. */
@@ -82,6 +82,9 @@ async function rowsOf(
       "subscriptions.paid_left",
       "subscriptions.resumes_at",
       "subscriptions.cancel_at_period_end",
+      "subscriptions.cancel_asked_at",
+      "subscriptions.resume_asked_at",
+      "billing_customers.provider_customer_id",
     ])
     .where("billing_customers.provider", "=", from.name)
     .where(
@@ -205,6 +208,7 @@ function insertItems(
  */
 async function changeItems(
   trx: Transaction<Tables>,
+  provider: string,
   rows: readonly Row[],
   customerId: string,
   sub: ProviderSubscription,
@@ -227,9 +231,10 @@ async function changeItems(
   for (const { item, row } of pairs) {
     if (!row || (row.status === "ended" && !live.length)) continue;
     const pausing =
-      row.paused_for_seat_at !== null &&
-      row.paid_left === null &&
-      row.resumes_at === null;
+      (row.paused_for_seat_at !== null &&
+        row.paid_left === null &&
+        row.resumes_at === null) ||
+      cancelledWhilePausedForSeat(row);
     const back = {
       ...(row.status !== "active" && {
         status: "active" as const,
@@ -241,7 +246,7 @@ async function changeItems(
         resumes_at: null,
       }),
     };
-    await trx
+    const updated = await trx
       .updateTable("subscriptions")
       .set({
         ...itemColumns(sub, item, at),
@@ -250,11 +255,23 @@ async function changeItems(
           at,
         ),
         ...back,
-        ...(pausing &&
-          row.cancel_at_period_end && { cancel_at_period_end: true }),
+        ...(row.cancel_asked_at && { cancel_at_period_end: true }),
       })
       .where("id", "=", row.id)
-      .execute();
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    if (
+      row.cancel_asked_at &&
+      !sub.cancelAtPeriodEnd &&
+      !pausing &&
+      updated.status !== "ended"
+    )
+      await callLater(trx, provider, [
+        {
+          action: "keep_cancel",
+          subscription: heldSubscription(updated, row.provider_customer_id),
+        },
+      ]);
   }
   await insertItems(
     trx,
@@ -306,6 +323,47 @@ function paidForNothing(
   if (!rows.every((row) => row.status === "ended")) return false;
   if (before === "failed" || neverHeld(rows)) return true;
   return rows.every((row) => row.ended_at && row.ended_at <= at);
+}
+
+function cancelledWhilePausedForSeat(row: Row) {
+  return row.cancel_at_period_end && row.paused_for_seat_at !== null;
+}
+
+/**
+ * A plan its person cancelled never renews, though the provider can still charge a renewal when it
+ * lost the cancel or never took it. A renewal for a period begun after the cancel is refunded.
+ */
+function renewedAfterCancel(rows: readonly Row[], periodStart: Date) {
+  return rows.some(
+    (row) => row.cancel_asked_at !== null && row.cancel_asked_at < periodStart,
+  );
+}
+
+/**
+ * Whether a payment is the first charge after we asked the provider to resume a plan paused for a
+ * seat. The provider may call it a change, but it pays for a new period as a renewal does.
+ */
+async function chargedOnResume(
+  trx: Transaction<Tables>,
+  rows: readonly Row[],
+  event: Extract<ProviderEvent, { type: "payment.made" | "payment.failed" }>,
+  periodStart: Date,
+) {
+  if (event.reason !== "change") return false;
+  const asked = rows
+    .map((row) => row.resume_asked_at)
+    .filter((at): at is Date => at !== null && at <= periodStart);
+  if (!asked.length) return false;
+  const since = new Date(Math.max(...asked.map((at) => at.getTime())));
+  const renewal = await trx
+    .selectFrom("invoices")
+    .select("id")
+    .where("provider_subscription_id", "=", event.providerSubscriptionId)
+    .where("provider_payment_id", "<>", event.providerPaymentId)
+    .where("reason", "in", ["first_payment", "renewal"])
+    .where("at", ">=", since)
+    .executeTakeFirst();
+  return !renewal;
 }
 
 /**
@@ -423,7 +481,7 @@ async function apply(
 ): Promise<{
   customerId: string | null;
   cancelled?: string;
-  refused?: string;
+  refused?: { payment: string; invoice: string };
 }> {
   const provider = from.name;
   const { at } = event;
@@ -461,7 +519,8 @@ async function apply(
       const held = await rowsOf(trx, from, sub.providerSubscriptionId, at);
       if (!held) return STRAY;
       const { rows, customerId } = held;
-      if (isNewer(rows, at)) await changeItems(trx, rows, customerId, sub, at);
+      if (isNewer(rows, at))
+        await changeItems(trx, provider, rows, customerId, sub, at);
       return { customerId };
     }
     case "subscription.paused": {
@@ -529,6 +588,14 @@ async function apply(
         .where("provider_payment_id", "=", event.providerPaymentId)
         .forUpdate()
         .executeTakeFirst();
+      const reason = (await chargedOnResume(
+        trx,
+        rows,
+        event,
+        event.periodStart ?? at,
+      ))
+        ? "renewal"
+        : event.reason;
       await trx
         .insertInto("invoices")
         .values({
@@ -536,7 +603,7 @@ async function apply(
           provider_subscription_id: event.providerSubscriptionId,
           provider_payment_id: event.providerPaymentId,
           lines: JSON.stringify(event.lines),
-          reason: event.reason,
+          reason,
           amount: event.total.amount,
           currency: event.total.currency,
           status: paid ? "paid" : "failed",
@@ -580,6 +647,23 @@ async function apply(
         await callLater(trx, provider, [
           { action: "refund", providerPaymentId: event.providerPaymentId },
         ]);
+      else if (
+        paid &&
+        fresh &&
+        reason === "renewal" &&
+        renewedAfterCancel(rows, event.periodStart ?? at)
+      ) {
+        await callLater(trx, provider, [
+          { action: "refund", providerPaymentId: event.providerPaymentId },
+        ]);
+        await endPlanNow(
+          trx,
+          from,
+          customerId,
+          event.providerSubscriptionId,
+          at,
+        );
+      }
       return { customerId };
     }
     case "payment.refunded":
@@ -597,18 +681,37 @@ async function apply(
       const customerId = invoice.customer_id;
       const subscriptionId = invoice.provider_subscription_id;
       if (invoice.status !== "paid") return { customerId };
+      if (event.type === "payment.refunded") {
+        const recorded = await trx
+          .insertInto("invoice_refunds")
+          .values({
+            provider_refund_id: event.providerRefundId,
+            invoice_id: invoice.id,
+            amount: event.returned.amount,
+          })
+          .onConflict((oc) => oc.column("provider_refund_id").doNothing())
+          .returning("provider_refund_id")
+          .executeTakeFirst();
+        if (!recorded) return { customerId };
+      }
       const keptPending =
         invoice.kept_refund !== null && invoice.kept_refunded_at === null;
       if (event.type === "payment.refund_refused" && keptPending) {
         if (invoice.kept_refund_refused_at)
-          return { customerId, refused: event.providerPaymentId };
+          return {
+            customerId,
+            refused: { payment: event.providerPaymentId, invoice: invoice.id },
+          };
         await trx
           .updateTable("invoices")
           .set({ kept_refund_refused_at: at })
           .where("id", "=", invoice.id)
           .execute();
         await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
-        return { customerId, refused: event.providerPaymentId };
+        return {
+          customerId,
+          refused: { payment: event.providerPaymentId, invoice: invoice.id },
+        };
       }
       if (event.type === "payment.refund_refused") {
         await trx
@@ -618,7 +721,10 @@ async function apply(
           .where("provider_subscription_id", "=", subscriptionId)
           .where("status", "=", "paid")
           .execute();
-        return { customerId, refused: event.providerPaymentId };
+        return {
+          customerId,
+          refused: { payment: event.providerPaymentId, invoice: invoice.id },
+        };
       }
       if (keptPending && !event.chargeback) {
         const whole = event.returned.amount >= Number(invoice.amount);
@@ -630,7 +736,10 @@ async function apply(
           })
           .where("id", "=", invoice.id)
           .execute();
-        await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
+        if (invoice.kept_refund_refused_at)
+          await endPlanNow(trx, from, customerId, subscriptionId, at);
+        else
+          await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
         return { customerId };
       }
       if (event.chargeback) {
@@ -642,15 +751,18 @@ async function apply(
         await endPlanNow(trx, from, customerId, subscriptionId, at);
         return { customerId };
       }
-      if (event.returned.amount < Number(invoice.amount)) return { customerId };
-      await trx
-        .updateTable("invoices")
-        .set({ status: "refunded", refunded_at: at })
-        .where("id", "=", invoice.id)
-        .execute();
+      const whole = event.returned.amount >= Number(invoice.amount);
+      if (whole)
+        await trx
+          .updateTable("invoices")
+          .set({ status: "refunded", refunded_at: at })
+          .where("id", "=", invoice.id)
+          .execute();
       if (
-        invoice.refund_requested_at &&
-        (await refundGiven(trx, customerId, subscriptionId))
+        (await keptTimeRefunded(trx, customerId, subscriptionId, invoice.id)) ||
+        (whole &&
+          invoice.refund_requested_at &&
+          (await refundGiven(trx, customerId, subscriptionId)))
       )
         await endPlanNow(trx, from, customerId, subscriptionId, at);
       return { customerId };
@@ -726,6 +838,75 @@ async function refundGiven(
     first.refund_requested_at !== null &&
     !(await refundPending(trx, customerId, providerSubscriptionId))
   );
+}
+
+/**
+ * Whether staff have refunded by hand the kept time of a cancelled plan whose payment never came in
+ * time to refund it: the refunds of its current period's payments reach what the kept time would
+ * have refunded, short of a day's worth. Less is goodwill, and the plan keeps its time.
+ */
+async function keptTimeRefunded(
+  trx: Transaction<Tables>,
+  customerId: string,
+  providerSubscriptionId: string,
+  invoiceId: string,
+) {
+  const kept = await trx
+    .selectFrom("subscriptions")
+    .select([
+      "current_period_end",
+      sql<Date>`current_period_end - case interval when 'year' then interval '1 year' else interval '1 month' end - interval '3 days'`.as(
+        "period_started_before",
+      ),
+      sql<number>`extract(epoch from coalesce(paid_left, greatest(resumes_at - now(), interval '0')))::float8 - 86400`.as(
+        "kept_seconds",
+      ),
+    ])
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("status", "<>", "ended")
+    .where("kept_without_refund_at", "is not", null)
+    .where("cancel_asked_at", "is not", null)
+    .executeTakeFirst();
+  if (!kept) return false;
+  const ofPlan = trx
+    .selectFrom("invoices")
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("status", "in", ["paid", "refunded"]);
+  const started = await ofPlan
+    .select("at")
+    .where("reason", "in", ["first_payment", "renewal"])
+    .where("at", ">=", kept.period_started_before)
+    .orderBy("at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+  if (!started) return false;
+  const period = await ofPlan
+    .select([
+      "invoices.id",
+      "invoices.amount",
+      "invoices.at",
+      (eb) =>
+        eb
+          .selectFrom("invoice_refunds")
+          .select(sql<string>`coalesce(sum(amount), 0)`.as("refunded"))
+          .whereRef("invoice_refunds.invoice_id", "=", "invoices.id")
+          .as("refunded"),
+    ])
+    .where("at", ">=", started.at)
+    .execute();
+  if (!period.some((invoice) => invoice.id === invoiceId)) return false;
+  let owed = 0;
+  let refunded = 0;
+  for (const invoice of period) {
+    owed += Math.max(
+      0,
+      keptShare(invoice, kept.current_period_end, kept.kept_seconds),
+    );
+    refunded += Number(invoice.refunded);
+  }
+  return refunded >= owed;
 }
 
 /** A plan refunded, or whose payment the bank took back, ends now, here and with the provider. */
@@ -814,6 +995,22 @@ async function applyOnce(
         .returning("event_id")
         .executeTakeFirst();
       if (!fresh) return;
+      if (
+        event.type === "payment.made" &&
+        event.reason === "renewal" &&
+        !event.periodStart
+      )
+        log.error(
+          {
+            provider: name,
+            payment: event.providerPaymentId,
+            fingerprint: [
+              "renewal_without_period",
+              event.providerSubscriptionId,
+            ],
+          },
+          "a renewal came without its billing period, so whether it follows a cancel is judged by when it was paid",
+        );
       const result = await apply(trx, from, event);
       const { people, org } = result.customerId
         ? await peopleOf(trx, result.customerId)
@@ -828,7 +1025,11 @@ async function applyOnce(
       await checkSeatPauses(trx, people);
       if (result.refused)
         log.error(
-          { provider: name, payment: result.refused },
+          {
+            provider: name,
+            payment: result.refused.payment,
+            fingerprint: ["refund_refused", result.refused.invoice],
+          },
           "the payment provider refused a refund: the plan goes on with its paid time, and the person is owed an answer",
         );
       if (result.cancelled)

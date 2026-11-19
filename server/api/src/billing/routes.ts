@@ -10,7 +10,7 @@ import type {
   Subscription,
 } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
-import { type Kysely, type Selectable } from "kysely";
+import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 
 import { audit, type AuditAction } from "../audit.ts";
 import { holdStanding, requireIdentity, type AuthEnv } from "../auth.ts";
@@ -32,7 +32,7 @@ import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
 import { openerRole, refusal } from "./checks.ts";
 import { ownCustomer } from "./customers.ts";
-import { makeDueCalls } from "./calls.ts";
+import { makeDueCalls, takeCancelTurn } from "./calls.ts";
 import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
   heldSubscription,
@@ -800,8 +800,19 @@ export function billingRoutes({
           else {
             await db.transaction().execute(async (trx) => {
               await trx
+                .selectFrom("subscriptions")
+                .select("id")
+                .where("id", "=", row.id)
+                .forUpdate()
+                .execute();
+              if (!cancel) await refuseTakeBackAfterKeptRefund(trx, row);
+              await trx
                 .updateTable("subscriptions")
-                .set({ cancel_at_period_end: cancel })
+                .set({
+                  cancel_at_period_end: cancel,
+                  cancel_asked_at: cancel ? sql<Date>`now()` : null,
+                  ...(!cancel && { kept_without_refund_at: null }),
+                })
                 .where("id", "=", row.id)
                 .execute();
               if (row.user_id) await checkSeatPauses(trx, [row.user_id]);
@@ -819,17 +830,41 @@ export function billingRoutes({
             throw new ApiFailure(
               409,
               "conflict",
-              "This plan is being paused for your seat. Try again in a minute.",
+              "This plan is still being paused for your seat, which can take up to an hour when the payment service is slow. Try again later.",
             );
           const subscription = heldSubscription(row, row.provider_customer_id);
           const when = row.status === "paused" ? "now" : "period_end";
-          await (cancel
-            ? ready.cancel(subscription, when)
-            : ready.resume(subscription));
+          if (!cancel)
+            await db.transaction().execute(async (trx) => {
+              await takeCancelTurn(trx, row.provider_subscription_id);
+              await trx
+                .updateTable("subscriptions")
+                .set({ cancel_asked_at: null })
+                .where("id", "=", row.id)
+                .execute();
+            });
+          try {
+            await (cancel
+              ? ready.cancel(subscription, when)
+              : ready.resume(subscription));
+          } catch (error) {
+            if (!cancel)
+              await db
+                .updateTable("subscriptions")
+                .set({ cancel_asked_at: row.cancel_asked_at })
+                .where("id", "=", row.id)
+                .where("cancel_asked_at", "is", null)
+                .where("cancel_at_period_end", "=", true)
+                .execute();
+            throw error;
+          }
           await db.transaction().execute(async (trx) => {
             await trx
               .updateTable("subscriptions")
-              .set({ cancel_at_period_end: cancel })
+              .set({
+                cancel_at_period_end: cancel,
+                cancel_asked_at: cancel ? sql<Date>`now()` : null,
+              })
               .where("id", "=", row.id)
               .where("status", "<>", "ended")
               .execute();
@@ -934,6 +969,28 @@ export function billingRoutes({
   });
 
   return app;
+}
+
+/** Once the refund of a cancelled plan's kept paid time is asked, the plan is ending for good. */
+async function refuseTakeBackAfterKeptRefund(
+  trx: Transaction<Tables>,
+  row: SubscriptionRow,
+) {
+  const kept = await trx
+    .selectFrom("invoices")
+    .select(["kept_refunded_at", "kept_refund_refused_at"])
+    .where("customer_id", "=", row.customer_id)
+    .where("provider_subscription_id", "=", row.provider_subscription_id)
+    .where("kept_refund", "is not", null)
+    .execute();
+  if (!kept.length) return;
+  throw new ApiFailure(
+    409,
+    "conflict",
+    kept.some((one) => !one.kept_refunded_at && !one.kept_refund_refused_at)
+      ? "The refund of your unused paid time is on its way, and this plan is ending."
+      : "The refund of your unused paid time was already asked for, so this plan is ending.",
+  );
 }
 
 function invoiceBody(

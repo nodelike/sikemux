@@ -52,6 +52,19 @@ function scrubEvent<E extends Sentry.Event>(event: E): E {
   return event;
 }
 
+/** A log line's `fingerprint` makes its own issue; before Dedupe, which drops a repeat of the last message. */
+const fingerprintFromLog = {
+  name: "FingerprintFromLog",
+  processEvent(event: Sentry.Event) {
+    const pino = event.contexts?.pino;
+    if (Array.isArray(pino?.fingerprint)) {
+      event.fingerprint = pino.fingerprint.map(String);
+      Reflect.deleteProperty(pino, "fingerprint");
+    }
+    return event;
+  },
+};
+
 /**
  * Reports errors, a sample of requests and the logs to Sentry. Only citadel sets SENTRY_DSN,
  * so dev servers and tests send nothing.
@@ -83,6 +96,7 @@ export function startSentry(env: NodeJS.ProcessEnv) {
     tracesSampleRate: TRACES_SAMPLE_RATE,
     tracePropagationTargets: [],
     integrations: (defaults) => [
+      fingerprintFromLog,
       // It pauses on every exception in a debugger to read variables, which are never sent.
       ...defaults.filter(({ name }) => name !== "LocalVariablesAsync"),
       // Paths from the API's folder, the same in every release's folder on citadel.

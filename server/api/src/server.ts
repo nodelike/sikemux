@@ -11,6 +11,7 @@ import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
 import { makeDueCalls } from "./billing/calls.ts";
 import { sweepDeletedBilling } from "./billing/deleted.ts";
+import { alertWaitingKeptRefunds } from "./billing/seat-pause.ts";
 import { PaddleProvider } from "./billing/paddle.ts";
 import { PaddleApi } from "./billing/paddle-api.ts";
 import { endSandboxPlans } from "./billing/sandbox.ts";
@@ -221,6 +222,9 @@ export async function startServer(config: Config, log: Logger) {
             "making the calls billing owes the payment provider failed",
           ),
         ),
+      alertWaitingKeptRefunds(database.db, log).catch((error: unknown) =>
+        log.error({ err: error }, "checking waiting kept refunds failed"),
+      ),
       sweepDeletedBilling(database.db, provider, log).catch((error: unknown) =>
         log.error(
           { err: error },

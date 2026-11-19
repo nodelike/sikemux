@@ -12,9 +12,17 @@ import {
   type HeldAs,
 } from "./provider.ts";
 
+const PAYMENT_WAIT_MS = 60 * 60_000;
+
 export type Pausing = Pick<
   BillingProvider,
-  "name" | "pause" | "resumeOn" | "keepPaused" | "cancel" | "refund"
+  | "name"
+  | "eventRetrySpanMs"
+  | "pause"
+  | "resumeOn"
+  | "keepPaused"
+  | "cancel"
+  | "refund"
 >;
 
 /**
@@ -178,6 +186,29 @@ async function forgetPause(
   log: Logger,
 ): Promise<Date | null> {
   const ended = heldAs === "ended";
+  const firstDaysOf = (trx: Kysely<Tables>) =>
+    trx
+      .selectFrom("invoices")
+      .select("provider_payment_id")
+      .where("customer_id", "=", row.customer_id)
+      .where("provider_subscription_id", "=", row.provider_subscription_id)
+      .where("status", "=", "paid")
+      .where("refund_requested_at", "is not", null)
+      .execute();
+  if (row.cancel_at_period_end && !ended) {
+    await db.transaction().execute(async (trx) =>
+      callLater(
+        trx,
+        provider.name,
+        (await firstDaysOf(trx)).map((invoice) => ({
+          action: "refund" as const,
+          providerPaymentId: invoice.provider_payment_id,
+        })),
+      ),
+    );
+    await endNow(db, provider, userId, row, "renewed_after_cancel");
+    return null;
+  }
   const refunding = await db.transaction().execute(async (trx) => {
     await trx
       .updateTable("subscriptions")
@@ -195,7 +226,7 @@ async function forgetPause(
       .execute();
     const dropped = await trx
       .updateTable("invoices")
-      .set({ kept_refund: null })
+      .set({ kept_refund: null, kept_refund_check_at: null })
       .where("customer_id", "=", row.customer_id)
       .where("provider_subscription_id", "=", row.provider_subscription_id)
       .where("kept_refund", "is not", null)
@@ -207,14 +238,7 @@ async function forgetPause(
         { subscription: row.id },
         "a Pro paused for a seat was running again at the payment provider before its kept time was refunded; the refund was not asked",
       );
-    const firstDays = await trx
-      .selectFrom("invoices")
-      .select("provider_payment_id")
-      .where("customer_id", "=", row.customer_id)
-      .where("provider_subscription_id", "=", row.provider_subscription_id)
-      .where("status", "=", "paid")
-      .where("refund_requested_at", "is not", null)
-      .execute();
+    const firstDays = await firstDaysOf(trx);
     if (firstDays.length)
       await callLater(trx, provider.name, [
         ...(ended
@@ -265,6 +289,37 @@ async function endNow(
 }
 
 /**
+ * Gives up a pause the provider never took. A cancel at the period's end the pause took off at the
+ * provider is put back there.
+ */
+async function dropPause(
+  db: Kysely<Tables>,
+  provider: Pausing,
+  row: Held,
+  since: Date,
+  putBackCancel: boolean,
+) {
+  await db.transaction().execute(async (trx) => {
+    const dropped = await trx
+      .updateTable("subscriptions")
+      .set({ paused_for_seat_at: null })
+      .where("id", "=", row.id)
+      .where("paused_for_seat_at", "=", since)
+      .where("paid_left", "is", null)
+      .where("resumes_at", "is", null)
+      .executeTakeFirst();
+    if (dropped.numUpdatedRows && putBackCancel && row.cancel_at_period_end)
+      await callLater(trx, provider.name, [
+        {
+          action: "keep_cancel",
+          subscription: heldSubscription(row, row.provider_customer_id),
+        },
+      ]);
+  });
+  return null;
+}
+
+/**
  * Makes a person's own Pro match their seats: paused, with its paid time kept, while a seat
  * includes Pro; once none does, Pro runs on that kept time and the provider bills again only when
  * it is used up. Cancelled while its time is kept, the kept time is refunded and the plan ends once
@@ -307,7 +362,30 @@ export async function settleSeatPause(
   const held = heldSubscription(row, row.provider_customer_id);
 
   if (row.paid_left === null && row.resumes_at === null) {
-    const paused = await provider.pause(held, since);
+    const asked = row.seat_pause_asked_for?.getTime() === since.getTime();
+    if (!seated) {
+      const heldAs = asked ? await provider.keepPaused(held) : null;
+      if (heldAs !== "paused")
+        return dropPause(
+          db,
+          provider,
+          row,
+          since,
+          !deleted && (heldAs === "active" || heldAs === "lapsed"),
+        );
+    }
+    if (!asked || (row.cancel_at_period_end && !row.cancel_asked_at))
+      await db
+        .updateTable("subscriptions")
+        .set({
+          seat_pause_asked_for: since,
+          ...(row.cancel_at_period_end && {
+            cancel_asked_at: sql<Date>`coalesce(cancel_asked_at, now())`,
+          }),
+        })
+        .where("id", "=", row.id)
+        .execute();
+    const paused = await provider.pause(held, asked);
     if ("askAgainAt" in paused) return paused.askAgainAt;
     if ("cancelScheduled" in paused) {
       await db
@@ -320,17 +398,14 @@ export async function settleSeatPause(
         .execute();
       return settleSeatPause(db, provider, userId, log);
     }
-    if ("refused" in paused) {
-      await db
-        .updateTable("subscriptions")
-        .set({ paused_for_seat_at: null })
-        .where("id", "=", row.id)
-        .where("paused_for_seat_at", "=", since)
-        .where("paid_left", "is", null)
-        .where("resumes_at", "is", null)
-        .execute();
-      return null;
-    }
+    if ("refused" in paused)
+      return dropPause(
+        db,
+        provider,
+        row,
+        since,
+        paused.refused === "not_active",
+      );
     await record(
       db,
       userId,
@@ -338,14 +413,12 @@ export async function settleSeatPause(
       (trx) =>
         trx
           .updateTable("subscriptions")
-          .set((eb) => ({
+          .set({
             paid_left: sql<string>`greatest(${paused.paidUntil}::timestamptz - now(), interval '0')`,
-            cancel_at_period_end: paused.wasCancelling
-              ? true
-              : eb.ref("cancel_at_period_end"),
             provider_updated_at: sql<Date>`greatest(provider_updated_at, ${paused.pausedAt}::timestamptz)`,
-          }))
+          })
           .where("id", "=", row.id)
+          .where("cancel_at_period_end", "=", row.cancel_at_period_end)
           .where("paused_for_seat_at", "=", since)
           .where("paid_left", "is", null)
           .where("resumes_at", "is", null)
@@ -401,9 +474,14 @@ export async function settleSeatPause(
     const id = row.id;
     const asked = await db
       .transaction()
-      .execute((trx) => askKeptRefunds(trx, id));
-    if (asked) return settleSeatPause(db, provider, userId, log);
-    if (!(await keptRefundRefused(db, row))) {
+      .execute((trx) =>
+        askKeptRefunds(trx, id, provider.eventRetrySpanMs, log),
+      );
+    if (asked === "awaiting_payment")
+      return new Date(Date.now() + PAYMENT_WAIT_MS);
+    if (typeof asked === "number" && asked)
+      return settleSeatPause(db, provider, userId, log);
+    if (asked !== "no_payment" && !(await keptRefundRefused(db, row))) {
       await endNow(db, provider, userId, row, "paused");
       return null;
     }
@@ -435,6 +513,12 @@ export async function settleSeatPause(
 
   const at = row.resumes_at ?? row.runs_out_at;
   if (!at) return null;
+  if (!row.resumes_at)
+    await db
+      .updateTable("subscriptions")
+      .set({ resume_asked_at: sql<Date>`now()` })
+      .where("id", "=", row.id)
+      .execute();
   const resumed = await provider.resumeOn(held, at);
   if (resumed !== "paused")
     return forgetPause(db, provider, userId, row, resumed, log);
@@ -468,18 +552,31 @@ export async function settleSeatPause(
  * Asks for the refund of the paid time a cancelled Pro paused for a seat still keeps: of each
  * payment in its last period, the share the kept time is of what that payment paid for. The
  * amounts are marked on the payments, and the time stays kept until the provider pays them.
- * Answers how many payments are refunded.
+ * Answers how many payments are refunded, or that the current period's payment is not in yet:
+ * the kept time is then that payment's, and asking of an earlier one would refund it twice. A
+ * payment the provider has not sent by the end of its time for resending an event never will, as
+ * for a period paid wholly from credit: the plan keeps its time unrefunded, as when the refund is
+ * refused, and staff are told.
  */
 export async function askKeptRefunds(
   trx: Transaction<Tables>,
   subscriptionId: string,
-): Promise<number> {
+  paymentWaitMs: number,
+  log: Logger,
+): Promise<number | "awaiting_payment" | "no_payment"> {
   const row = await trx
     .selectFrom("subscriptions")
     .select([
       "customer_id",
       "provider_subscription_id",
       "current_period_end",
+      "kept_without_refund_at",
+      sql<Date>`current_period_end - case interval when 'year' then interval '1 year' else interval '1 month' end - interval '3 days'`.as(
+        "period_started_before",
+      ),
+      sql<boolean>`now() > current_period_end - case interval when 'year' then interval '1 year' else interval '1 month' end + ${paymentWaitMs}::double precision * interval '1 millisecond'`.as(
+        "payment_overdue",
+      ),
       sql<
         number | null
       >`extract(epoch from coalesce(paid_left, greatest(resumes_at - now(), interval '0')))::float8`.as(
@@ -491,6 +588,7 @@ export async function askKeptRefunds(
     .forUpdate()
     .executeTakeFirst();
   if (!row?.kept_seconds) return 0;
+  if (row.kept_without_refund_at) return "no_payment";
   const ofPlan = trx
     .selectFrom("invoices")
     .where("customer_id", "=", row.customer_id)
@@ -502,7 +600,27 @@ export async function askKeptRefunds(
     .orderBy("at", "desc")
     .limit(1)
     .executeTakeFirst();
-  if (!started) return 0;
+  const newest = await ofPlan
+    .select("at")
+    .orderBy("at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+  if (!started || !newest || newest.at < row.period_started_before) {
+    if (!row.payment_overdue) return "awaiting_payment";
+    await trx
+      .updateTable("subscriptions")
+      .set({ kept_without_refund_at: sql<Date>`now()` })
+      .where("id", "=", subscriptionId)
+      .execute();
+    log.error(
+      {
+        subscription: row.provider_subscription_id,
+        fingerprint: ["kept_without_refund", subscriptionId],
+      },
+      "a Pro cancelled while paused for a seat keeps its paid time unrefunded: the payment for its current period never came from the payment provider, so check there what was paid",
+    );
+    return "no_payment";
+  }
   const paid = await ofPlan
     .select(["id", "amount", "at"])
     .where("at", ">=", started.at)
@@ -511,19 +629,52 @@ export async function askKeptRefunds(
     .execute();
   let asked = 0;
   for (const invoice of paid) {
-    const span =
-      (row.current_period_end.getTime() - invoice.at.getTime()) / 1000;
-    const share = span > 0 ? Math.min(1, row.kept_seconds / span) : 1;
-    const amount = Math.floor(Number(invoice.amount) * share);
+    const amount = keptShare(invoice, row.current_period_end, row.kept_seconds);
     if (amount <= 0) continue;
     await trx
       .updateTable("invoices")
-      .set({ kept_refund: amount })
+      .set({
+        kept_refund: amount,
+        kept_refund_check_at: sql<Date>`now() + interval '3 days'`,
+      })
       .where("id", "=", invoice.id)
       .execute();
     asked += 1;
   }
   return asked;
+}
+
+/** Of a payment made in a plan's last period, the part that paid for its kept time. */
+export function keptShare(
+  invoice: { amount: string; at: Date },
+  periodEnd: Date,
+  keptSeconds: number,
+) {
+  const span = (periodEnd.getTime() - invoice.at.getTime()) / 1000;
+  const share = span > 0 ? Math.min(1, keptSeconds / span) : 1;
+  return Math.floor(Number(invoice.amount) * share);
+}
+
+/** Tells staff, once a day, of each refund of kept paid time the provider has not answered in days. */
+export async function alertWaitingKeptRefunds(db: Kysely<Tables>, log: Logger) {
+  const waiting = await db
+    .updateTable("invoices")
+    .set({ kept_refund_check_at: sql<Date>`now() + interval '1 day'` })
+    .where("kept_refund_check_at", "<=", sql<Date>`now()`)
+    .where("kept_refunded_at", "is", null)
+    .where("kept_refund_refused_at", "is", null)
+    .where("status", "=", "paid")
+    .returning(["id", "provider_payment_id", "provider_subscription_id"])
+    .execute();
+  for (const invoice of waiting)
+    log.error(
+      {
+        payment: invoice.provider_payment_id,
+        subscription: invoice.provider_subscription_id,
+        fingerprint: ["kept_refund_unanswered", invoice.id],
+      },
+      "the refund of a paused Pro's kept paid time has had no answer from the payment provider for days: check it there",
+    );
 }
 
 /** Where a Pro paused for a seat stands, as a plan shows it. */

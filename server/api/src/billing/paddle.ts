@@ -123,6 +123,7 @@ interface PaddleTransactionDetail {
 }
 
 interface PaddleAdjustment {
+  id: string;
   action: string;
   status: string;
   transaction_id: string;
@@ -150,8 +151,6 @@ const RENEWAL_LOCK_MS = 30 * 60_000;
 /** A resume due this soon is made at once, as Paddle refuses a date that has passed when it arrives. */
 const RESUME_AT_ONCE_WITHIN_MS = 60_000;
 
-/** How far Paddle's clock may run behind ours when its pause is checked against when we asked. */
-const CLOCK_SLACK_MS = 60_000;
 const FULL_REFUND_REASON =
   "A first payment refunded on request within the refund window.";
 /** Names the one refund of the paid time a paused plan still had, so it is never made twice. */
@@ -776,6 +775,15 @@ export class PaddleProvider implements BillingProvider {
         ALREADY_CANCELLED.has(err.code)
       )
         return;
+      if (
+        when === "period_end" &&
+        err instanceof PaddleError &&
+        err.status >= 400 &&
+        err.status < 500 &&
+        (await this.subscription(held.providerSubscriptionId)).scheduled_change
+          ?.action === "cancel"
+      )
+        return;
       throw err;
     }
   }
@@ -786,38 +794,54 @@ export class PaddleProvider implements BillingProvider {
     });
   }
 
-  async pause(held: HeldSubscription, since: Date): Promise<PauseOutcome> {
-    let sub = await this.subscription(held.providerSubscriptionId);
+  async pause(held: HeldSubscription, asked: boolean): Promise<PauseOutcome> {
+    const sub = await this.subscription(held.providerSubscriptionId);
     if (sub.status === "paused") {
-      const pausedAt = sub.paused_at ? new Date(sub.paused_at) : null;
-      if (!pausedAt || pausedAt.getTime() < since.getTime() - CLOCK_SLACK_MS)
-        return { refused: "paused_elsewhere" };
+      if (!asked) return { refused: "paused_elsewhere" };
       return {
-        paidUntil: held.currentPeriodEnd,
-        pausedAt,
+        paidUntil: new Date(
+          owedOf(sub, new Date(this.now())) ??
+            sub.current_billing_period?.ends_at ??
+            held.currentPeriodEnd,
+        ),
+        pausedAt: new Date(sub.paused_at ?? this.now()),
         wasCancelling: false,
       };
     }
     if (sub.status !== "active") return { refused: "not_active" };
-    if (held.cancelAtPeriodEnd && !sub.scheduled_change) {
-      await this.cancel(held, "period_end");
-      sub = await this.subscription(held.providerSubscriptionId);
-    }
     const now = this.now();
+    const lockedUntil = (of: PaddleSubscription) => {
+      const renewsAt =
+        of.next_billed_at ??
+        (of.scheduled_change?.action === "cancel"
+          ? of.scheduled_change.effective_at
+          : null);
+      const renews = renewsAt ? Date.parse(renewsAt) : null;
+      return renews && renews > now && renews - now < RENEWAL_LOCK_MS
+        ? new Date(renews + RENEWAL_LOCK_MS)
+        : null;
+    };
+    const locked = lockedUntil(sub);
+    if (locked) return { askAgainAt: locked };
     const scheduled = sub.scheduled_change;
     const cancelling = scheduled?.action === "cancel";
-    const renewsAt =
-      sub.next_billed_at ?? (cancelling ? scheduled.effective_at : null);
-    const renews = renewsAt ? Date.parse(renewsAt) : null;
-    if (renews && renews > now && renews - now < RENEWAL_LOCK_MS)
-      return { askAgainAt: new Date(renews + RENEWAL_LOCK_MS) };
     if (scheduled?.action === "pause") return { refused: "paused_elsewhere" };
     if (cancelling && !held.cancelAtPeriodEnd) return { cancelScheduled: true };
     const paidUntil = new Date(owedOf(sub, new Date(now)) ?? periodEndOf(sub));
     if (cancelling)
-      await this.alter("PATCH", `/subscriptions/${sub.id}`, {
-        scheduled_change: null,
-      });
+      try {
+        await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
+          scheduled_change: null,
+        });
+      } catch (err) {
+        if (
+          err instanceof PaddleError &&
+          err.code &&
+          LOCKED_FOR_RENEWAL.has(err.code)
+        )
+          return { askAgainAt: new Date(now + RENEWAL_LOCK_MS) };
+        throw err;
+      }
     try {
       const paused = await this.api.request<PaddleSubscription>(
         "POST",
@@ -1054,6 +1078,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           currency: txn.currency_code.toLowerCase(),
         },
         ...(txn.billing_period && {
+          periodStart: new Date(txn.billing_period.starts_at),
           periodEnd: new Date(txn.billing_period.ends_at),
         }),
       };
@@ -1105,6 +1130,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           ...base,
           type: "payment.refunded",
           providerPaymentId,
+          providerRefundId: adjustment.id,
           returned: {
             amount: Number(adjustment.totals.total),
             currency: adjustment.currency_code.toLowerCase(),

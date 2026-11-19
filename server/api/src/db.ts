@@ -518,9 +518,18 @@ export interface Tables {
     seats_cut_to: Generated<number | null>;
     seats_cut_at: Generated<Date | null>;
     paused_for_seat_at: Generated<Date | null>;
+    seat_pause_asked_for: Generated<Date | null>;
+    cancel_asked_at: Generated<Date | null>;
+    kept_without_refund_at: Generated<Date | null>;
+    resume_asked_at: Generated<Date | null>;
     /** An interval, only ever reckoned with in SQL. */
     paid_left: Generated<string | null>;
     resumes_at: Generated<Date | null>;
+  };
+  invoice_refunds: {
+    provider_refund_id: string;
+    invoice_id: string;
+    amount: ColumnType<string, number, never>;
   };
   invoices: {
     id: Generated<string>;
@@ -542,6 +551,7 @@ export interface Tables {
     >;
     kept_refunded_at: Generated<Date | null>;
     kept_refund_refused_at: Generated<Date | null>;
+    kept_refund_check_at: Generated<Date | null>;
   };
   billing_events: {
     provider: string;
@@ -570,7 +580,11 @@ export interface Tables {
     id: Generated<string>;
     provider: string;
     action:
-      "cancel_now" | "cancel_at_period_end" | "refund" | "settle_seat_pause";
+      | "cancel_now"
+      | "cancel_at_period_end"
+      | "keep_cancel"
+      | "refund"
+      | "settle_seat_pause";
     subscription: ColumnType<
       Record<string, unknown> | null,
       string | null,

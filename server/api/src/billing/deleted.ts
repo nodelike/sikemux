@@ -98,19 +98,32 @@ export async function endDeletedBilling(
     return void (await settle({ billing_attempts: 0, billing_retry_at: null }));
 
   const due = user.purge_after <= new Date();
+  let pausing = false;
   try {
     for (const row of rows) {
       if (provider?.name !== row.provider)
         throw new Error(`no ${row.provider} payment provider is set up`);
-      if (!due && row.paused_for_seat_at) {
+      const stillPausing =
+        row.paused_for_seat_at !== null &&
+        row.paid_left === null &&
+        row.resumes_at === null;
+      if (row.paused_for_seat_at && (!due || stillPausing)) {
         await db.transaction().execute((trx) => checkSeatPauses(trx, [userId]));
+        pausing ||= due;
         continue;
       }
       const when = due || row.status !== "active" ? "now" : "period_end";
       if (when === "period_end" && row.cancel_at_period_end) continue;
-      if (row.paused_for_seat_at)
-        await db.transaction().execute(async (trx) => {
-          await askKeptRefunds(trx, row.id);
+      const awaitingPayment =
+        row.paused_for_seat_at !== null &&
+        (await db.transaction().execute(async (trx) => {
+          const asked = await askKeptRefunds(
+            trx,
+            row.id,
+            provider.eventRetrySpanMs,
+            log,
+          );
+          if (asked === "awaiting_payment") return true;
           const kept = await trx
             .selectFrom("invoices")
             .select(["provider_payment_id", "kept_refund"])
@@ -133,7 +146,12 @@ export async function endDeletedBilling(
               amount: Number(invoice.kept_refund),
             })),
           );
-        });
+          return false;
+        }));
+      if (awaitingPayment) {
+        pausing = true;
+        continue;
+      }
       await provider.cancel(
         heldSubscription(row, row.provider_customer_id),
         when,
@@ -168,10 +186,24 @@ export async function endDeletedBilling(
     });
     return;
   }
-  await settle({
-    billing_attempts: 0,
-    billing_retry_at: due ? null : user.purge_after,
-  });
+  if (pausing) {
+    const attempts = user.billing_attempts + 1;
+    await settle({
+      billing_attempts: attempts,
+      billing_retry_at: retryLater(
+        log,
+        {
+          service: "The payment provider",
+          what: "pause a deleted account's Pro before refunding its kept time",
+        },
+        { error: new Error("the Pro is still being paused"), userId, attempts },
+      ),
+    });
+  } else
+    await settle({
+      billing_attempts: 0,
+      billing_retry_at: due ? null : user.purge_after,
+    });
   if (provider) await makeDueCalls(db, provider, log);
 }
 

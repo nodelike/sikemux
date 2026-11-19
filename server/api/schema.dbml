@@ -460,6 +460,10 @@ Table subscriptions {
   paused_for_seat_at timestamptz
   paid_left interval [note: 'paid_left >= \'00:00:00\'::interval']
   resumes_at timestamptz
+  seat_pause_asked_for timestamptz
+  cancel_asked_at timestamptz
+  kept_without_refund_at timestamptz
+  resume_asked_at timestamptz
 
   indexes {
     customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
@@ -486,13 +490,14 @@ Table invoices {
   kept_refund bigint [note: 'kept_refund > 0']
   kept_refunded_at timestamptz
   kept_refund_refused_at timestamptz
+  kept_refund_check_at timestamptz
 
   indexes {
     (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
     provider_payment_id [name: 'invoices_by_provider', unique]
   }
 
-  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_refused_at IS NULL) OR (kept_refund IS NOT NULL)'
+  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_refused_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_check_at IS NULL) OR (kept_refund IS NOT NULL)'
 }
 
 Table billing_events {
@@ -510,7 +515,7 @@ Table billing_events {
 Table billing_calls {
   id bigint [pk, increment]
   provider text [not null]
-  action text [not null, note: 'action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'refund\', \'settle_seat_pause\'])']
+  action text [not null, note: 'action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'keep_cancel\', \'refund\', \'settle_seat_pause\'])']
   subscription jsonb
   provider_payment_id text
   attempts integer [not null, default: 0]
@@ -523,7 +528,7 @@ Table billing_calls {
     retry_at [name: 'billing_calls_due']
   }
 
-  Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\'])) = (subscription IS NOT NULL); (action = \'settle_seat_pause\') = (user_id IS NOT NULL); (action = \'refund\') OR (refund_amount IS NULL)'
+  Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'keep_cancel\'])) = (subscription IS NOT NULL); (action = \'settle_seat_pause\') = (user_id IS NOT NULL); (action = \'refund\') OR (refund_amount IS NULL)'
 }
 
 Table billing_strays {
@@ -790,6 +795,16 @@ Table ended_sessions {
   }
 }
 
+Table invoice_refunds {
+  provider_refund_id text [pk]
+  invoice_id uuid [not null]
+  amount bigint [not null, note: 'amount >= 0']
+
+  indexes {
+    invoice_id [name: 'invoice_refunds_by_invoice']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -843,3 +858,4 @@ Ref: sign_in_removals.user_id > users.id [delete: cascade]
 Ref: work_address_sittings.user_id > users.id [delete: cascade]
 Ref: addresses_seen.user_id > users.id [delete: cascade]
 Ref: ended_sessions.user_id > users.id [delete: cascade]
+Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]

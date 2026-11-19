@@ -21,6 +21,8 @@ import {
 } from "../src/billing/paddle-api.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
+import { makeDueCalls } from "../src/billing/calls.ts";
+import { settleSeatPause } from "../src/billing/seat-pause.ts";
 import { seatLimit } from "../src/billing/seats.ts";
 import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
 import { FakeClerk } from "./clerk.ts";
@@ -83,6 +85,11 @@ class FakePaddle {
   failPauses = false;
   /** Fails every cancel, as Paddle failing between two calls. */
   failCancels = false;
+  /** Refuses taking off a scheduled change in the half hour before it is due, which Paddle's docs leave open. */
+  locksScheduledChangeRemoval = false;
+  /** What Paddle calls the charge that starts a resumed subscription's new period, which its docs leave open. */
+  resumeOrigin: "subscription_recurring" | "subscription_update" =
+    "subscription_recurring";
   subscriptions = new Map<string, PaddleSub>();
   customerOf = new Map<string, string>();
   lastCheckout: string | undefined;
@@ -265,6 +272,17 @@ class FakePaddle {
       if ("custom_data" in body)
         sub.custom_data = body.custom_data as Record<string, unknown>;
       if (body.scheduled_change === null) {
+        const dueIn = sub.scheduled_change
+          ? Date.parse(sub.scheduled_change.effective_at) - now
+          : 0;
+        if (
+          this.locksScheduledChangeRemoval &&
+          dueIn > 0 &&
+          dueIn < 30 * MINUTE_MS
+        )
+          return Promise.reject(
+            new PaddleError(409, "subscription_locked_renewal", "locked"),
+          );
         if (sub.scheduled_change?.action === "cancel")
           sub.next_billed_at = sub.current_billing_period.ends_at;
         sub.scheduled_change = null;
@@ -273,12 +291,33 @@ class FakePaddle {
     }
     if (method === "POST" && path === "/adjustments")
       return Promise.resolve({});
-    const acted = /^\/subscriptions\/([^/]+)\/(cancel|pause)$/.exec(path);
+    const acted = /^\/subscriptions\/([^/]+)\/(cancel|pause|resume)$/.exec(
+      path,
+    );
     const target = acted && this.subscriptions.get(acted[1] ?? "");
     if (method === "POST" && acted?.[2] === "cancel") {
       if (this.failCancels)
         return Promise.reject(new PaddleError(500, "internal_error", "failed"));
+      const renewsIn = target?.next_billed_at
+        ? Date.parse(target.next_billed_at) - (Date.now() + ahead)
+        : 0;
+      if (renewsIn > 0 && renewsIn < 30 * MINUTE_MS)
+        return Promise.reject(
+          new PaddleError(409, "subscription_locked_renewal", "locked"),
+        );
       if (target && body?.effective_from === "next_billing_period") {
+        if (target.status === "paused")
+          return Promise.reject(
+            new PaddleError(400, "subscription_not_active", "paused"),
+          );
+        if (target.scheduled_change)
+          return Promise.reject(
+            new PaddleError(
+              400,
+              "subscription_locked_pending_changes",
+              "pending scheduled changes",
+            ),
+          );
         target.scheduled_change = {
           action: "cancel",
           effective_at: target.current_billing_period.ends_at,
@@ -286,6 +325,16 @@ class FakePaddle {
         target.next_billed_at = null;
       }
       return Promise.resolve({});
+    }
+    if (method === "POST" && target && acted?.[2] === "resume") {
+      target.scheduled_change = {
+        action: "resume",
+        effective_at:
+          body?.effective_from === "immediately"
+            ? new Date(Date.now() + ahead).toISOString()
+            : String(body?.effective_from),
+      };
+      return Promise.resolve(target);
     }
     if (method === "POST" && target && acted?.[2] === "pause") {
       const ends =
@@ -295,12 +344,18 @@ class FakePaddle {
         return Promise.reject(
           new PaddleError(409, "subscription_locked_renewal", "locked"),
         );
+      if (target.scheduled_change)
+        return Promise.reject(
+          new PaddleError(
+            400,
+            "subscription_locked_pending_changes",
+            "pending scheduled changes",
+          ),
+        );
       if (this.failPauses)
         return Promise.reject(new PaddleError(500, "internal_error", "failed"));
-      // Whether a pause keeps a scheduled cancel is not in Paddle's docs: this takes the worse case.
       target.status = "paused";
       target.paused_at = new Date(Date.now() + ahead).toISOString();
-      target.scheduled_change = null;
       target.next_billed_at = null;
       return Promise.resolve(target);
     }
@@ -565,6 +620,23 @@ function renewed(sub: PaddleSub, paidEnd: Date) {
   };
   sub.next_billed_at = ends;
   return structuredClone(sub);
+}
+
+/** Paddle resumes a paused subscription, by default on the date it was asked to: a new period starts, and is charged. */
+function resumedByPaddle(sub: PaddleSub, on?: Date) {
+  const at = on ?? new Date(sub.scheduled_change?.effective_at ?? 0);
+  if (!on) ahead = at.getTime() - Date.now() + MINUTE_MS;
+  const ends = new Date(at.getTime() + 30 * DAY_MS).toISOString();
+  sub.status = "active";
+  delete sub.paused_at;
+  sub.scheduled_change = null;
+  sub.current_billing_period = { starts_at: at.toISOString(), ends_at: ends };
+  sub.next_billed_at = ends;
+  return {
+    at,
+    charge: { ...paddleTxn(sub), origin: paddle.resumeOrigin },
+    resumed: structuredClone(sub),
+  };
 }
 
 const justAfter = (paidEnd: Date) => new Date(paidEnd.getTime() + 1000);
@@ -1771,7 +1843,7 @@ describe("a seat pausing a Pro its person set to cancel", () => {
 
   it("A1: a cancel due within half an hour is left alone and the pause asked again after it", async () => {
     const { sub, held } = cancelling(20);
-    const outcome = await provider().pause(held, new Date());
+    const outcome = await provider().pause(held, false);
     expect(outcome).toHaveProperty("askAgainAt");
     expect(sub.scheduled_change?.action).toBe("cancel");
     expect(sub.status).toBe("active");
@@ -1780,16 +1852,16 @@ describe("a seat pausing a Pro its person set to cancel", () => {
   it("A2: a pause that fails after the cancel was taken off puts the cancel back", async () => {
     const { sub, held } = cancelling(10 * 24 * 60);
     paddle.failPauses = true;
-    await expect(provider().pause(held, new Date())).rejects.toThrow();
+    await expect(provider().pause(held, false)).rejects.toThrow();
     expect(sub.scheduled_change?.action).toBe("cancel");
     expect(sub.next_billed_at).toBeNull();
   });
 
-  it("A3: a pause and its re-cancel both failing, then a retry inside the lock, leave the cancel at Paddle", async () => {
+  it("A3: a pause and its re-cancel both failing, then a retry inside the lock, asks again without a cancel Paddle would refuse", async () => {
     const { sub, held } = cancelling(10 * 24 * 60);
     paddle.failPauses = true;
     paddle.failCancels = true;
-    await expect(provider().pause(held, new Date())).rejects.toThrow();
+    await expect(provider().pause(held, false)).rejects.toThrow();
     expect(sub.scheduled_change).toBeNull();
 
     paddle.failPauses = false;
@@ -1798,9 +1870,333 @@ describe("a seat pausing a Pro its person set to cancel", () => {
       Date.parse(sub.current_billing_period.ends_at) -
       Date.now() -
       20 * MINUTE_MS;
-    const outcome = await provider().pause(held, new Date());
+    const cancelsBefore = paddle.calls.filter((each) =>
+      each.path.endsWith("/cancel"),
+    ).length;
+    const outcome = await provider().pause(held, false);
     expect(outcome).toHaveProperty("askAgainAt");
-    expect(sub.scheduled_change?.action).toBe("cancel");
+    expect(
+      paddle.calls.filter((each) => each.path.endsWith("/cancel")).length,
+    ).toBe(cancelsBefore);
     expect(sub.status).toBe("active");
   });
+
+  it.each([
+    [true, "keeps the cancel and renews nothing"],
+    [
+      false,
+      "loses the cancel, and the renewal Paddle charges is refunded and the plan ended",
+    ],
+  ])(
+    "A4: a pause Paddle reaches inside the lock, taking off a scheduled change locked: %s, %s",
+    async (locked) => {
+      paddle.locksScheduledChangeRemoval = locked;
+      const paidEnd = new Date(Date.now() + 20 * MINUTE_MS);
+      const { sub } = await pay(OWNER, "pro", { ends: paidEnd.toISOString() });
+      sub.scheduled_change = {
+        action: "cancel",
+        effective_at: paidEnd.toISOString(),
+      };
+      sub.next_billed_at = null;
+      await database.pool.query(
+        "update subscriptions set cancel_at_period_end = true, cancel_asked_at = now(), paused_for_seat_at = now() where provider_subscription_id = $1",
+        [sub.id],
+      );
+      const behind = new PaddleProvider({
+        api: paddle as unknown as PaddleApi,
+        apiOrigin: "https://api.sikemux.com",
+        log,
+        now: () => Date.now() + ahead - 15 * MINUTE_MS,
+      });
+      const held = {
+        providerSubscriptionId: sub.id,
+        providerCustomerId: sub.customer_id,
+        product: "pro" as const,
+        interval: "month" as const,
+        quantity: 1,
+        currentPeriodEnd: paidEnd,
+        cancelAtPeriodEnd: true,
+      };
+      const paused = await behind.pause(held, false).catch(() => "failed");
+
+      if (locked) {
+        expect(paused).toHaveProperty("askAgainAt");
+        expect(sub.scheduled_change?.action).toBe("cancel");
+        return;
+      }
+      expect(paused).toBe("failed");
+      expect(sub.scheduled_change).toBeNull();
+      const renewal = renewed(sub, paidEnd);
+      expect(
+        await deliver(
+          "transaction.completed",
+          { ...paddleTxn(renewal), origin: "subscription_recurring" },
+          justAfter(paidEnd),
+        ),
+      ).toBe(204);
+      const [plan] = (await overview(OWNER)).subscriptions;
+      expect({
+        refunded: paddle.calls.filter(
+          (each) =>
+            each.method === "POST" &&
+            each.path === "/adjustments" &&
+            (each.body as { type?: string } | undefined)?.type === "full",
+        ).length,
+        endedAtPaddle: paddle.calls.some(
+          (each) =>
+            each.path === `/subscriptions/${sub.id}/cancel` &&
+            (each.body as { effective_from?: string } | undefined)
+              ?.effective_from === "immediately",
+        ),
+        status: plan?.status,
+      }).toEqual({ refunded: 1, endedAtPaddle: true, status: "ended" });
+    },
+  );
+
+  it("B: a renewal declined, the pause refused, then paid on retry is refunded in full and the cancel stands", async () => {
+    const paidEnd = new Date(Date.now() + 10 * DAY_MS);
+    const { sub } = await pay(OWNER, "pro", { ends: paidEnd.toISOString() });
+    const [pro] = (await overview(OWNER)).subscriptions;
+    const cancelled = await as(
+      OWNER,
+      `/v1/billing/subscriptions/${pro?.id}/cancel`,
+      { method: "POST" },
+    );
+    expect(cancelled.status).toBe(200);
+    expect(sub.scheduled_change?.action).toBe("cancel");
+
+    paddle.failPauses = true;
+    paddle.failCancels = true;
+    await team(1);
+    await settleSeatPause(database.db, provider(), OWNER, log).catch(
+      () => null,
+    );
+    expect(sub.scheduled_change).toBeNull();
+
+    const renewal = renewed(sub, paidEnd);
+    sub.status = "past_due";
+    expect(
+      await deliver(
+        "transaction.payment_failed",
+        { ...paddleTxn(renewal), origin: "subscription_recurring" },
+        justAfter(paidEnd),
+      ),
+    ).toBe(204);
+    expect(
+      await deliver(
+        "subscription.past_due",
+        { ...renewal, status: "past_due" },
+        justAfter(paidEnd),
+      ),
+    ).toBe(204);
+
+    paddle.failPauses = false;
+    expect(
+      await settleSeatPause(database.db, provider(), OWNER, log),
+    ).toBeNull();
+
+    sub.status = "active";
+    const paidAt = clockNow();
+    expect(
+      await deliver(
+        "transaction.completed",
+        { ...paddleTxn(renewal), origin: "subscription_recurring" },
+        paidAt,
+      ),
+    ).toBe(204);
+    expect(
+      await deliver(
+        "subscription.updated",
+        { ...renewal, status: "active", scheduled_change: null },
+        new Date(paidAt.getTime() + 1000),
+      ),
+    ).toBe(204);
+
+    const [plan] = (await overview(OWNER)).subscriptions;
+    expect({
+      refunded: paddle.calls.filter(
+        (each) =>
+          each.method === "POST" &&
+          each.path === "/adjustments" &&
+          (each.body as { type?: string } | undefined)?.type === "full",
+      ).length,
+      status: plan?.status,
+      cancelAtPeriodEnd: plan?.cancelAtPeriodEnd,
+    }).toEqual({ refunded: 1, status: "ended", cancelAtPeriodEnd: true });
+  });
+
+  it("N1: a re-cancel that failed once, then a take-back, sends no cancel when it comes due, and the plan renews", async () => {
+    const paidEnd = new Date(Date.now() + 10 * DAY_MS);
+    const { sub } = await pay(OWNER, "pro", { ends: paidEnd.toISOString() });
+    const [pro] = (await overview(OWNER)).subscriptions;
+    expect(
+      (
+        await as(OWNER, `/v1/billing/subscriptions/${pro?.id}/cancel`, {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+
+    paddle.failCancels = true;
+    sub.scheduled_change = null;
+    sub.next_billed_at = paidEnd.toISOString();
+    expect(await deliver("subscription.updated", structuredClone(sub))).toBe(
+      204,
+    );
+    const queued = await database.pool.query<{ attempts: number }>(
+      "select attempts from billing_calls where action = 'keep_cancel'",
+    );
+    expect(queued.rows).toEqual([{ attempts: 1 }]);
+
+    paddle.failCancels = false;
+    expect(
+      (
+        await as(OWNER, `/v1/billing/subscriptions/${pro?.id}/resume`, {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+    const cancelsBefore = paddle.calls.filter((each) =>
+      each.path.endsWith("/cancel"),
+    ).length;
+    await database.pool.query(
+      "update billing_calls set retry_at = now() - interval '1 second'",
+    );
+    await makeDueCalls(database.db, provider(), log);
+    expect({
+      cancels: paddle.calls.filter((each) => each.path.endsWith("/cancel"))
+        .length,
+      left: (await database.pool.query("select id from billing_calls")).rows
+        .length,
+      scheduled: sub.scheduled_change,
+    }).toEqual({ cancels: cancelsBefore, left: 0, scheduled: null });
+
+    const renewal = renewed(sub, paidEnd);
+    expect(
+      await deliver(
+        "transaction.completed",
+        { ...paddleTxn(renewal), origin: "subscription_recurring" },
+        justAfter(paidEnd),
+      ),
+    ).toBe(204);
+    expect(
+      await deliver(
+        "subscription.updated",
+        renewal,
+        new Date(justAfter(paidEnd).getTime() + 1000),
+      ),
+    ).toBe(204);
+    const [plan] = (await overview(OWNER)).subscriptions;
+    expect({
+      refunded: paddle.calls.filter(
+        (each) => each.method === "POST" && each.path === "/adjustments",
+      ).length,
+      status: plan?.status,
+      cancelAtPeriodEnd: plan?.cancelAtPeriodEnd,
+      currentPeriodEnd: plan?.currentPeriodEnd,
+    }).toEqual({
+      refunded: 0,
+      status: "active",
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: renewal.current_billing_period.ends_at,
+    });
+  });
+});
+
+describe("the charge Paddle takes when it resumes a Pro paused for a seat", () => {
+  const provider = () =>
+    new PaddleProvider({
+      api: paddle as unknown as PaddleApi,
+      apiOrigin: "https://api.sikemux.com",
+      log,
+      now: () => Date.now() + ahead,
+    });
+
+  /** A Pro paid 40 days ago, paused for a seat, then set to resume when the seat went. */
+  async function resumeAsked() {
+    const paidEnd = new Date(Date.now() + 10 * DAY_MS);
+    const { sub } = await pay(OWNER, "pro", {
+      ends: paidEnd.toISOString(),
+      at: ago(40 * 24 * 60),
+    });
+    await team(1);
+    await settleSeatPause(database.db, provider(), OWNER, log);
+    expect(sub.status).toBe("paused");
+    await database.pool.query(
+      "update subscriptions set status = 'ended', ended_at = now() where product = 'team'",
+    );
+    await settleSeatPause(database.db, provider(), OWNER, log);
+    expect(sub.scheduled_change?.action).toBe("resume");
+    const [pro] = (await overview(OWNER)).subscriptions;
+    return { sub, id: pro?.id };
+  }
+
+  const fullRefunds = () =>
+    paddle.calls.filter(
+      (each) =>
+        each.method === "POST" &&
+        each.path === "/adjustments" &&
+        (each.body as { type?: string } | undefined)?.type === "full",
+    );
+
+  it.each(["subscription_recurring", "subscription_update"] as const)(
+    "N6a, labelled %s: a cancel in the kept days, with Paddle resuming before the resume is taken off, refunds the charge and ends the plan",
+    async (origin) => {
+      paddle.resumeOrigin = origin;
+      const { sub } = await resumeAsked();
+      await database.pool.query(
+        "update subscriptions set resume_asked_at = now() - interval '3 minutes', cancel_at_period_end = true, cancel_asked_at = now() - interval '2 minutes' where product = 'pro'",
+      );
+      const { at, charge } = resumedByPaddle(sub, ago(1));
+      expect(
+        await settleSeatPause(database.db, provider(), OWNER, log),
+      ).toBeNull();
+      expect(await deliver("transaction.completed", charge, at)).toBe(204);
+
+      const [plan] = (await overview(OWNER)).subscriptions;
+      expect({
+        refunded: fullRefunds().map(
+          (each) => (each.body as { transaction_id?: string }).transaction_id,
+        ),
+        status: plan?.status,
+      }).toEqual({ refunded: [charge.id], status: "ended" });
+    },
+  );
+
+  it.each(["subscription_recurring", "subscription_update"] as const)(
+    "N6b, labelled %s: seat, seat gone, seat again, then a cancel refunds kept time of the resumed period's charge alone",
+    async (origin) => {
+      paddle.resumeOrigin = origin;
+      const { sub, id } = await resumeAsked();
+      const { at, charge, resumed } = resumedByPaddle(sub);
+      expect(await deliver("transaction.completed", charge, at)).toBe(204);
+      expect(
+        await deliver(
+          "subscription.updated",
+          resumed,
+          new Date(at.getTime() + 1000),
+        ),
+      ).toBe(204);
+
+      await database.pool.query(
+        "update subscriptions set status = 'active', ended_at = null where product = 'team'",
+      );
+      await settleSeatPause(database.db, provider(), OWNER, log);
+      expect(sub.status).toBe("paused");
+      expect(
+        (
+          await as(OWNER, `/v1/billing/subscriptions/${id}/cancel`, {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+
+      const { rows } = await database.pool.query<{
+        provider_payment_id: string;
+      }>(
+        "select provider_payment_id from invoices where kept_refund is not null",
+      );
+      expect(rows.map((row) => row.provider_payment_id)).toEqual([charge.id]);
+    },
+  );
 });

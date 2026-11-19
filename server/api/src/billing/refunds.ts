@@ -57,7 +57,14 @@ export async function planRefund(
     .execute();
   const first = invoices.find((invoice) => invoice.reason === "first_payment");
   if (!first) return NONE;
-  if (invoices.some((invoice) => invoice.kept_refund !== null)) return NONE;
+  if (
+    invoices.some(
+      (invoice) =>
+        invoice.kept_refund !== null &&
+        !(invoice.kept_refund_refused_at && !invoice.kept_refunded_at),
+    )
+  )
+    return NONE;
   const until = new Date(first.at.getTime() + REFUND_DAYS * DAY_MS);
   const covered = invoices.filter(
     (invoice) =>
@@ -203,7 +210,10 @@ export async function askRefund(
       ...open
         .filter((row) => !row.cancel_at_period_end)
         .map((row) => ({
-          action: "cancel_at_period_end" as const,
+          action:
+            row.status === "paused"
+              ? ("cancel_now" as const)
+              : ("cancel_at_period_end" as const),
           subscription: heldSubscription(row, row.provider_customer_id),
         })),
       ...refund.covers.map((invoice) => ({

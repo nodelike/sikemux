@@ -748,6 +748,17 @@ describe("cancelling a Pro a seat pauses", () => {
     return row;
   }
 
+  async function paidDaysAgo(days: number) {
+    await database.pool.query(
+      "update invoices set at = at - $1 * interval '1 day'",
+      [days],
+    );
+    await database.pool.query(
+      "update subscriptions set current_period_end = current_period_end - $1 * interval '1 day' where product = 'pro'",
+      [days],
+    );
+  }
+
   const cancelPro = async (id: string) =>
     as(MEMBER, `/v1/billing/subscriptions/${id}/cancel`, { method: "POST" });
 
@@ -777,19 +788,81 @@ describe("cancelling a Pro a seat pauses", () => {
   it("B2: while the pause is under way, a cancel goes to the provider, and the pause carries it over to end the plan", async () => {
     const row = await pausing();
     const cancel = vi.spyOn(provider, "cancel");
+    const refund = vi.spyOn(provider, "refund");
     expect((await cancelPro(row.id)).status).toBe(200);
     expect(cancel).toHaveBeenCalledWith(expect.anything(), "period_end");
     expect(await pro()).toMatchObject({
       cancel_at_period_end: true,
       status: "ended",
     });
+    const {
+      rows: [paid],
+    } = await database.pool.query<{
+      provider_payment_id: string;
+      amount: string;
+      at: Date;
+      current_period_end: Date;
+    }>(
+      `select invoices.provider_payment_id, invoices.amount, invoices.at, subscriptions.current_period_end
+         from invoices join subscriptions using (provider_subscription_id)
+        where subscriptions.product = 'pro'`,
+    );
+    if (!paid) throw new Error("no payment");
+    const share =
+      (paid.current_period_end.getTime() - Date.now()) /
+      (paid.current_period_end.getTime() - paid.at.getTime());
+    expect(refund).toHaveBeenCalledTimes(1);
+    const [payment, amount] = refund.mock.calls[0] ?? [];
+    expect(payment).toBe(paid.provider_payment_id);
+    expect(
+      Math.abs((amount ?? 0) - Number(paid.amount) * share),
+    ).toBeLessThanOrEqual(1);
   });
+
+  for (const paymentFirst of [false, true])
+    it(`B3: a renewal charged after the cancel was lost, its ${paymentFirst ? "payment" : "new period"} heard first, is refunded in full with no refund of the kept days`, async () => {
+      const row = await pausing();
+      await paidDaysAgo(30);
+      await database.pool.query(
+        "update subscriptions set current_period_end = now() + interval '30 days', cancel_at_period_end = true, cancel_asked_at = now() - interval '1 minute' where product = 'pro'",
+      );
+      const refund = vi.spyOn(provider, "refund");
+      const renewal = () =>
+        applyProviderEvents(
+          database.db,
+          provider,
+          [
+            {
+              eventId: "evt_renewal",
+              at: new Date(),
+              type: "payment.made",
+              providerPaymentId: "pay_renewal",
+              providerSubscriptionId: row.provider_subscription_id,
+              lines: [{ product: "pro", quantity: 1 }],
+              reason: "renewal",
+              total: { amount: 800, currency: "usd" },
+              periodEnd: new Date(Date.now() + 30 * DAY_MS),
+            },
+          ],
+          log,
+        );
+      if (paymentFirst) await renewal();
+      await settleSeatPause(database.db, provider, MEMBER, log);
+      if (!paymentFirst) await renewal();
+      await settleSeatPause(database.db, provider, MEMBER, log);
+
+      expect((await pro()).status).toBe("ended");
+      expect(refund.mock.calls).toEqual([["pay_renewal"]]);
+      expect(
+        await count(
+          "select count(*)::int as n from invoices where kept_refund is not null",
+        ),
+      ).toBe(0);
+    });
 
   it("C: a refused refund of the kept days keeps the cancel; the days run after the seat and end with no new charge", async () => {
     await buy(MEMBER, "pro");
-    await database.pool.query(
-      "update invoices set at = at - interval '20 days'",
-    );
+    await paidDaysAgo(20);
     const orgId = await createOrg(3);
     await addMember(orgId, MEMBER, "user");
     const frozen = await pro();
@@ -817,9 +890,97 @@ describe("cancelling a Pro a seat pauses", () => {
     expect(
       provider.resumesOn(running.provider_subscription_id),
     ).toBeUndefined();
+
+    await database.pool.query(
+      "update subscriptions set resumes_at = now() - interval '1 second' where product = 'pro'",
+    );
+    await settleSeatPause(database.db, provider, MEMBER, log);
+    expect((await pro()).status).toBe("ended");
     expect(await count("select count(*)::int as n from invoices")).toBe(
       payments,
     );
+  });
+
+  it("A: a kept-days refund still waiting when the plan is found ended at the provider is dropped, and the plan ends", async () => {
+    await buy(MEMBER, "pro");
+    await paidDaysAgo(20);
+    const orgId = await createOrg(3);
+    await addMember(orgId, MEMBER, "user");
+    const frozen = await pro();
+    expect(frozen.paid_left).not.toBeNull();
+
+    provider.holdRefunds = true;
+    expect((await cancelPro(frozen.id)).status).toBe(200);
+    expect(
+      await count(
+        "select count(*)::int as n from invoices where kept_refund_check_at is not null",
+      ),
+    ).toBe(1);
+
+    vi.spyOn(provider, "keepPaused").mockResolvedValue("ended");
+    await settleSeatPause(database.db, provider, MEMBER, log);
+    expect((await pro()).status).toBe("ended");
+    expect(
+      await count(
+        "select count(*)::int as n from invoices where kept_refund is not null or kept_refund_check_at is not null",
+      ),
+    ).toBe(0);
+  });
+
+  it("C3: kept days on three payments, two refunds paid and one refused that staff then make by hand, end the plan having cut the kept days once", async () => {
+    await buy(MEMBER, "pro");
+    const { id, provider_subscription_id } = await pro();
+    const changed = await as(MEMBER, `/v1/billing/subscriptions/${id}`, {
+      method: "PATCH",
+      json: { interval: "year" },
+    });
+    expect(changed.status).toBe(200);
+    await applyProviderEvents(
+      database.db,
+      provider,
+      [
+        {
+          eventId: "evt_change",
+          at: new Date(),
+          type: "payment.made",
+          providerPaymentId: "pay_change",
+          providerSubscriptionId: provider_subscription_id,
+          lines: [{ product: "pro", quantity: 1 }],
+          reason: "change",
+          total: { amount: 500, currency: "usd" },
+        },
+      ],
+      log,
+    );
+    await paidDaysAgo(20);
+    const orgId = await createOrg(3);
+    await addMember(orgId, MEMBER, "user");
+    provider.holdRefunds = true;
+    expect((await cancelPro(id)).status).toBe(200);
+    const { rows: asked } = await database.pool.query<{
+      provider_payment_id: string;
+      kept_refund: string;
+    }>(
+      "select provider_payment_id, kept_refund from invoices where kept_refund is not null order by at, provider_payment_id",
+    );
+    expect(asked).toHaveLength(3);
+    const [first, refused, last] = asked;
+    if (!first || !refused || !last) throw new Error("no kept days");
+    await provider.answerRefund(first.provider_payment_id, false);
+    await provider.answerRefund(refused.provider_payment_id, true);
+    await provider.answerRefund(last.provider_payment_id, false);
+    const cut = await pro();
+    expect(cut.status).toBe("paused");
+
+    provider.holdRefunds = false;
+    await provider.refund(
+      refused.provider_payment_id,
+      Number(refused.kept_refund),
+    );
+    expect(await pro()).toMatchObject({
+      status: "ended",
+      paid_left: cut.paid_left,
+    });
   });
 
   async function cancelledOnTwoPayments() {
@@ -830,9 +991,7 @@ describe("cancelling a Pro a seat pauses", () => {
       json: { interval: "year" },
     });
     expect(changed.status).toBe(200);
-    await database.pool.query(
-      "update invoices set at = at - interval '20 days'",
-    );
+    await paidDaysAgo(20);
     const orgId = await createOrg(3);
     await addMember(orgId, MEMBER, "user");
     provider.holdRefunds = true;
