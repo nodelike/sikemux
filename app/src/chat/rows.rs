@@ -1135,6 +1135,13 @@ fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         return div().into_any_element();
     };
     let (head, tail) = match (overruled.undone, overruled.rule.is_some(), &overruled.org) {
+        (true, ..) if overruled.still_kept => (
+            t!("Overruled, then undone"),
+            Some(
+                t!("it stands again, but decisions like this still come to you: remove the rule in the Playbook")
+                    .to_owned(),
+            ),
+        ),
         (true, ..) => (
             t!("Overruled, then undone"),
             Some(t!("it stands again").to_owned()),

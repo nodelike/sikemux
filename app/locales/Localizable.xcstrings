@@ -141389,6 +141389,58 @@
         }
       }
     },
+    "it stands again, but decisions like this still come to you: remove the rule in the Playbook": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elle s'applique de nouveau, mais les décisions de ce genre vous reviennent encore : retirez la règle dans le Playbook"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vuelve a valer, pero las decisiones como esta aún te llegan: quita la regla en el Playbook"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "es gilt wieder, aber Entscheidungen wie diese kommen weiter zu dir: entferne die Regel im Playbook"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新生效，但此类决定仍会交给你：请在 Playbook 中删除这条规则"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再び有効ですが、このような決定は今もあなたに回ってきます。Playbook でルールを削除してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 유효하지만 이런 결정은 여전히 당신에게 옵니다. Playbook에서 규칙을 삭제하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "снова в силе, но такие решения по-прежнему приходят к вам: удалите правило в Playbook"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vale de novo, mas decisões como esta ainda chegam a você: remova a regra no Playbook"
+          }
+        }
+      }
+    },
     "its session is gone": {
       "localizations": {
         "fr": {

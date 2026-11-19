@@ -3225,6 +3225,7 @@ fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
         org: None,
         waiting: false,
         undone: false,
+        still_kept: false,
         stopped_auto: false,
     };
     chat.update(update::overruled_notice("Overruled", overruled.clone()));

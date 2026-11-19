@@ -1921,6 +1921,10 @@ pub struct OverruledDecision {
     /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
+    /// Undoing the Overrule could not remove the rule it kept, so decisions like it still come to
+    /// the person until they remove the rule themselves.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub still_kept: bool,
     /// The Overrule stopped Auto's run on a slice, which Undo cannot put back, so the line offers
     /// no Undo and says why.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

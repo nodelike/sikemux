@@ -1185,6 +1185,7 @@ pub(crate) fn overruled(
         org,
         waiting,
         undone: false,
+        still_kept: false,
         stopped_auto: false,
     };
     let update = sikemux_fold::update::overruled_notice(title, shown);
@@ -1507,12 +1508,13 @@ pub(crate) async fn overrule_undone(
     let (id, text) = decision;
     core.chiefs()
         .change(|saved| saved.overrules.remove(&overrule_key(project, goal, id)));
-    if let Some(rule) = overrule.rule {
-        if let Err(error) = super::memory::retire_persons_rule(core, project, rule, &overrule.words)
-        {
-            eprintln!("sikemux core: an undone Overrule's rule was not retired: {error}");
-        }
-    }
+    let still_kept = overrule.rule.is_some_and(|rule| {
+        super::memory::retire_persons_rule(core, project, rule, &overrule.words)
+            .inspect_err(|error| {
+                eprintln!("sikemux core: an undone Overrule's rule was not retired: {error}");
+            })
+            .is_err()
+    });
     let said = first_sentence(text);
     let stands = format!(
         "The person undid their overrule of this decision, which an agent wrote as {said}. It stands again: go by it."
@@ -1534,6 +1536,7 @@ pub(crate) async fn overrule_undone(
         org: None,
         waiting: false,
         undone: true,
+        still_kept,
         stopped_auto: false,
     };
     let update = sikemux_fold::update::overruled_notice("Overrule undone", undone);
