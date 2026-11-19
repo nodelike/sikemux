@@ -532,6 +532,12 @@ impl Remote {
         self.inner.locked().stored.owner.clone()
     }
 
+    /// The host's remote file and key loaded, so a missing owner means signed out rather than
+    /// not known.
+    pub fn loaded(&self) -> bool {
+        self.inner.locked().path.is_some()
+    }
+
     /// The features the accounts server last said it switched off.
     pub fn flags_off(&self) -> Vec<String> {
         let inner = self.inner.locked();

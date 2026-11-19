@@ -288,6 +288,9 @@ pub(super) async fn serve(core: Arc<Core>) {
 }
 
 async fn sync(core: &Arc<Core>) {
+    if !core.remote().loaded() {
+        return;
+    }
     let signed_in = core.remote().owner().is_some();
     let sharing = match signed_in {
         true => sharing(core).await,
