@@ -338,6 +338,10 @@
         "429": {
           "description": "Too many sign-ins from this address, or from everywhere at once.",
           "body": "ApiError"
+        },
+        "503": {
+          "description": "Clerk could not be reached or is busy. The code is not used up: try again.",
+          "body": "ApiError"
         }
       }
     },

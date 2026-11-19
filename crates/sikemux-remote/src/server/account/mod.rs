@@ -1,9 +1,10 @@
 //! Signing this host in to a Sikemux account, so devices on the same account
 //! find it. Sign-in happens in the person's browser (OAuth with PKCE), which
-//! hands back to a one-time listener on 127.0.0.1. That sign-in's token only
-//! registers the core's key with the account and is then dropped; every later
-//! request is signed with the key, so taking the host off the account cuts it
-//! off. The keychain keeps who signed in, the data folder their name and
+//! hands back to a one-time listener on 127.0.0.1. The core passes the code
+//! it got to the account server, which trades it at Clerk itself, and signs
+//! the challenge that comes back with its key. The core never holds a sign-in
+//! token; every later request is signed with the key, so taking the host off
+//! the account cuts it off. The keychain keeps who signed in, the data folder their name and
 //! picture, and the core's remote access which account owns the host. A host
 //! with no browser signs in by a code approved elsewhere, and keeps no record.
 

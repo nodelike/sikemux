@@ -118,10 +118,14 @@ export function clerkVerifier(options: VerifierOptions): Verifier {
         if (payload.client_id !== options.macClientId) {
           throw unauthorized("The sign-in token was issued to another app.");
         }
+        if (typeof payload.iat !== "number")
+          throw unauthorized(
+            "The sign-in token does not say when it was issued.",
+          );
         return {
           userId: payload.sub,
           via: "mac",
-          issuedAt: new Date((payload.iat ?? 0) * 1000),
+          issuedAt: new Date(payload.iat * 1000),
           expiresAt: new Date((payload.exp ?? 0) * 1000),
         };
       }
@@ -162,6 +166,9 @@ export function accountFrozen(): ApiFailure {
   );
 }
 
+/** How long Clerk keeps a Mac's sign-in code good for, so a code minted before a session ended can still be traded after it. */
+export const MAC_SIGN_IN_CODE_MS = 10 * 60_000;
+
 /**
  * Refuses a token that is still unexpired but no longer stands: its account was deleted or frozen, it
  * belongs to the session of a phone removed from the account or of one the strip ended, or it is
@@ -199,7 +206,7 @@ export async function checkStanding(
           and (
             session_id = ${identity.sessionId ?? null}
             or ${macSignedInAt ?? null}::timestamptz between made_at - ${`${CLERK_CLOCK_SLACK_MS} milliseconds`}::interval
-              and ended_at + ${`${CLERK_CLOCK_SLACK_MS} milliseconds`}::interval
+              and ended_at + ${`${CLERK_CLOCK_SLACK_MS + MAC_SIGN_IN_CODE_MS} milliseconds`}::interval
           )
       ) as ended`.execute(db);
   if (rows[0]?.deleted && !allowDeleted) throw accountDeleted();

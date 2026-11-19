@@ -768,6 +768,14 @@
               }
             }
           },
+          "503": {
+            "description": "Clerk could not be reached or is busy. The code is not used up: try again.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "default": {
             "description": "Something went wrong.",
             "content": {

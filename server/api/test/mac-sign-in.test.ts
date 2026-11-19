@@ -90,6 +90,40 @@ it("trades a sign-in code only once, and refuses one Clerk does not know", async
   expect(junk.status).toBe(401);
 });
 
+it("counts toward everyone's limit only the sign-ins that reach Clerk", async () => {
+  const app = testApp(database);
+  for (let address = 1; address <= 13; address++)
+    for (let i = 0; i < 10; i++) {
+      const junk = await app.request("/v1/mac-sign-ins", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": `203.0.113.${address}`,
+        },
+        body: "{}",
+      });
+      expect(junk.status).toBe(400);
+    }
+  expect((await signInMac(app, MAYA)).response.status).toBe(201);
+});
+
+it("keeps a code good when Clerk could not be reached", async () => {
+  let down = true;
+  const app = testApp(database, undefined, {
+    macSignIn: {
+      async accessToken({ code }) {
+        if (down) throw new Error("Clerk is down");
+        return code === "code_retry" ? macToken(MAYA) : null;
+      },
+    },
+  });
+  const sign = () =>
+    post(app, "/v1/mac-sign-ins", { ...SIGN_IN, code: "code_retry" });
+  expect((await sign()).status).toBe(503);
+  down = false;
+  expect((await sign()).status).toBe(200);
+});
+
 it("adds a Mac only with the challenge its traded code got", async () => {
   const app = testApp(database);
   const refreshed = await macToken(MAYA);
