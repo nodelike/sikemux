@@ -16,8 +16,8 @@ use gpui_kit::{
 use sikemux_calls::board::{BoardParams, BoardUpdateParams, TeammateAskingParams};
 use sikemux_calls::call;
 use sikemux_view::task_list::{
-    AskingOff, ProjectTasks, SharedBy, TaskFact, TaskOf, TaskRow, TaskSection, TeammateAsk,
-    TeammateAsks,
+    AskingOff, ProjectTasks, SharedBy, TaskFact, TaskHolder, TaskOf, TaskRow, TaskSection,
+    TeammateAsk, TeammateAsks,
 };
 use sikemux_view::teammates::Teammate;
 use sikemux_view::workspace::PullChecks;
@@ -882,6 +882,16 @@ fn fact_words(row: &TaskRow) -> String {
     }
 }
 
+/// The mark of a holder this window no longer has open: the face it wore, else its CLI's logo.
+fn closed_mark(holder: &TaskHolder, cx: &App) -> AnyElement {
+    if holder.face.is_none() && holder.cli.is_none() {
+        return ui::icon(Icon::Agent, 12.).into_any_element();
+    }
+    let cli = holder.cli.as_deref().unwrap_or_default();
+    let idle = sikemux_wire::protocol::AgentGroup::Idle;
+    ui::still_mark(cli, holder.face.as_ref(), idle, theme::TEXT_2XS_H + 1., cx)
+}
+
 fn row_of(
     bench: &Workbench,
     agent: &str,
@@ -900,7 +910,7 @@ fn row_of(
                 None => crate::chat::unknown_agent_pill(
                     &holder.agent_id,
                     &holder.name,
-                    ui::icon(Icon::Agent, 12.).into_any_element(),
+                    closed_mark(holder, cx),
                     theme::TEXT_2XS_H,
                     bench.target(),
                     handle,

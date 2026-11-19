@@ -9,6 +9,7 @@ use sikemux_view::task_list::{ProjectTasks, TaskFact, TaskHolder, TaskOf, TaskRo
 
 use super::board;
 use super::connection::blocking;
+use super::workspace_state::WorkspaceParts;
 use super::Core;
 
 pub(crate) async fn read(core: &Arc<Core>, params: BoardParams) -> Result<ProjectTasks, String> {
@@ -29,6 +30,12 @@ pub(crate) fn of_folder(core: &Core, folder: &str) -> ProjectTasks {
         .map(call_row)
         .collect();
     rows.extend(board::task_rows(core, folder));
+    for holder in rows.iter_mut().filter_map(|row| row.holder.as_mut()) {
+        if core.workspaces().agent(&holder.agent_id).is_none() {
+            holder.face = core.faces().of_closed(&holder.agent_id);
+            holder.cli = (core.names().ran_session(&holder.agent_id)).map(|ran| ran.provider);
+        }
+    }
     rows.sort_by(|one, other| (one.section.cmp(&other.section)).then(other.since.cmp(&one.since)));
     ProjectTasks {
         project: folder.to_owned(),
@@ -62,6 +69,7 @@ fn call_row(call: &PersonCall) -> TaskRow {
             agent_id: call.asker.agent_id.clone(),
             name: call.asker.name.clone(),
             cli: None,
+            face: None,
         }),
         since: call.raised_at,
         dropped: None,

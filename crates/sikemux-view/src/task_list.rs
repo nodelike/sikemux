@@ -140,9 +140,12 @@ pub struct TaskRow {
 pub struct TaskHolder {
     pub agent_id: String,
     pub name: String,
-    /// Which CLI the agent runs, given on a teammate's task, where the agent is not one of yours.
+    /// Which CLI the agent runs, given where the agent is closed or not one of yours.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli: Option<String>,
+    /// The face it wears, given where it is closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<crate::workspace::AgentFace>,
 }
 
 /// What the core checked of a task, for the one muted line beside its title.

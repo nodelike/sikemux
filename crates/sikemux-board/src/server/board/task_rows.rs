@@ -129,5 +129,6 @@ fn holder_of(core: &Core, card: &Card) -> Option<TaskHolder> {
         agent_id: agent_id.to_owned(),
         name: name.unwrap_or_else(|| agent_id.to_owned()),
         cli: None,
+        face: None,
     })
 }
