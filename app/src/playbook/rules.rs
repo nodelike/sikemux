@@ -488,6 +488,7 @@ fn update(project: &str, id: u64) -> MemoryUpdateParams {
         store: None,
         not_now: false,
         kept: false,
+        words: None,
     }
 }
 
@@ -615,6 +616,7 @@ pub(crate) fn restore(
         let asked = target.request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
             store: Some(line.store.other()),
             kept: true,
+            words: Some(line.text.clone()),
             ..update(&line.project, line.rule)
         });
         let back = moved_toast(line.store.other(), &line.project, None);
@@ -634,6 +636,8 @@ pub(crate) fn restore(
         Some(was) => {
             let asked = target.request_typed::<call::MemoryUpdate>(MemoryUpdateParams {
                 text: Some(was.clone()),
+                kept: true,
+                words: Some(line.text.clone()),
                 ..update(&line.project, line.rule)
             });
             bench.report(asked, failed, back, cx);

@@ -32,6 +32,10 @@ pub struct MemoryUpdateParams {
     /// `id` is the number a chat line kept: an entry renumbered since is found under its new one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub kept: bool,
+    /// The words the kept entry had when the line was written: nothing changes when the entry
+    /// now under its number has others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

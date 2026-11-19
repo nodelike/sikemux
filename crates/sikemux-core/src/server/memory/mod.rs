@@ -1499,6 +1499,7 @@ pub(crate) async fn tool_update(
             store: None,
             not_now: false,
             kept: false,
+            words: None,
             project: project.clone(),
             id: given.id,
             text: given.text,
@@ -1667,6 +1668,7 @@ pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result
         store: None,
         not_now: false,
         kept: false,
+        words: None,
     };
     change(core, project, update, learned(core, None))
 }
@@ -1709,7 +1711,15 @@ pub(crate) async fn person_update(
     let core = core.clone();
     run(move || {
         if params.kept {
-            params.id = core.memory().state.locked().kept_id(&project, params.id);
+            let state = core.memory().state.locked();
+            params.id = state.kept_id(&project, params.id);
+            let now = (state.applying(&project))
+                .find_map(|held| held.rules.iter().find(|rule| rule.id == params.id));
+            if let (Some(words), Some(now)) = (&params.words, now) {
+                if now.text != *words {
+                    return Err("That rule has changed since, so nothing was undone".to_owned());
+                }
+            }
         }
         amend(&core, &project, params, learned(&core, None))?;
         Ok(view(&core, &project, &peer))
