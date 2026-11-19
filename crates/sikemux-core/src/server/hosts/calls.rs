@@ -69,7 +69,7 @@ host_asks! {
     RecordAct "recordAct" record::RecordAct;
     SearchChats "searchChats" search::SearchParams;
     RecordTakeIn "recordTakeIn" record::TakeIn;
-    Agent "agent" peers::AgentParams;
+    Agent "agent" peers::LinkedAgentParams;
 }
 
 /// Asks what became of the call `call`.

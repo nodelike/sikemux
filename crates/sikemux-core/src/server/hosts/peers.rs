@@ -25,7 +25,7 @@ use super::{ask, name_of};
 const FIND_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct AgentParams {
+pub(crate) struct LinkedAgentParams {
     /// The agent's id or name.
     agent: String,
 }
@@ -111,7 +111,7 @@ pub(crate) async fn find(core: &Arc<Core>, wanted: &str) {
     let name = super::super::messages::on_host(&wanted).0.to_owned();
     let mut asking = JoinSet::new();
     for host in hosts {
-        let params = params_of::<asks::Agent>(&AgentParams {
+        let params = params_of::<asks::Agent>(&LinkedAgentParams {
             agent: name.clone(),
         });
         let core = core.clone();
@@ -174,7 +174,7 @@ fn unknown_on(core: &Core, wanted: &str) -> Vec<String> {
 }
 
 /// This host's own agents a linked host asked for, by id or name.
-pub(super) fn here(core: &Core, params: AgentParams) -> Answer {
+pub(super) fn here(core: &Core, params: LinkedAgentParams) -> Answer {
     let projects = core.workspaces().project_names();
     let found: Vec<Found> = (roster::listed(core).into_iter())
         .filter(|agent| agent.reach != Reach::Remote)
